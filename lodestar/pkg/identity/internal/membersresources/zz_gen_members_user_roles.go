@@ -33,6 +33,7 @@ type membersUserRoleRead struct {
 	CreatedAt time.Time  `json:"createdAt"`
 	StartsAt  *time.Time `json:"startsAt"`
 	EndsAt    *time.Time `json:"endsAt"`
+	Reason    *string    `json:"reason"`
 }
 
 var membersUserRoleReadSets resource.SetCache[MembersUserRole, membersUserRoleRead]
@@ -49,6 +50,7 @@ type membersUserRoleWrite struct {
 	CreatedAt time.Time  `json:"createdAt"`
 	StartsAt  *time.Time `json:"startsAt"`
 	EndsAt    *time.Time `json:"endsAt"`
+	Reason    *string    `json:"reason"`
 }
 
 var membersUserRoleWriteSets resource.SetCache[MembersUserRole, membersUserRoleWrite]
@@ -213,6 +215,7 @@ func (c *MembersUserRoleColumns) All() *MembersUserRoleColumns {
 		"CreatedAt",
 		"StartsAt",
 		"EndsAt",
+		"Reason",
 	}
 
 	return c
@@ -262,6 +265,12 @@ func (c *MembersUserRoleColumns) StartsAt() *MembersUserRoleColumns {
 
 func (c *MembersUserRoleColumns) EndsAt() *MembersUserRoleColumns {
 	c.fields = append(c.fields, "EndsAt")
+
+	return c
+}
+
+func (c *MembersUserRoleColumns) Reason() *MembersUserRoleColumns {
+	c.fields = append(c.fields, "Reason")
 
 	return c
 }
@@ -382,6 +391,10 @@ func (c *membersUserRoleSort) StartsAt() *MembersUserRoleSort {
 
 func (c *membersUserRoleSort) EndsAt() *MembersUserRoleSort {
 	return c.addField("EndsAt")
+}
+
+func (c *membersUserRoleSort) Reason() *MembersUserRoleSort {
+	return c.addField("Reason")
 }
 
 type MembersUserRoleSort struct {
@@ -569,6 +582,26 @@ func (p *MembersUserRoleCreatePatch) EndsAtIsSet() bool {
 	return p.patchSet.IsSet("EndsAt")
 }
 
+func (p *MembersUserRoleCreatePatch) SetReason(v *string) *MembersUserRoleCreatePatch {
+	if v != nil {
+		p.patchSet.Set("Reason", v)
+	} else {
+		p.patchSet.Set("Reason", nil)
+	}
+
+	return p
+}
+
+func (p *MembersUserRoleCreatePatch) Reason() *string {
+	v, _ := p.patchSet.Get("Reason").(*string)
+
+	return v
+}
+
+func (p *MembersUserRoleCreatePatch) ReasonIsSet() bool {
+	return p.patchSet.IsSet("Reason")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *MembersUserRoleCreatePatch) Diff(got *MembersUserRoleCreatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -747,6 +780,26 @@ func (p *MembersUserRoleUpdatePatch) EndsAt() *time.Time {
 
 func (p *MembersUserRoleUpdatePatch) EndsAtIsSet() bool {
 	return p.patchSet.IsSet("EndsAt")
+}
+
+func (p *MembersUserRoleUpdatePatch) SetReason(v *string) *MembersUserRoleUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("Reason", v)
+	} else {
+		p.patchSet.Set("Reason", nil)
+	}
+
+	return p
+}
+
+func (p *MembersUserRoleUpdatePatch) Reason() *string {
+	v, _ := p.patchSet.Get("Reason").(*string)
+
+	return v
+}
+
+func (p *MembersUserRoleUpdatePatch) ReasonIsSet() bool {
+	return p.patchSet.IsSet("Reason")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

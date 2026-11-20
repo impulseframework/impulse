@@ -30,6 +30,9 @@ type fakeGroupTables struct {
 	membershipPeriods map[access.MembershipKey]accesstypes.Period
 	placePeriods      map[access.GroupMemberKey]accesstypes.Period
 	rolePeriods       map[access.GroupRoleKey]accesstypes.Period
+	// membershipReasons are the reasons of the committed memberships given with one
+	// (reasons_test.go).
+	membershipReasons map[access.MembershipKey]string
 	// tenantPeople are the people of each tenant: the rows of the tenant's own list of
 	// the auth's people.
 	tenantPeople map[accesstypes.Domain][]impulse.UUID

@@ -79,12 +79,12 @@ func (s *rowStore) row() error {
 	return nil
 }
 
-func (s *rowStore) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+func (s *rowStore) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
 	if err := s.row(); err != nil {
 		return err
 	}
 
-	return s.fakeStore.InsertUserRole(ctx, scope, user, role, period)
+	return s.fakeStore.InsertUserRole(ctx, scope, user, role, period, reason)
 }
 
 func (s *rowStore) DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
@@ -244,7 +244,7 @@ func TestUserManager_callAnnouncesOnce(t *testing.T) {
 
 				return func() error {
 					for _, role := range threeRoles {
-						if err := manager.AssignUserRole(ctx, tenant1Policy, "frank", role, period); err != nil {
+						if err := manager.AssignUserRole(ctx, tenant1Policy, "frank", role, period, ""); err != nil {
 							return fmt.Errorf("AssignUserRole(%s): %w", role, err)
 						}
 					}

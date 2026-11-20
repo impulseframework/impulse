@@ -96,17 +96,35 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	told := func(user accesstypes.User, res accesstypes.Resource) bool {
 		return slices.Contains(changeNames(fake.Changes(principalID(user))), "resource|"+string(res)+"|||false")
 	}
-	lists := []live.WholeChange{{Resource: crewSectorIdentities, AllDomains: true}, {Resource: crewSectorRoles, AllDomains: true}, {Resource: crewSectorPeople, AllDomains: true}}
+	// The lists that read the memberships: the sector's people, their roles and their
+	// identities, the one list of the roles a person holds, for the whole application
+	// and for a sector, the roles held for a set time with a reason, and the roles of a
+	// group, which count the people who would lose each one.
+	lists := []live.WholeChange{
+		{Resource: "CrewHeldRoles", AllDomains: true},
+		{Resource: "CrewListedGroupRoles", AllDomains: true},
+		{Resource: "CrewSectorGroupRoles", AllDomains: true},
+		{Resource: "CrewSectorHeldRoles", AllDomains: true},
+		{Resource: crewSectorIdentities, AllDomains: true},
+		{Resource: crewSectorRoles, AllDomains: true},
+		{Resource: crewSectorPeople, AllDomains: true},
+		{Resource: "CrewTakenRoles", AllDomains: true},
+	}
 	// The lists over the crew's groups name each person from the users table, so a
 	// commit that writes an account tells them too; one that writes a membership alone
 	// does not.
 	created := []live.WholeChange{
 		{Resource: "CrewGroupUsers", AllDomains: true},
+		{Resource: "CrewHeldRoles", AllDomains: true},
+		{Resource: "CrewListedGroupRoles", AllDomains: true},
+		{Resource: "CrewSectorGroupRoles", AllDomains: true},
 		{Resource: "CrewSectorGroupUsers", AllDomains: true},
+		{Resource: "CrewSectorHeldRoles", AllDomains: true},
 		{Resource: crewSectorIdentities, AllDomains: true},
 		{Resource: "CrewSectorUserGroupRoles", AllDomains: true},
 		{Resource: crewSectorRoles, AllDomains: true},
 		{Resource: crewSectorPeople, AllDomains: true},
+		{Resource: "CrewTakenRoles", AllDomains: true},
 		{Resource: "CrewUserGroupRoles", AllDomains: true},
 	}
 

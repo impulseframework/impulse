@@ -17,8 +17,10 @@ import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   arrayConfig,
+  ChildResourceConfig,
   componentConfig,
   CustomConfigComponent,
+  field,
   FieldName,
   listViewConfig,
   METHOD_META,
@@ -26,6 +28,7 @@ import {
   ResourceMeta,
   RootConfig,
   rootConfig,
+  section,
   viewConfig,
 } from '@impulseframework/resource-angular/types';
 
@@ -201,6 +204,9 @@ function scripted(row: object = squadron): Script {
     if (path === '/api/wings/w-1') {
       return { status: 200, body: wing };
     }
+    if (path === '/api/wings') {
+      return { status: 200, body: [], headers: { 'total-count': '0' } };
+    }
     return { status: 404, body: { message: `unscripted ${request.url}` } };
   });
   return { transport, releaseRow: () => release?.(rowRead) };
@@ -282,6 +288,7 @@ const urls = (script: Script): string[] => script.transport.requests.map((r) => 
 const rowReads = (script: Script): string[] => urls(script).filter((u) => u.startsWith('/api/squadrons/sq-1'));
 const arrayLists = (script: Script): string[] => urls(script).filter((u) => u.startsWith('/api/squadrons?'));
 const rosterLists = (script: Script): string[] => urls(script).filter((u) => u.startsWith('/api/squadron-rosters'));
+const wingLists = (script: Script): string[] => urls(script).filter((u) => u.startsWith('/api/wings?'));
 const children = (fixture: ComponentFixture<unknown>): Record<string, boolean> => {
   const el = fixture.nativeElement as HTMLElement;
   return {
@@ -451,6 +458,189 @@ describe('CompoundResourceComponent row page, a method above a child list that n
       expect(buttons(fixture)).toEqual(tt.want);
     });
   }
+});
+
+// What a row's page is headed by: the config's title, or the row's own name where the
+// config says how to read it off the row, and then nothing until the row has been read.
+describe('CompoundResourceComponent row page, its heading', () => {
+  async function routed(
+    parentConfig: ReturnType<typeof listViewConfig>,
+    script: Script,
+    relatedConfigs: ChildResourceConfig[] = [],
+  ) {
+    await TestBed.configureTestingModule({
+      imports: [CompoundResourceComponent],
+      providers: [
+        provideResourceTesting({
+          transport: script.transport,
+          client: (transport: Transport) => createClient(descriptor, { baseUrl: '/api', transport }),
+        }),
+        provideNoopAnimations(),
+        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metadata[resource] },
+        { provide: METHOD_META, useValue: (): MethodMeta => ({}) as MethodMeta },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              data: {
+                config: rootConfig({
+                  parentConfig,
+                  relatedConfigs,
+                  routeData: { route: 'squadrons', hasViewRoute: true },
+                }),
+              },
+              params: {},
+              queryParams: {},
+            },
+          },
+        },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(CompoundResourceComponent);
+    fixture.componentRef.setInput('uuid', 'sq-1');
+    fixture.detectChanges();
+    return fixture;
+  }
+  const heading = (fixture: ComponentFixture<unknown>): string | undefined =>
+    (fixture.nativeElement as HTMLElement).querySelector('.title h1')?.textContent?.trim();
+
+  it("is the row's own name where the config reads one off the row, and nothing until the row is read", async () => {
+    const script = scripted();
+    const fixture = await routed(
+      listViewConfig({
+        title: 'Squadrons',
+        primaryResource: 'Squadrons' as Resource,
+        rowTitle: (row) => String(row['name']),
+        elements: [],
+        listColumns: [],
+      }),
+      script,
+    );
+    await settle(() => rowReads(script).length === 1);
+    // The row has not answered: the page is headed by nothing, never by the list's title.
+    expect(heading(fixture)).toBeUndefined();
+
+    script.releaseRow();
+    await settle(() => heading(fixture) !== undefined);
+    expect(heading(fixture)).toBe('Hammer');
+  });
+
+  it("is the config's title where the config reads no name off the row", async () => {
+    const script = scripted();
+    const fixture = await routed(
+      listViewConfig({ title: 'Squadrons', primaryResource: 'Squadrons' as Resource, elements: [], listColumns: [] }),
+      script,
+    );
+    await settle(() => rowReads(script).length === 1);
+    expect(heading(fixture)).toBe('Squadrons');
+    script.releaseRow();
+    await settle(() => fixture.componentInstance.store.rowPresent());
+    expect(heading(fixture)).toBe('Squadrons');
+  });
+
+  // The page a list of named things opens, as the pages of an Auth's groups are built: the
+  // row with fields of its own, headed by the row's name, and two lists under it. The page
+  // has a view of its row there, so the view draws the heading, in the row its buttons end.
+  const lists: ChildResourceConfig[] = [
+    listViewConfig({
+      title: 'Roster',
+      primaryResource: 'SquadronRosters' as Resource,
+      parentRelation: { parentKey: 'id' as FieldName, childKey: 'squadronId' as FieldName },
+      listColumns: [{ id: 'pilotName' as FieldName }],
+      elements: [],
+      showBackButton: false,
+    }),
+    listViewConfig({
+      title: 'Wings',
+      primaryResource: 'Wings' as Resource,
+      parentRelation: { parentKey: 'wingId' as FieldName, childKey: 'id' as FieldName },
+      listColumns: [{ id: 'name' as FieldName }],
+      elements: [],
+      showBackButton: false,
+    }),
+  ];
+  const named = (elements: ReturnType<typeof section>[]): ReturnType<typeof listViewConfig> => {
+    return listViewConfig({
+      title: 'Squadrons',
+      primaryResource: 'Squadrons' as Resource,
+      rowTitle: (row) => String(row['name']),
+      elements,
+      listColumns: [{ id: 'name' as FieldName }],
+    });
+  };
+  const about = [
+    section({ label: 'About the squadron', children: [field({ name: 'name' as FieldName, label: 'Name', cols: 6 })] }),
+  ];
+  const page = (fixture: ComponentFixture<unknown>): HTMLElement => fixture.nativeElement as HTMLElement;
+  /** The heading where the view of the page's row draws it. */
+  const viewHeading = (fixture: ComponentFixture<unknown>): Element | null => {
+    return page(fixture).querySelector('impulse-resource-view .header-container h1.page-title');
+  };
+  /** The header the page draws itself, where no view of its row draws the heading. */
+  const ownHeader = (fixture: ComponentFixture<unknown>): Element | null => {
+    return page(fixture).querySelector(':scope > .page-container > .header-container');
+  };
+  const headings = (fixture: ComponentFixture<unknown>): string[] => {
+    return Array.from(page(fixture).querySelectorAll('h1')).map((h) => h.textContent?.trim() ?? '');
+  };
+
+  it("is the row's own name on a page with fields of its own and two lists under it, drawn once by the view of the row, and never the list's title", async () => {
+    const script = scripted();
+    const fixture = await routed(named(about), script, lists);
+    await settle(() => rowReads(script).length === 1);
+    script.releaseRow();
+    await settle(() => rosterLists(script).length === 1 && wingLists(script).length === 1);
+
+    expect(fixture.componentInstance.viewDrawsTitle()).toBe(true);
+    expect(viewHeading(fixture)?.textContent?.trim()).toBe('Hammer');
+    expect(viewHeading(fixture)?.classList.contains('impulse-section')).toBe(false);
+    expect(ownHeader(fixture)).toBeNull();
+    // One heading names the row, and none is the title of the list it was opened from.
+    expect(headings(fixture).filter((text) => text === 'Hammer')).toHaveLength(1);
+    expect(headings(fixture)).not.toContain('Squadrons');
+    // The two lists under the row are there, each under its own title.
+    expect(headings(fixture)).toEqual(expect.arrayContaining(['Roster', 'Wings']));
+  });
+
+  it('draws nothing while the row is read that it takes away once the row is there: the heading is added to the row that waits for it', async () => {
+    const script = scripted();
+    const fixture = await routed(named(about), script, lists);
+    await settle(() => rowReads(script).length === 1);
+
+    // The row has not answered. The page is headed by nothing, and it has put no header of
+    // its own where the view's heading row already stands.
+    expect(headings(fixture)).toEqual([]);
+    expect(ownHeader(fixture)).toBeNull();
+    const before = Array.from(page(fixture).querySelectorAll('.header-container'));
+    expect(before).toHaveLength(1);
+    expect(before[0].closest('impulse-resource-view')).not.toBeNull();
+
+    script.releaseRow();
+    await settle(() => rosterLists(script).length === 1 && wingLists(script).length === 1);
+
+    // Every header drawn before the row answered is still on the page, and the name is in it.
+    expect(before.map((header) => header.isConnected)).toEqual([true]);
+    expect(before[0].querySelector('h1.page-title')?.textContent?.trim()).toBe('Hammer');
+    expect(ownHeader(fixture)).toBeNull();
+  });
+
+  it('keeps the room above a row with no fields of its own the same before and after the row is read', async () => {
+    const script = scripted();
+    const fixture = await routed(named([]), script, lists);
+    await settle(() => rowReads(script).length === 1);
+    const container = page(fixture).querySelector('.resource-container') as HTMLElement;
+
+    // The room is left only for a heading the page draws itself, which this page never does.
+    expect(container.classList.contains('empty-elements')).toBe(false);
+    expect(ownHeader(fixture)).toBeNull();
+
+    script.releaseRow();
+    await settle(() => rosterLists(script).length === 1 && wingLists(script).length === 1);
+
+    expect(page(fixture).querySelector('.resource-container')).toBe(container);
+    expect(container.classList.contains('empty-elements')).toBe(false);
+    expect(viewHeading(fixture)?.textContent?.trim()).toBe('Hammer');
+  });
 });
 
 // The page's title and the buttons of the page's own row view are one row. The view draws

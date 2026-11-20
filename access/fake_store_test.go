@@ -47,12 +47,15 @@ type fakeGrant struct {
 // part of the grant row's identity, matching the stores' contract. A role
 // row holds the description it was created with. An assignment's row holds its
 // period, replaced when the assignment is given again, and the listings leave
-// out the ones outside their period at the store's present.
+// out the ones outside their period at the store's present. A membership's row
+// holds its reason too, replaced with the period (fake_store_holdings_test.go).
 type fakeStore struct {
 	mu          sync.Mutex
 	roles       map[fakeRoleKey]string
 	memberships map[fakeMembership]accesstypes.Period
-	grants      map[fakeGrant]bool
+	// reasons holds the reason of each membership given with one.
+	reasons map[fakeMembership]string
+	grants  map[fakeGrant]bool
 	// clock is the store's present, the wall clock when nil: what a database's
 	// own clock is to the stores.
 	clock func() time.Time
@@ -87,6 +90,7 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{
 		roles:       make(map[fakeRoleKey]string),
 		memberships: make(map[fakeMembership]accesstypes.Period),
+		reasons:     make(map[fakeMembership]string),
 		grants:      make(map[fakeGrant]bool),
 	}
 }
@@ -134,13 +138,17 @@ func (f *fakeStore) ReadPolicy(_ context.Context) (*policy.Records, error) {
 	return records, nil
 }
 
-func (f *fakeStore) InsertUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+func (f *fakeStore) InsertUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
 	}
 	f.memberships[fakeMembership{scope, user, role}] = period
+	delete(f.reasons, fakeMembership{scope, user, role})
+	if reason != "" {
+		f.reasons[fakeMembership{scope, user, role}] = reason
+	}
 	f.writes++
 
 	return nil
@@ -153,6 +161,7 @@ func (f *fakeStore) DeleteUserRole(_ context.Context, scope accesstypes.PolicySc
 		return f.failWith
 	}
 	delete(f.memberships, fakeMembership{scope, user, role})
+	delete(f.reasons, fakeMembership{scope, user, role})
 	f.writes++
 
 	return nil
