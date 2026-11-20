@@ -494,7 +494,7 @@ func Test_prepareIdentity(t *testing.T) {
 		// field of the password method's row; an auth with no password method has no
 		// such method (the sign-up part's own test lists its files without it).
 		"crewidentity/set_crew_self_service_reset.go": {
-			"// @rpc\n// @outlet(default)\n// @answers(204)\ntype SetCrewSelfServiceReset struct {", "On bool",
+			"// @rpc\n// @outlet(default)\n// @answers(204)\n// @class(access)\ntype SetCrewSelfServiceReset struct {", "On bool",
 			"client.manager.SetSelfServiceReset(ctx, txn, m.On)",
 		},
 		"crewidentity/send_crew_user_password_reset_link.go": {

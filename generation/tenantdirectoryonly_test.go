@@ -415,15 +415,15 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 		return methodCases(prefix, "open-harbor-to-directory", "make-harbor-invite-only")
 	}
 	// The two methods of the default role give and take away what a directory's people
-	// may do, so their actions carry the class access; the switch's carry none.
+	// may do, and the two of the switch decide who may sign in to the tenant at all, so
+	// the action of each carries the class access.
 	execute := func(names ...string) []resource.CollectionResource {
 		var out []resource.CollectionResource
 		for _, name := range names {
-			registered := resource.CollectionResource{Name: accesstypes.Resource(name), Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}}
-			if strings.HasSuffix(name, "ToDirectory") || strings.HasSuffix(name, "InviteOnly") {
-				registered.Classes = []accesstypes.ActionClass{accesstypes.ClassAccess}
-			}
-			out = append(out, registered)
+			out = append(out, resource.CollectionResource{
+				Name: accesstypes.Resource(name), Scope: accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess},
+			})
 		}
 
 		return out

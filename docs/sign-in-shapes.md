@@ -455,7 +455,12 @@ Where an application offers it, these things hold in every shape.
   that change what anyone may do (a role, a place in a group, an invitation, an account).
   It can also refuse one action, or the writes of one record, by name. A kind that is
   given no mask gives the people who hold its grant everything the person holds.
-- Creating a tenant is among the actions that change what anyone may do. A person who signed up creates their own tenant
+- The sign-in settings this document describes are among the actions that change what
+  anyone may do: opening a sign-in method to sign-up or making it invite only, the switch
+  that lets people ask for their own reset link, opening a tenant to its directory or
+  making it invite only, and turning a tenant's directory only on or off. A session whose
+  mask refuses that class changes none of them.
+- Creating a tenant is among them too. A person who signed up creates their own tenant
   with no grant, so a session that acts as such a person could create one in their name,
   and the person acted as would be its first administrator. A session whose mask refuses
   that class is refused, and nothing is created. A session with no mask creates the

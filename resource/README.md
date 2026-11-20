@@ -2903,7 +2903,11 @@ serves the record: `Make<Record>DirectoryOnly`, at
 `End<Record>DirectoryOnly`, at
 `POST /<prefix>/<tenants>/{tenant}/end-<record>-directory-only`, turns it off. Neither
 takes anything in its body (`{}`: the route names the tenant), and `X-Dry-Run: true`
-runs the frame and rolls back, as on every method. The tenant's administrator runs
+runs the frame and rolls back, as on every method. Both say who may sign in to the
+tenant at all, so their actions carry the class `access` (`accesstypes.ClassAccess`)
+in the generated collection, as the two methods that say how a tenant admits its
+directory's people do (`Open<Record>ToDirectory` and `Make<Record>InviteOnly`, below),
+and a session whose mask refuses the class runs neither. The tenant's administrator runs
 them: a role file grants Execute on each to the domain role that manages the tenant's
 sign-in settings, and the record's own write paths, which are global, show the flag and
 never write it (the field is output only on the wire, so a create or an update that
@@ -3652,27 +3656,35 @@ take away what someone may do are written with `@class(access)`
 one that makes a tenant among them (`invite-crew-user`, `withdraw-crew-invitation`,
 `invite-crew-sector`, `withdraw-crew-invited-sector`), an account made, disabled, enabled
 or deleted (`create-crew-user`, `disable-crew-user`, `enable-crew-user`,
-`delete-crew-user`), and a sign-in method opened to sign-up or made invite only
-(`open-crew-sign-up`, `make-crew-invite-only`). The two methods the generator writes for
-a tenant record's directory, which have no declaration to annotate, carry the class by
-their registration: `open-sector-to-directory`, which gives a role to everyone who
-arrives through the directory, and `make-sector-invite-only`. A session that acts as a
-person under a grant declared "everything except the credential actions and the actions
-that change who may do what" is refused every one of both classes.
+`delete-crew-user`), a sign-in method opened to sign-up or made invite only
+(`open-crew-sign-up`, `make-crew-invite-only`), and the switch that lets people ask at
+the sign-in page for a link that resets their own password
+(`set-crew-self-service-reset`), which says who may get back into an account without an
+administrator. What the generator writes for a tenant record, which has no declaration
+to annotate, carries the class by its registration: the two methods of the tenant's
+directory, `open-sector-to-directory`, which gives a role to everyone who arrives
+through the directory, and `make-sector-invite-only`; the two that turn the switch
+that makes a tenant sign in with its directory alone, `make-sector-directory-only` and
+`end-sector-directory-only`, which say how a tenant's people must sign in to enter it;
+and the action of the create-your-tenant route, `CreateSector`, which makes its caller
+a tenant's administrator (section 16, "The first administrator"). A session that acts
+as a person under a grant declared "everything except the credential actions and the
+actions that change who may do what" is refused every one of both classes.
 
 What carries neither class: the name people read and a group's description
 (`set-crew-user-name`, `describe-crew-group`), which are words; the end of a session, of
 a person's sessions or of an impersonation, the revocation of a token or of the
 remembered browsers, and the unlock, each of which ends a sign-in already made or lets
-one be tried again and leaves what the person may do as it was; the switch that lets
-people ask for their own reset link (`set-crew-self-service-reset`); and the tenant
-record's directory-only switch, which says how a tenant's people must sign in to enter
-it. A record's own writes carry no class, since a class marks an action: a mask names
-the record instead (`accesstypes.RefuseWrites`).
+one be tried again and leaves what the person may do as it was; and the switch of a
+feature flag (`SetFeature`). A record's own writes carry no class, since a class marks
+an action: a mask names the record instead (`accesstypes.RefuseWrites`).
 
-The generator's own test lists the methods and fails when one is written without the
-class its act is listed with, or with a class it is not listed with (`identityMethodActs`
-in `generation/identity_classes_test.go`, the one table to keep in step).
+The generator's own tests list the methods and fail when one is written without the
+class its act is listed with, or with a class it is not listed with: `identityMethodActs`
+in `generation/identity_classes_test.go` for the generated identity methods, and
+`generatorActions` in `generation/classes_test.go` for the actions the generator
+declares with no struct to annotate, the tenant record's among them. They are the two
+tables to keep in step.
 
 **A tenant's lists.** An account is one row for the whole application, and a role held
 is a row that names where it is held, so neither table can be served under a tenant's

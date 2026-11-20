@@ -32,14 +32,20 @@ const identityCredentialClass = "\n// @" + classKeyword + "(" + string(accesstyp
 // identityAccessClass is the @class line of the generated identity methods that give or
 // take away what someone may do: a role given or removed, a person put in a group or
 // taken out of one, a role given to a group or taken from it, a group made or deleted,
-// an invitation sent or withdrawn, an account made, disabled, enabled or deleted, and a
-// sign-in method opened to sign-up or made invite only. The template of each ends its
-// annotations with it, so an application can grant "act as a person, without changing
-// who may do what" with a mask that refuses the class. A method that gives or takes
-// away what someone may do and lacks the line fails the test that lists them
-// (Test_prepareIdentity_classedMethods). The two methods the generator writes for a
-// tenant record, which open the tenant to its directory's people with a role and make
-// it invite only again, carry the class by their registration (tenantOwnMethod.Classes).
+// an invitation sent or withdrawn, an account made, disabled, enabled or deleted, a
+// sign-in method opened to sign-up or made invite only, and the setting that lets
+// people ask at the sign-in page for a link that resets their own password. The
+// template of each ends its annotations with it, so an application can grant "act as a
+// person, without changing who may do what" with a mask that refuses the class. A
+// method that gives or takes away what someone may do and lacks the line fails the test
+// that lists them (Test_prepareIdentity_classedMethods).
+//
+// The actions the generator declares with no struct to annotate carry the class by
+// their registration, and a test lists those too (Test_generatorActions_classed): the
+// two methods that open a tenant to its directory's people with a role and make it
+// invite only again, the two of the switch that makes a tenant sign in with its
+// directory alone (tenantOwnMethod.Classes), and the making of a tenant of one's own
+// (tenantCreationAction).
 const identityAccessClass = "\n// @" + classKeyword + "(" + string(accesstypes.ClassAccess) + ")"
 
 // classConstantPrefix opens the name of the constant the collection file declares for

@@ -35,7 +35,9 @@ import (
 //     auth whose people the tenant seats), holding its button until the person has
 //     typed the warning's word. End<Record>DirectoryOnly,
 //     POST <prefix>/<tenants>/{tenant}/end-<record>-directory-only, turns it off, which
-//     is plain. Each writes the flag through the record's update patch;
+//     is plain. Each writes the flag through the record's update patch, and each
+//     action carries the class access (accesstypes.ClassAccess) in the generated
+//     collection, so a session whose permission mask refuses the class runs neither;
 //   - the switch as it stands, GET <prefix>/<tenants>/{tenant}/directory-only
 //     (resource.DirectoryOnlyStateHandler), asked under the grant of either method.
 //
@@ -85,11 +87,16 @@ func endDirectoryOnlyMethodName(record string) string {
 }
 
 // directoryOnlyMethodsOf are the two methods of the record's switch: the one that turns
-// it on, which warns, and the one that turns it off.
+// it on, which warns, and the one that turns it off. The switch decides who may sign in
+// to the tenant at all: on, it keeps out everyone who does not come through the
+// directory, and off, it lets them back in. So both actions carry the class access, and
+// a session whose permission mask refuses the class turns the switch neither way.
 func directoryOnlyMethodsOf(record string) []tenantOwnMethod {
+	changesAccess := []accesstypes.ActionClass{accesstypes.ClassAccess}
+
 	return []tenantOwnMethod{
-		{Name: makeDirectoryOnlyMethodName(record), Typed: resource.DirectoryOnlyWord, Classes: nil},
-		{Name: endDirectoryOnlyMethodName(record), Typed: "", Classes: nil},
+		{Name: makeDirectoryOnlyMethodName(record), Typed: resource.DirectoryOnlyWord, Classes: changesAccess},
+		{Name: endDirectoryOnlyMethodName(record), Typed: "", Classes: changesAccess},
 	}
 }
 

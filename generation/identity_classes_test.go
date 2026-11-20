@@ -68,6 +68,12 @@ var identityMethodActs = map[string]accesstypes.ActionClass{
 	"OpenSignUp":            changesAccess,
 	"MakeInviteOnly":        changesAccess,
 
+	// Whether a person may ask for their own reset link at the sign-in page: a setting
+	// of the whole auth, which decides who can get back into an account without an
+	// administrator. It is no act on one person's credentials, so it is with the
+	// settings that say who is let in.
+	"SetSelfServiceReset": changesAccess,
+
 	// Whether a person has an account and may use it. An account is made with the roles
 	// its person holds; one disabled or deleted may do nothing, and one enabled may do
 	// again all it held.
@@ -91,11 +97,6 @@ var identityMethodActs = map[string]accesstypes.ActionClass{
 	"RevokeSessionToken":       unclassed,
 	"RevokeUserTrustedDevices": unclassed,
 	"UnlockSignIn":             unclassed,
-
-	// Whether a person may ask for their own reset link at the sign-in page: a setting
-	// of the auth, which is no act on a person's credentials and gives nobody anything
-	// to do in the application.
-	"SetSelfServiceReset": unclassed,
 }
 
 // identityAct names a generated method by its act: the method's name without the
@@ -239,6 +240,7 @@ var wantAccessMethods = map[string][]string{
 	"WithdrawInvitedTenant": {"WithdrawCrewInvitedShip"},
 	"OpenSignUp":            {"OpenCrewSignUp"},
 	"MakeInviteOnly":        {"MakeCrewInviteOnly"},
+	"SetSelfServiceReset":   {"SetCrewSelfServiceReset"},
 	"CreateUser":            {"CreateCrewShipUser", "CreateCrewUser", "CreateMembersShipUser", "CreateMembersUser"},
 	"DeleteUser":            {"DeleteCrewShipUser", "DeleteCrewUser", "DeleteMembersShipUser", "DeleteMembersUser"},
 	"DisableUser":           {"DisableCrewShipUser", "DisableCrewUser", "DisableMembersShipUser", "DisableMembersUser"},

@@ -39,8 +39,9 @@ it, the ones declared after the mask was written among them, so nobody keeps a
 list of actions in step with the application. Two classes are the library's:
 `ClassCredential` (`credential`), the actions that change how a person signs
 in, and `ClassAccess` (`access`), the actions that give or take away what
-someone may do, a role, a place in a group, an invitation, an account. An
-application names its own beside them.
+someone may do: a role, a place in a group, an invitation, an account, the
+settings that say who may sign in at all, and the making of a tenant of one's
+own. An application names its own beside them.
 
 `ceiling.Narrow(request)` is the arithmetic of a grant that carries a mask: the
 mask a request gets under the widest mask its grant gives. A request that names

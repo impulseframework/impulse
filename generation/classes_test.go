@@ -2,6 +2,7 @@ package generation
 
 import (
 	"go/format"
+	"slices"
 	"strings"
 	"testing"
 
@@ -330,5 +331,101 @@ func Test_actionClassConstants(t *testing.T) {
 	_, err = actionClassConstants(resource.CollectionData{Resources: []resource.CollectionResource{action("tier_2", "tier2")}})
 	if wantErr := "the classes tier2 and tier_2 would both be declared as the constant ClassTier2; rename one of them"; err == nil || !strings.HasSuffix(err.Error(), wantErr) {
 		t.Errorf("actionClassConstants() with two classes of one constant error = %v, want %q", err, wantErr)
+	}
+}
+
+// generatorActions lists every action the generator declares itself, with no struct of
+// the application's or of the generated management's to carry an @class annotation, and
+// says of each which class it carries. The generator names these where it registers
+// them (tenantOwnMethod.Classes, tenantCreationAction), so the list is where a person
+// decides: an action that gives or takes away what someone may do carries the class
+// access, and a permission mask that refuses the class refuses it.
+//
+// The list is the whole input of Test_generatorActions_classed: an action the generator
+// comes to declare fails the test until it is listed here with a decision, and one
+// listed with a class fails it until its registration carries the class.
+var generatorActions = map[accesstypes.Resource]accesstypes.ActionClass{
+	// The switch that makes a tenant sign in with its directory alone: on, it keeps
+	// out everyone who does not come through the directory, and off, it lets them back
+	// in.
+	"MakeHarborDirectoryOnly": changesAccess,
+	"EndHarborDirectoryOnly":  changesAccess,
+
+	// How a tenant admits its directory's people: everyone the directory sends holds
+	// the role the tenant is opened with, and nobody does once it is invite only.
+	"OpenHarborToDirectory": changesAccess,
+	"MakeHarborInviteOnly":  changesAccess,
+
+	// The making of a tenant of one's own, which makes its maker the tenant's
+	// administrator.
+	"CreateHarbor": changesAccess,
+
+	// A feature turned on or off: what the application offers everyone, which changes
+	// nothing one person may do.
+	"SetFeature": unclassed,
+}
+
+// Test_generatorActions_classed lists the actions the generator declares itself and
+// holds each to generatorActions. The fixture declares what makes the generator write
+// every one of them: a tenant record with the directory-only switch, a directories
+// record with a default seat, the create-your-tenant route, and the feature flags every
+// application carries. It declares no method and no registration of its own, so every
+// action in the collection is the generator's.
+func Test_generatorActions_classed(t *testing.T) {
+	t.Parallel()
+
+	const staffAuth = "example.com/app/pkg/auth/staff"
+	r, err := declarationResources(t, "Harbor", "HarborDirectory")
+	if err != nil {
+		t.Fatalf("declarationResources() error = %v", err)
+	}
+	r.genRoutes = true
+	r.defaultOutlet = routerOutlet{name: defaultOutletName, prefix: "api", servesSessions: true, auth: openAuth(staffAuth)}
+	for _, res := range r.resources {
+		res.OutletNames = []string{defaultOutletName}
+	}
+	r.identity = []*identityInstance{{
+		importPath: staffAuth, auth: "Staff",
+		tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor", directorySeat: "DefaultSeat"},
+		tables: map[identityTable]bool{identityUsers: true, identityMemberships: true},
+	}}
+	record := r.tenantRecord()
+	if !r.tenantCreationServes(record) {
+		t.Fatal("the fixture's create-your-tenant route does not serve: the test would list no action for it")
+	}
+	record.TenantCreation = tenantCreationBoth
+
+	data, err := r.computeCollectionData()
+	if err != nil {
+		t.Fatalf("computeCollectionData() error = %v", err)
+	}
+
+	seen := make(map[accesstypes.Resource]bool)
+	for _, res := range data.Resources {
+		if !slices.Contains(res.Permissions, accesstypes.Execute) {
+			continue
+		}
+		seen[res.Name] = true
+
+		want, listed := generatorActions[res.Name]
+		if !listed {
+			t.Errorf("%s is not listed in generatorActions: say whether it gives or takes away what someone may do (access), changes how a person signs in (credential), or neither, and give its registration the class", res.Name)
+
+			continue
+		}
+		var wantClasses []accesstypes.ActionClass
+		if want != unclassed {
+			wantClasses = []accesstypes.ActionClass{want}
+		}
+		if diff := cmp.Diff(wantClasses, res.Classes); diff != "" {
+			t.Errorf("%s is listed with the class %q and the collection carries other classes for it (-want +got):\n%s", res.Name, want, diff)
+		}
+	}
+
+	// An action listed and never declared is a line nobody decides any more.
+	for action := range generatorActions {
+		if !seen[action] {
+			t.Errorf("generatorActions lists %s, which the generator does not declare for the fixture: remove the line, or widen the fixture", action)
+		}
 	}
 }

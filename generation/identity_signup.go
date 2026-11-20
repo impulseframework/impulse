@@ -575,11 +575,12 @@ import (
 // "Forgot your password?" while it is on and not while it is off. A link asked for
 // while it was on still works once it is off, until it is used or runs out, and a link
 // an administrator sends is never held to the choice. The change is kept with who made
-// it and when ({{ .SignInMethodRow }}'s change events).
+// it and when ({{ .SignInMethodRow }}'s change events). The setting decides who can get
+// back into an account from the sign-in page, so the action carries the class access.
 //
 // @rpc
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Set{{ .Auth }}SelfServiceReset struct {
 	// On says people may reset their own password.
 	On bool

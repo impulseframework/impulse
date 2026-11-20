@@ -3448,7 +3448,13 @@ sent, a sign-in identity unlinked, a username or an address changed).
 someone may do (a role given or removed, a person put in a group or taken out, a role
 given to a group or taken from it, a group made or deleted, an invitation sent or
 withdrawn, an account made, disabled, enabled or deleted, and what a sign-in method or a
-tenant's directory gives everyone who arrives through it). An application marks its own
+tenant's directory gives everyone who arrives through it), and on the settings that say
+who may sign in at all: the switch that makes a tenant sign in with its directory
+alone, and the one that lets people ask at the sign-in page for a link that resets
+their own password. The making of a tenant of one's own carries it too: the generated
+create-your-tenant route, which no grant admits, has an action's name for the mask to
+refuse, and asks the mask itself (the resource package's "How a tenant comes to
+exist", "The first administrator"). An application marks its own
 actions with either or with a class it names. The generated permission collection
 carries each action's classes, which is where a check reads them.
 
