@@ -1267,8 +1267,11 @@ watch desk then name the cadet by username; and
   columns are immutable (`conditions:"immutable"` on `UserID`, `SquadronID` and
   `GroupID`), so an update that names one of them is refused for every role with
   `400 json field groupId is immutable`, as the request is decoded and before a grant or
-  a row is read. The answer is therefore the same for a pass of the sector, a pass of
-  another sector and an id that is no pass, and nothing tells them apart. A pass that
+  a row is read. An update that names two of them is refused for both in one sentence,
+  in the order of their names (`400 json fields groupId and userId are immutable`),
+  whatever order the body gives them in. The answer is therefore the same for a pass of
+  the sector, a pass of another sector and an id that is no pass, and nothing tells them
+  apart. A pass that
   should be somebody else's is deleted and written again; its level and its expiry are
   what the Marshal's update changes. The walkthrough's "the Hangars page" section sends
   what the page sends: the marshal adds a hangar and a pass for the Bay keepers, and the

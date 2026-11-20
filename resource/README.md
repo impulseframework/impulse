@@ -132,7 +132,12 @@ Values recognized in a `conditions` tag:
 - `immutable` — the client sets the field on create, and it can never change afterward:
   an update touching it is rejected with a 400 (the generator emits `immutable:"true"`
   into the patch request struct — you write the condition, never the emitted tag), and
-  the generated Collection never exposes `Update` on the field's tag as grantable.
+  the generated Collection never exposes `Update` on the field's tag as grantable. The
+  400 names the field (`json field hull is immutable`); an update that names several is
+  refused for all of them in one sentence, in the order of their names
+  (`json fields berth and hull are immutable`), before any other refusal of a field, so
+  the same body always gets the same answer. A name the request accepts in another case
+  (`Hull`) is refused the same way, by the declared name.
 - `pii` — marks the field as personally identifiable. Emitted as `pii:"true"`, surfaced
   in the TypeScript metadata, and the field is rejected in URL `filter` expressions
   (filter via the POST body instead, which doesn't land in access logs).

@@ -689,7 +689,8 @@ func TestGroupShare_oneHolder(t *testing.T) {
 
 // TestGroupShare_holderOnUpdate holds a pass to the holder it was written with. The three
 // holder columns are immutable, so an update that names any of them is refused with the
-// framework's answer for an immutable field, 400 and "json field <name> is immutable",
+// framework's answer for an immutable field, 400 and "json field <name> is immutable"
+// (for two, "json fields <name> and <name> are immutable", in the order of the names),
 // whoever sends it: the Marshal, whose update grant names the level and the expiry; the
 // teller, whose role is of the test's own and was handed Update on every column of a
 // pass, the three holder columns among them, which no role file may grant and the
@@ -736,8 +737,8 @@ func TestGroupShare_holderOnUpdate(t *testing.T) {
 			status, body := w.updatePass(t, sender, pass, tt.value)
 			if status != http.StatusBadRequest {
 				t.Errorf("the update by %s that names %s: status = %d, want 400: %s", sender, tt.name, status, body)
-			} else if got := refusalOf(t, body); !slices.Contains(tt.says, got) {
-				t.Errorf("the update by %s that names %s is refused with %q, want %q", sender, tt.name, got, strings.Join(tt.says, " or "))
+			} else if got := refusalOf(t, body); got != tt.says {
+				t.Errorf("the update by %s that names %s is refused with %q, want %q", sender, tt.name, got, tt.says)
 			}
 			if got := holder(); got != heldByThePerson {
 				t.Errorf("after the update by %s that names %s the pass names %s, want %s", sender, tt.name, got, heldByThePerson)
@@ -754,10 +755,11 @@ func TestGroupShare_holderOnUpdate(t *testing.T) {
 // another sector, and at an id that is no pass. The framework refuses an immutable field
 // as it decodes the request, before it reads a grant or a row, so the three answer the
 // same status and the same sentence and nothing tells a pass that is there, in a sector
-// the sender cannot see, from one that is not. (An update that names two holder columns
-// is refused for whichever the decoder meets first, so it has two sentences, and each of
-// the three answers one of them.) What an update may still change, the level, tells them
-// apart no better: both are the 404 of a row that is not the sector's, in the same words.
+// the sender cannot see, from one that is not. An update that names two holder columns,
+// or all three, is refused in one sentence that names each of them in the order of their
+// names, so it too is the same answer at all three. What an update may still change, the
+// level, tells them apart no better: both are the 404 of a row that is not the sector's,
+// in the same words.
 func TestGroupShare_holderRefusalIsOneAnswer(t *testing.T) {
 	t.Parallel()
 
@@ -784,8 +786,8 @@ func TestGroupShare_holderRefusalIsOneAnswer(t *testing.T) {
 	for _, sender := range []accesstypes.User{"marshal", teller} {
 		for _, tt := range holderUpdates(string(account(t, sentry)), group) {
 			ownStatus, ownBody := w.updatePass(t, sender, own, tt.value)
-			if ownStatus != http.StatusBadRequest || !slices.Contains(tt.says, refusalOf(t, ownBody)) {
-				t.Errorf("the update by %s of the sector's pass that names %s: status = %d, want 400 saying %q: %s", sender, tt.name, ownStatus, strings.Join(tt.says, " or "), ownBody)
+			if ownStatus != http.StatusBadRequest || refusalOf(t, ownBody) != tt.says {
+				t.Errorf("the update by %s of the sector's pass that names %s: status = %d, want 400 saying %q: %s", sender, tt.name, ownStatus, tt.says, ownBody)
 			}
 			for _, other := range []struct {
 				name string
@@ -794,12 +796,11 @@ func TestGroupShare_holderRefusalIsOneAnswer(t *testing.T) {
 				{name: "another sector's pass", id: passBastionOwnID},
 				{name: "an id that is no pass", id: passNoneID},
 			} {
-				// An update that names one holder column has one answer, so this is the
-				// answer the sector's own pass gave. One that names two is refused for
-				// whichever the decoder meets first, on the sector's own pass as here.
+				// Every update of a holder column has one answer, whether it names one of
+				// them or several, so this is the answer the sector's own pass gave.
 				status, body := w.updatePass(t, sender, other.id, tt.value)
-				if status != ownStatus || !slices.Contains(tt.says, refusalOf(t, body)) {
-					t.Errorf("the update by %s of %s that names %s answers %d %s, want the answer for the sector's own pass, %d saying %q", sender, other.name, tt.name, status, body, ownStatus, strings.Join(tt.says, " or "))
+				if status != ownStatus || refusalOf(t, body) != tt.says {
+					t.Errorf("the update by %s of %s that names %s answers %d %s, want the answer for the sector's own pass, %d saying %q", sender, other.name, tt.name, status, body, ownStatus, tt.says)
 				}
 			}
 		}
@@ -825,34 +826,39 @@ func TestGroupShare_holderRefusalIsOneAnswer(t *testing.T) {
 	}
 }
 
-// holderUpdate is one update that names a holder column, and what the refusal says. An
-// update that names two of them is refused for whichever the decoder meets first.
+// holderUpdate is one update that names a holder column, and the one sentence the
+// refusal says. An update that names two of them is refused for both, in the order of
+// their names.
 type holderUpdate struct {
 	name  string
 	value string
-	says  []string
+	says  string
 }
 
 // holderUpdates is every way an update names a holder column: each of the three set to
-// a value and to nothing, one beside a column that is no holder, and the change of
-// holder a role that held the columns could once make, the person taken off and a group
-// put on.
+// a value and to nothing, one beside a column that is no holder, the change of holder a
+// role that held the columns could once make, the person taken off and a group put on,
+// in both orders of the body, and all three at once.
 func holderUpdates(person, group string) []holderUpdate {
 	const (
 		userID     = "json field userId is immutable"
 		squadronID = "json field squadronId is immutable"
 		groupID    = "json field groupId is immutable"
+		both       = "json fields groupId and userId are immutable"
+		all        = "json fields groupId, squadronId and userId are immutable"
 	)
 
 	return []holderUpdate{
-		{name: "another person", value: fmt.Sprintf(`{"userId":%q}`, person), says: []string{userID}},
-		{name: "no person", value: `{"userId":null}`, says: []string{userID}},
-		{name: "an empty person", value: `{"userId":""}`, says: []string{userID}},
-		{name: "a squadron", value: fmt.Sprintf(`{"squadronId":%q}`, squadronTongsID), says: []string{squadronID}},
-		{name: "no squadron", value: `{"squadronId":null}`, says: []string{squadronID}},
-		{name: "a group", value: fmt.Sprintf(`{"groupId":%q}`, group), says: []string{groupID}},
-		{name: "no group", value: `{"groupId":null}`, says: []string{groupID}},
-		{name: "a group beside the level", value: fmt.Sprintf(`{"groupId":%q,"levelId":"visit"}`, group), says: []string{groupID}},
-		{name: "the person taken off and a group put on", value: fmt.Sprintf(`{"userId":null,"groupId":%q}`, group), says: []string{userID, groupID}},
+		{name: "another person", value: fmt.Sprintf(`{"userId":%q}`, person), says: userID},
+		{name: "no person", value: `{"userId":null}`, says: userID},
+		{name: "an empty person", value: `{"userId":""}`, says: userID},
+		{name: "a squadron", value: fmt.Sprintf(`{"squadronId":%q}`, squadronTongsID), says: squadronID},
+		{name: "no squadron", value: `{"squadronId":null}`, says: squadronID},
+		{name: "a group", value: fmt.Sprintf(`{"groupId":%q}`, group), says: groupID},
+		{name: "no group", value: `{"groupId":null}`, says: groupID},
+		{name: "a group beside the level", value: fmt.Sprintf(`{"groupId":%q,"levelId":"visit"}`, group), says: groupID},
+		{name: "the person taken off and a group put on", value: fmt.Sprintf(`{"userId":null,"groupId":%q}`, group), says: both},
+		{name: "the same two with the group first in the body", value: fmt.Sprintf(`{"groupId":%q,"userId":null}`, group), says: both},
+		{name: "all three at once", value: fmt.Sprintf(`{"userId":null,"squadronId":%q,"groupId":%q}`, squadronTongsID, group), says: all},
 	}
 }

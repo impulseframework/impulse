@@ -47,9 +47,10 @@ type (
 	//
 	// A pass's holder never changes. UserID, SquadronID and GroupID are immutable: an
 	// update that names any of the three is refused for every role with the framework's
-	// own answer (400, "json field groupId is immutable"), before the request's grants are
-	// read and before any row is, so the refusal is the same for a pass of the sector, a
-	// pass of another sector and an id that is no pass. The collection takes Update off
+	// own answer (400, "json field groupId is immutable"; for two of them, one sentence
+	// that names both in the order of their names), before the request's grants are read
+	// and before any row is, so the refusal is the same for a pass of the sector, a pass
+	// of another sector and an id that is no pass. The collection takes Update off
 	// the three columns and a role file that grants it is refused when it is read. A pass
 	// that should be somebody else's is deleted and written again; its level and its
 	// expiry are what an update may change.
