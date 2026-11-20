@@ -289,12 +289,12 @@ func (a *App) PatchResources() http.HandlerFunc {
 					// without naming them (one that names a set they are in, or the row a
 					// value of theirs is read through) is its stated limit, beside a role
 					// given to a group they are in: a session whose mask does not refuse
-					// the record's writes writes it, whether or not the mask refuses a
-					// class, and an application closes that through its mask, which
-					// refuses the record's writes by name (accesstypes.RefuseWrites). A
-					// row removed with its parent, and a column that records who made a
-					// row, are limits of their own: identity.RefuseImpersonatorAsRowSubject
-					// says what closes each.
+					// the record's writes writes it, and an application closes that
+					// through its mask, which refuses the class access this record's
+					// writes carry (accesstypes.RefuseClass). A row removed with its
+					// parent, and a column that records who made a row, are limits of
+					// their own: identity.RefuseImpersonatorAsRowSubject says what
+					// closes each.
 					subjectKey := resource.KeySet{}
 					if op.Type != resource.OperationCreate {
 						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
@@ -382,12 +382,12 @@ func (a *App) PatchResources() http.HandlerFunc {
 					// without naming them (one that names a set they are in, or the row a
 					// value of theirs is read through) is its stated limit, beside a role
 					// given to a group they are in: a session whose mask does not refuse
-					// the record's writes writes it, whether or not the mask refuses a
-					// class, and an application closes that through its mask, which
-					// refuses the record's writes by name (accesstypes.RefuseWrites). A
-					// row removed with its parent, and a column that records who made a
-					// row, are limits of their own: identity.RefuseImpersonatorAsRowSubject
-					// says what closes each.
+					// the record's writes writes it, and an application closes that
+					// through its mask, which refuses the class access this record's
+					// writes carry (accesstypes.RefuseClass). A row removed with its
+					// parent, and a column that records who made a row, are limits of
+					// their own: identity.RefuseImpersonatorAsRowSubject says what
+					// closes each.
 					subjectKey := resource.KeySet{}
 					if op.Type != resource.OperationCreate {
 						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
@@ -461,12 +461,12 @@ func (a *App) PatchResources() http.HandlerFunc {
 					// without naming them (one that names a set they are in, or the row a
 					// value of theirs is read through) is its stated limit, beside a role
 					// given to a group they are in: a session whose mask does not refuse
-					// the record's writes writes it, whether or not the mask refuses a
-					// class, and an application closes that through its mask, which
-					// refuses the record's writes by name (accesstypes.RefuseWrites). A
-					// row removed with its parent, and a column that records who made a
-					// row, are limits of their own: identity.RefuseImpersonatorAsRowSubject
-					// says what closes each.
+					// the record's writes writes it, and an application closes that
+					// through its mask, which refuses the class access this record's
+					// writes carry (accesstypes.RefuseClass). A row removed with its
+					// parent, and a column that records who made a row, are limits of
+					// their own: identity.RefuseImpersonatorAsRowSubject says what
+					// closes each.
 					subjectKey := resource.KeySet{}
 					subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id1"))
 					subjectKey = subjectKey.Add("CertificationID", httpio.Param[string](req, "id2"))
@@ -694,12 +694,12 @@ func (a *App) PatchResources() http.HandlerFunc {
 						// without naming them (one that names a set they are in, or the row a
 						// value of theirs is read through) is its stated limit, beside a role
 						// given to a group they are in: a session whose mask does not refuse
-						// the record's writes writes it, whether or not the mask refuses a
-						// class, and an application closes that through its mask, which
-						// refuses the record's writes by name (accesstypes.RefuseWrites). A
-						// row removed with its parent, and a column that records who made a
-						// row, are limits of their own: identity.RefuseImpersonatorAsRowSubject
-						// says what closes each.
+						// the record's writes writes it, and an application closes that
+						// through its mask, which refuses the class access this record's
+						// writes carry (accesstypes.RefuseClass). A row removed with its
+						// parent, and a column that records who made a row, are limits of
+						// their own: identity.RefuseImpersonatorAsRowSubject says what
+						// closes each.
 						subjectKey := resource.KeySet{}
 						if op.Type != resource.OperationCreate {
 							subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
@@ -1115,12 +1115,12 @@ func (a *App) PatchResources() http.HandlerFunc {
 						// without naming them (one that names a set they are in, or the row a
 						// value of theirs is read through) is its stated limit, beside a role
 						// given to a group they are in: a session whose mask does not refuse
-						// the record's writes writes it, whether or not the mask refuses a
-						// class, and an application closes that through its mask, which
-						// refuses the record's writes by name (accesstypes.RefuseWrites). A
-						// row removed with its parent, and a column that records who made a
-						// row, are limits of their own: identity.RefuseImpersonatorAsRowSubject
-						// says what closes each.
+						// the record's writes writes it, and an application closes that
+						// through its mask, which refuses the class access this record's
+						// writes carry (accesstypes.RefuseClass). A row removed with its
+						// parent, and a column that records who made a row, are limits of
+						// their own: identity.RefuseImpersonatorAsRowSubject says what
+						// closes each.
 						subjectKey := resource.KeySet{}
 						subjectKey = subjectKey.Add("SquadronID", httpio.Param[impulse.UUID](req, "id1"))
 						subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id2"))

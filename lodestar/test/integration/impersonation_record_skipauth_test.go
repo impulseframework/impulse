@@ -286,14 +286,16 @@ func TestImpersonation_ownRecordUnderARole(t *testing.T) {
 // person's own standing is refused, and nothing in the database changes: a higher
 // clearance and fee limit on the cadet's own Pilot row, that row handed on or removed, a
 // certification, a place in a squadron and a hangar pass of their own, a veteran's row
-// moved onto the yeoman's account and a row made for it. The kind's mask names the
-// records that decide what a person may do, so the same writes for another person are
-// refused too: a pilot's clearance, by the record and by the action that rates a pilot;
-// a certification given and taken; a place in a squadron given and taken; a hangar pass
-// given to a person and to a squadron, changed and taken; a client's contact moved to
-// another client; and a squadron changed, its wing or its name, because a squadron's row
-// says which wing every member is in and a mask names a record's permission, not one
-// plain field of it. What the mask does not name it keeps: a wing is added.
+// moved onto the yeoman's account and a row made for it. The kind's mask refuses the
+// class access and names no record: the generator gives that class to the writes of
+// every record that decides what a person may do, so the same writes for another person
+// are refused too: a pilot's clearance, by the record and by the action that rates a
+// pilot; a certification given and taken; a place in a squadron given and taken; a
+// hangar pass given to a person and to a squadron, changed and taken; a client's contact
+// moved to another client; and a squadron changed, its wing or its name, because a
+// squadron's row says which wing every member is in and the class is on the record's
+// change, not on one plain field of it. A write that carries no class the mask keeps: a
+// wing is added.
 //
 // Demonstrates: impersonation.never-the-subject, impersonation.act-as-user, impersonation.grant-mask, impersonation.mask.
 func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
@@ -329,7 +331,7 @@ func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
 			name: "a Pilot row made for their own account", by: yeomanAsGovernor,
 			ops: []string{recordOp("add", "/pilots", fmt.Sprintf(`{"userId":%q,"displayName":"Yeoman Yarrow","clearance":5,"feeLimit":999999}`, yeoman))},
 		},
-		// What the kind's mask names: another person's standing.
+		// What the class access covers: another person's standing.
 		{name: "another pilot's clearance", by: asGovernor, ops: []string{recordOp("patch", "/pilots/"+pilotPaxID, `{"clearance":4}`)}},
 		{name: "another pilot's certification given", by: asGovernor, ops: []string{recordOp("add", "/pilot-certifications/"+pilot+"/hazmat", `{}`)}},
 		{name: "another pilot's certification taken", by: asGovernor, ops: []string{recordOp("remove", "/pilot-certifications/"+pilot+"/salvage", "")}},
@@ -370,10 +372,10 @@ func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
 		t.Errorf("the veteran's clearance after the refused rating = %d, want the 5 the registry gave them", got)
 	}
 
-	// The mask refuses what it names and keeps the rest: the session that may not
-	// change a squadron adds a wing, which no person's standing is read from.
+	// The mask refuses the class and keeps the rest: the session that may not change a
+	// squadron adds a wing, which no person's standing is read from.
 	if status, answer := writeRecords(ctx, asGovernor, recordOp("add", opPath(anvil, "wings"), `{"name":"Reserve Wing"}`)); status != http.StatusOK {
-		t.Errorf("acting as the governor, a wing added: status %d, want 200: the mask names no write of Wings: %s", status, answer)
+		t.Errorf("acting as the governor, a wing added: status %d, want 200: no write of Wings carries a class: %s", status, answer)
 	}
 
 	// The sessions ended, the cadet's clearance is the one the registry gave them.

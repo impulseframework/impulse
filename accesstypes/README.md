@@ -36,9 +36,13 @@ classes...)` is the whole question a check asks, with the reason for the log;
 declared (`@class` on a generated method or on the constant that registers the
 action by hand, with Execute). A mask that refuses a class refuses every action
 that carries it, the ones declared after the mask was written among them, so
-nobody keeps a list of actions in step with the application. A class is an
-action's alone: a record carries none, and a mask holds a session off a record
-by naming it (`RefusePermission`, `RefuseWrites`). Two classes are the library's:
+nobody keeps a list of actions in step with the application. An application
+puts a class on an action alone. A record's write carries a class where the
+generator gives it one: `access`, on the create, the change and the delete of
+every record that decides what a person may do (one that carries `@subjectValue`
+or `@subjectSet`), and on the change of a record such a value is read through.
+A mask holds a session off any other record by naming it (`RefusePermission`,
+`RefuseWrites`). Two classes are the library's:
 `ClassCredential` (`credential`), the actions that change how a person signs
 in, and `ClassAccess` (`access`), the actions that give or take away what
 someone may do: a role, a place in a group, an invitation, an account made,

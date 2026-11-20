@@ -48,11 +48,12 @@ import (
 // record's value is read through (the team's own row, which says which division the
 // team is in). They are a stated limit of the rule, beside the one
 // RefuseImpersonatorAsSubject names for a role given to a group the person is in: a
-// session whose mask does not refuse the record's writes writes such a row, whether or
-// not the mask refuses a class, since the write of a record carries none, and the rule
-// does not look for the person in the set or behind the value. An application closes
-// that through its mask: a kind of impersonation that refuses the record's writes by
-// name (accesstypes.RefuseWrites) refuses them, for every person.
+// session whose mask does not refuse the record's writes writes such a row, and the
+// rule does not look for the person in the set or behind the value. An application
+// closes that through its mask: the generator gives the class access to the writes of
+// every record that decides what a person may do and to the change of a record a value
+// is read through, so a kind of impersonation that refuses the class
+// (accesstypes.RefuseClass) refuses them, for every person.
 //
 // A row removed with its parent, which may name the person, is a limit of its own. The
 // database removes the row when the parent's row is deleted (an interleaved table or a

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -187,8 +188,7 @@ func TestImpersonationKinds(t *testing.T) {
 		{Name: "view", Grant: "ViewAsUser", Widest: "reading only"},
 		{
 			Name: "act", Grant: "ActAsUser",
-			Widest: "everything except access actions, credential actions, writing ClientContacts, writing HangarPasses, " +
-				"writing PilotCertifications, writing Pilots, writing SquadronMemberships and changing Squadrons",
+			Widest: "everything except access actions and credential actions",
 		},
 		{Name: "role", Grant: "AssumeRole", AsRole: true, Widest: "everything"},
 	}
@@ -203,15 +203,13 @@ func TestImpersonationKinds(t *testing.T) {
 
 // TestActKindRefusesTheRecordsThatDecideWhatAPersonMayDo holds the kind that acts as a
 // person to the promise its role makes, that a stand-in does not change who may do
-// what, for the records of Lodestar's own. A record the policy reads as a subject value
-// or a subject set decides what the person each row names may do, so the kind's mask
-// names its three writes; and a record a dotted value is read through (the squadron,
-// whose row says which wing its members are in) decides it for every person who reaches
-// it, so the mask names its change. The list is read off the generated collection, so a
-// record that gains a @subjectValue or a @subjectSet, or a value that takes a new path,
-// fails here until the declaration of the kind names it. A write the application does
-// not offer needs no name: the places in a group of an auth carry a subject set too,
-// and only the identity library's own actions write them, each classed access.
+// what, for the records of Lodestar's own. The kind names no record: its mask refuses
+// the class access, and the generator gives that class to the writes of every record
+// the policy reads as a subject value or a subject set, and to the change of a record a
+// dotted value is read through (the squadron, whose row says which wing its members are
+// in). The writes are read off the generated collection, so the list here is the
+// generator's and changes when a record gains a @subjectValue or a @subjectSet, or a
+// value takes a new path; the kind refuses each without an edit to its declaration.
 func TestActKindRefusesTheRecordsThatDecideWhatAPersonMayDo(t *testing.T) {
 	t.Parallel()
 
@@ -226,46 +224,42 @@ func TestActKindRefusesTheRecordsThatDecideWhatAPersonMayDo(t *testing.T) {
 			act = k.Widest()
 		}
 	}
-
-	var decide, kept []string
-	need := func(perm accesstypes.Permission, record accesstypes.Resource) {
-		write := fmt.Sprintf("%s on %s", perm, record)
-		if slices.Contains(decide, write) || !collection.HasPermission(collection.Scope(record), perm, record) {
-			return
-		}
-		decide = append(decide, write)
-		if _, refused := act.Refuses(perm, record); !refused {
-			kept = append(kept, write)
-		}
-	}
-	for _, record := range collection.Resources() {
-		bindings, _ := collection.Bindings(collection.Scope(record), record)
-		subjects := slices.Concat(bindings.SubjectValues, bindings.SubjectSets)
-		if len(subjects) == 0 {
-			continue
-		}
-		for _, perm := range []accesstypes.Permission{accesstypes.Create, accesstypes.Update, accesstypes.Delete} {
-			need(perm, record)
-		}
-		for _, subject := range subjects {
-			for _, hop := range subject.Path {
-				need(accesstypes.Update, accesstypes.Resource(hop.Table))
-			}
+	for _, refusal := range act.Refusals() {
+		if perm, record, named := refusal.Named(); named {
+			t.Errorf("the kind that acts as a person refuses %s on %s by name: the class access is what holds it off a record that decides what a person may do", perm, record)
 		}
 	}
 
+	// The places in a group of the crew carry a subject set too. The application
+	// offers no write of that record, since the identity library's own actions write
+	// it, each classed access; the record's writes carry the class all the same, so a
+	// route written by hand that registers one is refused with them.
 	want := []string{
 		"Create on ClientContacts", "Update on ClientContacts", "Delete on ClientContacts",
+		"Create on CrewGroupMembers", "Update on CrewGroupMembers", "Delete on CrewGroupMembers",
 		"Create on HangarPasses", "Update on HangarPasses", "Delete on HangarPasses",
 		"Create on PilotCertifications", "Update on PilotCertifications", "Delete on PilotCertifications",
 		"Create on Pilots", "Update on Pilots", "Delete on Pilots",
-		"Create on SquadronMemberships", "Update on SquadronMemberships", "Delete on SquadronMemberships", "Update on Squadrons",
+		"Create on SquadronMemberships", "Update on SquadronMemberships", "Delete on SquadronMemberships",
+		"Update on Squadrons",
 	}
-	if !slices.Equal(decide, want) {
-		t.Errorf("the writes that decide what a person may do, read off the generated collection = %q, want %q", decide, want)
+	classed := collection.WritesOfClass(router.ClassAccess)
+	if !slices.Equal(classed, want) {
+		t.Errorf("the writes the generator classes access, read off the generated collection = %q, want %q", classed, want)
 	}
-	if len(kept) != 0 {
-		t.Errorf("the kind that acts as a person keeps %q: each changes who may do what, so the kind's mask names it", kept)
+
+	for _, record := range collection.Resources() {
+		for _, perm := range []accesstypes.Permission{accesstypes.Create, accesstypes.Update, accesstypes.Delete} {
+			classed := slices.Contains(classed, fmt.Sprintf("%s on %s", perm, record))
+			policy := &policyAsked{}
+			masked := resource.Masked(policy, act, collection)
+			if _, err := masked.Check(t.Context(), accesstypes.NewEnvironment(), accesstypes.GlobalScope(), perm, record); err != nil {
+				t.Fatalf("Check(%s, %s) error = %v", perm, record, err)
+			}
+			if asked := len(policy.asked) != 0; asked == classed {
+				t.Errorf("%s on %s: policy asked = %t and the write is classed access = %t: the kind refuses the classed writes and leaves the rest to policy", perm, record, asked, classed)
+			}
+		}
 	}
 }
 
@@ -301,7 +295,7 @@ func (p *policyAsked) Check(
 // classes, so the rule is asked of every check its sessions make. Every permission the
 // collection lists, on a record, on a field and on an action, is checked under the
 // kind's mask for a sector and for the whole application, and reaches policy unless the
-// mask itself refuses it, by the class the action carries or by the record's name: the
+// mask itself refuses it, by the class the action or the record's write carries: the
 // rule refuses nothing a generated handler asks, which is always a name of the
 // collection. A record's name spelled wrong is refused whatever the permission, and a
 // permission a record does not register is policy's, since the name is the
@@ -347,8 +341,11 @@ func TestActKindKnowsEveryNameTheApplicationChecks(t *testing.T) {
 		// and the check does not is one the rule took for a name of nobody's.
 		var want []accesstypes.Resource
 		for _, name := range names {
+			record, _, _ := strings.Cut(string(name), ".")
 			classes := slices.Concat(
 				collection.ActionClasses(accesstypes.GlobalPermissionScope, name), collection.ActionClasses(accesstypes.DomainPermissionScope, name),
+				collection.WriteClasses(accesstypes.GlobalPermissionScope, perm, accesstypes.Resource(record)),
+				collection.WriteClasses(accesstypes.DomainPermissionScope, perm, accesstypes.Resource(record)),
 			)
 			if _, refused := act.Refuses(perm, name, classes...); !refused {
 				want = append(want, name)

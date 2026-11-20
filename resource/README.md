@@ -680,9 +680,9 @@ about it:
   or for a tenant, is refused before policy is asked (`… the application registers
   nothing under "Shipyrds", so what the name is cannot be known: register it by hand
   (@manualAddResource(Update) on the constant) or correct the name`). A record the
-  collection registers carries no class and is left to policy for each of its
-  permissions, the ones it registers and the ones it does not, and a field is judged
-  by its record. Every check a generated handler makes names a record or an action of
+  collection registers carries a class on the writes the generator gave one (below),
+  and is left to policy for each of its other permissions, the ones it registers and
+  the ones it does not; a field is judged by its record. Every check a generated handler makes names a record or an action of
   the collection, so this rule refuses none of them; it is reached by a check written
   by hand on a name registered nowhere, and by an application of several sites that
   hands each site's check its own collection while one policy holds them all: under a
@@ -4748,14 +4748,16 @@ own, outside any request, has no caller and is the application's act):
   team), and the row a dotted `value:` is read through (the team's own row, which says
   which division the team is in). These are the rule's stated limits, the rows that
   reach a person without naming them beside the role given to a group they are in. A
-  session whose mask does not refuse the class `access` gives such a role, and a
-  session whose mask does not refuse the record's writes writes such a row, whether or
-  not it refuses the class: the write of a record carries no class. To let someone act
-  as a person with no mask is to give them what the person holds. An application
-  closes them through its mask: a kind of impersonation that is not to change who may
-  do what refuses the class `access`, and the writes of each such record by name
-  (`accesstypes.RefuseWrites(record)`), which refuses them for every person and not the
-  real one alone.
+  session whose mask does not refuse the class `access` gives such a role and writes
+  such a row. To let someone act as a person with no mask is to give them what the
+  person holds. An application closes them through its mask: a kind of impersonation
+  that is not to change who may do what refuses the class `access`. The generator
+  gives that class to the create, the change and the delete of every record that
+  carries `@subjectValue` or `@subjectSet`, and to the change of a record a dotted
+  `value:` is read through, so the mask refuses those writes for every person and not
+  the real one alone, with no list of records kept by hand
+  (`resource.CollectionResource.WriteClasses`; a record that gains a subject value is
+  covered when the application is generated again).
 
   A row removed with its parent, which may name the person, is a limit of its own. The
   database removes the row when the parent's row is deleted (an interleaved table or a

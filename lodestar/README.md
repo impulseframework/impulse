@@ -1108,9 +1108,8 @@ kind gives (`"kind":"view"` with `Execute` in its mask) is refused, 403, with no
 started, and so is `"kind":"act"` from a holder of `CommandStaff` alone: the grant to
 view is not the grant to act. The answer, the session route's `impersonation.maskWords`,
 the banner and the watch desk say the session's mask in words ("reading only", and for
-the `act` kind "everything except access actions, credential actions, writing
-ClientContacts, writing HangarPasses, writing PilotCertifications, writing Pilots,
-writing SquadronMemberships and changing Squadrons"), and so does the generated list of
+the `act` kind "everything except access actions and credential actions"), and so does
+the generated list of
 the impersonation records (`crew-session-impersonations`), whose `mask` column reads the
 stored text as words.
 

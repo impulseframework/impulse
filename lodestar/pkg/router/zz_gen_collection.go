@@ -8,10 +8,10 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
-// The classes the application's actions carry (@class), each under the name a
-// permission mask refuses it by: accesstypes.RefuseClass(ClassAccess). A mask
-// written against a class no action carries any more does not compile, since its
-// constant is gone from this file.
+// The classes the application's actions carry (@class) and the ones the generator
+// gives the writes of its records, each under the name a permission mask refuses it
+// by: accesstypes.RefuseClass(ClassAccess). A mask written against a class
+// nothing carries any more does not compile, since its constant is gone from this file.
 const (
 	// ClassAccess is the class access.
 	ClassAccess accesstypes.ActionClass = "access"
@@ -566,6 +566,11 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "HangarPasses",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
+				WriteClasses: []resource.WriteClassData{
+					{Permission: accesstypes.Create, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{ClassAccess}},
+				},
 				Tags: []resource.TagData{
 					{Name: "expiresAt", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "hangarId", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
@@ -1208,6 +1213,11 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SquadronMemberships",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
+				WriteClasses: []resource.WriteClassData{
+					{Permission: accesstypes.Create, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{ClassAccess}},
+				},
 				Tags: []resource.TagData{
 					{Name: "squadronId"},
 					{Name: "userId"},
@@ -1239,6 +1249,9 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "Squadrons",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
+				WriteClasses: []resource.WriteClassData{
+					{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{ClassAccess}},
+				},
 				Tags: []resource.TagData{
 					{Name: "callsigns", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "id"},
@@ -1352,6 +1365,11 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "ClientContacts",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
+				WriteClasses: []resource.WriteClassData{
+					{Permission: accesstypes.Create, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{ClassAccess}},
+				},
 				Tags: []resource.TagData{
 					{Name: "clientId", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "displayName", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
@@ -1430,6 +1448,11 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "CrewGroupMembers",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List},
+				WriteClasses: []resource.WriteClassData{
+					{Permission: accesstypes.Create, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{ClassAccess}},
+				},
 				Tags: []resource.TagData{
 					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "endsAt", Permissions: []accesstypes.Permission{accesstypes.List}},
@@ -2239,6 +2262,11 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "PilotCertifications",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
+				WriteClasses: []resource.WriteClassData{
+					{Permission: accesstypes.Create, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{ClassAccess}},
+				},
 				Tags: []resource.TagData{
 					{Name: "certificationId"},
 					{Name: "userId"},
@@ -2252,6 +2280,11 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "Pilots",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
+				WriteClasses: []resource.WriteClassData{
+					{Permission: accesstypes.Create, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{ClassAccess}},
+				},
 				Tags: []resource.TagData{
 					{Name: "clearance", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "displayName", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},

@@ -26,6 +26,12 @@ func (s stubClasses) ActionClasses(scope accesstypes.PermissionScope, action acc
 	return s[scope][action]
 }
 
+// WriteClasses reports none: the tests' records carry no class on a write. The writes
+// that carry one are the generated collection's (TestMasked_generatedCollection_writeClasses).
+func (stubClasses) WriteClasses(accesstypes.PermissionScope, accesstypes.Permission, accesstypes.Resource) []accesstypes.ActionClass {
+	return nil
+}
+
 // HasPermission reports Execute on an action the application registers within scope.
 func (s stubClasses) HasPermission(scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) bool {
 	_, registered := s[scope][res]
@@ -936,6 +942,188 @@ func TestRefuseActionUnderMask(t *testing.T) {
 			}
 			if got := output.String(); !strings.Contains(got, tt.wantLogged) {
 				t.Errorf("log = %q, want a line carrying %q", got, tt.wantLogged)
+			}
+		})
+	}
+}
+
+// TestMasked_generatedCollection_writeClasses pins what a mask that refuses a class
+// does with the writes of records that carry it. The generator gives the class access
+// to the create, the change and the delete of a record that decides what a person may
+// do, and to the change of a record such a value is read through, so the mask refuses
+// each of those before policy is asked, a field of the record with the record, in the
+// record's own scope and in the other. What carries no class is policy's: the same
+// record read or listed, the create and the delete of the record a value is read
+// through, and every write of a record that decides nothing. A mask that refuses
+// another class leaves them all to policy.
+func TestMasked_generatedCollection_writeClasses(t *testing.T) {
+	t.Parallel()
+
+	b := NewCollectionBuilder()
+	if err := b.AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, "WireFunds"); err != nil {
+		t.Fatalf("AddMethodResource(WireFunds) error = %v", err)
+	}
+	b.SetActionClasses(accesstypes.GlobalPermissionScope, "WireFunds", []accesstypes.ActionClass{"money_movement"})
+	fields := []FieldTags{{Field: "ID", JSON: "id"}, {Field: "Name", JSON: "name"}}
+	all := []accesstypes.Permission{accesstypes.List, accesstypes.Read, accesstypes.Create, accesstypes.Update, accesstypes.Delete}
+	routes := [][]accesstypes.Permission{{accesstypes.List}, {accesstypes.Read}, {accesstypes.Create, accesstypes.Update, accesstypes.Delete}}
+	for _, record := range []accesstypes.Resource{"Seats", "Teams", "Shelves"} {
+		for _, perms := range routes {
+			set, err := NewSetData(fields, perms...)
+			if err != nil {
+				t.Fatalf("NewSetData(%s, %v) error = %v", record, perms, err)
+			}
+			if err := b.AddResourceSet(accesstypes.DomainPermissionScope, record, set); err != nil {
+				t.Fatalf("AddResourceSet(%s, %v) error = %v", record, perms, err)
+			}
+		}
+	}
+	access := []accesstypes.ActionClass{accesstypes.ClassAccess}
+	for _, write := range []accesstypes.Permission{accesstypes.Create, accesstypes.Update, accesstypes.Delete} {
+		b.SetWriteClasses(accesstypes.DomainPermissionScope, "Seats", write, access)
+	}
+	b.SetWriteClasses(accesstypes.DomainPermissionScope, "Teams", accesstypes.Update, access)
+	collection, err := NewGeneratedCollection(b.Data())
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+
+	if diff := cmp.Diff([]accesstypes.ActionClass{accesstypes.ClassAccess, "money_movement"}, collection.ClassesInUse()); diff != "" {
+		t.Errorf("ClassesInUse() mismatch (-want +got):\n%s", diff)
+	}
+	wantWrites := []string{"Create on Seats", "Update on Seats", "Delete on Seats", "Update on Teams"}
+	if diff := cmp.Diff(wantWrites, collection.WritesOfClass(accesstypes.ClassAccess)); diff != "" {
+		t.Errorf("WritesOfClass(access) mismatch (-want +got):\n%s", diff)
+	}
+	if got := collection.ActionsOfClass(accesstypes.ClassAccess); len(got) != 0 {
+		t.Errorf("ActionsOfClass(access) = %v, want none: the class is carried by the writes of records alone here", got)
+	}
+	if diff := cmp.Diff(b.Data(), collection.Data()); diff != "" {
+		t.Errorf("the collection read back from its data differs from what the builder holds (-builder +read back):\n%s", diff)
+	}
+
+	tests := []struct {
+		name string
+		mask accesstypes.PermissionMask
+		// refused are the checks the mask answers itself, as "<Permission> on <name>".
+		refused []string
+	}{
+		{
+			name: "a mask that refuses the class access",
+			mask: accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassAccess)),
+			refused: []string{
+				"Create on Seats", "Update on Seats", "Update on Seats.name", "Delete on Seats",
+				"Update on Teams", "Update on Teams.name",
+			},
+		},
+		{
+			name:    "a mask that refuses another class",
+			mask:    accesstypes.AllowAll().Refusing(accesstypes.RefuseClass("money_movement")),
+			refused: []string{"Execute on WireFunds"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var refused []string
+			for _, scope := range []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("tenant")} {
+				for _, record := range []accesstypes.Resource{"Seats", "Teams", "Shelves"} {
+					for _, perm := range all {
+						names := []accesstypes.Resource{record}
+						if perm == accesstypes.Update {
+							names = append(names, record+".name")
+						}
+						for _, name := range names {
+							stub := &stubPermissions{user: "bob"}
+							if _, err := Masked(stub, tt.mask, collection).Check(context.Background(), accesstypes.NewEnvironment(), scope, perm, name); err != nil {
+								t.Fatalf("Check(%s, %s) error = %v", perm, name, err)
+							}
+							if len(stub.checkResources) == 0 && scope.IsGlobal() {
+								refused = append(refused, string(perm)+" on "+string(name))
+							}
+							if asked := len(stub.checkResources) != 0; asked == slices.Contains(tt.refused, string(perm)+" on "+string(name)) {
+								t.Errorf("%s on %s in %s: policy asked = %t, and the mask %s", perm, name, scope, asked, tt.name)
+							}
+						}
+					}
+				}
+			}
+			stub := &stubPermissions{user: "bob"}
+			if _, err := Masked(stub, tt.mask, collection).Check(context.Background(), accesstypes.NewEnvironment(), accesstypes.GlobalScope(), accesstypes.Execute, "WireFunds"); err != nil {
+				t.Fatalf("Check(Execute, WireFunds) error = %v", err)
+			}
+			if len(stub.checkResources) == 0 {
+				refused = append(refused, "Execute on WireFunds")
+			}
+			slices.Sort(refused)
+			want := slices.Clone(tt.refused)
+			slices.Sort(want)
+			if diff := cmp.Diff(want, refused); diff != "" {
+				t.Errorf("what the mask refused before policy was asked mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestNewGeneratedCollection_writeClasses pins what a collection refuses of the classes
+// a record's writes carry when it is read: a class on a permission that is no write, a
+// class on a write of a name that registers Execute, a write listed twice, and a class
+// that is no class's name or is carried twice.
+func TestNewGeneratedCollection_writeClasses(t *testing.T) {
+	t.Parallel()
+
+	access := []accesstypes.ActionClass{accesstypes.ClassAccess}
+	record := []accesstypes.Permission{accesstypes.Read, accesstypes.Update}
+	tests := []struct {
+		name    string
+		res     CollectionResource
+		wantErr string
+	}{
+		{
+			name: "a class on reading a record",
+			res:  CollectionResource{Name: "Seats", Scope: accesstypes.GlobalPermissionScope, Permissions: record, WriteClasses: []WriteClassData{{Permission: accesstypes.Read, Classes: access}}},
+			wantErr: `resource "Seats" carries the classes [access] on Read, which is no write of a record: ` +
+				`a record's Create, Update and Delete carry a class, and an action carries its own (Classes)`,
+		},
+		{
+			name: "a class on a write of an action",
+			res: CollectionResource{
+				Name: "Launch", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute},
+				WriteClasses: []WriteClassData{{Permission: accesstypes.Update, Classes: access}},
+			},
+			wantErr: `resource "Launch" carries the classes [access] on Update and registers Execute: ` +
+				`a record's writes carry a class, and a name that registers Execute is an action, which carries its own (Classes)`,
+		},
+		{
+			name: "a write listed twice",
+			res: CollectionResource{
+				Name: "Seats", Scope: accesstypes.GlobalPermissionScope, Permissions: record,
+				WriteClasses: []WriteClassData{{Permission: accesstypes.Update, Classes: access}, {Permission: accesstypes.Update, Classes: access}},
+			},
+			wantErr: `resource "Seats" lists the classes of Update twice`,
+		},
+		{
+			name:    "a class that is no class's name",
+			res:     CollectionResource{Name: "Seats", Scope: accesstypes.GlobalPermissionScope, Permissions: record, WriteClasses: []WriteClassData{{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{"Access"}}}},
+			wantErr: `resource "Seats" carries the class "Access" on Update, which is not a class's name: a lowercase letter, then lowercase letters, digits and underscores`,
+		},
+		{
+			name: "a class carried twice",
+			res: CollectionResource{
+				Name: "Seats", Scope: accesstypes.GlobalPermissionScope, Permissions: record,
+				WriteClasses: []WriteClassData{{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess, accesstypes.ClassAccess}}},
+			},
+			wantErr: `resource "Seats" carries the class "access" on Update twice`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{tt.res}})
+			if err == nil || !strings.HasSuffix(err.Error(), "error="+tt.wantErr) {
+				t.Errorf("NewGeneratedCollection() error = %v, want %q", err, tt.wantErr)
 			}
 		})
 	}

@@ -144,6 +144,13 @@ type CollectionData struct {
 	Resources []CollectionResource
 }
 
+// WriteClassData is the classes one write of a record carries
+// (CollectionResource.WriteClasses): Permission is Create, Update or Delete.
+type WriteClassData struct {
+	Permission accesstypes.Permission
+	Classes    []accesstypes.ActionClass
+}
+
 // CollectionResource describes one resource's registrations within a permission collection.
 // RPC methods and manually registered resources carry only Permissions.
 type CollectionResource struct {
@@ -177,6 +184,18 @@ type CollectionResource struct {
 	// that carries a class registers Execute and nothing else, or the collection
 	// is refused.
 	Classes []accesstypes.ActionClass
+
+	// WriteClasses are the classes a record's own writes carry, each write with its
+	// own, in the order Create, Update, Delete. The generator gives the class access
+	// to the create, the change and the delete of a record whose rows the policy
+	// reads as a subject value or a subject set (SubjectValues, SubjectSets), and to
+	// the change of a record such a value is read through (the hop of a dotted
+	// value:), since each of those writes decides what a person may do. A mask that
+	// refuses the class refuses them with the actions that carry it, and a record
+	// that gains a subject value is covered when the application is generated again.
+	// The masked check of an impersonated session reads them here (WriteClasses).
+	// Empty for every other record and for every action.
+	WriteClasses []WriteClassData
 
 	// NoRole marks an action no role is given: one registered so that a permission
 	// mask can refuse it, by its class or by its name, where nothing asks for a grant
@@ -312,6 +331,16 @@ func (b *CollectionBuilder) SetActionClasses(scope accesstypes.PermissionScope, 
 	b.g.setActionClasses(scope, action, classes)
 }
 
+// SetWriteClasses records the classes one write of a record carries within scope
+// (CollectionResource.WriteClasses): permission is Create, Update or Delete, and the
+// generator calls it for the records that decide what a person may do. Classes named
+// twice are kept once, and a write given classes twice carries them all. A permission
+// that is no write of a record is refused when the collection is read back
+// (NewGeneratedCollection).
+func (b *CollectionBuilder) SetWriteClasses(scope accesstypes.PermissionScope, record accesstypes.Resource, permission accesstypes.Permission, classes []accesstypes.ActionClass) {
+	b.g.setWriteClasses(scope, record, permission, classes)
+}
+
 // SetActionNoRole marks an action registered within scope as one no role is given (see
 // CollectionResource.NoRole): a permission mask refuses it, and no role file names it.
 func (b *CollectionBuilder) SetActionNoRole(scope accesstypes.PermissionScope, action accesstypes.Resource) {
@@ -439,6 +468,9 @@ type GeneratedCollection struct {
 	acrossTenants map[accesstypes.Resource]struct{}
 	// classes are the classes each action carries, sorted, within scope.
 	classes map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.ActionClass
+	// writeClasses are the classes each write of a record carries, sorted, within
+	// scope.
+	writeClasses map[accesstypes.PermissionScope]map[accesstypes.Resource]map[accesstypes.Permission][]accesstypes.ActionClass
 	// noRole are the actions no role is given, within scope.
 	noRole map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}
 }
@@ -460,6 +492,7 @@ func newGeneratedCollection() *GeneratedCollection {
 		formerTags:      make(map[accesstypes.PermissionScope]formerTagMap, 2),
 		formerNames:     make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
 		classes:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.ActionClass, 2),
+		writeClasses:    make(map[accesstypes.PermissionScope]map[accesstypes.Resource]map[accesstypes.Permission][]accesstypes.ActionClass, 2),
 		noRole:          make(map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}, 2),
 	}
 }
@@ -628,11 +661,55 @@ func (g *GeneratedCollection) addActionDeclarations(res *CollectionResource) err
 		g.setActionClasses(res.Scope, res.Name, res.Classes)
 	}
 
+	if err := g.addWriteClasses(res); err != nil {
+		return err
+	}
+
 	if res.NoRole {
 		if !slices.Equal(res.Permissions, []accesstypes.Permission{accesstypes.Execute}) || len(res.Tags) > 0 {
 			return errors.Newf("resource %q is marked an action no role is given and is not an action: the mark is for a name that registers Execute alone, with no field", res.Name)
 		}
 		g.setActionNoRole(res.Scope, res.Name)
+	}
+
+	return nil
+}
+
+// recordWrites are the writes of a record, in the order a collection names them.
+var recordWrites = []accesstypes.Permission{accesstypes.Create, accesstypes.Update, accesstypes.Delete}
+
+// addWriteClasses validates and stores the classes one CollectionResource declares for
+// its own writes. A write is Create, Update or Delete: a class on reading or listing a
+// record, or on Execute, which is an action's and carries the action's own classes
+// (Classes), is refused, and so is a record that registers Execute.
+func (g *GeneratedCollection) addWriteClasses(res *CollectionResource) error {
+	for i, write := range res.WriteClasses {
+		if !slices.Contains(recordWrites, write.Permission) {
+			return errors.Newf(
+				"resource %q carries the classes %v on %s, which is no write of a record: a record's Create, Update and Delete carry a class, and an action carries its own (Classes)",
+				res.Name, write.Classes, write.Permission,
+			)
+		}
+		if slices.Contains(res.Permissions, accesstypes.Execute) {
+			return errors.Newf(
+				"resource %q carries the classes %v on %s and registers %s: a record's writes carry a class, and a name that registers %s is an action, which carries its own (Classes)",
+				res.Name, write.Classes, write.Permission, accesstypes.Execute, accesstypes.Execute,
+			)
+		}
+		if slices.ContainsFunc(res.WriteClasses[:i], func(earlier WriteClassData) bool {
+			return earlier.Permission == write.Permission
+		}) {
+			return errors.Newf("resource %q lists the classes of %s twice", res.Name, write.Permission)
+		}
+		for n, class := range write.Classes {
+			if !class.Valid() {
+				return errors.Newf("resource %q carries the class %q on %s, which is not a class's name: a lowercase letter, then lowercase letters, digits and underscores", res.Name, class, write.Permission)
+			}
+			if slices.Contains(write.Classes[:n], class) {
+				return errors.Newf("resource %q carries the class %q on %s twice", res.Name, class, write.Permission)
+			}
+		}
+		g.setWriteClasses(res.Scope, res.Name, write.Permission, write.Classes)
 	}
 
 	return nil
@@ -776,6 +853,59 @@ func (g *GeneratedCollection) setActionClasses(scope accesstypes.PermissionScope
 	g.classes[scope][action] = slices.Compact(joined)
 }
 
+// setWriteClasses adds classes to the ones a write of a record carries within scope,
+// kept sorted, each once, as setActionClasses does for an action.
+func (g *GeneratedCollection) setWriteClasses(scope accesstypes.PermissionScope, record accesstypes.Resource, permission accesstypes.Permission, classes []accesstypes.ActionClass) {
+	if len(classes) == 0 {
+		return
+	}
+	if g.writeClasses[scope] == nil {
+		g.writeClasses[scope] = make(map[accesstypes.Resource]map[accesstypes.Permission][]accesstypes.ActionClass)
+	}
+	if g.writeClasses[scope][record] == nil {
+		g.writeClasses[scope][record] = make(map[accesstypes.Permission][]accesstypes.ActionClass, len(recordWrites))
+	}
+	joined := slices.Concat(g.writeClasses[scope][record][permission], classes)
+	slices.Sort(joined)
+	g.writeClasses[scope][record][permission] = slices.Compact(joined)
+}
+
+// WriteClasses reports the classes the write permission of record carries within
+// scope, sorted; none for a write of no class, for a permission that is no write, and
+// for a name the collection does not hold. The generator gives the class access to the
+// writes of the records that decide what a person may do
+// (CollectionResource.WriteClasses). It is what the masked check of an impersonated
+// session asks beside an action's classes (Masked): a mask that refuses a class
+// refuses every write that carries it.
+func (g *GeneratedCollection) WriteClasses(scope accesstypes.PermissionScope, permission accesstypes.Permission, record accesstypes.Resource) []accesstypes.ActionClass {
+	return g.writeClasses[scope][record][permission]
+}
+
+// WritesOfClass reports the writes of records that carry class, in either scope, as
+// "<Permission> on <Record>", sorted by record and then in the order Create, Update,
+// Delete.
+func (g *GeneratedCollection) WritesOfClass(class accesstypes.ActionClass) []string {
+	var records []accesstypes.Resource
+	for _, byRecord := range g.writeClasses {
+		for record := range byRecord {
+			records = append(records, record)
+		}
+	}
+	slices.Sort(records)
+
+	var writes []string
+	for _, record := range slices.Compact(records) {
+		for _, permission := range recordWrites {
+			if slices.Contains(g.WriteClasses(accesstypes.GlobalPermissionScope, permission, record), class) ||
+				slices.Contains(g.WriteClasses(accesstypes.DomainPermissionScope, permission, record), class) {
+				writes = append(writes, string(permission)+" on "+string(record))
+			}
+		}
+	}
+
+	return writes
+}
+
 // ActionClasses reports the classes the action carries within scope (@class), sorted;
 // none for an action of no class and for a name the collection does not hold. It is
 // what the masked check of an impersonated session asks before it reads the policy
@@ -784,10 +914,10 @@ func (g *GeneratedCollection) ActionClasses(scope accesstypes.PermissionScope, a
 	return g.classes[scope][action]
 }
 
-// ClassesInUse reports every class some action of the collection carries, sorted. A
-// mask may refuse only one of these: a class no action carries refuses nothing, which
-// a declaration of the impersonation an application offers is refused for at start-up
-// (session.NewImpersonations).
+// ClassesInUse reports every class some action or some record's write of the
+// collection carries, sorted. A mask may refuse only one of these: a class nothing
+// carries refuses nothing, which a declaration of the impersonation an application
+// offers is refused for at start-up (session.NewImpersonations).
 func (g *GeneratedCollection) ClassesInUse() []accesstypes.ActionClass {
 	var classes []accesstypes.ActionClass
 	for _, byAction := range g.classes {
@@ -795,12 +925,20 @@ func (g *GeneratedCollection) ClassesInUse() []accesstypes.ActionClass {
 			classes = append(classes, carried...)
 		}
 	}
+	for _, byRecord := range g.writeClasses {
+		for _, byWrite := range byRecord {
+			for _, carried := range byWrite {
+				classes = append(classes, carried...)
+			}
+		}
+	}
 	slices.Sort(classes)
 
 	return slices.Compact(classes)
 }
 
-// ActionsOfClass reports the actions that carry class, in either scope, sorted.
+// ActionsOfClass reports the actions that carry class, in either scope, sorted. The
+// writes of records that carry it are WritesOfClass.
 func (g *GeneratedCollection) ActionsOfClass(class accesstypes.ActionClass) []accesstypes.Resource {
 	var actions []accesstypes.Resource
 	for _, byAction := range g.classes {
@@ -1439,6 +1577,11 @@ func collectionResourceKeys(g *GeneratedCollection) []resourceKey {
 			keySet[resourceKey{scope: scope, name: res}] = struct{}{}
 		}
 	}
+	for scope, store := range g.writeClasses {
+		for res := range store {
+			keySet[resourceKey{scope: scope, name: res}] = struct{}{}
+		}
+	}
 
 	keys := make([]resourceKey, 0, len(keySet))
 	for key := range keySet {
@@ -1523,6 +1666,11 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 			res.Formerly = former
 		}
 		res.Classes = slices.Clone(g.classes[key.scope][key.name])
+		for _, permission := range recordWrites {
+			if classes := g.writeClasses[key.scope][key.name][permission]; len(classes) > 0 {
+				res.WriteClasses = append(res.WriteClasses, WriteClassData{Permission: permission, Classes: slices.Clone(classes)})
+			}
+		}
 		if _, ok := g.noRole[key.scope][key.name]; ok {
 			res.NoRole = true
 		}

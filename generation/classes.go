@@ -14,12 +14,17 @@ import (
 // The classes of an action (@class). An action carries its classes where it is
 // declared: on the @rpc struct of a generated method, or on the accesstypes.Resource
 // constant of a registration made by hand, beside its @manualAddResource(Execute). A
-// registration of another permission is a record's and carries none (classOnNoAction).
-// The generated collection carries them (resource.CollectionResource.Classes), which is
-// where the masked check of an impersonated session reads them: a permission mask that
-// refuses a class refuses every action that carries it (accesstypes.RefuseClass). The
-// collection file declares a constant for each class in use, so a mask is written
-// against a name the compiler knows.
+// registration of another permission is a record's and is given none by an annotation
+// (classOnNoAction). The generated collection carries them
+// (resource.CollectionResource.Classes), which is where the masked check of an
+// impersonated session reads them: a permission mask that refuses a class refuses every
+// action that carries it (accesstypes.RefuseClass). The collection file declares a
+// constant for each class in use, so a mask is written against a name the compiler
+// knows.
+//
+// A record's write carries a class where the generator gives it one, and nowhere else:
+// the class access, on the writes of every record that decides what a person may do
+// (writesThatDecideAccess, resource.CollectionResource.WriteClasses).
 
 // identityCredentialClass is the @class line of the generated identity methods that
 // change how a person signs in: a password set, required anew or removed, a sign-in
@@ -55,6 +60,70 @@ const identityCredentialClass = "\n// @" + classKeyword + "(" + string(accesstyp
 // directory alone (tenantOwnMethod.Classes), and the making of a tenant of one's own
 // (tenantCreationAction).
 const identityAccessClass = "\n// @" + classKeyword + "(" + string(accesstypes.ClassAccess) + ")"
+
+// accessWrite is one write of a record the generator gives the class access: the
+// record and the permission of the write.
+type accessWrite struct {
+	Record     *resourceInfo
+	Permission accesstypes.Permission
+}
+
+// writesThatDecideAccess lists the writes of records that decide what a person may do,
+// which the generator gives the class access (resource.CollectionResource.WriteClasses),
+// in the order the resources are declared, each write once. They come in two shapes.
+//
+// A record whose rows the policy reads as a subject value or a subject set
+// (@subjectValue, @subjectSet): a row says what the person it names, or the people of
+// the set it names, may do, so its create, its change and its delete each give or take
+// that away.
+//
+// A record a subject set's or a subject value's dotted value is read through (value:
+// SquadID.DivisionID reads the division off the squad's row): the row says what every
+// person who reaches it holds, so its change moves them all. Its create and its delete
+// carry no class: a new row is reached by nobody yet, and a delete that takes with it
+// the rows that reach it is a row removed with its parent, which a mask closes by
+// refusing the parent's delete by name.
+//
+// Nobody lists these by hand: an application's mask refuses the class, and a record that
+// gains a subject value, or a value that takes a new path, is covered when the
+// application is generated again. An application does not put @class on a record
+// (rejectClassAnnotation); a mask that is to keep one of these writes names it as an
+// exception to its refusal of the class.
+func (r *resourceGenerator) writesThatDecideAccess() []accessWrite {
+	byTable := make(map[string]*resourceInfo, len(r.resources))
+	for _, res := range r.resources {
+		byTable[r.pluralize(res.Name())] = res
+	}
+
+	var writes []accessWrite
+	add := func(record *resourceInfo, permission accesstypes.Permission) {
+		if !slices.ContainsFunc(writes, func(w accessWrite) bool {
+			return w.Record == record && w.Permission == permission
+		}) {
+			writes = append(writes, accessWrite{Record: record, Permission: permission})
+		}
+	}
+	for _, res := range r.resources {
+		subjects := slices.Concat(res.SubjectValues, res.SubjectSets)
+		if len(subjects) == 0 {
+			continue
+		}
+		for _, permission := range []accesstypes.Permission{accesstypes.Create, accesstypes.Update, accesstypes.Delete} {
+			add(res, permission)
+		}
+		for _, subject := range subjects {
+			for _, hop := range subject.Path {
+				// A hop onto a table no resource of this run declares has no record
+				// for a write to be checked on.
+				if through, ok := byTable[hop.Table]; ok {
+					add(through, accesstypes.Update)
+				}
+			}
+		}
+	}
+
+	return writes
+}
 
 // classConstantPrefix opens the name of the constant the collection file declares for
 // a class: ClassCredential for the class credential.
@@ -193,13 +262,16 @@ func classConstantName(class accesstypes.ActionClass) string {
 	return classConstantPrefix + caser.ToPascal(string(class))
 }
 
-// actionClassConstants lists the classes the collection's actions carry, sorted, each
-// with the constant the collection file declares for it. Two classes whose constants
-// would share a name are refused, naming both.
+// actionClassConstants lists the classes the collection's actions and its records'
+// writes carry, sorted, each with the constant the collection file declares for it. Two
+// classes whose constants would share a name are refused, naming both.
 func actionClassConstants(data resource.CollectionData) ([]actionClassConstant, error) {
 	var classes []accesstypes.ActionClass
 	for i := range data.Resources {
 		classes = append(classes, data.Resources[i].Classes...)
+		for _, write := range data.Resources[i].WriteClasses {
+			classes = append(classes, write.Classes...)
+		}
 	}
 	slices.Sort(classes)
 	classes = slices.Compact(classes)

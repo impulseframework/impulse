@@ -239,6 +239,7 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 	}
 
 	r.collectBindingRegistrations(b)
+	r.collectWriteClassRegistrations(b)
 	r.collectWorkflowMemberRegistrations(b)
 	r.collectRequiredRegistrations(b)
 	r.collectAcrossTenantsRegistrations(b)
@@ -322,6 +323,20 @@ func requiredOnCreate(res *resourceInfo) []accesstypes.Tag {
 func (r *resourceGenerator) collectBindingRegistrations(b *resource.CollectionBuilder) {
 	for _, res := range r.resources {
 		b.SetResourceBindings(scopeOrGlobal(res.PermissionScope), accesstypes.Resource(r.pluralize(res.Name())), collectionBindings(res))
+	}
+}
+
+// collectWriteClassRegistrations gives the class access to the writes of every record
+// that decides what a person may do (writesThatDecideAccess). Like bindings, the
+// classes describe the data model and not the generated handlers: a write the
+// generated routes do not offer carries its class all the same, so a route written by
+// hand that registers it is refused by the same mask.
+func (r *resourceGenerator) collectWriteClassRegistrations(b *resource.CollectionBuilder) {
+	for _, write := range r.writesThatDecideAccess() {
+		b.SetWriteClasses(
+			scopeOrGlobal(write.Record.PermissionScope), accesstypes.Resource(r.pluralize(write.Record.Name())),
+			write.Permission, []accesstypes.ActionClass{accesstypes.ClassAccess},
+		)
 	}
 }
 

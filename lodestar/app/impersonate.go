@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -21,8 +20,8 @@ const (
 	// kindView views the console as another person: reading only.
 	kindView = "view"
 	// kindAct acts as another person: everything they may do, except the credential
-	// actions, the actions that change who may do what, and the writes of the records
-	// that decide what a person may do.
+	// actions and what changes who may do what, which is the actions of that class and
+	// the writes of the records that decide what a person may do.
 	kindAct = "act"
 	// kindRole acts as a role.
 	kindRole = "role"
@@ -47,14 +46,19 @@ const (
 //     reset link at the sign-in page), or create a sector of the person's own
 //     (CreateSector, the action of the generated create-sector route, which no grant
 //     admits and the mask alone refuses), nor rate a pilot, the one action of
-//     Lodestar's own that carries the class. An account disabled, enabled or deleted
-//     carries neither class, so the session does those as the person would, on any
-//     account but the real person's own (the rule below). The constants are the
-//     generated collection's, so the mask names classes the application's actions
-//     carry, or this file does not compile. The mask also names the writes of the
-//     records that decide what a person may do (standingRecords), so the session keeps
-//     the promise the StandIn role makes: it does what the person may do, except
-//     change how they sign in or who may do what.
+//     Lodestar's own that carries the class. The generator gives the same class to
+//     the writes of the records that decide what a person may do: the create, the
+//     change and the delete of each record the policy reads as a subject value or a
+//     subject set (Pilots, PilotCertifications, ClientContacts, SquadronMemberships,
+//     HangarPasses), and the change of the record a value is read through (Squadrons,
+//     whose row says which wing its members are in). Nobody lists them here, and a
+//     record that gains a subject value is refused once the application is generated
+//     again, so the session keeps the promise the StandIn role makes: it does what
+//     the person may do, except change how they sign in or who may do what. An
+//     account disabled, enabled or deleted carries neither class, so the session does
+//     those as the person would, on any account but the real person's own (the rule
+//     below). The constants are the generated collection's, so the mask names classes
+//     the application carries, or this file does not compile.
 //   - role: Execute on AssumeRole. The session holds what the role holds; the kind says
 //     in so many words that it is unmasked.
 //
@@ -71,14 +75,13 @@ const (
 // A row that reaches a person without naming them is beside that: a hangar pass given
 // to a squadron the real person is in, or their own squadron moved to another wing.
 // A session whose mask does not refuse the record's writes, here the role kind's,
-// writes such a row, and refusing the class access alone would not stop it, since the
-// write of a record carries no class: it is a stated limit of the rule, and an
-// application closes it through its mask, as the act kind does here with
-// standingRecords.
+// writes such a row: it is a stated limit of the rule, and an application closes it
+// through its mask, as the act kind does here by refusing the class access, which the
+// writes of both records carry.
 //
 // A row removed with its parent, which may name the person, is a limit of its own: a
 // hangar pass goes with its hangar, its squadron or its sector, a hangar goes with its
-// sector too, and no write of the pass is made for the rule or for standingRecords to
+// sector too, and no write of the pass is made for the rule or for the class to
 // refuse. Neither kind refuses those deletes here. Every pass gives something and none
 // restricts, so such a delete only takes away; an application whose rows restrict (a
 // ban, a cap) refuses in the kind's mask each delete that reaches the row, the parent's
@@ -109,45 +112,9 @@ func impersonationKinds() []session.ImpersonationKind {
 		session.ImpersonatesUser(kindView, resources.ViewAsUser, accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
 		session.ImpersonatesUser(kindAct, resources.ActAsUser, accesstypes.AllowAll().Refusing(
 			accesstypes.RefuseClass(router.ClassCredential), accesstypes.RefuseClass(router.ClassAccess),
-		).Refusing(standingRecords()...)),
+		)),
 		session.ImpersonatesRole(kindRole, resources.AssumeRole, accesstypes.AllowAll()),
 	}
-}
-
-// standingRecords are the writes of Lodestar's own records that decide what a person
-// may do, which the kind that acts as a person refuses by name, whoever the row names.
-// The rule that nobody is the subject of what they do holds the real person behind the
-// session alone; a stand-in is not to change anyone's standing, so the mask says it.
-// Each record is one the policy reads about the requester:
-//
-//   - Pilots: a row carries the clearance and the fee limit (subject.clearance,
-//     subject.feeLimit), which say the missions a pilot may claim and book.
-//   - PilotCertifications: a row is a certification a pilot holds
-//     (subject.certifications), which a mission may require.
-//   - ClientContacts: a row says which client a member of the portal speaks for
-//     (subject.client), and so whose missions they see.
-//   - SquadronMemberships: a row is a person's place in a squadron (subject.squadrons)
-//     and, through the squadron, in its wing (subject.wings).
-//   - HangarPasses: a row lets a person, or every member of a squadron, into a hangar
-//     or lets them run it (subject.hangarsOpen, subject.hangarsRun).
-//   - Squadrons, its change alone: a squadron's row says which wing the squadron is in,
-//     so writing it moves every member's wing. A mask names a record's permission and
-//     not a plain field of it, so the squadron's name and callsigns are refused with
-//     its wing; a squadron is still added, having no members, and removed, which the
-//     database allows only once it has none.
-//
-// A test reads the same list off the generated collection, so a record that gains a
-// subject value or a subject set fails there until it is named here
-// (TestActKindRefusesTheRecordsThatDecideWhatAPersonMayDo).
-func standingRecords() []accesstypes.MaskRefusal {
-	return slices.Concat(
-		accesstypes.RefuseWrites(resources.Pilot{}.Resource()),
-		accesstypes.RefuseWrites(resources.PilotCertification{}.Resource()),
-		accesstypes.RefuseWrites(resources.ClientContact{}.Resource()),
-		accesstypes.RefuseWrites(resources.SquadronMembership{}.Resource()),
-		accesstypes.RefuseWrites(resources.HangarPass{}.Resource()),
-		[]accesstypes.MaskRefusal{accesstypes.RefusePermission(accesstypes.Update, resources.Squadron{}.Resource())},
-	)
 }
 
 // impersonateRequest is the mint route's body: the kind of impersonation, whom or what

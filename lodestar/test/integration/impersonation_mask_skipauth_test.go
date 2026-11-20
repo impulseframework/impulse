@@ -466,14 +466,10 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 	if classes, _ := record["refusedClasses"].([]any); record["actor"] != "governor" || record["mask"] != nil || !slices.Equal(classes, []any{"access", "credential"}) || record["maskWords"] != actMaskWords {
 		t.Errorf("the acting session's record = %v, want the actor governor, every kind kept, the classes access and credential refused, and the mask in words", record)
 	}
-	// The record names each write the kind refuses: the three writes of five records,
-	// and a squadron's change.
-	if named, _ := record["refused"].([]any); len(named) != 16 || !slices.ContainsFunc(named, func(refusal any) bool {
-		one, _ := refusal.(map[string]any)
-
-		return one["permission"] == "Update" && one["resource"] == "Squadrons"
-	}) {
-		t.Errorf("the acting session's record names the refused writes %v, want the sixteen the act kind refuses, Update on Squadrons among them", record["refused"])
+	// The record names no write: the class access is on the writes of the records that
+	// decide what a person may do, so the kind refuses them without naming one.
+	if named, _ := record["refused"].([]any); len(named) != 0 {
+		t.Errorf("the acting session's record names the refused writes %v, want none: the kind refuses the writes by their class", record["refused"])
 	}
 	if status, body := acting.do(ctx, http.MethodPost, consoleAPI+"/issue-bulletin", []byte(`{"announcement":"Relief watch: drill moved to 0700"}`)); status != http.StatusOK {
 		t.Errorf("issuing a bulletin acting as the marshal: status %d, want 200: the session acts: %s", status, body)
@@ -619,7 +615,7 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 
 	// One named action.
 	named := acting("one named action", `,"refuseActions":["ScrapShip"]`,
-		"everything except access actions, credential actions, writing ClientContacts, writing HangarPasses, writing PilotCertifications, writing Pilots, the action ScrapShip, writing SquadronMemberships and changing Squadrons")
+		"everything except access actions, credential actions and the action ScrapShip")
 	if status, body := named.do(ctx, http.MethodPost, scrap, mule); status != http.StatusForbidden {
 		t.Errorf("scrap-ship under a mask that refuses the action ScrapShip: status %d, want 403: %s", status, body)
 	}
@@ -627,7 +623,7 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 
 	// A class of the application's own.
 	classed := acting("a class of the application's own", `,"refuseClasses":["irreversible"]`,
-		"everything except access actions, credential actions, irreversible actions, writing ClientContacts, writing HangarPasses, writing PilotCertifications, writing Pilots, writing SquadronMemberships and changing Squadrons")
+		"everything except access actions, credential actions and irreversible actions")
 	if status, body := classed.do(ctx, http.MethodPost, scrap, mule); status != http.StatusForbidden {
 		t.Errorf("scrap-ship under a mask that refuses the class irreversible: status %d, want 403: %s", status, body)
 	}

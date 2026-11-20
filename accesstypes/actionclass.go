@@ -7,8 +7,10 @@ import "regexp"
 // registers the action by hand, with Execute), which a permission mask refers
 // to. A mask that refuses a class refuses every action that carries it, the ones
 // declared after the mask was written among them, so nobody keeps a list of
-// actions in step with the application. A class is an action's alone: a record
-// carries none, and a mask holds a session off a record by naming it
+// actions in step with the application. An application puts a class on an action
+// alone. A record's write carries a class where the generator gives it one: the
+// class access, on the writes of every record that decides what a person may do
+// (ClassAccess). A mask holds a session off any other record by naming it
 // (RefusePermission, RefuseWrites).
 //
 // An application names its own classes and marks its own actions with them, or
@@ -35,6 +37,14 @@ const ClassCredential ActionClass = "credential"
 // with it, so an application can grant "act as a person, without changing who may
 // do what" with a mask that refuses the class.
 //
+// The generator gives the class to the writes of the application's own records that
+// decide what a person may do: the create, the change and the delete of every record
+// the policy reads as a subject value or a subject set (@subjectValue, @subjectSet),
+// and the change of a record such a value is read through (a membership's team gives
+// the division, so the team's change is in the class). Nobody lists those records by
+// hand, and a record that gains a subject value is covered when the application is
+// generated again.
+//
 // An account disabled, enabled or deleted is not in the class. That is the work a
 // person who stands in for an administrator is there to do, and a mask that refuses
 // the class leaves it to them.
@@ -46,10 +56,9 @@ const ClassCredential ActionClass = "credential"
 // disable, enable or delete it. The class refuses what that rule cannot see: a role
 // given to a group the person is in, to another account of theirs, or to a
 // colleague. A row of the application's own that reaches the person without naming
-// them (a pass given to a team they are in) is beside those, and is no action of
-// the library's for the class to mark: a mask refuses the record's writes by name
-// (RefuseWrites), and a session whose mask does not refuse the record's writes
-// writes such a row, whether or not the mask refuses the class. A row removed with
+// them (a pass given to a team they are in) is beside those: the record's writes
+// carry the class, so a mask that refuses the class refuses the row, and a session
+// whose mask does not refuse it writes such a row. A row removed with
 // its parent, which may name the person, is a limit of its own: no write of the row
 // is made, and a mask closes it by refusing each request that removes a row above
 // it. Those are the parent's delete (RefusePermission(Delete, parent)), the delete

@@ -477,13 +477,18 @@ func (a *admittedPermissions) HasGrants(ctx context.Context, scope accesstypes.S
 
 // ActionClasses answers what the masked check of an impersonated session asks about a
 // name, as the generated collection does: the classes an action carries within a
-// permission scope (GeneratedCollection.ActionClasses), since a mask may refuse a class
-// of actions, and whether the application registers a permission under the name at all
+// permission scope (GeneratedCollection.ActionClasses) and the classes a write of a
+// record carries (GeneratedCollection.WriteClasses), since a mask may refuse a class,
+// and whether the application registers a permission under the name at all
 // (GeneratedCollection.HasPermission), since what a name the application does not
 // register is, and the classes it carries, cannot be known.
 type ActionClasses interface {
 	// ActionClasses reports the classes the action carries within scope.
 	ActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource) []accesstypes.ActionClass
+	// WriteClasses reports the classes the write permission of record carries within
+	// scope: the generator gives the class access to the create, the change and the
+	// delete of a record that decides what a person may do.
+	WriteClasses(scope accesstypes.PermissionScope, permission accesstypes.Permission, record accesstypes.Resource) []accesstypes.ActionClass
 	// HasPermission reports whether the application registers permission on res within
 	// scope.
 	HasPermission(scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) bool
@@ -509,7 +514,9 @@ type ActionClasses interface {
 // application registers nothing under: such a name may be an action of another
 // collection, or of none, and a check that cannot say what it is asked about does not
 // let it through a mask written to refuse a class. A record the application registers
-// carries no class and is left to policy, whichever of its permissions is asked.
+// carries a class on the writes the generator gave one, those of a record that decides
+// what a person may do (CollectionResource.WriteClasses); every other permission of a
+// record carries none and is left to policy.
 func Masked(perms UserPermissions, mask accesstypes.PermissionMask, classes ActionClasses) UserPermissions {
 	if mask.IsZero() {
 		return perms
@@ -543,11 +550,12 @@ func newMaskedPermissions(perms UserPermissions, mask accesstypes.PermissionMask
 }
 
 // refuses reports whether the mask refuses perm on res, and why. The classes asked
-// about are those of the name res is checked under: an action's own, and none for a
-// record, which carries no class (a field is judged by its record). A class is carried
-// by the action whichever scope registers it, so the classes of both scopes are asked:
-// a check made in one scope of an action classed in the other is refused with it, never
-// let through for want of a class.
+// about are those of the name res is checked under: an action's own, and for a record
+// the classes its write perm carries, which the generator gives the writes of a record
+// that decides what a person may do (a field is judged by its record). A class is
+// carried by the name whichever scope registers it, so the classes of both scopes are
+// asked: a check made in one scope of a name classed in the other is refused with it,
+// never let through for want of a class.
 //
 // Under a mask that refuses a class, a permission on a name the application does not
 // hold is refused: what the name carries is not nothing, it is unknown. For Execute the
@@ -582,6 +590,8 @@ func (m *maskedPermissions) refuses(perm accesstypes.Permission, res accesstypes
 	classes := slices.Concat(
 		m.classes.ActionClasses(accesstypes.GlobalPermissionScope, name),
 		m.classes.ActionClasses(accesstypes.DomainPermissionScope, name),
+		m.classes.WriteClasses(accesstypes.GlobalPermissionScope, perm, name),
+		m.classes.WriteClasses(accesstypes.DomainPermissionScope, perm, name),
 	)
 
 	return m.mask.Refuses(perm, res, classes...)

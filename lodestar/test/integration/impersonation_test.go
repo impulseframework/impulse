@@ -42,23 +42,17 @@ func viewAs(t *testing.T, username accesstypes.User, reason string) string {
 }
 
 // The mask Lodestar's act kind gives, as the mint route, the session's record, the watch
-// desk and the log say it: everything, except the actions classed access and credential,
-// the writes of the records that decide what a person may do, and a squadron's change,
-// which is where its wing is written.
+// desk and the log say it: everything, except what is classed access or credential. The
+// generator classes access the writes of every record that decides what a person may do
+// and a squadron's change, which is where its wing is written, so the mask names none.
 const (
 	// actMaskRefusalWords is what the act kind refuses, in words.
-	actMaskRefusalWords = "access actions, credential actions, writing ClientContacts, writing HangarPasses, writing PilotCertifications, writing Pilots, writing SquadronMemberships and changing Squadrons"
+	actMaskRefusalWords = "access actions and credential actions"
 	// actMaskWords is the kind's widest mask, in words.
 	actMaskWords = "everything except " + actMaskRefusalWords
 	// actMaskRefusalText is what the act kind refuses, in the form a mask is stored and
 	// logged in.
-	actMaskRefusalText = "-class:access;-class:credential" +
-		";-on:Create:ClientContacts;-on:Delete:ClientContacts;-on:Update:ClientContacts" +
-		";-on:Create:HangarPasses;-on:Delete:HangarPasses;-on:Update:HangarPasses" +
-		";-on:Create:PilotCertifications;-on:Delete:PilotCertifications;-on:Update:PilotCertifications" +
-		";-on:Create:Pilots;-on:Delete:Pilots;-on:Update:Pilots" +
-		";-on:Create:SquadronMemberships;-on:Delete:SquadronMemberships;-on:Update:SquadronMemberships" +
-		";-on:Update:Squadrons"
+	actMaskRefusalText = "-class:access;-class:credential"
 	// actMaskText is the kind's widest mask, in the form a mask is stored and logged in.
 	actMaskText = "*;" + actMaskRefusalText
 )

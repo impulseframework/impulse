@@ -3625,10 +3625,12 @@ cannot see: a role that reaches the person through a group they are in, through 
 account or through a colleague. A row of the application's own that reaches the person
 without naming them is beside it: a pass given to a team they are in, or their own team
 moved to another division. These are the rule's stated limits. A session whose mask
-does not refuse the class gives such a role, and a session whose mask does not refuse
-the record's writes writes such a row, whether or not it refuses the class: the write
-of a record carries no class. To let someone act as a person with no mask is to give
-them what the person holds, and an application closes each limit through its mask.
+does not refuse the class gives such a role and writes such a row: the generator gives
+the class to the create, the change and the delete of every record that decides what a
+person may do (one that carries `@subjectValue` or `@subjectSet`) and to the change of
+a record such a value is read through, so no application lists those records by hand.
+To let someone act as a person with no mask is to give them what the person holds, and
+an application closes each limit through its mask.
 A row removed with its parent, which may name the person, is a limit of its own: the
 database removes a pass with the place it opens, no write of the pass is made, and so
 neither the rule nor a mask that refuses the writes of passes is asked. An application

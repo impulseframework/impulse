@@ -924,10 +924,10 @@ const (
 	//
 	// The generated comment states the rule's limit where a reader of the handler meets
 	// the rule: a row that reaches a person without naming them is written by a session
-	// whose mask does not refuse the record's writes, whether or not the mask refuses a
-	// class, and an application closes that through its mask. The comment names the two
-	// limits beside it, a row removed with its parent and a column that records who made
-	// a row, and where each is described.
+	// whose mask does not refuse the record's writes, and an application closes that
+	// through its mask, which refuses the class access the record's writes carry. The
+	// comment names the two limits beside it, a row removed with its parent and a column
+	// that records who made a row, and where each is described.
 	subjectGuarded = `// The policy reads this record's rows as what a person may do, so nobody
 					// writes the row that names them while they act as someone else,
 					// whatever the session's mask keeps: the rule is asked about the person
@@ -938,12 +938,12 @@ const (
 					// without naming them (one that names a set they are in, or the row a
 					// value of theirs is read through) is its stated limit, beside a role
 					// given to a group they are in: a session whose mask does not refuse
-					// the record's writes writes it, whether or not the mask refuses a
-					// class, and an application closes that through its mask, which
-					// refuses the record's writes by name (accesstypes.RefuseWrites). A
-					// row removed with its parent, and a column that records who made a
-					// row, are limits of their own: identity.RefuseImpersonatorAsRowSubject
-					// says what closes each.
+					// the record's writes writes it, and an application closes that
+					// through its mask, which refuses the class access this record's
+					// writes carry (accesstypes.RefuseClass). A row removed with its
+					// parent, and a column that records who made a row, are limits of
+					// their own: identity.RefuseImpersonatorAsRowSubject says what
+					// closes each.
 					subjectKey := resource.KeySet{}
 					{{- if .PrimaryKeyIsGeneratedUUID }}
 					if op.Type != resource.OperationCreate {
@@ -4726,10 +4726,10 @@ import (
 )
 
 {{ with .Classes -}}
-// The classes the application's actions carry (@class), each under the name a
-// permission mask refuses it by: accesstypes.RefuseClass({{ (index . 0).Name }}). A mask
-// written against a class no action carries any more does not compile, since its
-// constant is gone from this file.
+// The classes the application's actions carry (@class) and the ones the generator
+// gives the writes of its records, each under the name a permission mask refuses it
+// by: accesstypes.RefuseClass({{ (index . 0).Name }}). A mask written against a class
+// nothing carries any more does not compile, since its constant is gone from this file.
 const (
 	{{- range . }}
 	// {{ .Name }} is the class {{ .Class }}.
@@ -4762,6 +4762,13 @@ func Collection() *resource.GeneratedCollection {
 				{{- end }}
 				{{- with .Classes }}
 				Classes: []accesstypes.ActionClass{ {{- range $i, $c := . }}{{ if $i }}, {{ end }}{{ ClassConstant $c }}{{ end -}} },
+				{{- end }}
+				{{- with .WriteClasses }}
+				WriteClasses: []resource.WriteClassData{
+					{{- range . }}
+					{Permission: {{ PermissionConstant .Permission }}, Classes: []accesstypes.ActionClass{ {{- range $i, $c := .Classes }}{{ if $i }}, {{ end }}{{ ClassConstant $c }}{{ end -}} }},
+					{{- end }}
+				},
 				{{- end }}
 				{{- if .NoRole }}
 				NoRole: true,

@@ -180,10 +180,11 @@ func (m PermissionMask) Allows(perm Permission) bool {
 
 // Refuses reports whether the mask refuses perm on res, and why in a few words
 // for the log: the mask does not keep the kind, it refuses one of the classes, or
-// it refuses the permission on the resource by name. classes are the ones res
-// carries: an action's, as the application's collection declares them, and none
-// for a record, which carries no class. A field is refused with its record: res
-// may be the dotted name of a field.
+// it refuses the permission on the resource by name. classes are the ones perm on
+// res carries, as the application's collection declares them: an action's, and
+// for a record the ones its write carries, which the generator gives the writes
+// of a record that decides what a person may do. A field is refused with its
+// record: res may be the dotted name of a field.
 func (m PermissionMask) Refuses(perm Permission, res Resource, classes ...ActionClass) (why string, refused bool) {
 	if !m.Allows(perm) {
 		return fmt.Sprintf("the mask does not keep %s", perm), true
