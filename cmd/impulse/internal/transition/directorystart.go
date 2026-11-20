@@ -811,9 +811,6 @@ func (d *DirectoryStart) meaning(set string) string {
 	tests := "Bring the tests to the sign-in the auth has. The change names each of the base's tests that signs in with a password or names what the auth no longer has, with what becomes of it; the harness comes first, since the others sign in through it."
 	if set != "" {
 		tests = "Read the tests the start wrote. The application's Go tests sign in through the simulated directory, so run them as the Procfile and CI do, with `go test -tags skipAuth ./...`: under the default build the cases that sign in are skipped. The change names the tests of the base it took out, each with the reason, and lists what it did not bring to the sign-in the auth has: the browser application's login page spec, which still answers the methods route with the password method."
-		if set == byDirectorySuites {
-			tests += " Name a tenant's administrator role first, since nothing that builds the application's router runs before it: " + d.servedSuitesWait() + "."
-		}
 	}
 	items := []string{
 		tests,

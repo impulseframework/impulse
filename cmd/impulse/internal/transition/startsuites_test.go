@@ -273,13 +273,13 @@ func TestDirectoryStart_Apply_byDirectorySuites(t *testing.T) {
 					t.Errorf("%s is named %d times among what the change leaves; named once = %v wanted: %q", suite.file, len(named), want, named)
 				}
 			}
-			// The application does not build its router until tenancy's role is named,
-			// and the change says so of the two suites that build it.
-			if got := skippedLine(ch, "test/integration and test/authz: written for the sign-in the members auth has", tt.tenants.rolesAccessor()+"() names no role", "AdministratorRoles() and FirstAdministratorRoles()"); len(got) != 1 {
-				t.Errorf("the change does not say once what the served suites wait for: %q", ch.Skipped)
+			// Tenancy names the role a tenant's administrator holds, so the start leaves
+			// no step of it to the author and says of no suite that it waits for one.
+			if got := skippedLine(ch, "test/integration and test/authz: "); len(got) != 0 {
+				t.Errorf("the change says the served suites wait for a step: %q", got)
 			}
-			if !strings.Contains(start.Meaning(), "Name a tenant's administrator role first") {
-				t.Error("the start's account of what is left does not open its tests with the role they wait for")
+			if strings.Contains(start.Meaning(), "administrator role first") {
+				t.Error("the start's account of what is left still opens its tests with a role to name by hand")
 			}
 		})
 	}

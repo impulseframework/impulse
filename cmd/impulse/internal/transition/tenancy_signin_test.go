@@ -28,9 +28,14 @@ func TestTenancy_MeaningIn(t *testing.T) {
 	t.Run("an application with a password is told the general account", func(t *testing.T) {
 		t.Parallel()
 
+		// The one paragraph that is the application's own says whether the role a
+		// tenant's administrator holds is written: a base that has not gained tenants
+		// names none.
 		a := newBase(t, "staff")
-		if got := tn.MeaningIn(a); got != tn.Meaning() {
-			t.Error("MeaningIn() differs from Meaning() in an application whose auth has the password method")
+		before, after, found := strings.Cut(tn.MeaningIn(a), "The role a tenant's administrator holds is left to write.")
+		_, rest, _ := strings.Cut(after, "\n\n")
+		if !found || before+rest != tn.Meaning() {
+			t.Error("MeaningIn() differs from Meaning() by more than the paragraph on the role a tenant's administrator holds, in an application whose auth has the password method")
 		}
 		if !strings.Contains(tn.MeaningIn(a), "The test harnesses. The authorization suite's configurer builds the roster") {
 			t.Error("the harnesses are not handed on, and the application's are the base's")

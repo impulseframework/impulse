@@ -1243,11 +1243,25 @@ named in the brief with what becomes of them (`sign_up_test.go` and
 Each auth's role file loses the grants on what the regeneration stopped serving: an
 application with tenants lists no roles for a person who signs up, so the base's grant on
 `<Auth>SignUpRoles` goes, since the permission engine refuses a role file that grants a
-resource the application does not serve. Which resources become
-tenant-scoped and how their rows are assigned, the bootstrap order, the harnesses, the
-tests, routes edited since the skeleton rendered them, the dashboard's tenant, the declaration's grants and
-the directories the development seed declares are the agent's, and `tenancy-wired`
-holds it to them.
+resource the application does not serve. The command then writes the role a tenant's
+administrator holds, since an application with tenants builds no router until one is
+named: `<Record>Administrator` (`TenantAdministrator` over `Tenants`), a domain role in the
+role file of the auth whose people make tenants, with the grants the tenanted skeleton's
+`TenantAdministrator` holds on what the application serves (a tenant's people, their
+groups and the roles they hold there, and the tenant's directory where it can have one),
+each held to the skeleton's condition. The auth's `AdministratorRoles()` and
+`FirstAdministratorRoles()` (`foothold.go`) name it as held in every tenant, the
+deployment package's test of the first administrator's roles holds it to the role file,
+and the application's own administrator role gains the grants a tenant is made with: the
+record, the invitation that makes one, its withdrawal and the list of the invitations
+that stand. So the application starts, and its served tests run, as it was made. An
+application that names a role held in every tenant already keeps its own, and where the
+command cannot write the role (a foothold or a role file that is not as the skeleton
+writes it) a line under what it could not make says why and gives the step. Which
+resources become tenant-scoped and how their rows are assigned, the bootstrap order, the
+harnesses, the tests, routes edited since the skeleton rendered them, the dashboard's
+tenant and the directories the development seed declares are the agent's, and
+`tenancy-wired` holds it to them.
 
 `--one-tenant-per-person` says a person belongs to one tenant, as in an application whose
 tenants own their people: every auth whose roles the application gives builds its

@@ -170,21 +170,11 @@ func (d *DirectoryStart) writeSuites(a *app.App, ch *Change) (map[string]bool, e
 		// each registration its settings, and invites the first administrator as the
 		// base's does, so it holds as it is.
 		settled[migrateTest] = true
-		ch.skipf("%s", d.servedSuitesWait())
 	}
 	// The cases that hold a grant to the role file read the engine alone, and sign nobody in.
 	settled["test/integration/grants_test.go"] = true
 
 	return settled, nil
-}
-
-// servedSuitesWait says what the tests of a start with tenants wait for: the role a
-// tenant's administrator holds, which tenancy leaves to the author. The generated
-// create-your-tenant route refuses to be built while the application names none, so
-// nothing that builds the application's router runs until then, the application itself
-// included.
-func (d *DirectoryStart) servedSuitesWait() string {
-	return fmt.Sprintf("test/integration and test/authz: written for the sign-in the %[1]s auth has, and they compile, but neither runs yet, and nor does the application: its router is not built until a tenant's administrator role is named (%[2]s() names no role, and the generated create-your-tenant route says so as it is mounted). Give the %[1]s auth's role file a domain role for a tenant's administrator and return it, as held in every tenant, from AdministratorRoles() and FirstAdministratorRoles() in the auth package's foothold.go; both suites run from then on", d.Auth, d.Tenants.rolesAccessor())
 }
 
 // renderSuites renders one tree of suiteFiles for an application: each file by its path

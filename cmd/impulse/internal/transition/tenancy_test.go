@@ -401,10 +401,12 @@ func TestTenancyApply(t *testing.T) {
 		wantSkipped []string
 		check       func(t *testing.T, a *app.App)
 	}{
-		name:        "the base with an auth package",
-		files:       authShape,
-		wantDid:     withAuthDid,
-		wantSkipped: []string{noSignals, noPermissions, noMenus},
+		name:    "the base with an auth package",
+		files:   authShape,
+		wantDid: withAuthDid,
+		// The fixture's auth package has no foothold, so the role a tenant's
+		// administrator holds is left to the author, with the step.
+		wantSkipped: []string{noSignals, noPermissions, noMenus, "pkg/auth/staff/foothold.go: not there, so the role a tenant's administrator holds was not written: " + Tenancy{Table: "Tenants"}.roleHandStep("staff")},
 		check: func(t *testing.T, a *app.App) {
 			t.Helper()
 			config := read(t, a, "pkg/config/tenancy.go")
