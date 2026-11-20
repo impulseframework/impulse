@@ -137,6 +137,10 @@ export class ResourceViewComponent implements OnInit {
   pageTitle = input<string>('');
   /** Whether `pageTitle` is the title of a section of a larger page, not of the page itself. */
   pageTitleIsSection = input<boolean>(false);
+  /**
+   * Whether the form holds a change not yet saved. While it does, the form is one of the
+   * unsaved forms the leave-page question counts.
+   */
   isDirty = signal(false);
 
   displayFormInvalidMessage = signal<boolean>(false);
@@ -546,20 +550,18 @@ export class ResourceViewComponent implements OnInit {
       return;
     }
     void this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
+      // Saved: nothing in the form is unsaved any more.
       this.form().markAsPristine();
       this.setEditMode('view');
-      this.formState.decrementDirtyForms();
       this.store.reloadViewData();
     });
   }
 
   resetForm(): void {
+    // What was changed is dropped, so nothing in the form is unsaved any more.
     this.form().reset();
     this.form().patchValue(this.pristineFormValues);
     this.setEditMode('view');
-    if (this.form().dirty) {
-      this.formState.decrementDirtyForms();
-    }
   }
 
   confirmDeleteResource(): void {
@@ -616,23 +618,38 @@ export class ResourceViewComponent implements OnInit {
     return this.uuid();
   });
 
+  /**
+   * Brings the count of unsaved forms in line with this form: it is one of them exactly
+   * while it is dirty, and a change of that is counted once.
+   */
+  private countUnsaved(dirty: boolean): void {
+    if (dirty === this.isDirty()) {
+      return;
+    }
+    this.isDirty.set(dirty);
+    if (dirty) {
+      this.formState.incrementDirtyForms();
+    } else {
+      this.formState.decrementDirtyForms();
+    }
+  }
+
   constructor() {
     effect(() => {
       console.debug('USAGE | New FormGroup subscription for: ', this.config().title);
 
-      this.form()
-        .valueChanges.pipe(
-          tap(() => {
-            const dirty = this.form().dirty;
-            if (dirty !== this.isDirty()) {
-              this.isDirty.set(dirty);
-              if (dirty) {
-                this.formState.incrementDirtyForms();
-              } else {
-                this.formState.decrementDirtyForms();
-              }
-            }
-          }),
+      const form = this.form();
+      // The form is built again whenever its row is read again, with the row's values
+      // and nothing unsaved: what the form before it was counted for is given back.
+      untracked(() => this.countUnsaved(form.dirty));
+
+      // The form counts as unsaved exactly while it is dirty, whichever way it got
+      // there: a typed input changes the value, a picker writes the value and marks
+      // the form afterwards, and a save or a reset marks it pristine again. Every one
+      // of those is an event of the form, where a change of value is only the first.
+      form.events
+        .pipe(
+          tap(() => this.countUnsaved(this.form().dirty)),
           takeUntilDestroyed(this.destroyRef),
         )
         .subscribe();
