@@ -36,6 +36,12 @@ var (
 	}
 )
 
+// withLoginPageSpec is the Go tests a start with no password sign-in writes and, after
+// them, the spec of the browser application's login page.
+func withLoginPageSpec(tests []string) []string {
+	return append(slices.Clone(tests), loginPageSpec)
+}
+
 // checkWritten holds each file a start wrote to being the application's own Go: it
 // parses, it names the application's module and never the candidate's, and it posts no
 // password.
@@ -151,13 +157,12 @@ func TestDirectoryStart_Apply_directoryRolesSuites(t *testing.T) {
 		t.Parallel()
 
 		for _, suite := range passwordSuites {
-			named := leftLine(ch, suite.file+" ")
-			if want := strings.HasPrefix(suite.file, "web/"); (len(named) == 1) != want {
-				t.Errorf("%s is named %d times among what the change leaves; named once = %v wanted: %q", suite.file, len(named), want, named)
+			if named := leftLine(ch, suite.file+" "); len(named) != 0 {
+				t.Errorf("%s is among what the change leaves, and the start settled it: %q", suite.file, named)
 			}
 		}
-		if !strings.Contains(ch.LeftNote, "were written for the sign-in the staff auth has") {
-			t.Errorf("the change does not say the tests were written: %q", ch.LeftNote)
+		if len(ch.Left) != 0 || ch.LeftNote != "" {
+			t.Errorf("the change leaves the author %q under %q, and the start wrote every test for the sign-in the auth has", ch.Left, ch.LeftNote)
 		}
 		if got := skippedLine(ch, integrationHarness+" and "+migrateTest+": the google registration validates"); len(got) != 0 {
 			t.Errorf("the change hands on the settings of a method, and the tests it wrote already give them: %q", got)
@@ -274,9 +279,8 @@ func TestDirectoryStart_Apply_byDirectorySuites(t *testing.T) {
 				}
 			}
 			for _, suite := range passwordSuites {
-				named := leftLine(ch, suite.file+" ")
-				if want := strings.HasPrefix(suite.file, "web/"); (len(named) == 1) != want {
-					t.Errorf("%s is named %d times among what the change leaves; named once = %v wanted: %q", suite.file, len(named), want, named)
+				if named := leftLine(ch, suite.file+" "); len(named) != 0 {
+					t.Errorf("%s is among what the change leaves, and the start settled it: %q", suite.file, named)
 				}
 			}
 			// Tenancy names the role a tenant's administrator holds, so the start leaves
@@ -289,6 +293,152 @@ func TestDirectoryStart_Apply_byDirectorySuites(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDirectoryStart_Apply_loginPageSpec holds a start with no password sign-in to
+// writing the spec of the browser application's login page for the sign-in the auth has.
+// The base's spec answers the methods route with the password method and expects its
+// form, which the page of an auth with no password never draws: left as it is, it is a
+// spec the author rewrites before the application's browser tests say anything of the
+// application.
+func TestDirectoryStart_Apply_loginPageSpec(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		start   func() DirectoryStart
+		removes []string
+		// wantMethods is what the spec answers the methods route with, in the list's
+		// order: each method's registration, the library's method behind it and the
+		// words the login page shows for it.
+		wantMethods [][3]string
+		wantButtons string
+		wantLinks   string
+	}{
+		{
+			name: "Directory roles through Google",
+			start: func() DirectoryStart {
+				return directoryRolesStart(app.MethodGoogle, "fleet.example")
+			},
+			wantMethods: [][3]string{{"google", "google", "Google"}},
+			wantButtons: "expect(redirects).toEqual(['Sign in with Google']);",
+			wantLinks:   "await arriveWith({ verify: 'token' });",
+		},
+		{
+			name: "Directory roles through Microsoft",
+			start: func() DirectoryStart {
+				return directoryRolesStart(app.MethodAzure, "3f2504e0-4f89-11d3-9a0c-0305e82c3301")
+			},
+			wantMethods: [][3]string{{"azure", "azure", "Microsoft"}},
+			wantButtons: "expect(redirects).toEqual(['Sign in with Microsoft']);",
+			wantLinks:   "await arriveWith({ verify: 'token' });",
+		},
+		{
+			name: "Tenant-owned users, by directory, under another auth name",
+			start: func() DirectoryStart {
+				start := byDirectoryStart("members")
+				start.Tenants = &Tenancy{Table: "Tenants", OneTenantPerPerson: true}
+
+				return start
+			},
+			removes:     []string{"set_members_temporary_password"},
+			wantMethods: [][3]string{{"google", "google", "Google"}, {"azure", "azure", "Microsoft"}, {"persona", "oidc", "Persona"}},
+			wantButtons: "expect(redirects).toEqual(['Sign in with Google', 'Sign in with Microsoft', 'Sign in with Persona']);",
+			wantLinks:   "const links: Record<string, string>[] = [{ invitation: 'token' }, { verify: 'token' }];",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			start := tt.start()
+			base, err := baseRendering(loginPageSpec, "example.com/acme/depot", start.Auth)
+			if err != nil {
+				t.Fatalf("baseRendering() error = %v", err)
+			}
+			a, ch := started(t, &start, tt.removes...)
+			spec := read(t, a, loginPageSpec)
+			if spec == string(base) {
+				t.Fatalf("%s is the base's still: it answers the methods route with the password method", loginPageSpec)
+			}
+
+			// The spec answers the methods route with the methods the start registers, each
+			// under the label the generator gives a method of its kind, and no other.
+			registered := start.methods()
+			if len(registered) != len(tt.wantMethods) {
+				t.Fatalf("the start registers %d method(s), and the case names %d", len(registered), len(tt.wantMethods))
+			}
+			at := 0
+			for i, want := range tt.wantMethods {
+				if registered[i].Name != want[0] || methodLabel(&registered[i]) != want[2] {
+					t.Errorf("the start's method %d is %s, shown as %q; the case names %s, shown as %q", i, registered[i].Name, methodLabel(&registered[i]), want[0], want[2])
+				}
+				entry := "    {\n      name: '" + want[0] + "',\n      method: '" + want[1] + "',\n      kind: 'redirect',\n      label: '" + want[2] + "',\n      path: `${environment.apiUrl}/user/" + want[0] + "/login`,\n    },\n"
+				found := strings.Index(spec[at:], entry)
+				if found < 0 {
+					t.Fatalf("%s does not answer the methods route with the %s method after the ones before it:\n%s", loginPageSpec, want[0], entry)
+				}
+				at += found + len(entry)
+			}
+			if got := strings.Count(spec, "kind: '"); got != len(tt.wantMethods) {
+				t.Errorf("%s answers the methods route with %d method(s), want %d", loginPageSpec, got, len(tt.wantMethods))
+			}
+			for _, want := range []string{tt.wantButtons, tt.wantLinks, "expect(element.querySelector('impulse-login-methods form')).toBeNull();"} {
+				if !strings.Contains(spec, want) {
+					t.Errorf("%s does not contain %q", loginPageSpec, want)
+				}
+			}
+			for _, never := range []string{"kind: 'password'", `input[name="password"]`, "/user/password/login", "signUp", "[[", "staff", "solo"} {
+				if strings.Contains(spec, never) {
+					t.Errorf("%s contains %q", loginPageSpec, never)
+				}
+			}
+
+			labels := make([]string, 0, len(tt.wantMethods))
+			for _, want := range tt.wantMethods {
+				labels = append(labels, want[2])
+			}
+			if got := linesWith(ch.Did, loginPageSpec+": the spec of the browser application's login page written for the sign-in the "+start.Auth+" auth has", []string{"(" + strings.Join(labels, ", ") + ")", "a button for each and no password form"}); len(got) != 1 {
+				t.Errorf("the change does not say once that the login page's spec was written, and with which methods: %q", ch.Did)
+			}
+			if got := leftLine(ch, loginPageSpec+" "); len(got) != 0 {
+				t.Errorf("the change leaves the login page's spec to the author, and the start wrote it: %q", got)
+			}
+			if got := start.MeaningIn(a); !strings.Contains(got, "The spec of the browser application's login page (`"+loginPageSpec+"`) is the start's too") || strings.Contains(got, "still answers the methods route with the password method") {
+				t.Error("the start's account of what is left does not say the login page's spec was written, or still hands it on")
+			}
+		})
+	}
+
+	t.Run("a spec that is not the base's is left as it is, and named with what becomes of it", func(t *testing.T) {
+		t.Parallel()
+
+		start := directoryRolesStart(app.MethodGoogle, "fleet.example")
+		a := newBase(t, start.Auth)
+		own := "describe('LoginComponent', () => {\n  it('is another spec', () => {\n    expect(true).toBe(true);\n  });\n});\n"
+		if err := os.WriteFile(a.Abs(loginPageSpec), []byte(own), 0o644); err != nil {
+			t.Fatalf("os.WriteFile() error = %v", err)
+		}
+		ch, err := start.Apply(context.Background(), a, &fakeExec{})
+		if err != nil {
+			t.Fatalf("DirectoryStart.Apply() error = %v", err)
+		}
+		if read(t, a, loginPageSpec) != own {
+			t.Errorf("%s was written over, and it was not the base's", loginPageSpec)
+		}
+		if got := leftLine(ch, loginPageSpec+" ", "answer it with the methods the auth registers and expect their buttons and no password form"); len(got) != 1 || len(ch.Left) != 1 {
+			t.Errorf("the change does not leave the author the login page's spec, and nothing else: %q", ch.Left)
+		}
+		if !strings.Contains(ch.LeftNote, "were written for the sign-in the staff auth has") {
+			t.Errorf("the change does not say the other tests were written: %q", ch.LeftNote)
+		}
+		if got := linesWith(ch.Did, loginPageSpec+": ", nil); len(got) != 0 {
+			t.Errorf("the change says it wrote the login page's spec: %q", got)
+		}
+		if !exists(a, simulatedSignIn) {
+			t.Errorf("%s was not written, and the application's Go tests are the base's", simulatedSignIn)
+		}
+	})
 }
 
 // TestDirectoryStart_Apply_suitesNotWritten holds the start to leaving the tests as they
@@ -519,9 +669,9 @@ func Test_renderSuites(t *testing.T) {
 		data *suiteData
 		want []string
 	}{
-		{set: directoryRolesSuites, data: &suiteData{Method: "google", Field: "Google", Upper: "GOOGLE", Google: true}, want: directoryRolesWritten},
-		{set: directoryRolesSuites, data: &suiteData{Method: "azure", Field: "Azure", Upper: "AZURE"}, want: directoryRolesWritten},
-		{set: byDirectorySuites, data: &suiteData{Record: "Tenant", OneTenant: true, North: devTenantNorth}, want: byDirectoryWritten},
+		{set: directoryRolesSuites, data: &suiteData{Method: "google", Field: "Google", Upper: "GOOGLE", Google: true}, want: withLoginPageSpec(directoryRolesWritten)},
+		{set: directoryRolesSuites, data: &suiteData{Method: "azure", Field: "Azure", Upper: "AZURE"}, want: withLoginPageSpec(directoryRolesWritten)},
+		{set: byDirectorySuites, data: &suiteData{Record: "Tenant", OneTenant: true, North: devTenantNorth}, want: withLoginPageSpec(byDirectoryWritten)},
 		{set: passwordTenantsSuites, data: &suiteData{Record: "Tenant", Directories: true, North: devTenantNorth}, want: passwordTenantsWritten},
 		{set: passwordTenantsSuites, data: &suiteData{Record: "ServiceArea", OneTenant: true, North: devTenantNorth}, want: passwordTenantsWritten},
 	}
@@ -536,7 +686,7 @@ func Test_renderSuites(t *testing.T) {
 			var got []string
 			for rel, src := range files {
 				got = append(got, rel)
-				if _, err := parser.ParseFile(token.NewFileSet(), rel, src, parser.ParseComments); err != nil {
+				if _, err := parser.ParseFile(token.NewFileSet(), rel, src, parser.ParseComments); err != nil && strings.HasSuffix(rel, ".go") {
 					t.Errorf("%s does not parse: %v", rel, err)
 				}
 				for _, stale := range []string{skeleton.PlaceholderAuth + ".", "pkg/auth/" + skeleton.PlaceholderAuth, "_candidates", "[["} {

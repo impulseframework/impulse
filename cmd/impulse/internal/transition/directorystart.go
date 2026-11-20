@@ -702,9 +702,9 @@ func distinct(lines []string) []string {
 // directory gives the roles does not have, each with what becomes of it in an
 // application whose first auth has no password method. They are written against the
 // base's harness and its first auth, so they stop compiling or stop holding with this
-// change. The start writes the Go tests among them for the sign-in the auth has
-// (writeSuites); the change lists the ones it did not settle, and says what to do with
-// each before the first compile error is met.
+// change. The start writes them for the sign-in the auth has (writeSuites), the spec of
+// the browser application's login page among them; the change lists the ones it did not
+// settle, and says what to do with each before the first compile error is met.
 // fate holds for every such start; directory is added where a directory gives the roles
 // and application where the application does, and a test with nothing to say of a start
 // is left out of it. {auth} stands for the first auth's name.
@@ -730,7 +730,7 @@ var passwordSuites = []struct{ file, fate, directory, application string }{
 		file:      deployTest,
 		directory: "holds the first administrator's roles to the role file ({auth}.FirstAdministratorRoles, {auth}.AdministratorRoles), which an auth whose directory gives the roles does not have, so the package's tests do not compile: take TestFirstAdministratorRoles_areInTheRoleFile and TestAdministratorRoles_areHeldByTheFirstAdministrator out, and keep the test that validates the role file",
 	},
-	{file: "web/console/src/app/components/login/login.component.spec.ts", fate: "answers the methods route with the password method and expects its form; answer it with the methods the auth registers and expect their buttons and no password form"},
+	{file: loginPageSpec, fate: "answers the methods route with the password method and expects its form; answer it with the methods the auth registers and expect their buttons and no password form"},
 }
 
 // noteBaseSuites records, for each of the base's tests the application still carries
@@ -761,7 +761,7 @@ func (d *DirectoryStart) noteBaseSuites(a *app.App, ch *Change, settled map[stri
 	switch {
 	case len(ch.Left) == 0:
 	case len(settled) > 0:
-		ch.LeftNote = fmt.Sprintf("The application's Go tests were written for the sign-in the %s auth has, which has no password. What the start did not bring to it is yours:", d.Auth)
+		ch.LeftNote = fmt.Sprintf("The application's tests were written for the sign-in the %s auth has, which has no password. What the start did not bring to it is yours:", d.Auth)
 	default:
 		ch.LeftNote = fmt.Sprintf("The tests the application started with were written for a first auth that signs in with a password, and the %s auth has none now. Each of these is yours to bring to the sign-in the auth has, the harness first, since the others sign in through it:", d.Auth)
 	}
@@ -839,7 +839,7 @@ func (d *DirectoryStart) meaning(set string) string {
 	b.WriteString("\n\nLeft to wire:\n\n")
 	tests := "Bring the tests to the sign-in the auth has. The change names each of the base's tests that signs in with a password or names what the auth no longer has, with what becomes of it; the harness comes first, since the others sign in through it."
 	if set != "" {
-		tests = "Read the tests the start wrote. The application's Go tests sign in through the simulated directory, so run them as the Procfile and CI do, with `go test -tags skipAuth ./...`: under the default build the cases that sign in are skipped. The change names the tests of the base it took out, each with the reason, and lists what it did not bring to the sign-in the auth has: the browser application's login page spec, which still answers the methods route with the password method."
+		tests = "Read the tests the start wrote. The application's Go tests sign in through the simulated directory, so run them as the Procfile and CI do, with `go test -tags skipAuth ./...`: under the default build the cases that sign in are skipped. The spec of the browser application's login page (`" + loginPageSpec + "`) is the start's too: it answers the methods route with the methods the auth registers, and expects a button for each and no password form. The change names the tests of the base it took out, each with the reason, and lists any it left as it found it."
 	}
 	items := []string{
 		tests,

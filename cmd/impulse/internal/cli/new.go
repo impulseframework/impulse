@@ -138,9 +138,11 @@ no password account among its development logins.
     without tenants. A development run signs in through the simulated directory, as the
     person and with the roles the environment template names (APP_USERNAME, APP_ROLES).
 
-Either start writes the application's Go tests for the sign-in it has: the served suite
-signs in through the simulated directory (go test -tags skipAuth ./...), and the base's
-tests of what the auth does not have are taken out, each named with the reason.
+Either start writes the application's tests for the sign-in it has: the served suite
+signs in through the simulated directory (go test -tags skipAuth ./...), the spec of the
+browser application's login page expects a button for each method and no password form,
+and the base's tests of what the auth does not have are taken out, each named with the
+reason.
 
 In global-users-by-directory the first auth keeps its password method, and the command
 says which impulse add method adds the directory method a tenant's people come through;

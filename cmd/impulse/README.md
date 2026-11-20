@@ -389,7 +389,7 @@ directory is an auth of its own (`impulse add auth --shape directory-roles --met
 oidc:<registration>`).
 
 The tests the base starts with are written for a password sign-in, so either start
-writes the application's Go tests for the sign-in it has. The served suite
+writes the application's tests for the sign-in it has. The served suite
 (`test/integration`) signs in through the simulated directory, each test proving what
 the base's test of its name proves: run it as the Procfile and CI do, with `go test
 -tags skipAuth ./...`, since under the default build the cases that sign in are skipped
@@ -401,16 +401,17 @@ With `--shape directory-roles` the deployment's tests (`pkg/deploy`,
 release invites nobody; with `--shape tenant-owned-users-by-directory` the two harnesses
 (`test/integration`, `test/authz`) build the tenant roster and the generated maker, and
 the first administrator's invitation is proven accepted through Google. The new
-application passes `go vet` with and without the tag as it is made. The browser
-application's login page spec is still the author's, and the brief names it. In a start
-with tenants the two served suites run as the application was made, since the command
-writes the role a tenant's administrator holds, without which the application's router
-is not built (`impulse add tenancy`, below, says which grants it carries). A start with
-tenants that keeps the password sign-in (`--tenancy`, or one of the other three shapes
-with tenants) has its tests brought up to its tenants as well: the two harnesses are
-written again, the base's two tests of sign-up are taken out and its test of a password
-reset opens sign-up with no role (`impulse add tenancy`, below), so it too passes `go
-vet` and its own tests as it is made.
+application passes `go vet` with and without the tag as it is made. The spec of the
+browser application's login page is written for the same sign-in: it answers the methods
+route with the methods the auth registers, and expects a button for each and no password
+form. In a start with tenants the two served suites run as the application was made,
+since the command writes the role a tenant's administrator holds, without which the
+application's router is not built (`impulse add tenancy`, below, says which grants it
+carries). A start with tenants that keeps the password sign-in (`--tenancy`, or one of
+the other three shapes with tenants) has its tests brought up to its tenants as well:
+the two harnesses are written again, the base's two tests of sign-up are taken out and
+its test of a password reset opens sign-up with no role (`impulse add tenancy`, below),
+so it too passes `go vet` and its own tests as it is made.
 
 ```sh
 impulse new ./harbor --module example.com/harbor --auth staff --tenancy --outlet portal=portal/api --agent

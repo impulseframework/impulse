@@ -69,6 +69,7 @@ const (
 	signUpRoleSuite         = "test/integration/sign_up_role_test.go"
 	deployTest              = "pkg/deploy/deploy_test.go"
 	migrateTest             = "cmd/deployment/migrate/main_test.go"
+	loginPageSpec           = "web/console/src/app/components/login/login.component.spec.ts"
 )
 
 // suiteData is what a start's tests are written from.
@@ -144,9 +145,14 @@ func (d *DirectoryStart) writeSuites(a *app.App, ch *Change) (map[string]bool, e
 		return nil, err
 	}
 	settled := map[string]bool{}
+	if err := d.writeLoginPageSpec(a, ch, files[loginPageSpec], settled); err != nil {
+		return nil, err
+	}
 	written := make([]string, 0, len(files))
 	for rel := range files {
-		written = append(written, rel)
+		if rel != loginPageSpec {
+			written = append(written, rel)
+		}
 	}
 	sort.Strings(written)
 	for _, rel := range written {
@@ -194,10 +200,50 @@ func (d *DirectoryStart) writeSuites(a *app.App, ch *Change) (map[string]bool, e
 	return settled, nil
 }
 
+// writeLoginPageSpec writes the spec of the browser application's login page for the
+// sign-in the auth has, in the place of the base's, which answers the methods route with
+// the password method and expects its form. The Go tests prove the sign-in on the served
+// stack; the spec proves what the page draws of it, and it runs in the application's
+// browser tests, so the base's would fail there as the application was made. It is
+// written where the application's spec is the base's still: one somebody changed is left
+// as it is, and the change lists it among what is left.
+func (d *DirectoryStart) writeLoginPageSpec(a *app.App, ch *Change, spec []byte, settled map[string]bool) error {
+	if spec == nil || !asTheBaseRenders(a, loginPageSpec, d.Auth) {
+		return nil
+	}
+	if err := os.WriteFile(a.Abs(loginPageSpec), spec, 0o644); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+	settled[loginPageSpec] = true
+	methods := d.methods()
+	labels := make([]string, 0, len(methods))
+	for i := range methods {
+		labels = append(labels, methodLabel(&methods[i]))
+	}
+	ch.didf("%s: the spec of the browser application's login page written for the sign-in the %s auth has: it answers the methods route with what the auth registers (%s), and expects a button for each and no password form, where the base's answers it with the password method and expects its form", loginPageSpec, d.Auth, strings.Join(labels, ", "))
+
+	return nil
+}
+
+// methodLabel is the words the login page shows for a method of a start: the label the
+// generator gives a method of its kind.
+func methodLabel(m *authpkg.Method) string {
+	switch m.Kind {
+	case app.MethodGoogle:
+		return "Google"
+	case app.MethodAzure:
+		return "Microsoft"
+	case app.MethodPersona:
+		return "Persona"
+	}
+
+	return m.Name
+}
+
 // renderSuites renders a set of suiteFiles for an application, each of the set's trees:
 // each file by its path in the application. A file is rendered as the base candidate's
 // are: the candidate's module path gives way to the application's and the placeholder
-// auth to the first auth's name, and the result is formatted.
+// auth to the first auth's name, and a Go file is formatted.
 func renderSuites(set string, data *suiteData, module, auth string) (map[string][]byte, error) {
 	candidate, err := baseModulePath()
 	if err != nil {
@@ -222,7 +268,7 @@ func renderSuites(set string, data *suiteData, module, auth string) (map[string]
 			if err := tmpl.ExecuteTemplate(&b, path.Base(p), data); err != nil {
 				return errors.Wrapf(err, "template.Execute(): %s", p)
 			}
-			out, err := renderedAs(b.String(), candidate, module, auth)
+			out, err := renderedAs(rel, b.String(), candidate, module, auth)
 			if err != nil {
 				return errors.Wrapf(err, "format.Source(): %s", rel)
 			}
@@ -238,13 +284,17 @@ func renderSuites(set string, data *suiteData, module, auth string) (map[string]
 	return files, nil
 }
 
-// renderedAs is a Go file written against the base candidate's module path and its
+// renderedAs is a test written against the base candidate's module path and its
 // placeholder auth, as impulse new renders it for an application: the module path the
-// application's, the auth its first auth's name, and the result formatted.
-func renderedAs(text, candidate, module, auth string) ([]byte, error) {
+// application's, the auth its first auth's name, and a Go file formatted. A spec of the
+// browser application is left as it is written, as impulse new leaves the base's.
+func renderedAs(rel, text, candidate, module, auth string) ([]byte, error) {
 	text = strings.ReplaceAll(text, candidate, module)
 	if auth != skeleton.PlaceholderAuth {
 		text = names.Rename(text, skeleton.PlaceholderAuth, auth)
+	}
+	if path.Ext(rel) != ".go" {
+		return []byte(text), nil
 	}
 	out, err := format.Source([]byte(text))
 	if err != nil {
@@ -272,7 +322,7 @@ func baseRendering(rel, module, auth string) ([]byte, error) {
 		return nil, errors.Wrapf(err, "fs.ReadFile(): %s", rel)
 	}
 
-	return renderedAs(string(src), candidate, module, auth)
+	return renderedAs(rel, string(src), candidate, module, auth)
 }
 
 // asTheBaseRenders reports whether a test of the application is the base's still, byte
