@@ -826,24 +826,6 @@ func writeCrewAccount(ctx context.Context, t *testing.T, db *initiator.SpannerDB
 	return knownAs(t, username, id)
 }
 
-// seedCrewAccount makes an account of the crew's on the served stack through the session
-// library's API, as the bootstrap makes the cast's: with no password and no role, for a
-// person who has not signed in, and with the address given when there is one, which
-// nobody has confirmed. Nobody creates an account for someone else through the
-// application, where a person comes in by an invitation; a suite that needs an account
-// nobody has signed in to makes one here, and gives it its roles through the generated
-// methods. It answers the account's id.
-func (s *served) seedCrewAccount(ctx context.Context, t *testing.T, username string, email *string) impulse.UUID {
-	t.Helper()
-
-	id, err := s.crew.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: username, Email: email})
-	if err != nil {
-		t.Fatalf("CreateSessionUser(%s) error = %v", username, err)
-	}
-
-	return id
-}
-
 // decodeRows decodes a list response body into rows.
 func decodeRows(t *testing.T, body []byte) []map[string]any {
 	t.Helper()
@@ -1207,6 +1189,24 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	server.Start()
 
 	return &served{server: server, crew: crewAuth, access: crewAuth.Access(), members: membersAuth.Access(), stores: stores, db: db, scheduler: keys, jobs: starter, live: fake, tenants: roster, mail: sent, trusted: map[string]*http.Cookie{}}
+}
+
+// seedCrewAccount makes an account of the crew's on the served stack through the session
+// library's API, as the bootstrap makes the cast's: with no password and no role, for a
+// person who has not signed in, and with the address given when there is one, which
+// nobody has confirmed. Nobody creates an account for someone else through the
+// application, where a person comes in by an invitation; a suite that needs an account
+// nobody has signed in to makes one here, and gives it its roles through the generated
+// methods. It answers the account's id.
+func (s *served) seedCrewAccount(ctx context.Context, t *testing.T, username string, email *string) impulse.UUID {
+	t.Helper()
+
+	id, err := s.crew.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: username, Email: email})
+	if err != nil {
+		t.Fatalf("CreateSessionUser(%s) error = %v", username, err)
+	}
+
+	return id
 }
 
 // personaSettings is the crew auth's persona settings for the stack: none when no

@@ -176,6 +176,9 @@ func retiredGrantsIn(importPath, file string, retired []retiredIdentityMethod, d
 			errs = append(errs, errors.Newf("Auth(%q): %s: the role %s is granted Execute on %s, and the generated management has no such method any more: %s; grant %s to the role instead, or remove the grant", importPath, filepath.ToSlash(file), role.Name, name, retired[at].why, retired[at].instead))
 		}
 	}
+	if len(errs) > 0 {
+		return errors.Wrap(errors.Join(errs...), "the role file grants methods that are gone")
+	}
 
-	return errors.Join(errs...)
+	return nil
 }

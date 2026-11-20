@@ -112,9 +112,9 @@ func newTenantListsWorld(t *testing.T) *tenantListsWorld {
 }
 
 // seat writes one more account, under the name and with no address, gives it the role
-// in the sector, and answers the account's id. The harness knows the name as the
-// account, so a request made as the name runs as it.
-func (w *tenantListsWorld) seat(ctx context.Context, t *testing.T, name, role, sector string) string {
+// in the sector, and keeps the account's id under the name. The harness knows the name
+// as the account, so a request made as the name runs as it.
+func (w *tenantListsWorld) seat(ctx context.Context, t *testing.T, name, role, sector string) {
 	t.Helper()
 
 	id := string(makeCrewAccount(ctx, t, w.db, accesstypes.User(name)))
@@ -132,8 +132,6 @@ func (w *tenantListsWorld) seat(ctx context.Context, t *testing.T, name, role, s
 		t.Fatalf("seating %s: %v", name, err)
 	}
 	w.ids[name] = id
-
-	return id
 }
 
 // sectorList lists one of a sector's lists as the user, by the rows' id.
