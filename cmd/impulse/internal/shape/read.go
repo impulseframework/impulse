@@ -364,7 +364,7 @@ func (r *Reading) judge(auth *Auth, methods []app.Method) {
 	case synced >= 0 && r.Tenants != nil:
 		none("its %s method takes the roles from the directory, and no shape has both tenants and roles from a directory", methods[synced].Name)
 	case synced >= 0 && password >= 0:
-		none("its password method is outside %s, the shape its %s method makes: the directory gives every role, so a person who signed in with a password would hold none, and a method whose roles come from the directory stands alone in its auth (impulse check refuses it)", numbered(directoryRoles), methods[synced].Name)
+		none("its password method is outside %s, the shape its %s method makes: the directory gives every role, so a person who signed in with a password would hold none, and a method whose roles come from the directory stands alone in its auth (impulse check refuses it). %s", numbered(directoryRoles), methods[synced].Name, passwordOrDirectoryRoles(auth, &methods[synced]))
 	case synced >= 0 && len(methods) > 1:
 		none("its %s method takes the roles from the directory beside another method, and a method whose roles come from the directory stands alone in its auth (impulse check refuses it)", methods[synced].Name)
 	case synced >= 0:
@@ -477,6 +477,14 @@ func (r *Reading) judgeTenants(auth *Auth, methods []app.Method) {
 // its file, its registration and its declaration, then the regeneration.
 func passwordByHand(auth *Auth) string {
 	return passwordSteps(auth.Dir, auth.File)
+}
+
+// passwordOrDirectoryRoles names the two hand changes that bring an auth whose directory
+// gives the roles, and which registers the password method beside it, back to a shape:
+// taking the password method out, which makes it Directory roles again, or having the
+// application give the roles, which keeps the password. No command makes either.
+func passwordOrDirectoryRoles(auth *Auth, synced *app.Method) string {
+	return fmt.Sprintf("No command removes a sign-in method, so one of the two is changed by hand. To have the directory give the roles, take the password method out (%s). To keep the password, have the application give the roles instead: set the %s method's RoleSync to DisableRoleSync (%s:%d), take SyncsRoles() off that method in the auth's declaration on its outlets in the generator program, and run go generate ./...; impulse audit then names the shape, and impulse check says what an auth whose roles the application gives still needs", passwordByHand(auth), synced.Name, synced.File, synced.Line)
 }
 
 // passwordSteps is the hand step by the auth's package directory and the file of its

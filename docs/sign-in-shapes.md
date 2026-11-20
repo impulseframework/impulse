@@ -1315,7 +1315,7 @@ fails only on what cannot work.
 | The auth | The reason `impulse audit` gives, in short |
 | --- | --- |
 | A directory gives the roles, in an application with tenants | No shape has both tenants and roles from a directory. |
-| A directory gives the roles, on an auth with another method | A method whose roles come from the directory stands alone in its auth. This is the one that cannot work: the application refuses to start, and `impulse check` reports it. |
+| A directory gives the roles, on an auth with another method | A method whose roles come from the directory stands alone in its auth. This is the one that cannot work: the application refuses to start, and `impulse check` reports it. Where the other method is the password method, the reason names the two changes to make by hand: take the password method out, so the directory gives every role, or have the application give the roles, so the password stays. |
 | A password method, on an auth that would otherwise be shape 6 | The password method keeps it outside shape 6, where every person of a tenant signs in through the tenant's own directory. The reason names the files to change by hand. |
 | Who gives a method's roles is written where the command does not read it | Who gives the roles is not read, and the shape depends on it. |
 | No sign-in method is read on the auth | No sign-in method is read on its Auth. |

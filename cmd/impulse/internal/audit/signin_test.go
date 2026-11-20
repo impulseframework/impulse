@@ -420,7 +420,9 @@ func TestWriteSignIn(t *testing.T) {
 			want: "sign-in\n  members (pkg/auth/members)\n" +
 				"    password (pkg/auth/members/members.go:14): admits anyone with an email address; the application gives the roles; " + running +
 				"    workspace, google (pkg/auth/members/members.go:15): admits the accounts of one Google Workspace; the directory gives the roles; no invite-only or open choice, since everyone the directory signs in becomes a user with the roles it names\n" +
-				"    shape: no named shape: its password method is outside 3 Directory roles, the shape its workspace method makes: the directory gives every role, so a person who signed in with a password would hold none, and a method whose roles come from the directory stands alone in its auth (impulse check refuses it)\n" + noTenants,
+				"    shape: no named shape: its password method is outside 3 Directory roles, the shape its workspace method makes: the directory gives every role, so a person who signed in with a password would hold none, and a method whose roles come from the directory stands alone in its auth (impulse check refuses it). " +
+				"No command removes a sign-in method, so one of the two is changed by hand. To have the directory give the roles, take the password method out (remove pkg/auth/members/password.go and the registerPassword call in pkg/auth/members/members.go, take generation.PasswordMethod() out of the auth's declaration on its outlets in the generator program, and run go generate ./...). " +
+				"To keep the password, have the application give the roles instead: set the workspace method's RoleSync to DisableRoleSync (pkg/auth/members/members.go:15), take SyncsRoles() off that method in the auth's declaration on its outlets in the generator program, and run go generate ./...; impulse audit then names the shape, and impulse check says what an auth whose roles the application gives still needs\n" + noTenants,
 		},
 		{
 			name:  "outside the eight: a method whose choices are written where they are not read",

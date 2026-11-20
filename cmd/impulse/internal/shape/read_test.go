@@ -147,7 +147,7 @@ func TestReading_judge_passwordAndPersona(t *testing.T) {
 
 	var (
 		password  = app.Method{Kind: app.MethodPassword, Name: "password"}
-		synced    = app.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: app.AuthorityDirectory, Workspaces: "one"}
+		synced    = app.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: app.AuthorityDirectory, Workspaces: "one", File: "pkg/auth/staff/workspace.go", Line: 31}
 		workspace = app.Method{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication, Workspaces: app.WorkspacesAny}
 		tenant    = app.Method{Kind: app.MethodAzure, Name: "azure", Authority: app.AuthorityApplication, Tenants: app.TenantsAny}
 		persona   = app.Method{Kind: app.MethodPersona, Name: "persona", Authority: app.AuthorityApplication}
@@ -166,7 +166,11 @@ func TestReading_judge_passwordAndPersona(t *testing.T) {
 		{name: "a directory that gives the roles, alone", methods: []app.Method{synced}, wantShape: "directory-roles"},
 		{
 			name: "a password beside it is named as what is outside the shape", methods: []app.Method{password, synced},
-			wantSays: "its password method is outside 3 Directory roles, the shape its workspace method makes: the directory gives every role, so a person who signed in with a password would hold none, and a method whose roles come from the directory stands alone in its auth (impulse check refuses it)",
+			wantSays: "its password method is outside 3 Directory roles, the shape its workspace method makes: the directory gives every role, so a person who signed in with a password would hold none, and a method whose roles come from the directory stands alone in its auth (impulse check refuses it). " +
+				// The reading gives the step, since no command takes a method out: the
+				// password goes, or the application gives the roles.
+				"No command removes a sign-in method, so one of the two is changed by hand. To have the directory give the roles, take the password method out (remove pkg/auth/staff/password.go and the registerPassword call in pkg/auth/staff/staff.go, take generation.PasswordMethod() out of the auth's declaration on its outlets in the generator program, and run go generate ./...). " +
+				"To keep the password, have the application give the roles instead: set the workspace method's RoleSync to DisableRoleSync (pkg/auth/staff/workspace.go:31), take SyncsRoles() off that method in the auth's declaration on its outlets in the generator program, and run go generate ./...; impulse audit then names the shape, and impulse check says what an auth whose roles the application gives still needs",
 		},
 		{
 			name: "any other method beside it keeps its sentence", methods: []app.Method{synced, persona},
