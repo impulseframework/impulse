@@ -258,12 +258,6 @@ func TestBaseSession_StartImpersonatedSession_theActorIsTheStoredOne(t *testing.
 
 		return context.WithValue(ctx, sessioninfo.CtxSessionInfo, sess)
 	}
-	// asMallory is a wrapper's Session that answers the actor's session as the session
-	// of another account, under the actor's username.
-	asMallory := func(impulse.UUID) (*sessioninfo.SessionData, error) {
-		return accountSession(sourceID, "alice", malloryID, time.Now()), nil
-	}
-
 	tests := []struct {
 		name string
 		// arrivedAs is the session the call arrived on, as validation put it in the
@@ -293,7 +287,11 @@ func TestBaseSession_StartImpersonatedSession_theActorIsTheStoredOne(t *testing.
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 			}
-			storage := &wrappedStore{BaseStore: inner, answer: asMallory}
+			// The wrapper's Session answers the actor's session as the session of another
+			// account, under the actor's username.
+			storage := &wrappedStore{BaseStore: inner, answer: func(impulse.UUID) (*sessioninfo.SessionData, error) {
+				return accountSession(sourceID, "alice", malloryID, time.Now()), nil
+			}}
 
 			s := New(storage)
 			s.SessionTimeout = 10 * time.Minute

@@ -18,6 +18,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -68,7 +69,7 @@ func standing(ctx context.Context, t *testing.T, s *served) []string {
 		iter := s.db.Single().Query(ctx, spanner.Statement{SQL: sql})
 		for {
 			row, err := iter.Next()
-			if err == iterator.Done {
+			if errors.Is(err, iterator.Done) {
 				break
 			}
 			if err != nil {

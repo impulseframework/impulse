@@ -178,7 +178,7 @@ linters:
       - linters:
           - paralleltest
         path: test/integration/impersonation_(mask|access)_skipauth_test\.go
-        text: TestImpersonationMask_(credential|access)Methods
+        text: TestImpersonationMask_((credential|access)Methods|creatingASector)
       # Lodestar is committed in the framework's own repository, so it builds against
       # the local source rather than a published version that cannot exist yet.
       - linters:

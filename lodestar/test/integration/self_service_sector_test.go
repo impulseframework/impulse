@@ -260,7 +260,8 @@ func (g *gatedBody) Read(p []byte) (int, error) {
 // go. The route reads what the person holds again in the transaction that writes the
 // sector, from the crew's own tables, so one creation commits and the other is refused
 // in the words a second sector is always refused in. One sector is written: her chart
-// lights one, on both instances, and the sector list gains one.
+// lights one, on both instances, the sector list gains one, and the permission store
+// holds her as the marshal of that one and as nothing anywhere else.
 func TestSelfServiceSector_twoAtOnce(t *testing.T) {
 	t.Parallel()
 
@@ -283,7 +284,7 @@ func TestSelfServiceSector_twoAtOnce(t *testing.T) {
 	if err := provisionDemoAccess(ctx, crewEngine, membersEngine); err != nil {
 		t.Fatal(err)
 	}
-	makeCrewAccount(ctx, t, db, pioneerUser)
+	pioneer := makeCrewAccount(ctx, t, db, pioneerUser)
 
 	fake := live.NewFake()
 	first := startSelfServiceInstance(t, "the first instance", db, crewEngine, membersEngine, fake)
@@ -368,6 +369,16 @@ func TestSelfServiceSector_twoAtOnce(t *testing.T) {
 	}
 	for i := range steps {
 		runFlagStep(t, &steps[i])
+	}
+
+	// The permission store seats her once: the marshal of that sector, and nothing in
+	// any other place.
+	held, err := crewEngine.UserManager().UserRoles(ctx, pioneer)
+	if err != nil {
+		t.Fatalf("access.UserManager.UserRoles(the pioneer) error = %v", err)
+	}
+	if seat := accesstypes.DomainPolicyScope(key); len(held) != 1 || !slices.Equal(held[seat], []accesstypes.Role{"SectorMarshal"}) {
+		t.Errorf("the pioneer holds %v in the permission store, want SectorMarshal in sector %s and nothing else: two creations at once seat her once", held, key)
 	}
 }
 

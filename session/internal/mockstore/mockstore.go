@@ -53,7 +53,7 @@ func NewBaseStore(ctrl *gomock.Controller) *BaseStore {
 		ImpersonatedSessionWrite: sealed.NewImpersonatedSessionWrite(write.CreateImpersonatedSession),
 		Sealed:                   write,
 	}
-	store.SessionRead = sealed.NewSessionRead(store.MockBaseStoreMethods.Session, store)
+	store.SessionRead = sealed.NewSessionRead(store.Session, store)
 
 	return store
 }
@@ -79,7 +79,7 @@ func NewPreauthStore(ctrl *gomock.Controller) *PreauthStore {
 		ImpersonatedSessionWrite: sealed.NewImpersonatedSessionWrite(write.CreateImpersonatedSession),
 		Sealed:                   write,
 	}
-	store.SessionRead = sealed.NewSessionRead(store.MockPreauthStoreMethods.Session, store)
+	store.SessionRead = sealed.NewSessionRead(store.Session, store)
 
 	return store
 }
@@ -106,8 +106,8 @@ func NewAuthStore[Tx any](ctrl *gomock.Controller) *AuthStore[Tx] {
 		ImpersonatedSessionWrite: sealed.NewImpersonatedSessionWrite(write.CreateImpersonatedSession),
 		Sealed:                   write,
 	}
-	store.SessionRead = sealed.NewSessionRead(store.MockAuthStoreMethods.Session, store)
-	store.UserRead = sealed.NewUserRead(store.MockAuthStoreMethods.User, store.MockAuthStoreMethods.UserByUserName)
+	store.SessionRead = sealed.NewSessionRead(store.Session, store)
+	store.UserRead = sealed.NewUserRead(store.User, store.UserByUserName)
 
 	return store
 }

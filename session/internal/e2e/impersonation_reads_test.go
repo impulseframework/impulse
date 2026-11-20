@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -66,7 +67,7 @@ func (s *overridingStore[Tx]) Session(ctx context.Context, sessionID impulse.UUI
 
 	sess, err := s.AuthStore.Session(ctx, sessionID)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.Session()")
 	}
 	if s.session != nil {
 		sess = s.session(sess)
@@ -92,7 +93,7 @@ func (s *overridingStore[Tx]) User(ctx context.Context, id impulse.UUID) (*sessi
 		id = instead
 	}
 
-	return s.AuthStore.User(ctx, id)
+	return s.user(ctx, id)
 }
 
 // UserByUserName is the application's own read of an account by its name, in front of
@@ -104,10 +105,25 @@ func (s *overridingStore[Tx]) UserByUserName(ctx context.Context, username strin
 	s.mu.Unlock()
 
 	if replaced {
-		return s.AuthStore.User(ctx, instead)
+		return s.user(ctx, instead)
 	}
 
-	return s.AuthStore.UserByUserName(ctx, username)
+	u, err := s.AuthStore.UserByUserName(ctx, username)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.UserByUserName()")
+	}
+
+	return u, nil
+}
+
+// user is the library's store's read of an account.
+func (s *overridingStore[Tx]) user(ctx context.Context, id impulse.UUID) (*sessionstorage.SessionUser, error) {
+	u, err := s.AuthStore.User(ctx, id)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
+	}
+
+	return u, nil
 }
 
 // set changes what the store hands on.
@@ -132,11 +148,25 @@ func (s *overridingStore[Tx]) start(fn func()) {
 }
 
 // asked is what the store's reads were asked so far.
-func (s *overridingStore[Tx]) asked() (sessions, sessionsStarting, users []impulse.UUID, names []string) {
+func (s *overridingStore[Tx]) asked() askedReads {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return slices.Clone(s.sessionsAsked), slices.Clone(s.sessionsAskedStarting), slices.Clone(s.usersAsked), slices.Clone(s.namesAsked)
+	return askedReads{
+		sessions:         slices.Clone(s.sessionsAsked),
+		sessionsStarting: slices.Clone(s.sessionsAskedStarting),
+		users:            slices.Clone(s.usersAsked),
+		names:            slices.Clone(s.namesAsked),
+	}
+}
+
+// askedReads is what an overridingStore's reads were asked, each list in the order of
+// the asking: the sessions its Session was asked for, the ones among them asked while a
+// session that acts as someone else was being started, the accounts its User was asked
+// for, and the names its UserByUserName was asked for.
+type askedReads struct {
+	sessions, sessionsStarting, users []impulse.UUID
+	names                             []string
 }
 
 // readsApp is an application on one Auth over a store of its own that wraps the
@@ -395,7 +425,7 @@ func readsMaskCleared[Tx any](ctx context.Context, t *testing.T, a *readsApp[Tx]
 	}
 	// What the mask refuses is refused: the view writes nothing.
 	viewing.expect(ctx, http.StatusForbidden, http.MethodPost, "/resource", nil)
-	if sessions, _, _, _ := a.store.asked(); slices.Contains(sessions, id) {
+	if slices.Contains(a.store.asked().sessions, id) {
 		t.Errorf("the wrapper's Session was asked for the view's session %s, want it never asked: what a session that acts as someone else is, is the library's own store's to say", id)
 	}
 
@@ -441,7 +471,7 @@ func readsActorChangedAtTheStart[Tx any](ctx context.Context, t *testing.T, a *r
 	own := acting.readsSession(ctx)
 	id := acting.startAs(ctx, kindFull, sam.String())
 
-	if _, starting, _, _ := a.store.asked(); len(starting) != 0 {
+	if starting := a.store.asked().sessionsStarting; len(starting) != 0 {
 		t.Errorf("the wrapper's Session was asked for %v while the session was started, want it never asked: the actor's own session is read through the library's own store", starting)
 	}
 	v := acting.readsSession(ctx)
@@ -524,7 +554,7 @@ func readsAccountChanged[Tx any](ctx context.Context, t *testing.T, a *readsApp[
 	if want := accesstypes.UserPrincipal(accesstypes.User(sam.String())).String(); v.Principal != want {
 		t.Errorf("the session's principal = %q, want %q", v.Principal, want)
 	}
-	if _, _, users, _ := a.store.asked(); slices.Contains(users, sam) {
+	if slices.Contains(a.store.asked().users, sam) {
 		t.Errorf("the wrapper's User was asked for %s, want it never asked: the account a session acts as is read through the library's own store", sam)
 	}
 
@@ -551,14 +581,14 @@ func readsRoleSessionAccountChanged[Tx any](ctx context.Context, t *testing.T, a
 	a.store.set(func(s *overridingStore[Tx]) {
 		s.nameInstead = map[string]impulse.UUID{"pat@lakeside.edu": carol}
 	})
-	_, _, _, before := a.store.asked()
+	before := a.store.asked().names
 	acting.startAs(ctx, kindRole, "auditor")
 
 	v := acting.readsSession(ctx)
 	if !v.Impersonated || v.Username != "pat@lakeside.edu" || v.User != pat.String() || v.ActorID != pat.String() {
 		t.Errorf("the session that acts as a role = %+v, want pat@lakeside.edu's (%s), who started it", v, pat)
 	}
-	if _, _, _, names := a.store.asked(); len(names) != len(before) {
+	if names := a.store.asked().names; len(names) != len(before) {
 		t.Errorf("the wrapper's UserByUserName was asked for %v by the session that acts as a role, want it never asked: whose such a session is, is read through the library's own store", names[len(before):])
 	}
 
@@ -605,7 +635,7 @@ func readsEndedSessionCached[Tx any](ctx context.Context, t *testing.T, a *reads
 
 	// The view's next request is refused all the same.
 	viewing.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
-	sessions, _, _, _ := a.store.asked()
+	sessions := a.store.asked().sessions
 	if n := len(slices.DeleteFunc(sessions, func(asked impulse.UUID) bool {
 		return asked != id
 	})); n != 2 {
