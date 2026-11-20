@@ -14,9 +14,11 @@ import {
   Method,
   Page,
   Permission,
+  readMode,
   Resource,
   ResourceDescriptor,
   ResourceHandle,
+  wholeListQuery,
 } from '@impulseframework/resource';
 
 /** The generated client bound to one sector: its resources and RPC methods. */
@@ -54,6 +56,29 @@ export function grantedColumns<Row>(handle: ListHandle<Row>): ListQuery<Row> {
   }
   return { columns: [...new Set([...handle.descriptor.keys, ...fields])] as (keyof Row & string)[] };
 }
+
+/**
+ * Every row of a resource, for a deck that draws them all: one request where the resource
+ * declares no maximum page size, and where it declares one, a page of that size at a time
+ * until the server names no next page. The rows come back together, at the end, so a deck
+ * never draws a part of them.
+ */
+async function everyRow<Row>(handle: ListHandle<Row>, query?: EveryQuery<Row>): Promise<Row[]> {
+  if (readMode(handle.descriptor) === 'whole') {
+    return handle.list(wholeListQuery<Row>(handle.descriptor, query));
+  }
+  const rows: Row[] = [];
+  let page = await handle.page({ ...query, limit: handle.descriptor.page?.max });
+  rows.push(...page.rows);
+  while (page.next) {
+    page = await page.next();
+    rows.push(...page.rows);
+  }
+  return rows;
+}
+
+/** The query of a read of every row: a list's, without the page it would ask for. */
+export type EveryQuery<Row> = Omit<ListQuery<Row>, 'limit' | 'cursor'>;
 
 /** What a global reader reads with: the granted handle and the query it was given, built. */
 interface GlobalRead<Row> {
@@ -252,9 +277,9 @@ export class SectorService {
    * sectorList derives a deck's list from the open sector: `select` picks the
    * handle off the sector-bound client, the loader re-runs when the sector changes,
    * sits idle while none is open, and never asks for a list the digest says the
-   * user cannot read. After a mutation, call .reload() on the affected lists. A deck
-   * that wants every row of a resource with no maximum page size passes
-   * `{ limit: 'all' }`; a resource with a maximum is read a page at a time (sectorPage).
+   * user cannot read. After a mutation, call .reload() on the affected lists. It reads
+   * one page, the resource's default where the query names no limit: a deck that draws
+   * every row reads with sectorEvery, and one that pages with sectorPage.
    */
   sectorList<Row>(select: (sector: SectorApi) => ListHandle<Row>, query?: ListQuery<Row>): ResourceRef<Row[]> {
     return resource({
@@ -265,6 +290,29 @@ export class SectorService {
         return { handle: handle && handle.can(Permissions.List) ? handle : undefined };
       },
       loader: ({ params }) => (params.handle ? params.handle.list(query) : Promise.resolve([])),
+      defaultValue: [],
+    });
+  }
+
+  /**
+   * sectorEvery is sectorList for a deck that draws every row of a resource, a board and
+   * not a list: the hangar deck's bays hold every refit of the sector, however many there
+   * are. A resource with no maximum page size is read in one request (`limit: 'all'`);
+   * one that declares a maximum refuses that, so it is read a page of the maximum at a
+   * time to the end, and the deck gets the rows once, all of them. The read is asked
+   * again when the sector or the answer to the List question changes, and not when a
+   * digest arrives that changes neither, so a deck that is drawn stays drawn.
+   */
+  sectorEvery<Row>(select: (sector: SectorApi) => ListHandle<Row>, query?: EveryQuery<Row>): ResourceRef<Row[]> {
+    const granted = computed(() => {
+      this.permissions();
+      const sector = this.sector();
+      const handle = sector ? select(sector) : undefined;
+      return handle && handle.can(Permissions.List) ? handle : undefined;
+    });
+    return resource({
+      params: () => ({ handle: granted() }),
+      loader: ({ params }) => (params.handle ? everyRow(params.handle, query) : Promise.resolve([])),
       defaultValue: [],
     });
   }

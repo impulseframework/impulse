@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, inject, signal, TemplateRef } from '@angular/core';
+import { Component, computed, inject, ResourceStatus, signal, TemplateRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -17,6 +17,16 @@ import { nameInWords } from '@impulseframework/resource-angular/types';
 import { openFormDialog } from '../form-dialog';
 import { SectorService } from '../sector.service';
 import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.component';
+
+/** Whether a read has answered since it was first asked: with rows, or with a refusal. */
+function answered(status: ResourceStatus): boolean {
+  return status !== 'loading';
+}
+
+/** Whether the server refused a read because the person's posting does not allow it. */
+function refused(error: Error | undefined): boolean {
+  return error instanceof ApiError && error.status === 403;
+}
 
 /**
  * The hangar deck: the refit workflow drawn as bays across the screen. Each ship in a
@@ -45,6 +55,19 @@ import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.compone
  * A method is shown in words wherever the deck shows it, "Begin refit", "Start flight
  * test", "Scrap ship": on its button, on its edge of the graph and in a refused drop,
  * the same words in each. No button says a method's name ("BeginRefit").
+ *
+ * The deck draws what it knows once it knows it. Under its heading it draws nothing until
+ * its three reads (the refits, their tasks, the sector's ships) have each answered, and
+ * then the whole board at once: no bay shows a refit before the ship that names it is
+ * read, and nothing is drawn that an answer still on its way would take away. It reads
+ * every refit, task and ship of the sector, since a bay holds every ship that is in it,
+ * however many there are. Where the person's posting does not cover the deck it says one
+ * sentence of its own, whether the digest says so or the server refuses one of the reads
+ * (a posting that holds only during a shift is refused by the server outside it), and
+ * never the server's words for the refusal.
+ *
+ * Docking takes a ship that is not in a bay: the picker offers the ships with no refit
+ * still open, and the server refuses the others.
  *
  * Demonstrates: workflow.ts-constant, @transition.multi-from, @transition.loop, create-under-parent, capability-envelope, condition.time-of-day.
  */
@@ -77,9 +100,9 @@ export class HangarDeckComponent {
   // to, the scrapyard last.
   readonly bays = ['docked', 'inspected', 'in_refit', 'flight_test', 'cleared', 'scrapped'];
 
-  refits = this.sectors.sectorList((sector) => sector.refits, { capabilities: ['Execute', 'Update', 'Create'] });
-  tasks = this.sectors.sectorList((sector) => sector.refitTasks, { capabilities: ['Update'] });
-  ships = this.sectors.sectorList((sector) => sector.ships, { capabilities: ['Execute'] });
+  refits = this.sectors.sectorEvery((sector) => sector.refits, { capabilities: ['Execute', 'Update', 'Create'] });
+  tasks = this.sectors.sectorEvery((sector) => sector.refitTasks, { capabilities: ['Update'] });
+  ships = this.sectors.sectorEvery((sector) => sector.ships, { capabilities: ['Execute'] });
 
   /** The open sector's name, as the session's sector list carries it. */
   sectorName = this.sectors.placeName;
@@ -87,8 +110,61 @@ export class HangarDeckComponent {
   canOpen = computed(() => this.sectors.can(Permissions.Create, Resources.Refits));
   canListShips = computed(() => this.sectors.can(Permissions.List, Resources.Ships));
 
+  /**
+   * Whether the person's posting covers the deck: the digest lets them list refits, and
+   * the server refused none of the deck's three reads. The digest cannot judge a posting
+   * that holds only during a shift, so the server's refusal of a read is how the deck
+   * learns the person is outside theirs, whichever read it refuses.
+   */
+  private covered = computed(
+    () => this.canList() && ![this.refits.error(), this.tasks.error(), this.ships.error()].some(refused),
+  );
+
+  /** What a read that failed for another reason than the posting said: the first of the three that did. */
+  failure = computed(
+    () =>
+      this.sectors.refusalOf(this.refits) ?? this.sectors.refusalOf(this.tasks) ?? this.sectors.refusalOf(this.ships),
+  );
+
+  /**
+   * What the deck draws under its heading: nothing while one of its reads is out for the
+   * first time, its one sentence where the posting does not cover it, what a failed read
+   * said, or the board. A read asked again after a change keeps its rows while it is out,
+   * so a board that is drawn stays drawn until the new rows are in.
+   */
+  view = computed<'reading' | 'uncovered' | 'failed' | 'board'>(() => {
+    if (![this.refits.status(), this.tasks.status(), this.ships.status()].every(answered)) {
+      return 'reading';
+    }
+    if (!this.covered()) {
+      return 'uncovered';
+    }
+    return this.failure() ? 'failed' : 'board';
+  });
+
+  /** The rows the deck's reads hold: none where a read was refused or failed. */
+  private refitRows = computed(() => (this.refits.hasValue() ? this.refits.value() : []));
+  private taskRows = computed(() => (this.tasks.hasValue() ? this.tasks.value() : []));
+  shipRows = computed(() => (this.ships.hasValue() ? this.ships.value() : []));
+
+  /**
+   * The ships a person may dock: those not in a bay. A ship is in a bay while a refit of
+   * it is still open; one that was cleared or scrapped is over, and its ship may be docked
+   * again. The server refuses to dock a ship that is in a bay, so the picker offers none.
+   */
+  dockable = computed(() => {
+    const inBay = new Set(
+      this.refitRows()
+        .filter((refit) => this.stillOpen(refit))
+        .map((refit) => refit.shipId),
+    );
+    return this.shipRows().filter((ship) => !inBay.has(ship.id));
+  });
+
   selectedID = signal<string | undefined>(undefined);
-  selected = computed(() => this.refits.value().find((r) => r.id === this.selectedID()));
+  selected = computed(() =>
+    this.view() === 'board' ? this.refitRows().find((r) => r.id === this.selectedID()) : undefined,
+  );
   dragging = signal<string | undefined>(undefined);
   refusal = signal<string | undefined>(undefined);
   // The inspection's answer: InspectShip is the method that returns a result, typed
@@ -124,7 +200,12 @@ export class HangarDeckComponent {
   }
 
   inBay(bay: string): Refits[] {
-    return this.refits.value().filter((r) => r.statusId === bay);
+    return this.refitRows().filter((r) => r.statusId === bay);
+  }
+
+  /** Whether a refit is still open: the workflow has a transition out of the state it is in. */
+  private stillOpen(refit: Refits): boolean {
+    return this.workflow?.transitions.some((t) => t.from.includes(refit.statusId ?? '')) ?? false;
   }
 
   /** A refit's estimate as the open refit's card says it. */
@@ -148,7 +229,7 @@ export class HangarDeckComponent {
   }
 
   shipName(id: string | undefined): string {
-    return this.ships.value().find((s) => s.id === id)?.name ?? id ?? '—';
+    return this.shipRows().find((s) => s.id === id)?.name ?? id ?? '—';
   }
 
   executable(refit: Refits): Method[] {
@@ -242,7 +323,7 @@ export class HangarDeckComponent {
   }
 
   async onDrop(bay: string): Promise<void> {
-    const refit = this.refits.value().find((r) => r.id === this.dragging());
+    const refit = this.refitRows().find((r) => r.id === this.dragging());
     this.dragging.set(undefined);
     if (!refit || refit.statusId === bay) return;
     const edge = this.edgeInto(refit, bay);
@@ -307,8 +388,7 @@ export class HangarDeckComponent {
   }
 
   tasksOf(refit: Refits): RefitTasks[] {
-    return this.tasks
-      .value()
+    return this.taskRows()
       .filter((t) => t.refitId === refit.id)
       .sort((a, b) => a.taskNumber - b.taskNumber);
   }

@@ -5,21 +5,21 @@
   outside your shift: the Dockmaster holds it 06:00–18:00 headquarters time, the Night Watch the rest.
 </p>
 
-@if (canOpen() && canListShips()) {
+@if (view() === 'board' && canOpen() && canListShips()) {
   <div class="actions">
     <button mat-flat-button type="button" class="dock" (click)="openDock(dockForm)">Dock a ship</button>
   </div>
 }
 
-@if (sectors.refusalOf(refits); as refusal) {
-  <mat-card appearance="outlined" class="table-card refusal-slot">
-    <p class="refusal"><b>Refused by the server:</b> {{ refusal }}</p>
-  </mat-card>
-} @else if (!canList()) {
+@if (view() === 'uncovered') {
   <mat-card appearance="outlined" class="table-card">
     <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover the hangar deck right now.</p>
   </mat-card>
-} @else {
+} @else if (view() === 'failed') {
+  <mat-card appearance="outlined" class="table-card refusal-slot">
+    <p class="refusal"><b>Refused by the server:</b> {{ failure() }}</p>
+  </mat-card>
+} @else if (view() === 'board') {
   @if (refusal(); as refusal) {
     <p class="refusal">{{ refusal }}</p>
   }
@@ -133,7 +133,7 @@
   </mat-card>
 }
 
-@if (canListShips()) {
+@if (view() === 'board' && canListShips()) {
   <mat-card appearance="outlined" class="table-card">
     <mat-card-header>
       <mat-card-title>Ships in {{ sectorName() }}</mat-card-title>
@@ -144,7 +144,7 @@
     </mat-card-header>
     <mat-card-content>
       <div class="ships">
-        @for (ship of ships.value(); track ship.id) {
+        @for (ship of shipRows(); track ship.id) {
           <div class="ship-card">
             <b>{{ ship.name }}</b>
             <span class="meta"
@@ -171,11 +171,11 @@
   <div mat-dialog-title>Dock a ship</div>
   <form class="dialog-form" (ngSubmit)="openRefit()">
     <mat-dialog-content>
-      <p class="hint">Docking a ship opens a refit on it, in the first bay.</p>
+      <p class="hint">Docking a ship opens a refit on it, in the first bay. A ship that is in a bay is not offered.</p>
       <mat-form-field appearance="outline">
         <mat-label>Ship</mat-label>
         <mat-select name="refitShip" [(ngModel)]="newRefitShipId" required>
-          @for (ship of ships.value(); track ship.id) {
+          @for (ship of dockable(); track ship.id) {
             <mat-option [value]="ship.id">{{ ship.name }}</mat-option>
           }
         </mat-select>
