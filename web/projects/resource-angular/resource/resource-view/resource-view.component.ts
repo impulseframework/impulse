@@ -286,26 +286,34 @@ export class ResourceViewComponent implements OnInit {
 
   /**
    * The row while it is on hand, as the page last read it: what the page has left of a
-   * row that is gone. Nothing until a row is read, nothing again while another key or
-   * another tenant is read from the start, and nothing once the page has left for it.
+   * row that is gone. Nothing until a row is read, and nothing again once a read finds no
+   * row: the row is gone, or another key or another tenant is read from the start.
    */
   private rowOnHand: RecordData | undefined;
+
+  /**
+   * The row the page has left for, as it was last read: what makes the page leave once
+   * for a row. After the row's own Delete nothing has read the row again, so it is still
+   * on hand when a live page's read finds it gone.
+   */
+  private rowLeft: RecordData | undefined;
 
   /**
    * The row that was on hand is gone: the page says the row left, and a row page leaves.
    * The page of a row route goes to the list the row was of, whether it was opened from
    * the list or from a link with no page before it, and takes its own place in the
    * history, so Back never returns to a row that is not there. The list then says what
-   * the config has to say of a row that left it (`rowGone`). Any other row page goes back
-   * to where it was opened from, as it does after its own Delete. The page leaves once
-   * for a row, however many reads find it gone: with no row on hand this does nothing.
+   * the config has to say of a row that left it (`rowGone`). Any other row page says the
+   * same and goes back to where it was opened from. The page leaves once for a row,
+   * whether its own Delete removed it or a read found it gone, and however many reads
+   * find it gone: with no row on hand, or the row it has left for, this does nothing.
    */
   private leaveGoneRow(): void {
     const row = this.rowOnHand;
-    if (row === undefined) {
+    if (row === undefined || row === this.rowLeft) {
       return;
     }
-    this.rowOnHand = undefined;
+    this.rowLeft = row;
     this.deleted.emit(true);
     if (!this.compoundResourceView() || this.navAfterDelete() === false) {
       return;
@@ -616,19 +624,21 @@ export class ResourceViewComponent implements OnInit {
     result.subscribe();
   }
 
+  /**
+   * The row's own Delete. Once the server has removed the row the page leaves as it does
+   * for any row that was on hand and is gone (leaveGoneRow): the page of a row route goes
+   * to its list, and the list says what the config has to say of the row. A live page
+   * reads the row again after the write, and that read may find the row gone before the
+   * write is answered here or after: the page leaves once either way. A row page told not
+   * to leave (`navAfterDelete` false) offers its create form in the row's place.
+   */
   deleteResource(): void {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(this.store.viewData()));
 
     void this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
-      this.deleted.emit(true);
-      if (!this.compoundResourceView()) {
-        return;
-      }
-      const navAfterDelete = this.navAfterDelete() !== false;
-      if (navAfterDelete) {
-        this.location.back();
-      } else {
+      this.leaveGoneRow();
+      if (this.compoundResourceView() && this.navAfterDelete() === false) {
         this.showCreateForm.set(true);
       }
     });
