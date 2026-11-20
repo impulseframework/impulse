@@ -330,7 +330,7 @@ func authNewTenantSignUp(t *testing.T) {
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	cookies, _ := tenantInvitation(t, f, recorder, links, false)
 	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
-	expectFactorCode(f, &pendingState{ID: pendingID}, "314159")
+	expectFactorCode(f, &pendingState{ID: pendingID})
 	f.expectConsume(pendingID)
 	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(&sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}, nil)
 	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
@@ -343,7 +343,7 @@ func authNewTenantSignUp(t *testing.T) {
 		req.Invitation.Accepted = true
 	}, nil)
 
-	if rr := f.enterCode(cookies, "314159"); rr.Code != http.StatusOK || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
+	if rr := f.enterCode(cookies, standingCode); rr.Code != http.StatusOK || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
 		t.Errorf("VerifyCode() = %d %s, want a session", rr.Code, rr.Body.String())
 	}
 }
@@ -354,7 +354,7 @@ func authNewTenantSignUpNotAccepted(t *testing.T) {
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	cookies, _ := tenantInvitation(t, f, recorder, links, false)
 	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
-	expectFactorCode(f, &pendingState{ID: pendingID}, "314159")
+	expectFactorCode(f, &pendingState{ID: pendingID})
 	f.expectConsume(pendingID)
 	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(&sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}, nil)
 	// The application's hook refuses to make the tenant: the sign-in's first transaction
@@ -365,7 +365,7 @@ func authNewTenantSignUpNotAccepted(t *testing.T) {
 		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationHasTenant, httpio.NewConflictMessage("Your organization is already set up here."))
 	})
 
-	rr := f.enterCode(cookies, "314159")
+	rr := f.enterCode(cookies, standingCode)
 
 	if body := decoded(t, rr); rr.Code != http.StatusUnauthorized || body["code"] != string(sessioninfo.RefusedOrganizationHasTenant) {
 		t.Errorf("VerifyCode() = %d %s, want 401 on the hook's code", rr.Code, rr.Body.String())

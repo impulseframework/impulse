@@ -256,7 +256,7 @@ func TestInvitation_sectorAcceptedBySignedInPersona(t *testing.T) {
 	if held := rolesHeldInSector(ctx, t, marshal, anvil, string(policyCadet)); len(held) == 0 || slices.Contains(held, string(harbormasterRole)) {
 		t.Fatalf("the cadet's roles at Anvil after the refusal = %v, want hers without Harbormaster", held)
 	}
-	if standing := standingSectorInvitations(ctx, t, marshal, anvil); len(standing) != 1 || standing[0]["email"] != email {
+	if standing := standingAnvilInvitations(ctx, t, marshal); len(standing) != 1 || standing[0]["email"] != email {
 		t.Fatalf("Anvil's standing invitations after the refusal = %v, want the one to %s", standing, email)
 	}
 
@@ -282,7 +282,7 @@ func TestInvitation_sectorAcceptedBySignedInPersona(t *testing.T) {
 	if held := rolesHeldInSector(ctx, t, marshal, anvil, string(policyCadet)); !equalStrings(held, []string{"Cadet", string(harbormasterRole), "SectorCrew"}) {
 		t.Fatalf("the cadet's roles at Anvil = %v, want Cadet, Harbormaster and SectorCrew", held)
 	}
-	if standing := standingSectorInvitations(ctx, t, marshal, anvil); len(standing) != 1 || standing[0]["email"] != email {
+	if standing := standingAnvilInvitations(ctx, t, marshal); len(standing) != 1 || standing[0]["email"] != email {
 		t.Errorf("Anvil's standing invitations = %v, want the stranger's alone, untouched", standing)
 	}
 }
@@ -334,7 +334,7 @@ func TestInvitation_accountWithNoAddressAcceptsByTheMailedCode(t *testing.T) {
 	if held := rolesHeldInSector(ctx, t, marshal, anvil, pilot); !equalStrings(held, before) {
 		t.Fatalf("the pilot's roles at Anvil before the code = %v, want %v: the link and a password accept nothing", held, before)
 	}
-	if standing := standingSectorInvitations(ctx, t, marshal, anvil); len(standing) != 1 || standing[0]["email"] != email {
+	if standing := standingAnvilInvitations(ctx, t, marshal); len(standing) != 1 || standing[0]["email"] != email {
 		t.Fatalf("Anvil's standing invitations before the code = %v, want the one to %s still", standing, email)
 	}
 
@@ -353,7 +353,7 @@ func TestInvitation_accountWithNoAddressAcceptsByTheMailedCode(t *testing.T) {
 	if held := rolesHeldInSector(ctx, t, marshal, anvil, pilot); !slices.Contains(held, string(harbormasterRole)) {
 		t.Errorf("the pilot's roles at Anvil after the code = %v, want %s among them", held, harbormasterRole)
 	}
-	if standing := standingSectorInvitations(ctx, t, marshal, anvil); len(standing) != 0 {
+	if standing := standingAnvilInvitations(ctx, t, marshal); len(standing) != 0 {
 		t.Errorf("Anvil's standing invitations after the acceptance = %v, want none", standing)
 	}
 }

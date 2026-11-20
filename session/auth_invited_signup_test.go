@@ -302,7 +302,7 @@ func invitedSignUpUsernameIsEmail(t *testing.T) {
 	userID, sessionID := newIDs()
 	f, _, _, cookies := invitedPat(t, UsernameIsEmail())
 	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse"}, "pat@lakeside.edu")
-	expectFactorCode(f, &pendingState{ID: pendingID}, "314159")
+	expectFactorCode(f, &pendingState{ID: pendingID})
 	f.expectConsume(pendingID)
 	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, u *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
 		if u.Username != "pat@lakeside.edu" || !u.EmailVerified {
@@ -313,7 +313,7 @@ func invitedSignUpUsernameIsEmail(t *testing.T) {
 	})
 	f.expectSignIn(sessionID, nil, nil)
 
-	if rr := f.enterCode(cookies, "314159"); rr.Code != http.StatusOK {
+	if rr := f.enterCode(cookies, standingCode); rr.Code != http.StatusOK {
 		t.Errorf("VerifyCode() = %d %s, want 200", rr.Code, rr.Body.String())
 	}
 }
@@ -322,7 +322,7 @@ func invitedSignUpWrongCode(t *testing.T) {
 	t.Parallel()
 	f, _, links, cookies := invitedPat(t)
 	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
-	expectFactorCode(f, &pendingState{ID: pendingID}, "314159")
+	expectFactorCode(f, &pendingState{ID: pendingID})
 
 	// The mocked store expects no ConsumePendingSignIn, no CreateUser and no SignIn: any
 	// of them fails the test.

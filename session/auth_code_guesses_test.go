@@ -87,12 +87,16 @@ type factorCodeRow struct {
 	everyConsumeLands bool
 }
 
-// expectFactorCode gives the fixture's store one code standing for pending.
-func expectFactorCode(f *authFixture, pending *pendingState, code string) *factorCodeRow {
+// standingCode is the code expectFactorCode gives the store.
+const standingCode = "314159"
+
+// expectFactorCode gives the fixture's store one code standing for pending,
+// standingCode.
+func expectFactorCode(f *authFixture, pending *pendingState) *factorCodeRow {
 	c := &factorCodeRow{
 		row: sessionstorage.FactorCode{
 			ID: impulse.Must(impulse.NewUUID()), PendingID: pending.ID, Email: "pat@lakeside.edu",
-			CodeHash: hashEmailCode(pending.ID, code), ExpiresAt: time.Now().Add(time.Hour),
+			CodeHash: hashEmailCode(pending.ID, standingCode), ExpiresAt: time.Now().Add(time.Hour),
 		},
 		together: newTogether(),
 	}
@@ -157,7 +161,7 @@ func (c *factorCodeRow) consume(ctx context.Context, _ impulse.UUID) error {
 func TestAuth_verifyEmailCode_guessesAtOnce(t *testing.T) {
 	t.Parallel()
 
-	const sent = "314159"
+	const sent = standingCode
 	// guess makes guessesAtOnce guesses of entered at once against one code standing,
 	// and returns the code's row and how each guess was answered: accepted, told the
 	// code is wrong, or told none stands.
@@ -165,7 +169,7 @@ func TestAuth_verifyEmailCode_guessesAtOnce(t *testing.T) {
 		t.Helper()
 		f := newAuthFixture(t, gomock.NewController(t))
 		pending := &pendingState{ID: impulse.Must(impulse.NewUUID())}
-		code = expectFactorCode(f, pending, sent)
+		code = expectFactorCode(f, pending)
 		code.everyConsumeLands = everyConsumeLands
 
 		answers := fire(func(ctx context.Context, _ int) error {
@@ -235,7 +239,7 @@ func TestAuth_verifyEmailCode_guessesAtOnce(t *testing.T) {
 		f := newAuthFixture(t, gomock.NewController(t))
 		userID := impulse.Must(impulse.NewUUID())
 		pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID)}
-		code := expectFactorCode(f, pending, sent)
+		code := expectFactorCode(f, pending)
 		code.taken, code.row.Attempts = emailCodeAttempts, emailCodeAttempts
 		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", Email: strPtr("pat@lakeside.edu")}, nil).AnyTimes()
 
@@ -256,7 +260,7 @@ func TestAuth_verifyEmailCode_guessesAtOnce(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
 		pending := &pendingState{ID: impulse.Must(impulse.NewUUID())}
-		code := expectFactorCode(f, pending, sent)
+		code := expectFactorCode(f, pending)
 		code.taken, code.row.Attempts = emailCodeAttempts-1, emailCodeAttempts-1
 
 		state, err := f.auth.emailCodeState(context.Background(), pending)

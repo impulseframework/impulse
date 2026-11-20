@@ -115,7 +115,10 @@ func GivingMethod(list accesstypes.Resource, methods []accesstypes.Resource, nam
 	}
 	name, isText := named[0].Value.(string)
 	if !isText || !slices.Contains(methods, accesstypes.Resource(name)) {
-		return "", false, httpio.NewBadRequestMessagef("%s lists the roles one method gives at a time, and no method that picks a role from it is named %v: name one of %s (method:eq:<name>)", list, named[0].Value, methodNames(methods))
+		return "", false, httpio.NewBadRequestMessagef(
+			"%s lists the roles one method gives at a time, and no method that picks a role from it is named %v: name one of %s (method:eq:<name>)",
+			list, named[0].Value, methodNames(methods),
+		)
 	}
 
 	return accesstypes.Resource(name), true, nil
