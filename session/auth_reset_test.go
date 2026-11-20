@@ -57,6 +57,7 @@ func TestAuth_PasswordReset(t *testing.T) {
 	t.Run("a reset link does not outlive another write of the password: an operator's set and an application's own write each withdraw the links mailed before", authResetCase8)
 	t.Run("a person's request is answered before the account is looked up, so the answer's time says nothing of whether there is one", authResetCase9)
 	t.Run("self-service reset is turned on and off without touching what else the password method's row says, and every spelling of an address is counted as the one mailbox", authResetCase10)
+	t.Run("a password changed while the person was choosing a new one stands: the link is spent, nothing is written and the answer is 409 in words", authResetCase11)
 }
 
 func authResetCase1(t *testing.T) {
@@ -310,6 +311,32 @@ func authResetCase5(t *testing.T) {
 		if rr := f.serve(f.auth.PasswordReset().Open(), http.MethodPost, "/reset/open", map[string]string{"token": token}, nil); rr.Code != http.StatusNotFound {
 			t.Errorf("Open() of %s = %d, want 404", name, rr.Code)
 		}
+	}
+}
+
+func authResetCase11(t *testing.T) {
+	t.Parallel()
+	userID, _ := newIDs()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	user := passwordPerson(t, userID)
+	f.store.EXPECT().User(gomock.Any(), userID).Return(user, nil).AnyTimes()
+	token := mailedReset(t, f, recorder, userID)
+
+	// The account held one password when the link was read and holds another when the
+	// link writes: the store is asked to write over the one that was read, and refuses.
+	// It is the one write the link asks for, so the password that was set meanwhile
+	// stands; the mocked store expects no other write, and one made here fails the test.
+	f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, user.PasswordHash, gomock.Not(gomock.Nil())).Return(sessionstorage.ErrPasswordChanged)
+	rr := f.serve(f.auth.PasswordReset().Complete(), http.MethodPost, "/reset/complete", map[string]string{"token": token, "password": chosenPassword}, nil)
+	const want = "Your password was changed while you were choosing a new one, so this link did not change it. Sign in with your password, or ask for a new link"
+	if rr.Code != http.StatusConflict || decoded(t, rr)["message"] != want {
+		t.Fatalf("Complete() = %d %s, want 409 saying %q", rr.Code, rr.Body.String(), want)
+	}
+	if links.rows[0].ConsumedAt == nil {
+		t.Error("the link still stands after it was refused, want it spent: it was followed for a password the account no longer holds")
+	}
+	if rr := f.serve(f.auth.PasswordReset().Complete(), http.MethodPost, "/reset/complete", map[string]string{"token": token, "password": chosenPassword}, nil); rr.Code != http.StatusNotFound {
+		t.Errorf("Complete() of the link a second time = %d %s, want 404", rr.Code, rr.Body.String())
 	}
 }
 

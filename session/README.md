@@ -1296,14 +1296,14 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, PasswordChangeRequired, Email})` | A user, password-less when `Password` is nil. `PasswordChangeRequired` marks a password an operator set (needs a `Password`). The library generates the user's id; a seed that must know the id before the user exists sets `ID` (Go callers only, never read from a request body; the nil id is refused): one that names its people in rows of its own, so a development database reads the same on every machine, and one that gives a user its roles (`SeedUserID`, below). |
 | `ChangeSessionUserUsername(ctx, id, username)` | Renames the user and its live sessions. |
 | `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Writes the new password over the one that was proved and no other (Conflict, `sessionstorage.ErrPasswordChanged`, when the password changed meanwhile: nothing is written and no session ends), clears the mark and destroys the sessions in the same transaction (`AuthStore.ChangeUserPassword`: the password changed and the sessions ended, or neither), then continues in a new one. The new session is the continuation of the one that made the change: it records that session's auth events, how it was established and the factors it holds, read from the session and never from the request, so a person who signed in through a directory still holds the directory's session and one who entered with a password and the mailed code keeps the code. Where there is none to continue (a call outside a session of the user, a request a bearer token authenticated, or a session that views the application as them) it records the password the change proved, alone. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
-| `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`: the password replaced and the sessions ended, or neither). |
+| `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (an enrollment). The library's reset link is not such a flow: it writes on proof (`AuthStore.ChangeUserPassword`, "A password reset" below). Clears the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`: the password replaced and the sessions ended, or neither). |
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
 
 One rule holds a password's shape on every path that sets one: it is at least eight
 characters, counted as characters and not as bytes, and a shorter one is 400 saying so.
 A sign-up, the account an invitation's
-acceptance makes, a first password, a person's own change, a password set by a flow of
-the application's own (a reset link among them) and an account created with one all
+acceptance makes, a first password, a person's own change, a password chosen at a reset
+link, a password set by a flow of the application's own and an account created with one all
 hash the password through the one function that asks the rule first, so no path sets a
 password another would refuse. The hash a sign-in upgrades is of a password the person already holds,
 and is not asked.
@@ -1468,10 +1468,13 @@ The writes that follow no proof overwrite on purpose: `SetSessionUserPassword` a
 `RemoveSessionUserPassword` write whatever the row holds (the store's
 `ReplaceUserPassword` and `RemoveUserPassword`), and so does the generated user
 management's removal, which writes the column in the caller's transaction. Neither
-claims to know the password being replaced, so there is nothing to compare: the
-password a person chose at a reset link is to stand whatever was done a moment before.
-A password set this way ends the person's sessions as their own change does, in the
-transaction that writes it: the store's `ReplaceUserPassword` writes the hash and the
+claims to know the password being replaced, so there is nothing to compare. A reset
+link is not one of them: the password a person chooses there is written over the
+password the account held when the link was followed and over no other (the store's
+`ChangeUserPassword`, on the hash read with the link), so a password changed or removed
+in that moment stands and the link answers 409 ("A password reset", below).
+A password set by `SetSessionUserPassword` ends the person's sessions as their own
+change does, in the transaction that writes it: the store's `ReplaceUserPassword` writes the hash and the
 mark and expires every session of the user together, or does neither, so a failure
 between the two cannot leave the new password in place with the old sessions alive.
 
@@ -1545,6 +1548,13 @@ you a link". There is no second mail.
   is refused from then on, every session of the person ends, the other reset links of
   the account are withdrawn, and the person signs in with the new password: completing
   a reset starts no session.
+- **The link writes over the password it was followed for, and no other.** Completing
+  it spends the link and then writes the new password only while the account still
+  holds the password it held when the link was read (`AuthStore.ChangeUserPassword`,
+  on that hash). A password changed or removed in that moment stands: nothing is
+  written, no session ends, and the answer is 409, "Your password was changed while you
+  were choosing a new one, so this link did not change it. Sign in with your password,
+  or ask for a new link". The link stays spent.
 - **It goes to a confirmed address and to an account that has a password.** An
   administrator is told in one sentence when no link was sent (Conflict). A person's
   own request answers the same whether or not the address has an account, mails
