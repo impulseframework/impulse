@@ -81,6 +81,69 @@ func declaredIn(t *testing.T, a *app.App, dir string) map[string]int {
 	return declared
 }
 
+// functionText is the source of a function a Go file declares at its top level, its doc
+// comment with it, or "" where the file declares none of that name.
+func functionText(t *testing.T, rel string, src []byte, name string) string {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	parsed, err := parser.ParseFile(fset, rel, src, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("%s does not parse: %v", rel, err)
+	}
+	for _, decl := range parsed.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != name {
+			continue
+		}
+		from := fn.Pos()
+		if fn.Doc != nil {
+			from = fn.Doc.Pos()
+		}
+
+		return string(src[fset.Position(from).Offset:fset.Position(fn.End()).Offset])
+	}
+
+	return ""
+}
+
+// TestTenancy_sharedHelpersAreTheBases holds what the harness of an application with
+// tenants takes over from the base's tests of sign-up to the base's own text: the
+// browser's first request, the list of the sign-in methods, the token of a mailed link,
+// the second factor's step and the invited person, each as the base's test of sign-up
+// declares it. The base's other tests read them, so a change to one in the base (the
+// form of a mailed link, say) that is not brought to the harness leaves an application
+// made with tenants failing tests the one made without passes. The row of the list
+// (signInMethod) is not held: the harness's names no default role, which an application
+// with tenants does not have.
+func TestTenancy_sharedHelpersAreTheBases(t *testing.T) {
+	t.Parallel()
+
+	const module = "example.com/acme/depot"
+	base, err := baseRendering(signUpSuite, module, "staff")
+	if err != nil {
+		t.Fatalf("baseRendering() error = %v", err)
+	}
+	files, err := renderSuites(passwordTenantsSuites, &suiteData{Record: "Tenant", Directories: true, North: devTenantNorth}, module, "staff")
+	if err != nil {
+		t.Fatalf("renderSuites() error = %v", err)
+	}
+	for _, name := range sharedWithSignUp {
+		if name == "signInMethod" {
+			continue
+		}
+		want := functionText(t, signUpSuite, base, name)
+		if want == "" {
+			t.Errorf("%s declares no %s: what the base's other tests share with it has moved, so the harness's copy is held to nothing", signUpSuite, name)
+
+			continue
+		}
+		if got := functionText(t, integrationHarness, files[integrationHarness], name); got != want {
+			t.Errorf("%s, as it is written for an application with tenants, declares %s otherwise than the base's %s does; bring the base's change to suites/tenants/%s.tmpl. It declares:\n%s\nand the base:\n%s", integrationHarness, name, signUpSuite, integrationHarness, got, want)
+		}
+	}
+}
+
 // appended adds a line to a file of the application, as an author who changed it would.
 func appended(rel string) func(t *testing.T, a *app.App) {
 	return func(t *testing.T, a *app.App) {
