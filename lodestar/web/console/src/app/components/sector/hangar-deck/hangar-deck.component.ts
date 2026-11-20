@@ -1,8 +1,9 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, TemplateRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -11,7 +12,9 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
 import { InspectShipResult } from '@app/service/zz_gen_methods';
 import { Workflows, RefitTasks, Refits, Ships } from '@app/service/zz_gen_resources';
-import { Method, rowCapabilities } from '@impulseframework/resource';
+import { ApiError, Method, rowCapabilities } from '@impulseframework/resource';
+import { nameInWords } from '@impulseframework/resource-angular/types';
+import { openFormDialog } from '../form-dialog';
 import { SectorService } from '../sector.service';
 import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.component';
 
@@ -21,8 +24,27 @@ import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.compone
  * Execute envelope lists the transition that leads there, so dropping the Good
  * Samaritan from In refit onto Flight test fires StartFlightTest, and three bays can
  * send a ship to the scrapyard (the multi-from edge, three chutes into one pit). Bays
- * you cannot drop into refuse the drop with the transition's name. Every affordance —
- * the estimate, the task ticks, the add-task form, the hail — is the row's own answer.
+ * you cannot drop into refuse the drop in words. Every affordance — the estimate, the
+ * task ticks, adding a task, the hail — is the row's own answer.
+ *
+ * The deck is a board and a graph, not a list of records, so it lays itself out: the
+ * bays stand side by side where the page is wide enough for six and wrap, in route
+ * order, where it is not, so nothing runs past the screen's edge at a phone's width.
+ *
+ * The deck draws no form on the page. Everything that adds or changes something by
+ * filling something in is a button that opens its form in a dialog over the deck, as
+ * the library's lists open their create: docking a ship, the estimate and notes, adding
+ * a task and a task's note. Each dialog is titled with the words of the button that
+ * opened it and carries Cancel and those words as its buttons (Save, where the form
+ * changes what is already there); Cancel and Escape close it with nothing sent, and a
+ * click outside does nothing. A dialog covers the page's notice, so what the server
+ * refuses of a form is shown in the form, in the server's words, and the form stays as
+ * it was filled. Moving a ship on (an edge, or a drop on a bay), ticking a task and
+ * hailing a ship stay where they are: there is nothing to fill.
+ *
+ * A method is shown in words wherever the deck shows it, "Begin refit", "Start flight
+ * test", "Scrap ship": on its button, on its edge of the graph and in a refused drop,
+ * the same words in each. No button says a method's name ("BeginRefit").
  *
  * Demonstrates: workflow.ts-constant, @transition.multi-from, @transition.loop, create-under-parent, capability-envelope, condition.time-of-day.
  */
@@ -33,6 +55,7 @@ import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.compone
     FormsModule,
     MatButtonModule,
     MatCardModule,
+    MatDialogModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -45,6 +68,7 @@ import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.compone
 })
 export class HangarDeckComponent {
   sectors = inject(SectorService);
+  private dialog = inject(MatDialog);
 
   readonly methods = Methods;
   readonly resources = Resources;
@@ -76,10 +100,51 @@ export class HangarDeckComponent {
   editNotes = '';
   newTaskInstructions = '';
   newRefitShipId = '';
-  taskNotes: Record<string, string> = {};
+  /** The task whose note is being written, while its form is open. */
+  notedTask = signal<RefitTasks | undefined>(undefined);
+  taskNote = '';
+
+  /** The form that is open in a dialog over the deck, if one is. */
+  private opened: MatDialogRef<unknown> | undefined;
+  /**
+   * What the server refused of the form that is open, in the server's words; undefined
+   * while it has refused nothing.
+   */
+  formRefusal = signal<string | undefined>(undefined);
+
+  /**
+   * The words a method is shown with, on its button and on its edge of the graph: its
+   * name in words, as the library's pages show a method.
+   */
+  readonly words = nameInWords;
+
+  /** A bay's name as a person reads it: the state it holds, in words. */
+  bayName(bay: string | undefined): string {
+    return (bay ?? '').replaceAll('_', ' ');
+  }
 
   inBay(bay: string): Refits[] {
     return this.refits.value().filter((r) => r.statusId === bay);
+  }
+
+  /** A refit's estimate as the open refit's card says it. */
+  estimateOf(refit: Refits): string {
+    return refit.estimate !== undefined && refit.estimate !== null
+      ? `Estimate: ${refit.estimate} credits`
+      : 'No estimate yet';
+  }
+
+  /** What the button that opens the estimate and the notes says: the ones this person may change. */
+  editWords(refit: Refits): string {
+    if (this.canEdit(refit, 'estimate') && this.canEdit(refit, 'notes')) {
+      return 'Edit estimate and notes';
+    }
+    return this.canEdit(refit, 'estimate') ? 'Edit estimate' : 'Edit notes';
+  }
+
+  /** What the button that opens a task's note says: whether there is a note to change yet. */
+  noteWords(task: RefitTasks): string {
+    return task.notes ? 'Change note' : 'Add note';
   }
 
   shipName(id: string | undefined): string {
@@ -101,10 +166,70 @@ export class HangarDeckComponent {
   select(refit: Refits): void {
     this.selectedID.set(this.selectedID() === refit.id ? undefined : refit.id);
     this.report.set(undefined);
+    this.refusal.set(undefined);
+  }
+
+  /** Opens one of the deck's forms in a dialog over the page, with no refusal shown yet. */
+  private open(form: TemplateRef<unknown>): void {
+    this.formRefusal.set(undefined);
+    const opened = openFormDialog(this.dialog, form);
+    opened.afterClosed().subscribe(() => {
+      if (this.opened === opened) {
+        this.opened = undefined;
+      }
+    });
+    this.opened = opened;
+  }
+
+  /** Closes the open form; nothing more is sent. */
+  close(): void {
+    this.opened?.close();
+  }
+
+  /** Opens the form that docks a ship, with no ship picked. */
+  openDock(form: TemplateRef<unknown>): void {
+    this.newRefitShipId = '';
+    this.open(form);
+  }
+
+  /** Opens the estimate and the notes of a refit, as they stand. */
+  openEdit(refit: Refits, form: TemplateRef<unknown>): void {
     this.editEstimate = refit.estimate ?? null;
     this.editNotes = refit.notes ?? '';
+    this.open(form);
+  }
+
+  /** Opens the form that adds a task to the open refit, empty. */
+  openAddTask(form: TemplateRef<unknown>): void {
     this.newTaskInstructions = '';
-    this.refusal.set(undefined);
+    this.open(form);
+  }
+
+  /** Opens a task's note, as it stands. */
+  openNote(task: RefitTasks, form: TemplateRef<unknown>): void {
+    this.notedTask.set(task);
+    this.taskNote = task.notes ?? '';
+    this.open(form);
+  }
+
+  /**
+   * Sends what a form in a dialog holds and closes the form once the server took it. A
+   * refusal stays in the form, in the server's words: the dialog covers the page's
+   * notice, so an error left to it would be raised where nobody sees it.
+   */
+  private async send(write: () => Promise<unknown>): Promise<boolean> {
+    this.formRefusal.set(undefined);
+    try {
+      await write();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        this.formRefusal.set(e.message);
+        return false;
+      }
+      throw e;
+    }
+    this.close();
+    return true;
   }
 
   onDragStart(refit: Refits): void {
@@ -122,11 +247,11 @@ export class HangarDeckComponent {
     if (!refit || refit.statusId === bay) return;
     const edge = this.edgeInto(refit, bay);
     if (!edge) {
-      this.refusal.set(`No transition leads from ${refit.statusId} to ${bay}.`);
+      this.refusal.set(`A ship cannot go straight from ${this.bayName(refit.statusId)} to ${this.bayName(bay)}.`);
       return;
     }
     if (!edge.live) {
-      this.refusal.set(`${edge.method} is not yours to fire on ${this.shipName(refit.shipId)}.`);
+      this.refusal.set(`"${this.words(edge.method)}" is not open to you on ${this.shipName(refit.shipId)}.`);
       return;
     }
     await this.fire(refit, edge.method);
@@ -188,28 +313,37 @@ export class HangarDeckComponent {
       .sort((a, b) => a.taskNumber - b.taskNumber);
   }
 
+  /** Saves what the form changed of the estimate and the notes; a form that changed nothing sends nothing. */
   async saveEdits(refit: Refits): Promise<void> {
     const handle = this.sectors.sectorApi().refits;
     const patch: Record<string, unknown> = {};
     if (this.canEdit(refit, 'estimate') && this.editEstimate !== null && this.editEstimate !== refit.estimate)
       patch['estimate'] = this.editEstimate;
     if (this.canEdit(refit, 'notes') && this.editNotes !== (refit.notes ?? '')) patch['notes'] = this.editNotes;
-    if (Object.keys(patch).length === 0) return;
-    await handle.patch(handle.keyOf(refit), patch);
-    this.refits.reload();
+    if (Object.keys(patch).length === 0) {
+      this.close();
+      return;
+    }
+    if (await this.send(() => handle.patch(handle.keyOf(refit), patch))) {
+      this.refits.reload();
+    }
   }
 
+  /** Adds the task the form holds to the refit, numbered after its last. */
   async addTask(refit: Refits): Promise<void> {
     if (!this.newTaskInstructions) return;
     const nextNumber = Math.max(0, ...this.tasksOf(refit).map((t) => t.taskNumber)) + 1;
-    await this.sectors.sectorApi().refitTasks.create({
-      refitId: refit.id,
-      taskNumber: nextNumber,
-      instructions: this.newTaskInstructions,
-      done: false,
-    });
-    this.newTaskInstructions = '';
-    this.tasks.reload();
+    const added = await this.send(() =>
+      this.sectors.sectorApi().refitTasks.create({
+        refitId: refit.id,
+        taskNumber: nextNumber,
+        instructions: this.newTaskInstructions,
+        done: false,
+      }),
+    );
+    if (added) {
+      this.tasks.reload();
+    }
   }
 
   async toggleTask(task: RefitTasks): Promise<void> {
@@ -218,17 +352,18 @@ export class HangarDeckComponent {
     this.tasks.reload();
   }
 
+  /** Saves the note the form holds on its task; a form left as it was sends nothing. */
   async noteTask(task: RefitTasks): Promise<void> {
-    const key = `${task.refitId}/${task.taskNumber}`;
-    const notes = this.taskNotes[key];
+    const notes = this.taskNote;
     if (!notes) return;
+    if (notes === (task.notes ?? '')) {
+      this.close();
+      return;
+    }
     const handle = this.sectors.sectorApi().refitTasks;
-    await handle.patch(handle.keyOf(task), { notes });
-    this.tasks.reload();
-  }
-
-  taskKey(task: RefitTasks): string {
-    return `${task.refitId}/${task.taskNumber}`;
+    if (await this.send(() => handle.patch(handle.keyOf(task), { notes }))) {
+      this.tasks.reload();
+    }
   }
 
   async hail(ship: Ships): Promise<void> {
@@ -236,10 +371,11 @@ export class HangarDeckComponent {
     this.ships.reload();
   }
 
+  /** Docks the ship the form names: opens a refit on it, in the first bay. */
   async openRefit(): Promise<void> {
     if (!this.newRefitShipId) return;
-    await this.sectors.sectorApi().refits.create({ shipId: this.newRefitShipId });
-    this.newRefitShipId = '';
-    this.refits.reload();
+    if (await this.send(() => this.sectors.sectorApi().refits.create({ shipId: this.newRefitShipId }))) {
+      this.refits.reload();
+    }
   }
 }
