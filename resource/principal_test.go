@@ -315,9 +315,10 @@ func (r *checkerRecorder) forRole(role accesstypes.Role) *stubRolePermissions {
 // and one that belongs to none (a session type that keeps no accounts) has only its
 // username. A role principal is nobody. The User() of a session established to act as
 // a role is the actor who established it, their account's id where the impersonation
-// carries one and their name where it does not; a session the application's resolver
-// gave a role stays its own person's, who is the person viewed as when it views as
-// someone, never the actor.
+// carries one and their name where it does not; an ordinary session the application's
+// resolver gave a role stays its own person's. A session that acts as someone else is
+// checked as its record says, whatever principal a resolver's choice left on it: the
+// session library never asks the resolver about one, and the read holds the same.
 func TestSessionPermissions(t *testing.T) {
 	t.Parallel()
 
@@ -401,11 +402,11 @@ func TestSessionPermissions(t *testing.T) {
 			wantDomains:   []accesstypes.Domain{"tenant"},
 		},
 		{
-			name: "role principal the session was established as: the actor's account id is supplied whatever role a resolver chose for the request",
+			name: "role principal the session was established as: the record's role is checked whatever role a resolver's choice left on the session, and the actor's account id is supplied",
 			ctx: resolvedAs(sessionCtx("alice", &sessioninfo.Impersonation{
 				Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.RolePrincipal("PartnerViewer"),
 			}), accesstypes.RolePrincipal("Auditor")),
-			wantRoles:     []accesstypes.Role{"Auditor"},
+			wantRoles:     []accesstypes.Role{"PartnerViewer"},
 			wantUser:      aliceUser,
 			wantUpdate:    true,
 			wantDigestLen: 1,
@@ -430,22 +431,22 @@ func TestSessionPermissions(t *testing.T) {
 			wantDomains:   []accesstypes.Domain{"tenant"},
 		},
 		{
-			name: "role principal a resolver chose for an impersonated user: the account id of the person viewed as is supplied, never the actor's",
+			name: "role a resolver's choice left on a session that views as a user: the person viewed as is checked, by their account id, and the role is never asked for",
 			ctx: resolvedAs(accountCtx("bob", bobID, &sessioninfo.Impersonation{
 				Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.UserPrincipal(bobUser),
 			}), accesstypes.RolePrincipal("PartnerViewer")),
-			wantRoles:     []accesstypes.Role{"PartnerViewer"},
+			wantUsers:     []accesstypes.User{bobUser},
 			wantUser:      bobUser,
 			wantUpdate:    true,
 			wantDigestLen: 1,
 			wantDomains:   []accesstypes.Domain{"tenant"},
 		},
 		{
-			name: "role principal a resolver chose for an impersonated user, an actor with no account here: the account id of the person viewed as is supplied, never the actor's name",
+			name: "role a resolver's choice left on a session that views as a user, an actor with no account here: the person viewed as is checked, by their account id, never the actor's name",
 			ctx: resolvedAs(accountCtx("bob", bobID, &sessioninfo.Impersonation{
 				Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(bobUser),
 			}), accesstypes.RolePrincipal("PartnerViewer")),
-			wantRoles:     []accesstypes.Role{"PartnerViewer"},
+			wantUsers:     []accesstypes.User{bobUser},
 			wantUser:      bobUser,
 			wantUpdate:    true,
 			wantDigestLen: 1,
@@ -480,13 +481,16 @@ func TestSessionPermissions(t *testing.T) {
 			wantDomains: []accesstypes.Domain{},
 		},
 		{
-			name: "role principal a resolver chose for an impersonated user, without a role checker, fails closed, and User() is the account id of the person viewed as",
+			name: "role a resolver's choice left on a session that views as a user, without a role checker: the role is never asked for, so the person viewed as is checked and nothing fails closed",
 			ctx: resolvedAs(accountCtx("bob", bobID, &sessioninfo.Impersonation{
 				Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.UserPrincipal(bobUser),
 			}), accesstypes.RolePrincipal("PartnerViewer")),
-			unsupported: true,
-			wantUser:    bobUser,
-			wantDomains: []accesstypes.Domain{},
+			unsupported:   true,
+			wantUsers:     []accesstypes.User{bobUser},
+			wantUser:      bobUser,
+			wantUpdate:    true,
+			wantDigestLen: 1,
+			wantDomains:   []accesstypes.Domain{"tenant"},
 		},
 	}
 	roster := func(context.Context) ([]accesstypes.Domain, error) {

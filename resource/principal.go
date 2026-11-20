@@ -21,7 +21,8 @@ import (
 // named as the permission store names them (the id of the actor's account, or the name
 // of an actor from another application). Any other session whose principal is a role
 // was given the role by the application's resolver, and stays the session's own
-// person: its user, or the person viewed as when it views as someone.
+// person, its user: it is an ordinary session, since a session that acts as someone
+// else is checked as its record says and the resolver is never asked about one.
 func roleSessionUser(ctx context.Context) accesstypes.User {
 	sess := sessioninfo.DataFromCtx(ctx)
 	if imp := sess.Impersonation; imp != nil && imp.Principal.IsRole() {
