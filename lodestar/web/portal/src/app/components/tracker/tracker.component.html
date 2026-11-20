@@ -1,118 +1,162 @@
-<div class="page-content">
-  @if (current()) {
-    <h1>Your missions in {{ sectorName() }}</h1>
-    <p class="who">Signed in as {{ contactName() }}.</p>
-    <p>
-      The missions your company booked, each drawn as the service's own state graph. The only edge you may fire is Stand
-      down, and only while a mission is open, claimed, or on hold. Hazard, fee, and deadline show; who flies it and what
-      it settled for never reach this page.
-    </p>
+<!--
+  The page draws once it knows: nothing until the grants and its lists are in, then all of
+  it. Nothing below is drawn and then taken away.
+-->
+@if (ready()) {
+  <div class="page-content">
+    @if (current()) {
+      <h1>Your missions in {{ sectorName() }}</h1>
+      <p class="who">Signed in as {{ contactName() }}.</p>
+      <p>
+        The missions your company booked in this sector, by deadline. Open one to see where it stands. You may stand a
+        mission down while it is open, claimed or on hold. Each shows its hazard, its fee and its deadline; who flies it
+        and what it settled for are not shown here.
+      </p>
 
-    <div class="pager">
-      <button mat-button type="button" [disabled]="!missionsPage.value()?.prev" (click)="turnPage('prev')">
-        Previous
-      </button>
-      <span class="pager-total">
-        {{ missions().length }}
-        @if (missionTotal() !== undefined) {
-          of {{ missionTotal() }}
-        }
-        missions, {{ pageSize }} a page from the portal's descriptor
-      </span>
-      <button mat-button type="button" [disabled]="!missionsPage.value()?.next" (click)="turnPage('next')">Next</button>
-    </div>
-    <div class="sheets">
-      @for (mission of missions(); track mission.id) {
-        <button type="button" class="sheet" [class.selected]="selected()?.id === mission.id" (click)="select(mission)">
-          <div class="row">
-            <span class="title">{{ mission.title }}</span>
-            <span class="state-chip">{{ mission.statusId }}</span>
-          </div>
-          <div class="row">
-            <span>{{ mission.kindId }} · hazard {{ mission.hazard }}</span>
-            <span class="fee">{{ mission.fee | number: '1.0-0' }} cr</span>
-          </div>
-          <div class="row">
-            <span>deadline {{ mission.deadline | date: 'medium' }}</span>
-          </div>
-        </button>
-      } @empty {
+      @if (said(missionsPage); as refusal) {
+        <p class="refusal">The server would not list your missions: {{ refusal }}</p>
+      } @else if (missions().length === 0) {
         <p class="empty">No missions booked by your company in this sector.</p>
+      } @else {
+        <div class="pager">
+          <button mat-button type="button" [disabled]="!page()?.prev" (click)="turnPage('prev')">Previous</button>
+          <span class="pager-total">{{ missionCount() }}</span>
+          <button mat-button type="button" [disabled]="!page()?.next" (click)="turnPage('next')">Next</button>
+        </div>
+        <div class="sheets">
+          @for (mission of missions(); track mission.id) {
+            <button
+              type="button"
+              class="sheet"
+              [class.selected]="selected()?.id === mission.id"
+              (click)="select(mission)">
+              <div class="row">
+                <span class="title">{{ mission.title }}</span>
+                <span class="state-chip">{{ stateWords(mission.statusId) }}</span>
+              </div>
+              <div class="row">
+                <span>{{ mission.kindId }} · hazard {{ mission.hazard }}</span>
+                <span class="fee">{{ mission.fee | number: '1.0-0' }} cr</span>
+              </div>
+              <div class="row">
+                <span>deadline {{ mission.deadline | date: 'medium' }}</span>
+              </div>
+            </button>
+          }
+        </div>
       }
-    </div>
 
-    @if (selected(); as mission) {
+      @if (selected(); as mission) {
+        <mat-card appearance="outlined" class="table-card">
+          <mat-card-header>
+            <mat-card-title>{{ mission.title }}</mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <app-tracker-graph
+              [root]="resources.Missions"
+              [current]="mission.statusId ?? ''"
+              [executable]="executable(mission)"
+              [words]="words"
+              (fire)="openStandDown(standDownForm, mission, $event)"></app-tracker-graph>
+            @if (executable(mission).includes(methods.StandDownMission)) {
+              <button
+                mat-stroked-button
+                type="button"
+                class="stand-down"
+                (click)="openStandDown(standDownForm, mission)">
+                Stand down
+              </button>
+            } @else {
+              <p class="empty">Nothing you can do on this mission right now.</p>
+            }
+          </mat-card-content>
+        </mat-card>
+      }
+
       <mat-card appearance="outlined" class="table-card">
         <mat-card-header>
-          <mat-card-title>{{ mission.title }}</mat-card-title>
+          <mat-card-title>Calls you filed</mat-card-title>
         </mat-card-header>
         <mat-card-content>
-          <app-tracker-graph
-            [root]="resources.Missions"
-            [current]="mission.statusId ?? ''"
-            [executable]="executable(mission)"
-            (fire)="fire(mission, $event)"></app-tracker-graph>
-          @if (executable(mission).includes(methods.StandDownMission)) {
-            <button mat-stroked-button (click)="fire(mission, methods.StandDownMission)">Stand down</button>
+          @if (canFile()) {
+            <div class="actions">
+              <button mat-flat-button type="button" class="file-call" (click)="openFile(fileForm)">
+                File a distress call
+              </button>
+            </div>
+          }
+          @if (said(calls); as refusal) {
+            <p class="refusal">The server would not list your calls: {{ refusal }}</p>
           } @else {
-            <p class="empty">Nothing you can do on this mission right now.</p>
+            <ul>
+              @for (call of rows(calls); track call.id) {
+                <li>
+                  <b>{{ call.caseNumber }}</b> — {{ call.summary }} (severity {{ call.severity }})
+                  @if (call.callerContact) {
+                    · {{ call.callerContact }}
+                  }
+                </li>
+              } @empty {
+                <li class="empty">No calls filed yet.</li>
+              }
+            </ul>
           }
         </mat-card-content>
       </mat-card>
-    }
 
-    <mat-card appearance="outlined" class="table-card">
-      <mat-card-header>
-        <mat-card-title>Calls you filed</mat-card-title>
-      </mat-card-header>
-      <mat-card-content>
-        @if (canFile()) {
-          <div class="actions">
-            <button mat-flat-button type="button" class="file-call" (click)="openFile(fileForm)">
-              File a distress call
-            </button>
-          </div>
-        }
-        <ul>
-          @for (call of calls.value(); track call.id) {
-            <li>
-              <b>{{ call.caseNumber }}</b> — {{ call.summary }} (severity {{ call.severity }})
-              @if (call.callerContact) {
-                · {{ call.callerContact }}
+      <mat-card appearance="outlined" class="table-card">
+        <mat-card-header>
+          <mat-card-title>Your company's statement</mat-card-title>
+          <mat-card-subtitle>Every change made to your missions in this sector.</mat-card-subtitle>
+        </mat-card-header>
+        <mat-card-content>
+          @if (said(statement); as refusal) {
+            <p class="refusal">The server would not give your statement: {{ refusal }}</p>
+          } @else {
+            <ul>
+              @for (line of rows(statement); track line.eventTime + line.missionId) {
+                <li>
+                  <b>{{ line.title }}</b> · {{ line.eventTime | date: 'medium' }} · {{ line.eventSource }}
+                </li>
+              } @empty {
+                <li class="empty">Nothing has changed on your missions yet.</li>
               }
-            </li>
-          } @empty {
-            <li class="empty">No calls filed yet.</li>
+            </ul>
           }
-        </ul>
-      </mat-card-content>
-    </mat-card>
+        </mat-card-content>
+      </mat-card>
+    } @else {
+      <h1>Your missions</h1>
+      <p class="empty">You hold no sector yet. Your company's contact at the service gives you one.</p>
+    }
+  </div>
+}
 
-    <mat-card appearance="outlined" class="table-card">
-      <mat-card-header>
-        <mat-card-title>Your company's statement</mat-card-title>
-        <mat-card-subtitle
-          >Every change to your missions in this sector, from the change log; a manual resource served on the portal
-          alone.</mat-card-subtitle
-        >
-      </mat-card-header>
-      <mat-card-content>
-        <ul>
-          @for (line of statement.value(); track line.eventTime + line.missionId) {
-            <li>
-              <b>{{ line.title }}</b> · {{ line.eventTime | date: 'medium' }} · {{ line.eventSource }}
-            </li>
-          } @empty {
-            <li class="empty">Nothing has changed on your missions yet.</li>
-          }
-        </ul>
-      </mat-card-content>
-    </mat-card>
-  } @else {
-    <h1>Your missions</h1>
-    <p class="empty">You hold no sector yet. Your company's contact at the service gives you one.</p>
-  }
-</div>
+<!--
+  The question Stand down asks. It opens in a dialog over the page from the button, or
+  from the lit edge of the graph: it names the mission and says what will happen to it,
+  Cancel and Escape close it with nothing sent, and what the server refuses is shown in it.
+-->
+<ng-template #standDownForm>
+  <div mat-dialog-title>Stand down</div>
+  <form class="dialog-form" (ngSubmit)="standDown()">
+    <mat-dialog-content>
+      @if (asked(); as mission) {
+        <p class="asks">
+          Stand down the mission {{ mission.title }}? It is called off and closed: nobody can claim or fly it after
+          that.
+        </p>
+      }
+      @if (standDownRefusal(); as refusal) {
+        <p class="refusal" role="alert">{{ refusal }}</p>
+      }
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+      <button mat-raised-button type="submit" color="accent" class="send">Stand down</button>
+    </mat-dialog-actions>
+  </form>
+</ng-template>
 
 <!--
   The distress-call form. It opens in a dialog over the page from the button that names

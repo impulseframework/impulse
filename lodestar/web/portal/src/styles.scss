@@ -57,6 +57,11 @@ body {
     font-size: 0.85rem;
   }
 
+  // What a dialog asks before it changes something: the question, in the page's own words.
+  .asks {
+    margin: 0 0 12px;
+  }
+
   // What the server refused of the form, under its fields, as the library's dialogs show one.
   .refusal {
     margin: 12px 0 0;
