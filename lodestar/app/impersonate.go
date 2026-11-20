@@ -50,8 +50,10 @@ const (
 //     the writes of the records that decide what a person may do: the create, the
 //     change and the delete of each record the policy reads as a subject value or a
 //     subject set (Pilots, PilotCertifications, ClientContacts, SquadronMemberships,
-//     HangarPasses), and the change of the record a value is read through (Squadrons,
-//     whose row says which wing its members are in). Nobody lists them here, and a
+//     HangarPasses), the change of the record a value is read through (Squadrons,
+//     whose row says which wing its members are in), and the delete of the tenant
+//     record (Sectors: a sector that goes takes every role held in it). Nobody lists
+//     them here, and a
 //     record that gains a subject value is refused once the application is generated
 //     again, so the session keeps the promise the StandIn role makes: it does what
 //     the person may do, except change how they sign in or who may do what. One

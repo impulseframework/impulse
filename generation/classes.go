@@ -24,7 +24,8 @@ import (
 //
 // A record's write carries a class where the generator gives it one, and nowhere else:
 // the class access, on the writes of every record that decides what a person may do
-// (writesThatDecideAccess, resource.CollectionResource.WriteClasses).
+// and on the delete of the tenant record (writesThatDecideAccess,
+// resource.CollectionResource.WriteClasses).
 
 // identityCredentialClass is the @class line of the generated identity methods that
 // change how a person signs in: a password set, required anew or removed, a sign-in
@@ -70,7 +71,7 @@ type accessWrite struct {
 
 // writesThatDecideAccess lists the writes of records that decide what a person may do,
 // which the generator gives the class access (resource.CollectionResource.WriteClasses),
-// in the order the resources are declared, each write once. They come in two shapes.
+// in the order the resources are declared, each write once. They come in three shapes.
 //
 // A record whose rows the policy reads as a subject value or a subject set
 // (@subjectValue, @subjectSet): a row says what the person it names, or the people of
@@ -83,6 +84,15 @@ type accessWrite struct {
 // carry no class: a new row is reached by nobody yet, and a delete that takes with it
 // the rows that reach it is a row removed with its parent, which a mask closes by
 // refusing the parent's delete by name.
+//
+// The tenant record (@tenant), its delete alone: a tenant that goes takes with it the
+// roles every person holds in it, its groups, the custom roles made in it and the
+// invitations into it, and each account that is left with nothing
+// (identity.Manager.ClearTenant, which the generated delete calls for every auth whose
+// management the program generates). Each of those done one at a time is an action of
+// the class, so the delete that does them all carries it, whether the library removes
+// the rows or the application does. The record's change carries none: a tenant renamed
+// holds what it held.
 //
 // Nobody lists these by hand: an application's mask refuses the class, and a record that
 // gains a subject value, or a value that takes a new path, is covered when the
@@ -106,11 +116,13 @@ func (r *resourceGenerator) writesThatDecideAccess() []accessWrite {
 	}
 	for _, res := range r.resources {
 		subjects := slices.Concat(res.SubjectValues, res.SubjectSets)
-		if len(subjects) == 0 {
-			continue
+		if len(subjects) > 0 {
+			for _, permission := range []accesstypes.Permission{accesstypes.Create, accesstypes.Update, accesstypes.Delete} {
+				add(res, permission)
+			}
 		}
-		for _, permission := range []accesstypes.Permission{accesstypes.Create, accesstypes.Update, accesstypes.Delete} {
-			add(res, permission)
+		if res.IsTenant {
+			add(res, accesstypes.Delete)
 		}
 		for _, subject := range subjects {
 			for _, hop := range subject.Path {

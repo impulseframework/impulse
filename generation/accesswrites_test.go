@@ -137,3 +137,86 @@ func Test_writesThatDecideAccess(t *testing.T) {
 		})
 	}
 }
+
+// Test_writesThatDecideAccess_theTenantRecord pins the third shape of a write that
+// decides what a person may do: the delete of the tenant record. A tenant that goes
+// takes every role held in it, every group and every invitation into it, so its delete
+// carries the class access, whatever the record carries otherwise. Its create and its
+// change carry none, and a record of the tenant carries none. A run with no tenant
+// record classes no delete for one (Test_writesThatDecideAccess, the record that
+// decides nothing).
+func Test_writesThatDecideAccess_theTenantRecord(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "tenantfixture"))
+	access := []accesstypes.ActionClass{accesstypes.ClassAccess}
+
+	tests := []struct {
+		name string
+		// structs are the resources of the run, in the order they are declared.
+		structs []string
+		// want are the classed writes, each record's by the name the collection
+		// holds the record under.
+		want map[accesstypes.Resource][]accesstypes.Permission
+		// scope is the scope each record of the run is registered in.
+		scope map[accesstypes.Resource]accesstypes.PermissionScope
+	}{
+		{
+			name:    "the tenant record beside a record of the tenant",
+			structs: []string{"Sector", "Berth"},
+			want:    map[accesstypes.Resource][]accesstypes.Permission{"Sectors": {accesstypes.Delete}},
+			scope:   map[accesstypes.Resource]accesstypes.PermissionScope{"Sectors": accesstypes.GlobalPermissionScope, "Berths": accesstypes.DomainPermissionScope},
+		},
+		{
+			name:    "the tenant record alone",
+			structs: []string{"Sector"},
+			want:    map[accesstypes.Resource][]accesstypes.Permission{"Sectors": {accesstypes.Delete}},
+			scope:   map[accesstypes.Resource]accesstypes.PermissionScope{"Sectors": accesstypes.GlobalPermissionScope},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &client{tableMap: tenantFixtureTables()}
+			resources, err := c.structsToResources(tenantFixtureStructs(t, structs, tt.structs...))
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			// The run's resources are the client's, so each case has a client of its own.
+			r := &resourceGenerator{client: c}
+			r.resources = resources
+
+			got := make(map[accesstypes.Resource][]accesstypes.Permission)
+			for _, write := range r.writesThatDecideAccess() {
+				record := accesstypes.Resource(r.pluralize(write.Record.Name()))
+				got[record] = append(got[record], write.Permission)
+			}
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("writesThatDecideAccess() mismatch (-want +got):\n%s", diff)
+			}
+
+			// The collection the run yields carries the class on the tenant record's
+			// delete, in the record's own scope, and on no other permission of any record.
+			b := resource.NewCollectionBuilder()
+			r.collectWriteClassRegistrations(b)
+			collection, err := resource.NewGeneratedCollection(b.Data())
+			if err != nil {
+				t.Fatalf("NewGeneratedCollection() error = %v", err)
+			}
+			for record, scope := range tt.scope {
+				for _, permission := range []accesstypes.Permission{accesstypes.List, accesstypes.Read, accesstypes.Create, accesstypes.Update, accesstypes.Delete} {
+					for _, in := range []accesstypes.PermissionScope{accesstypes.GlobalPermissionScope, accesstypes.DomainPermissionScope} {
+						var want []accesstypes.ActionClass
+						if in == scope && slices.Contains(tt.want[record], permission) {
+							want = access
+						}
+						if diff := cmp.Diff(want, collection.WriteClasses(in, permission, record), cmpopts.EquateEmpty()); diff != "" {
+							t.Errorf("WriteClasses(%s, %s, %s) mismatch (-want +got):\n%s", in, permission, record, diff)
+						}
+					}
+				}
+			}
+		})
+	}
+}

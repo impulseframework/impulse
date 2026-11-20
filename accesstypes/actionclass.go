@@ -10,7 +10,7 @@ import "regexp"
 // actions in step with the application. An application puts a class on an action
 // alone. A record's write carries a class where the generator gives it one: the
 // class access, on the writes of every record that decides what a person may do
-// (ClassAccess). A mask holds a session off any other record by naming it
+// and on the delete of the tenant record (ClassAccess). A mask holds a session off any other record by naming it
 // (RefusePermission, RefuseWrites).
 //
 // An application names its own classes and marks its own actions with them, or

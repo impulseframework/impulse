@@ -333,7 +333,8 @@ func (b *CollectionBuilder) SetActionClasses(scope accesstypes.PermissionScope, 
 
 // SetWriteClasses records the classes one write of a record carries within scope
 // (CollectionResource.WriteClasses): permission is Create, Update or Delete, and the
-// generator calls it for the records that decide what a person may do. Classes named
+// generator calls it for the records that decide what a person may do and for the
+// delete of the tenant record. Classes named
 // twice are kept once, and a write given classes twice carries them all. A permission
 // that is no write of a record is refused when the collection is read back
 // (NewGeneratedCollection).
@@ -875,8 +876,8 @@ func (g *GeneratedCollection) setWriteClasses(scope accesstypes.PermissionScope,
 // WriteClasses reports the classes the write permission of record carries within
 // scope, sorted; none for a write of no class, for a permission that is no write, and
 // for a name the collection does not hold. The generator gives the class access to the
-// writes of the records that decide what a person may do
-// (CollectionResource.WriteClasses). It is what the masked check of an impersonated
+// writes of the records that decide what a person may do and to the delete of the
+// tenant record (CollectionResource.WriteClasses). It is what the masked check of an impersonated
 // session asks beside an action's classes (Masked): a mask that refuses a class
 // refuses every write that carries it.
 func (g *GeneratedCollection) WriteClasses(scope accesstypes.PermissionScope, permission accesstypes.Permission, record accesstypes.Resource) []accesstypes.ActionClass {

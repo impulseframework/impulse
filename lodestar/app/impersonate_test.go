@@ -206,9 +206,10 @@ func TestImpersonationKinds(t *testing.T) {
 // person to the promise its role makes, that a stand-in does not change who may do
 // what, for the records of Lodestar's own. The kind names no record to refuse it: its
 // mask refuses the class access, and the generator gives that class to the writes of
-// every record the policy reads as a subject value or a subject set, and to the change
-// of a record a dotted value is read through (the squadron, whose row says which wing
-// its members are in). The writes are read off the generated collection, so the list
+// every record the policy reads as a subject value or a subject set, to the change of
+// a record a dotted value is read through (the squadron, whose row says which wing its
+// members are in), and to the delete of the tenant record (a sector that goes takes
+// every role held in it). The writes are read off the generated collection, so the list
 // here is the generator's and changes when a record gains a @subjectValue or a
 // @subjectSet, or a value takes a new path; the kind refuses each without an edit to
 // its declaration.
@@ -245,6 +246,7 @@ func TestActKindRefusesTheRecordsThatDecideWhatAPersonMayDo(t *testing.T) {
 		"Create on HangarPasses", "Update on HangarPasses", "Delete on HangarPasses",
 		"Create on PilotCertifications", "Update on PilotCertifications", "Delete on PilotCertifications",
 		"Create on Pilots", "Update on Pilots", "Delete on Pilots",
+		"Delete on Sectors",
 		"Create on SquadronMemberships", "Update on SquadronMemberships", "Delete on SquadronMemberships",
 		"Update on Squadrons",
 	}

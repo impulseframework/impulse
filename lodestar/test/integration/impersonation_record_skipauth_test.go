@@ -15,7 +15,8 @@ package integration
 // wing (identity.RefuseImpersonatorAsReadThroughSubject). The kind that acts as a person
 // refuses those records' writes by their class as well, whoever the row names, and keeps
 // one record out of that refusal, the hangar passes: a stand-in gives other people and
-// other squadrons a pass, and never themselves or a squadron they are in.
+// other squadrons a pass, and never themselves or a squadron they are in. The delete of
+// a sector carries the same class, since a sector that goes takes every role held in it.
 //
 // The rule reads the columns that name a person a row is about. A column that records
 // who made a row is not one of them, and the last test here pins what such a column
@@ -29,8 +30,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"google.golang.org/api/iterator"
 )
@@ -379,6 +382,73 @@ func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
 	}
 	if got := readColumn[int64](ctx, t, s.db, "Pilots", spanner.Key{pilotCassID}, "Clearance"); got != 2 {
 		t.Errorf("the cadet's clearance after the sessions = %d, want the 2 the registry gave them", got)
+	}
+}
+
+// TestImpersonation_sectorDeletedActingAsAPerson proves a session that acts as a person
+// under the kind that refuses the class access cannot delete a sector. A sector that
+// goes takes with it every role held in it, its groups, the custom roles made in it and
+// the invitations into it, and each of those done alone is an access action; the
+// generator gives the delete of the tenant record that class, so the kind refuses it
+// whatever the person acted as may do. No role the release ships deletes a sector, so
+// the suite makes one that does and gives it to the governor, as the suite of a deleted
+// sector does. The cadet, standing in for the governor, is refused the delete of a
+// sector founded for the test: the sector stands, and so does every role held in the
+// crew. The governor, in a session of his own, then deletes it: the grant was there all
+// along, and the class is what refused.
+//
+// Demonstrates: impersonation.mask, impersonation.act-as-user, tenancy.deleted-tenant.
+func TestImpersonation_sectorDeletedActingAsAPerson(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	hq := newBrowser(t, s, consoleAPI)
+	hq.signIn(ctx, "governor")
+
+	const (
+		closer          accesstypes.Role = "SectorCloser"
+		sectorsResource                  = accesstypes.Resource("Sectors")
+	)
+	manager, global := s.access.UserManager(), accesstypes.GlobalPolicyScope()
+	if err := manager.AddRole(ctx, global, closer, "Closes a sector the fleet has left."); err != nil {
+		t.Fatalf("access.UserManager.AddRole(%s) error = %v", closer, err)
+	}
+	if err := manager.AddRoleGrants(ctx, global, closer, access.GrantRow{Permission: accesstypes.Delete, Resource: sectorsResource}); err != nil {
+		t.Fatalf("access.UserManager.AddRoleGrants(%s) error = %v", closer, err)
+	}
+	governor := account(t, "governor")
+	if err := manager.AddUserRoles(ctx, global, governor, closer); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles(governor, %s) error = %v", closer, err)
+	}
+	if d := decisionFor(ctx, t, s.access.ForUser(governor), accesstypes.GlobalScope(), accesstypes.Delete, sectorsResource, time.Now().Add(15*time.Second)); !d.IsGranted() {
+		t.Fatalf("Delete on Sectors for the governor holding %s = %s, want granted before the sector is made", closer, d)
+	}
+	forge, _ := foundSector(ctx, t, s, hq, "Forge", "Far frontier", "2226-11-20", "forge-founder")
+
+	giveCrewRole(ctx, t, s, "StandIn", "cadet")
+	asGovernor := actingBrowser(ctx, t, s, "cadet", actAs(t, "governor", "standing in for the governor", ""))
+	remove := recordOp("remove", "/sectors/"+forge, "")
+	sectors, roles := tableRows(ctx, t, s, "Sectors"), tableRows(ctx, t, s, "CrewUserRoles")
+	if status, answer := writeRecords(ctx, asGovernor, remove); status != http.StatusForbidden {
+		t.Errorf("acting as the governor, a sector deleted: status %d, want 403: the delete of a sector carries the class access: %s", status, answer)
+	}
+	if got := tableRows(ctx, t, s, "Sectors"); got != sectors {
+		t.Errorf("Sectors holds %d row(s) after the refused delete, want the %d it held", got, sectors)
+	}
+	if got := tableRows(ctx, t, s, "CrewUserRoles"); got != roles {
+		t.Errorf("CrewUserRoles holds %d row(s) after the refused delete, want the %d it held: nobody's role went", got, roles)
+	}
+	if status, answer := asGovernor.do(ctx, http.MethodPost, consoleAPI+"/impersonate/end", nil); status != http.StatusOK {
+		t.Fatalf("ending the session that acts as the governor: status %d, want 200: %s", status, answer)
+	}
+
+	// The governor himself holds the grant, and his own session carries no mask.
+	if status, answer := writeRecords(ctx, hq, remove); status != http.StatusOK {
+		t.Fatalf("the governor deleting the sector in his own session: status %d, want 200: the grant is his: %s", status, answer)
+	}
+	if got := tableRows(ctx, t, s, "Sectors"); got != sectors-1 {
+		t.Errorf("Sectors holds %d row(s) after the governor's delete, want %d: the sector is gone", got, sectors-1)
 	}
 }
 

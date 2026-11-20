@@ -487,7 +487,8 @@ type ActionClasses interface {
 	ActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource) []accesstypes.ActionClass
 	// WriteClasses reports the classes the write permission of record carries within
 	// scope: the generator gives the class access to the create, the change and the
-	// delete of a record that decides what a person may do.
+	// delete of a record that decides what a person may do, and to the delete of the
+	// tenant record.
 	WriteClasses(scope accesstypes.PermissionScope, permission accesstypes.Permission, record accesstypes.Resource) []accesstypes.ActionClass
 	// HasPermission reports whether the application registers permission on res within
 	// scope.

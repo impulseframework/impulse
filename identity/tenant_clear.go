@@ -46,7 +46,9 @@ import (
 //
 // The generated delete of the tenant record calls it for each auth whose management the
 // program generates, before the transaction commits; the permission engine is told once
-// it has. Everything is read before anything is buffered. A tenant the auth holds
+// it has. That delete carries the class of the actions that change who may do what
+// (accesstypes.ClassAccess), which the generator gives it, so a session whose mask
+// refuses the class does not reach this. Everything is read before anything is buffered. A tenant the auth holds
 // nothing for is no error.
 func (m *Manager) ClearTenant(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) error {
 	ctx, span := tracer.Start(ctx)

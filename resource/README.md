@@ -3327,6 +3327,13 @@ delete while its rows remain. An application that deletes a tenant in a transact
 its own calls `ClearTenant` and `Clear<Record>Directory` there, and a program that
 generates no auth's management removes the memberships itself.
 
+Each thing the delete takes is an action of the class `access` when it is done alone (a
+role removed, a group deleted, an invitation withdrawn), so the generator gives the
+tenant record's delete that class. A session whose mask refuses the class, a person
+acting as someone else under a kind that is not to change who may do what, cannot delete
+a tenant, whatever the person acted as may do; a kind that is to keep it names it as an
+exception (`accesstypes.ExceptPermission`).
+
 With the last-owner rule (section 21, "The rules") an operator brings a customer's
 tenant in by inviting its first administrator and holds no role in it: the tenant is its
 administrator's from its first moment, and is never left with nobody to give the next
@@ -3753,7 +3760,8 @@ remembered browsers, and the unlock, each of which ends a sign-in already made o
 one be tried again and leaves what the person may do as it was; and the switch of a
 feature flag (`SetFeature`). An application puts no class on a record: the generator
 gives the class `access` to the writes of every record that carries a subject value or
-a subject set, and to the change of a record such a value is read through, so a mask
+a subject set, to the change of a record such a value is read through, and to the
+delete of the tenant record, which takes every role held in the tenant with it, so a mask
 that refuses the class refuses them, and a mask names any other record it is to refuse
 (`accesstypes.RefuseWrites`).
 

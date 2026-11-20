@@ -550,7 +550,9 @@ the members' alike, and the sector's directory, whether the sector is directory 
 not, so the directory is free for another sector; a person who held roles in that sector
 alone goes with it, while one who holds a role elsewhere stays and signs in as before.
 No role Lodestar ships holds Delete on `Sectors`; the suite gives the governor one to
-prove it (`test/integration/tenant_delete_skipauth_test.go`). The sector's rows go with
+prove it (`test/integration/tenant_delete_skipauth_test.go`). The delete carries the
+class `access`, so a person who acts as the governor under the `act` kind is refused it
+(`TestImpersonation_sectorDeletedActingAsAPerson`). The sector's rows go with
 it by the schema: each of the seven tables that carry a sector's key (Wings, Hangars,
 HangarPasses, Missions, Consignments, DroidReports, DistressCalls) references `Sectors`
 with `ON DELETE CASCADE`, as the skeletons' sample tenant table does, and `impulse check`
@@ -1097,7 +1099,7 @@ out by hand does not compile:
 | Kind | Grant | Role | The widest mask |
 | --- | --- | --- | --- |
 | `view`: view as a person | Execute on `ViewAsUser` | `CommandStaff` (the governor, the marshal) | Reading only |
-| `act`: act as a person | Execute on `ActAsUser` | `StandIn` (the governor) | Everything except the actions classed `credential`, the actions classed `access` and the writes of the records that decide what a person may do: the session cannot set, require or remove a password, send a reset link, unlink a sign-in identity, or change a username or an address; it cannot give or remove a role, change a group or what it holds, invite anyone, make an account, change who may sign in (a sign-in method opened or made invite only, a sector opened to its directory, a sector's directory-only switch, the crew's reset link at the sign-in page), create a sector of the person's own (`CreateSector`), or rate a pilot (`SetSectorPilotClearance`, which Lodestar classes `access`); and it cannot add, change or remove a pilot's registry row, a certification, a client's contact, a place in a squadron or a hangar pass, or change a squadron, whose row says which wing its members are in |
+| `act`: act as a person | Execute on `ActAsUser` | `StandIn` (the governor) | Everything except the actions classed `credential`, the actions classed `access` and the writes of the records that decide what a person may do: the session cannot set, require or remove a password, send a reset link, unlink a sign-in identity, or change a username or an address; it cannot give or remove a role, change a group or what it holds, invite anyone, make an account, change who may sign in (a sign-in method opened or made invite only, a sector opened to its directory, a sector's directory-only switch, the crew's reset link at the sign-in page), create a sector of the person's own (`CreateSector`), or rate a pilot (`SetSectorPilotClearance`, which Lodestar classes `access`); and it cannot add, change or remove a pilot's registry row, a certification, a client's contact or a place in a squadron, change a squadron, whose row says which wing its members are in, or delete a sector, which takes every role held in it. It keeps one of those records, the hangar passes: it gives, changes and withdraws a pass, for anyone but the real person and the squadrons they are in |
 | `role`: act as a role | Execute on `AssumeRole` | `CommandStaff` | Everything the role holds |
 
 A request may ask for less than its kind gives: permission kinds to keep
@@ -1146,7 +1148,8 @@ through a group or a colleague), and the generator gives that class to the write
 those five records, to the writes of a place in a group of the crew (a record the
 application offers no write of, since the identity library's own actions write it)
 and to the change of a squadron, whose row says which wing each
-member is in, so the kind names no record and a record that gains a subject value is
+member is in, and to the delete of a sector, which takes every role held in it, so the
+kind names no record and a record that gains a subject value is
 covered when Lodestar is generated again. A stand-in therefore changes no role, no
 group and no record that decides what a person may do, but for a hangar pass, which
 the kind keeps, and that is what the `StandIn`
