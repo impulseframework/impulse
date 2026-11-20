@@ -5,7 +5,6 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import {
   ApiDescriptor,
   createClient,
-  LINK_DEAD,
   LoginMethod,
   LoginMethods,
   MAILED_LINK_KINDS,
@@ -35,8 +34,8 @@ import {
 // gets the change form in the list's place, posting to the change path the list names, and
 // the page recorded at the sign-in is emitted once the change is accepted. The mailed links
 // arrive here with their token in the address's fragment, which the component takes out of
-// the address before its first request and posts in a request's body; a link with its token
-// in the query, the form an older server mailed, is not posted and reads as a dead link: an invitation is opened and stands over the list until a
+// the address before its first request and posts in a request's body; a parameter of a
+// link's name in the address's query is not a link, and the page reads none there: an invitation is opened and stands over the list until a
 // sign-in, an acceptance or an account with a password accepts it, and one the browser is
 // found carrying, with no token in the URL, stands the same way; a sign-up link opens the
 // account form; a confirmation link is posted once a session stands. The component ends no
@@ -310,18 +309,18 @@ interface Page {
  * The component over the transport, arrived at an address, before its first change
  * detection. `address` is what the address carries, by name. A mailed link's token, named
  * by its kind (invitation, signUp, reset, address, verify), is in the fragment, where the
- * server writes it; everything else is in the query. With `oldForm` the link's token is in
- * the query instead, as a server mailed it before tokens moved to the fragment.
+ * server writes it; everything else is in the query. With `inQuery` the token is in the
+ * query instead, under the link's name, where the server writes none.
  */
 async function mount(
   transport: ScriptedTransport,
   address: Record<string, string> = {},
   inputs: Record<string, unknown> = {},
-  oldForm = false,
+  inQuery = false,
 ): Promise<Page> {
   const kinds: readonly string[] = MAILED_LINK_KINDS;
-  const linked = Object.entries(address).filter(([name]) => kinds.includes(name) && !oldForm);
-  const query = Object.fromEntries(Object.entries(address).filter(([name]) => !kinds.includes(name) || oldForm));
+  const linked = Object.entries(address).filter(([name]) => kinds.includes(name) && !inQuery);
+  const query = Object.fromEntries(Object.entries(address).filter(([name]) => !kinds.includes(name) || inQuery));
   const fragment = linked.length === 0 ? null : new URLSearchParams(linked).toString();
   const params = convertToParamMap(query);
   await TestBed.configureTestingModule({
@@ -382,9 +381,9 @@ async function pageOver(
   state: Server,
   address: Record<string, string> = {},
   inputs: Record<string, unknown> = {},
-  oldForm = false,
+  inQuery = false,
 ): Promise<Page> {
-  const page = await mount(transportOf(state), address, inputs, oldForm);
+  const page = await mount(transportOf(state), address, inputs, inQuery);
   await page.settle();
   return page;
 }
@@ -3161,21 +3160,19 @@ describe('LoginMethodsComponent takes a mailed link out of the address', () => {
     expect(page.dropped).toBe(0);
   });
 
-  it('never posts a link in the form that carried its token in the query: the address is cleared, and the card says the link is dead, over the list', async () => {
+  it("reads no link from the query: a parameter of a link's name there is sent nowhere, the address is left as it came, and the card is the list with no refusal", async () => {
     for (const kind of MAILED_LINK_KINDS) {
       TestBed.resetTestingModule();
-      const page = await pageOver(
-        server({ methods: mailingList, arrivesSignedIn: kind === 'verify' }),
-        { [kind]: 'tok-old' },
-        {},
-        true,
-      );
-      expect([kind, page.dropped]).toEqual([kind, 1]);
-      expect([kind, sent(page.transport)]).toEqual([kind, ['GET /console/api/user/methods']]);
+      const page = await pageOver(server({ methods: mailingList }), { [kind]: 'tok-query' }, {}, true);
+      expect([kind, page.dropped]).toEqual([kind, 0]);
+      expect([kind, sent(page.transport)]).toEqual([
+        kind,
+        ['GET /console/api/user/methods', 'GET /console/api/user/session'],
+      ]);
       for (const request of page.transport.requests) {
-        expect(JSON.stringify(request.body ?? null)).not.toContain('tok-old');
+        expect(JSON.stringify([request.url, request.body ?? null])).not.toContain('tok-query');
       }
-      expect([kind, messageOf(page)]).toEqual([kind, LINK_DEAD]);
+      expect([kind, messageOf(page)]).toEqual([kind, null]);
       expect(page.component.invitation()).toBeUndefined();
       expect(page.component.confirming()).toBeUndefined();
       expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
@@ -3210,12 +3207,18 @@ describe('LoginMethodsComponent takes a mailed link out of the address', () => {
     }
   });
 
-  it('over a real router, takes a token in the old form out of the address too, and sends it nowhere', async () => {
-    const page = await opened('/login?reset=tok-old&returnUrl=%2Fhome');
-    expect(page.router.url).toBe('/login?returnUrl=%2Fhome');
+  it("over a real router, a parameter of a link's name in the query is no link: the address stays as it came and the value is sent nowhere", async () => {
+    const page = await opened('/login?reset=tok-query&returnUrl=%2Fhome');
+    expect(page.router.url).toBe('/login?reset=tok-query&returnUrl=%2Fhome');
     for (const request of page.transport.requests) {
-      expect(JSON.stringify([request.url, request.body ?? null])).not.toContain('tok-old');
+      expect(JSON.stringify([request.url, request.body ?? null])).not.toContain('tok-query');
     }
+  });
+
+  it('over a real router, keeps a query parameter that shares a name with a kind of link when it takes the fragment out', async () => {
+    const page = await opened('/login?verify=later&returnUrl=%2Fhome#reset=tok-9');
+    expect(page.router.url).toBe('/login?verify=later&returnUrl=%2Fhome');
+    expect(page.transport.requests.find((r) => r.url === resetRoutes.open)?.body).toEqual({ token: 'tok-9' });
   });
 
   it('Try again, after reads that failed, opens the link read on arrival: the address no longer carries it', async () => {

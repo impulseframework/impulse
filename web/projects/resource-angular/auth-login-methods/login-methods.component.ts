@@ -21,10 +21,8 @@ import {
   EmailCodeResult,
   EmailCodeStep,
   invitationAddressCode,
-  LINK_DEAD,
   LoginMethod,
   LoginMethods,
-  MAILED_LINK_KINDS,
   MailedLink,
   mailedLink,
   OpenedInvitation,
@@ -142,11 +140,14 @@ export interface Landing {
  * The mailed links the server sends all lead here, each with its token in the URL's
  * fragment, which a browser sends to no server, so the token is in no request line and no
  * request log. On arrival the component reads the link (`mailedLink`), takes it out of the
- * address at once (`dropLink`), so it is in no history entry, bookmark or address a person
- * copies, and posts the token in the body of the request that uses it. A link in the form
- * that carried its token in the query, mailed by an older server, is never posted: it is
- * taken out of the address as well, and the card shows the sentence of a link that has
- * expired or was already used (`LINK_DEAD`). An
+ * address at once (`dropLink`), and posts the token in the body of the request that uses
+ * it. From then on the address the tab shows, the entry Back returns to, and an address or
+ * bookmark a person takes from the page carry no token. The browser's own history of the
+ * pages it has visited is not the page's to clear, and it keeps the address the mail
+ * opened, token and all: a link opened and not used can be opened again from that
+ * browser's history until it is used or expires. The fragment is the only place a link is
+ * read from: a parameter of a link's name in the address's query is not a link, so the
+ * page sends its value nowhere and leaves the address as it came. An
  * invitation (`#invitation=`) is opened through the client on arrival and the card becomes
  * the invitation screen: "You're invited to <the tenant's name>" and the address, over every way that
  * can accept this invitation for that address and none that cannot (`invitationPaths`). The
@@ -466,7 +467,7 @@ export class LoginMethodsComponent implements OnInit {
    * The mailed link the page was opened with, read once: the address no longer carries it
    * after the first arrival, and Try again runs the arrival again.
    */
-  private link: MailedLink | 'old-form' | undefined;
+  private link: MailedLink | undefined;
   /** The address has been read for a mailed link, and the link taken out of it. */
   private linkRead = false;
   /**
@@ -1071,8 +1072,7 @@ export class LoginMethodsComponent implements OnInit {
     this.unreachable.set(false);
     this.refusal.set(undefined);
     const link = await this.takeLink();
-    const tokenOf = (kind: MailedLink['kind']): string =>
-      link !== undefined && link !== 'old-form' && link.kind === kind ? link.token : '';
+    const tokenOf = (kind: MailedLink['kind']): string => (link?.kind === kind ? link.token : '');
     const invitation = tokenOf('invitation');
     const signUp = tokenOf('signUp');
     const reset = tokenOf('reset');
@@ -1085,10 +1085,6 @@ export class LoginMethodsComponent implements OnInit {
     const linked = params.has('pending') || link !== undefined || this.verifyToken !== '';
     const refused = (params.get('code') ?? '') !== '';
     let forwarded = false;
-    if (link === 'old-form') {
-      // The token has been in a request line: it is not posted, and the person asks for a new link.
-      this.refusal.set(LINK_DEAD);
-    }
     try {
       const list = await this.client.auth.methods();
       const carried = this.carriedInvitation(list, invitation);
@@ -1134,17 +1130,16 @@ export class LoginMethodsComponent implements OnInit {
   }
 
   /**
-   * Reads the mailed link the page was opened with and takes it out of the address, once:
-   * a later arrival (Try again) answers the link read then. The address is cleared before
-   * the page's first request, whether the link is one the page posts or one in the old
-   * form, which it never posts.
+   * Reads the mailed link the page was opened with, from the address's fragment alone, and
+   * takes it out of the address, once: a later arrival (Try again) answers the link read
+   * then. The fragment is cleared before the page's first request; an address that carries
+   * no link there is left as it came.
    */
-  private async takeLink(): Promise<MailedLink | 'old-form' | undefined> {
+  private async takeLink(): Promise<MailedLink | undefined> {
     if (this.linkRead) {
       return this.link;
     }
-    const snapshot = this.route.snapshot;
-    this.link = mailedLink(snapshot.fragment, (name) => snapshot.queryParamMap.has(name));
+    this.link = mailedLink(this.route.snapshot.fragment);
     this.linkRead = true;
     if (this.link !== undefined) {
       try {
@@ -1157,18 +1152,18 @@ export class LoginMethodsComponent implements OnInit {
   }
 
   /**
-   * Takes a mailed link out of the address: the fragment that carries its token, and the
-   * query parameter of a link in the old form, replacing the history entry, so the token
-   * is in no history entry, bookmark or address a person copies. The router is asked to,
-   * so its own record of the address loses the token too and nothing writes it back; the
-   * route stays, and a change of fragment or query alone runs no guard again.
+   * Takes a mailed link out of the address: the fragment that carries its token goes, the
+   * query stays as it came, and the tab's history entry is replaced, so the address the
+   * tab shows, the entry Back returns to and an address a person copies from here on carry
+   * no token. The router is asked to, so its own record of the address loses the token too
+   * and nothing writes it back; the route stays, and a change of fragment alone runs no
+   * guard again. Replacing the entry does not reach the browser's history of visited pages,
+   * which keeps the address the mail opened.
    */
   protected async dropLink(): Promise<void> {
-    const cleared = Object.fromEntries(MAILED_LINK_KINDS.map((kind) => [kind, null]));
     await this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: cleared,
-      queryParamsHandling: 'merge',
+      queryParamsHandling: 'preserve',
       replaceUrl: true,
     });
   }

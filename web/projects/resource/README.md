@@ -649,13 +649,12 @@ routes for it.
 
 Every mailed link carries its token in the URL's fragment (`/login#invitation=<token>`), which a
 browser sends to no server, so the token is in no request line and no request log.
-`mailedLink(fragment, inQuery)` reads the link a page was opened with: its kind (one of
+`mailedLink(fragment)` reads the link a page was opened with: its kind (one of
 `MAILED_LINK_KINDS`: `invitation`, `signUp`, `reset`, `address`, `verify`) and its token. A page
 takes the link out of the address at once and hands the token to the call below that posts it, in
-the request's body. For an address that carries a link's parameter in its query, the form an older
-server mailed, the answer is `'old-form'`: the token has been in a request line, so a page never
-posts it and shows `LINK_DEAD`, the server's sentence for a link that has expired or was already
-used.
+the request's body. The fragment is the only place a link is read from: the server writes a token
+nowhere else, so a parameter of a link's name in the address's query is not a link, and the answer
+for such an address is undefined, as for any address that carries no link.
 
 An invitation (`#invitation=<token>`) brings a person into the application, or into one of its
 tenants, with the roles it carries. `openInvitation(token)` posts the token: the answer

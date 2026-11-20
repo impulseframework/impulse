@@ -437,11 +437,14 @@ The server's mailed links all lead to the login page, each with its token in the
 names. A browser sends a fragment to no server,
 so a link a person opens writes its token to no request log. On arrival the component reads the
 link (`mailedLink`, from `@impulseframework/resource`), takes it out of the address before its
-first request, by a router navigation that replaces the history entry, so the token is in no
-history entry, bookmark or address a person copies, and posts the token in the body of the request
-that uses it. A link with its token in the query, the form an older server mailed, is never posted:
-the component clears the address all the same and shows the sentence of a link that has expired or
-was already used (`LINK_DEAD`), and the person asks for a new link. An invitation
+first request, by a router navigation that replaces the tab's history entry, and posts the token in
+the body of the request that uses it. From then on the address the tab shows, the entry Back
+returns to and an address or bookmark a person takes from the page carry no token. The browser's
+own history of visited pages is not the page's to clear and keeps the address the mail opened,
+token and all, so a link opened and not used can be opened again from that browser until it is used
+or expires. The fragment is the only place a link is read from: a parameter of a link's name in the
+address's query is not a link, so the component sends its value nowhere and leaves the address as
+it came. An invitation
 (`#invitation=<token>`) is opened on arrival and stands over the list
 as the invitation screen: "You're invited to <the tenant's name>" and the address, over every way that can
 accept this invitation for that address and none that cannot. A directory registration that could

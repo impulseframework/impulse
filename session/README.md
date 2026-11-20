@@ -2429,11 +2429,12 @@ mailed link leads
 (`#invitation=<token>`, `#verify=<token>`, `#signUp=<token>`, `#reset=<token>`,
 `#address=<token>`). The token is in the URL's fragment, which a browser sends to no
 server: it is in no request line, so no request log, proxy or `Referer` header holds it.
-The login page reads it there, takes it out of the address at once, and posts it in the
-body of the request that uses it. A link with its token in the query, as links were
-mailed before, is not opened: the page answers what a used link is answered, and the
-person asks for a new one. The login URL itself carries no fragment (NewAuth refuses
-one).
+The login page reads it there and nowhere else, takes it out of the address at once, and
+posts it in the body of the request that uses it; a parameter of a link's name in the
+address's query is not a link, and the page sends its value nowhere. The browser's own
+history of visited pages keeps the address the mail opened, token and all, which no page
+can clear: a link opened and not used can be opened again from that browser until it is
+used or expires. The login URL itself carries no fragment (NewAuth refuses one).
 
 ```go
 auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, superAdministrators,
