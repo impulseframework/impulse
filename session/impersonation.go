@@ -107,18 +107,18 @@ type ImpersonationAuditHook = func(ctx context.Context, event sessioninfo.Impers
 // renewal never extends past it. The idle session timeout applies independently. The
 // default is one hour.
 func WithImpersonationTimeout(d time.Duration) BaseSessionOption {
-	return func(b *basesession.BaseSession) {
+	return sessioncore.NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.ImpersonationTimeout = d
-	}
+	})
 }
 
 // WithImpersonationAudit registers the hook that receives impersonation lifecycle
 // events (see ImpersonationAuditHook). Events are logged with the canonical evidence
 // attributes whether or not a hook is registered.
 func WithImpersonationAudit(hook ImpersonationAuditHook) BaseSessionOption {
-	return func(b *basesession.BaseSession) {
+	return sessioncore.NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.ImpersonationAudit = hook
-	}
+	})
 }
 
 // StartImpersonatedSession establishes a session that operates as the request's

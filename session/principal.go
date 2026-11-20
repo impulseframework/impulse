@@ -5,6 +5,7 @@ import (
 
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/internal/basesession"
+	"github.com/impulseframework/impulse/session/internal/sessioncore"
 )
 
 // PrincipalResolver chooses the authorization subject of a validated request. It runs
@@ -40,7 +41,7 @@ type PrincipalResolver = func(ctx context.Context) (accesstypes.Principal, error
 // choice is stamped on the request's log entry and trace span as principal.kind and
 // principal (sessioninfo.AttrPrincipalKind, sessioninfo.AttrPrincipal).
 func WithPrincipalResolver(resolve PrincipalResolver) BaseSessionOption {
-	return func(b *basesession.BaseSession) {
+	return sessioncore.NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.PrincipalResolver = resolve
-	}
+	})
 }

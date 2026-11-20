@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/tracer"
@@ -48,6 +49,21 @@ type BaseSession struct {
 	// constructor hands each to its store setter, which validates it, and reports a
 	// refusal under the option's name.
 	TableNames []TableName
+
+	// impersonationKey is the key to the storage's write of an impersonated session,
+	// which New gives the session it builds and nothing else sets. A BaseSession that
+	// New did not build holds the zero key, which the storage refuses: reflection can
+	// reach this type through a session type's field and make a value of it with a
+	// store of the program's own choosing, and the session it starts from there is
+	// refused where it would be written.
+	impersonationKey sealed.ImpersonationKey
+}
+
+// New returns the base session a session type runs on, over storage, holding the key
+// to the storage's write of an impersonated session. The session library builds every
+// base session here (sessioncore.NewBaseSession), so the key is made in one place.
+func New(storage sessionstorage.BaseStore) *BaseSession {
+	return &BaseSession{Storage: storage, impersonationKey: sealed.NewImpersonationKey()}
 }
 
 // TableName is a table name a session option set: the option's name for the error, the

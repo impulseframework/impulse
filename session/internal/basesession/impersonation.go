@@ -10,7 +10,6 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
-	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 )
@@ -56,10 +55,11 @@ func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.Respo
 		return impulse.NilUUID, err
 	}
 
-	// The storage's write is sealed to the session library, and this is where the
-	// library makes the key: every session type reaches here from a request the
-	// application's declaration made.
-	id, err := s.Storage.CreateImpersonatedSession(ctx, sealed.NewImpersonationKey(), req, imp)
+	// The storage's write is sealed to the session library, and the key handed to it is
+	// the one this session was built with (New): every session type reaches here from a
+	// request the application's declaration made, on the base session the library
+	// built. A BaseSession nobody built holds the zero key, and the storage refuses it.
+	id, err := s.Storage.CreateImpersonatedSession(ctx, s.impersonationKey, req, imp)
 	if err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "sessionstorage.BaseStore.CreateImpersonatedSession()")
 	}

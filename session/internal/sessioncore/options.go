@@ -35,11 +35,43 @@ func (CookieOption) isPreauthOption()  {}
 func (CookieOption) isPasswordOption() {}
 
 // BaseSessionOption configures the base session. It configures every session type.
-type BaseSessionOption func(*basesession.BaseSession)
+//
+// It is an opaque value: a struct whose one field is unexported, so a program outside
+// the session library can pass one on and can do nothing else with it. It cannot write
+// one, convert a function into one, read the function inside or call it, and no type
+// the program can name appears in it. The option was a function over the base session
+// before, and that type was the way in: a generic function instantiated with it
+// (func capture[O ~func(P), P any]() O) had the compiler hand the program the base
+// session's type, and the option it returned was called with the session the
+// constructor had built, from which the program started an impersonated session of
+// its own choosing around the application's declaration. NewBaseSessionOption alone
+// makes an option that sets something, and only the session library's directory can
+// import it.
+type BaseSessionOption struct {
+	set func(*basesession.BaseSession)
+}
+
+// NewBaseSessionOption returns the option that hands the base session under
+// construction to set. The session package's With functions are built on it.
+func NewBaseSessionOption(set func(*basesession.BaseSession)) BaseSessionOption {
+	return BaseSessionOption{set: set}
+}
 
 func (BaseSessionOption) isAuthOption()     {}
 func (BaseSessionOption) isPreauthOption()  {}
 func (BaseSessionOption) isPasswordOption() {}
+
+// apply sets what the option sets on the base session. It reports false for the zero
+// option, which no With function made: a program reaches it with a declared variable
+// (var option session.BaseSessionOption), and it sets nothing.
+func (o BaseSessionOption) apply(base *basesession.BaseSession) bool {
+	if o.set == nil {
+		return false
+	}
+	o.set(base)
+
+	return true
+}
 
 // PasswordSettings are the password method's settings: how passwords are hashed,
 // whether a hash made with an older algorithm is upgraded at login, and the attempt

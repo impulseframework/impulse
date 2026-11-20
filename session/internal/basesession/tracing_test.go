@@ -243,7 +243,8 @@ func TestBaseSession_StartImpersonatedSession_SpanEvidence(t *testing.T) {
 	cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 	cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 
-	s := &BaseSession{Storage: storage, CookieHandler: cookieHandler}
+	s := New(storage)
+	s.CookieHandler = cookieHandler
 	imp := &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Editor")}
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
 	if _, err := s.StartImpersonatedSession(context.Background(), httptest.NewRecorder(), req, imp); err != nil {

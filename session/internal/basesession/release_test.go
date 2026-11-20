@@ -17,6 +17,7 @@ import (
 	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/mock/mock_cookie"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -215,7 +216,9 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 			if ctx == nil {
 				ctx = context.Background()
 			}
-			s := &BaseSession{SessionTimeout: 10 * time.Minute, Storage: storage, CookieHandler: cookieHandler}
+			s := New(storage)
+			s.SessionTimeout = 10 * time.Minute
+			s.CookieHandler = cookieHandler
 			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
 			_, err := s.StartImpersonatedSession(ctx, httptest.NewRecorder(), req, tt.imp)
 			wantErr := tt.wantBadRequest || tt.wantForbidden
@@ -229,6 +232,71 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 			// sessions belong to no account, and for a foreign actor, who has none here.
 			if err == nil && tt.imp.ActorID != tt.wantActorID {
 				t.Errorf("record ActorID = %v, want %v", tt.imp.ActorID, tt.wantActorID)
+			}
+		})
+	}
+}
+
+// TestBaseSession_StartImpersonatedSession_keyIsTheBuiltSessions holds the key to the
+// storage's write to the base session the library built. Reflection can find this type
+// through a session type's field and make a value of it over a store of the program's
+// choosing; that session holds the zero key, so the storage refuses what it starts.
+func TestBaseSession_StartImpersonatedSession_keyIsTheBuiltSessions(t *testing.T) {
+	t.Parallel()
+
+	sessionID := impulse.Must(impulse.NewUUID())
+	tests := []struct {
+		name     string
+		session  func(storage *mock_sessionstorage.MockBaseStore) *BaseSession
+		wantHeld bool
+	}{
+		{
+			name: "the session New built hands the storage the key the library made",
+			session: func(storage *mock_sessionstorage.MockBaseStore) *BaseSession {
+				return New(storage)
+			},
+			wantHeld: true,
+		},
+		{
+			name: "a session nothing built hands the storage the zero key, which the storage refuses",
+			session: func(storage *mock_sessionstorage.MockBaseStore) *BaseSession {
+				return &BaseSession{Storage: storage}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			storage := mock_sessionstorage.NewMockBaseStore(ctrl)
+			cookieHandler := mock_cookie.NewMockHandler(ctrl)
+			// The mock answers as the library's stores do: a key that is not held writes nothing.
+			storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, key sealed.ImpersonationKey, _ *sessioninfo.NewSessionRequest, _ *sessioninfo.Impersonation) (impulse.UUID, error) {
+					if key.Held() != tt.wantHeld {
+						t.Errorf("the storage was handed a key with Held() = %v, want %v", key.Held(), tt.wantHeld)
+					}
+					if !key.Held() {
+						return impulse.NilUUID, sessionstorage.ErrImpersonationSealed
+					}
+
+					return sessionID, nil
+				})
+			if tt.wantHeld {
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+			}
+
+			s := tt.session(storage)
+			s.CookieHandler = cookieHandler
+			imp := &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Editor")}
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
+			_, err := s.StartImpersonatedSession(context.Background(), httptest.NewRecorder(), req, imp)
+			if tt.wantHeld && err != nil {
+				t.Fatalf("StartImpersonatedSession() error = %v, want none", err)
+			}
+			if !tt.wantHeld && !errors.Is(err, sessionstorage.ErrImpersonationSealed) {
+				t.Fatalf("StartImpersonatedSession() error = %v, want %v", err, sessionstorage.ErrImpersonationSealed)
 			}
 		})
 	}

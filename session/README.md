@@ -3252,6 +3252,20 @@ session API, from a request its declaration made, and in no other way. An applic
 that wraps the store keeps doing so by embedding it; one that wrote a store of its own
 from nothing can no longer write this method, and embeds the library's store for it.
 
+**No option opens the session.** The session the library builds inside `NewAuth`,
+`NewPreauth` and the other constructors holds the key to that write, so nothing hands
+it to a program. The options that configure it (`session.WithSessionTimeout`,
+`WithImpersonationTimeout`, `WithImpersonationAudit`, `WithPrincipalResolver`,
+`WithLogHandler` and the table names) are opaque values: `session.BaseSessionOption` is
+a struct with no exported field and no method, which a program passes to a constructor
+and can do nothing else with. It is not a function, so a generic function instantiated
+with it learns nothing of the session it configures, and a program can neither call
+one, read one nor write one of its own; each of those does not compile. The zero value,
+the one option a program can still declare, sets nothing and is refused by every
+constructor. Reflection can find the type of the session inside and make a value of it;
+that value was not built by the library, holds no key, and the storage refuses what it
+starts.
+
 ```go
 // A person signed in here views bob's pages. The route is behind ValidateSession: the
 // actor is the validated session's user, acting from that session.

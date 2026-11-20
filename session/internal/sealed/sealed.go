@@ -6,8 +6,9 @@ package sealed
 
 // ImpersonationKey is the key to the storage's write of an impersonated session and its
 // record (sessionstorage.BaseStore.CreateImpersonatedSession). The session library makes
-// one where it starts an impersonated session, from a request the application's
-// declaration made (session.Impersonations), and nowhere else. The storage writes for
+// one for the base session it builds, which hands it over where it starts an
+// impersonated session from a request the application's declaration made
+// (session.Impersonations), and nowhere else. The storage writes for
 // no other caller: that write takes whatever principal, mask and actor it is handed,
 // so a caller who reached it would go around the declaration, the grant it checked and
 // the mask it gave.
@@ -21,7 +22,9 @@ type ImpersonationKey struct {
 }
 
 // NewImpersonationKey returns a key the storage accepts. It is called where the session
-// library starts an impersonated session, and nowhere else.
+// library builds the base session a session type runs on (basesession.New), and nowhere
+// else: the session it builds holds the key, and hands it to the storage when it starts
+// an impersonated session. A base session nothing built holds the zero key.
 func NewImpersonationKey() ImpersonationKey {
 	return ImpersonationKey{held: true}
 }
