@@ -253,7 +253,15 @@ or one per domain), loaded on demand and cached for the session.
   the digest carries no field-level entries for the permission — no field information
   (denied outright, or a keys-only resource) — so narrow only on a defined answer.
   Key fields never appear: they are structural, not grant-bearing.
-- `api.permissions.loadDigest(domain?)` loads a scope; `loadDomains()` fetches the
+- `api.permissions.loadDigest(domain?)` loads a scope. A read that fails rejects and
+  leaves the cache as it was: a scope never read stays unloaded, a scope read before
+  keeps its last answer, and no failure is cached as an empty digest, which would say the
+  person holds nothing. `digestFailure(error)` says which failure it was: `refused` for
+  the server's 403 or 404 (the scope is not there for this session), `failed` for anything
+  else (a 500, a request that never arrived), which can be tried again.
+  `onUnread(listener)` calls the listener with the domain and the failure each time a read
+  fails, whoever asked for it, so a page drawn from the scope can say it could not be read.
+- `loadDomains()` fetches the
   domains where the user holds any grant, each with its name (`user-domains` answers
   `[{ "domain", "name" }]`), and `domainName(domain)` answers a listed domain's name for a
   picker to show, the domain itself where none is held; `subscribe` notifies a UI framework.

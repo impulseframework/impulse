@@ -4,19 +4,25 @@ import { Router } from '@angular/router';
 import { TenantService } from './tenant.service';
 
 /**
- * The refusal page: where the tenant guard sends a navigation it cannot open, under the
+ * The refusal page: where a navigation that cannot open a tenant is sent, under the
  * tenant's own URL. It says one of two things.
  *
  * An address naming a tenant the session cannot reach lands here once the guard has asked
  * the server again, and the page says 404 Not Found and nothing more, as the server's
  * domain guard answers: a tenant that does not exist and one the session holds nothing in
- * look the same, and the address holds the tenant's id, which no page shows. The session
- * is never switched to another tenant; the place switcher is the way into one.
+ * look the same, and the address holds the tenant's id, which no page shows. A tenant
+ * whose permission digest the server refuses to read (its 403 or 404) lands here the same
+ * way. The session is never switched to another tenant; the place switcher is the way
+ * into one.
  *
- * A tenant the session reaches whose permission digest could not be read lands here too
- * (TenantService.unread holds the address that was asked for), and the page says that the
- * page could not be loaded, with a button that asks for it again. Nothing of the page that
- * was asked for is drawn, since what the person holds there is not known.
+ * A tenant the session reaches whose permission digest could not be read for any other
+ * reason lands here too (TenantService.unread holds the address that was asked for), and
+ * the page says that the page could not be loaded, with a button that asks for it again.
+ * Nothing of the page that was asked for is drawn, since what the person holds there is
+ * not known.
+ *
+ * Both hold for a page that is already open when a read of its tenant's digest fails:
+ * TenantService sends the browser here in the open page's stead.
  */
 @Component({
   selector: 'impulse-tenant-refused',

@@ -1,7 +1,7 @@
 import { Domain, PermissionScope } from './brands';
 import { PermissionDigest, PermissionDigestState } from './digest';
 import { Store } from './store';
-import { HttpMethod } from './transport';
+import { ApiError, HttpMethod } from './transport';
 
 /** Issues one request against the API; the client supplies it. */
 export type Requester = <T>(method: HttpMethod, path: string, options?: RequestOptions) => Promise<T>;
@@ -114,16 +114,43 @@ export function fieldPermissionStates(
 }
 
 /**
+ * How a read of a digest failed. `refused` is the server's refusal, its 403 or 404: the
+ * scope is not there for this session, and asking again will not change that. `failed` is
+ * everything else, a 500 or a request that never reached the server: nothing is known of
+ * what the person holds, and the read can be tried again. Neither is a person who holds
+ * nothing, which is an answer: a digest with no entries.
+ */
+export type DigestFailure = 'refused' | 'failed';
+
+/** digestFailure says which of the two a failed digest read was, from what the read threw. */
+export function digestFailure(error: unknown): DigestFailure {
+  return error instanceof ApiError && (error.status === 403 || error.status === 404) ? 'refused' : 'failed';
+}
+
+/**
+ * What an `onUnread` listener is called with: the scope's domain (undefined for the global
+ * scope) and how its read failed.
+ */
+export type UnreadListener = (domain: Domain | undefined, failure: DigestFailure) => void;
+
+/**
  * PermissionStore owns the session user's digest cache. One digest per scope (global,
  * or one per domain), loaded on demand and cached for the session; `can` answers
  * synchronously from the cache and never fetches. `granted` and `conditional` both
  * answer true: render the surface, and let the server narrow it per row. A scope that
  * has not been loaded answers false — fail closed — so load the digest for a domain
  * before rendering its pages.
+ *
+ * A read that fails is not an answer, and the cache never holds one as if it were: a
+ * scope whose first read fails stays unloaded (`hasDigest` is false: nothing is known),
+ * and a scope read again keeps its last answer when the new read fails. The failure goes
+ * to whoever asked (`loadDigest` rejects) and to every `onUnread` listener, so a page
+ * drawn from the scope can say that it could not be read.
  */
 export class PermissionStore {
   readonly snapshot = new Store<PermissionsSnapshot>({ digests: new Map(), domains: [] });
   private inflight = new Map<string, Promise<PermissionDigest>>();
+  private unreadListeners = new Set<UnreadListener>();
 
   constructor(
     private request: Requester,
@@ -184,9 +211,23 @@ export class PermissionStore {
   }
 
   /**
+   * onUnread calls the listener each time a read of a digest fails, with the scope's
+   * domain and how the read failed, before the read's own caller sees the rejection. The
+   * function it returns stops the calls.
+   */
+  onUnread(listener: UnreadListener): () => void {
+    this.unreadListeners.add(listener);
+    return () => {
+      this.unreadListeners.delete(listener);
+    };
+  }
+
+  /**
    * Loads (or reloads) one scope's digest. Concurrent calls for the same scope share
-   * one request. A failed load caches an empty digest for the scope — every question
-   * answers false — and rethrows, so callers see the failure.
+   * one request. A read that fails leaves the cache as it was (a scope never read stays
+   * unloaded, a scope read before keeps its last answer), tells the `onUnread` listeners
+   * and rethrows, so callers see the failure; `digestFailure` says of what was thrown
+   * whether the server refused the read.
    */
   loadDigest(domain?: Domain): Promise<PermissionDigest> {
     const key = digestKey(domain);
@@ -199,18 +240,23 @@ export class PermissionStore {
       query.set('domain', domain);
     }
     const load = this.request<PermissionDigest | null>('GET', this.routes.digest, { query })
-      .then((digest) => digest ?? {})
-      .catch((error: unknown) => {
-        this.setDigest(key, {});
-        throw error;
-      })
-      .then((digest) => {
-        this.setDigest(key, digest);
-        return digest;
-      })
       .finally(() => {
         this.inflight.delete(key);
-      });
+      })
+      .then(
+        (digest) => {
+          const read = digest ?? {};
+          this.setDigest(key, read);
+          return read;
+        },
+        (error: unknown) => {
+          const failure = digestFailure(error);
+          for (const listener of this.unreadListeners) {
+            listener(domain, failure);
+          }
+          throw error;
+        },
+      );
     this.inflight.set(key, load);
     return load;
   }

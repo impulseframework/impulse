@@ -4,6 +4,7 @@ import { createClient, ResourceHandle } from './client';
 import { ApiDescriptor } from './descriptor';
 import { PermissionDigest } from './digest';
 import { fieldPermissionStates, PermissionsSnapshot, PermissionStore, Requester } from './permissions';
+import { ApiError } from './transport';
 
 const incidents = 'IncidentReports' as Resource;
 const memberships = 'TeamMemberships' as Resource;
@@ -208,5 +209,99 @@ describe('the tenant list', () => {
     named.clear();
     expect(named.domains()).toEqual([]);
     expect(named.domainName('ridgeline' as Domain)).toBe('ridgeline');
+  });
+});
+
+// A read of a digest that fails is not an answer. The cache holds no failure as an empty
+// digest, which would say the person holds nothing: a scope never read stays unloaded, a
+// scope read before keeps its last answer. Whoever asked sees the rejection, and every
+// listener hears which scope it was and whether the server refused the read.
+describe('a digest read that fails', () => {
+  const list = { resource: incidents, permission: 'List' as Permission };
+
+  /** A server that answers each tenant's digest as the script says: a digest, or what the request throws. */
+  const serving = (script: Record<string, PermissionDigest | Error>): PermissionStore => {
+    const request = (async (_method: string, path: string, options?: { query?: URLSearchParams }) => {
+      if (path === 'user-domains') {
+        return [];
+      }
+      const answer = script[options?.query?.get('domain') ?? ''];
+      if (answer instanceof Error) {
+        throw answer;
+      }
+      return answer;
+    }) as Requester;
+    return new PermissionStore(request, { digest: 'permission-digest', domains: 'user-domains' });
+  };
+
+  const refusal = (status: number): ApiError => new ApiError('GET', 'permission-digest', status, { message: 'no' });
+
+  it('leaves a scope that was never read unloaded: nothing is known, which is not an empty digest', async () => {
+    const store = serving({ [alpha]: refusal(500) });
+    await expect(store.loadDigest(alpha)).rejects.toBeInstanceOf(ApiError);
+    expect(store.hasDigest(alpha)).toBe(false);
+    expect(store.digest(alpha)).toBeUndefined();
+  });
+
+  it('keeps the last answer of a scope that was read before, for a failure and for a refusal', async () => {
+    for (const status of [500, 403, 404]) {
+      const script: Record<string, PermissionDigest | Error> = { [alpha]: digest };
+      const store = serving(script);
+      await store.loadDigest(alpha);
+      script[alpha] = refusal(status);
+      await expect(store.loadDigest(alpha)).rejects.toBeInstanceOf(ApiError);
+      expect(store.can({ ...list, domain: alpha })).toBe(true);
+      expect(store.digest(alpha)).toEqual(digest);
+    }
+  });
+
+  it("keeps every scope's last answer when a refresh cannot read one of them", async () => {
+    const script: Record<string, PermissionDigest | Error> = { '': digest, [alpha]: digest };
+    const store = serving(script);
+    await Promise.all([store.loadDigest(), store.loadDigest(alpha)]);
+    script[alpha] = new Error('the request never arrived');
+    await expect(store.refresh()).rejects.toBeInstanceOf(Error);
+    expect(store.can(list)).toBe(true);
+    expect(store.can({ ...list, domain: alpha })).toBe(true);
+  });
+
+  // The server's 403 and 404 are a refusal; anything else is a failure.
+  const cases: { name: string; thrown: Error; want: string }[] = [
+    { name: 'a 403', thrown: refusal(403), want: 'refused' },
+    { name: 'a 404', thrown: refusal(404), want: 'refused' },
+    { name: 'a 500', thrown: refusal(500), want: 'failed' },
+    { name: 'a 401', thrown: refusal(401), want: 'failed' },
+    { name: 'a request that never arrived', thrown: new Error('the request never arrived'), want: 'failed' },
+  ];
+  for (const tt of cases) {
+    it(`tells each listener the scope and that the read ${tt.want}, for ${tt.name}`, async () => {
+      const store = serving({ '': tt.thrown, [alpha]: tt.thrown });
+      const heard: string[] = [];
+      const stop = store.onUnread((domain, failure) => heard.push(`${domain ?? 'global'} ${failure}`));
+      await expect(store.loadDigest(alpha)).rejects.toBe(tt.thrown);
+      await expect(store.loadDigest()).rejects.toBe(tt.thrown);
+      expect(heard).toEqual([`${alpha} ${tt.want}`, `global ${tt.want}`]);
+      // A listener that was stopped hears nothing more.
+      stop();
+      await expect(store.loadDigest(alpha)).rejects.toBe(tt.thrown);
+      expect(heard).toHaveLength(2);
+    });
+  }
+
+  it('tells no listener of a read that answers, an empty digest among them', async () => {
+    const store = serving({ [alpha]: {} });
+    const heard: string[] = [];
+    store.onUnread((domain, failure) => heard.push(`${domain ?? 'global'} ${failure}`));
+    expect(await store.loadDigest(alpha)).toEqual({});
+    expect(store.hasDigest(alpha)).toBe(true);
+    expect(heard).toEqual([]);
+  });
+
+  it('asks the server again on the next read: a failure is not remembered as an answer', async () => {
+    const script: Record<string, PermissionDigest | Error> = { [alpha]: refusal(500) };
+    const store = serving(script);
+    await expect(store.ensure({ ...list, domain: alpha })).rejects.toBeInstanceOf(ApiError);
+    script[alpha] = digest;
+    expect(await store.ensure({ ...list, domain: alpha })).toBe(true);
   });
 });

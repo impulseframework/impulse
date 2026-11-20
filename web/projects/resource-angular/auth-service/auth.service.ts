@@ -230,8 +230,9 @@ export class AuthService {
 
   /**
    * Loads (or reloads) the permission digest for a domain — global when omitted —
-   * into the cache. Call it when the user selects a tenant, before rendering that
-   * tenant's pages. A failed load caches an empty digest (every question answers false).
+   * into the cache. A read that fails caches nothing: the scope stays as it was (unloaded,
+   * or holding its last answer), since a failure is not a person who holds nothing. The
+   * observable still completes, with an empty digest; ask `hasDigest` what is known.
    */
   loadDigest(domain?: Domain): Observable<PermissionDigest> {
     return from(this.permissions.loadDigest(domain).catch(() => ({}) as PermissionDigest));
@@ -242,7 +243,13 @@ export class AuthService {
     return from(this.permissions.loadDomains().catch(() => [] as Domain[]));
   }
 
-  /** Reloads the domains and every cached digest — after a role change, say. */
+  /**
+   * Reloads the domains and every cached digest — after a role change, say. A digest that
+   * could not be read keeps its last answer, so no page is drawn again as the page of a
+   * person who holds nothing because a read failed; where it is the open tenant's, the
+   * frame's TenantService puts the refusal page in the open page's stead, saying the page
+   * could not be loaded, or 404 Not Found where the server refused the read.
+   */
   refreshPermissions(): Observable<void> {
     return from(this.permissions.refresh().catch(() => undefined));
   }
