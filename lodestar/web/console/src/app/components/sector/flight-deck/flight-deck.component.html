@@ -117,7 +117,7 @@
 
         <h3>Documents</h3>
         @for (document of documentsOf(mission); track document.id) {
-          <div class="sortie">
+          <div class="document">
             <a [href]="documentUrl(document)" target="_blank">{{ document.title }} — {{ document.fileName }}</a>
             ({{ document.size }} bytes, {{ document.contentType }}) uploaded by <b>{{ document.uploadedByName }}</b>
             {{ document.uploadedAt | date: 'medium' }}

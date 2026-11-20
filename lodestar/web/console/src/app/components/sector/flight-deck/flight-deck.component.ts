@@ -460,7 +460,7 @@ export class FlightDeckComponent {
     this.editDeadlineDate = this.deadlineOf(mission);
     this.editDeadlineTime = this.deadlineOf(mission);
     this.editAssignedSquadronId = mission.assignedSquadronId ?? '';
-    this.editFee = null;
+    this.editFee = this.feeOf(mission);
     this.open(form);
   }
 
@@ -758,6 +758,13 @@ export class FlightDeckComponent {
     return !('fee' in mission);
   }
 
+  /** The mission's fee as the Fee field holds it: a number, or nothing where the row carries no fee. */
+  private feeOf(mission: Missions): number | null {
+    if (this.feeMasked(mission)) return null;
+    const fee = Number(mission.fee);
+    return Number.isFinite(fee) ? fee : null;
+  }
+
   overdue(mission: Missions): boolean {
     return !!mission.deadline && new Date(mission.deadline).getTime() < this.now().getTime();
   }
@@ -882,8 +889,11 @@ export class FlightDeckComponent {
     ) {
       patch['assignedSquadronId'] = this.editAssignedSquadronId;
     }
-    // A fee is a decimal, and a decimal travels as a string that keeps every digit.
-    if (this.canEdit(mission, 'fee') && this.editFee !== null) patch['fee'] = String(this.editFee);
+    // A fee is a decimal, and a decimal travels as a string that keeps every digit. The
+    // field opens with the mission's fee, so a fee is sent only when it was changed.
+    if (this.canEdit(mission, 'fee') && this.editFee !== null && this.editFee !== this.feeOf(mission)) {
+      patch['fee'] = String(this.editFee);
+    }
     if (Object.keys(patch).length === 0) {
       // Nothing was changed, so nothing is sent.
       this.close();

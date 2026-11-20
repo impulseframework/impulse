@@ -299,8 +299,9 @@ describe('FlightDeckComponent', () => {
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const text = (e: Element | null): string => e?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
   const texts = (selector: string): string[] => Array.from(element().querySelectorAll(selector)).map(text);
-  /** The open mission's sorties as drawn: a document's row is drawn with a sortie's class, and says nothing of a launch. */
-  const sortieRows = (): string[] => texts('.detail-card .sortie').filter((row) => row.includes(' launched '));
+  /** The open mission's sorties as drawn, and its documents: each kind of row has a class of its own. */
+  const sortieRows = (): string[] => texts('.detail-card .sortie');
+  const documentRows = (): string[] => texts('.detail-card .document');
   const inDialog = <E extends HTMLElement>(selector: string): E | null =>
     document.querySelector<E>(`.cdk-overlay-container mat-dialog-container ${selector}`);
   const dialogTexts = (selector: string): string[] =>
@@ -991,6 +992,21 @@ describe('FlightDeckComponent', () => {
     expect(reads('missions')).toBe(before + 1);
   });
 
+  it("Edit call sheet opens with the mission's fee in the Fee field, and Save sends a fee that was changed as a decimal's string", async () => {
+    await pageFor({ grants: marshal });
+    await openMission();
+    const before = reads('missions');
+    await press('Edit call sheet');
+
+    expect(inDialog<HTMLInputElement>('input[name="editFee"]')?.value).toBe('900');
+
+    type('editFee', '950.5');
+    await send();
+    await settle(() => !dialogOpen() && reads('missions') > before, 50);
+
+    expect(writes()).toEqual([{ op: 'patch', path: `/sectors/${anvilID}/missions/m-1`, value: { fee: '950.5' } }]);
+  });
+
   it('Save with nothing changed closes the form and sends nothing', async () => {
     await pageFor({ grants: marshal });
     await openMission();
@@ -1062,7 +1078,8 @@ describe('FlightDeckComponent', () => {
 
     expect(sortieRows()).toHaveLength(12);
     expect(texts('.detail-card .expenses li')).toEqual(['fuel — 40 cr']);
-    expect(text(element().querySelector('.detail-card'))).toContain('Tow plan');
+    expect(documentRows()).toHaveLength(1);
+    expect(documentRows()[0]).toContain('Tow plan');
     expect(text(element().querySelector('.detail-card'))).not.toContain('Manifest');
     // Each list was asked for by the mission, never as the sector's newest page.
     const asked = (route: string): string[] =>
