@@ -2,24 +2,10 @@ import { Component, computed, input, output } from '@angular/core';
 import { Workflows } from '@app/service/zz_gen_resources';
 import { Method, Resource } from '@impulseframework/resource';
 import { nameInWords } from '@impulseframework/resource-angular/types';
+import { GraphEdge, GraphNode, layoutWorkflow } from './workflow-layout';
 
-interface Node {
-  state: string;
-  x: number;
-  y: number;
-  terminal: boolean;
-  isDefault: boolean;
-}
-
-interface Edge {
-  method: string;
-  /** What the edge is called on the graph, and what a screen reader says of it. */
-  words: string;
-  from: string;
-  to: string;
-  path: string;
-  labelX: number;
-  labelY: number;
+/** An edge as the graph draws it: where the layout put it, and whether it is lit for this person now. */
+interface Edge extends GraphEdge {
   live: boolean;
 }
 
@@ -35,6 +21,10 @@ interface Edge {
  * An edge is drawn in words, never as its method's name: the words its page gives it
  * (`words`), and where the page gives none the name in words, as the library's pages
  * show a method ("Begin refit" for BeginRefit).
+ *
+ * No two labels are drawn on one another: the layout (layoutWorkflow) bows a longer arc
+ * further than a shorter one and moves a label along its line until it is clear of the
+ * others, since a label is the only way to tell which edge is which.
  *
  * Demonstrates: workflow.ts-constant, capability-envelope.
  */
@@ -57,61 +47,24 @@ export class WorkflowGraphComponent {
 
   private workflow = computed(() => Workflows.find((w) => w.root === this.root()));
 
-  readonly width = 620;
-  readonly height = 170;
-
-  // States laid out as a route: the ones a transition leaves (the default first) on
-  // the top row, the terminal states on a second row beneath.
-  nodes = computed<Node[]>(() => {
-    const wf = this.workflow();
-    if (!wf) return [];
-    const sources = new Set(wf.transitions.flatMap((t) => t.from));
-    const live = [wf.defaultState, ...wf.states.filter((s) => s !== wf.defaultState && sources.has(s))];
-    const terminals = wf.states.filter((s) => !sources.has(s));
-    const step = (this.width - 80) / Math.max(1, live.length - 1);
-    const tstep = (this.width - 80) / (terminals.length + 1);
-    return [
-      ...live.map((state, i) => ({
-        state,
-        x: 40 + i * step,
-        y: 45,
-        terminal: false,
-        isDefault: state === wf.defaultState,
-      })),
-      ...terminals.map((state, i) => ({ state, x: 40 + (i + 1) * tstep, y: 135, terminal: true, isDefault: false })),
-    ];
+  // Where everything sits: the states as a route, the edges and their labels, none on another.
+  private layout = computed(() => {
+    const workflow = this.workflow();
+    return workflow ? layoutWorkflow(workflow, this.words()) : undefined;
   });
 
+  readonly width = computed(() => this.layout()?.width ?? 620);
+  readonly height = computed(() => this.layout()?.height ?? 170);
+
+  nodes = computed<GraphNode[]>(() => this.layout()?.nodes ?? []);
+
   edges = computed<Edge[]>(() => {
-    const wf = this.workflow();
-    if (!wf) return [];
-    const pos = new Map(this.nodes().map((n) => [n.state, n]));
     const executable = new Set(this.executable());
-    const words = this.words();
-    const edges: Edge[] = [];
-    for (const t of wf.transitions) {
-      for (const from of t.from) {
-        const a = pos.get(from);
-        const b = pos.get(t.to);
-        if (!a || !b) continue;
-        // Curve edges so a backward edge (flight_test -> in_refit) and a forward one
-        // never overlap; edges to the terminal row drop down.
-        const bend = a.y === b.y ? (a.x < b.x ? -28 : 34) : 0;
-        const mx = (a.x + b.x) / 2;
-        const my = (a.y + b.y) / 2 + bend;
-        edges.push({
-          method: t.method,
-          words: words(t.method),
-          from,
-          to: t.to,
-          path: `M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}`,
-          labelX: mx,
-          labelY: my + (bend < 0 ? -2 : 4),
-          live: executable.has(t.method) && from === this.current(),
-        });
-      }
-    }
-    return edges;
+    const current = this.current();
+    return (this.layout()?.edges ?? []).map((edge) => ({
+      ...edge,
+      live: executable.has(edge.method) && edge.from === current,
+    }));
   });
 
   label(state: string): string {

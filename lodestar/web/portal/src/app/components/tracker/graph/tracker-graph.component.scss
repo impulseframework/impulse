@@ -18,11 +18,17 @@
       stroke-width: 1.4;
     }
 
+    // An edge's label is words a person says, so it is set as the page's words are. It
+    // sits on its edge, and other edges pass under it: the ground's color is drawn around
+    // each letter so a line never strikes the words through.
     text {
       font-size: 9px;
       text-anchor: middle;
       fill: currentColor;
-      font-family: 'Roboto Mono', monospace;
+      paint-order: stroke;
+      stroke: var(--mat-sys-surface);
+      stroke-width: 3px;
+      stroke-linejoin: round;
     }
 
     &.live {
