@@ -179,7 +179,9 @@ func TestWatchDesk_revokeReachesAnOpenDesk(t *testing.T) {
 	greer := newBrowser(t, s, consoleAPI)
 	greer.signIn(ctx, "governor")
 	resp := greer.doWith(ctx, http.MethodGet, watchDeskList+"?limit=50", nil, liveHeaders("tab-desk-1"))
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Fatalf("closing the answer of the governor's desk: %v", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("the governor's desk: status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
