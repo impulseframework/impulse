@@ -1256,7 +1256,11 @@ watch desk then name the cadet by username; and
   draws a form on its page. Add a pass opens the form with three pickers side by side, a person of
   the sector, a squadron and a group of the sector, each a list the generated metadata
   names; the pass names one of them, and one that names two, or none, is refused inside
-  the dialog in the server's words. The walkthrough's "the Hangars page" section sends
+  the dialog in the server's words. An empty person is nobody, in the validator and in
+  the table's holder check alike. A pass keeps its one holder once written: no role of
+  the release may change it (the Marshal's update grant names the level and the expiry),
+  and an update that would leave two holders, or none, is refused in the create's words
+  whoever sends it. The walkthrough's "the Hangars page" section sends
   what the page sends: the marshal adds a hangar and a pass for the Bay keepers, and the
   sentry has both hangars through that group alone. Lodestar is also the browser library's
   application: `@impulseframework/resource` and `@impulseframework/resource-angular` live in

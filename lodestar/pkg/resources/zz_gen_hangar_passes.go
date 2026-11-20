@@ -652,6 +652,9 @@ func (p *HangarPassUpdatePatch) RowCreated() bool {
 }
 
 func (p *HangarPassUpdatePatch) registerDefaultFuncs() {
+	p.patchSet.RegisterValidateUpdateFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return new(HangarPassUpdateValidator).Validate(ctx, txn, p)
+	})
 }
 
 func (p *HangarPassUpdatePatch) ID() impulse.UUID {

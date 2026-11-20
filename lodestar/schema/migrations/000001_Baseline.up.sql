@@ -397,7 +397,8 @@ CREATE TABLE Hangars (
 -- hangars open to the requester and the hangars the requester runs, each through a pass
 -- in their own name, in the name of a squadron they fly with or in the name of a group
 -- they are in. A pass goes with its hangar, with its squadron and with its group (the
--- foreign key to CrewGroups is added below that table).
+-- foreign key to CrewGroups is added below that table). The holder check counts the
+-- three columns and takes exactly one; an empty UserId names nobody and is not counted.
 CREATE TABLE HangarPasses (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
@@ -409,7 +410,7 @@ CREATE TABLE HangarPasses (
   ExpiresAt TIMESTAMP,
 
   CONSTRAINT CK_HangarPasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT CK_HangarPasses_Holder CHECK (IF(UserId IS NULL, 0, 1) + IF(SquadronId IS NULL, 0, 1) + IF(GroupId IS NULL, 0, 1) = 1),
+  CONSTRAINT CK_HangarPasses_Holder CHECK (IF(UserId IS NULL OR UserId = '', 0, 1) + IF(SquadronId IS NULL, 0, 1) + IF(GroupId IS NULL, 0, 1) = 1),
   CONSTRAINT FK_HangarPasses_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id) ON DELETE CASCADE,
