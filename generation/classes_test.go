@@ -76,8 +76,9 @@ func Test_rejectClassAnnotation(t *testing.T) {
 }
 
 // Test_manualRegistrationsFromConstants_classes pins @class beside @manualAddResource:
-// the registration carries the classes, and a class on a constant that registers
-// nothing, or one named as no class is, is refused.
+// the registration of an action carries the classes, and a class on a constant that
+// registers nothing, one named as no class is, and one beside a registration of a
+// permission other than Execute, alone or next to an Execute, are each refused.
 func Test_manualRegistrationsFromConstants_classes(t *testing.T) {
 	t.Parallel()
 
@@ -104,7 +105,7 @@ func Test_manualRegistrationsFromConstants_classes(t *testing.T) {
 	}
 	want := []ManualRegistration{
 		{Permission: accesstypes.Execute, Resource: "ResetLogin", Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
-		{Scope: accesstypes.DomainPermissionScope, Permission: accesstypes.List, Resource: "ExportLedger", Classes: []accesstypes.ActionClass{"money_movement", "sensitive"}},
+		{Scope: accesstypes.DomainPermissionScope, Permission: accesstypes.Execute, Resource: "ExportLedger", Classes: []accesstypes.ActionClass{"money_movement", "sensitive"}},
 		{Permission: accesstypes.Execute, Resource: "PlainThing"},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
@@ -114,6 +115,10 @@ func Test_manualRegistrationsFromConstants_classes(t *testing.T) {
 	for name, wantErr := range map[string]string{
 		"Orphan":   `constant "Orphan": @class marks a registration made by hand, and the constant registers nothing; add @manualAddResource(<permission>) beside it or remove it`,
 		"Misnamed": `constant Misnamed: @class(Money Movement) names the class "Money Movement"`,
+		"LedgerRows": `constant "LedgerRows": @class(money_movement, sensitive) marks an action, and the registration is of List, which is no action's permission: ` +
+			`a class is carried by a registration of Execute alone. Register the action with @manualAddResource(Execute), ` +
+			`or remove the @class and have the mask name the record (accesstypes.RefusePermission, accesstypes.RefuseWrites)`,
+		"LedgerEntry": `constant "LedgerEntry": @class(sensitive) marks an action, and the registration is of Update, which is no action's permission`,
 	} {
 		if _, err := manualRegistrationsFromConstants(named(name)); err == nil || !strings.Contains(err.Error(), wantErr) {
 			t.Errorf("manualRegistrationsFromConstants(%s) error = %v, want it to contain %q", name, err, wantErr)
@@ -168,10 +173,49 @@ func Test_computeCollectionData_classes(t *testing.T) {
 	}
 
 	// A registration made by hand through the option carries a class under the same
-	// rule for its name as the annotation's.
-	r.manualRegistrations = append(r.manualRegistrations, ManualRegistration{Permission: accesstypes.Execute, Resource: "Loud", Classes: []accesstypes.ActionClass{"LOUD"}})
-	if _, err := r.computeCollectionData(); err == nil || !strings.Contains(err.Error(), `manual registration for resource "Loud": the class "LOUD" is not a class's name`) {
-		t.Errorf("computeCollectionData() with a class named as none is, error = %v", err)
+	// rules as the annotation's: its name is a class's, and its permission is Execute.
+	registered := slices.Clone(r.manualRegistrations)
+	for name, tt := range map[string]struct {
+		add     []ManualRegistration
+		wantErr string
+	}{
+		"a class named as none is": {
+			add:     []ManualRegistration{{Permission: accesstypes.Execute, Resource: "Loud", Classes: []accesstypes.ActionClass{"LOUD"}}},
+			wantErr: `manual registration for resource "Loud": the class "LOUD" is not a class's name`,
+		},
+		"a class on a record's permission": {
+			add: []ManualRegistration{{Permission: accesstypes.Read, Resource: "Ledger", Classes: []accesstypes.ActionClass{"sensitive"}}},
+			wantErr: `manual registration for resource "Ledger": @class(sensitive) marks an action, and the registration is of Read, which is no action's permission: ` +
+				`a class is carried by a registration of Execute alone`,
+		},
+		"a record's permission under the name of a classed action": {
+			add: []ManualRegistration{{Permission: accesstypes.Update, Resource: "ResetLogin"}},
+			wantErr: `"ResetLogin" carries the class credential and registers Update beside Execute: a class is carried by an action alone, ` +
+				`a name that registers Execute and nothing else. Register the Update permission under a name of its own, or remove the class`,
+		},
+		"a record's permission under the name of a classed method": {
+			add:     []ManualRegistration{{Permission: accesstypes.Delete, Resource: "RotateKey"}},
+			wantErr: `"RotateKey" carries the class credential and registers Delete beside Execute`,
+		},
+		"a record's permission for a tenant under the name of an action classed for the whole application": {
+			add:     []ManualRegistration{{Permission: accesstypes.Read, Resource: "ResetLogin", Scope: accesstypes.DomainPermissionScope}},
+			wantErr: `"ResetLogin" carries the class credential and registers Read beside Execute`,
+		},
+		"a record's permission for the whole application under the name of a method classed for a tenant": {
+			add:     []ManualRegistration{{Permission: accesstypes.List, Resource: "WireFunds"}},
+			wantErr: `"WireFunds" carries the class money_movement, sensitive and registers List beside Execute`,
+		},
+	} {
+		r.manualRegistrations = append(slices.Clone(registered), tt.add...)
+		if _, err := r.computeCollectionData(); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			t.Errorf("computeCollectionData() with %s, error = %v, want it to contain %q", name, err, tt.wantErr)
+		}
+	}
+
+	// A record's permission registered by hand under a name of no class is as it was.
+	r.manualRegistrations = append(slices.Clone(registered), ManualRegistration{Permission: accesstypes.Update, Resource: "PlainThing"})
+	if _, err := r.computeCollectionData(); err != nil {
+		t.Errorf("computeCollectionData() with a record's permission under the name of an action of no class, error = %v", err)
 	}
 }
 

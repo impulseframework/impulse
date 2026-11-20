@@ -186,7 +186,7 @@ var Demonstrations = []Demonstration{
 	{"computed.user", "QuerySet.User(): the identity the check ran as, for a caller-scoped computed read."},
 	{"computed.scope", "QuerySet.Scope(): the partition the check ran in."},
 	{"computed.keyless", "A @computed struct with no @primarykey is a whole read-only list: one list route serves every row the filter admits in one response, sorted when a sort is asked or declared, with no read route, no page (a numeric limit or a cursor is refused naming @primarykey as the way to page), and no row identity; declaring a key brings all three back."},
-	{"@class", "@class(name[, name]) on an @rpc struct or on a constant that carries @manualAddResource: the action carries each class in the generated permission collection, the collection file declares a constant per class in use (ClassCredential, ClassIrreversible), and a permission mask that refuses a class refuses every action that carries it."},
+	{"@class", "@class(name[, name]) on an @rpc struct or on a constant that carries @manualAddResource(Execute): the action carries each class in the generated permission collection, the collection file declares a constant per class in use (ClassCredential, ClassIrreversible), and a permission mask that refuses a class refuses every action that carries it."},
 	{"@manualAddResource", "A permission registered by hand for a hand-written route."},
 	{"@manualAddResource.scope", "@manualAddResource(Perm, domain): the scope argument."},
 	{"@manualAddResource.execute", "@manualAddResource(Execute): a manual Execute registration reaching the TypeScript Methods constants."},

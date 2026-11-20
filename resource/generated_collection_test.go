@@ -1090,13 +1090,33 @@ func TestNewGeneratedCollection_actionClassValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		res     CollectionResource
+		name string
+		res  CollectionResource
+		// beside is another entry of the collection, when the case is of two.
+		beside  *CollectionResource
 		wantErr string
 	}{
 		{
 			name: "a class on an action",
 			res:  CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
+		},
+		{
+			name:   "a classed action for the whole application and an action of the same name for a tenant",
+			res:    CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
+			beside: &CollectionResource{Name: "SetPassword", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}},
+		},
+		{
+			name:   "a classed action for the whole application and a record of the same name for a tenant",
+			res:    CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
+			beside: &CollectionResource{Name: "SetPassword", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+			wantErr: `resource "SetPassword" registers [List Read] in the scope "domain" and carries the classes [credential] in the scope "global": a class is carried by an action alone, ` +
+				`a name that registers Execute and nothing else in either scope. A record's permission is refused to an impersonated session by the record's name (accesstypes.RefusePermission, accesstypes.RefuseWrites)`,
+		},
+		{
+			name:    "a record for the whole application and a classed action of the same name for a tenant, the record first",
+			res:     CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Update}},
+			beside:  &CollectionResource{Name: "SetPassword", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}},
+			wantErr: `resource "SetPassword" registers [Update] in the scope "global" and carries the classes [access] in the scope "domain"`,
 		},
 		{
 			name:    "a class named as no class is",
@@ -1111,7 +1131,17 @@ func TestNewGeneratedCollection_actionClassValidation(t *testing.T) {
 		{
 			name:    "a class on something no permission is checked on",
 			res:     CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
-			wantErr: "registers no permission",
+			wantErr: `resource "SetPassword" carries the classes [credential] and registers []: a class is carried by an action alone`,
+		},
+		{
+			name:    "a class on a record's permission",
+			res:     CollectionResource{Name: "Passwords", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Update}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
+			wantErr: `resource "Passwords" carries the classes [credential] and registers [Update]: a class is carried by an action alone, a name that registers Execute and nothing else. A record's permission is refused to an impersonated session by the record's name (accesstypes.RefusePermission, accesstypes.RefuseWrites)`,
+		},
+		{
+			name:    "a class on a name that is an action and a record at once",
+			res:     CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute, accesstypes.Update}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
+			wantErr: `resource "SetPassword" carries the classes [credential] and registers [Execute Update]: a class is carried by an action alone`,
 		},
 	}
 
@@ -1119,7 +1149,11 @@ func TestNewGeneratedCollection_actionClassValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{tt.res}})
+			data := CollectionData{Resources: []CollectionResource{tt.res}}
+			if tt.beside != nil {
+				data.Resources = append(data.Resources, *tt.beside)
+			}
+			_, err := NewGeneratedCollection(data)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("NewGeneratedCollection() error = %v", err)

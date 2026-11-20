@@ -1,12 +1,14 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 )
 
@@ -264,5 +266,114 @@ func TestActKindRefusesTheRecordsThatDecideWhatAPersonMayDo(t *testing.T) {
 	}
 	if len(kept) != 0 {
 		t.Errorf("the kind that acts as a person keeps %q: each changes who may do what, so the kind's mask names it", kept)
+	}
+}
+
+// policyAsked stands for policy behind a masked check: it keeps the names that reach it
+// and grants each. A check asks it who the person is and nothing else, so the rest is
+// the embedded value's, which is nil.
+type policyAsked struct {
+	resource.UserPermissions
+
+	asked []accesstypes.Resource
+}
+
+func (p *policyAsked) User() accesstypes.User {
+	return "a person acted as"
+}
+
+func (p *policyAsked) Check(
+	_ context.Context, _ accesstypes.Environment, _ accesstypes.Scope, _ accesstypes.Permission, resources ...accesstypes.Resource,
+) (accesstypes.Decisions, error) {
+	p.asked = append(p.asked, resources...)
+	decisions := make(accesstypes.Decisions, len(resources))
+	for _, res := range resources {
+		decisions[res] = accesstypes.Granted()
+	}
+
+	return decisions, nil
+}
+
+// TestActKindKnowsEveryNameTheApplicationChecks holds the generated collection to the
+// rule the masked check makes of a mask that refuses a class: a permission on a name
+// the application registers nothing under is refused before policy is asked, since
+// nobody can say what the name carries. The kind that acts as a person refuses two
+// classes, so the rule is asked of every check its sessions make. Every permission the
+// collection lists, on a record, on a field and on an action, is checked under the
+// kind's mask for a sector and for the whole application, and reaches policy unless the
+// mask itself refuses it, by the class the action carries or by the record's name: the
+// rule refuses nothing a generated handler asks, which is always a name of the
+// collection. A record's name spelled wrong is refused whatever the permission, and a
+// permission a record does not register is policy's, since the name is the
+// application's.
+func TestActKindKnowsEveryNameTheApplicationChecks(t *testing.T) {
+	t.Parallel()
+
+	collection := router.Collection()
+	declared, err := session.NewImpersonations(collection, impersonationKinds()...)
+	if err != nil {
+		t.Fatalf("session.NewImpersonations() refuses the console's declaration: %v", err)
+	}
+	var act accesstypes.PermissionMask
+	for _, k := range declared.Kinds() {
+		if k.Name() == kindAct {
+			act = k.Widest()
+		}
+	}
+	// asked answers the names a check of perm reaches policy with, under the kind's mask.
+	asked := func(t *testing.T, scope accesstypes.Scope, perm accesstypes.Permission, names ...accesstypes.Resource) []accesstypes.Resource {
+		t.Helper()
+
+		policy := &policyAsked{}
+		if _, err := resource.Masked(policy, act, collection).Check(t.Context(), accesstypes.NewEnvironment(), scope, perm, names...); err != nil {
+			t.Fatalf("Check(%s) error = %v", perm, err)
+		}
+
+		return policy.asked
+	}
+	scopes := []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("a sector")}
+
+	listed := collection.List()
+	for _, perm := range []accesstypes.Permission{
+		accesstypes.Create, accesstypes.Read, accesstypes.List, accesstypes.Update, accesstypes.Delete, accesstypes.Execute,
+	} {
+		names := listed[perm]
+		if len(names) == 0 {
+			t.Errorf("the generated collection lists nothing under %s, want every permission checked", perm)
+
+			continue
+		}
+		// The mask's own answer knows nothing of the collection: a name it lets through
+		// and the check does not is one the rule took for a name of nobody's.
+		var want []accesstypes.Resource
+		for _, name := range names {
+			classes := slices.Concat(
+				collection.ActionClasses(accesstypes.GlobalPermissionScope, name), collection.ActionClasses(accesstypes.DomainPermissionScope, name),
+			)
+			if _, refused := act.Refuses(perm, name, classes...); !refused {
+				want = append(want, name)
+			}
+		}
+		if len(want) == 0 {
+			t.Errorf("the kind that acts as a person keeps nothing under %s, want a permission it keeps checked", perm)
+		}
+		for _, scope := range scopes {
+			if got := asked(t, scope, perm, names...); !slices.Equal(got, want) {
+				t.Errorf("%s in %s: policy was asked about %d of the %d names the collection lists, want the %d the mask keeps: got %v, want %v",
+					perm, scope, len(got), len(names), len(want), got, want)
+			}
+		}
+	}
+
+	for _, perm := range []accesstypes.Permission{accesstypes.Create, accesstypes.Read, accesstypes.List, accesstypes.Update, accesstypes.Delete} {
+		for _, scope := range scopes {
+			if got := asked(t, scope, perm, "Missionz", "Missionz.title", "missions"); len(got) != 0 {
+				t.Errorf("%s on names the collection does not hold, in %s: policy was asked about %v, want the mask to refuse them first", perm, scope, got)
+			}
+			// Hangars is a record of the application whatever the permission asked.
+			if got := asked(t, scope, perm, "Hangars"); !slices.Equal(got, []accesstypes.Resource{"Hangars"}) {
+				t.Errorf("%s on Hangars in %s: policy was asked about %v, want the record left to policy", perm, scope, got)
+			}
+		}
 	}
 }

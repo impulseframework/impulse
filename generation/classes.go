@@ -13,12 +13,13 @@ import (
 
 // The classes of an action (@class). An action carries its classes where it is
 // declared: on the @rpc struct of a generated method, or on the accesstypes.Resource
-// constant of a registration made by hand, beside its @manualAddResource. The generated
-// collection carries them (resource.CollectionResource.Classes), which is where the
-// masked check of an impersonated session reads them: a permission mask that refuses a
-// class refuses every action that carries it (accesstypes.RefuseClass). The collection
-// file declares a constant for each class in use, so a mask is written against a name
-// the compiler knows.
+// constant of a registration made by hand, beside its @manualAddResource(Execute). A
+// registration of another permission is a record's and carries none (classOnNoAction).
+// The generated collection carries them (resource.CollectionResource.Classes), which is
+// where the masked check of an impersonated session reads them: a permission mask that
+// refuses a class refuses every action that carries it (accesstypes.RefuseClass). The
+// collection file declares a constant for each class in use, so a mask is written
+// against a name the compiler knows.
 
 // identityCredentialClass is the @class line of the generated identity methods that
 // change how a person signs in: a password set, required anew or removed, a sign-in
@@ -96,15 +97,77 @@ func classWithoutRegistration(method *rpcMethodInfo, why string) error {
 	if len(method.Classes) == 0 {
 		return nil
 	}
-	names := make([]string, len(method.Classes))
-	for i, class := range method.Classes {
-		names[i] = string(class)
-	}
 
 	return errors.Newf(
 		"struct %s: @%s(%s) is carried by the action the generated routes register, and %s; put @%s on the constant that registers the action by hand, beside its @%s, so a mask that refuses the class refuses the action",
-		method.Name(), classKeyword, strings.Join(names, ", "), why, classKeyword, manualAddResourceKeyword,
+		method.Name(), classKeyword, classNames(method.Classes), why, classKeyword, manualAddResourceKeyword,
 	)
+}
+
+// classOnNoAction refuses a class on a registration made by hand under a permission
+// other than Execute; where names the declaration in the refusal. A class is carried by
+// an action, and an action is what Execute is checked on. The other permissions are a
+// record's: what a role grants on it, and what a mask refuses by the record's name. A
+// class beside one of them would let a mask that refuses the class refuse a record's
+// permission through a marking that says nothing of records, so the declaration is
+// refused, where it is written.
+func classOnNoAction(where string, permission accesstypes.Permission, classes []accesstypes.ActionClass) error {
+	if len(classes) == 0 || permission == accesstypes.Execute {
+		return nil
+	}
+
+	return errors.Newf(
+		"%s: @%s(%s) marks an action, and the registration is of %s, which is no action's permission: a class is carried by a registration of %s alone. "+
+			"Register the action with @%s(%s), or remove the @%s and have the mask name the record (accesstypes.RefusePermission, accesstypes.RefuseWrites)",
+		where, classKeyword, classNames(classes), permission, accesstypes.Execute, manualAddResourceKeyword, accesstypes.Execute, classKeyword,
+	)
+}
+
+// classesOnActionsAlone refuses a name that carries a class and registers a permission
+// other than Execute, however the two came to share the name: a method that carries the
+// class and a registration made by hand of another permission under the method's name,
+// for the whole application or for a tenant. The masked check reads an action's classes
+// by its name whichever scope registers it, so a class would otherwise ride the record's
+// permission with the action's, in the action's scope and in the other.
+func classesOnActionsAlone(data resource.CollectionData) error {
+	classed := make(map[accesstypes.Resource][]accesstypes.ActionClass)
+	for i := range data.Resources {
+		res := &data.Resources[i]
+		if len(res.Classes) > 0 {
+			classed[res.Name] = append(classed[res.Name], res.Classes...)
+		}
+	}
+	for i := range data.Resources {
+		res := &data.Resources[i]
+		classes, ok := classed[res.Name]
+		if !ok {
+			continue
+		}
+		for _, permission := range res.Permissions {
+			if permission == accesstypes.Execute {
+				continue
+			}
+			slices.Sort(classes)
+
+			return errors.Newf(
+				"%q carries the class %s and registers %s beside %s: a class is carried by an action alone, a name that registers %s and nothing else. "+
+					"Register the %s permission under a name of its own, or remove the class",
+				string(res.Name), classNames(slices.Compact(classes)), permission, accesstypes.Execute, accesstypes.Execute, permission,
+			)
+		}
+	}
+
+	return nil
+}
+
+// classNames lists classes for a refusal, comma separated.
+func classNames(classes []accesstypes.ActionClass) string {
+	names := make([]string, len(classes))
+	for i, class := range classes {
+		names[i] = string(class)
+	}
+
+	return strings.Join(names, ", ")
 }
 
 // rejectClassAnnotation refuses @class on a struct that declares no action: a class is

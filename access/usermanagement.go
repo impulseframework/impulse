@@ -28,18 +28,24 @@ type userManager struct {
 	// (WithTenantAdministratorRoles), which TenantsAdministered reads the
 	// store by.
 	tenantAdministrators []accesstypes.Role
+	// collection is what the running release declares (WithDefaultRoles,
+	// WithPermissionCollection), which a grant written to a role is held to
+	// (requireDeclared); nil where the application handed the Client none.
+	collection PermissionCollection
 }
 
 // newUserManager creates a userManager over the policy store, the release's
 // default roles (nil for none), the evaluator the effective-permission
-// listings answer from and the roles whose holders administer a tenant (none
-// where the application named none).
-func newUserManager(store managementStore, defaults *defaultRoles, evaluator evaluator, tenantAdministrators []accesstypes.Role) *userManager {
+// listings answer from, the roles whose holders administer a tenant (none
+// where the application named none) and the permission collection a grant
+// written to a role is held to (nil where the application handed none).
+func newUserManager(store managementStore, defaults *defaultRoles, evaluator evaluator, tenantAdministrators []accesstypes.Role, collection PermissionCollection) *userManager {
 	return &userManager{
 		store:                store,
 		defaults:             defaults,
 		evaluator:            evaluator,
 		tenantAdministrators: slices.Clone(tenantAdministrators),
+		collection:           collection,
 	}
 }
 
@@ -465,6 +471,9 @@ func (u *userManager) addGrantRows(ctx context.Context, scope accesstypes.Policy
 	if err := requireResources(rows); err != nil {
 		return err
 	}
+	if err := u.requireDeclared(rows); err != nil {
+		return err
+	}
 
 	if err := u.store.addGrants(ctx, scope, role, rows); err != nil {
 		return err
@@ -490,6 +499,11 @@ func (u *userManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.Po
 	if err := requireResources(additions); err != nil {
 		return err
 	}
+	// A removal is held to nothing: a grant the release no longer declares is one
+	// to take away.
+	if err := u.requireDeclared(additions); err != nil {
+		return err
+	}
 
 	if err := u.store.changeGrants(ctx, scope, role, removals, additions); err != nil {
 		return err
@@ -509,6 +523,47 @@ func requireResources(rows []GrantRow) error {
 	return nil
 }
 
+// requireDeclared refuses a grant the running release does not declare, before
+// it is written to a role: a permission on a resource or a field the permission
+// collection does not list under it, and an action no role is given. The rule is
+// the role file's own, and the one a load of the policy leaves a stored grant
+// out by (unusableName): a grant the load would skip is not written, so a role
+// carries no name nobody declared. A stored grant can still outlive its
+// release, after a rollback or once a release drops a resource, and the load
+// skips and reports that one as before.
+//
+// A Client that was handed no collection checks no name here, as its load
+// checks none. A name the store cannot hold (splitGrantResource) is left to the
+// store, which refuses it in its own words.
+func (u *userManager) requireDeclared(rows []GrantRow) error {
+	if u.collection == nil || len(rows) == 0 {
+		return nil
+	}
+
+	listed := u.collection.List()
+	for _, row := range rows {
+		base, field, err := splitGrantResource(row.Resource)
+		if err != nil {
+			continue
+		}
+		if isNoRoleAction(u.collection, row.Resource) {
+			return httpio.NewBadRequestMessagef(
+				"%s on %s cannot be given to a role: %s is an action no role is given. Nothing asks for a grant of it, so the grant would do nothing",
+				row.Permission, row.Resource, row.Resource,
+			)
+		}
+		grant := &policy.Grant{Perm: row.Permission, Resource: base, Field: field}
+		if err := unlistedName(listed, grant); err != nil {
+			return httpio.NewBadRequestMessagef(
+				"%s on %s cannot be given to a role: %s. A role is given a permission the application declares on a resource or a field; check the permission and the name",
+				row.Permission, row.Resource, plainText(err),
+			)
+		}
+	}
+
+	return nil
+}
+
 // AddRoleGrant grants permission on one resource to role, limited by
 // condition ("" is unconditional).
 func (u *userManager) AddRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
@@ -522,6 +577,9 @@ func (u *userManager) AddRoleGrant(ctx context.Context, scope accesstypes.Policy
 	}
 	if resource == "" {
 		return httpio.NewBadRequestMessage("resource cannot be empty string")
+	}
+	if err := u.requireDeclared([]GrantRow{{Permission: permission, Resource: resource, Condition: condition}}); err != nil {
+		return err
 	}
 
 	if err := u.store.addGrant(ctx, scope, role, permission, resource, condition); err != nil {

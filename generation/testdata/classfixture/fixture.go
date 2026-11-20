@@ -15,7 +15,7 @@ const (
 	ResetLogin accesstypes.Resource = "ResetLogin"
 
 	// ExportLedger carries two classes of the application's own.
-	// @manualAddResource(List, domain)
+	// @manualAddResource(Execute, domain)
 	// @class(money_movement)
 	// @class(sensitive)
 	ExportLedger accesstypes.Resource = "ExportLedger"
@@ -32,6 +32,17 @@ const (
 	// @manualAddResource(Execute)
 	// @class(Money Movement)
 	Misnamed accesstypes.Resource = "Misnamed"
+
+	// LedgerRows is a record's list registered by hand, which is no action.
+	// @manualAddResource(List, domain)
+	// @class(sensitive, money_movement)
+	LedgerRows accesstypes.Resource = "LedgerRows"
+
+	// LedgerEntry is registered as an action and as a record's update at once.
+	// @manualAddResource(Execute)
+	// @manualAddResource(Update)
+	// @class(sensitive)
+	LedgerEntry accesstypes.Resource = "LedgerEntry"
 )
 
 type (

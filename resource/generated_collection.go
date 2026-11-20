@@ -173,7 +173,9 @@ type CollectionResource struct {
 	// the constant of a registration made by hand), sorted: what a permission mask
 	// refers to when it refuses a class (accesstypes.RefuseClass). The masked check
 	// of an impersonated session reads them here (ActionClasses). Empty for an
-	// action of no class and for every resource that is not an action.
+	// action of no class and for every resource that is not an action: a resource
+	// that carries a class registers Execute and nothing else, or the collection
+	// is refused.
 	Classes []accesstypes.ActionClass
 
 	// NoRole marks an action no role is given: one registered so that a permission
@@ -303,8 +305,9 @@ func (b *CollectionBuilder) SetMethodFormerName(scope accesstypes.PermissionScop
 }
 
 // SetActionClasses records the classes an action carries within scope (@class): an RPC
-// method resource, or a resource registered by hand. Classes named twice are kept once,
-// and a name given classes twice carries them all.
+// method resource, or an action registered by hand, each a name that registers Execute
+// and nothing else (NewGeneratedCollection refuses classes on any other). Classes named
+// twice are kept once, and a name given classes twice carries them all.
 func (b *CollectionBuilder) SetActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource, classes []accesstypes.ActionClass) {
 	b.g.setActionClasses(scope, action, classes)
 }
@@ -531,6 +534,11 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 			return nil, err
 		}
 	}
+	for i := range data.Resources {
+		if err := g.refuseClassFromOtherScope(&data.Resources[i]); err != nil {
+			return nil, err
+		}
+	}
 
 	return g, nil
 }
@@ -602,8 +610,12 @@ func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) e
 // action: the classes it carries, and the mark of an action no role is given.
 func (g *GeneratedCollection) addActionDeclarations(res *CollectionResource) error {
 	if len(res.Classes) > 0 {
-		if len(res.Permissions) == 0 {
-			return errors.Newf("resource %q carries the classes %v and registers no permission: a class is carried by an action, which a permission is checked on", res.Name, res.Classes)
+		if !slices.Equal(res.Permissions, []accesstypes.Permission{accesstypes.Execute}) {
+			return errors.Newf(
+				"resource %q carries the classes %v and registers %v: a class is carried by an action alone, a name that registers Execute and nothing else. "+
+					"A record's permission is refused to an impersonated session by the record's name (accesstypes.RefusePermission, accesstypes.RefuseWrites)",
+				res.Name, res.Classes, res.Permissions,
+			)
 		}
 		for i, class := range res.Classes {
 			if !class.Valid() {
@@ -621,6 +633,32 @@ func (g *GeneratedCollection) addActionDeclarations(res *CollectionResource) err
 			return errors.Newf("resource %q is marked an action no role is given and is not an action: the mark is for a name that registers Execute alone, with no field", res.Name)
 		}
 		g.setActionNoRole(res.Scope, res.Name)
+	}
+
+	return nil
+}
+
+// refuseClassFromOtherScope refuses a name that registers a permission other than
+// Execute in one scope and carries a class in the other. One CollectionResource that
+// does both is refused where it is read (addActionDeclarations); here the two are two
+// entries of one name. The masked check reads an action's classes by its name whichever
+// scope registers it, so the class would ride the record's permission with the
+// action's.
+func (g *GeneratedCollection) refuseClassFromOtherScope(res *CollectionResource) error {
+	if !slices.ContainsFunc(res.Permissions, func(permission accesstypes.Permission) bool {
+		return permission != accesstypes.Execute
+	}) {
+		return nil
+	}
+	for _, scope := range scopeVocabulary {
+		if classes := g.classes[scope][res.Name]; len(classes) > 0 {
+			return errors.Newf(
+				"resource %q registers %v in the scope %q and carries the classes %v in the scope %q: a class is carried by an action alone, "+
+					"a name that registers Execute and nothing else in either scope. "+
+					"A record's permission is refused to an impersonated session by the record's name (accesstypes.RefusePermission, accesstypes.RefuseWrites)",
+				res.Name, res.Permissions, res.Scope, classes, scope,
+			)
+		}
 	}
 
 	return nil

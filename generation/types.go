@@ -2442,7 +2442,7 @@ const (
 	scheduleKeyword             string = "schedule"             // Declares an RPC method a scheduled route Cloud Scheduler calls: @schedule("0 3 * * *"[, zone: "America/Denver", log: onEvent])
 	searchAlsoKeyword           string = "searchAlso"           // Declares a child table's text a table-backed resource's search box also searches, one hop down a foreign key: @searchAlso(ClientContact.DisplayName[, via: ClientId])
 	listAcrossTenantsKeyword    string = "listAcrossTenants"    // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
-	classKeyword                string = "class"                // Marks an action, an RPC method or a manual registration, with the classes a permission mask refers to: @class(credential)
+	classKeyword                string = "class"                // Marks an action, an RPC method or a manual registration of Execute, with the classes a permission mask refers to: @class(credential)
 )
 
 func resourceKeywords() map[string]genlang.KeywordOpts {

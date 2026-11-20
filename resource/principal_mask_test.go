@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"log"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -32,20 +33,44 @@ func (s stubClasses) HasPermission(scope accesstypes.PermissionScope, permission
 	return registered && permission == accesstypes.Execute
 }
 
+// stubCollection answers for the tests' application: its actions (stubClasses) and its
+// records, each within one scope with the permissions it registers. A name that is in
+// neither is one the application registers nothing under.
+type stubCollection struct {
+	stubClasses
+	records map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Permission
+}
+
+// HasPermission reports Execute on an action, and a record's own permissions on the
+// record, as the application registers them within scope.
+func (s stubCollection) HasPermission(scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) bool {
+	return s.stubClasses.HasPermission(scope, permission, res) || slices.Contains(s.records[scope][res], permission)
+}
+
 // maskTestClasses are the masked tests' actions and the classes they carry: two
 // credential actions of the whole application, one of a tenant, an action of a class of
-// the application's own, and two actions that carry no class.
-func maskTestClasses() stubClasses {
-	return stubClasses{
-		accesstypes.GlobalPermissionScope: {
-			"SetPassword":    {accesstypes.ClassCredential},
-			"UnlinkIdentity": {accesstypes.ClassCredential},
-			"WireFunds":      {"money_movement"},
-			"Launch":         nil,
-			"LaunchProbe":    nil,
+// the application's own, and two actions that carry no class. Beside them are the
+// application's two records, which carry none: Ships, read, updated and deleted, and
+// Shipyards, updated.
+func maskTestClasses() stubCollection {
+	return stubCollection{
+		stubClasses: stubClasses{
+			accesstypes.GlobalPermissionScope: {
+				"SetPassword":    {accesstypes.ClassCredential},
+				"UnlinkIdentity": {accesstypes.ClassCredential},
+				"WireFunds":      {"money_movement"},
+				"Launch":         nil,
+				"LaunchProbe":    nil,
+			},
+			accesstypes.DomainPermissionScope: {
+				"RenameUser": {accesstypes.ClassCredential},
+			},
 		},
-		accesstypes.DomainPermissionScope: {
-			"RenameUser": {accesstypes.ClassCredential},
+		records: map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Permission{
+			accesstypes.GlobalPermissionScope: {
+				"Ships":     {accesstypes.Read, accesstypes.Update, accesstypes.Delete},
+				"Shipyards": {accesstypes.Update},
+			},
 		},
 	}
 }
@@ -203,7 +228,9 @@ func TestMasked_refusesInsideAKeptKind(t *testing.T) {
 			// Decommission is granted to the person and is no action of the application
 			// the check was handed, and Lanch is Launch spelled wrong: neither carries a
 			// class anyone declared, so under a mask that refuses a class neither is let
-			// through on the guess that it carries none.
+			// through on the guess that it carries none. The application registers
+			// nothing under Decommission, so the Read the person holds on it is left out
+			// of the digest with its Execute.
 			name:          "a refused class and an action the application does not register: denied before policy is asked, and left out of the digest",
 			mask:          accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)),
 			classes:       maskTestClasses(),
@@ -216,10 +243,7 @@ func TestMasked_refusesInsideAKeptKind(t *testing.T) {
 				"Launch":       {accesstypes.Execute: accesstypes.DigestGranted},
 				"Decommission": {accesstypes.Execute: accesstypes.DigestGranted, accesstypes.Read: accesstypes.DigestGranted},
 			},
-			wantDigest: accesstypes.PermissionDigest{
-				"Launch":       {accesstypes.Execute: accesstypes.DigestGranted},
-				"Decommission": {accesstypes.Read: accesstypes.DigestGranted},
-			},
+			wantDigest: accesstypes.PermissionDigest{"Launch": {accesstypes.Execute: accesstypes.DigestGranted}},
 		},
 		{
 			name:          "an action a tenant's scope registers is an action of the application in a check for the whole application",
@@ -249,7 +273,7 @@ func TestMasked_refusesInsideAKeptKind(t *testing.T) {
 		},
 		{
 			// A record carries no class, so what a mask that refuses a class does to a
-			// record is nothing, whether or not the name is one the check knows.
+			// record the application registers is nothing.
 			name:          "a refused class and a record: a record's permissions are policy's",
 			mask:          accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)),
 			classes:       maskTestClasses(),
@@ -258,6 +282,63 @@ func TestMasked_refusesInsideAKeptKind(t *testing.T) {
 			check:         []accesstypes.Resource{"Ships", "Ships.name", "Shipyards"},
 			wantDelegated: []accesstypes.Resource{"Ships", "Ships.name", "Shipyards"},
 			wantDigest:    without(map[accesstypes.Resource][]accesstypes.Permission{"SetPassword": {accesstypes.Execute}, "UnlinkIdentity": {accesstypes.Execute}, "RenameUser": {accesstypes.Execute}}),
+		},
+		{
+			// Hangars is granted to the person and is nothing the application the check
+			// was handed registers, and Shipyrds is Shipyards spelled wrong. Either may
+			// be an action of another collection, or of none: under a mask that refuses
+			// a class neither is let through on the guess that it is a record.
+			name:          "a refused class and a record the application does not register: denied before policy is asked, and left out of the digest",
+			mask:          accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)),
+			classes:       maskTestClasses(),
+			scope:         accesstypes.GlobalScope(),
+			perm:          accesstypes.Update,
+			check:         []accesstypes.Resource{"Ships", "Hangars", "Shipyrds", "Hangars.bay"},
+			wantDenied:    []accesstypes.Resource{"Hangars", "Shipyrds", "Hangars.bay"},
+			wantDelegated: []accesstypes.Resource{"Ships"},
+			holds: accesstypes.PermissionDigest{
+				"Ships":       {accesstypes.Update: accesstypes.DigestGranted},
+				"Hangars":     {accesstypes.Update: accesstypes.DigestGranted, accesstypes.Read: accesstypes.DigestGranted},
+				"Hangars.bay": {accesstypes.Update: accesstypes.DigestGranted},
+			},
+			wantDigest: accesstypes.PermissionDigest{"Ships": {accesstypes.Update: accesstypes.DigestGranted}},
+		},
+		{
+			// The question is of the name, not of the permission asked: Shipyards
+			// registers Update alone and its list is policy's all the same, and so is a
+			// read of an action of no class.
+			name:          "a refused class and a permission a record does not register: the name is the application's, so it is policy's",
+			mask:          accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)),
+			classes:       maskTestClasses(),
+			scope:         accesstypes.GlobalScope(),
+			perm:          accesstypes.List,
+			check:         []accesstypes.Resource{"Shipyards", "Shipyards.dock", "Launch"},
+			wantDelegated: []accesstypes.Resource{"Shipyards", "Shipyards.dock", "Launch"},
+			wantDigest:    without(map[accesstypes.Resource][]accesstypes.Permission{"SetPassword": {accesstypes.Execute}, "UnlinkIdentity": {accesstypes.Execute}, "RenameUser": {accesstypes.Execute}}),
+		},
+		{
+			name:          "a record the whole application registers is the application's in a check for a tenant",
+			mask:          accesstypes.AllowAll().Refusing(accesstypes.RefuseClass("money_movement")),
+			classes:       maskTestClasses(),
+			scope:         accesstypes.DomainScope("tenant"),
+			perm:          accesstypes.Update,
+			check:         []accesstypes.Resource{"Ships", "Hangars"},
+			wantDenied:    []accesstypes.Resource{"Hangars"},
+			wantDelegated: []accesstypes.Resource{"Ships"},
+			wantDigest:    without(map[accesstypes.Resource][]accesstypes.Permission{"WireFunds": {accesstypes.Execute}}),
+		},
+		{
+			name:          "a mask that refuses no class leaves a record the application does not register to policy",
+			mask:          accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("Launch")),
+			classes:       maskTestClasses(),
+			scope:         accesstypes.GlobalScope(),
+			perm:          accesstypes.Update,
+			check:         []accesstypes.Resource{"Hangars", "Ships"},
+			wantDelegated: []accesstypes.Resource{"Hangars", "Ships"},
+			holds: accesstypes.PermissionDigest{
+				"Hangars": {accesstypes.Update: accesstypes.DigestGranted},
+			},
+			wantDigest: accesstypes.PermissionDigest{"Hangars": {accesstypes.Update: accesstypes.DigestGranted}},
 		},
 		{
 			name:       "the kind is refused whatever the class",
@@ -441,6 +522,13 @@ func TestMasked_denialIsLoggedAsTheMasks(t *testing.T) {
 			res:  "Decommission",
 			want: "impersonation: Execute denied by mask (*;-class:credential) for a mask-log person on Decommission: " + unknownActionWhy("Decommission"),
 		},
+		{
+			name: "a refused class and a record the application does not register",
+			mask: accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)),
+			perm: accesstypes.Update,
+			res:  "Hangars.bay",
+			want: "impersonation: Update denied by mask (*;-class:credential) for a mask-log person on Hangars.bay: " + unknownNameWhy("Hangars", accesstypes.Update),
+		},
 	}
 
 	for _, tt := range tests {
@@ -469,6 +557,13 @@ func TestMasked_denialIsLoggedAsTheMasks(t *testing.T) {
 func unknownActionWhy(action string) string {
 	return `the mask refuses a class of actions and "` + action + `" is no action of the application, so the classes it carries cannot be known: ` +
 		"register it by hand (@manualAddResource(Execute) on the constant, with the @class it carries) or correct the name"
+}
+
+// unknownNameWhy is why a mask that refuses a class refuses a permission other than
+// Execute on a name the application registers nothing under.
+func unknownNameWhy(name string, perm accesstypes.Permission) string {
+	return `the mask refuses a class of actions and the application registers nothing under "` + name + `", so what the name is cannot be known: ` +
+		"register it by hand (@manualAddResource(" + string(perm) + ") on the constant) or correct the name"
 }
 
 // maskedSession is the context of a session that acts as person under mask, started by
@@ -637,6 +732,90 @@ func TestMaskRefusesAction_generatedCollection(t *testing.T) {
 				t.Errorf("MaskRefusesAction() = %q, %t; want %q, %t", why, refused, tt.wantWhy, tt.want)
 			}
 		})
+	}
+}
+
+// TestMasked_generatedCollection_records pins the rule for a record over the collection
+// an application hands the check, the generated one. Under a mask that refuses a class,
+// every permission the collection lists is left to policy, a record's and each of its
+// fields' alike, as is a permission of a record's that another of its routes registers
+// and one none does: only an action that carries the class is the mask's. A permission
+// on a name the collection does not hold is refused before policy is asked, whichever
+// of the record permissions it is.
+func TestMasked_generatedCollection_records(t *testing.T) {
+	t.Parallel()
+
+	b := NewCollectionBuilder()
+	for _, action := range []accesstypes.Resource{"CreateShop", "Launch"} {
+		if err := b.AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, action); err != nil {
+			t.Fatalf("AddMethodResource(%s) error = %v", action, err)
+		}
+	}
+	b.SetActionClasses(accesstypes.GlobalPermissionScope, "CreateShop", []accesstypes.ActionClass{accesstypes.ClassAccess})
+	fields := []FieldTags{{Field: "ID", JSON: "id"}, {Field: "Name", JSON: "name"}}
+	for scope, sets := range map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Permission{
+		accesstypes.GlobalPermissionScope: {"Shelves": {accesstypes.List}, "Shelf": {accesstypes.Read}},
+		accesstypes.DomainPermissionScope: {"Widgets": {accesstypes.List}, "Widget": {accesstypes.Create, accesstypes.Update, accesstypes.Delete}},
+	} {
+		for res, perms := range sets {
+			set, err := NewSetData(fields, perms...)
+			if err != nil {
+				t.Fatalf("NewSetData(%s) error = %v", res, err)
+			}
+			if err := b.AddResourceSet(scope, res, set); err != nil {
+				t.Fatalf("AddResourceSet(%s) error = %v", res, err)
+			}
+		}
+	}
+	collection, err := NewGeneratedCollection(b.Data())
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+
+	mask := accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassAccess))
+	// asked answers what policy was asked about by a check of perm on names under the
+	// mask, in a tenant's scope and in the whole application's.
+	asked := func(t *testing.T, scope accesstypes.Scope, perm accesstypes.Permission, names ...accesstypes.Resource) []accesstypes.Resource {
+		t.Helper()
+
+		stub := &stubPermissions{user: "bob"}
+		if _, err := Masked(stub, mask, collection).Check(context.Background(), accesstypes.NewEnvironment(), scope, perm, names...); err != nil {
+			t.Fatalf("Check(%s, %v) error = %v", perm, names, err)
+		}
+
+		return stub.checkResources
+	}
+	scopes := []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("tenant")}
+
+	listed := collection.List()
+	if len(listed[accesstypes.Update]) == 0 || len(listed[accesstypes.Read]) == 0 || len(listed[accesstypes.Execute]) == 0 {
+		t.Fatalf("the collection lists %v, want records, their fields and actions", listed)
+	}
+	for perm, names := range listed {
+		for _, name := range names {
+			for _, scope := range scopes {
+				want := []accesstypes.Resource{name}
+				if name == "CreateShop" {
+					want = nil
+				}
+				if diff := cmp.Diff(want, asked(t, scope, perm, name)); diff != "" {
+					t.Errorf("%s on %s in %s: what policy was asked about mismatch (-want +got):\n%s", perm, name, scope, diff)
+				}
+			}
+		}
+	}
+
+	records := []accesstypes.Permission{accesstypes.Create, accesstypes.Read, accesstypes.List, accesstypes.Update, accesstypes.Delete}
+	for _, perm := range records {
+		for _, scope := range scopes {
+			// Shelf registers Read alone: its other permissions are policy's too.
+			if diff := cmp.Diff([]accesstypes.Resource{"Shelf", "Shelf.name"}, asked(t, scope, perm, "Shelf", "Shelf.name")); diff != "" {
+				t.Errorf("%s on Shelf in %s: what policy was asked about mismatch (-want +got):\n%s", perm, scope, diff)
+			}
+			if got := asked(t, scope, perm, "Shelfs", "Shelfs.name", "widgets"); len(got) != 0 {
+				t.Errorf("%s on names the collection does not hold, in %s: policy was asked about %v, want the mask to refuse them first", perm, scope, got)
+			}
+		}
 	}
 }
 

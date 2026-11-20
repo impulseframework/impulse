@@ -3526,8 +3526,10 @@ refuses:
 | `.Refusing(RefusePermission(perm, record))`, `.Refusing(RefuseWrites(record)...)` | One permission on one record and its fields (or on one field, named `Record.field`, and nothing else); the three writes of a record |
 
 An action carries its **classes** where it is declared: `@class(name)` on a generated
-method's struct or on the constant of a registration made by hand, or
-`ManualRegistration.Classes` (the resource package's "Annotation reference"). The library
+method's struct or on the constant that registers the action by hand
+(`@manualAddResource(Execute)`), or `ManualRegistration.Classes` (the resource package's
+"Annotation reference"). A class is an action's alone: a registration of another
+permission is a record's, and the generator refuses a class on it. The library
 names two classes and marks its own actions with them. `accesstypes.ClassCredential`,
 `credential`, is on every generated identity method that changes how a person signs in
 (a temporary password set, a new password required, a password removed, a reset link

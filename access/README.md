@@ -249,6 +249,19 @@ A custom role's grant set changes through `ChangeRoleGrants`, one store write
 for the removals and the additions together, so a reader never sees a role
 with neither its old grant nor its new one.
 
+With the same collection, the writes that give a custom role a grant
+(`AddRoleGrant`, `AddRoleGrants`, `AddRolePermissionResources` and the additions
+of `ChangeRoleGrants`) refuse a grant the release cannot use by its name: a
+permission the release does not have, a permission it does not declare on the
+resource or the field, and an action no role is given. The refusal is a bad
+request that says which and why (`List on Ledgers cannot be given to a role:
+this release declares no List on Ledgers. ...`), and nothing of the call is
+written, the rows beside the refused one included. So the grants a load skips
+by name are the ones another release wrote, never ones this release was asked
+for and took. A removal is held to nothing: a grant the release no longer
+declares can always be taken away. A client handed no collection checks no
+name on a write, as it checks none on a load.
+
 ### Change signal
 
 The engine announces on the change signal once for every call that writes

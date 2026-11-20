@@ -3,11 +3,13 @@ package accesstypes
 import "regexp"
 
 // ActionClass names a class of actions: a marking an action carries where it is
-// declared (an @class annotation on a generated method, or on the constant of a
-// registration made by hand), which a permission mask refers to. A mask that
-// refuses a class refuses every action that carries it, the ones declared after
-// the mask was written among them, so nobody keeps a list of actions in step
-// with the application.
+// declared (an @class annotation on a generated method, or on the constant that
+// registers the action by hand, with Execute), which a permission mask refers
+// to. A mask that refuses a class refuses every action that carries it, the ones
+// declared after the mask was written among them, so nobody keeps a list of
+// actions in step with the application. A class is an action's alone: a record
+// carries none, and a mask holds a session off a record by naming it
+// (RefusePermission, RefuseWrites).
 //
 // An application names its own classes and marks its own actions with them, or
 // with one the library names.

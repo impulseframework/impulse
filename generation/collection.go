@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"fmt"
 	"iter"
 	"reflect"
 	"slices"
@@ -32,7 +33,9 @@ const accesstypesResourceType = "github.com/impulseframework/impulse/accesstypes
 // the same meaning it has on a struct; every registration the constant declares
 // shares it. A @class annotation beside it names the classes the registered action
 // carries, as it does on a method; a @class on a constant that registers nothing is
-// refused, since it would mark no action.
+// refused, since it would mark no action, and so is one on a constant that registers
+// a permission other than Execute, since a class is carried by an action alone
+// (classOnNoAction).
 func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualRegistration, error) {
 	var registrations []ManualRegistration
 	for _, c := range constants {
@@ -65,6 +68,9 @@ func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualReg
 		for arg := range annotations.Const.Get(manualAddResourceKeyword).Seq() {
 			registration, err := parseManualAddResourceArgs(c, arg)
 			if err != nil {
+				return nil, err
+			}
+			if err := classOnNoAction(fmt.Sprintf("constant %q", c.Name()), registration.Permission, classes); err != nil {
 				return nil, err
 			}
 			registration.Outlets = outlets.OutletNames
@@ -239,6 +245,9 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 
 	data := b.Data()
 	if err := r.validateStateEnumTables(data); err != nil {
+		return resource.CollectionData{}, err
+	}
+	if err := classesOnActionsAlone(data); err != nil {
 		return resource.CollectionData{}, err
 	}
 	// Each class in use is declared as a constant of the collection file.
@@ -553,6 +562,9 @@ func (r *resourceGenerator) collectManualRegistrations(b *resource.CollectionBui
 			scope = accesstypes.GlobalPermissionScope
 		}
 
+		if err := classOnNoAction(fmt.Sprintf("manual registration for resource %q", reg.Resource), reg.Permission, reg.Classes); err != nil {
+			return err
+		}
 		if err := b.AddResource(scope, reg.Permission, reg.Resource); err != nil {
 			return errors.Wrapf(err, "manual registration for resource %q", reg.Resource)
 		}

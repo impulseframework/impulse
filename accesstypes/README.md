@@ -33,10 +33,12 @@ classes...)` is the whole question a check asks, with the reason for the log;
 `Allows(perm)` answers for the kind alone.
 
 `ActionClass` names a class of actions, a marking an action carries where it is
-declared (`@class` on a generated method or on the constant of a registration
-made by hand). A mask that refuses a class refuses every action that carries
-it, the ones declared after the mask was written among them, so nobody keeps a
-list of actions in step with the application. Two classes are the library's:
+declared (`@class` on a generated method or on the constant that registers the
+action by hand, with Execute). A mask that refuses a class refuses every action
+that carries it, the ones declared after the mask was written among them, so
+nobody keeps a list of actions in step with the application. A class is an
+action's alone: a record carries none, and a mask holds a session off a record
+by naming it (`RefusePermission`, `RefuseWrites`). Two classes are the library's:
 `ClassCredential` (`credential`), the actions that change how a person signs
 in, and `ClassAccess` (`access`), the actions that give or take away what
 someone may do: a role, a place in a group, an invitation, an account made,

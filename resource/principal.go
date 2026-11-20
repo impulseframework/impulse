@@ -474,12 +474,12 @@ func (a *admittedPermissions) HasGrants(ctx context.Context, scope accesstypes.S
 	return a.Reaches(ctx, domain)
 }
 
-// ActionClasses answers what the masked check of an impersonated session asks about an
-// action, as the generated collection does: the classes the action carries within a
+// ActionClasses answers what the masked check of an impersonated session asks about a
+// name, as the generated collection does: the classes an action carries within a
 // permission scope (GeneratedCollection.ActionClasses), since a mask may refuse a class
-// of actions, and whether the application registers the action at all
-// (GeneratedCollection.HasPermission), since the classes of an action the application
-// does not register cannot be known.
+// of actions, and whether the application registers a permission under the name at all
+// (GeneratedCollection.HasPermission), since what a name the application does not
+// register is, and the classes it carries, cannot be known.
 type ActionClasses interface {
 	// ActionClasses reports the classes the action carries within scope.
 	ActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource) []accesstypes.ActionClass
@@ -504,7 +504,11 @@ type ActionClasses interface {
 // the name carries no class anyone declared, so the check would otherwise let it
 // through whatever the mask refuses. The declaration of a kind holds a mask to the
 // application's actions by the same rule when the application starts
-// (session.NewImpersonations).
+// (session.NewImpersonations). And it refuses any other permission on a name the
+// application registers nothing under: such a name may be an action of another
+// collection, or of none, and a check that cannot say what it is asked about does not
+// let it through a mask written to refuse a class. A record the application registers
+// carries no class and is left to policy, whichever of its permissions is asked.
 func Masked(perms UserPermissions, mask accesstypes.PermissionMask, classes ActionClasses) UserPermissions {
 	if mask.IsZero() {
 		return perms
@@ -538,16 +542,19 @@ func newMaskedPermissions(perms UserPermissions, mask accesstypes.PermissionMask
 }
 
 // refuses reports whether the mask refuses perm on res, and why. The classes asked
-// about are the action's or the record's own: a field is judged by its record. A class
-// is carried by the action whichever scope registers it, so the classes of both scopes
-// are asked: a check made in one scope of an action classed in the other is refused
-// with it, never let through for want of a class.
+// about are those of the name res is checked under: an action's own, and none for a
+// record, which carries no class (a field is judged by its record). A class is carried
+// by the action whichever scope registers it, so the classes of both scopes are asked:
+// a check made in one scope of an action classed in the other is refused with it, never
+// let through for want of a class.
 //
-// Under a mask that refuses a class, Execute on a name the application registers no
-// action under is refused: its classes are not empty, they are unknown. A name spelled
-// wrong, an action checked by hand and never registered, and an action of a collection
-// other than the one the check was handed are each such a name, and each would
-// otherwise pass a mask written to refuse a whole class.
+// Under a mask that refuses a class, a permission on a name the application does not
+// hold is refused: what the name carries is not nothing, it is unknown. For Execute the
+// name must be an action of the application, one it registers Execute on. For any
+// other permission the application must register something under the name. A name
+// spelled wrong, a name checked by hand and never registered, and a name of a
+// collection other than the one the check was handed are each such a name, and each
+// would otherwise pass a mask written to refuse a whole class.
 func (m *maskedPermissions) refuses(perm accesstypes.Permission, res accesstypes.Resource) (why string, refused bool) {
 	if !m.refusesClasses {
 		return m.mask.Refuses(perm, res)
@@ -556,17 +563,24 @@ func (m *maskedPermissions) refuses(perm accesstypes.Permission, res accesstypes
 		return "the mask refuses a class of actions and the application handed the check no classes (resource.SessionPermissions takes the generated collection)", true
 	}
 	base, _, _ := strings.Cut(string(res), ".")
-	action := accesstypes.Resource(base)
-	if perm == accesstypes.Execute && !m.registersAction(action) {
+	name := accesstypes.Resource(base)
+	switch {
+	case perm == accesstypes.Execute && !m.registersAction(name):
 		return fmt.Sprintf(
 			"the mask refuses a class of actions and %q is no action of the application, so the classes it carries cannot be known: "+
 				"register it by hand (@manualAddResource(Execute) on the constant, with the @class it carries) or correct the name",
-			string(action),
+			string(name),
+		), true
+	case perm != accesstypes.Execute && !m.registers(name):
+		return fmt.Sprintf(
+			"the mask refuses a class of actions and the application registers nothing under %q, so what the name is cannot be known: "+
+				"register it by hand (@manualAddResource(%s) on the constant) or correct the name",
+			string(name), perm,
 		), true
 	}
 	classes := slices.Concat(
-		m.classes.ActionClasses(accesstypes.GlobalPermissionScope, action),
-		m.classes.ActionClasses(accesstypes.DomainPermissionScope, action),
+		m.classes.ActionClasses(accesstypes.GlobalPermissionScope, name),
+		m.classes.ActionClasses(accesstypes.DomainPermissionScope, name),
 	)
 
 	return m.mask.Refuses(perm, res, classes...)
@@ -578,6 +592,23 @@ func (m *maskedPermissions) refuses(perm accesstypes.Permission, res accesstypes
 func (m *maskedPermissions) registersAction(action accesstypes.Resource) bool {
 	return m.classes.HasPermission(accesstypes.GlobalPermissionScope, accesstypes.Execute, action) ||
 		m.classes.HasPermission(accesstypes.DomainPermissionScope, accesstypes.Execute, action)
+}
+
+// registers reports whether the application registers any permission under name, for
+// the whole application or for a tenant: the name is one of its records or one of its
+// actions. The question is of the name and not of the permission asked, so a record
+// the application registers is left to policy for each of its permissions, the ones it
+// registers and the ones it does not.
+func (m *maskedPermissions) registers(name accesstypes.Resource) bool {
+	for _, scope := range scopeVocabulary {
+		for _, permission := range permissionVocabulary {
+			if m.classes.HasPermission(scope, permission, name) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // Check answers Denied, without consulting policy, for every resource the mask
