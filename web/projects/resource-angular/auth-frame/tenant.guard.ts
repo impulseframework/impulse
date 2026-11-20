@@ -19,7 +19,11 @@ import { TenantService } from './tenant.service';
  *
  * A tenant on the list whose digest the server refuses to read (its 403 or 404) is refused
  * the same way: the server says the tenant is not there for this session, so the page says
- * 404 Not Found and nothing more, and offers nothing to try.
+ * 404 Not Found and nothing more, and offers nothing to try. So is a tenant that has left
+ * the list since the list was read, a seat taken away while the person is signed in: the
+ * server answers its digest with no entries, the client reads the list again for an empty
+ * digest, and the read is refused where the list names the tenant no more. A tenant the
+ * list still names opens, as one where the person holds nothing.
  *
  * What the session holds in the tenant is read before the tenant opens: the guard waits
  * for the tenant's permission digest, then enters. So a page under the segment knows its

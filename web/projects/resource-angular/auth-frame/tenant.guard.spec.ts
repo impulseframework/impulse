@@ -3,7 +3,14 @@ import { Component, effect, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { RedirectCommand, Router, Routes } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { ClientBase, Domain, Permission, Resource, TransportResponse } from '@impulseframework/resource';
+import {
+  ClientBase,
+  Domain,
+  Permission,
+  PermissionDigest,
+  Resource,
+  TransportResponse,
+} from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
@@ -29,6 +36,12 @@ import { refusedSegment, TenantService } from './tenant.service';
 // tenant is not entered, and the page that was asked for is not drawn as a page of a
 // person who holds nothing. A digest the server refuses to read (its 403 or 404) is the
 // refusal itself: 404 Not Found and nothing more.
+//
+// A tenant that has left the person's list since the list was read (a seat taken away
+// while the person is signed in) is the same refusal. The server answers its digest with
+// no entries, as it does for a tenant where the person holds nothing, so the client reads
+// the list again for an empty digest: a tenant the list names no more says 404 Not Found,
+// and one it still names opens as a tenant where the person holds nothing.
 //
 // The same holds for a read that fails once the tenant is open, whoever asked for it: the
 // read on entering a tenant with no digest in the cache, and the reload of every digest
@@ -92,13 +105,17 @@ describe('tenantGuard', () => {
 
   const listLoads = (): number => transport.requests.filter((r) => r.url.endsWith('/user-domains')).length;
 
-  /** Configures the app over a scripted server; with `preload`, the session's tenant list has landed. */
+  /**
+   * Configures the app over a scripted server, where the session holds something in each
+   * of its tenants; with `preload`, the session's tenant list has landed.
+   */
   const appOver = async (tenants: string[], preload: boolean, closed: string[] = []): Promise<void> => {
     transport = specTransport({
       domains: [
         ...tenants.map((domain) => ({ domain, name: domain })),
         ...closed.map((domain) => ({ domain, name: domain, closed: `${domain} admits only its own directory.` })),
       ],
+      digests: Object.fromEntries(tenants.map((domain) => [domain, { Users: { List: 'granted' } }])),
     });
     TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, {}, testRoutes)] });
     if (preload) {
@@ -594,6 +611,147 @@ describe('tenantGuard', () => {
         expect(tenants.unread()).toBe('');
         // The tenant that could not be read keeps its last answer too.
         expect(cached('beta')).toBe('conditional');
+      });
+    });
+
+    describe('where the digest reads empty', () => {
+      /** What the server answers now: the tenants the list names, what the session holds in acme, whether the list can be read. */
+      interface Now {
+        listed: string[];
+        acme: PermissionDigest;
+        listDown?: boolean;
+      }
+
+      /** The server once the person's seat in acme is taken away: the list names it no more, and its digest reads empty. */
+      const seatTaken = (now: Now): void => {
+        now.listed = now.listed.filter((tenant) => tenant !== 'acme');
+        now.acme = {};
+      };
+
+      /** Configures the app over a server that answers as `now` says each time it is asked, with the tenant list landed. */
+      const appServing = async (now: Now): Promise<void> => {
+        const played = specTransport(server);
+        transport = scriptedTransport((request) => {
+          const url = new URL(request.url, 'http://spec.test');
+          if (url.pathname === '/api/user-domains') {
+            return now.listDown
+              ? refusing(500)
+              : { status: 200, body: now.listed.map((domain) => ({ domain, name: domain })) };
+          }
+          if (url.pathname === '/api/permission-digest' && url.searchParams.get('domain') === 'acme') {
+            return { status: 200, body: now.acme };
+          }
+          return played(request);
+        });
+        TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, {}, testRoutes)] });
+        await firstValueFrom(TestBed.inject(AuthService).loadDomains());
+      };
+
+      const held: PermissionDigest = { Users: { List: 'granted' } };
+
+      it('says 404 Not Found on entering a tenant that has left the list since the list was read', async () => {
+        const now: Now = { listed: ['acme', 'beta'], acme: held };
+        await appServing(now);
+        const tenants = TestBed.inject(TenantService);
+        const entered = vi.spyOn(tenants, 'enter');
+        const harness = await RouterTestingHarness.create();
+
+        seatTaken(now);
+        const landed = await harness.navigateByUrl('/tenants/acme/page');
+        harness.detectChanges();
+
+        // The refusal, as for a tenant the session never reached: not a page of the tenant
+        // drawn for a person who holds nothing, and nothing to try again.
+        expect(landed).toBeInstanceOf(TenantRefusedComponent);
+        expect(shown(harness)).toBe('404 Not Found');
+        expect((harness.routeNativeElement as HTMLElement).querySelector('button')).toBeNull();
+        expect(entered).not.toHaveBeenCalled();
+        expect(tenants.current()).toBe('');
+        expect(tenants.unread()).toBe('');
+        expect(TestBed.inject(Location).path()).toBe(`/tenants/acme/${refusedSegment}`);
+        // The list that was read again is the one every picker now shows.
+        expect(tenants.tenants()).toEqual(['beta']);
+      });
+
+      it('says 404 Not Found when a refresh finds the open tenant has left the list, and never draws its page as holding nothing', async () => {
+        const now: Now = { listed: ['acme', 'beta'], acme: held };
+        await appServing(now);
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+        await harness.navigateByUrl('/elsewhere');
+        const page = (await harness.navigateByUrl('/tenants/acme/page')) as PageComponent;
+        await settle(harness);
+        expect(page.said).toEqual(['granted']);
+
+        seatTaken(now);
+        await firstValueFrom(TestBed.inject(AuthService).refreshPermissions());
+        await settle(harness);
+
+        expect(page.said).toEqual(['granted']);
+        expect(shown(harness)).toBe('404 Not Found');
+        expect((harness.routeNativeElement as HTMLElement).querySelector('button')).toBeNull();
+        expect(tenants.current()).toBe('');
+        expect(tenants.unread()).toBe('');
+        // The refusal page takes the page's place in the history, as for a read the server refuses.
+        const location = TestBed.inject(Location);
+        expect(location.path()).toBe(`/tenants/acme/${refusedSegment}`);
+        location.back();
+        await settle(harness);
+        expect(location.path()).toBe('/elsewhere');
+      });
+
+      it('opens a tenant the list still names as one where the person holds nothing, once the list has been read again', async () => {
+        const now: Now = { listed: ['acme', 'beta'], acme: {} };
+        await appServing(now);
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+
+        const page = await harness.navigateByUrl('/tenants/acme/page');
+
+        expect(page).toBeInstanceOf(PageComponent);
+        expect((page as PageComponent).knewAtFirst).toBeUndefined();
+        expect(tenants.current()).toBe('acme');
+        // Once when the app was configured, and once for the empty digest.
+        expect(listLoads()).toBe(2);
+      });
+
+      it('keeps the open page, drawn as holding nothing, when a refresh reads its digest empty and the list still names the tenant', async () => {
+        const now: Now = { listed: ['acme', 'beta'], acme: held };
+        await appServing(now);
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+        const page = (await harness.navigateByUrl('/tenants/acme/page')) as PageComponent;
+        await settle(harness);
+
+        now.acme = {};
+        await firstValueFrom(TestBed.inject(AuthService).refreshPermissions());
+        await settle(harness);
+
+        expect(shown(harness)).toBe('the page');
+        expect(page.said).toEqual(['granted', 'nothing']);
+        expect(tenants.current()).toBe('acme');
+        expect(tenants.unread()).toBe('');
+      });
+
+      it('says the page could not be loaded where the list cannot be read again: nothing says whether the tenant is still there', async () => {
+        const now: Now = { listed: ['acme', 'beta'], acme: {} };
+        await appServing(now);
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+
+        now.listDown = true;
+        const landed = await harness.navigateByUrl('/tenants/acme/page');
+        harness.detectChanges();
+
+        expect(landed).toBeInstanceOf(TenantRefusedComponent);
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+        expect(tenants.current()).toBe('');
+        expect(tenants.unread()).toBe('/tenants/acme/page');
+
+        now.listDown = false;
+        await tryAgain(harness);
+        expect(shown(harness)).toBe('the page');
+        expect(tenants.current()).toBe('acme');
       });
     });
 

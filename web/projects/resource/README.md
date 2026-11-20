@@ -261,6 +261,13 @@ or one per domain), loaded on demand and cached for the session.
   else (a 500, a request that never arrived), which can be tried again.
   `onUnread(listener)` calls the listener with the domain and the failure each time a read
   fails, whoever asked for it, so a page drawn from the scope can say it could not be read.
+  A domain's digest that reads empty is checked against the person's list of domains,
+  read again for it, before it is kept: the server gives the same empty digest for a
+  domain the session no longer reaches (a seat taken away) as for one where the person
+  holds nothing. A domain the list names no more is a refusal (the read rejects with
+  `DomainUnlistedError`, `refused`, and the scope keeps its last answer); one the list
+  still names is kept as empty; and where the list cannot be read the read of the digest
+  fails with it.
 - `loadDomains()` fetches the
   domains where the user holds any grant, each with its name (`user-domains` answers
   `[{ "domain", "name" }]`), and `domainName(domain)` answers a listed domain's name for a

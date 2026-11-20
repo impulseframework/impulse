@@ -114,16 +114,33 @@ export function fieldPermissionStates(
 }
 
 /**
- * How a read of a digest failed. `refused` is the server's refusal, its 403 or 404: the
- * scope is not there for this session, and asking again will not change that. `failed` is
- * everything else, a 500 or a request that never reached the server: nothing is known of
- * what the person holds, and the read can be tried again. Neither is a person who holds
- * nothing, which is an answer: a digest with no entries.
+ * How a read of a digest failed. `refused` is a refusal: the server's 403 or 404, or a
+ * domain that has left the person's list (DomainUnlistedError). The scope is not there
+ * for this session, and asking again will not change that. `failed` is everything else, a
+ * 500 or a request that never reached the server: nothing is known of what the person
+ * holds, and the read can be tried again. Neither is a person who holds nothing, which is
+ * an answer: a digest with no entries, for a domain the person's list still names.
  */
 export type DigestFailure = 'refused' | 'failed';
 
+/**
+ * What a read of a domain's digest throws when the domain is not in the person's list. The
+ * server answers a digest with no entries for a domain the session does not reach, the
+ * same answer it gives for one where the person holds nothing, and the list tells the two
+ * apart: a domain that has left it is not there for this session any more.
+ */
+export class DomainUnlistedError extends Error {
+  constructor(readonly domain: Domain) {
+    super(`${domain} is not in the list of domains this session reaches`);
+    this.name = 'DomainUnlistedError';
+  }
+}
+
 /** digestFailure says which of the two a failed digest read was, from what the read threw. */
 export function digestFailure(error: unknown): DigestFailure {
+  if (error instanceof DomainUnlistedError) {
+    return 'refused';
+  }
   return error instanceof ApiError && (error.status === 403 || error.status === 404) ? 'refused' : 'failed';
 }
 
@@ -146,6 +163,12 @@ export type UnreadListener = (domain: Domain | undefined, failure: DigestFailure
  * and a scope read again keeps its last answer when the new read fails. The failure goes
  * to whoever asked (`loadDigest` rejects) and to every `onUnread` listener, so a page
  * drawn from the scope can say that it could not be read.
+ *
+ * A domain's digest that reads empty is checked against the person's list of domains,
+ * read again for it, before it is taken as an answer: the server gives the same empty
+ * digest for a domain the session no longer reaches (a seat taken away) as for one where
+ * the person holds nothing. A domain that has left the list is a refusal, heard like the
+ * server's own; one the list still names is held as empty, which is then true.
  */
 export class PermissionStore {
   readonly snapshot = new Store<PermissionsSnapshot>({ digests: new Map(), domains: [] });
@@ -227,7 +250,12 @@ export class PermissionStore {
    * one request. A read that fails leaves the cache as it was (a scope never read stays
    * unloaded, a scope read before keeps its last answer), tells the `onUnread` listeners
    * and rethrows, so callers see the failure; `digestFailure` says of what was thrown
-   * whether the server refused the read.
+   * whether the read was refused.
+   *
+   * A domain's digest that reads empty is not kept until the person's list of domains,
+   * read again, still names the domain. A domain that has left the list is a read that
+   * failed as a refusal (DomainUnlistedError); a list that cannot be read fails the read
+   * of the digest, since nothing then says which of the two the empty digest was.
    */
   loadDigest(domain?: Domain): Promise<PermissionDigest> {
     const key = digestKey(domain);
@@ -241,22 +269,26 @@ export class PermissionStore {
     }
     // The read is no longer under way by the time anything hears of its outcome, so a
     // subscriber or a listener that asks for the scope again starts a read of its own.
-    const load = this.request<PermissionDigest | null>('GET', this.routes.digest, { query }).then(
-      (digest) => {
-        this.inflight.delete(key);
-        const read = digest ?? {};
-        this.setDigest(key, read);
-        return read;
-      },
-      (error: unknown) => {
-        this.inflight.delete(key);
-        const failure = digestFailure(error);
-        for (const listener of this.unreadListeners) {
-          listener(domain, failure);
-        }
-        throw error;
-      },
-    );
+    const keep = (read: PermissionDigest): PermissionDigest => {
+      this.inflight.delete(key);
+      this.setDigest(key, read);
+      return read;
+    };
+    const fail = (error: unknown): never => {
+      this.inflight.delete(key);
+      const failure = digestFailure(error);
+      for (const listener of this.unreadListeners) {
+        listener(domain, failure);
+      }
+      throw error;
+    };
+    const load = this.request<PermissionDigest | null>('GET', this.routes.digest, { query }).then((digest) => {
+      const read = digest ?? {};
+      if (domain && Object.keys(read).length === 0) {
+        return this.listed(domain).then(() => keep(read), fail);
+      }
+      return keep(read);
+    }, fail);
     this.inflight.set(key, load);
     return load;
   }
@@ -293,6 +325,17 @@ export class PermissionStore {
   /** Forgets everything — on logout. */
   clear(): void {
     this.snapshot.set({ digests: new Map(), domains: [] });
+  }
+
+  /**
+   * listed reads the person's list of domains again and rejects with DomainUnlistedError
+   * when it does not name the domain: the check a domain's empty digest is held to.
+   */
+  private async listed(domain: Domain): Promise<void> {
+    const domains = await this.loadDomains();
+    if (!domains.includes(domain)) {
+      throw new DomainUnlistedError(domain);
+    }
   }
 
   private setDigest(key: string, digest: PermissionDigest): void {

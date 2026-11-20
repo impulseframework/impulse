@@ -68,7 +68,9 @@ const again: NavigationBehaviorOptions = { onSameUrlNavigation: 'reload' };
  * holds that address while the page stands in for it, so the page can say the read failed
  * and offer to try again. Like the tenant, it is settled by the navigation that lands. A
  * digest the server refuses to read (its 403 or 404) is the plain refusal: the page says
- * 404 Not Found, as for a tenant the session cannot reach.
+ * 404 Not Found, as for a tenant the session cannot reach. A tenant that has left the
+ * person's list is refused the same way: the client reads the list again where a tenant's
+ * digest reads empty, and takes a tenant the list names no more as a refusal.
  *
  * The same holds for a read that fails while the tenant is open: the read on entering a
  * tenant with no digest in the cache, or a reload of every digest after a change
