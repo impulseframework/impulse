@@ -1094,7 +1094,7 @@ out by hand does not compile:
 | Kind | Grant | Role | The widest mask |
 | --- | --- | --- | --- |
 | `view`: view as a person | Execute on `ViewAsUser` | `CommandStaff` (the governor, the marshal) | Reading only |
-| `act`: act as a person | Execute on `ActAsUser` | `StandIn` (the governor) | Everything except the actions classed `credential`, the actions classed `access` and the writes of the records that decide what a person may do: the session cannot set, require or remove a password, send a reset link, unlink a sign-in identity, or change a username or an address; it cannot give or remove a role, change a group or what it holds, invite anyone, make, disable, enable or delete an account, change who may sign in (a sign-in method opened or made invite only, a sector opened to its directory, a sector's directory-only switch, the crew's reset link at the sign-in page), create a sector of the person's own (`CreateSector`), or rate a pilot (`SetSectorPilotClearance`, which Lodestar classes `access`); and it cannot add, change or remove a pilot's registry row, a certification, a client's contact, a place in a squadron or a hangar pass, or change a squadron, whose row says which wing its members are in |
+| `act`: act as a person | Execute on `ActAsUser` | `StandIn` (the governor) | Everything except the actions classed `credential`, the actions classed `access` and the writes of the records that decide what a person may do: the session cannot set, require or remove a password, send a reset link, unlink a sign-in identity, or change a username or an address; it cannot give or remove a role, change a group or what it holds, invite anyone, make an account, change who may sign in (a sign-in method opened or made invite only, a sector opened to its directory, a sector's directory-only switch, the crew's reset link at the sign-in page), create a sector of the person's own (`CreateSector`), or rate a pilot (`SetSectorPilotClearance`, which Lodestar classes `access`); and it cannot add, change or remove a pilot's registry row, a certification, a client's contact, a place in a squadron or a hangar pass, or change a squadron, whose row says which wing its members are in |
 | `role`: act as a role | Execute on `AssumeRole` | `CommandStaff` | Everything the role holds |
 
 A request may ask for less than its kind gives: permission kinds to keep
@@ -1161,7 +1161,11 @@ the same route by the rule and not by a mask, since it has none: the marshal beh
 session that acts as a role would become the sector's marshal herself ("you are acting
 as someone else, so you cannot create a sector of your own"). An application that
 declares a kind of acting as a person with no mask allows the creation, and the person
-acted as is the sector's marshal: that is what no mask means.
+acted as is the sector's marshal: that is what no mask means. `CreateSector` is an
+action no role is given: nothing asks a role for it, so the generated collection marks
+it (`NoRole: true`), a role file that grants it is refused, with the reason, by the
+permission engine and by `impulse check`, and the console's generated `Methods`
+constants leave it out.
 
 What the rule cannot see stays open to a session whose mask refuses nothing, and that
 is a stated limit of the rule, not something it promises. The marshal who acts as the

@@ -1239,7 +1239,9 @@ login marshal
 # decide what a person may do (a pilot's registry row, a certification, a client's
 # contact, a place in a squadron, a hangar pass, and a squadron's own row, which says
 # which wing its members are in): it cannot change how anyone signs in or who may do
-# what, and its digest leaves those out, so no page offers them.
+# what, and its digest leaves those out, so no page offers them. An account disabled,
+# enabled or deleted carries no class: that is work a person who stands in for an
+# administrator does, so the session disables and enables an account as the marshal may.
 #
 # The refusal is shown on a person the marshal's own grant reaches, so it is the mask's
 # and not her roles': her sector's credential methods stop at a person who holds a role
@@ -1259,7 +1261,9 @@ r=$(req governor POST "$ANVIL/set-crew-sector-user-email" "{\"userId\":\"$GUS_ID
 r=$(req marshal POST "$ANVIL/set-crew-sector-user-email" "{\"userId\":\"$GUS_ID\",\"email\":\"gus.new@example.com\"}"); check "and the marshal, in a session of her own, sets the address" 200 "$r"
 r=$(req governor POST "$ANVIL/assign-crew-sector-role" "{\"userId\":\"$GUS_ID\",\"role\":\"Pilot\"}"); check "an action that changes who may do what is refused the session too: the mask refuses the class access" 403 "$r"
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/squadron-memberships/$TONGS/$GUS_ID\",\"value\":{}}]"); check "and so is a write of a record that decides what a person may do, a place in a squadron: the mask names the record's writes" 403 "$r"
-r=$(req governor GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the session's digest leaves the credential and the access methods out and keeps their neighbors" "$r" "'RequireCrewSectorPasswordChange' not in rows and 'SetCrewSectorTemporaryPassword' not in rows and 'AssignCrewSectorRole' not in rows and 'Execute' in rows.get('SetCrewSectorUserName',{})"
+r=$(req governor POST "$ANVIL/disable-crew-sector-user" "{\"userId\":\"$GUS_ID\"}"); check "an account disabled carries no class: the session that acts as her disables the person's account, as she may" 204 "$r"
+r=$(req governor POST "$ANVIL/enable-crew-sector-user" "{\"userId\":\"$GUS_ID\"}"); check "and enables it again" 204 "$r"
+r=$(req governor GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the session's digest leaves the credential and the access methods out and keeps their neighbors, the account's switches among them" "$r" "'RequireCrewSectorPasswordChange' not in rows and 'SetCrewSectorTemporaryPassword' not in rows and 'AssignCrewSectorRole' not in rows and 'Execute' in rows.get('SetCrewSectorUserName',{}) and 'Execute' in rows.get('DisableCrewSectorUser',{}) and 'Execute' in rows.get('EnableCrewSectorUser',{})"
 r=$(req marshal GET "$API/impersonations"); assert_py "the watch desk says what the session may do, in words" "$r" "any(s['sessionId']=='$ACTING' and s['actor']=='governor' and s['principal']=='marshal' and s['mask']=='$ACT_MASK' for s in rows)"
 r=$(req governor POST "$API/impersonate/end" '{}'); assert_py "governor returns to self" "$r" "rows['restored'] is True"
 

@@ -106,8 +106,11 @@ func (a *App) CreateSector() http.HandlerFunc {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 		}
-		// One sector per person: a session holding a grant in any sector is refused.
-		held, err := userPermissions.Domains(ctx)
+		// One sector per person: a person holding a grant in any sector is refused. Every
+		// sector they hold counts, read around the session's mask and its admission: a
+		// session that acts as a person under a mask that hides the person's sector
+		// creates no second one.
+		held, err := resource.HeldDomains(ctx, userPermissions)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -233,8 +236,9 @@ func (a *App) CreateSectorOffered() http.HandlerFunc {
 		if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {
 			return httpio.NewEncoder(w).Ok(offer{Offered: false})
 		}
-		// One sector per person: a session holding a grant in any sector is offered none.
-		held, err := userPermissions.Domains(ctx)
+		// One sector per person: a person holding a grant in any sector is offered none,
+		// by every sector they hold, as the POST judges it.
+		held, err := resource.HeldDomains(ctx, userPermissions)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}

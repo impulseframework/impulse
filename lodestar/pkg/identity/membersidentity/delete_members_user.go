@@ -18,7 +18,6 @@ import (
 // @rpc
 // @outlet(portal, default)
 // @answers(204)
-// @class(access)
 type DeleteMembersUser struct {
 	// @target(MembersSessionUser)
 	UserID impulse.UUID

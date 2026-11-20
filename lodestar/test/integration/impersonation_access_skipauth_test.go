@@ -10,7 +10,9 @@ package integration
 // a pilot, which writes the clearance a person's permissions are read against. The
 // console's "act as a person" refuses the class beside the class credential
 // (app/impersonate.go), and a session whose mask refuses the class is refused every one
-// of them.
+// of them. An account disabled, enabled or deleted is not in the class
+// (impersonation_subject_skipauth_test proves what a session that acts as a person does
+// with those).
 
 import (
 	"context"
@@ -84,8 +86,6 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 		return []byte(`{"on":true}`)
 	case "CreateUser":
 		return []byte(`{"username":"made-under-a-mask","email":"Made <made-under-a-mask@example.com>","roles":["Cadet"]}`)
-	case "DeleteUser", "DisableUser", "EnableUser":
-		return fmt.Appendf(nil, `{"userId":%q}`, userID)
 	default:
 		t.Fatalf("the generated collection classes %s access and this suite has no body for its act %s: add one to accessBody, so the method is proven refused under a mask with the others", action, act)
 
@@ -121,13 +121,19 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		"AssignCrewRole", "RemoveCrewRole", "AssignCrewSectorRole", "RemoveCrewSectorRole",
 		"AddCrewGroupMember", "RemoveCrewGroupMember", "GiveCrewGroupRole", "TakeCrewGroupRole", "GiveCrewSectorGroupRole",
 		"CreateCrewGroup", "DeleteCrewGroup", "InviteCrewUser", "InviteCrewSectorUser", "InviteCrewSector",
-		"CreateCrewUser", "DisableCrewUser", "EnableCrewUser", "DeleteCrewUser",
-		"OpenCrewSignUp", "MakeCrewInviteOnly", "OpenSectorToDirectory", "MakeSectorInviteOnly",
+		"CreateCrewUser", "OpenCrewSignUp", "MakeCrewInviteOnly", "OpenSectorToDirectory", "MakeSectorInviteOnly",
 		"MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "SetCrewSelfServiceReset", "CreateSector",
 		"SetSectorPilotClearance",
 	} {
 		if !slices.Contains(access, want) {
 			t.Errorf("the generated collection does not class %s access: it gives or takes away what someone may do", want)
+		}
+	}
+	// An account disabled, enabled or deleted is the work a person who stands in for an
+	// administrator is there to do, and carries no class.
+	for _, kept := range []accesstypes.Resource{"DisableCrewUser", "EnableCrewUser", "DeleteCrewUser", "DisableCrewSectorUser", "EnableCrewSectorUser", "DeleteCrewSectorUser"} {
+		if slices.Contains(access, kept) {
+			t.Errorf("the generated collection classes %s access: an account disabled, enabled or deleted carries no class", kept)
 		}
 	}
 
@@ -224,7 +230,7 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 
 	// The comparison with the same person unmasked stands on actions he runs: the ones
 	// headquarters holds for the whole crew.
-	for _, want := range []accesstypes.Resource{"AssignCrewRole", "CreateCrewGroup", "GiveCrewGroupRole", "InviteCrewUser", "DisableCrewUser", "EnableCrewUser"} {
+	for _, want := range []accesstypes.Resource{"AssignCrewRole", "CreateCrewGroup", "GiveCrewGroupRole", "InviteCrewUser"} {
 		if !letThrough[want] {
 			t.Errorf("%s was refused the governor in a session of his own: the suite compares a masked session with the same person unmasked", want)
 		}

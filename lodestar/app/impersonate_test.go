@@ -44,7 +44,7 @@ var credentialActions = []accesstypes.Resource{
 // what someone may do, by name: the generated identity methods that give and remove a
 // role, make and delete a group, put a person in one and take them out, give a group a
 // role and take it, send and withdraw an invitation, the one that makes a sector among
-// them, make, disable, enable and delete an account, and open a sign-in method to
+// them, make an account, and open a sign-in method to
 // sign-up or make it invite only, for the whole application and for a sector; the
 // setting that lets people ask for a reset link at the sign-in page; the four methods
 // the generator writes for the sector record's directory, which open it to the
@@ -53,8 +53,9 @@ var credentialActions = []accesstypes.Resource{
 // generated route by which a person creates a sector of their own; and the one action
 // of Lodestar's own that does, SetSectorPilotClearance, which rates a pilot. The
 // generated collection classes each access, which the kind that acts as a person
-// refuses beside credential. When the generated set gains, loses or renames such a
-// method, this list changes with it.
+// refuses beside credential. An account disabled, enabled or deleted is not among them:
+// those carry no class (TestAccountSwitchesCarryNoClass). When the generated set gains,
+// loses or renames such a method, this list changes with it.
 var accessActions = []accesstypes.Resource{
 	"AddCrewGroupMember",
 	"AddCrewSectorGroupMember",
@@ -67,18 +68,6 @@ var accessActions = []accesstypes.Resource{
 	"CreateSector",
 	"DeleteCrewGroup",
 	"DeleteCrewSectorGroup",
-	"DeleteCrewSectorUser",
-	"DeleteCrewUser",
-	"DeleteMembersSectorUser",
-	"DeleteMembersUser",
-	"DisableCrewSectorUser",
-	"DisableCrewUser",
-	"DisableMembersSectorUser",
-	"DisableMembersUser",
-	"EnableCrewSectorUser",
-	"EnableCrewUser",
-	"EnableMembersSectorUser",
-	"EnableMembersUser",
 	"EndSectorDirectoryOnly",
 	"GiveCrewGroupRole",
 	"GiveCrewSectorGroupRole",
@@ -117,6 +106,45 @@ func TestAccessActions(t *testing.T) {
 	for _, action := range got {
 		if slices.Contains(credentialActions, action) {
 			t.Errorf("%s is classed both access and credential: an action that changes how a person signs in is the one class, one that changes who may do what the other", action)
+		}
+	}
+}
+
+// accountSwitches are the generated methods that disable, enable and delete an account,
+// for the crew and the members, for the whole application and for a sector.
+var accountSwitches = []accesstypes.Resource{
+	"DeleteCrewSectorUser",
+	"DeleteCrewUser",
+	"DeleteMembersSectorUser",
+	"DeleteMembersUser",
+	"DisableCrewSectorUser",
+	"DisableCrewUser",
+	"DisableMembersSectorUser",
+	"DisableMembersUser",
+	"EnableCrewSectorUser",
+	"EnableCrewUser",
+	"EnableMembersSectorUser",
+	"EnableMembersUser",
+}
+
+// TestAccountSwitchesCarryNoClass pins that disabling, enabling and deleting an account
+// are registered actions that carry neither of the library's classes: they are the work
+// a person who stands in for an administrator is there to do, so the kind that acts as
+// a person, whose mask refuses both classes, keeps them. The rule that nobody is the
+// subject of what they do in such a session is what refuses them on the real person's
+// own account.
+func TestAccountSwitchesCarryNoClass(t *testing.T) {
+	t.Parallel()
+
+	collection := router.Collection()
+	for _, action := range accountSwitches {
+		if collection.Scope(action) == "" {
+			t.Errorf("%s is not an action of the generated collection: the list of the account switches names a method the generator no longer writes", action)
+		}
+		for _, class := range []accesstypes.ActionClass{router.ClassAccess, router.ClassCredential} {
+			if slices.Contains(collection.ActionsOfClass(class), action) {
+				t.Errorf("%s is classed %s: disabling, enabling and deleting an account carry no class, so a session that acts as a person does them", action, class)
+			}
 		}
 	}
 }

@@ -42,12 +42,14 @@ const (
 //     remove a password, send a reset link, unlink a sign-in identity, or change a
 //     username or an address, and the actions classed access (router.ClassAccess), so
 //     it cannot give or remove a role, change a group or what it holds, invite anyone,
-//     make, disable, enable or delete an account, change who may sign in (a sign-in
-//     method opened or made invite only, a sector opened to its directory, a sector's
-//     directory-only switch, the reset link at the sign-in page), or create a sector
-//     of the person's own (CreateSector, the action of the generated create-sector
-//     route, which no grant admits and the mask alone refuses), nor rate a pilot, the
-//     one action of Lodestar's own that carries the class. The constants are the
+//     make an account, change who may sign in (a sign-in method opened or made invite
+//     only, a sector opened to its directory, a sector's directory-only switch, the
+//     reset link at the sign-in page), or create a sector of the person's own
+//     (CreateSector, the action of the generated create-sector route, which no grant
+//     admits and the mask alone refuses), nor rate a pilot, the one action of
+//     Lodestar's own that carries the class. An account disabled, enabled or deleted
+//     carries neither class, so the session does those as the person would, on any
+//     account but the real person's own (the rule below). The constants are the
 //     generated collection's, so the mask names classes the application's actions
 //     carry, or this file does not compile. The mask also names the writes of the
 //     records that decide what a person may do (standingRecords), so the session keeps

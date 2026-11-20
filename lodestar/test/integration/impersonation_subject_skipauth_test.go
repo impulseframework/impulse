@@ -34,8 +34,8 @@ const actingAsSomeoneElse = "you are acting as someone else, so you cannot "
 // her account has confirmed. The same act on another person goes through, and her own
 // row is still listed and read. It holds with no mask and under a mask that keeps
 // Execute; under the mask of a session that acts as a person, which refuses the classes
-// credential and access, the classed acts are the mask's to refuse and the unlock, which
-// carries no class, is still the rule's.
+// credential and access, the classed acts are the mask's to refuse and the enable and
+// the unlock, which carry no class, are still the rule's.
 //
 // Demonstrates: impersonation.never-the-subject, impersonation.act-as-role, impersonation.mask.
 func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
@@ -143,7 +143,7 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 			},
 		},
 		{
-			name: "an enable", route: "enable-crew-user", says: "enable your own account", classed: true,
+			name: "an enable", route: "enable-crew-user", says: "enable your own account",
 			body: func(p who) string {
 				return fmt.Sprintf(`{"userId":%q}`, p.id)
 			},
@@ -259,9 +259,9 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 
 	// Under the mask of a session that acts as a person, which refuses the classes
 	// credential and access: the governor gives the marshal the grant, and she acts as
-	// the governor. A classed act on her own account is refused, by the mask; the unlock
-	// and the other acts no class marks reach the rule, which refuses them in its own
-	// words.
+	// the governor. A classed act on her own account is refused, by the mask; the
+	// enable, the unlock and the other acts no class marks reach the rule, which refuses
+	// them in its own words.
 	giveMarshalStandIn(ctx, t, s)
 	acting := newBrowser(t, s, consoleAPI)
 	acting.signIn(ctx, "marshal")
@@ -295,6 +295,89 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 		if status, answer := viewing.do(ctx, http.MethodPost, crewMethod(act.route), []byte(act.body(herself))); status != http.StatusForbidden {
 			t.Errorf("viewing as the governor, %s on her own account: status %d, want 403: %s", act.name, status, answer)
 		}
+	}
+}
+
+// TestImpersonation_accountSwitchesNeverTheirOwn proves on the served stack what a
+// session that acts as a person does with an account's switches. Disabling, enabling
+// and deleting an account carry no class, so the mask of the kind, which refuses the
+// classes credential and access, keeps them: the marshal, acting as the governor,
+// disables, enables and deletes a cadet's account as the governor would. On her own
+// account each of the three is refused, by the rule that nobody is the subject of what
+// they do in such a session and in the rule's words, never by the mask, and her account
+// is as it was.
+//
+// Demonstrates: impersonation.never-the-subject, impersonation.act-as-user, impersonation.mask, @class.
+func TestImpersonation_accountSwitchesNeverTheirOwn(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	marshal := account(t, "marshal")
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	status, body := governor.do(ctx, http.MethodPost, sectorPath(anvil, "create-crew-sector-user"), []byte(`{"username":"gus","email":"Gus <gus@example.com>","roles":["Cadet"]}`))
+	assertStatus(t, status, http.StatusOK, body)
+	gus := cell[string](t, decodeRow(t, body), "id")
+
+	giveMarshalStandIn(ctx, t, s)
+	acting := newBrowser(t, s, consoleAPI)
+	acting.signIn(ctx, "marshal")
+	if got, want := mint(ctx, t, acting, actAs(t, "governor", "covering the accounts desk", "")).Mask, actMaskWords; got != want {
+		t.Fatalf("the mask of a session that acts as a person = %q, want %q", got, want)
+	}
+	// disabled reads whether an account is disabled, as the governor in a session of his
+	// own, and found whether the account is there at all.
+	disabled := func(id string) (isDisabled, found bool) {
+		t.Helper()
+		status, body := governor.do(ctx, http.MethodGet, crewMethod("crew-session-users/"+id), nil)
+		if status == http.StatusNotFound {
+			return false, false
+		}
+		assertStatus(t, status, http.StatusOK, body)
+
+		return cell[bool](t, decodeRow(t, body), "disabled"), true
+	}
+
+	// On another person's account, the three are the stand-in's to do.
+	switches := []struct {
+		route string
+		// wantDisabled and wantFound are the account after the act.
+		wantDisabled, wantFound bool
+	}{
+		{route: "disable-crew-user", wantDisabled: true, wantFound: true},
+		{route: "enable-crew-user", wantDisabled: false, wantFound: true},
+		{route: "delete-crew-user", wantDisabled: false, wantFound: false},
+	}
+	for _, act := range switches {
+		status, answer := acting.do(ctx, http.MethodPost, crewMethod(act.route), fmt.Appendf(nil, `{"userId":%q}`, gus))
+		if status != http.StatusNoContent {
+			t.Fatalf("acting as the governor, %s on a cadet's account: status %d, want 204: the act carries no class, so the mask of the kind keeps it: %s", act.route, status, answer)
+		}
+		if isDisabled, found := disabled(gus); isDisabled != act.wantDisabled || found != act.wantFound {
+			t.Errorf("after %s the cadet's account is disabled = %t, found = %t, want %t and %t", act.route, isDisabled, found, act.wantDisabled, act.wantFound)
+		}
+	}
+
+	// On her own account each is refused, in the rule's words. Nobody disables or
+	// deletes themselves in any session, which is the rule's first reach; the enable is
+	// refused for the person who acts as someone else.
+	own := []struct {
+		route string
+		says  string
+	}{
+		{route: "disable-crew-user", says: "you cannot disable your own account"},
+		{route: "enable-crew-user", says: actingAsSomeoneElse + "enable your own account:"},
+		{route: "delete-crew-user", says: "you cannot delete your own account"},
+	}
+	for _, act := range own {
+		status, answer := acting.do(ctx, http.MethodPost, crewMethod(act.route), fmt.Appendf(nil, `{"userId":%q}`, marshal))
+		if status != http.StatusForbidden || !strings.Contains(string(answer), act.says) {
+			t.Errorf("acting as the governor, %s on her own account: status %d, want 403 saying %q, the rule's refusal: %s", act.route, status, act.says, answer)
+		}
+	}
+	if isDisabled, found := disabled(string(marshal)); isDisabled || !found {
+		t.Errorf("after the refused acts the marshal's account is disabled = %t, found = %t, want it as it was", isDisabled, found)
 	}
 }
 
