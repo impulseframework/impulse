@@ -131,7 +131,22 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "MembersTenantHeldRoles",
+              "fields": [
+                "username",
+                "everyDomain",
+                "groupName",
+                "globalGroup",
+                "groupPage",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -181,7 +196,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             },
             {
@@ -201,7 +218,8 @@
                 "groupName",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "losing"
               ]
             },
             {
@@ -254,7 +272,8 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -297,7 +316,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ],

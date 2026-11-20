@@ -82,7 +82,7 @@ type (
 		// @file(name: FileName, type: ContentType)
 		StoreKey         resource.Key[Documents] `spanner:"StoreKey"`
 		UploadedByUserID string                  `spanner:"UploadedByUserId"`
-		UploadedByName   string                  `spanner:"UploadedByName" conditions:"output_only"`
+		UploadedByName   string                  `spanner:"UploadedByName"   conditions:"output_only"`
 		UploadedAt       time.Time               `spanner:"UploadedAt"`
 		// Provenance is nullable: a document filed before the origin was recorded has none.
 		Provenance *Provenance `spanner:"Provenance"`

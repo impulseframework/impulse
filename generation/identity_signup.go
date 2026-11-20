@@ -115,9 +115,11 @@ func (d *identitySourceData) JudgesRoleChanges() bool { return d.judgesRoleChang
 // they make, for one whose administrator picks the default role of an open method, for
 // one whose tenant's administrator picks the role everyone from the tenant's directory
 // gets (seatsDirectory), for one whose tenant gives roles by hand, where the list a
-// role is picked from offers the roles the caller could give (picksRoles), and for every
-// one whose roles the application gives, whose whole application's role fields pick
-// from the roles the caller could give (givableRoleSources).
+// role is picked from offers the roles the caller could give (picksRoles), for one whose
+// people take a role for a set time, which is judged as the role given directly
+// (takesRoles), and for every one whose roles the application gives, whose whole
+// application's role fields pick from the roles the caller could give
+// (givableRoleSources).
 func (i *identityInstance) roleGrantsSource() []identitySourceFile {
 	var needs []identityTable
 	switch {
@@ -125,7 +127,8 @@ func (i *identityInstance) roleGrantsSource() []identitySourceFile {
 		needs = append(append(identityGroupTables(), identityUsers), identityMemberships)
 	case !i.rolesSynced:
 		// Every other reason is an instance whose roles the application gives:
-		// picksDefaultRole, seatsDirectory and picksRoles each hold only there.
+		// picksDefaultRole, seatsDirectory, picksRoles and takesRoles each hold only
+		// there. A role taken for a set time is judged as the same role given directly.
 		needs = []identityTable{identityMemberships}
 	default:
 		return nil

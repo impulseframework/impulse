@@ -38,7 +38,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type GiveStaffGroupRole struct {
-	// @target(StaffGroup)
+	// @target(StaffListedGroup)
 	GroupID     impulse.UUID
 	Domain      *string
 	EveryDomain bool

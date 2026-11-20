@@ -734,6 +734,8 @@ export class ResourceListComponent implements OnInit {
           // A column that opts out of its filter control says so to the table, and so
           // does one that opts out of sorting.
           ...(col.filterable === false ? { filterable: false } : {}),
+          // A column whose list is drawn a line each says so to the table.
+          ...(col.lines ? { lines: true } : {}),
           ...(col.sortable === false ? { sortable: false } : {}),
         };
         // An icon column keeps its map and tooltip position for the grid; the cell itself is
@@ -886,7 +888,12 @@ export class ResourceListComponent implements OnInit {
         // and not as the word a formatter would make of it. A column that configures a
         // format is written by that format, as its author asked.
         const mark = typeof updatedRow[col.id] === 'boolean' && !col.formatType;
-        if (typeof col.valueFormatter === 'function' && !mark) {
+        // A list drawn a line each stays a list, each item written as text, so the
+        // table draws the items one under another.
+        const listed = col.lines && Array.isArray(updatedRow[col.id]);
+        if (listed) {
+          updatedRow[col.id] = (updatedRow[col.id] as unknown[]).map((item) => String(item ?? ''));
+        } else if (typeof col.valueFormatter === 'function' && !mark) {
           updatedRow[col.id] = col.valueFormatter(updatedRow[col.id]);
         }
 
@@ -922,15 +929,16 @@ export class ResourceListComponent implements OnInit {
     ];
     // A method the page presents more than once may be offered twice on one row: each
     // entry after the first carries its position, so the menu tells them apart.
-    return offeredHere.map((method, index) => ({
-      id:
+    return offeredHere.map((method, index) => {
+      const id =
         offeredHere.findIndex((other) => other.method === method.method) === index
           ? method.method
-          : `${method.method}:${index}`,
-      label: method.label,
-      icon: method.icon,
-      run: (): void => this.runMethod(method, row),
-    }));
+          : `${method.method}:${index}`;
+      return method.says
+        ? // What the row says where the method would be: words, and nothing to run.
+          { id, label: method.says, icon: method.icon, run: (): void => undefined, disabled: true }
+        : { id, label: method.label, icon: method.icon, run: (): void => this.runMethod(method, row) };
+    });
   }
 
   /**

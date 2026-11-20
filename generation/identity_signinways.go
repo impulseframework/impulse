@@ -18,10 +18,12 @@ package generation
 const signInWaySuffix = "SignInWay"
 
 // identitySignIn is one sign-in registration of an auth as its login page offers it:
-// the name it is registered under, and the words its button carries.
+// the name it is registered under, and the words its button carries. syncsRoles marks a
+// registration whose directory writes the roles of the people it signs in.
 type identitySignIn struct {
-	Name  string
-	Label string
+	Name       string
+	Label      string
+	syncsRoles bool
 }
 
 // signInWayName names the struct of the list of how a person signs in.

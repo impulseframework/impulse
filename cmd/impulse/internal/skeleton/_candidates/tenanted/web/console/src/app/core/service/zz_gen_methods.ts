@@ -43,6 +43,7 @@ export interface AssignStaffRoleConfig {
   role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignStaffRole {
   userId: string;
@@ -51,6 +52,7 @@ export interface AssignStaffRole {
   role: string;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignStaffRole declares; the method chooses one per response. */
 export type AssignStaffRoleStatus = 204;
@@ -60,12 +62,14 @@ export interface AssignStaffTenantRoleConfig {
   role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignStaffTenantRole {
   userId: string;
   role: string;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignStaffTenantRole declares; the method chooses one per response. */
 export type AssignStaffTenantRoleStatus = 204;
@@ -427,10 +431,12 @@ export type RemoveStaffTenantPasswordStatus = 204;
 export interface RemoveStaffTenantRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
+  groupId: string | FieldPointer;
 }
 export interface RemoveStaffTenantRole {
   userId: string;
   role: string;
+  groupId: string;
 }
 /** The statuses RemoveStaffTenantRole declares; the method chooses one per response. */
 export type RemoveStaffTenantRoleStatus = 204;
@@ -622,6 +628,21 @@ export interface TakeStaffGroupRole {
 /** The statuses TakeStaffGroupRole declares; the method chooses one per response. */
 export type TakeStaffGroupRoleStatus = 204;
 
+export interface TakeStaffRoleConfig {
+  domain: string | FieldPointer;
+  role: string | FieldPointer;
+  length: string | FieldPointer;
+  reason: string | FieldPointer;
+}
+export interface TakeStaffRole {
+  domain: string;
+  role: string;
+  length: string;
+  reason: string;
+}
+/** The statuses TakeStaffRole declares; the method chooses one per response. */
+export type TakeStaffRoleStatus = 204;
+
 export interface TakeStaffTenantGroupRoleConfig {
   groupId: string | FieldPointer;
   role: string | FieldPointer;
@@ -801,7 +822,7 @@ export type MethodMap = Record<Method, MethodMeta>;
 const methodMap: MethodMap = {
   [Methods.AddStaffGroupMember]: {
     route: 'add-staff-group-member',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -834,6 +855,7 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffGivableRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.AssignStaffTenantRole]: {
@@ -846,6 +868,7 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffTenantRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.CreateStaffGroup]: {
@@ -895,7 +918,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteStaffGroup]: {
     route: 'delete-staff-group',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -931,7 +954,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DescribeStaffGroup]: {
     route: 'describe-staff-group',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1014,7 +1037,7 @@ const methodMap: MethodMap = {
   },
   [Methods.GiveStaffGroupRole]: {
     route: 'give-staff-group-role',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1139,12 +1162,13 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveStaffTenantRole]: {
     route: 'remove-staff-tenant-role',
-    target: { resource: Resources.StaffTenantUserRoles, key: { userId: 'userId', role: 'role' } },
+    target: { resource: Resources.StaffTenantHeldRoles, key: { userId: 'userId', role: 'role', groupId: 'groupId' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'groupId', displayType: 'string' },
     ],
   },
   [Methods.RenameStaffTenantUser]: {
@@ -1307,6 +1331,17 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.TakeStaffRole]: {
+    route: 'take-staff-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, required: true },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffTakeableRoles, required: true, attribute: 'role' },
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.StaffTakeLengths, required: true },
+      { fieldName: 'reason', displayType: 'string', required: true },
     ],
   },
   [Methods.TakeStaffTenantGroupRole]: {

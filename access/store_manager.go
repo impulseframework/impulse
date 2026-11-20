@@ -36,7 +36,8 @@ func (m *storeManager) notifyPolicyChange() {
 }
 
 func (m *storeManager) addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
-	if err := m.store.InsertUserRole(ctx, scope, user, role, period); err != nil {
+	// A role given with no reason carries none: the one it had goes with its period.
+	if err := m.store.InsertUserRole(ctx, scope, user, role, period, ""); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertUserRole(): role %q to %q", role, user)
 	}
 	m.notifyPolicyChange()

@@ -27,6 +27,7 @@ const (
 	StaffGroupID                httpio.ParamType = "staffGroupID"
 	StaffGroupUserGroupID       httpio.ParamType = "staffGroupUserGroupID"
 	StaffGroupUserUserID        httpio.ParamType = "staffGroupUserUserID"
+	StaffListedGroupID          httpio.ParamType = "staffListedGroupID"
 	StaffSessionID              httpio.ParamType = "staffSessionID"
 	StaffSessionIdentityID      httpio.ParamType = "staffSessionIdentityID"
 	StaffSessionMailLinkID      httpio.ParamType = "staffSessionMailLinkID"
@@ -132,6 +133,13 @@ type GeneratedHandlers interface {
 	StaffGroupUsers() http.HandlerFunc
 	StaffGroupUser() http.HandlerFunc
 
+	StaffHeldRoles() http.HandlerFunc
+
+	StaffListedGroups() http.HandlerFunc
+	StaffListedGroup() http.HandlerFunc
+
+	StaffListedGroupRoles() http.HandlerFunc
+
 	StaffRoles() http.HandlerFunc
 
 	StaffRoleGrants() http.HandlerFunc
@@ -164,12 +172,20 @@ type GeneratedHandlers interface {
 
 	StaffSignUpRoles() http.HandlerFunc
 
+	StaffTakeLengths() http.HandlerFunc
+
+	StaffTakeableRoles() http.HandlerFunc
+
+	StaffTakenRoles() http.HandlerFunc
+
 	StaffUserGroupRoles() http.HandlerFunc
 	StaffUserGroupRole() http.HandlerFunc
 
 	StaffUserRoles() http.HandlerFunc
 
 	TakeStaffGroupRole() http.HandlerFunc
+
+	TakeStaffRole() http.HandlerFunc
 
 	UnlinkStaffSessionIdentity() http.HandlerFunc
 
@@ -299,6 +315,22 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-group-users/{staffGroupUserGroupID}/{staffGroupUserUserID}", staffGroupUserHandler)
 	bounded.Post("/api/staff-group-users/{staffGroupUserGroupID}/{staffGroupUserUserID}", staffGroupUserHandler)
 
+	staffHeldRolesHandler := h.StaffHeldRoles()
+	bounded.Get("/api/staff-held-roles", staffHeldRolesHandler)
+	bounded.Post("/api/staff-held-roles", staffHeldRolesHandler)
+
+	staffListedGroupsHandler := h.StaffListedGroups()
+	bounded.Get("/api/staff-listed-groups", staffListedGroupsHandler)
+	bounded.Post("/api/staff-listed-groups", staffListedGroupsHandler)
+
+	staffListedGroupHandler := h.StaffListedGroup()
+	bounded.Get("/api/staff-listed-groups/{staffListedGroupID}", staffListedGroupHandler)
+	bounded.Post("/api/staff-listed-groups/{staffListedGroupID}", staffListedGroupHandler)
+
+	staffListedGroupRolesHandler := h.StaffListedGroupRoles()
+	bounded.Get("/api/staff-listed-group-roles", staffListedGroupRolesHandler)
+	bounded.Post("/api/staff-listed-group-roles", staffListedGroupRolesHandler)
+
 	staffRolesHandler := h.StaffRoles()
 	bounded.Get("/api/staff-roles", staffRolesHandler)
 	bounded.Post("/api/staff-roles", staffRolesHandler)
@@ -375,6 +407,18 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-sign-up-roles", staffSignUpRolesHandler)
 	bounded.Post("/api/staff-sign-up-roles", staffSignUpRolesHandler)
 
+	staffTakeLengthsHandler := h.StaffTakeLengths()
+	bounded.Get("/api/staff-take-lengths", staffTakeLengthsHandler)
+	bounded.Post("/api/staff-take-lengths", staffTakeLengthsHandler)
+
+	staffTakeableRolesHandler := h.StaffTakeableRoles()
+	bounded.Get("/api/staff-takeable-roles", staffTakeableRolesHandler)
+	bounded.Post("/api/staff-takeable-roles", staffTakeableRolesHandler)
+
+	staffTakenRolesHandler := h.StaffTakenRoles()
+	bounded.Get("/api/staff-taken-roles", staffTakenRolesHandler)
+	bounded.Post("/api/staff-taken-roles", staffTakenRolesHandler)
+
 	staffUserGroupRolesHandler := h.StaffUserGroupRoles()
 	bounded.Get("/api/staff-user-group-roles", staffUserGroupRolesHandler)
 	bounded.Post("/api/staff-user-group-roles", staffUserGroupRolesHandler)
@@ -388,6 +432,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Post("/api/staff-user-roles", staffUserRolesHandler)
 
 	asked.Post("/api/take-staff-group-role", h.TakeStaffGroupRole())
+
+	asked.Post("/api/take-staff-role", h.TakeStaffRole())
 
 	asked.Post("/api/unlink-staff-session-identity", h.UnlinkStaffSessionIdentity())
 

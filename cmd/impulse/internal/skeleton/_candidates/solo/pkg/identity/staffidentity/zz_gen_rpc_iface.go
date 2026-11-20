@@ -14,6 +14,6 @@ type Method interface {
 		RemoveStaffRole | RenameStaffUser | RequireStaffPasswordChange | RevokeStaffSessionToken |
 		RevokeStaffUserTrustedDevices | SendStaffUserPasswordResetLink |
 		SetStaffSelfServiceReset | SetStaffTemporaryPassword | SetStaffUserEmail |
-		SetStaffUserName | TakeStaffGroupRole | UnlinkStaffSessionIdentity | UnlockStaffSignIn |
-		WithdrawStaffInvitation
+		SetStaffUserName | TakeStaffGroupRole | TakeStaffRole | UnlinkStaffSessionIdentity |
+		UnlockStaffSignIn | WithdrawStaffInvitation
 }

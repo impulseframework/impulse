@@ -327,7 +327,7 @@ func TestManager_nobodyLengthensTheirOwnHolding(t *testing.T) {
 	outside := func(ctx context.Context) context.Context { return ctx }
 	role := func(period accesstypes.Period) func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 		return func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-			return m.AssignRoleFor(ctx, txn, alphaScope, userID, "Reader", period)
+			return m.AssignRoleFor(ctx, txn, alphaScope, userID, "Reader", period, "")
 		}
 	}
 	inGroup := func(period accesstypes.Period) func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {

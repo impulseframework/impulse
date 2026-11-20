@@ -724,6 +724,11 @@ type (
 	// condition itself (group), so a role file can show a person the groups they are in
 	// (group IN subject.{{ .GroupSet }}).
 	//
+	// People is how many people are in the group, and Roles the roles it holds, a line
+	// each, by name. Both are what has not ended, a place or a role whose period has not
+	// begun among it, which is what the deletion of a group refuses it for: a group
+	// listed with no people and no roles is one Delete{{ .TenantSubject }}Group removes.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet({{ .Outlets }})
@@ -738,11 +743,14 @@ type (
 		Name        string    ` + "`spanner:\"Name\" index:\"true\"`" + `
 		Description string    ` + "`spanner:\"Description\"`" + `
 		UpdatedAt   time.Time ` + "`spanner:\"UpdatedAt\"`" + `
+		People      int64     ` + "`spanner:\"People\"`" + `
+		Roles       []string  ` + "`spanner:\"Roles\"`" + `
 	}
 )
 
 // {{ GoCamel .SubjectGroup }}Query selects the groups of every tenant: the rows of
-// {{ .Policy.Groups }} kept in one. The table's index by name leads with where a group is
+// {{ .Policy.Groups }} kept in one, each with the count of its places and the names of
+// its roles that have not ended. The table's index by name leads with where a group is
 // kept, so a tenant's page reads its own groups from it.
 const {{ GoCamel .SubjectGroup }}Query = ` + "`" + `
 SELECT
@@ -750,7 +758,9 @@ SELECT
   g.DomainId AS DomainId,
   g.Name AS Name,
   g.Description AS Description,
-  g.UpdatedAt AS UpdatedAt
+  g.UpdatedAt AS UpdatedAt,
+{{ .GroupPeople "g" }},
+{{ .GroupRoleLines "g" }}
 FROM {{ .Policy.Groups }} g
 WHERE g.Kind = {{ .KindDomain }} AND g.Axis = {{ .ScopeAxis }}
 ` + "`" + `
@@ -785,6 +795,11 @@ type (
 	// none. A role that has ended is not listed: it is nobody's through the group. One
 	// that has not begun is listed, where it is given another period or taken away.
 	//
+	// Losing is how many people lose the role when the group stops holding it: the
+	// people in the group now who hold the role in the tenant in no other way, neither by
+	// a membership of their own, in the tenant or in every tenant, nor through another
+	// group they are in. Nobody loses a role whose period has not begun.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet({{ .Outlets }})
@@ -803,6 +818,7 @@ type (
 		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
 		StartsAt  *time.Time ` + "`spanner:\"StartsAt\"`" + `
 		EndsAt    *time.Time ` + "`spanner:\"EndsAt\"`" + `
+		Losing    int64      ` + "`spanner:\"Losing\"`" + `
 	}
 )
 
@@ -817,7 +833,8 @@ SELECT
   r.Role AS Role,
   r.CreatedAt AS CreatedAt,
   r.StartsAt AS StartsAt,
-  r.EndsAt AS EndsAt
+  r.EndsAt AS EndsAt,
+{{ .Losing "r" "g" }}
 FROM {{ .Policy.Groups }} g
 JOIN {{ .Policy.GroupRoles }} r ON r.GroupId = g.Id
 WHERE g.Kind = {{ .KindDomain }} AND g.Axis = {{ .ScopeAxis }}
@@ -917,8 +934,11 @@ type (
 		// @primarykey
 		Role string ` + "`spanner:\"Role\" index:\"true\"`" + `
 		{{- end }}
-		StartsAt *time.Time ` + "`spanner:\"StartsAt\"`" + `
-		EndsAt   *time.Time ` + "`spanner:\"EndsAt\"`" + `
+		// CreatedAt is when the person came to hold the role through the group: the later
+		// of when the group was given the role and when the person was put in the group.
+		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
+		StartsAt  *time.Time ` + "`spanner:\"StartsAt\"`" + `
+		EndsAt    *time.Time ` + "`spanner:\"EndsAt\"`" + `
 	}
 )
 
@@ -940,9 +960,10 @@ SELECT
   t.Role AS Role,
   (g.Kind = {{ .KindGlobal }}) AS GlobalGroup,
   t.EveryDomain AS EveryDomain,
+  GREATEST(t.CreatedAt, m.CreatedAt) AS CreatedAt,
 {{ .ThroughGroupPeriod "t" "m" }}
 FROM (
-  SELECT r.DomainId AS DomainId, r.GroupId AS GroupId, r.Role AS Role, FALSE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
+  SELECT r.DomainId AS DomainId, r.GroupId AS GroupId, r.Role AS Role, FALSE AS EveryDomain, r.CreatedAt AS CreatedAt, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
   FROM {{ .Policy.GroupRoles }} r
   WHERE r.Kind = {{ .KindDomain }} AND r.Axis = {{ .ScopeAxis }}
     AND {{ .Standing "r" }}
@@ -952,7 +973,7 @@ FROM (
         AND {{ .Counting "e" }}
     ))
   UNION ALL
-  SELECT s.{{ .TenantKey }} AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
+  SELECT s.{{ .TenantKey }} AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.CreatedAt AS CreatedAt, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
   FROM {{ .Policy.GroupRoles }} r
   CROSS JOIN {{ .TenantTable }} s
   WHERE r.Kind = {{ .KindEvery }} AND r.Axis = {{ .ScopeAxis }}
@@ -985,6 +1006,7 @@ SELECT
   r.Axis AS Axis,
   r.DomainId AS DomainId,
   r.Role AS Role,
+  GREATEST(r.CreatedAt, m.CreatedAt) AS CreatedAt,
 {{ .ThroughGroupPeriod "r" "m" }}
 FROM {{ .Policy.GroupRoles }} r
 JOIN {{ .Policy.Groups }} g ON g.Id = r.GroupId
@@ -1354,12 +1376,12 @@ func (grants) MayTake(ctx context.Context, txn resource.ReadWriteTransaction, sc
 		if err != nil {
 			return granted(err)
 		}
-		// The method names a row of {{ .TenantRole }}, the roles held in the tenant by a
-		// membership of a person's own, and a condition on its grant reads that row. A
-		// role held through a group is no row of the list, so the condition is read
-		// against the row the removal would name: this role, held in the tenant itself
-		// and not in every tenant.
-		held := resource.ExecuteTarget{Resource: "{{ Pluralize .TenantRole }}", Label: "{{ .TenantRole }}", PKColumns: []string{"UserId", "Role"}, View: nil}
+		// The method names a row of {{ .TenantHeldRole }}, the roles held in the tenant,
+		// by the row of a membership of a person's own, and a condition on its grant
+		// reads that row. A role a person holds through a group alone is no such row, so
+		// the condition is read against the row the removal would name: this role, held
+		// in the tenant itself and not in every tenant.
+		held := resource.ExecuteTarget{Resource: "{{ Pluralize .TenantHeldRole }}", Label: "{{ .TenantHeldRole }}", PKColumns: []string{"UserId", "Role", "GroupId"}, View: nil}
 
 		return granted(gate.EnforceProposed(ctx, txn, held, map[string]any{"role": string(role), "everyDomain": false}))
 	}

@@ -153,12 +153,12 @@ func (grants) MayTake(ctx context.Context, txn resource.ReadWriteTransaction, sc
 		if err != nil {
 			return granted(err)
 		}
-		// The method names a row of StaffTenantUserRole, the roles held in the tenant by a
-		// membership of a person's own, and a condition on its grant reads that row. A
-		// role held through a group is no row of the list, so the condition is read
-		// against the row the removal would name: this role, held in the tenant itself
-		// and not in every tenant.
-		held := resource.ExecuteTarget{Resource: "StaffTenantUserRoles", Label: "StaffTenantUserRole", PKColumns: []string{"UserId", "Role"}, View: nil}
+		// The method names a row of StaffTenantHeldRole, the roles held in the tenant,
+		// by the row of a membership of a person's own, and a condition on its grant
+		// reads that row. A role a person holds through a group alone is no such row, so
+		// the condition is read against the row the removal would name: this role, held
+		// in the tenant itself and not in every tenant.
+		held := resource.ExecuteTarget{Resource: "StaffTenantHeldRoles", Label: "StaffTenantHeldRole", PKColumns: []string{"UserId", "Role", "GroupId"}, View: nil}
 
 		return granted(gate.EnforceProposed(ctx, txn, held, map[string]any{"role": string(role), "everyDomain": false}))
 	}

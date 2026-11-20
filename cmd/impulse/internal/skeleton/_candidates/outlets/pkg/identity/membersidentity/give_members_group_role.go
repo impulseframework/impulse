@@ -38,7 +38,7 @@ import (
 // @outlet(portal)
 // @answers(204)
 type GiveMembersGroupRole struct {
-	// @target(MembersGroup)
+	// @target(MembersListedGroup)
 	GroupID     impulse.UUID
 	Domain      *string
 	EveryDomain bool

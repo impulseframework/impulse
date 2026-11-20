@@ -51,8 +51,8 @@ type (
 		Transcript    *string      `spanner:"Transcript"    conditions:"input_only"`
 		CaseNumber    string       `spanner:"CaseNumber"    conditions:"output_only" default_create_fn:"defaultCaseNumber"`
 		// @attribute(filedBy)
-		FiledByUserID string `spanner:"FiledByUserId"     conditions:"output_only" default_create_fn:"currentUser"`
-		FiledByName   string `spanner:"FiledByName" conditions:"output_only" default_create_fn:"currentUserName"`
+		FiledByUserID string `spanner:"FiledByUserId" conditions:"output_only" default_create_fn:"currentUser"`
+		FiledByName   string `spanner:"FiledByName"   conditions:"output_only" default_create_fn:"currentUserName"`
 		// Position is nullable: a call relayed by voice may name no point.
 		Position *Position `spanner:"Position"`
 	}

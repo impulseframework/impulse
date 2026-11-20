@@ -348,15 +348,13 @@ func (t *typescriptGenerator) Generate() error {
 
 	// A field-scope @enumerate may name a computed resource, so the declarations
 	// resolve only now, against every kind, before the filter narrows the sets.
-	t.computedResources = computedResources
-	if err := t.resolveFieldEnumerations(resources, computedResources); err != nil {
+	if err := t.resolveParsedEnumerations(resources, computedResources); err != nil {
 		return err
 	}
 	if err := t.validatePickerSources(resources, computedResources); err != nil {
 		return err
 	}
 
-	t.resources = resources
 	// A view's @rowsOf names a table-backed resource, refusing a view of either kind,
 	// so it too resolves against every kind before the filter narrows the sets.
 	if err := t.resolveViewDeclarations(resources, computedResources); err != nil {
@@ -403,6 +401,20 @@ func (t *typescriptGenerator) Generate() error {
 	log.Printf("Finished Typescript generation in %s\n", time.Since(begin))
 
 	return nil
+}
+
+// resolveParsedEnumerations resolves every field-scope @enumerate against the resources
+// this target parsed, of every kind and on every outlet. The targets of one generation
+// share a client, and the target before this one left it holding its own outlet's
+// members; a name resolves against the client's sets, so they are this target's before
+// any name is looked up. Resolved against the earlier target's members, a field of this
+// outlet that names a resource of this outlet alone was refused as naming a resource
+// that does not exist.
+func (t *typescriptGenerator) resolveParsedEnumerations(resources []*resourceInfo, computedResources []*computedResource) error {
+	t.resources = resources
+	t.computedResources = computedResources
+
+	return t.resolveFieldEnumerations(resources, computedResources)
 }
 
 func (t *typescriptGenerator) runTypescriptEnumGeneration(namedTypes []*parser.NamedType) error {

@@ -314,7 +314,7 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 			inst.password = true
 			inst.usernameIsEmail = m.usernameIsEmail
 		}
-		inst.signIns = append(inst.signIns, identitySignIn{Name: m.name, Label: m.label})
+		inst.signIns = append(inst.signIns, identitySignIn{Name: m.name, Label: m.label, syncsRoles: m.syncsRoles})
 		if m.syncsRoles {
 			inst.rolesSynced = true
 		}
@@ -763,6 +763,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// The methods that manage the groups of people, the whole application's and one
 	// tenant's.
 	files = append(files, inst.groupMethodSources()...)
+	// What is held and why: a person's roles as one list, the groups with what each
+	// holds, and the taking of a role for a set time.
+	files = append(files, r.holdingSources(inst)...)
 	// What the rules ask of the role file: who may give a role and take one away.
 	files = append(files, inst.roleGrantsSource()...)
 	for _, file := range files {

@@ -119,13 +119,17 @@ type devUser struct {
 // devTour is a tour of duty: the roles a persona holds in one sector, named by its name,
 // for a number of days from the bootstrap. Each is a role given for a period that ends
 // (accesstypes.Period): it counts until its end and for nothing after, whether or not
-// its row still stands, and the row goes when the persona next signs in.
+// its row still stands, and the row goes when the persona next signs in. Reason says why
+// the tour was given, one line kept with each role and shown wherever the persona's
+// roles are listed, so the sector's Marshal reads why someone holds a role with her for
+// a time.
 //
-// Demonstrates: auth.periods.
+// Demonstrates: auth.periods, auth.reasons.
 type devTour struct {
 	Domain string             `json:"domain"`
 	Roles  []accesstypes.Role `json:"roles"`
 	Days   int                `json:"days"`
+	Reason string             `json:"reason"`
 }
 
 // devGroup is one group of the crew: its name and description, the sector it is kept in
@@ -414,7 +418,7 @@ func assignTours(ctx context.Context, manager access.UserManager, sectors *resou
 		}
 		ends := time.Now().UTC().AddDate(0, 0, tour.Days)
 		for _, role := range tour.Roles {
-			if err := manager.AssignUserRole(ctx, accesstypes.DomainPolicyScope(domain), user, role, accesstypes.Period{End: ends}); err != nil {
+			if err := manager.AssignUserRole(ctx, accesstypes.DomainPolicyScope(domain), user, role, accesstypes.Period{End: ends}, tour.Reason); err != nil {
 				return errors.Wrapf(err, "access.UserManager.AssignUserRole(): user %s in the sector %s (%s)", login, tour.Domain, domain)
 			}
 		}

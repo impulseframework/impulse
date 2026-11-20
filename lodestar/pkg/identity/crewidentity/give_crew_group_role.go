@@ -38,7 +38,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type GiveCrewGroupRole struct {
-	// @target(CrewGroup)
+	// @target(CrewListedGroup)
 	GroupID impulse.UUID
 	// Domain is the one Sector the role is given in, picked from the
 	// Sector records the caller may list.

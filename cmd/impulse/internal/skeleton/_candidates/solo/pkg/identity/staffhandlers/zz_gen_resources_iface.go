@@ -13,12 +13,16 @@ type Resourcer interface {
 	resource.Resourcer
 	staffresources.StaffGroup | staffresources.StaffGroupMember |
 		staffresources.StaffGroupRole | staffresources.StaffGroupUser |
-		staffresources.StaffRole | staffresources.StaffRoleGrant | staffresources.StaffSession |
+		staffresources.StaffHeldRole | staffresources.StaffListedGroup |
+		staffresources.StaffListedGroupRole | staffresources.StaffRole |
+		staffresources.StaffRoleGrant | staffresources.StaffSession |
 		staffresources.StaffSessionAuthEvent | staffresources.StaffSessionIdentity |
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
 		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionToken |
 		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
-		staffresources.StaffUserGroupRole | staffresources.StaffUserRole |
-		staffidentity.StaffGivableRole | staffidentity.StaffSignInMethod |
-		staffidentity.StaffSignInWay | staffidentity.StaffSignUpRole
+		staffresources.StaffTakenRole | staffresources.StaffUserGroupRole |
+		staffresources.StaffUserRole | staffidentity.StaffGivableRole |
+		staffidentity.StaffSignInMethod | staffidentity.StaffSignInWay |
+		staffidentity.StaffSignUpRole | staffidentity.StaffTakeLength |
+		staffidentity.StaffTakeableRole
 }

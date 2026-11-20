@@ -38,7 +38,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type GiveStaffGroupRole struct {
-	// @target(StaffGroup)
+	// @target(StaffListedGroup)
 	GroupID impulse.UUID
 	// Domain is the one Tenant the role is given in, picked from the
 	// Tenant records the caller may list.

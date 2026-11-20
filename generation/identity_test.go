@@ -72,7 +72,7 @@ func Test_identityInstances_signIns(t *testing.T) {
 		}
 	}
 	want := []identitySignIn{{Name: "google", Label: "Fleet Google"}, {Name: "password", Label: "Password"}, {Name: "lakeside", Label: "Lakeside"}, {Name: "persona", Label: "Persona"}}
-	if diff := cmp.Diff(want, got); diff != "" {
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(identitySignIn{})); diff != "" {
 		t.Errorf("the Members instance's sign-ins mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -356,6 +356,8 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/crew_sign_in_methods.go",
 		"crewidentity/crew_sign_in_ways.go",
 		"crewidentity/crew_sign_up_roles.go",
+		"crewidentity/crew_take_lengths.go",
+		"crewidentity/crew_takeable_roles.go",
 		"crewidentity/delete_crew_user.go",
 		"crewidentity/disable_crew_user.go",
 		"crewidentity/enable_crew_user.go",
@@ -378,9 +380,11 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/set_crew_user_email.go",
 		"crewidentity/set_crew_user_name.go",
 		"crewidentity/store.go",
+		"crewidentity/take_crew_role.go",
 		"crewidentity/unlink_crew_session_identity.go",
 		"crewidentity/unlock_crew_sign_in.go",
 		"crewidentity/withdraw_crew_invitation.go",
+		"internal/crewresources/crew_held_roles.go",
 		"internal/crewresources/crew_role_grants.go",
 		"internal/crewresources/crew_roles.go",
 		"internal/crewresources/crew_session_auth_events.go",
@@ -393,8 +397,10 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_session_trusted_devices.go",
 		"internal/crewresources/crew_session_users.go",
 		"internal/crewresources/crew_sessions.go",
+		"internal/crewresources/crew_taken_roles.go",
 		"internal/crewresources/crew_user_roles.go",
 		"internal/crewresources/resources.go",
+		"internal/membersresources/members_held_roles.go",
 		"internal/membersresources/members_roles.go",
 		"internal/membersresources/members_session_users.go",
 		"internal/membersresources/members_sessions.go",
@@ -524,7 +530,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/assign_crew_role.go": {
 			"UserID      impulse.UUID\n\tDomain      *string\n\tEveryDomain bool\n",
 			"// @attribute(role)\n\t// @enumerate(CrewGivableRoles)\n\tRole string `validate:\"required\"`",
-			"client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period)",
+			"client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period, identity.RequestReason(m.Reason))",
 		},
 		"crewidentity/remove_crew_role.go":                      {"UserID      impulse.UUID", "client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
 		"internal/crewresources/crew_session_impersonations.go": {"ActorUserID     *impulse.UUID `spanner:\"ActorUserId\"`"},
@@ -851,11 +857,13 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 	}
 
 	lists := []string{
+		"internal/crewresources/crew_ship_held_roles.go",
 		"internal/crewresources/crew_ship_identities.go",
 		"internal/crewresources/crew_ship_invitations.go",
 		"internal/crewresources/crew_ship_user_roles.go",
 		"internal/crewresources/crew_ship_users.go",
 		// The members' schema holds neither a mail links table nor an identities table.
+		"internal/membersresources/members_ship_held_roles.go",
 		"internal/membersresources/members_ship_user_roles.go",
 		"internal/membersresources/members_ship_users.go",
 	}
@@ -1042,7 +1050,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		},
 		"crewidentity/assign_crew_ship_role.go": {
 			"type AssignCrewShipRole struct {", "// @permissionScope(domain)", "// @target(CrewShipUser)", "// @attribute(role)",
-			"tenant, err := client.manager.Tenant(ctx)", "tenant.AssignRoleFor(ctx, txn, m.UserID, accesstypes.Role(m.Role), period)",
+			"tenant, err := client.manager.Tenant(ctx)", "tenant.AssignRoleFor(ctx, txn, m.UserID, accesstypes.Role(m.Role), period, identity.RequestReason(m.Reason))",
 			"// @attribute(role)\n\t// @enumerate(CrewShipRoles)\n\tRole string",
 		},
 		"crewidentity/crew_ship_roles.go": {
@@ -1084,7 +1092,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 			"client.manager.SignInWays(ctx, txn, userID)", "HeldElsewhere: person.HeldElsewhere,", "HeldGlobally:  person.HeldGlobally,",
 		},
 		"crewidentity/remove_crew_ship_role.go": {
-			"type RemoveCrewShipRole struct {", "// @target(CrewShipUserRole, key: UserID)\n\tUserID impulse.UUID", "// @target(CrewShipUserRole, key: Role)\n\tRole string",
+			"type RemoveCrewShipRole struct {", "// @target(CrewShipHeldRole, key: UserID)\n\tUserID impulse.UUID", "// @target(CrewShipHeldRole, key: Role)\n\tRole string",
 			"tenant.RemoveRole(ctx, txn, m.UserID, accesstypes.Role(m.Role))",
 		},
 		"crewidentity/create_crew_ship_user.go": {

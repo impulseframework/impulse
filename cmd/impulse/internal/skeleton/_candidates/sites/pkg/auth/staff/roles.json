@@ -35,6 +35,9 @@
               "resource": "RemoveStaffRole"
             },
             {
+              "resource": "TakeStaffRole"
+            },
+            {
               "resource": "EndStaffSession"
             },
             {
@@ -156,7 +159,8 @@
               "fields": [
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -326,6 +330,62 @@
                 "startsAt",
                 "endsAt"
               ]
+            },
+            {
+              "resource": "StaffHeldRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "StaffListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
+              ]
+            },
+            {
+              "resource": "StaffListedGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "losing"
+              ]
+            },
+            {
+              "resource": "StaffTakenRoles",
+              "fields": [
+                "username",
+                "name",
+                "reason",
+                "startsAt",
+                "endsAt",
+                "ended"
+              ]
+            },
+            {
+              "resource": "StaffTakeableRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
+              "resource": "StaffTakeLengths",
+              "fields": [
+                "minutes"
+              ]
             }
           ],
           "Read": [
@@ -423,6 +483,19 @@
                 "name",
                 "description",
                 "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ],
@@ -647,7 +720,22 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "StaffTenantHeldRoles",
+              "fields": [
+                "username",
+                "everyDomain",
+                "groupName",
+                "globalGroup",
+                "groupPage",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -715,7 +803,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             },
             {
@@ -735,7 +825,8 @@
                 "groupName",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "losing"
               ]
             },
             {
@@ -798,7 +889,8 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -841,7 +933,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ],
