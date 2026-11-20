@@ -33,8 +33,10 @@ export const refusedSegment = 'refused';
  * under the chosen tenant (`open`). So a link to a tenant's page can be shared, and a
  * bookmark lands where it points.
  *
- * Entering a tenant loads its permission digest into the client's cache; `can` and
- * `state` answer from it, and a question asked inside reactive code is asked again when
+ * The tenant guard reads the tenant's permission digest into the client's cache before
+ * it enters the tenant, so the digest is in when a page under the segment first draws. A
+ * tenant entered with no digest in the cache loads it on entering. `can` and `state`
+ * answer from the digest, and a question asked inside reactive code is asked again when
  * it loads.
  */
 @Injectable({ providedIn: 'root' })
@@ -55,13 +57,17 @@ export class TenantService {
   readonly current = this.routed.asReadonly();
 
   constructor() {
-    // Entering a tenant re-scopes every permission question, so the tenant's digest loads
-    // into the client's cache. The load runs untracked, so the effect never adopts the
-    // reads a request makes as dependencies.
+    // Entering a tenant re-scopes every permission question. The tenant guard has read
+    // the tenant's digest by then; a tenant entered with none in the cache loads it here.
+    // The check and the load run untracked, so the effect never adopts the reads they make
+    // as dependencies.
     effect(() => {
       const tenant = this.current();
       if (!tenant) return;
-      untracked(() => void this.client.permissions.loadDigest(tenant as Domain).catch(() => undefined));
+      untracked(() => {
+        if (this.client.permissions.hasDigest(tenant as Domain)) return;
+        void this.client.permissions.loadDigest(tenant as Domain).catch(() => undefined);
+      });
     });
 
     // The landing navigation settles the tenant: past every guard, the URL it lands on is
