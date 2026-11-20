@@ -1148,6 +1148,13 @@ the failing checks to an agent exactly as `impulse handoff` does, with two addit
 the brief: what the tool changed (and what it could not), and what the option means in
 this framework, alongside a rendered reference application with the option wired.
 
+Where no check fails, `add` says the option is wired and writes no brief, unless the
+change itself lists work the check cannot see: an edit the tool could not make ("Left to
+the agent" on the screen, "they are yours" in the brief), or a line it leaves to the
+author. Then the brief is written with the check clean, and its obligations are the lines
+under "What changed". A new application that passes its checks as `impulse new` makes it
+ends in a brief the same way wherever its start leaves such a line.
+
 Every option ends in the one regeneration. `go mod tidy` runs first, so `go.mod` requires
 what the option's new code imports (a directory method's file imports the session
 library's `google` or `azure` package, which signs in through `github.com/coreos/go-oidc/v3`,

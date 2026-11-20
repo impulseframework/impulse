@@ -30,10 +30,14 @@ func newAdd() *cobra.Command {
 		Short: "Add an option to the application: files and generator edits, then a handoff for the wiring",
 		Long: `add makes the deterministic half of an option (files laid in, the generator program and
 the seams edited at the source level, go generate run), stages it, and runs impulse check. The checks that fail are
-exactly the obligations of the option just enabled, and add hands them to an f.agent the
+exactly the obligations of the option just enabled, and add hands them to an agent the
 way impulse handoff does: a brief at ` + handoff.File + ` with what changed, what the
-option means, the failing checks verbatim, and a rendered reference application; --f.agent
-launches Claude Code on it and verifies the guardrails when it returns.`,
+option means, the failing checks verbatim, and a rendered reference application; --agent
+launches Claude Code on it and verifies the guardrails when it returns.
+
+Where no check fails, add says the option is wired and writes no brief, unless the change
+lists work the check cannot see (an edit add could not make, a line it leaves to the
+author): then the brief is written with the check clean, for those lines.`,
 	}
 	cmd.AddCommand(newAddOutlet())
 	cmd.AddCommand(newAddTenancy())
@@ -806,9 +810,9 @@ func runTransitions(cmd *cobra.Command, f *transitionFlags, repo handoff.Repo, t
 	out := cmd.OutOrStdout()
 	exec := check.OSExec{}
 	var changes, meanings []string
-	// left counts the obligations the changes list themselves (the hand-written uses a
-	// removal leaves, a scaffolded job's work), which the check cannot see, so the
-	// handoff happens for them even when the check is clean.
+	// left counts the obligations the changes list themselves (an edit a change could
+	// not make, the hand-written uses a removal leaves, a scaffolded job's work), which
+	// the check cannot see, so the handoff happens for them even when the check is clean.
 	left := 0
 	for _, t := range ts {
 		// Each transition reads the tree the one before it left.
@@ -826,7 +830,7 @@ func runTransitions(cmd *cobra.Command, f *transitionFlags, repo handoff.Repo, t
 		writeChange(out, change)
 		changes = append(changes, change.Text())
 		meanings = append(meanings, meaningOf(t, a))
-		left += len(change.Left)
+		left += change.Obligations()
 	}
 	if f.start != nil {
 		f.start.write(out)

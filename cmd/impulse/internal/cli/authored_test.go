@@ -66,10 +66,13 @@ func (a *authoredApplication) read(t *testing.T, rel string) string {
 //   - every Go file is formatted, by gofmt and by the formatters the application's lint
 //     configuration names;
 //   - the application builds;
+//   - impulse check finds nothing failing in the application as impulse new made it,
+//     and the brief impulse new left is there all the same, for what the start listed
+//     itself;
 //   - the tests that do not compile yet are files the standing brief names, and the
-//     brief impulse new left says what becomes of each suite the base carried: what the
-//     author does with it where the application signs in with a password, and why the
-//     start took it out where the application has no password sign-in;
+//     brief impulse new left says why each suite the base carried was taken out: the two
+//     tests of sign-up where the application has tenants, and the first administrator's
+//     too where it has no password sign-in;
 //   - the application's own lint, under both of its tag sets, finds nothing in any
 //     package that compiles;
 //   - an auth sets one sign-in rule, the brief is in no commit, and, where the shape has
@@ -126,6 +129,11 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 	}
 	made.newBrief = brief()
 	made.standing = made.newBrief
+	// A new application passes its own check the moment it is made, so the brief is
+	// there for what the start listed itself and reports no failing check.
+	if want := "reports no FAIL. The obligations are the lines listed under \"What changed\""; !strings.Contains(made.newBrief, want) {
+		t.Errorf("the brief impulse new left does not say %q: impulse check fails in the application as it was made\n%s", want, said.String())
+	}
 	checkpoint("checkpoint: the application as impulse new composed it")
 	made.madeAs = readShape(t, dir)
 	for _, method := range methods {
@@ -196,21 +204,28 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 			t.Errorf("%s does not compile, and the standing brief does not name it:\n%s", file, vet)
 		}
 	}
-	for _, suite := range []string{"test/integration/sign_up_test.go", "test/integration/sign_up_role_test.go", "test/integration/first_administrator_test.go"} {
-		if startsFrom.NoPassword() {
-			// The start wrote the application's tests for the sign-in it has, and took
-			// out the base's tests of what the auth does not have, each with the reason.
-			if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(suite))); err == nil {
-				t.Errorf("%s is still there: a suite the base carried that proves what the application does not have", suite)
-			}
-			if !strings.Contains(made.newBrief, suite+" (") {
-				t.Errorf("the brief impulse new left does not say why %s was taken out, a suite the base carried", suite)
-			}
-
-			continue
-		}
-		if !strings.Contains(made.newBrief, "- "+suite+" ") {
-			t.Errorf("the brief impulse new left does not say what becomes of %s, a suite the base carried", suite)
+	// The base's tests of what the application does not have are taken out, each with the
+	// reason in the brief impulse new left: the two of sign-up where the application has
+	// tenants or no password sign-in (nobody signs up to either), and the first
+	// administrator's too where it has no password sign-in. A suite that proves what the
+	// application has stays.
+	noSignUp := startsFrom.HasTenants() || startsFrom.NoPassword()
+	for _, suite := range []struct {
+		file string
+		gone bool
+	}{
+		{file: "test/integration/sign_up_test.go", gone: noSignUp},
+		{file: "test/integration/sign_up_role_test.go", gone: noSignUp},
+		{file: "test/integration/first_administrator_test.go", gone: startsFrom.NoPassword()},
+	} {
+		_, err := os.Stat(filepath.Join(dir, filepath.FromSlash(suite.file)))
+		switch {
+		case !suite.gone && err != nil:
+			t.Errorf("%s is not there (%v): a suite the base carried that proves what the application has", suite.file, err)
+		case suite.gone && err == nil:
+			t.Errorf("%s is still there: a suite the base carried that proves what the application does not have", suite.file)
+		case suite.gone && !strings.Contains(made.newBrief, suite.file+" ("):
+			t.Errorf("the brief impulse new left does not say why %s was taken out, a suite the base carried", suite.file)
 		}
 	}
 
