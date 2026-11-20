@@ -34,7 +34,11 @@ import (
 // The list names the place a role is held in. Filtered by one tenant (domain:eq:<id>)
 // it lists that tenant's roles; otherwise it lists the roles held for the whole
 // application (everyDomain false) and the ones held in every tenant (everyDomain
-// true), which a filter on everyDomain narrows.
+// true), which a filter on everyDomain narrows. A row is given with its place: the
+// request that gives the role names where it is held beside it, the tenant (domain)
+// or every tenant (everyDomain true). A request that names no place gives a role
+// of the whole application, so it is refused for a role this list gives only with a
+// place.
 //
 // It is a computed resource. The role file's roles are held by the permission engine
 // and only a custom role is a row of a table, so the engine is asked and no query

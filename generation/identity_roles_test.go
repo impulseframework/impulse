@@ -1,10 +1,14 @@
 package generation
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"golang.org/x/tools/go/packages"
 )
 
 // Test_reservedRoleIn pins what the generator reads of an auth's role file: a role under
@@ -163,6 +167,112 @@ func Test_retiredGrantsIn(t *testing.T) {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("retiredGrantsIn() error = %v, want one containing %q", err, want)
 				}
+			}
+		})
+	}
+}
+
+// Test_extractAndGenerateRPC_retiredGrants pins that a run refuses a role file that still
+// grants a method the generated management no longer has, and where it does: once the
+// run has read every method, the application's own among them. A role file that still
+// lets a role create an account or set a temporary password, in the application or in a
+// tenant, stops the run in words that name what took the method's place; and a method
+// the application declares itself under one of those names is its own, so its grant
+// stands while the other is refused.
+func Test_extractAndGenerateRPC_retiredGrants(t *testing.T) {
+	// The fixtures are loaded before the working directory moves: a package is resolved
+	// from the module the test runs in. own declares CreateCrewUser as the application's
+	// method, and none marks no struct as a method, as an auth's generated methods
+	// package that holds none yet.
+	own, _ := loadFixturePackage(t, "retiredgrantfixture")
+	none, _ := loadFixturePackage(t, "rpc")
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	const (
+		refusal   = "the role file grants methods that are gone"
+		createdBy = `{"name": "Administrator", "description": "Manages people.", "permissions": {"Execute": [{"resource": "%s"}, {"resource": "%s.password"}]}}`
+	)
+	tests := []struct {
+		name string
+		// tenant is the tenant record's name, empty for an application without one.
+		tenant string
+		// declares says the application declares CreateCrewUser itself.
+		declares bool
+		roles    string
+		wantErrs []string
+		// wantNot is what the refusal does not name.
+		wantNot string
+	}{
+		{
+			name:  "a role of the application that still creates accounts and sets temporary passwords",
+			roles: `{"roles": {"global": [` + fmt.Sprintf(createdBy, "CreateCrewUser", "SetCrewTemporaryPassword") + `]}}`,
+			wantErrs: []string{
+				"the role Administrator is granted Execute on CreateCrewUser, and the generated management has no such method any more: an account is added by an invitation, and nobody creates one for someone else; grant InviteCrewUser to the role instead, or remove the grant",
+				"the role Administrator is granted Execute on SetCrewTemporaryPassword, and the generated management has no such method any more: a person chooses their own password through a reset link, and nobody sets one for someone else; grant SendCrewUserPasswordResetLink to the role instead, or remove the grant",
+			},
+		},
+		{
+			name:   "a tenant's role that still does both in its tenant",
+			tenant: "Sector",
+			roles:  `{"roles": {"domain": [` + fmt.Sprintf(createdBy, "CreateCrewSectorUser", "SetCrewSectorTemporaryPassword") + `]}}`,
+			wantErrs: []string{
+				"the role Administrator is granted Execute on CreateCrewSectorUser, and the generated management has no such method any more: an account is added by an invitation, and nobody creates one for someone else; grant InviteCrewSectorUser to the role instead, or remove the grant",
+				"the role Administrator is granted Execute on SetCrewSectorTemporaryPassword, and the generated management has no such method any more: a person chooses their own password through a reset link, and nobody sets one for someone else; grant SendCrewSectorUserPasswordResetLink to the role instead, or remove the grant",
+			},
+		},
+		{
+			name:     "a method the application declares under the name is its own, and its grant stands",
+			declares: true,
+			roles:    `{"roles": {"global": [` + fmt.Sprintf(createdBy, "CreateCrewUser", "SetCrewTemporaryPassword") + `]}}`,
+			wantErrs: []string{"the role Administrator is granted Execute on SetCrewTemporaryPassword"},
+			wantNot:  "Execute on CreateCrewUser",
+		},
+	}
+	for _, tt := range tests {
+		// The cases share the process's working directory, so they run one after another.
+		t.Run(tt.name, func(t *testing.T) {
+			r := identityFixtureGenerator(t, slices.Concat(crewIdentityTables, membersIdentityTables)...)
+			if err := r.prepareIdentity(); err != nil {
+				t.Fatalf("prepareIdentity() error = %v", err)
+			}
+			packageMap := map[string]*packages.Package{}
+			for _, inst := range r.identity {
+				packageMap[inst.methods.Package()] = none
+				if tt.tenant != "" {
+					inst.tenant = &identityTenant{name: tt.tenant}
+				}
+			}
+			if tt.declares {
+				r.genRPCMethods = true
+				r.rpc = "pkg/retiredgrantfixture"
+				packageMap[r.rpc.Package()] = own
+			}
+			dir, ok := r.moduleDir(crewAuthPath)
+			if !ok {
+				t.Fatalf("the fixture's crew auth %q is no package of the fixture's module", crewAuthPath)
+			}
+			if err := os.MkdirAll(dir, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, identityRolesFile), []byte(tt.roles), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			err := r.extractAndGenerateRPC(packageMap, own)
+			if err == nil || !strings.Contains(err.Error(), refusal) {
+				t.Fatalf("extractAndGenerateRPC() error = %v, want the refusal %q", err, refusal)
+			}
+			if !strings.Contains(err.Error(), crewAuthPath) {
+				t.Errorf("extractAndGenerateRPC() error = %v, want one naming the auth %q", err, crewAuthPath)
+			}
+			for _, want := range tt.wantErrs {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("extractAndGenerateRPC() error = %v, want one containing %q", err, want)
+				}
+			}
+			if tt.wantNot != "" && strings.Contains(err.Error(), tt.wantNot) {
+				t.Errorf("extractAndGenerateRPC() error = %v, want none naming %q: the application declares the method itself", err, tt.wantNot)
 			}
 		})
 	}

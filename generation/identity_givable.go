@@ -141,7 +141,11 @@ import (
 // The list names the place a role is held in. Filtered by one {{ .TenantWord }} (domain:eq:<id>)
 // it lists that {{ .TenantWord }}'s roles; otherwise it lists the roles held for the whole
 // application (everyDomain false) and the ones held in every {{ .TenantWord }} (everyDomain
-// true), which a filter on everyDomain narrows.
+// true), which a filter on everyDomain narrows. A row is given with its place: the
+// request that gives the role names where it is held beside it, the {{ .TenantWord }} (domain)
+// or every {{ .TenantWord }} (everyDomain true). A request that names no place gives a role
+// of the whole application, so it is refused for a role this list gives only with a
+// place.
 {{- end }}
 //
 // It is a computed resource. The role file's roles are held by the permission engine
