@@ -48,6 +48,11 @@ import (
 // refuses the class, the action by name or every action refuses the creation with
 // nothing written, and a session that acts with no mask creates the tenant, since to
 // let someone act as a person with no mask is to give them what the person holds.
+//
+// A grant of the action would admit nobody, so the registration marks it as an action
+// no role is given (resource.CollectionResource.NoRole): the collection keeps it out of
+// what a role file may grant, where a grant of it is refused, and out of every
+// outlet's browser constants, and impulse check refuses a role file that names it.
 
 // tenantCreation says what the generator writes to make a tenant of the record.
 type tenantCreation string
@@ -164,8 +169,9 @@ func tenantCreationOfferedHandlerFunc(record string) string {
 
 // tenantCreationAction is the action the create-your-tenant route is in the permission
 // collection, named as its handler is: CreateTenant, CreateSector. No role's grant of it
-// admits anyone, since the route asks for none; a permission mask names it, by its
-// class or by this name, to refuse the creation to a session that acts as someone.
+// admits anyone, since the route asks for none, so it is marked an action no role is
+// given; a permission mask names it, by its class or by this name, to refuse the
+// creation to a session that acts as someone.
 func tenantCreationAction(record string) accesstypes.Resource {
 	return accesstypes.Resource(tenantCreationHandlerFunc(record))
 }
@@ -181,9 +187,10 @@ func tenantCreationAct(record string) string {
 // collectTenantCreationRegistration registers the create-your-tenant route's action
 // into the collection wherever the route is generated: Execute on the handler's name,
 // in the application's scope, since the route stands in no tenant, with the class
-// access. The name is the generator's: a manual registration the application declares
-// under it is refused, naming the record (an RPC method of the name is refused where
-// the route is decided, validateTenantCreation).
+// access and the mark of an action no role is given, which keeps the name out of the
+// role files and the browser constants. The name is the generator's: a manual
+// registration the application declares under it is refused, naming the record (an RPC
+// method of the name is refused where the route is decided, validateTenantCreation).
 func (r *resourceGenerator) collectTenantCreationRegistration(b *resource.CollectionBuilder) error {
 	record := r.tenantRecord()
 	if !r.genRoutes || record == nil || !record.TenantCreation.SelfService() {
@@ -197,6 +204,7 @@ func (r *resourceGenerator) collectTenantCreationRegistration(b *resource.Collec
 		return errors.Wrapf(err, "registering %s", action)
 	}
 	b.SetActionClasses(accesstypes.GlobalPermissionScope, action, []accesstypes.ActionClass{accesstypes.ClassAccess})
+	b.SetActionNoRole(accesstypes.GlobalPermissionScope, action)
 
 	return nil
 }

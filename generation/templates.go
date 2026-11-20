@@ -4733,6 +4733,9 @@ func Collection() *resource.GeneratedCollection {
 				{{- with .Classes }}
 				Classes: []accesstypes.ActionClass{ {{- range $i, $c := . }}{{ if $i }}, {{ end }}{{ ClassConstant $c }}{{ end -}} },
 				{{- end }}
+				{{- if .NoRole }}
+				NoRole: true,
+				{{- end }}
 				{{- with .Tags }}
 				Tags: []resource.TagData{
 					{{- range . }}

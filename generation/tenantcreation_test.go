@@ -344,8 +344,9 @@ func Test_tenantCreationData_typeImports(t *testing.T) {
 // Test_collectTenantCreationRegistration pins the route's action in the permission
 // collection: Execute on the handler's name, in the application's scope, with the class
 // access, wherever the route is generated, so a permission mask that refuses the class
-// refuses the creation; nothing where no route is generated; and a manual registration
-// under the name refused, naming the record.
+// refuses the creation, and with the mark of an action no role is given, so nothing a
+// role file may grant names it; nothing where no route is generated; and a manual
+// registration under the name refused, naming the record.
 func Test_collectTenantCreationRegistration(t *testing.T) {
 	t.Parallel()
 
@@ -364,10 +365,19 @@ func Test_collectTenantCreationRegistration(t *testing.T) {
 		}
 		want := []resource.CollectionResource{{
 			Name: "CreateStation", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute},
-			Classes: []accesstypes.ActionClass{accesstypes.ClassAccess},
+			Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}, NoRole: true,
 		}}
 		if diff := cmp.Diff(want, b.Data().Resources); diff != "" {
 			t.Errorf("the collection's registrations mismatch (-want +got):\n%s", diff)
+		}
+		// What the mark does where the collection is read: nothing a role file may
+		// grant names the action, and the masked check still finds its class.
+		collection := b.GeneratedCollection()
+		if got := collection.List()[accesstypes.Execute]; len(got) != 0 {
+			t.Errorf("the collection lists %v under Execute, want nothing a role file may grant", got)
+		}
+		if got := collection.ActionClasses(accesstypes.GlobalPermissionScope, "CreateStation"); !slices.Equal(got, []accesstypes.ActionClass{accesstypes.ClassAccess}) {
+			t.Errorf("ActionClasses(CreateStation) = %v, want the class access, which a mask refuses", got)
 		}
 	})
 
@@ -799,40 +809,81 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 	}
 }
 
-// Test_applyOutletFilter_tenantCreationAction pins the route's action in an outlet's
-// constants: the client of an outlet that serves the tenant record names it, the client
-// of an outlet the record is not on leaves it out with the record, and where the
-// generator writes no route the name is not the generator's to leave out.
-func Test_applyOutletFilter_tenantCreationAction(t *testing.T) {
+// Test_typescriptConstants_tenantCreationAction pins the route's action in the browser
+// constants: no outlet's constants name it, the outlet that serves the tenant record
+// included, since the collection marks it an action no role is given and nothing asks
+// a role for it; a method a role is given stays.
+func Test_typescriptConstants_tenantCreationAction(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		creation tenantCreation
-		outlet   string
-		want     bool
-	}{
-		{name: "the outlet that serves the record keeps the action", creation: tenantCreationBoth},
-		{name: "an outlet the record is not on leaves it out", creation: tenantCreationBoth, outlet: "members", want: true},
-		{name: "no route is generated, so nothing is left out", creation: tenantCreationNone, outlet: "members"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, outlet := range []string{"", "members"} {
+		t.Run("outlet "+outlet, func(t *testing.T) {
 			t.Parallel()
 
-			c := &client{tableMap: tenantFixtureTables()}
-			resources, err := c.structsToResources(tenantFixtureStructs(t, fixtureStructs(loadFixture(t, "tenantfixture")), "Station"))
-			if err != nil {
-				t.Fatalf("structsToResources() error = %v", err)
+			r := tenantCreationFixtureGenerator(t, "Station", func(r *resourceGenerator) {
+				r.genRoutes = true
+				r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
+			})
+			b := resource.NewCollectionBuilder()
+			if err := r.collectTenantCreationRegistration(b); err != nil {
+				t.Fatalf("collectTenantCreationRegistration() error = %v", err)
 			}
-			c.resources = resources
-			gen := &typescriptGenerator{client: c, outletName: tt.outlet, tenantCreation: tt.creation}
+			if err := b.AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, "Launch"); err != nil {
+				t.Fatalf("AddMethodResource(Launch) error = %v", err)
+			}
+
+			gen := &typescriptGenerator{client: r.client, rc: b.GeneratedCollection(), outletName: outlet, tenantCreation: tenantCreationBoth}
 			if _, _, err := gen.applyOutletFilter(slices.Clone(gen.resources), nil); err != nil {
 				t.Fatalf("applyOutletFilter() error = %v", err)
 			}
-			if got := slices.Contains(gen.outletExcluded, accesstypes.Resource("CreateStation")); got != tt.want {
-				t.Errorf("CreateStation is left out of the outlet's constants = %t, want %t (left out: %v)", got, tt.want, gen.outletExcluded)
+			data := gen.rc.TypescriptDataExcluding(gen.outletExcluded...)
+			out, err := gen.generateTemplateOutput("typescriptConstantsTemplate", typescriptConstantsTemplate, tsConstantsData{
+				File:          gen,
+				Data:          data,
+				ManualMethods: gen.manualMethods(data.Methods),
+			})
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
 			}
+			assertContains(t, "typescriptConstantsTemplate", string(out), []string{"Launch: 'Launch' as Method"}, []string{"CreateStation"})
 		})
+	}
+}
+
+// Test_collectionTemplate_noRole pins the collection file's record of an action no
+// role is given: the route's action is written with the mark, which the application's
+// collection and impulse check read, and an action a role is given is written without.
+func Test_collectionTemplate_noRole(t *testing.T) {
+	t.Parallel()
+
+	r := tenantCreationFixtureGenerator(t, "Station", func(r *resourceGenerator) {
+		r.genRoutes = true
+		r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
+	})
+	b := resource.NewCollectionBuilder()
+	if err := r.collectTenantCreationRegistration(b); err != nil {
+		t.Fatalf("collectTenantCreationRegistration() error = %v", err)
+	}
+	if err := b.AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, "Launch"); err != nil {
+		t.Fatalf("AddMethodResource(Launch) error = %v", err)
+	}
+
+	output, err := r.generateTemplateOutput("collectionTemplate", collectionTemplate, &collectionFileData{Source: "pkg/resources", Package: "router", Data: b.Data()})
+	if err != nil {
+		t.Fatalf("generateTemplateOutput() error = %v", err)
+	}
+	formatted, err := format.Source(output)
+	if err != nil {
+		t.Fatalf("rendered collection file is not valid Go: %v\n%s", err, output)
+	}
+	// gofmt aligns the struct-literal fields, so collapse space runs.
+	collapsed := strings.Join(strings.Fields(string(formatted)), " ")
+	assertContains(t, "collectionTemplate", collapsed,
+		[]string{
+			`Name: "CreateStation", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{ClassAccess}, NoRole: true, },`,
+			`Name: "Launch", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, },`,
+		}, nil)
+	if got := strings.Count(collapsed, "NoRole: true"); got != 1 {
+		t.Errorf("the collection file marks %d actions as given to no role, want CreateStation alone:\n%s", got, collapsed)
 	}
 }

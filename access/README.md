@@ -687,6 +687,17 @@ without a description, declares a role twice or at both scopes, grants what
 the collection does not declare, or carries a condition the vocabulary refuses
 fails `New`, so a release whose default roles are wrong does not start.
 
+A collection may mark an action as one no role is given, as the generator marks the
+action of the create-your-tenant route (`NoRole: true` in the generated collection).
+Nothing asks for a grant of such an action: it is registered only so that a permission
+mask can refuse it to a session that acts as someone. A role file that grants one is
+refused, in a sentence that names the role and the action and says to remove the grant,
+and a grant of one that the store already holds for a custom role is skipped at the load
+and reported by `CheckPolicy`, as a grant on a name this release does not declare. The
+collection says which actions are marked through two optional methods,
+`IsNoRoleAction(action)` and `NoRoleActions()`, which the generated collection and
+`UnionCollection` carry; a collection without them marks none.
+
 Every role name follows one grammar, a default role's in the file and a custom
 role's given to `AddRole` alike: letters and digits starting with a capital
 letter, such as `Administrator` or `TenantAdministrator` — no underscore,
@@ -957,6 +968,9 @@ declarations, and every other question about a resource is answered by the first
 collection registering it. A resource several sites serve must be declared identically
 in each; `UnionCollection` refuses collections that disagree on a shared resource's
 permissions (fields included), scope, immutability, computed marking, or method target.
+An action one site marks as an action no role is given is no role's in the union, and a
+site that registers the same name for roles is refused: a name is one or the other in
+every site.
 
 ```go
 collection, err := access.UnionCollection(consolerouter.Collection(), portalrouter.Collection())

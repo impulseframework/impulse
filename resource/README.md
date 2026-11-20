@@ -3226,8 +3226,18 @@ in such a session as in the person's own, whatever its mask shows: a mask that k
 creation and leaves nothing of the person's grants in their tenant takes the tenant off
 the session's list and not off the person, and the route counts the person's
 (`resource.HeldDomains`). The name is for masks
-alone: a role's grant of it admits nobody and its absence refuses nobody, and a
-registration made by hand under the name is refused at generation.
+alone, and the collection says so: the generator registers it as an action no role is
+given (`NoRole: true` in the generated collection file,
+`resource.CollectionResource.NoRole`). Nothing asks a role for it, so a grant of it
+would do nothing and its absence refuses nobody. A role file that names it is refused
+wherever the file is validated, in words that say why (the permission engine at start,
+`access.ValidateRoles`, and the `roles-file` check of `impulse check`, which reads the
+mark from the generated collection file); the browser constants (`Methods` in
+`zz_gen_constants.ts`) leave it out on every outlet, so no page that lists what a
+person may be shown or given names it; and a registration made by hand under the name
+is refused at generation. The collection still answers for the name where a mask is
+declared and where the masked check asks (`Scope`, `HasPermission`, `ActionClasses`),
+so a kind refuses it by its class or by name.
 
 **The maker.** What makes a tenant from an accepted invitation is generated beside the
 roster: `New<Record>Maker(roster, liveService)` in the handler package answers an

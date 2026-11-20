@@ -176,6 +176,18 @@ type CollectionResource struct {
 	// action of no class and for every resource that is not an action.
 	Classes []accesstypes.ActionClass
 
+	// NoRole marks an action no role is given: one registered so that a permission
+	// mask can refuse it, by its class or by its name, where nothing asks for a grant
+	// of it. The action of the generated create-your-tenant route is one: the route
+	// admits a person who holds nothing, so a grant of the action would admit nobody
+	// and withholding it refuses nobody. The collection keeps such an action out of
+	// everything that says what a role may be given: List leaves it out, so the role
+	// file's validation refuses a grant that names it, and the browser constants
+	// leave it out. It stays registered for the masked check, which reads its scope
+	// and its classes (Scope, ActionClasses). Only an action carries the mark: a name
+	// that registers Execute alone, with no field.
+	NoRole bool
+
 	// The resource's binding vocabulary (ABAC design plan §04), compiled from
 	// the field-level binding annotations: attributes conditions reference,
 	// the structural tenancy binding, and the subject-side vocabulary.
@@ -295,6 +307,12 @@ func (b *CollectionBuilder) SetMethodFormerName(scope accesstypes.PermissionScop
 // and a name given classes twice carries them all.
 func (b *CollectionBuilder) SetActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource, classes []accesstypes.ActionClass) {
 	b.g.setActionClasses(scope, action, classes)
+}
+
+// SetActionNoRole marks an action registered within scope as one no role is given (see
+// CollectionResource.NoRole): a permission mask refuses it, and no role file names it.
+func (b *CollectionBuilder) SetActionNoRole(scope accesstypes.PermissionScope, action accesstypes.Resource) {
+	b.g.setActionNoRole(scope, action)
 }
 
 // SetResourceQueryKeys records how a list of res is ordered and narrowed within
@@ -418,6 +436,8 @@ type GeneratedCollection struct {
 	acrossTenants map[accesstypes.Resource]struct{}
 	// classes are the classes each action carries, sorted, within scope.
 	classes map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.ActionClass
+	// noRole are the actions no role is given, within scope.
+	noRole map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}
 }
 
 // newGeneratedCollection creates an empty, populatable GeneratedCollection.
@@ -437,6 +457,7 @@ func newGeneratedCollection() *GeneratedCollection {
 		formerTags:      make(map[accesstypes.PermissionScope]formerTagMap, 2),
 		formerNames:     make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
 		classes:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.ActionClass, 2),
+		noRole:          make(map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}, 2),
 	}
 }
 
@@ -567,6 +588,13 @@ func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) e
 			}
 		}
 		g.setActionClasses(res.Scope, res.Name, res.Classes)
+	}
+
+	if res.NoRole {
+		if !slices.Equal(res.Permissions, []accesstypes.Permission{accesstypes.Execute}) || len(res.Tags) > 0 {
+			return errors.Newf("resource %q is marked an action no role is given and is not an action: the mark is for a name that registers Execute alone, with no field", res.Name)
+		}
+		g.setActionNoRole(res.Scope, res.Name)
 	}
 
 	if len(res.Order) > 0 || len(res.QueryKeys) > 0 {
@@ -739,6 +767,48 @@ func (g *GeneratedCollection) ActionsOfClass(class accesstypes.ActionClass) []ac
 	return slices.Compact(actions)
 }
 
+// setActionNoRole marks an action within scope as one no role is given.
+func (g *GeneratedCollection) setActionNoRole(scope accesstypes.PermissionScope, action accesstypes.Resource) {
+	if g.noRole[scope] == nil {
+		g.noRole[scope] = make(map[accesstypes.Resource]struct{})
+	}
+	g.noRole[scope][action] = struct{}{}
+}
+
+// IsNoRoleAction reports whether action is an action no role is given, in either scope
+// (CollectionResource.NoRole): one that is registered so a permission mask can refuse
+// it, and that List leaves out. The role file's validation asks it to say why a grant
+// that names the action is refused. A nil collection marks none.
+func (g *GeneratedCollection) IsNoRoleAction(action accesstypes.Resource) bool {
+	if g == nil {
+		return false
+	}
+	for _, marked := range g.noRole {
+		if _, ok := marked[action]; ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// NoRoleActions reports the actions no role is given, in either scope, sorted. A nil
+// collection marks none.
+func (g *GeneratedCollection) NoRoleActions() []accesstypes.Resource {
+	if g == nil {
+		return nil
+	}
+	var actions []accesstypes.Resource
+	for _, marked := range g.noRole {
+		for action := range marked {
+			actions = append(actions, action)
+		}
+	}
+	slices.Sort(actions)
+
+	return slices.Compact(actions)
+}
+
 // setTagMasking records a field's masking behavior within scope; only the
 // non-default behavior is stored.
 func (g *GeneratedCollection) setTagMasking(scope accesstypes.PermissionScope, res accesstypes.Resource, tag accesstypes.Tag, masking Masking) {
@@ -837,11 +907,17 @@ func MustNewGeneratedCollection(data CollectionData) *GeneratedCollection {
 	return g
 }
 
-// List returns a map of permissions to the resources that have them.
+// List returns a map of permissions to the resources that have them: everything a
+// role's grant may name. An action no role is given (CollectionResource.NoRole) is not
+// in it, so a role file that names one is refused and no listing of what a role may be
+// given shows it; Scope, HasPermission and ActionClasses still answer for it.
 func (g *GeneratedCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
 	permissionResources := make(map[accesstypes.Permission][]accesstypes.Resource)
-	for _, store := range g.resourceStore {
+	for scope, store := range g.resourceStore {
 		for resource, permissions := range store {
+			if _, noRole := g.noRole[scope][resource]; noRole {
+				continue
+			}
 			for _, permission := range permissions {
 				permissionResources[permission] = append(permissionResources[permission], resource)
 			}
@@ -1140,7 +1216,8 @@ func (g *GeneratedCollection) TypescriptData() *TypescriptData {
 // exclusively to other router outlets, so an outlet-scoped target emits only its own
 // members. Permissions and scopes are the framework's whole vocabulary regardless: a
 // browser app names Permissions.Execute before the application registers a method,
-// and an all-global application still names the domain scope.
+// and an all-global application still names the domain scope. An action no role is
+// given (CollectionResource.NoRole) is in no target's methods.
 func (g *GeneratedCollection) TypescriptDataExcluding(excluded ...accesstypes.Resource) *TypescriptData {
 	var skip map[accesstypes.Resource]struct{}
 	if len(excluded) > 0 {
@@ -1160,13 +1237,17 @@ func (g *GeneratedCollection) TypescriptDataExcluding(excluded ...accesstypes.Re
 }
 
 // methods returns the sorted Execute-gated registrations not skipped: the
-// complement of resources, so every registration lands in exactly one of the
-// two lists.
+// complement of resources, so every registration a role may be given lands in
+// exactly one of the two lists. An action no role is given is in neither: a page
+// asks the constants what a person may be shown or given, and nobody is given it.
 func (g *GeneratedCollection) methods(skip map[accesstypes.Resource]struct{}) []accesstypes.Resource {
 	methods := []accesstypes.Resource{}
-	for _, stores := range g.resourceStore {
+	for scope, stores := range g.resourceStore {
 		for resource, permissions := range stores {
 			if !slices.Contains(permissions, accesstypes.Execute) {
+				continue
+			}
+			if _, noRole := g.noRole[scope][resource]; noRole {
 				continue
 			}
 			if _, skipped := skip[resource]; skipped {
@@ -1411,6 +1492,9 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 			res.Formerly = former
 		}
 		res.Classes = slices.Clone(g.classes[key.scope][key.name])
+		if _, ok := g.noRole[key.scope][key.name]; ok {
+			res.NoRole = true
+		}
 
 		if qk, ok := g.queryKeys[key.scope][key.name]; ok {
 			res.Order = slices.Clone(qk.order)
