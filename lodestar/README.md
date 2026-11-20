@@ -1250,8 +1250,10 @@ watch desk then name the cadet by username; and
   Class column maps the catalog read whole once. The
   [Hangars page](web/console/src/app/configs/hangars.config.ts) lists a sector's hangars,
   and a hangar's own page lists its passes: who the hangar is open to. Both lists open
-  their create in a dialog ([`list.create-dialog`](web/console/src/app/configs/hangars.config.ts)):
-  Add a pass opens the form over the page with three pickers side by side, a person of
+  their create in a dialog, as every list of the console does
+  ([`list.create-dialog`](web/console/src/app/configs/hangars.config.ts)): the button
+  above a list opens the form over the page under the button's own words, and no list
+  draws a form on its page. Add a pass opens the form with three pickers side by side, a person of
   the sector, a squadron and a group of the sector, each a list the generated metadata
   names; the pass names one of them, and one that names two, or none, is refused inside
   the dialog in the server's words. Lodestar is also the browser library's

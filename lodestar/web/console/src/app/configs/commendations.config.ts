@@ -23,6 +23,7 @@ export const commendationsConfig = rootConfig({
   parentConfig: listViewConfig({
     title: 'Commendations',
     createTitle: 'Commendation',
+    createButtonLabel: 'Add a commendation',
     primaryResource: Resources.Commendations,
     listColumns: [
       { id: Commendations.fieldName.pilotId, header: 'Pilot' },

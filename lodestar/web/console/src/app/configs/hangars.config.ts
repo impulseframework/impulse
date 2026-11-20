@@ -26,9 +26,9 @@ import {
 // group of another sector, or one kept for the whole fleet, is never offered. A pass
 // that names two holders, or none, is refused by the server in words the dialog shows.
 //
-// Both lists open their create in a dialog (createInDialog): the button above the list
-// opens the form over the page under the button's own words, a refusal stays in the
-// dialog, and the list reads its rows again once the row is there.
+// Both lists open their create in a dialog, as every list does: the button above the
+// list opens the form over the page under the button's own words (createButtonLabel), a
+// refusal stays in the dialog, and the list reads its rows again once the row is there.
 //
 // What a person sees here is the role file's: the marshal lists every hangar and writes
 // its passes; an armorer lists only the hangars a pass opens to him, in his own name,
@@ -44,7 +44,6 @@ export const hangarsConfig = rootConfig({
     title: 'Hangars',
     createTitle: 'Hangar',
     createButtonLabel: 'Add a hangar',
-    createInDialog: true,
     primaryResource: Resources.Hangars,
     listColumns: [{ id: Hangars.fieldName.name }, { id: Hangars.fieldName.zone }],
     elements: [
@@ -62,7 +61,6 @@ export const hangarsConfig = rootConfig({
       title: 'Passes',
       createTitle: 'Pass',
       createButtonLabel: 'Add a pass',
-      createInDialog: true,
       primaryResource: Resources.HangarPasses,
       parentRelation: { parentKey: Hangars.fieldName.id, childKey: HangarPasses.fieldName.hangarId },
       // A pass is read whole in its row: there is no page of its own to open.

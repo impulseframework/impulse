@@ -126,7 +126,11 @@ export class ResourceListComponent implements OnInit {
   dialog = inject(MatDialog);
 
   hideCreateButton = input<boolean>(true);
-  createMode = output<boolean>();
+  /**
+   * The list's create button was pressed. The list draws no form of its own: the page
+   * that holds it opens the create in a dialog.
+   */
+  createRequested = output<void>();
   /**
    * A method ran from this list, against one of its rows or from above it. The list has
    * already asked for its rows again; a page that holds the list under a row reads the
@@ -136,7 +140,6 @@ export class ResourceListComponent implements OnInit {
   resourceConfig = input<ChildResourceConfig>();
   viewRoute = input<string>();
   filter = input<string>('');
-  linkCreateType = input<boolean>(false);
   isRootList = input<boolean>(true);
 
   showCreateButton = computed(() => {
@@ -975,7 +978,7 @@ export class ResourceListComponent implements OnInit {
 
   createResource(event: MouseEvent): void {
     event.stopPropagation();
-    this.createMode.emit(true);
+    this.createRequested.emit();
   }
 
   parentKey = computed(() => {

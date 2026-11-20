@@ -7,7 +7,6 @@ import {
   inject,
   Injector,
   input,
-  signal,
   Type,
   untracked,
   viewChild,
@@ -23,7 +22,6 @@ import {
   openCreateDialog,
   ResourceCreateDialogComponent,
 } from '../resource-create-dialog/resource-create-dialog.component';
-import { ResourceCreateComponent } from '../resource-create/resource-create.component';
 import { ResourceListComponent } from '../resource-list/resource-list.component';
 import { ResourceStore } from '../resource-store.service';
 
@@ -37,7 +35,6 @@ import { ResourceStore } from '../resource-store.service';
     MatIconModule,
     MatTooltipModule,
     MatButtonModule,
-    ResourceCreateComponent,
     ResourceListComponent,
     NgTemplateOutlet,
   ],
@@ -61,9 +58,8 @@ export class ResourceListCreateComponent {
   route = inject(ActivatedRoute);
   router = inject(Router);
   private dialog = inject(MatDialog);
-  /** The open dialog of this list's create, where the config opens the create in one (`createInDialog`). */
+  /** The open dialog of this list's create; none while the create is not being filled. */
   private createDialog?: MatDialogRef<ResourceCreateDialogComponent, boolean>;
-  create = signal<boolean>(false);
   parentId = input<string>();
   /**
    * The parent row a child list is related to by `parentRelation`. No default: a child
@@ -116,10 +112,6 @@ export class ResourceListCreateComponent {
     return this.route.snapshot.data['config'] as RootConfig;
   });
 
-  createLinkType = computed(() => {
-    return this.config().loadCreatedResource && this.create();
-  });
-
   createConfig = computed(() => {
     const config = this.config();
     if (Object.keys(config.createConfig).length !== 0) {
@@ -128,38 +120,23 @@ export class ResourceListCreateComponent {
     return config;
   });
 
+  /**
+   * A collapsed list's add button was pressed: the create opens as the button above an
+   * open list opens it, and the panel stays as it is.
+   */
   createResource(event: MouseEvent): void {
     event.stopPropagation();
-    if (this.config().createInDialog) {
-      this.openCreateDialog();
-      return;
-    }
-    this.create.set(true);
-
-    if (this.expPanel() && this.expPanel()?.closed) {
-      this.expPanel()?.open();
-    }
+    this.openCreate();
   }
 
   /**
-   * The list's create button was pressed, or its create was left. A list whose config
-   * says `createInDialog` opens the form in a dialog and stays as it is; any other draws
-   * the form on the page, above the list.
+   * Opens the list's create in a dialog, titled with the create button's label. The
+   * list draws no form on its page: adding a row is a button that opens a dialog, on
+   * every list. Once a row is created the list reads its rows again, and a collapsed
+   * panel opens so the new row is on the screen. A press while the dialog is open opens
+   * no second one.
    */
-  setCreateMode(creating: boolean): void {
-    if (creating && this.config().createInDialog) {
-      this.openCreateDialog();
-      return;
-    }
-    this.create.set(creating);
-  }
-
-  /**
-   * Opens the create in a dialog, titled with the create button's label. Once a row is
-   * created the list reads its rows again, and a collapsed panel opens so the new row
-   * is on the screen.
-   */
-  private openCreateDialog(): void {
+  openCreate(): void {
     if (this.createDialog) {
       return;
     }
@@ -167,7 +144,7 @@ export class ResourceListCreateComponent {
     const opened = openCreateDialog(
       this.dialog,
       {
-        label: config.createButtonLabel,
+        label: config.createButtonLabel || 'Create',
         config: this.createConfig(),
         parentData: this.parentData() ?? {},
         loadCreatedResource: config.loadCreatedResource,
@@ -183,13 +160,6 @@ export class ResourceListCreateComponent {
       this.listChild()?.reloadListData();
       this.expPanel()?.open();
     });
-  }
-
-  makeCreatePatches(): void {
-    if (this.create()) {
-      this.listChild()?.reloadListData();
-      this.create.set(false);
-    }
   }
 
   /**

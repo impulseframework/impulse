@@ -36,27 +36,17 @@
 }
 
 <ng-template #resourceComponents>
-  @if (create()) {
-    <impulse-resource-create
-      [resourceConfig]="createConfig()"
-      [parentData]="parentData() ?? {}"
-      [loadCreatedResource]="config().loadCreatedResource"
-      (complete)="makeCreatePatches()">
-    </impulse-resource-create>
-  }
-
   @if (listReady()) {
     <impulse-resource-list
       #list
       [viewRoute]="rootConfig().routeData.route"
       [resourceConfig]="config()"
       [filter]="filter()"
-      [hideCreateButton]="create()"
+      [hideCreateButton]="false"
       [relatedData]="parentData()"
       [parentId]="parentId()"
-      [linkCreateType]="createLinkType()"
       [isRootList]="isRootList()"
-      (createMode)="setCreateMode($event)"
+      (createRequested)="openCreate()"
       (methodRan)="methodRan()"
       [compoundResourceComponent]="compoundResourceComponent()">
     </impulse-resource-list>

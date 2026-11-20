@@ -952,14 +952,6 @@ export const switchParamsDefaults = {
 export interface ListViewConfigOptions extends BaseConfigOptions {
   showViewButton?: boolean;
   loadCreatedResource?: boolean;
-  /**
-   * Whether the list's create opens in a dialog: the create button opens the form over
-   * the page, titled with the button's label (`createButtonLabel`), a refusal of the
-   * create is shown inside the dialog in the server's words, and the list reads its
-   * rows again once the row is created. Without it the form is drawn on the page, above
-   * the list.
-   */
-  createInDialog?: boolean;
   collapsible?: boolean;
   /**
    * Whether a row opens in place, by the listed resource's single key, to the
@@ -1103,8 +1095,6 @@ export interface ListViewConfig extends BaseConfig {
   type: 'ListView';
   showViewButton: boolean;
   loadCreatedResource: boolean;
-  /** Whether the list's create opens in a dialog; see ListViewConfigOptions.createInDialog. */
-  createInDialog: boolean;
   collapsible: boolean;
   enableRowExpansion: boolean;
   rowExpansionConfig: ChildResourceConfig;
@@ -1157,7 +1147,6 @@ export const listViewConfigDefaults = {
   createTitle: '',
   createButtonLabel: 'Create',
   loadCreatedResource: false,
-  createInDialog: false,
   showViewButton: true,
   collapsible: false,
   listColumns: [],

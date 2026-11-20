@@ -15,8 +15,9 @@ import (
 // activity ends, with no button of the console's (the retired confirmation flag is not
 // provided); the Squadrons page's componentConfig (the channel card) and arrayConfig (the
 // sector's other squadrons, filtered by the indexed key); the Hangars page, whose passes
-// list offers the three holder pickers, the sector's groups among them, and opens its
-// create in a dialog (createInDialog); and the leave-page
+// list offers the three holder pickers, the sector's groups among them, and whose two
+// lists each write the words their create's button and dialog carry (every list's create
+// opens in a dialog, with nothing for its config to ask); and the leave-page
 // confirmation, which the library's resourceRoutes attaches to every config-driven list
 // and row route under the FRONTEND_LOGIN_PATH the console provides, so the console adds
 // no guard of its own. Lodestar has no browser specs and the walkthrough is curl, so the
@@ -88,7 +89,7 @@ func TestConsoleCarriesLibrarySurface(t *testing.T) {
 			want: []string{"export class SquadronChannelComponent extends CustomConfigComponent"},
 		},
 		{
-			name: "the Hangars page lists a hangar's passes, offers a person, a squadron and a group as the holder, and opens its create in a dialog",
+			name: "the Hangars page lists a hangar's passes, offers a person, a squadron and a group as the holder, and names each create's dialog",
 			file: "app/configs/hangars.config.ts",
 			want: []string{
 				"primaryResource: Resources.HangarPasses,",
@@ -99,8 +100,8 @@ func TestConsoleCarriesLibrarySurface(t *testing.T) {
 				"listDisplay: [Squadrons.fieldName.name],",
 				"name: HangarPasses.fieldName.groupId,",
 				"listDisplay: [CrewSectorGroups.fieldName.name],",
+				"createButtonLabel: 'Add a hangar',",
 				"createButtonLabel: 'Add a pass',",
-				"createInDialog: true,",
 			},
 		},
 		{

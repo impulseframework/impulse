@@ -89,10 +89,10 @@ export class ResourceCreateComponent implements OnInit {
   parentData = input<RecordData>({});
   loadCreatedResource = input<boolean>(false);
   /**
-   * Set by the dialog a list's create opens in (`createInDialog`): the dialog draws the
-   * title and the Cancel and create buttons, so the form draws its fields alone, and a
-   * create the server refuses is kept in `refusal` for the dialog to show, where on a
-   * page it is the page's notice.
+   * Set by the dialog a list's create opens in: the dialog draws the title and the
+   * Cancel and create buttons, so the form draws its fields alone, and a create the
+   * server refuses is kept in `refusal` for the dialog to show, where on a page it is
+   * the page's notice.
    */
   inDialog = input<boolean>(false);
   /** Whether a create is on its way to the server. */

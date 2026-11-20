@@ -21,13 +21,13 @@ export interface ResourceCreateDialogData {
 }
 
 /**
- * The dialog a list's create opens in where the list's config says `createInDialog`: the
- * page's create form, over the page. It is titled with the label of the button that
- * opened it and carries Cancel and that label as its buttons, as the dialog of a method
- * does. A create the server refuses is shown here in the server's words and the dialog
- * stays open as it was filled; it closes with true once the row is created, and with
- * false when it is canceled, by its button or by Escape. A click outside it does
- * nothing, so what was typed is not lost to a stray click.
+ * The dialog every list's create opens in: the create form, over the page. It is titled
+ * with the label of the button that opened it and carries Cancel and that label as its
+ * buttons, as the dialog of a method does. A create the server refuses is shown here in
+ * the server's words and the dialog stays open as it was filled; it closes with true
+ * once the row is created, and with false when it is canceled, by its button or by
+ * Escape. A click outside it does nothing, so what was typed is not lost to a stray
+ * click.
  */
 @Component({
   selector: 'impulse-resource-create-dialog',
