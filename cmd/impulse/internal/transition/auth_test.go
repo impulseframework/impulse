@@ -406,13 +406,17 @@ func TestAuthApply(t *testing.T) {
 		"\treturn &DataConfiguration{\n\t\tspannerClient: spannerClient,\n\t\tstaff:         staffAuth,\n\t}, nil\n",
 		"\treturn assemble(spannerClient, staffAuth), nil\n", 1)
 
-	// What the foothold file leaves its author: the first administrator's invitation
-	// where the application generates the auth's management, whose acceptance hook gives
-	// the invitation's roles, and no first administrator where it generates none.
+	// What the foothold file leaves its author: the roles of the first administrator's
+	// invitation where the application generates the auth's management, whose
+	// acceptance hook gives the invitation's roles, and no first administrator where it
+	// generates none. What invites one outside the package is the command's to write,
+	// and a data level that keeps no environment struct, as this application's, gets
+	// none of it and the account of what to write by hand.
 	const (
-		invited    = "pkg/auth/partners/foothold.go: the first administrator the migrate command invites while nobody of the auth holds the Super Administrator role, by an invitation mailed to the address the placement names (APP_PARTNERS_ADMINISTRATOR) that gives the Super Administrator role and the first administrator's roles; no account and no password are made ahead of the person, who signs in from the link by a method of the auth. Author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the invitation gives) with the role file, declare the address in the data level (APP_PARTNERS_ADMINISTRATOR, a setting with no secret tag), invite from pkg/deploy InviteAdministrators and send the invitation again from ReinviteAdministrator (the migrate command's -reinvite-administrator), as they are written for the auth the application has"
+		invited    = "pkg/auth/partners/foothold.go: the first administrator the migrate command invites while nobody of the auth holds the Super Administrator role, by an invitation mailed to the address the placement names (APP_PARTNERS_ADMINISTRATOR) that gives the Super Administrator role and the first administrator's roles; no account and no password are made ahead of the person, who signs in from the link by a method of the auth. Author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the invitation gives) with the role file"
 		notInvited = "pkg/auth/partners/foothold.go: AdministratorRoles, the roles whose holder can give a role back, to author with the role file. The deployment invites no first administrator for the partners auth: the application generates no management of the auth's people, so nothing would give an accepted invitation its roles. impulse check refuses the auth as it stands (first-administrator), since nobody can be invited as its first administrator and an account seeded by hand is refused too: have the program generate the management (generation.GenerateIdentity), build the auth's identity client from it in New, and invite the first administrator as the tool writes foothold.go for such an auth"
 	)
+	const handed = "pkg/config/data.go: DataConfiguration keeps no environment struct (a field env *T) to read the address into, so nothing that invites the partners auth's first administrator was written outside its package, and no release invites one. Read the address on the data level (APP_PARTNERS_ADMINISTRATOR, a setting with no secret tag, behind a PartnersAdministrator() accessor), name the auth in the deployment package's AdministratorAuths and administratorOf, and have the migrate command call deploy.InviteAdministrators after its role check and deploy.ReinviteAdministrator from a -reinvite-administrator flag, as impulse new writes them for the auth an application starts with"
 	const packageDid = "pkg/auth/partners: the partners auth package (foothold.go, partners.go, password.go), rendered from the skeleton's auth source: the Auth session over tables prefixed Partners, the partners permission store, and the methods password, each in its own file"
 	const migrationsDid = "schema/migrations: 000005_PartnersAccess, 000006_PartnersSessionUsers, 000007_PartnersSessions, the partners auth's tables: the access tables copied from the staff auth's under the Partners prefix, and the Auth session tables (sessions, users with their addresses, identities, auth events, pending sign-ins, sign-in attempts, sign-in methods, mail links)"
 	const rolesDid = "pkg/auth/partners/roles.json: the partners auth's role file, empty: author its roles when its surfaces are bound"
@@ -775,6 +779,7 @@ func TestAuthApply(t *testing.T) {
 			extra: map[string]string{programFile: strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)},
 			wantSkipped: []string{
 				invited,
+				handed,
 				programFile + `: the program generates each auth's management (GenerateIdentity("pkg/identity")), so the regeneration writes the partners auth's packages under pkg/identity and the generated contract asks the handlers for PartnersIdentity() *partnersidentity.Client, which the tool does not write. The auth builds its client when it opens (partners.Auth.Identity(), with the hooks a sign-in gives roles through set in New): hand it to the App through the Configurer, and add the accessor where the App is declared and on every test configurer; the application does not compile until it holds`,
 			},
 			// The default outlet still declares the staff auth, so its management stays.

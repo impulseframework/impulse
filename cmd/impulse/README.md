@@ -1550,11 +1550,26 @@ it and the application has no mailbox to
 send as (the data level's log sender, `mail.Delivers`): an invitation's link is never
 written to a log, since whoever opens it becomes the administrator, so the mailbox comes
 before the first release. The command writes what it did, the address and when the
-invitation runs out, and never the link. The foothold's roles (`AdministratorRoles`,
-`FirstAdministratorRoles`), its setting in the data level and its calls from `pkg/deploy`
-(`InviteAdministrators`, `ReinviteAdministrator`) are the agent's, written as they are for
-the auth the application has, and `impulse check` holds the package to inviting
-(`first-administrator`). An auth the application generates no management for invites
+invitation runs out, and never the link.
+
+The command writes the invitation outside the package too, as `impulse new` writes it
+for the auth an application starts with: the address on the data level
+(`APP_<AUTH>_ADMINISTRATOR`, a field with no secret tag in the struct the level reads
+its environment into, behind a `<Auth>Administrator()` accessor beside the auth's own),
+the variable in the environment template, unset, and the auth among those `pkg/deploy`
+invites (`AdministratorAuths`, `administratorOf`), so every release invites its first
+administrator after the others' and `-reinvite-administrator` takes its name. An
+application started with `--shape directory-roles` holds none of that, so there the
+command writes it whole for the new auth: `pkg/deploy/administrators.go` with the test
+of what it reports, the migrate command's invitation after its role check and the
+`-reinvite-administrator` flag. It is all written or none of it: where the data level,
+the deployment package or the migrate command is not as the tool knows it, nothing that
+invites is written outside the package, and the change says which file stopped it and
+what to write by hand. Two things stay the agent's, and the change names both: the
+foothold's roles (`AdministratorRoles`, `FirstAdministratorRoles`), which go with the
+role file, and the migrate command's test (`cmd/deployment/migrate/main_test.go`), whose
+cases that run a release now need the address or a holder of the role. `impulse check`
+holds the package to inviting (`first-administrator`). An auth the application generates no management for invites
 nobody, since nothing there would give an accepted invitation its roles; the foothold
 says so, and `impulse check` refuses the auth as it stands (`first-administrator`),
 since it has no way in: the application generates the management

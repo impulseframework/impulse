@@ -311,8 +311,8 @@ func appMigrationsDir(a *app.App) string {
 const fileScheme = "file://"
 
 // Apply makes the deterministic half: the package, its migrations, its role file, its
-// construction on the data level, and the development environment for its directory
-// methods.
+// construction on the data level, the invitation of its first administrator where it
+// invites one, and the development environment for its directory methods.
 func (au Auth) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Change, error) {
 	if err := au.Validate(a); err != nil {
 		return nil, err
@@ -351,6 +351,11 @@ func (au Auth) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Chang
 	}
 	if err := au.editConfig(a, src, spec, ch); err != nil {
 		return nil, err
+	}
+	if authpkg.InvitesAdministrator(spec) {
+		if err := au.inviteAdministrator(a, src, ch); err != nil {
+			return nil, err
+		}
 	}
 	if err := au.bindOutlet(a, outlet, spec, ch); err != nil {
 		return nil, err
@@ -604,7 +609,7 @@ func (au Auth) writePackage(a *app.App, src *authSource, spec *authpkg.Spec, ch 
 	switch {
 	case authpkg.InvitesAdministrator(spec):
 		variable := authpkg.AdministratorVariable(au.Name)
-		ch.skipf("%[1]s/foothold.go: the first administrator the migrate command invites while nobody of the auth holds the Super Administrator role, by an invitation mailed to the address the placement names (%[2]s) that gives the Super Administrator role and the first administrator's roles; no account and no password are made ahead of the person, who signs in from the link by a method of the auth. Author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the invitation gives) with the role file, declare the address in the data level (%[2]s, a setting with no secret tag), invite from pkg/deploy InviteAdministrators and send the invitation again from ReinviteAdministrator (the migrate command's -reinvite-administrator), as they are written for the auth the application has", dir, variable)
+		ch.skipf("%[1]s/foothold.go: the first administrator the migrate command invites while nobody of the auth holds the Super Administrator role, by an invitation mailed to the address the placement names (%[2]s) that gives the Super Administrator role and the first administrator's roles; no account and no password are made ahead of the person, who signs in from the link by a method of the auth. Author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the invitation gives) with the role file", dir, variable)
 	case authpkg.Foothold(spec):
 		ch.skipf("%s/foothold.go: AdministratorRoles, the roles whose holder can give a role back, to author with the role file. The deployment invites no first administrator for the %s auth: the application generates no management of the auth's people, so nothing would give an accepted invitation its roles. impulse check refuses the auth as it stands (first-administrator), since nobody can be invited as its first administrator and an account seeded by hand is refused too: have the program generate the management (generation.GenerateIdentity), build the auth's identity client from it in New, and invite the first administrator as the tool writes foothold.go for such an auth", dir, au.Name)
 	}

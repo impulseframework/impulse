@@ -1016,12 +1016,18 @@ as it is, replaces one that ran out, and withdraws one for an address the placem
 longer names; the migrate command's -reinvite-administrator mails a fresh one on demand;
 and both refuse while nobody holds the role and the application has no mailbox to send
 as, since the link is never written to a log. Once somebody holds the Super Administrator
-role nobody is invited, and an account that holds no such role stops no invitation. The foothold's roles, its setting in the data level and its invitation
-from pkg/deploy are handed to the agent; impulse check holds the package to inviting
-(first-administrator). An auth the application generates no management for
-(generation.GenerateIdentity) invites nobody, since nothing there would give an accepted
-invitation its roles, and impulse check refuses it until the application does: it has no
-way in.
+role nobody is invited, and an account that holds no such role stops no invitation. The
+command writes the invitation outside the package too, as impulse new writes it for the
+auth an application starts with: the address on the data level with its accessor, the
+variable in the environment template, and the auth among those pkg/deploy invites; in an
+application that holds nothing that invites a first administrator (one started with
+--shape directory-roles) it writes that whole, with the migrate command's invitation and
+its -reinvite-administrator flag. It is all written or none of it, and the change says
+which file stopped it. The foothold's roles and the migrate command's test are handed to
+the agent; impulse check holds the package to inviting (first-administrator). An auth the
+application generates no management for (generation.GenerateIdentity) invites nobody,
+since nothing there would give an accepted invitation its roles, and impulse check
+refuses it until the application does: it has no way in.
 
 --method names the sign-in methods the Auth starts with, repeatable: password (the default
 when none is given), azure:<registration> (Microsoft Entra over OpenID Connect),
