@@ -26,18 +26,22 @@ import (
 // the FK metadata loaded from the emulator. A @subjectSet may also write the
 // two parts of its definition, who: and where:, each a condition over the
 // fields of the same struct (resolveSubjectParts); with a who: written, the
-// annotation sits on one of the columns the who: names.
+// annotation sits on one of the columns the who: names. A @subjectSet on a
+// resource that is no tenant's may say where a row's tenant is found, domain:
+// (resolveSubjectDomain), so the set is kept to the request's tenant.
 
 // bindingViaArgKey names the join path of an @attribute or a @domain binding.
 const bindingViaArgKey = "via"
 
 // The named arguments of a subject binding: the column a set or a value yields,
-// and the two parts a set's definition may add, which rows are the requester's
-// (who:) and which of those rows count (where:).
+// the two parts a set's definition may add, which rows are the requester's
+// (who:) and which of those rows count (where:), and the path to a row's tenant
+// a set on a resource that is no tenant's may name (domain:).
 const (
-	subjectValueArgKey = "value"
-	subjectWhoArgKey   = "who"
-	subjectWhereArgKey = "where"
+	subjectValueArgKey  = "value"
+	subjectWhoArgKey    = "who"
+	subjectWhereArgKey  = "where"
+	subjectDomainArgKey = "domain"
 )
 
 // bindingName pins the attribute-name charset, agreed jointly with the
@@ -127,6 +131,12 @@ type subjectBinding struct {
 	// columns that says which of the requester's rows count; nil when the
 	// annotation writes none.
 	Where *subjectWhere
+
+	// Domain is a @subjectSet's domain: part, the set's own way to a row's
+	// tenant on a resource that is no tenant's: the foreign key the path leaves
+	// through, and the path to the column that holds the tenant's key. Nil when
+	// the annotation writes none.
+	Domain *domainBinding
 }
 
 // subjectWho is one resolved test of a who: part: Field holds the requester
@@ -259,6 +269,14 @@ func validateDomainBinding(res *resourceInfo, structName string) error {
 		return errors.Newf("struct %s: @%s is only valid on a domain-scoped resource — a global resource has no tenant partition to resolve to; declare @%s(%s) or remove the binding",
 			structName, domainKeyword, permissionScopeKeyword, accesstypes.DomainPermissionScope)
 	}
+	if res.IsDomainScoped() {
+		for _, set := range res.SubjectSets {
+			if set.Domain != nil {
+				return errors.Newf("struct %s: @%s(%s) writes %s:, which says where a row's tenant is found on a resource that is no tenant's; %s is domain-scoped, and its @%s binding already keeps the set to the request's tenant — remove %s:",
+					structName, subjectSetKeyword, set.Name, subjectDomainArgKey, structName, domainKeyword, subjectDomainArgKey)
+			}
+		}
+	}
 
 	return nil
 }
@@ -389,7 +407,7 @@ func (c *client) resolveDomain(anchor *resourceField, arg genlang.Arg, structsBy
 func subjectBindingArgSpec() *genlang.ArgSpec {
 	return &genlang.ArgSpec{
 		Positional:  1,
-		Keys:        []string{subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey},
+		Keys:        []string{subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey, subjectDomainArgKey},
 		Required:    []string{subjectValueArgKey},
 		Expressions: []string{subjectWhoArgKey, subjectWhereArgKey},
 	}
@@ -450,6 +468,9 @@ func (c *client) resolveSubjectBindings(res *resourceInfo, anchor *resourceField
 		if err := c.resolveSubjectParts(binding, &invocation, fieldByName); err != nil {
 			return nil, errors.Wrapf(err, "@%s(%s)", keyword, binding.Name)
 		}
+		if err := c.resolveSubjectDomain(binding, &invocation, fieldByName, structsByTable); err != nil {
+			return nil, errors.Wrapf(err, "@%s(%s)", keyword, binding.Name)
+		}
 		bindings = append(bindings, binding)
 	}
 
@@ -481,6 +502,48 @@ func (c *client) resolveSubjectParts(binding *subjectBinding, invocation *genlan
 		}
 		binding.Where = filter
 	}
+
+	return nil
+}
+
+// resolveSubjectDomain compiles a @subjectSet's domain: part: where a row's
+// tenant is found, for a set on a resource that is no tenant's whose rows
+// belong to tenants through a parent. The part names a foreign key of the row
+// and continues to the column of its table that holds the tenant's key
+// (GroupID.DomainID), as a dotted value: does. With it written, the set holds
+// the request's tenant's rows alone in a request that has a tenant, and every
+// row in a request that has none. A @subjectValue takes none, and a
+// domain-scoped resource is refused once its scope is known
+// (validateDomainBinding).
+func (c *client) resolveSubjectDomain(binding *subjectBinding, invocation *genlang.NamedArgs, fieldByName map[string]*resourceField, structsByTable map[string]*parser.Struct) error {
+	path, ok := invocation.Named(subjectDomainArgKey)
+	if !ok {
+		return nil
+	}
+	if binding.Scalar {
+		return errors.Newf("@%s takes the name and %s: alone; %s: is a part of a @%s", subjectValueKeyword, subjectValueArgKey, subjectDomainArgKey, subjectSetKeyword)
+	}
+
+	segments := splitPathSegments(path)
+	if len(segments) < 2 {
+		return errors.Newf("%s: %q is not a path to a tenant; write a foreign key of the row, then the column of its table that holds the tenant's key, as GroupID.DomainID", subjectDomainArgKey, path)
+	}
+	local, ok := fieldByName[segments[0]]
+	if !ok {
+		return errors.Newf("%s: names %s, which is not a field of the resource; the path starts at a foreign key of the same row, named by its Go field", subjectDomainArgKey, segments[0])
+	}
+	hops, terminal, err := c.resolveRemotePath(local, segments[1:], structsByTable)
+	if err != nil {
+		return errors.Wrapf(err, "%s:", subjectDomainArgKey)
+	}
+	tenantType, err := attributeTypeFor(terminal)
+	if err != nil {
+		return errors.Wrapf(err, "%s: %s cannot hold a tenant's key", subjectDomainArgKey, path)
+	}
+	if tenantType != string(resource.AttributeTypeString) {
+		return errors.Newf("%s: %s ends at a %s column, and a tenant's key is text; end the path at the column that holds the tenant's key", subjectDomainArgKey, path, tenantType)
+	}
+	binding.Domain = &domainBinding{Anchor: local, Path: hops}
 
 	return nil
 }
@@ -1073,6 +1136,9 @@ func collectionSubjectBinding(subject *subjectBinding) resource.SubjectBindingDa
 	}
 	for _, test := range subject.Who {
 		data.Who = append(data.Who, resource.SubjectWhoData{Column: fieldColumn(test.Field), Set: test.Set})
+	}
+	if subject.Domain != nil {
+		data.Domain = &resource.DomainBindingData{Column: fieldColumn(subject.Domain.Anchor), Path: collectionHops(subject.Domain.Path)}
 	}
 	if subject.Where != nil {
 		data.Where = &resource.SubjectWhereData{Condition: subject.Where.Expr.String()}

@@ -91,6 +91,14 @@ type DomainBindingData struct {
 // it is the tests below joined by OR, and UserColumn is the column of one of
 // them, the one the declaration sits on. Where says which of those rows count:
 // nil, every one does. A subject value writes neither.
+//
+// Domain is the set's own way to a row's tenant, for a set declared on a
+// resource that is no tenant's (a global one) whose rows still belong to
+// tenants through a parent: the foreign key the path leaves through, and the
+// path to the column that holds the tenant's key. In a request with a tenant
+// the set then holds that tenant's rows alone; a row whose path ends at
+// another tenant, or at none, is left out. Nil, the declaring resource's own
+// tenancy binding is the filter, and a global resource's set reads every row.
 type SubjectBindingData struct {
 	Name       string
 	UserColumn string
@@ -99,6 +107,7 @@ type SubjectBindingData struct {
 	Path       []BindingHop
 	Who        []SubjectWhoData
 	Where      *SubjectWhereData
+	Domain     *DomainBindingData
 }
 
 // SubjectWhoData is one test of a subject set's who: part. Column is the
@@ -445,9 +454,11 @@ func (g *GeneratedCollection) subjectSetWhere(set *SubjectBindingData) (conditio
 
 // SubjectAnchor is a subject-vocabulary entry with everything its rendering
 // needs: the anchor table (the resource declaring it), the entry itself, and
-// the anchor table's own tenancy binding — the rendered subquery filters to
-// the request's partition exactly when both the request and the anchor table
-// are partitioned, derived here, never authored.
+// the tenancy binding its rows are filtered by — the anchor table's own, or
+// the set's own way to a tenant where the table is no tenant's and the set
+// declares one (SubjectBindingData.Domain). The rendered subquery filters to
+// the request's partition exactly when the request is partitioned and there
+// is such a binding, derived here, never authored.
 type SubjectAnchor struct {
 	Resource accesstypes.Resource
 	Scope    accesstypes.PermissionScope
@@ -472,7 +483,12 @@ func (g *GeneratedCollection) subjectAnchor(name string, entries func(Bindings) 
 		for res, bindings := range store {
 			for _, entry := range entries(bindings) {
 				if entry.Name == name {
-					return SubjectAnchor{Resource: res, Scope: scope, Binding: entry, Domain: bindings.Domain}, true
+					domain := bindings.Domain
+					if entry.Domain != nil {
+						domain = entry.Domain
+					}
+
+					return SubjectAnchor{Resource: res, Scope: scope, Binding: entry, Domain: domain}, true
 				}
 			}
 		}

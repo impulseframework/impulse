@@ -659,13 +659,14 @@ func (ctx *loweringContext) subjectValueSubquery(name string, registry *paramReg
 	return subquery, nil
 }
 
-// withAnchorTenancy adds the anchor table's derived tenancy filter: applied
-// exactly when the request is partitioned and the anchor table carries a
-// domain binding — a membership in another tenant can never satisfy a
-// condition in this one. A global request, or a global anchor table, adds
-// nothing (§07's policy-shared pattern is deliberate). In a list across
-// tenants the filter follows the row: the anchor's tenant is compared to the
-// tenant of the row being checked (requestTenant).
+// withAnchorTenancy adds the anchor's derived tenancy filter: applied exactly
+// when the request is partitioned and the anchor carries a domain binding,
+// the anchor table's own or the one its set declares for a table that is no
+// tenant's — a membership in another tenant can never satisfy a condition in
+// this one. A global request, or a global anchor table whose set declares no
+// way to a tenant, adds nothing (§07's policy-shared pattern is deliberate).
+// In a list across tenants the filter follows the row: the anchor's tenant is
+// compared to the tenant of the row being checked (requestTenant).
 func (ctx *loweringContext) withAnchorTenancy(where ExpressionNode, anchor *SubjectAnchor, alias string, registry *paramRegistry) ExpressionNode {
 	if !ctx.partitioned || anchor.Domain == nil {
 		return where

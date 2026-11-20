@@ -91,7 +91,7 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			// table declares is what it is tested against (group IN subject.groups).
 			"// @suppress(readHandler)", "CrewGroupMember struct {", "// @attribute(group)\n\t\tGroupID impulse.UUID `spanner:\"GroupId\"`",
 			// The one auth that keeps groups declares the set under the plain name.
-			"// @subjectSet(groups, value: GroupID, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))\n\t\tUserID    string     `spanner:\"UserId\"`",
+			"// @subjectSet(groups, value: GroupID, domain: GroupID.DomainID, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))\n\t\tUserID    string     `spanner:\"UserId\"`",
 		},
 		"internal/crewresources/crew_group_roles.go": {"// @suppress(readHandler)", "CrewGroupRole struct {", "Role      string       `spanner:\"Role\"`"},
 		"internal/crewresources/crew_group_users.go": {

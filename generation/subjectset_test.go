@@ -21,7 +21,8 @@ import (
 // declared. The key is Id unless named here; the Level columns are foreign keys
 // into the Levels enumeration table, whose rows the schema read loads; Stake's
 // ProjectId is a foreign key into Projects, which its dotted value leaves through;
-// and the indexes are the ones each struct's doc comment speaks of.
+// every PoolId is a foreign key into Pools, which a domain: leaves through; and the
+// indexes are the ones each struct's doc comment speaks of.
 func subjectSetFixtureClient(t *testing.T, structs map[string]*parser.Struct) *client {
 	t.Helper()
 
@@ -41,6 +42,8 @@ func subjectSetFixtureClient(t *testing.T, structs map[string]*parser.Struct) *c
 		"ValueWithStringPart": {"UserId"},
 		"KeyedByBoth":         {"ProjectId", "UserId"},
 		"SecondaryThenKey":    {"ProjectId"},
+		"PoolMember":          {"PoolId", "UserId"},
+		"DomainOnValue":       {"UserId"},
 	}
 	index := func(name string, nullFiltered bool, columns ...string) indexMeta {
 		meta := indexMeta{Name: name, NullFiltered: nullFiltered}
@@ -105,6 +108,9 @@ func subjectSetFixtureClient(t *testing.T, structs map[string]*parser.Struct) *c
 			}
 			if name == "Stake" && column == "ProjectId" {
 				meta.IsForeignKey, meta.ReferencedTable, meta.ReferencedColumn = true, "Projects", "Id"
+			}
+			if column == "PoolId" {
+				meta.IsForeignKey, meta.ReferencedTable, meta.ReferencedColumn = true, "Pools", "Id"
 			}
 			table.Columns[column] = meta
 		}
@@ -234,6 +240,16 @@ func TestResolveSubjectSetParts(t *testing.T) {
 						Condition: "ExpiresAt IS NULL OR ExpiresAt > now",
 						Columns:   []resource.SubjectColumnData{{Name: "ExpiresAt", Column: "ExpiresAt", Type: resource.AttributeTypeTimestamp}},
 					},
+				},
+			},
+		},
+		{
+			name:       "a set on a table that is no tenant's carries the path its domain: names to a row's tenant",
+			structName: "PoolMember",
+			want: []resource.SubjectBindingData{
+				{
+					Name: "pools", UserColumn: "UserId", Column: "PoolId", Type: resource.AttributeTypeString,
+					Domain: &resource.DomainBindingData{Column: "PoolId", Path: []resource.BindingHop{{Table: "Pools", JoinColumn: "Id", Column: "TenantId"}}},
 				},
 			},
 		},
@@ -438,6 +454,36 @@ func TestResolveSubjectSetParts_refusals(t *testing.T) {
 			name:       "a part written on a subject value, a parenthesis in its string",
 			structName: "ValueWithStringPart",
 			want:       []string{"@subjectValue(seatCode)", "@subjectValue takes the name and value: alone; who: and where: are the parts of a @subjectSet"},
+		},
+		{
+			name:       "a domain: on a table that carries its tenant itself",
+			structName: "DomainOnTenantTable",
+			want:       []string{"@subjectSet(tenantPools) writes domain:", "DomainOnTenantTable is domain-scoped, and its @domain binding already keeps the set to the request's tenant", "remove domain:"},
+		},
+		{
+			name:       "a domain: that names a column and no path from it",
+			structName: "DomainNoPath",
+			want:       []string{"@subjectSet(pathless)", `domain: "PoolID" is not a path to a tenant`, "write a foreign key of the row, then the column of its table that holds the tenant's key, as GroupID.DomainID"},
+		},
+		{
+			name:       "a domain: starting at a field the row does not have",
+			structName: "DomainUnknownField",
+			want:       []string{"@subjectSet(strayPath)", "domain: names CrewID, which is not a field of the resource", "the path starts at a foreign key of the same row"},
+		},
+		{
+			name:       "a domain: starting at a column that is no foreign key",
+			structName: "DomainNotForeignKey",
+			want:       []string{"@subjectSet(looseEnd)", "domain:", "a join path must leave through a foreign key, and Note is not one"},
+		},
+		{
+			name:       "a domain: ending at a number",
+			structName: "DomainNumber",
+			want:       []string{"@subjectSet(sized)", "domain: PoolID.Size ends at a number column, and a tenant's key is text", "end the path at the column that holds the tenant's key"},
+		},
+		{
+			name:       "a domain: on a subject value",
+			structName: "DomainOnValue",
+			want:       []string{"@subjectValue(homePool)", "@subjectValue takes the name and value: alone; domain: is a part of a @subjectSet"},
 		},
 	}
 
@@ -740,6 +786,24 @@ func Test_resourceKeywords_expressions(t *testing.T) {
 	slices.Sort(got)
 	if diff := cmp.Diff([]string{subjectSetKeyword, subjectValueKeyword}, got); diff != "" {
 		t.Errorf("keywords scanned as holding expressions mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// Test_collectionTemplate_subjectSetDomain renders the generated collection file for
+// a set that names its own way to a row's tenant: the set's literal ends with the
+// binding, the foreign key the path leaves through and the hop to the tenant's key.
+func Test_collectionTemplate_subjectSetDomain(t *testing.T) {
+	t.Parallel()
+
+	formatted := renderSubjectSetCollection(t, "Pool", "PoolMember")
+
+	want := `					{Name: "pools", UserColumn: "UserId", Column: "PoolId", Type: "string", Domain: &resource.DomainBindingData{Column: "PoolId", Path: []resource.BindingHop{{Table: "Pools", JoinColumn: "Id", Column: "TenantId"}}}},
+`
+	if !strings.Contains(formatted, want) {
+		t.Errorf("rendered collection file does not hold the subject set as\n%s\ngot:\n%s", want, formatted)
+	}
+	if got := subjectDomainLiteral(nil); got != "" {
+		t.Errorf("subjectDomainLiteral(nil) = %q, want nothing", got)
 	}
 }
 

@@ -14,7 +14,8 @@ import (
 //   - the declarations over the groups, their members and the roles each group holds.
 //     The members' declaration carries the subject set of a person's groups, so a grant's
 //     condition and another table's subject set read the groups a caller is in
-//     (subject.groups) with nothing special in the lowering;
+//     (subject.groups) with nothing special in the lowering. The set names its own way
+//     to a group's tenant, so in a tenant's request it holds that tenant's groups alone;
 //   - the lists a page draws from: the people of a group with their names, and the roles
 //     each person holds through a group, for the whole application and, where the
 //     application has a tenant record, one tenant's own groups, their people and their

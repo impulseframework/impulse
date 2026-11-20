@@ -560,4 +560,88 @@ type (
 		UserID string `spanner:"UserId"`
 		Note   string `spanner:"Note"`
 	}
+
+	// Pool is a group of people kept in one tenant or in none: the table a pool's
+	// members reach their tenant through. Size is a column no tenant's key is held in.
+	//
+	// @resource
+	Pool struct {
+		ID       impulse.UUID `spanner:"Id"`
+		TenantID string       `spanner:"TenantId"`
+		Size     int64        `spanner:"Size"`
+	}
+
+	// PoolMember names the people of a pool on a table that is no tenant's. Its set
+	// says where a row's tenant is found (domain:), so in a request with a tenant the
+	// set holds that tenant's pools alone.
+	//
+	// @resource
+	PoolMember struct {
+		PoolID impulse.UUID `spanner:"PoolId"`
+		// @subjectSet(pools, value: PoolID, domain: PoolID.TenantID)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainOnTenantTable writes a domain: on a table that carries its tenant itself.
+	//
+	// @resource
+	// @permissionScope(domain)
+	DomainOnTenantTable struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		TenantID impulse.UUID `spanner:"TenantId"`
+		PoolID   impulse.UUID `spanner:"PoolId"`
+		// @subjectSet(tenantPools, value: PoolID, domain: PoolID.TenantID)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainNoPath names a column of its own row and goes nowhere from it.
+	//
+	// @resource
+	DomainNoPath struct {
+		ID     impulse.UUID `spanner:"Id"`
+		PoolID impulse.UUID `spanner:"PoolId"`
+		// @subjectSet(pathless, value: PoolID, domain: PoolID)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainUnknownField starts its path at a field the row does not have.
+	//
+	// @resource
+	DomainUnknownField struct {
+		ID     impulse.UUID `spanner:"Id"`
+		PoolID impulse.UUID `spanner:"PoolId"`
+		// @subjectSet(strayPath, value: PoolID, domain: CrewID.TenantID)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainNotForeignKey starts its path at a column that is no foreign key.
+	//
+	// @resource
+	DomainNotForeignKey struct {
+		ID     impulse.UUID `spanner:"Id"`
+		PoolID impulse.UUID `spanner:"PoolId"`
+		Note   string       `spanner:"Note"`
+		// @subjectSet(looseEnd, value: PoolID, domain: Note.TenantID)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainNumber ends its path at a number, which no tenant's key is.
+	//
+	// @resource
+	DomainNumber struct {
+		ID     impulse.UUID `spanner:"Id"`
+		PoolID impulse.UUID `spanner:"PoolId"`
+		// @subjectSet(sized, value: PoolID, domain: PoolID.Size)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainOnValue writes a domain: on a subject value.
+	//
+	// @resource
+	DomainOnValue struct {
+		// @subjectValue(homePool, value: PoolID, domain: PoolID.TenantID)
+		UserID string       `spanner:"UserId"`
+		PoolID impulse.UUID `spanner:"PoolId"`
+	}
 )
