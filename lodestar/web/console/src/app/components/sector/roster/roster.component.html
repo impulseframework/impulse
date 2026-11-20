@@ -47,32 +47,69 @@
       </mat-card-subtitle>
     </mat-card-header>
     <mat-card-content>
-      @if (canViewAs() && people.value().length) {
-        <form class="inline-form" (ngSubmit)="viewAs()">
-          <mat-form-field appearance="outline">
-            <mat-label>View as (read-only)</mat-label>
-            <mat-select name="viewAs" [(ngModel)]="viewAsUserId">
-              @for (person of people.value(); track person.id) {
-                <mat-option [value]="person.id">{{ personLabel(person.username) }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-          <button mat-flat-button type="submit">View as</button>
-        </form>
-      }
-      @if (canAssumeRole()) {
-        <form class="inline-form" (ngSubmit)="assumeRole()">
-          <mat-form-field appearance="outline">
-            <mat-label>Act as role</mat-label>
-            <mat-select name="assumeRole" [(ngModel)]="assumeRoleName">
-              @for (role of roles; track role) {
-                <mat-option [value]="role">{{ role }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-          <button mat-flat-button type="submit">Assume role</button>
-        </form>
-      }
+      <div class="actions">
+        @if (canViewAs() && people.value().length) {
+          <button mat-stroked-button type="button" class="view-as" (click)="open(viewAsForm)">View as</button>
+        }
+        @if (canAssumeRole()) {
+          <button mat-stroked-button type="button" class="assume-role" (click)="open(assumeRoleForm)">
+            Act as role
+          </button>
+        }
+      </div>
     </mat-card-content>
   </mat-card>
 }
+
+<!--
+  The two pickers. Each opens in a dialog over the page from the button that names it:
+  the title and the button that mints are that button's words, Cancel and Escape close it
+  with nothing minted, and what the server refuses is shown in the dialog.
+-->
+<ng-template #viewAsForm>
+  <div mat-dialog-title>View as</div>
+  <form class="dialog-form" (ngSubmit)="viewAs()">
+    <mat-dialog-content>
+      <p class="hint">You see the console as that crew member does, read-only.</p>
+      <mat-form-field appearance="outline">
+        <mat-label>Crew member</mat-label>
+        <mat-select name="viewAs" [(ngModel)]="viewAsUserId" required>
+          @for (person of people.value(); track person.id) {
+            <mat-option [value]="person.id">{{ personLabel(person.username) }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      @if (refusal(); as refusal) {
+        <p class="refusal" role="alert">{{ refusal }}</p>
+      }
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+      <button mat-raised-button type="submit" color="accent" class="send">View as</button>
+    </mat-dialog-actions>
+  </form>
+</ng-template>
+
+<ng-template #assumeRoleForm>
+  <div mat-dialog-title>Act as role</div>
+  <form class="dialog-form" (ngSubmit)="assumeRole()">
+    <mat-dialog-content>
+      <p class="hint">The role lends you its grants, never anyone's identity: you stay yourself.</p>
+      <mat-form-field appearance="outline">
+        <mat-label>Role</mat-label>
+        <mat-select name="assumeRole" [(ngModel)]="assumeRoleName" required>
+          @for (role of roles; track role) {
+            <mat-option [value]="role">{{ role }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      @if (refusal(); as refusal) {
+        <p class="refusal" role="alert">{{ refusal }}</p>
+      }
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+      <button mat-raised-button type="submit" color="accent" class="send">Act as role</button>
+    </mat-dialog-actions>
+  </form>
+</ng-template>

@@ -1,12 +1,15 @@
-import { Component, computed, inject } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, computed, DestroyRef, inject, signal, TemplateRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
 import { CREW_MANIFEST } from '@components/login/login.component';
+import { openFormDialog } from '../form-dialog';
 import { ImpersonationService } from '../impersonation.service';
 import { SectorService } from '../sector.service';
 
@@ -18,17 +21,33 @@ import { SectorService } from '../sector.service';
  * when the digest carries the manual Execute registrations — checked by the generated
  * Methods constants, never a hand-typed string.
  *
+ * The page draws no form. Each of the two is a button that opens its picker in a dialog
+ * over the page, as the library's lists open their create: the dialog is titled with the
+ * button's words and carries Cancel and those words as its buttons, Cancel and Escape
+ * close it with nothing minted, and a click outside does nothing. A mint the server
+ * refuses is shown in the dialog, in the server's words. The table of squadrons is the
+ * page's own and reads only.
+ *
  * Demonstrates: impersonation.view-as, impersonation.act-as-role, @manualAddResource.execute, paging.limit-all, @subjectSet.dotted-value.
  */
 @Component({
   selector: 'app-roster',
-  imports: [FormsModule, MatButtonModule, MatCardModule, MatFormFieldModule, MatSelectModule, MatTableModule],
+  imports: [
+    FormsModule,
+    MatButtonModule,
+    MatCardModule,
+    MatDialogModule,
+    MatFormFieldModule,
+    MatSelectModule,
+    MatTableModule,
+  ],
   templateUrl: './roster.component.html',
   styleUrl: './roster.component.scss',
 })
 export class RosterComponent {
   sectors = inject(SectorService);
   impersonation = inject(ImpersonationService);
+  private dialog = inject(MatDialog);
 
   wings = this.sectors.sectorList((sector) => sector.wings);
   squadrons = this.sectors.sectorList((sector) => sector.squadrons);
@@ -58,6 +77,15 @@ export class RosterComponent {
   /** The id of the account of the person to view as. */
   viewAsUserId = '';
   assumeRoleName = '';
+  // The picker that is open over the page, if one is.
+  private opened: MatDialogRef<unknown> | undefined;
+  // The server's refusal of the session the open picker asked for, shown in the dialog.
+  refusal = signal<string | undefined>(undefined);
+
+  constructor() {
+    // A picker left open goes with the page: a minted session lands on the dashboard.
+    inject(DestroyRef).onDestroy(() => this.close());
+  }
 
   /** A person of the sector as the picker names them: the persona's name where the login is one of the cast's. */
   personLabel(username: string | undefined): string {
@@ -82,13 +110,46 @@ export class RosterComponent {
       .join(', ');
   }
 
+  /** Opens one of the two pickers, with nothing picked, in a dialog over the page. */
+  open(form: TemplateRef<unknown>): void {
+    this.viewAsUserId = '';
+    this.assumeRoleName = '';
+    this.refusal.set(undefined);
+    this.opened = openFormDialog(this.dialog, form);
+  }
+
+  /** Closes the open picker; nothing is minted. */
+  close(): void {
+    this.opened?.close();
+    this.opened = undefined;
+  }
+
   async viewAs(): Promise<void> {
     if (!this.viewAsUserId) return;
-    await this.impersonation.viewAs(this.viewAsUserId);
+    await this.mint(() => this.impersonation.viewAs(this.viewAsUserId));
   }
 
   async assumeRole(): Promise<void> {
     if (!this.assumeRoleName) return;
-    await this.impersonation.assumeRole(this.assumeRoleName);
+    await this.mint(() => this.impersonation.assumeRole(this.assumeRoleName));
+  }
+
+  /**
+   * Asks for the session and closes the picker once it is minted. The mint route is
+   * hand-written and asked through HttpClient, so its refusal is an HttpErrorResponse:
+   * the dialog shows the server's message, and the picker stays as it was.
+   */
+  private async mint(ask: () => Promise<void>): Promise<void> {
+    this.refusal.set(undefined);
+    try {
+      await ask();
+    } catch (e) {
+      if (e instanceof HttpErrorResponse && e.status > 0) {
+        this.refusal.set((e.error as { message?: string } | null)?.message ?? `HTTP ${e.status}`);
+        return;
+      }
+      throw e;
+    }
+    this.close();
   }
 }

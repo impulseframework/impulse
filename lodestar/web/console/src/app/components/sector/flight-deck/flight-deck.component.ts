@@ -1,9 +1,10 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, signal, TemplateRef, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatDatepickerModule } from '@angular/material/datepicker';
+import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -15,6 +16,7 @@ import { MissionKind } from '@app/service/zz_gen_enums';
 import { methodMeta } from '@app/service/zz_gen_methods';
 import { MissionDocuments, Missions, Sorties, SortieExpenses } from '@app/service/zz_gen_resources';
 import { ApiError, Method, MethodHandle, MethodMeta, rowCapabilities } from '@impulseframework/resource';
+import { openFormDialog } from '../form-dialog';
 import { SectorService } from '../sector.service';
 import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.component';
 
@@ -30,6 +32,17 @@ import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.compone
  * no global notice: the client resolved the answer and the deck caught the refusal, and
  * the notice the application's ErrorHandler raises is for the error nobody caught.
  *
+ * The deck draws no form on the page. Everything that adds or changes something is a
+ * button that opens its form in a dialog over the deck, as the library's lists open
+ * their create: booking a mission, an edge that needs input (claim, launch, hold, fail),
+ * editing the call sheet, attaching a document, adding a sortie and adding an expense.
+ * Each dialog is titled with the words of the button that opened it and carries Cancel
+ * and those words as its buttons (Save, for the call sheet); Cancel and Escape close it
+ * with nothing sent, and a click outside does nothing. A dialog covers the page's
+ * notice, so what the server refuses of a form is shown in the form, in the server's
+ * words, and the form stays as it was filled. Deleting a mission and the edges that need
+ * no input stay plain buttons: there is nothing to fill.
+ *
  * Demonstrates: capability-envelope, create-under-parent, cell-masking, @answers, rpc.dry-run, @upload, @enumerate, @enumerate.enum-table, paging.descriptor-sizes, workflow.ts-constant, paging.link-header, paging.total-count, condition.now, client.uncaught-notice.
  */
 @Component({
@@ -41,6 +54,7 @@ import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.compone
     MatButtonModule,
     MatCardModule,
     MatDatepickerModule,
+    MatDialogModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -54,6 +68,7 @@ import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.compone
 })
 export class FlightDeckComponent {
   sectors = inject(SectorService);
+  private dialog = inject(MatDialog);
 
   readonly methods = Methods;
   readonly resources = Resources;
@@ -111,6 +126,16 @@ export class FlightDeckComponent {
   edgeChecks = signal<Record<string, { ok: boolean; message?: string }>>({});
   holdCheck = computed(() => this.edgeChecks()[Methods.HoldMission]);
 
+  // The form that is open over the deck, if one is.
+  private opened: MatDialogRef<unknown> | undefined;
+  // The form of an edge that needs input: one template, drawn for the pending edge.
+  private edgeForm = viewChild.required<TemplateRef<unknown>>('edgeForm');
+  // The server's refusal of what the open form sent, shown in the form: booking, a
+  // sortie and an expense. The edges, the call sheet and the attachment keep their own.
+  formRefusal = signal<string | undefined>(undefined);
+  // The sortie the expense form adds to.
+  expenseSortie = signal<Sorties | undefined>(undefined);
+
   // Transition bodies that need input beyond the target row.
   claimSquadronId = '';
   launchShipId = '';
@@ -165,7 +190,12 @@ export class FlightDeckComponent {
   newExpenseAmount: number | null = null;
 
   constructor() {
-    setInterval(() => this.now.set(new Date()), 1000);
+    const clock = setInterval(() => this.now.set(new Date()), 1000);
+    // The clock and a form left open go with the deck.
+    inject(DestroyRef).onDestroy(() => {
+      clearInterval(clock);
+      this.close();
+    });
   }
 
   select(mission: Missions): void {
@@ -176,17 +206,86 @@ export class FlightDeckComponent {
     if (this.selectedID() === mission.id) {
       void this.probeEdges(mission);
     }
+  }
+
+  /** Opens one of the deck's forms in a dialog over the page, with no refusal shown yet. */
+  private open(form: TemplateRef<unknown>): void {
+    this.formRefusal.set(undefined);
+    const opened = openFormDialog(this.dialog, form);
+    opened.afterClosed().subscribe(() => {
+      if (this.opened === opened) {
+        this.opened = undefined;
+      }
+      // An edge's form that closes takes its refusal with it: the person has read it.
+      if (this.pendingEdge() !== undefined) {
+        this.pendingEdge.set(undefined);
+        this.refusal.set(undefined);
+      }
+    });
+    this.opened = opened;
+  }
+
+  /** Closes the open form; nothing more is sent. */
+  close(): void {
+    this.opened?.close();
+  }
+
+  /** Opens the booking form, empty. */
+  openBook(form: TemplateRef<unknown>): void {
+    this.newTitle = '';
+    this.newBrief = '';
+    this.newKind = '';
+    this.newClientId = '';
+    this.newHazard = null;
+    this.newFee = null;
+    this.newDeadlineDate = null;
+    this.newDeadlineTime = null;
+    this.newNotes = '';
+    this.open(form);
+  }
+
+  /** Opens the call sheet's form, filled with the mission as it stands. */
+  openEdit(mission: Missions, form: TemplateRef<unknown>): void {
     this.editRefusal.set(undefined);
     this.editNotes = mission.notes ?? '';
     this.editDeadlineDate = this.deadlineOf(mission);
     this.editDeadlineTime = this.deadlineOf(mission);
     this.editAssignedSquadronId = mission.assignedSquadronId ?? '';
     this.editFee = null;
-    this.claimSquadronId = '';
-    this.launchShipId = '';
-    this.launchPilotUserId = '';
-    this.holdReason = '';
-    this.failReasonId = '';
+    this.open(form);
+  }
+
+  /** Opens the attachment form, empty. */
+  openAttach(form: TemplateRef<unknown>): void {
+    this.attachRefusal.set(undefined);
+    this.attachTitle = '';
+    this.attachFiles = [];
+    this.open(form);
+  }
+
+  /** Opens the sortie form, empty. */
+  openSortie(form: TemplateRef<unknown>): void {
+    this.newSortieShipId = '';
+    this.newSortiePilot = '';
+    this.open(form);
+  }
+
+  /** Opens the expense form for one sortie, empty. */
+  openExpense(sortie: Sorties, form: TemplateRef<unknown>): void {
+    this.expenseSortie.set(sortie);
+    this.newExpenseCategory = 'fuel';
+    this.newExpenseAmount = null;
+    this.open(form);
+  }
+
+  /** Whether the call sheet has a field this persona may edit on this mission. */
+  editable(mission: Missions): boolean {
+    return (
+      this.canEdit(mission, 'notes') ||
+      this.canEdit(mission, 'deadline') ||
+      this.canEdit(mission, 'assignedSquadronId') ||
+      this.canEdit(mission, 'fee')
+    );
   }
 
   /** Steps to the neighboring page the server named; the total from the first page stays shown. */
@@ -337,14 +436,14 @@ export class FlightDeckComponent {
         .sectorApi()
         .attachMissionDocument.upload({ missionId: mission.id, title: this.attachTitle }, this.attachFiles);
     } catch (e) {
-      if (e instanceof ApiError && (e.status === 403 || e.status === 413)) {
+      // The grant's 403 and the size limit's 413 among them: the form shows every refusal.
+      if (e instanceof ApiError) {
         this.attachRefusal.set(e.message);
         return;
       }
       throw e;
     }
-    this.attachTitle = '';
-    this.attachFiles = [];
+    this.close();
     this.documents.reload();
   }
 
@@ -403,6 +502,14 @@ export class FlightDeckComponent {
 
   onEdge(mission: Missions, method: Method): void {
     if (this.needsInput(method)) {
+      // The edge's form opens empty, over the deck.
+      this.refusal.set(undefined);
+      this.claimSquadronId = '';
+      this.launchShipId = '';
+      this.launchPilotUserId = '';
+      this.holdReason = '';
+      this.failReasonId = '';
+      this.open(this.edgeForm());
       this.pendingEdge.set(method);
       return;
     }
@@ -415,6 +522,12 @@ export class FlightDeckComponent {
       await this.execute(mission, method);
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) {
+        this.refusal.set(e.message);
+        return;
+      }
+      // An edge whose form is open reports every refusal in the form: the dialog
+      // covers the notice an error nobody caught would raise.
+      if (e instanceof ApiError && this.pendingEdge() !== undefined) {
         this.refusal.set(e.message);
         return;
       }
@@ -467,7 +580,9 @@ export class FlightDeckComponent {
       default:
         return;
     }
-    this.pendingEdge.set(undefined);
+    // The edge committed: its form, where it had one, closes, and the closing clears
+    // the pending edge.
+    this.close();
     this.missionsPage.reload();
     this.sorties.reload();
   }
@@ -488,17 +603,24 @@ export class FlightDeckComponent {
       patch['assignedSquadronId'] = this.editAssignedSquadronId;
     }
     if (this.canEdit(mission, 'fee') && this.editFee !== null) patch['fee'] = this.editFee;
-    if (Object.keys(patch).length === 0) return;
+    if (Object.keys(patch).length === 0) {
+      // Nothing was changed, so nothing is sent.
+      this.close();
+      return;
+    }
     this.editRefusal.set(undefined);
     try {
       await handle.patch(handle.keyOf(mission), patch);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 403) {
+      // The form is in a dialog, which covers the page's notice: every refusal of the
+      // save, the grant's 403 among them, is shown in the form.
+      if (e instanceof ApiError) {
         this.editRefusal.set(e.message);
         return;
       }
       throw e;
     }
+    this.close();
     this.missionsPage.reload();
   }
 
@@ -509,53 +631,74 @@ export class FlightDeckComponent {
     this.missionsPage.reload();
   }
 
+  /**
+   * Sends what a form in a dialog holds and closes the form once the server took it. A
+   * refusal stays in the form, in the server's words: the dialog covers the page's
+   * notice, so an error left to it would be raised where nobody sees it.
+   */
+  private async send(create: () => Promise<unknown>): Promise<boolean> {
+    this.formRefusal.set(undefined);
+    try {
+      await create();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        this.formRefusal.set(e.message);
+        return false;
+      }
+      throw e;
+    }
+    this.close();
+    return true;
+  }
+
   async book(): Promise<void> {
     const deadline = combineDateAndTime(this.newDeadlineDate, this.newDeadlineTime);
     if (!this.newTitle || !this.newKind || !this.newClientId || !deadline) return;
-    await this.sectors.sectorApi().missions.create({
-      clientId: this.newClientId,
-      kindId: this.newKind,
-      title: this.newTitle,
-      brief: this.newBrief || undefined,
-      hazard: this.newHazard ?? 1,
-      fee: this.newFee ?? 0,
-      deadline,
-      notes: this.newNotes || undefined,
-    });
-    this.newTitle = '';
-    this.newBrief = '';
-    this.newKind = '';
-    this.newClientId = '';
-    this.newHazard = null;
-    this.newFee = null;
-    this.newDeadlineDate = null;
-    this.newDeadlineTime = null;
-    this.newNotes = '';
-    this.missionsPage.reload();
+    const booked = await this.send(() =>
+      this.sectors.sectorApi().missions.create({
+        clientId: this.newClientId,
+        kindId: this.newKind,
+        title: this.newTitle,
+        brief: this.newBrief || undefined,
+        hazard: this.newHazard ?? 1,
+        fee: this.newFee ?? 0,
+        deadline,
+        notes: this.newNotes || undefined,
+      }),
+    );
+    if (booked) {
+      this.missionsPage.reload();
+    }
   }
 
   async addSortie(mission: Missions): Promise<void> {
     if (!this.newSortieShipId || !this.newSortiePilot) return;
-    await this.sectors.sectorApi().sorties.create({
-      missionId: mission.id,
-      shipId: this.newSortieShipId,
-      pilotUserId: this.newSortiePilot,
-      launchedAt: new Date(),
-    });
-    this.newSortieShipId = '';
-    this.newSortiePilot = '';
-    this.sorties.reload();
+    const added = await this.send(() =>
+      this.sectors.sectorApi().sorties.create({
+        missionId: mission.id,
+        shipId: this.newSortieShipId,
+        pilotUserId: this.newSortiePilot,
+        launchedAt: new Date(),
+      }),
+    );
+    if (added) {
+      this.sorties.reload();
+    }
   }
 
   async addExpense(sortie: Sorties): Promise<void> {
     if (this.newExpenseAmount === null) return;
-    await this.sectors.sectorApi().sortieExpenses.create({
-      sortieId: sortie.id,
-      category: this.newExpenseCategory,
-      amount: this.newExpenseAmount,
-    });
-    this.newExpenseAmount = null;
-    this.expenses.reload();
+    const amount = this.newExpenseAmount;
+    const added = await this.send(() =>
+      this.sectors.sectorApi().sortieExpenses.create({
+        sortieId: sortie.id,
+        category: this.newExpenseCategory,
+        amount,
+      }),
+    );
+    if (added) {
+      this.expenses.reload();
+    }
   }
 }
 

@@ -1253,7 +1253,10 @@ watch desk then name the cadet by username; and
   their create in a dialog, as every list of the console does
   ([`list.create-dialog`](web/console/src/app/configs/hangars.config.ts)): the button
   above a list opens the form over the page under the button's own words, and no list
-  draws a form on its page. Add a pass opens the form with three pickers side by side, a person of
+  draws a form on its page. Three pages of Lodestar's own follow the same rule, the Flight
+  deck, the Roster and the portal's tracker: each action that adds or changes something
+  is a button that opens its form in a dialog, and what the server refuses of it is shown
+  in the dialog. Add a pass opens the form with three pickers side by side, a person of
   the sector, a squadron and a group of the sector, each a list the generated metadata
   names; the pass names one of them, and one that names two, or none, is refused inside
   the dialog in the server's words. An empty person is nobody, in the validator and in

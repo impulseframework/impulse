@@ -66,6 +66,13 @@
         <mat-card-title>Calls you filed</mat-card-title>
       </mat-card-header>
       <mat-card-content>
+        @if (canFile()) {
+          <div class="actions">
+            <button mat-flat-button type="button" class="file-call" (click)="openFile(fileForm)">
+              File a distress call
+            </button>
+          </div>
+        }
         <ul>
           @for (call of calls.value(); track call.id) {
             <li>
@@ -101,40 +108,47 @@
         </ul>
       </mat-card-content>
     </mat-card>
-
-    @if (canFile()) {
-      <mat-card appearance="outlined" class="create-card">
-        <mat-card-header>
-          <mat-card-title>File a distress call</mat-card-title>
-          <mat-card-subtitle>Summary, severity, and how to reach you.</mat-card-subtitle>
-        </mat-card-header>
-        <mat-card-content>
-          <form class="inline-form" (ngSubmit)="file()">
-            @if (canWrite(fields.summary)) {
-              <mat-form-field appearance="outline" class="grow">
-                <mat-label>Summary</mat-label>
-                <input matInput name="summary" [(ngModel)]="newSummary" required />
-              </mat-form-field>
-            }
-            @if (canWrite(fields.severity)) {
-              <mat-form-field appearance="outline">
-                <mat-label>Severity (1–5)</mat-label>
-                <input matInput name="severity" type="number" min="1" max="5" [(ngModel)]="newSeverity" required />
-              </mat-form-field>
-            }
-            @if (canWrite(fields.callerContact)) {
-              <mat-form-field appearance="outline">
-                <mat-label>Your contact</mat-label>
-                <input matInput name="callerContact" [(ngModel)]="newCallerContact" />
-              </mat-form-field>
-            }
-            <button mat-flat-button type="submit">File call</button>
-          </form>
-        </mat-card-content>
-      </mat-card>
-    }
   } @else {
     <h1>Your missions</h1>
     <p class="empty">You hold no sector yet. Your company's contact at the service gives you one.</p>
   }
 </div>
+
+<!--
+  The distress-call form. It opens in a dialog over the page from the button that names
+  it: the title and the button that sends are that button's words, Cancel and Escape
+  close it with nothing sent, and what the server refuses is shown in the form.
+-->
+<ng-template #fileForm>
+  <div mat-dialog-title>File a distress call</div>
+  <form class="dialog-form" (ngSubmit)="file()">
+    <mat-dialog-content>
+      <p class="hint">Summary, severity, and how to reach you.</p>
+      @if (canWrite(fields.summary)) {
+        <mat-form-field appearance="outline">
+          <mat-label>Summary</mat-label>
+          <input matInput name="summary" [(ngModel)]="newSummary" required />
+        </mat-form-field>
+      }
+      @if (canWrite(fields.severity)) {
+        <mat-form-field appearance="outline">
+          <mat-label>Severity (1–5)</mat-label>
+          <input matInput name="severity" type="number" min="1" max="5" [(ngModel)]="newSeverity" required />
+        </mat-form-field>
+      }
+      @if (canWrite(fields.callerContact)) {
+        <mat-form-field appearance="outline">
+          <mat-label>Your contact</mat-label>
+          <input matInput name="callerContact" [(ngModel)]="newCallerContact" />
+        </mat-form-field>
+      }
+      @if (fileRefusal(); as refusal) {
+        <p class="refusal" role="alert">{{ refusal }}</p>
+      }
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+      <button mat-raised-button type="submit" color="accent" class="send">File a distress call</button>
+    </mat-dialog-actions>
+  </form>
+</ng-template>

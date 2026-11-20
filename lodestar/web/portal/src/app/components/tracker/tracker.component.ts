@@ -1,8 +1,9 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, computed, inject, resource, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, resource, signal, TemplateRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatTableModule } from '@angular/material/table';
@@ -12,7 +13,7 @@ import { DistressCalls, Missions } from '@app/service/zz_gen_resources';
 import { TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { storeSignal } from '@impulseframework/resource-angular/resource-client';
-import { Domain, Method, Page, ResourceHandle, rowCapabilities } from '@impulseframework/resource';
+import { ApiError, Domain, Method, Page, ResourceHandle, rowCapabilities } from '@impulseframework/resource';
 import { TrackerGraphComponent } from './graph/tracker-graph.component';
 
 /** One line of the company's statement, as app.clientStatementLine's wire struct. */
@@ -28,11 +29,19 @@ export interface ClientStatementLine {
  * The client's tracker: the missions their company booked in the sector the page is open
  * in (the frame's, from the address; the place switcher opens another), paged
  * at the size the portal's descriptor carries and each drawn as the same state graph
- * the flight deck uses but with no edge lit except Stand down; a three-field
- * distress-call form (summary, severity, and the contact details, the one PII field a
- * client writes); the calls they filed listed back; the company's statement over the
- * change log (the portal-only manual resource); and their own contact record. Everything renders from the portal's own generated client, whose digest and
- * user-domains channels live under /portal/api.
+ * the flight deck uses but with no edge lit except Stand down; the calls they filed
+ * listed back, under a File a distress call button; the company's statement over the
+ * change log (the portal-only manual resource); and their own contact record. Everything
+ * renders from the portal's own generated client, whose digest and user-domains channels
+ * live under /portal/api.
+ *
+ * The page draws no form. File a distress call opens the three-field form (summary,
+ * severity, and the contact details, the one PII field a client writes) in a dialog
+ * over the page, as the library's lists open their create: the dialog is titled with the
+ * button's words and carries Cancel and those words as its buttons, Cancel and Escape
+ * close it with nothing sent, and a click outside does nothing. A dialog covers the
+ * page's notice, so a call the server refuses is shown in the form, in the server's
+ * words, and the form stays as it was filled.
  *
  * Demonstrates: outlet.session, typescript.second-target, paging.descriptor-sizes, create-form-narrowing, @manualAddResource.outlet.
  */
@@ -44,6 +53,7 @@ export interface ClientStatementLine {
     FormsModule,
     MatButtonModule,
     MatCardModule,
+    MatDialogModule,
     MatFormFieldModule,
     MatInputModule,
     MatTableModule,
@@ -55,6 +65,7 @@ export interface ClientStatementLine {
 export class TrackerComponent {
   private api = injectApi();
   private auth = inject(AuthService);
+  private dialog = inject(MatDialog);
   private permissions = storeSignal(this.api.permissions.snapshot);
 
   readonly resources = Resources;
@@ -187,6 +198,15 @@ export class TrackerComponent {
   newSummary = '';
   newSeverity: number | null = null;
   newCallerContact = '';
+  // The form that is open over the page, if it is.
+  private opened: MatDialogRef<unknown> | undefined;
+  // The server's refusal of the call the open form sent, shown in the form.
+  fileRefusal = signal<string | undefined>(undefined);
+
+  constructor() {
+    // A form left open goes with the page.
+    inject(DestroyRef).onDestroy(() => this.close());
+  }
 
   select(mission: Missions): void {
     this.selectedID.set(this.selectedID() === mission.id ? undefined : mission.id);
@@ -208,17 +228,57 @@ export class TrackerComponent {
     this.statement.reload();
   }
 
-  async file(): Promise<void> {
-    const api = this.sectorApi();
-    if (!api || !this.newSummary || this.newSeverity === null) return;
-    await api.distressCalls.create({
-      summary: this.newSummary,
-      severity: this.newSeverity,
-      ...(this.canWrite(this.fields.callerContact) ? { callerContact: this.newCallerContact } : {}),
-    });
+  /**
+   * Opens the distress-call form, empty, in a dialog over the page, as the library's
+   * lists open their create. Cancel and Escape close it with nothing sent; a click
+   * outside does nothing, so what was typed is not lost to a stray click.
+   */
+  openFile(form: TemplateRef<unknown>): void {
     this.newSummary = '';
     this.newSeverity = null;
     this.newCallerContact = '';
+    this.fileRefusal.set(undefined);
+    const opened = this.dialog.open(form, {
+      delayFocusTrap: false,
+      disableClose: true,
+      width: '480px',
+      maxWidth: '95vw',
+    });
+    opened.keydownEvents().subscribe((event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        opened.close();
+      }
+    });
+    this.opened = opened;
+  }
+
+  /** Closes the open form; nothing more is sent. */
+  close(): void {
+    this.opened?.close();
+    this.opened = undefined;
+  }
+
+  async file(): Promise<void> {
+    const api = this.sectorApi();
+    if (!api || !this.newSummary || this.newSeverity === null) return;
+    this.fileRefusal.set(undefined);
+    try {
+      await api.distressCalls.create({
+        summary: this.newSummary,
+        severity: this.newSeverity,
+        ...(this.canWrite(this.fields.callerContact) ? { callerContact: this.newCallerContact } : {}),
+      });
+    } catch (e) {
+      // The form is in a dialog, which covers the page's notice: the refusal is shown
+      // in the form, in the server's words.
+      if (e instanceof ApiError) {
+        this.fileRefusal.set(e.message);
+        return;
+      }
+      throw e;
+    }
+    this.close();
     this.calls.reload();
   }
 }
