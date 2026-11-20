@@ -48,7 +48,10 @@ import (
 // Bastion's role. A session established by an impersonation gains nothing either: one
 // that views the application as Bastion's marshal does not enter Bastion, and one the
 // marshal herself starts as the Headquarters role, from a browser Bastion admits, does
-// not enter it and is refused the call her own session makes.
+// not enter it and is refused the call her own session makes. Reading is held by the
+// same rule and by nothing beside it: from a browser Bastion admits, Bastion's marshal
+// views as one of the crew of every sector, and acts as the marshal's role, and each
+// session reads the wings of Anvil, which admits any sign-in, and not Bastion's.
 //
 // The rigger changes her password while Bastion is directory only. Her other sessions
 // end, and the one the change goes on in is the continuation of the session that made
@@ -311,6 +314,38 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	bosunToBastion := jsonBody(t, map[string]any{"userId": crewUserID(ctx, t, governor, "bosun").String(), "role": "SectorMarshal", "domain": bastion})
 	if status, answer := acting.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), bosunToBastion); status != http.StatusForbidden || !strings.Contains(string(answer), roleKept) {
 		t.Errorf("giving Bastion's marshal's role as the rigger acting as the Headquarters role: status %d, want 403 saying %q: %s", status, roleKept, answer)
+	}
+
+	// The two reads above are refused by more than the rule that Bastion is directory
+	// only. The fleet's marshal's own sign-in never entered Bastion, so a session that
+	// kept it would be kept out as he is; and the Headquarters role holds nothing in a
+	// sector, so a session that acts as it has no foothold in any sector, admitted or
+	// not. These two are refused by that rule and nothing else: each is a session the
+	// rigger starts from a browser Bastion admits, as someone or something that reads a
+	// sector's wings, and each reads Anvil's wings, which admits any sign-in, and not
+	// Bastion's. She views as the surveyor, one of the crew of every sector, and she
+	// acts as the marshal's role, the one she holds in Bastion herself.
+	for _, started := range []struct {
+		as   string
+		body string
+	}{
+		{"viewing as the surveyor, one of the crew of every sector", viewAs(t, "surveyor", "walkthrough")},
+		{"acting as the SectorMarshal role", `{"kind":"role","principal":"SectorMarshal","reason":"walkthrough"}`},
+	} {
+		reading := newBrowser(t, s, consoleAPI)
+		reading.signIn(ctx, "rigger")
+		if status, body := reading.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != http.StatusOK {
+			t.Fatalf("GET Bastion's wings as the rigger in a browser of her own, before it is %s: status %d, want 200: %s", started.as, status, body)
+		}
+		if status, body := reading.impersonate(ctx, started.body); status != http.StatusOK {
+			t.Fatalf("the rigger %s: status %d: %s", started.as, status, body)
+		}
+		if status, body := reading.do(ctx, http.MethodGet, sectorPath(anvil, "wings"), nil); status != http.StatusOK {
+			t.Errorf("GET Anvil's wings as the rigger %s: status %d, want 200: the session reads a sector's wings where the sector admits it: %s", started.as, status, body)
+		}
+		if status, body := reading.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != http.StatusNotFound {
+			t.Errorf("GET Bastion's wings as the rigger %s: status %d, want 404: the session reads a sector's wings, and Bastion admits a sign-in through its directory or its marshal's password, never a session an impersonation established: %s", started.as, status, body)
+		}
 	}
 	give("taking the grant to act as a role back from the rigger", "remove-crew-role", map[string]any{"userId": riggerID, "role": "CommandStaff"})
 	if status, answer := rigger.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), bosunToBastion); status != http.StatusNoContent {
