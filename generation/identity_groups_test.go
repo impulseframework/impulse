@@ -3,6 +3,7 @@ package generation
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -630,6 +631,23 @@ func Test_resolveRunSubjectSets(t *testing.T) {
 	declared := &resourceInfo{SubjectSets: []*subjectBinding{{Name: "squads", Type: "string"}}}
 	if err := c.resolveRunSubjectSets(append(slices.Clone(resources), declared)); err != nil {
 		t.Errorf("resolveRunSubjectSets() with the set declared by the management: error = %v, want none", err)
+	}
+}
+
+// Test_groupTenantColumn_isTheColumnTheDeclarationNames holds the column a domain: must
+// end at on an auth's groups table (groupTenantColumn) to the generated declaration of
+// a group: the field the members' own set ends at, DomainID, is declared over that
+// column. A change to either that leaves the other behind fails here, before a run
+// refuses its own management.
+func Test_groupTenantColumn_isTheColumnTheDeclarationNames(t *testing.T) {
+	t.Parallel()
+
+	declared := regexp.MustCompile(`\bDomainID\s+string\s+` + "`" + `spanner:"` + groupTenantColumn + `"`)
+	if !declared.MatchString(identityGroupsTemplate) {
+		t.Errorf("the generated declaration of a group no longer declares DomainID over the column %s, which is where a domain: on the groups table must end", groupTenantColumn)
+	}
+	if !strings.Contains(identityGroupMembersTemplate, "domain: GroupID.DomainID") {
+		t.Errorf("the generated group members no longer end their set's domain: at DomainID")
 	}
 }
 

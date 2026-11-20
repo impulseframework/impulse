@@ -43,6 +43,13 @@ func identityGroupTables() []identityTable {
 // of the application keeps groups.
 const defaultGroupSet = "groups"
 
+// groupTenantColumn is the column of an auth's groups table that holds the tenant a
+// group is kept in, empty for a group kept for the whole application: the permission
+// store writes it, and the declaration over the table names it DomainID
+// (identityGroupsTemplate). It is where the path of a set's domain: ends when it ends
+// on the table (checkSubjectDomainEnds), the members' own set among them.
+const groupTenantColumn = "DomainId"
+
 // The suffixes of the lists over groups, each what the list holds: the people of a group,
 // the roles a person holds through a group, and, for one tenant, its own groups and the
 // roles they hold.

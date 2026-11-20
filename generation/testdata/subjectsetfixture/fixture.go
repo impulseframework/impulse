@@ -1,6 +1,7 @@
-// Package subjectsetfixture provides parsed-struct fixtures for the two parts a
-// @subjectSet's definition may write, who: and where:: the shapes that resolve, one
-// struct per refusal, and the tables the index warning reads.
+// Package subjectsetfixture provides parsed-struct fixtures for the parts a
+// @subjectSet's definition may write, who:, where: and domain:: the shapes that
+// resolve, one struct per refusal, the tables the index warning reads, and the tables
+// a domain: ends on.
 package subjectsetfixture
 
 import (
@@ -595,13 +596,28 @@ type (
 		UserID string `spanner:"UserId"`
 	}
 
-	// DomainNoPath names a column of its own row and goes nowhere from it.
+	// Keyholder names the people who hold a key, on a table that is no tenant's whose
+	// rows each carry the tenant the key is kept in. Its set's domain: names that
+	// column of the row itself and goes nowhere from it.
 	//
 	// @resource
-	DomainNoPath struct {
-		ID     impulse.UUID `spanner:"Id"`
-		PoolID impulse.UUID `spanner:"PoolId"`
-		// @subjectSet(pathless, value: PoolID, domain: PoolID)
+	Keyholder struct {
+		ID       impulse.UUID `spanner:"Id"`
+		TenantID string       `spanner:"TenantId"`
+		KeyID    impulse.UUID `spanner:"KeyId"`
+		// @subjectSet(keys, value: KeyID, domain: TenantID)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainOwnNumber names a column of its own row that is a number, which no
+	// tenant's key is.
+	//
+	// @resource
+	DomainOwnNumber struct {
+		ID    impulse.UUID `spanner:"Id"`
+		KeyID impulse.UUID `spanner:"KeyId"`
+		Floor int64        `spanner:"Floor"`
+		// @subjectSet(byFloor, value: KeyID, domain: Floor)
 		UserID string `spanner:"UserId"`
 	}
 
@@ -643,5 +659,148 @@ type (
 		// @subjectValue(homePool, value: PoolID, domain: PoolID.TenantID)
 		UserID string       `spanner:"UserId"`
 		PoolID impulse.UUID `spanner:"PoolId"`
+	}
+)
+
+// The tables a domain: ends on that say where their tenant is, and the sets that end
+// on them: one that ends at the tenant's column and one that ends at another text
+// column of the same table, for each way a table says it.
+type (
+	// Depot is a tenant's own table: its rows carry their tenant in TenantID, the
+	// column its @domain sits on. Region is text, and no tenant's key.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Depot struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		TenantID string `spanner:"TenantId"`
+		Region   string `spanner:"Region"`
+	}
+
+	// DepotKeeper names the people of a depot on a table that is no tenant's, and
+	// ends its domain: at the depot's own tenant column.
+	//
+	// @resource
+	DepotKeeper struct {
+		DepotID impulse.UUID `spanner:"DepotId"`
+		// @subjectSet(depots, value: DepotID, domain: DepotID.TenantID)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainOtherColumn ends its domain: on the depot at a text column that is not
+	// the one the depot's tenant is kept in.
+	//
+	// @resource
+	DomainOtherColumn struct {
+		ID      impulse.UUID `spanner:"Id"`
+		DepotID impulse.UUID `spanner:"DepotId"`
+		// @subjectSet(byRegion, value: DepotID, domain: DepotID.Region)
+		UserID string `spanner:"UserId"`
+	}
+
+	// Rack is a tenant's table that holds no tenant's key itself: its rows find their
+	// tenant through their depot.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Rack struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain(via: TenantID)
+		DepotID impulse.UUID `spanner:"DepotId"`
+		Label   string       `spanner:"Label"`
+	}
+
+	// RackKeeper names the people of a rack, and continues its domain: through the
+	// rack to the depot's tenant column.
+	//
+	// @resource
+	RackKeeper struct {
+		RackID impulse.UUID `spanner:"RackId"`
+		// @subjectSet(racks, value: RackID, domain: RackID.DepotID.TenantID)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainShortOfTenant ends its domain: on the rack, which holds no tenant's key.
+	//
+	// @resource
+	DomainShortOfTenant struct {
+		ID     impulse.UUID `spanner:"Id"`
+		RackID impulse.UUID `spanner:"RackId"`
+		// @subjectSet(byLabel, value: RackID, domain: RackID.Label)
+		UserID string `spanner:"UserId"`
+	}
+
+	// Realm is the tenant record: its rows are the tenants, and a tenant's key is its
+	// ID.
+	//
+	// @resource
+	// @tenant
+	Realm struct {
+		ID   impulse.UUID `spanner:"Id"`
+		Name string       `spanner:"Name"`
+	}
+
+	// RealmKeeper ends its domain: at the tenant record's key.
+	//
+	// @resource
+	RealmKeeper struct {
+		ID      impulse.UUID `spanner:"Id"`
+		RealmID impulse.UUID `spanner:"RealmId"`
+		// @subjectSet(realms, value: RealmID, domain: RealmID.ID)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainTenantName ends its domain: at the tenant record's name.
+	//
+	// @resource
+	DomainTenantName struct {
+		ID      impulse.UUID `spanner:"Id"`
+		RealmID impulse.UUID `spanner:"RealmId"`
+		// @subjectSet(byRealmName, value: RealmID, domain: RealmID.Name)
+		UserID string `spanner:"UserId"`
+	}
+
+	// StaffGroup stands for the permission store's table of groups under an auth
+	// named Staff: a group is kept in the tenant DomainID names, or in none.
+	//
+	// @resource
+	StaffGroup struct {
+		ID       impulse.UUID `spanner:"Id"`
+		DomainID string       `spanner:"DomainId"`
+		Name     string       `spanner:"Name"`
+	}
+
+	// StaffGroupMember ends its domain: at the column the store keeps a group's
+	// tenant in, as the generated declaration of a group's members does.
+	//
+	// @resource
+	StaffGroupMember struct {
+		GroupID impulse.UUID `spanner:"GroupId"`
+		// @subjectSet(staffGroups, value: GroupID, domain: GroupID.DomainID)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainGroupName ends its domain: at a group's name.
+	//
+	// @resource
+	DomainGroupName struct {
+		ID      impulse.UUID `spanner:"Id"`
+		GroupID impulse.UUID `spanner:"GroupId"`
+		// @subjectSet(byGroupName, value: GroupID, domain: GroupID.Name)
+		UserID string `spanner:"UserId"`
+	}
+
+	// DomainOwnTenantName is a tenant record that declares the set of the tenants a
+	// person owns, and names a tenant's name where its key belongs: a domain: of one
+	// name ends on the set's own table.
+	//
+	// @resource
+	// @tenant
+	DomainOwnTenantName struct {
+		ID   impulse.UUID `spanner:"Id"`
+		Name string       `spanner:"Name"`
+		// @subjectSet(ownedRealms, value: ID, domain: Name)
+		OwnerID string `spanner:"OwnerId"`
 	}
 )
