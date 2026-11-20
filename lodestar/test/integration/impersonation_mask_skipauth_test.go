@@ -565,7 +565,7 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 	}
 	for record, perm := range map[accesstypes.Resource]accesstypes.Permission{"SquadronMemberships": accesstypes.Create, "HangarPasses": accesstypes.Delete, "Squadrons": accesstypes.Update, "Squadrons.wingId": accesstypes.Update} {
 		if _, ok := hers[record][perm]; !ok {
-			t.Fatalf("the marshal's digest carries no %s on %s: the suite reads off it the writes the act kind refuses", perm, record)
+			t.Fatalf("the marshal's digest carries no %s on %s: the suite reads off it the writes the act kind refuses, and the writes of HangarPasses it keeps", perm, record)
 		}
 	}
 
@@ -581,10 +581,12 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 	}
 	// What the kind refuses of its own on a record: the three writes of the records that
 	// decide what a person may do, and a squadron's change, each on the record and on
-	// every field of it.
+	// every field of it. The writes of HangarPasses are classed access with them, and
+	// the kind keeps them out of the class: the digest carries them as the marshal
+	// holds them.
 	writes := []accesstypes.Permission{accesstypes.Create, accesstypes.Update, accesstypes.Delete}
 	kindRefusesWrites := map[accesstypes.Resource][]accesstypes.Permission{
-		"ClientContacts": writes, "HangarPasses": writes, "PilotCertifications": writes, "Pilots": writes, "SquadronMemberships": writes,
+		"ClientContacts": writes, "PilotCertifications": writes, "Pilots": writes, "SquadronMemberships": writes,
 		"Squadrons": {accesstypes.Update},
 	}
 	// wantDigest is the marshal's own digest without the actions a mask refuses and
@@ -626,7 +628,7 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 
 	// One named action.
 	named := acting("one named action", `,"refuseActions":["ScrapShip"]`,
-		"everything except access actions, credential actions and the action ScrapShip")
+		"everything except access actions (still allowed: writing HangarPasses), credential actions and the action ScrapShip")
 	if status, body := named.do(ctx, http.MethodPost, scrap, mule); status != http.StatusForbidden {
 		t.Errorf("scrap-ship under a mask that refuses the action ScrapShip: status %d, want 403: %s", status, body)
 	}
@@ -634,7 +636,7 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 
 	// A class of the application's own.
 	classed := acting("a class of the application's own", `,"refuseClasses":["irreversible"]`,
-		"everything except access actions, credential actions and irreversible actions")
+		"everything except access actions (still allowed: writing HangarPasses), credential actions and irreversible actions")
 	if status, body := classed.do(ctx, http.MethodPost, scrap, mule); status != http.StatusForbidden {
 		t.Errorf("scrap-ship under a mask that refuses the class irreversible: status %d, want 403: %s", status, body)
 	}

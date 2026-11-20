@@ -9,8 +9,13 @@ package integration
 // SquadronMemberships row and a HangarPasses row each put a value in one of the person's
 // subject sets. The generated write of each asks the identity library's rule
 // (identity.RefuseImpersonatorAsRowSubject) about the person the row names, before the
-// write and after it. The kind that acts as a person refuses those records' writes by
-// name as well, whoever the row names, so a stand-in changes nobody's standing.
+// write and after it. A row that reaches a person without naming them is held to the
+// same rule: a hangar pass given to a squadron the real person is in
+// (identity.RefuseImpersonatorAsSetSubject), and their own squadron moved to another
+// wing (identity.RefuseImpersonatorAsReadThroughSubject). The kind that acts as a person
+// refuses those records' writes by their class as well, whoever the row names, and keeps
+// one record out of that refusal, the hangar passes: a stand-in gives other people and
+// other squadrons a pass, and never themselves or a squadron they are in.
 //
 // The rule reads the columns that name a person a row is about. A column that records
 // who made a row is not one of them, and the last test here pins what such a column
@@ -287,15 +292,15 @@ func TestImpersonation_ownRecordUnderARole(t *testing.T) {
 // clearance and fee limit on the cadet's own Pilot row, that row handed on or removed, a
 // certification, a place in a squadron and a hangar pass of their own, a veteran's row
 // moved onto the yeoman's account and a row made for it. The kind's mask refuses the
-// class access and names no record: the generator gives that class to the writes of
-// every record that decides what a person may do, so the same writes for another person
-// are refused too: a pilot's clearance, by the record and by the action that rates a
-// pilot; a certification given and taken; a place in a squadron given and taken; a
-// hangar pass given to a person and to a squadron, changed and taken; a client's contact
-// moved to another client; and a squadron changed, its wing or its name, because a
-// squadron's row says which wing every member is in and the class is on the record's
-// change, not on one plain field of it. A write that carries no class the mask keeps: a
-// wing is added.
+// class access and names no record to refuse: the generator gives that class to the
+// writes of every record that decides what a person may do, so the same writes for
+// another person are refused too: a pilot's clearance, by the record and by the action
+// that rates a pilot; a certification given and taken; a place in a squadron given and
+// taken; a client's contact moved to another client; and a squadron changed, its wing
+// or its name, because a squadron's row says which wing every member is in and the
+// class is on the record's change, not on one plain field of it. A write that carries
+// no class the mask keeps: a wing is added. The hangar passes are the one record the
+// kind keeps out of the class, and TestImpersonation_ownSetActingAsAPerson has them.
 //
 // Demonstrates: impersonation.never-the-subject, impersonation.act-as-user, impersonation.grant-mask, impersonation.mask.
 func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
@@ -309,8 +314,6 @@ func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
 	yeomanAsGovernor := actingBrowser(ctx, t, s, "yeoman", actAs(t, "governor", "standing in for the governor", ""))
 
 	const (
-		passOfTongs    = "61000000-0000-4000-8000-000000000001" // Tongs' run of Anvil Dock One
-		passOfHammer   = "61000000-0000-4000-8000-000000000004" // Hammer's run of the Quarantine Bay
 		contactOfCleo  = "31000000-0000-4000-8000-000000000001" // Client Cleo, a contact of Halvard
 		ownPilot       = "/pilots/" + pilotCassID
 		hangarPassPath = "hangar-passes"
@@ -337,16 +340,6 @@ func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
 		{name: "another pilot's certification taken", by: asGovernor, ops: []string{recordOp("remove", "/pilot-certifications/"+pilot+"/salvage", "")}},
 		{name: "another person's place in a squadron given", by: asGovernor, ops: []string{recordOp("add", opPath(anvil, "squadron-memberships/"+squadronTongsID+"/"+yeoman), `{}`)}},
 		{name: "another person's place in a squadron taken", by: asGovernor, ops: []string{recordOp("remove", opPath(anvil, "squadron-memberships/"+squadronTongsID+"/"+pilot), "")}},
-		{
-			name: "a hangar pass given to another person", by: asGovernor,
-			ops: []string{recordOp("add", opPath(anvil, hangarPassPath), fmt.Sprintf(`{"hangarId":%q,"userId":%q,"levelId":"run"}`, hangarQuarantineID, yeoman))},
-		},
-		{
-			name: "a hangar pass given to a squadron", by: asGovernor,
-			ops: []string{recordOp("add", opPath(anvil, hangarPassPath), fmt.Sprintf(`{"hangarId":%q,"squadronId":%q,"levelId":"visit"}`, hangarAnvilDockID, squadronHammerID))},
-		},
-		{name: "a squadron's hangar pass changed", by: asGovernor, ops: []string{recordOp("patch", opPath(anvil, hangarPassPath+"/"+passOfTongs), `{"levelId":"visit"}`)}},
-		{name: "a squadron's hangar pass taken", by: asGovernor, ops: []string{recordOp("remove", opPath(anvil, hangarPassPath+"/"+passOfHammer), "")}},
 		{name: "a client's contact moved to another client", by: asGovernor, ops: []string{recordOp("patch", "/client-contacts/"+contactOfCleo, fmt.Sprintf(`{"clientId":%q}`, clientMeridianID))}},
 		{name: "a squadron's wing written", by: asGovernor, ops: []string{recordOp("patch", opPath(anvil, "squadrons/"+squadronHammerID), fmt.Sprintf(`{"wingId":%q}`, wingForgeID))}},
 		{name: "a squadron renamed", by: asGovernor, ops: []string{recordOp("patch", opPath(anvil, "squadrons/"+squadronHammerID), `{"name":"Hammer Reforged"}`)}},
@@ -386,6 +379,205 @@ func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
 	}
 	if got := readColumn[int64](ctx, t, s.db, "Pilots", spanner.Key{pilotCassID}, "Clearance"); got != 2 {
 		t.Errorf("the cadet's clearance after the sessions = %d, want the 2 the registry gave them", got)
+	}
+}
+
+// The two hangar passes of the seed the tests of a set write: one given to Tongs and one
+// given to Hammer.
+const (
+	passOfTongs  = "61000000-0000-4000-8000-000000000001" // Tongs' run of Anvil Dock One
+	passOfHammer = "61000000-0000-4000-8000-000000000004" // Hammer's run of the Quarantine Bay
+)
+
+// wingNamed reads the id of the wing with the name, straight from the database.
+func wingNamed(ctx context.Context, t *testing.T, s *served, name string) string {
+	t.Helper()
+
+	iter := s.db.Single().Query(ctx, spanner.Statement{SQL: `SELECT Id FROM Wings WHERE Name = @name`, Params: map[string]any{"name": name}})
+	defer iter.Stop()
+
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("reading the wing named %q: %v", name, err)
+	}
+	var id string
+	if err := row.Columns(&id); err != nil {
+		t.Fatalf("reading the id of the wing named %q: %v", name, err)
+	}
+
+	return id
+}
+
+// TestImpersonation_ownSetActingAsAPerson proves the rule for a row that reaches a person
+// without naming them, and the exception the act kind keeps. The pilot flies with Tongs.
+// Given the grant to act as a person, the pilot acts as the marshal, whose daily work a
+// hangar pass is: the kind refuses the class access and keeps the writes of HangarPasses
+// out of it. A pass given to another person and to another squadron goes through, and so
+// do a change and a removal of another squadron's pass. A pass given to the pilot's own
+// account is refused by the rule for a row that names a person, and a pass given to
+// Tongs, changed for Tongs or taken from Tongs by the rule for a set the real person is
+// in, each with its sentence, alone or last in a batch, and nothing in the database
+// changes.
+//
+// A request narrows the kind and never widens it. One that refuses the class access
+// again and names nothing to keep drops the exception: the session it starts is refused
+// a pass for anyone, by the mask. One that names a record the kind does not keep is
+// refused with nothing started.
+//
+// The kind refuses every change of a squadron, so the rule for the row a person's
+// standing is read through shows where no mask stands in front of it: the pilot, given
+// the grant to act as a role, acts as the Sector Marshal. The session's record names the
+// pilot as the person who started it. Tongs moved to another wing is refused with the
+// rule's sentence; Tongs renamed is not asked about; Hammer, which the pilot does not
+// fly with, moves. The rule for a set holds there too: a pass for Tongs is refused under
+// the role, whose mask refuses nothing.
+//
+// Demonstrates: impersonation.never-the-subject, impersonation.act-as-user, impersonation.act-as-role, impersonation.grant-mask, impersonation.mask.
+func TestImpersonation_ownSetActingAsAPerson(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	pilot, yeoman := string(account(t, "pilot")), string(account(t, "yeoman"))
+	giveCrewRole(ctx, t, s, "StandIn", "pilot")
+	giveCrewRole(ctx, t, s, "CommandStaff", "pilot")
+	asMarshal := actingBrowser(ctx, t, s, "pilot", actAs(t, "marshal", "standing in for the marshal", ""))
+
+	passes := opPath(anvil, "hangar-passes")
+	pass := func(holder, id, level string) string {
+		return recordOp("add", passes, fmt.Sprintf(`{"hangarId":%q,%q:%q,"levelId":%q}`, hangarQuarantineID, holder, id, level))
+	}
+
+	// What the exception keeps: a pass for another person and for a squadron the pilot
+	// does not fly with, given, changed and taken.
+	kept := []struct {
+		name string
+		op   string
+		want string
+		gone string
+	}{
+		{name: "a pass given to another person", op: pass("userId", yeoman, "run"), want: " hangar " + hangarQuarantineID + " user " + yeoman + " squadron none level run"},
+		{name: "a pass given to another squadron", op: pass("squadronId", squadronHammerID, "visit"), want: " hangar " + hangarQuarantineID + " user none squadron " + squadronHammerID + " level visit"},
+		{
+			name: "another squadron's pass changed", op: recordOp("patch", passes+"/"+passOfHammer, `{"levelId":"visit"}`),
+			want: "HangarPasses " + passOfHammer + " hangar " + hangarQuarantineID + " user none squadron " + squadronHammerID + " level visit",
+		},
+		{name: "another squadron's pass taken", op: recordOp("remove", passes+"/"+passOfHammer, ""), gone: "HangarPasses " + passOfHammer + " "},
+	}
+	holds := func(rows []string, part string) bool {
+		return slices.ContainsFunc(rows, func(row string) bool {
+			return strings.HasPrefix(row, "HangarPasses ") && strings.Contains(row, part)
+		})
+	}
+	for _, write := range kept {
+		if status, answer := writeRecords(ctx, asMarshal, write.op); status != http.StatusOK {
+			t.Errorf("acting as the marshal, %s: status %d, want 200: the kind keeps the writes of HangarPasses: %s", write.name, status, answer)
+
+			continue
+		}
+		rows := standing(ctx, t, s)
+		if write.want != "" && !holds(rows, write.want) {
+			t.Errorf("acting as the marshal, %s: the database holds no pass reading %q", write.name, write.want)
+		}
+		if write.gone != "" && holds(rows, write.gone) {
+			t.Errorf("acting as the marshal, %s: the database still holds the pass %q", write.name, write.gone)
+		}
+	}
+
+	// What the rule refuses whatever the mask keeps: a pass that reaches the real person,
+	// by their account or through the squadron they fly with.
+	refused := []recordWrite{
+		{name: "a pass given to their own account", by: asMarshal, says: "add your own hangar pass record", ops: []string{pass("userId", pilot, "run")}},
+		{name: "a pass given to their own squadron", by: asMarshal, says: "add a hangar pass record for one of your own squadrons", ops: []string{pass("squadronId", squadronTongsID, "run")}},
+		{
+			name: "their own squadron's pass changed", by: asMarshal, says: "change a hangar pass record of one of your own squadrons",
+			ops: []string{recordOp("patch", passes+"/"+passOfTongs, `{"levelId":"visit"}`)},
+		},
+		{
+			name: "their own squadron's pass taken", by: asMarshal, says: "remove a hangar pass record of one of your own squadrons",
+			ops: []string{recordOp("remove", passes+"/"+passOfTongs, "")},
+		},
+		{
+			name: "a batch that gives another squadron a pass and then their own", by: asMarshal, says: "add a hangar pass record for one of your own squadrons",
+			ops: []string{pass("squadronId", squadronHammerID, "run"), pass("squadronId", squadronTongsID, "run")},
+		},
+	}
+	before := standing(ctx, t, s)
+	for _, write := range refused {
+		status, answer := writeRecords(ctx, write.by, write.ops...)
+		if want := actingAsSomeoneElse + write.says + ":"; status != http.StatusForbidden || !strings.Contains(answer, want) {
+			t.Errorf("acting as the marshal, %s: status %d, want 403 saying %q: %s", write.name, status, want, answer)
+		}
+		if after := standing(ctx, t, s); !slices.Equal(after, before) {
+			t.Errorf("acting as the marshal, %s: the write changed what a person may do: %s", write.name, standingChanges(before, after))
+			before = after
+		}
+	}
+
+	// A request that refuses the class again and names nothing to keep drops the
+	// exception: the mask refuses a pass for anyone, and the answer is the mask's, not
+	// the rule's.
+	const withoutPasses = "everything except access actions and credential actions"
+	narrowed := newBrowser(t, s, consoleAPI)
+	narrowed.signIn(ctx, "pilot")
+	if got := mint(ctx, t, narrowed, actAs(t, "marshal", "standing in, with no passes", `,"refuseClasses":["access"]`)); got.Mask != withoutPasses {
+		t.Errorf("a request that refuses the class access and keeps nothing = %q, want %q", got.Mask, withoutPasses)
+	}
+	if status, answer := writeRecords(ctx, narrowed, pass("userId", yeoman, "visit")); status != http.StatusForbidden || strings.Contains(answer, actingAsSomeoneElse) {
+		t.Errorf("a session that dropped the exception, a pass given to another person: status %d, want 403 from the mask: %s", status, answer)
+	}
+	if after := standing(ctx, t, s); !slices.Equal(after, before) {
+		t.Errorf("a session that dropped the exception wrote a pass: %s", standingChanges(before, after))
+		before = after
+	}
+
+	// A request that names a record the kind does not keep is refused, never trimmed,
+	// and the browser's session stays the pilot's own.
+	widened := newBrowser(t, s, consoleAPI)
+	widened.signIn(ctx, "pilot")
+	if status, answer := widened.impersonate(ctx, actAs(t, "marshal", "standing in, with the registry", `,"refuseClasses":["access"],"exceptWrites":["Pilots"]`)); status != http.StatusForbidden {
+		t.Errorf("a request that keeps the writes of Pilots out of the class access: status %d, want 403: %s", status, answer)
+	}
+	if info := widened.session(ctx); info["username"] != "pilot" || info["impersonation"] != nil {
+		t.Errorf("the session after the refused request = %v, want the pilot's own", info)
+	}
+
+	// The rule for the row a person's standing is read through, where no mask stands in
+	// front of it: the pilot acts as the Sector Marshal, a role.
+	asRole := actingBrowser(ctx, t, s, "pilot", `{"kind":"role","principal":"SectorMarshal","reason":"covering the marshal's desk"}`)
+	if record, _ := asRole.session(ctx)["impersonation"].(map[string]any); record["actor"] != "pilot" {
+		t.Fatalf("the record of the session that acts as the Sector Marshal = %v, want the actor pilot", record)
+	}
+	if status, answer := writeRecords(ctx, asRole, recordOp("add", opPath(anvil, "wings"), `{"name":"Reserve Wing"}`)); status != http.StatusOK {
+		t.Fatalf("acting as the Sector Marshal, a wing added: status %d, want 200: %s", status, answer)
+	}
+	reserve := wingNamed(ctx, t, s, "Reserve Wing")
+	move := func(squadron string) string {
+		return recordOp("patch", opPath(anvil, "squadrons/"+squadron), fmt.Sprintf(`{"wingId":%q}`, reserve))
+	}
+	before = standing(ctx, t, s)
+	status, answer := writeRecords(ctx, asRole, move(squadronTongsID))
+	if want := actingAsSomeoneElse + "change the WingID of the squadron record that decides your own wings:"; status != http.StatusForbidden || !strings.Contains(answer, want) {
+		t.Errorf("acting as the Sector Marshal, their own squadron moved to another wing: status %d, want 403 saying %q: %s", status, want, answer)
+	}
+	status, answer = writeRecords(ctx, asRole, pass("squadronId", squadronTongsID, "run"))
+	if want := actingAsSomeoneElse + "add a hangar pass record for one of your own squadrons:"; status != http.StatusForbidden || !strings.Contains(answer, want) {
+		t.Errorf("acting as the Sector Marshal, a pass given to their own squadron: status %d, want 403 saying %q: %s", status, want, answer)
+	}
+	if after := standing(ctx, t, s); !slices.Equal(after, before) {
+		t.Errorf("acting as the Sector Marshal, the refused writes changed what a person may do: %s", standingChanges(before, after))
+	}
+	if status, answer := writeRecords(ctx, asRole, recordOp("patch", opPath(anvil, "squadrons/"+squadronTongsID), `{"name":"Tongs Reforged"}`)); status != http.StatusOK {
+		t.Errorf("acting as the Sector Marshal, their own squadron renamed: status %d, want 200: a rename moves nobody's standing, so the rule is not asked: %s", status, answer)
+	}
+	if got := readColumn[string](ctx, t, s.db, "Squadrons", spanner.Key{squadronTongsID}, "Name"); got != "Tongs Reforged" {
+		t.Errorf("the name of the pilot's squadron after the rename = %q, want Tongs Reforged", got)
+	}
+	if status, answer := writeRecords(ctx, asRole, move(squadronHammerID)); status != http.StatusOK {
+		t.Errorf("acting as the Sector Marshal, a squadron they do not fly with moved to another wing: status %d, want 200: %s", status, answer)
+	}
+	if rows := standing(ctx, t, s); !slices.Contains(rows, "Squadrons "+squadronHammerID+" wing "+reserve) || !slices.Contains(rows, "Squadrons "+squadronTongsID+" wing "+wingForgeID) {
+		t.Errorf("after the two moves the squadrons read %v, want Hammer in the new wing and Tongs where it was", rows)
 	}
 }
 
