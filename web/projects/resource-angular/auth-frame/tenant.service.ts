@@ -2,6 +2,8 @@ import { computed, DestroyRef, effect, inject, Injectable, signal, untracked } f
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   ActivatedRouteSnapshot,
+  NavigationBehaviorOptions,
+  NavigationEnd,
   PRIMARY_OUTLET,
   RedirectCommand,
   ResolveEnd,
@@ -30,6 +32,14 @@ export const refusedSegment = 'refused';
 class UnreadTenant {
   constructor(readonly url: string) {}
 }
+
+/**
+ * How every navigation to the refusal page is asked for: it runs though the refusal page is
+ * where the router already is. The page says one of two things, and a second answer for the
+ * same tenant (a refusal after a failure, a failure after a refusal) lands on the page that
+ * is on the screen; the router would otherwise drop a navigation to its own address.
+ */
+const again: NavigationBehaviorOptions = { onSameUrlNavigation: 'reload' };
 
 /**
  * TenantService holds the one piece of state the tenant's pages share, the tenant the page
@@ -124,11 +134,18 @@ export class TenantService {
         } else if (!tenant && this.routed()) {
           this.leave();
         }
-        // Only the guard's redirect for an unread tenant carries the address; any other
-        // landing, the page opening on a second try among them, clears it.
-        const info = this.router.currentNavigation()?.extras.info;
-        this.unreadUrl.set(info instanceof UnreadTenant ? info.url : '');
+        this.settleUnread();
       });
+
+    // A navigation that lands where the router already is (the refusal page, reached again
+    // while it is on the screen) activates nothing and reports no ResolveEnd: what the
+    // page says is settled when the navigation ends.
+    this.router.events
+      .pipe(
+        filter((event) => event instanceof NavigationEnd),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => this.settleUnread());
 
     // A read of the open tenant's digest that fails, whoever asked for it, is not a tenant
     // the person holds nothing in: the page that is open is turned away. A read for a
@@ -163,6 +180,7 @@ export class TenantService {
    */
   unreadRedirect(tenant: string, url: string): RedirectCommand {
     return new RedirectCommand(this.refusal(tenant), {
+      ...again,
       skipLocationChange: true,
       info: new UnreadTenant(url),
     });
@@ -174,7 +192,7 @@ export class TenantService {
    * refusal page under the tenant says 404 Not Found.
    */
   refusedRedirect(tenant: string): RedirectCommand {
-    return new RedirectCommand(this.refusal(tenant));
+    return new RedirectCommand(this.refusal(tenant), again);
   }
 
   /**
@@ -224,6 +242,17 @@ export class TenantService {
     });
   }
 
+  /**
+   * settleUnread takes what the refusal page says from the navigation that is landing. Only
+   * a navigation sent there for an unread tenant carries the address that was asked for;
+   * any other landing, the page opening on a second try or the server's refusal among them,
+   * clears it.
+   */
+  private settleUnread(): void {
+    const info = this.router.currentNavigation()?.extras.info;
+    this.unreadUrl.set(info instanceof UnreadTenant ? info.url : '');
+  }
+
   /** The refusal page's address under a tenant. */
   private refusal(tenant: string): UrlTree {
     return this.router.createUrlTree(['/', this.frame.segment, tenant, refusedSegment]);
@@ -239,12 +268,13 @@ export class TenantService {
    */
   private turnAway(tenant: string, failure: DigestFailure): void {
     if (failure === 'refused') {
-      void this.router.navigateByUrl(this.refusal(tenant), { replaceUrl: true });
+      void this.router.navigateByUrl(this.refusal(tenant), { ...again, replaceUrl: true });
       return;
     }
     const underWay = this.router.currentNavigation();
     const asked = underWay ? this.router.serializeUrl(underWay.finalUrl ?? underWay.extractedUrl) : this.router.url;
     void this.router.navigateByUrl(this.refusal(tenant), {
+      ...again,
       skipLocationChange: true,
       info: new UnreadTenant(asked),
     });

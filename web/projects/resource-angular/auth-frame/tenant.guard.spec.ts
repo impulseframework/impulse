@@ -374,6 +374,48 @@ describe('tenantGuard', () => {
         expect(tenants.unread()).toBe('');
       });
 
+      it('says 404 Not Found on Try again once the server refuses the read, and offers nothing more to try', async () => {
+        let status = 500;
+        await appHolding('acme', () => refusing(status));
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+        await harness.navigateByUrl('/tenants/acme/page');
+        harness.detectChanges();
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+
+        // The refusal lands on the refusal page that is already on the screen: the same
+        // page changes what it says, and the address moves to the refusal's.
+        status = 403;
+        await tryAgain(harness);
+        expect(shown(harness)).toBe('404 Not Found');
+        expect((harness.routeNativeElement as HTMLElement).querySelector('button')).toBeNull();
+        expect(tenants.unread()).toBe('');
+        expect(TestBed.inject(Location).path()).toBe(`/tenants/acme/${refusedSegment}`);
+      });
+
+      it('says the page could not be loaded when a tenant the server refused is asked for again and the read fails', async () => {
+        let status = 403;
+        await appHolding('acme', () => (status ? refusing(status) : undefined));
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+        await harness.navigateByUrl('/tenants/acme/page');
+        harness.detectChanges();
+        expect(shown(harness)).toBe('404 Not Found');
+
+        // The failure lands on the refusal page that is already on the screen.
+        status = 500;
+        await harness.navigateByUrl('/tenants/acme/page');
+        harness.detectChanges();
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+        expect(tenants.unread()).toBe('/tenants/acme/page');
+
+        status = 0;
+        await tryAgain(harness);
+        expect(shown(harness)).toBe('the page');
+        expect(tenants.current()).toBe('acme');
+        expect(tenants.unread()).toBe('');
+      });
+
       for (const status of [403, 404]) {
         it(`says 404 Not Found and nothing else where the server refuses the read with a ${status}`, async () => {
           await appHolding('acme', () => refusing(status));
