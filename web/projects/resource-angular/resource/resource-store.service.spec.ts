@@ -53,6 +53,18 @@ const descriptor: ApiDescriptor = {
       operations: ['list', 'read'],
       page: { default: 10, max: 50 },
     },
+    // A second paged source of a tenant: with Hangars, two sources that differ in nothing but the source.
+    Gantries: {
+      resource: 'Gantries' as Resource,
+      property: 'gantries',
+      route: 'gantries',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 2 },
+      order: [{ field: 'name', direction: 'asc' }],
+    },
   },
   methods: {
     // A tenant's method: posted under the selected tenant.
@@ -233,12 +245,13 @@ describe('ResourceStore key lookup', () => {
     // Another tenant may answer where the first refused: it is asked. Back in the first, nothing is.
     expect(await askedAfter(() => domain.set('bastion' as Domain))).toBe(2);
     expect(await askedAfter(() => domain.set('anvil' as Domain))).toBe(2);
-    // Other columns, another key and another source, each in its turn.
+    // Other columns and another key, each in its turn.
     expect(await askedAfter(() => columns.set(['id']))).toBe(3);
     expect(await askedAfter(() => columns.set(['id', 'name']))).toBe(3);
     expect(await askedAfter(() => keyField.set('name'))).toBe(4);
     expect(await askedAfter(() => keyField.set('id'))).toBe(4);
-    expect(await askedAfter(() => route.set('berths'))).toBe(5);
+    // Another source of the same tenant, so that the source is all that differs.
+    expect(await askedAfter(() => route.set('sectors/{sectorID}/gantries'))).toBe(5);
     expect(await askedAfter(() => route.set('sectors/{sectorID}/hangars'))).toBe(5);
   });
 });
