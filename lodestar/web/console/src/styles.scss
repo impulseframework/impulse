@@ -26,9 +26,13 @@ body {
   color: var(--mat-sys-on-surface-variant);
 }
 
+// The cards a page of the console draws: a table, the row that is open, a form drawn on
+// its page, and the Roster's card of the two buttons that view as a crew member or act as
+// a role.
 .table-card,
 .detail-card,
-.create-card {
+.create-card,
+.impersonation-card {
   margin: 16px 0;
 
   table {

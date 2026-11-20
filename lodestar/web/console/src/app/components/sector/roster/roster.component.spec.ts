@@ -169,7 +169,10 @@ describe('RosterComponent', () => {
     expect(texts('th')).toEqual(['Squadron', 'Wing', 'Flies with']);
     expect(rows()).toEqual([['Kestrel Flight', 'Forge Wing', 'Cass']]);
     expect(element().querySelectorAll('form, input, mat-select').length).toBe(0);
-    expect(texts('.actions button')).toEqual(['View as', 'Act as role']);
+    // The two buttons sit in a card named for what it holds, not for the form it once drew.
+    expect(texts('.impersonation-card mat-card-title')).toEqual(['Viewing as, acting as']);
+    expect(texts('.impersonation-card .actions button')).toEqual(['View as', 'Act as role']);
+    expect(element().querySelector('.create-card')).toBeNull();
     expect(dialogOpen()).toBe(false);
     expect(mints).toEqual([]);
   });
@@ -178,6 +181,7 @@ describe('RosterComponent', () => {
     await pageFor({ grants: reads });
 
     expect(rows().length).toBe(1);
+    expect(element().querySelector('.impersonation-card')).toBeNull();
     expect(element().querySelector('.actions')).toBeNull();
   });
 
@@ -187,6 +191,7 @@ describe('RosterComponent', () => {
       minted: { actor: 'marshal', principalKind: 'Role', principal: 'Cadet', expiresAt: '2030-01-01T00:00:00Z' },
     });
 
+    expect(element().querySelector('.impersonation-card')).toBeNull();
     expect(element().querySelector('.actions')).toBeNull();
   });
 
