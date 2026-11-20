@@ -281,16 +281,22 @@ describe('ResourceCreateComponent opens the new row', () => {
     fixture.detectChanges();
   };
 
-  /** The page's create, over the page registered at the route, with the given route parameters, under the selected tenant and the parent row. */
+  /**
+   * The page's create, over the page registered at the route, with the given route
+   * parameters, under the selected tenant and the parent row. The create is answered as
+   * the consolidated route answers it, the new row's id keyed by the resource, unless
+   * the case gives the answer.
+   */
   const create = async (options: {
     route?: string;
     params?: Record<string, string>;
     domain?: Domain;
     parentData?: RecordData;
+    answer?: Record<string, string[]>;
   }): Promise<void> => {
     transport = scriptedTransport((request: TransportRequest): TransportResponse => {
       if (request.method === 'PATCH') {
-        return { status: 200, body: { missions: ['m-1'] } };
+        return { status: 200, body: options.answer ?? { missions: ['m-1'] } };
       }
       return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
     });
@@ -333,6 +339,18 @@ describe('ResourceCreateComponent opens the new row', () => {
       name: 'on the metadata route, under a parent row',
       options: { route: 'sectors/:sectorID/missions', domain: 'forge' as Domain, parentData: { id: 'sq-1' } },
       want: ['missions', 'm-1'],
+    },
+    // A route of the resource's own answers the new row's id under `ids`, whatever the
+    // resource is named, and under `iDs` on a server from before the key changed.
+    {
+      name: "when the resource's own route answers the new row's id under ids",
+      options: { route: 'ops/missions', answer: { ids: ['m-1'] } },
+      want: ['ops/missions', 'm-1'],
+    },
+    {
+      name: "when the resource's own route answers the new row's id under iDs",
+      options: { route: 'ops/missions', answer: { iDs: ['m-1'] } },
+      want: ['ops/missions', 'm-1'],
     },
   ];
 

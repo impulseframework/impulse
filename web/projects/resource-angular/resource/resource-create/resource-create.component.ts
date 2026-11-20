@@ -295,8 +295,15 @@ export class ResourceCreateComponent implements OnInit {
           return;
         }
 
+        // The consolidated route keys the new rows' ids by resource. A route of the
+        // resource's own answers them under `ids` (`iDs` on a server from before the key
+        // changed), as the client's own create reads them.
         const createIds: string[] =
-          response[handle.descriptor.property] ?? response[camelCase(this.store.resourceName())] ?? [];
+          response[handle.descriptor.property] ??
+          response[camelCase(this.store.resourceName())] ??
+          response.ids ??
+          response.iDs ??
+          [];
 
         {
           if (this.loadCreatedResource() && createIds.length === 1) {
