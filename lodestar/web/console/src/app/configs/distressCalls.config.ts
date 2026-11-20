@@ -14,7 +14,9 @@ import { field, listViewConfig, rootConfig, section } from '@impulseframework/re
 // The page carries the write-only field and an imported object type. Transcript is
 // input_only on the struct, writeOnly in the metadata: the server accepts it on create
 // and update and never returns it, so the row page draws nothing for it in view mode and
-// the create form draws a blank input whose value travels only when typed; a list column
+// the create form draws a blank input whose value travels only when typed, and under it
+// the library's line that what is typed is saved and never shown again, so the person
+// who files a transcript does not take the blank box for a loss; a list column
 // naming it would fail when the page is built, since a list never returns it, so none
 // does. The row page's edit mode draws the same blank input: the row is read with its
 // capability envelope, which the server plans over every field the caller may write,
