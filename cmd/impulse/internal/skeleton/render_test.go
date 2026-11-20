@@ -617,28 +617,32 @@ func TestRenderName(t *testing.T) {
 			// that reads the name out of a mail or off a page takes it from where the
 			// application keeps it.
 			display := regexp.MustCompile(`\b` + strings.ToUpper(tt.candidate[:1]) + tt.candidate[1:] + `\b`)
-			err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			root, err := os.OpenRoot(dir)
+			if err != nil {
+				t.Fatalf("os.OpenRoot() error = %v", err)
+			}
+			defer root.Close()
+			err = fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
 				if err != nil {
 					return err
 				}
 				if d.IsDir() {
 					if d.Name() == "node_modules" {
-						return filepath.SkipDir
+						return fs.SkipDir
 					}
 
 					return nil
 				}
-				if !strings.HasSuffix(path, "_test.go") && !strings.HasSuffix(path, ".spec.ts") {
+				if !strings.HasSuffix(rel, "_test.go") && !strings.HasSuffix(rel, ".spec.ts") {
 					return nil
 				}
-				data, err := os.ReadFile(path)
+				data, err := root.ReadFile(rel)
 				if err != nil {
-					return err
+					t.Fatalf("os.Root.ReadFile(%s) error = %v", rel, err)
 				}
 				if m := display.FindIndex(data); m != nil {
-					rel, _ := filepath.Rel(dir, path)
 					line := 1 + strings.Count(string(data[:m[0]]), "\n")
-					t.Errorf("%s:%d names the candidate (%s), so the test fails in an application of another name: take the name from where the application keeps it", filepath.ToSlash(rel), line, display)
+					t.Errorf("%s:%d names the candidate (%s), so the test fails in an application of another name: take the name from where the application keeps it", rel, line, display)
 				}
 
 				return nil

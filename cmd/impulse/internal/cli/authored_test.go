@@ -285,7 +285,7 @@ func vetsAsMade(t *testing.T, made *authoredApplication) {
 func testsAsMade(t *testing.T, made *authoredApplication) {
 	t.Helper()
 
-	cmd := osexec.CommandContext(t.Context(), "go", "test", "-tags", "skipAuth", "-count=1", "./...")
+	cmd := osexec.CommandContext(t.Context(), "go", "test", "-tags", "skipAuth", "-count=1", "./...") //nolint:gosec // the test's own command, with the arguments written here
 	cmd.Dir = made.dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Errorf("go test -tags skipAuth ./...: %v: an application that starts with no password sign-in passes its own tests as impulse new made it\n%s", err, out)

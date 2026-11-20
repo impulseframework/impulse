@@ -335,78 +335,8 @@ func newAddTenancy() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tenancy",
 		Short: "Make the application tenanted: a tenant table as the domain universe",
-		Long: `tenancy makes a flat, untenanted application tenanted. The tenant table becomes the
-next schema migration, with two development tenants seeded as a data migration beside
-it; the tenant-record struct is added to the resource package as a global resource
-annotated @tenant, from which the generator derives the tenant segment and emits the
-constructor of the tenant roster; the generator program gains WithConcealedDomains; the
-data level gains the roster, built with that constructor over the live service's tenants
-signal and started where the configuration is built (a new file plus a field and the
-start in DataConfiguration), so a tenant made on any instance is usable at once,
-without a restart; the app exposes the roster to the generated code as TenantRoster()
-and hands its Domains to the session permissions (a new file plus the Configurer, App
-and UserPermissions edits); and the reference's tenant pages (the tenant's sign-in page
-where a tenant can have a directory, All tenants and the dialog a person who signed up
-creates their own tenant through) are copied into the browser app, whose frame carries
-the tenant the URL names, the guard and the place switcher.
-
-Nobody creates a tenant directly. Staff of the auth whose outlets serve the record bring
-an organization in by inviting one person, and that person's first sign-in makes the
-tenant: the auth's settings gain the generated maker (TenantMaker), its New refuses a
-nil one and hands it to the identity client, and where the data level has the
-skeleton's shape the roster is built ahead of that auth and the maker passed in.
-
---one-tenant-per-person says a person belongs to one tenant, as in an application whose
-tenants own their people: every auth whose roles the application gives builds its
-identity client with identity.WithOneTenantPerPerson(), so a role in a second tenant is
-refused however it would be given. Without it a person can be in several tenants.
-
---tenant-directories says whether a tenant can have a directory of its own, and is on
-unless told otherwise. With it the command writes the directories record and its table,
-the tenant record's directory-only switch, each auth's directory admission and the
-tenant's Sign-in page, so a tenant's administrator, signed in through their
-organization's directory, makes it the tenant's, opens the tenant to it and makes the
-tenant directory only. With --tenant-directories=false it writes none of them: no tenant
-has a directory, a tenant's people come by invitation alone, and a Google, Microsoft or
-other provider's method is a way for an invited person to sign in and nothing more,
-whichever methods the application has or gets later. Laying the directories in
-afterward is the author's act; no impulse add method does it.
-
---shape names a sign-in shape to start from, one of the four an application with tenants
-has, and fills in the tenants' choices: ` + shape.Keys(shape.OfTenants()) + `.
-The two tenant-owned shapes hold a person to one tenant (--one-tenant-per-person), and in
-the two global ones a person can be in several. In the two invite-only shapes a tenant's
-people come by invitation alone: the command writes no tenant directories
-(--tenant-directories=false), whatever sign-in methods the application already
-registers, and names the ones that go through an organization's directory as ways for
-an invited person to sign in. In the other two a tenant's people come through its own
-directory, and the command writes the tenant directories. In
-global-users-each-tenant-chooses, where no sign-in method goes through an organization's
-directory yet, it says which impulse add method adds it. In
-tenant-owned-users-by-directory every person of a tenant signs in through the tenant's
-directory, so on each auth whose roles the application gives that registers neither a
-Google nor a Microsoft method the command writes both, as impulse add method would: a
-Google method open to any Google Workspace and a Microsoft method open to any Microsoft
-Entra tenant, neither with personal accounts, the application giving the roles. An auth
-that has either is left as its author made it. That shape has no password sign-in, and
-no command removes a sign-in method: an auth's password method stays, the command says
-that it keeps the application outside the shape and names the hand step that takes it
-out, and impulse audit says the same until it is gone.
-Whether a tenant takes a directory, and whether that directory's people get an account
-without an invitation, is each tenant's choice, made while the application runs. A flag
-given beside --shape that contradicts it is refused, naming both, and impulse audit
-reads the shape back from the code (its sign-in section).
-
-The tests the skeleton started with are brought up to an application with tenants where
-they are the skeleton's still (the two harnesses written again, the two tests of sign-up
-taken out, the password reset test opening sign-up with no role), so the application
-passes go vet and its own tests as the command leaves it.
-
-Which resources become tenant-scoped and how their rows are assigned, the bootstrap
-order, the tests of what the tenants add, the harnesses where they were no longer the
-skeleton's, the tenant segment in the browser's routes, and the tenant menus in its menu
-file are handed to the agent with the failing checks as the obligations.`,
-		Args: cobra.NoArgs,
+		Long:  addTenancyLong(),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			step, start, err := tenancyAsked(cmd)
 			if err != nil {
@@ -976,6 +906,82 @@ func renderReference(candidate string) (string, error) {
 	}
 
 	return dir, nil
+}
+
+// addTenancyLong is add tenancy's long help, which lists the shapes an application with
+// tenants starts from.
+func addTenancyLong() string {
+	return `tenancy makes a flat, untenanted application tenanted. The tenant table becomes the
+next schema migration, with two development tenants seeded as a data migration beside
+it; the tenant-record struct is added to the resource package as a global resource
+annotated @tenant, from which the generator derives the tenant segment and emits the
+constructor of the tenant roster; the generator program gains WithConcealedDomains; the
+data level gains the roster, built with that constructor over the live service's tenants
+signal and started where the configuration is built (a new file plus a field and the
+start in DataConfiguration), so a tenant made on any instance is usable at once,
+without a restart; the app exposes the roster to the generated code as TenantRoster()
+and hands its Domains to the session permissions (a new file plus the Configurer, App
+and UserPermissions edits); and the reference's tenant pages (the tenant's sign-in page
+where a tenant can have a directory, All tenants and the dialog a person who signed up
+creates their own tenant through) are copied into the browser app, whose frame carries
+the tenant the URL names, the guard and the place switcher.
+
+Nobody creates a tenant directly. Staff of the auth whose outlets serve the record bring
+an organization in by inviting one person, and that person's first sign-in makes the
+tenant: the auth's settings gain the generated maker (TenantMaker), its New refuses a
+nil one and hands it to the identity client, and where the data level has the
+skeleton's shape the roster is built ahead of that auth and the maker passed in.
+
+--one-tenant-per-person says a person belongs to one tenant, as in an application whose
+tenants own their people: every auth whose roles the application gives builds its
+identity client with identity.WithOneTenantPerPerson(), so a role in a second tenant is
+refused however it would be given. Without it a person can be in several tenants.
+
+--tenant-directories says whether a tenant can have a directory of its own, and is on
+unless told otherwise. With it the command writes the directories record and its table,
+the tenant record's directory-only switch, each auth's directory admission and the
+tenant's Sign-in page, so a tenant's administrator, signed in through their
+organization's directory, makes it the tenant's, opens the tenant to it and makes the
+tenant directory only. With --tenant-directories=false it writes none of them: no tenant
+has a directory, a tenant's people come by invitation alone, and a Google, Microsoft or
+other provider's method is a way for an invited person to sign in and nothing more,
+whichever methods the application has or gets later. Laying the directories in
+afterward is the author's act; no impulse add method does it.
+
+--shape names a sign-in shape to start from, one of the four an application with tenants
+has, and fills in the tenants' choices: ` + shape.Keys(shape.OfTenants()) + `.
+The two tenant-owned shapes hold a person to one tenant (--one-tenant-per-person), and in
+the two global ones a person can be in several. In the two invite-only shapes a tenant's
+people come by invitation alone: the command writes no tenant directories
+(--tenant-directories=false), whatever sign-in methods the application already
+registers, and names the ones that go through an organization's directory as ways for
+an invited person to sign in. In the other two a tenant's people come through its own
+directory, and the command writes the tenant directories. In
+global-users-each-tenant-chooses, where no sign-in method goes through an organization's
+directory yet, it says which impulse add method adds it. In
+tenant-owned-users-by-directory every person of a tenant signs in through the tenant's
+directory, so on each auth whose roles the application gives that registers neither a
+Google nor a Microsoft method the command writes both, as impulse add method would: a
+Google method open to any Google Workspace and a Microsoft method open to any Microsoft
+Entra tenant, neither with personal accounts, the application giving the roles. An auth
+that has either is left as its author made it. That shape has no password sign-in, and
+no command removes a sign-in method: an auth's password method stays, the command says
+that it keeps the application outside the shape and names the hand step that takes it
+out, and impulse audit says the same until it is gone.
+Whether a tenant takes a directory, and whether that directory's people get an account
+without an invitation, is each tenant's choice, made while the application runs. A flag
+given beside --shape that contradicts it is refused, naming both, and impulse audit
+reads the shape back from the code (its sign-in section).
+
+The tests the skeleton started with are brought up to an application with tenants where
+they are the skeleton's still (the two harnesses written again, the two tests of sign-up
+taken out, the password reset test opening sign-up with no role), so the application
+passes go vet and its own tests as the command leaves it.
+
+Which resources become tenant-scoped and how their rows are assigned, the bootstrap
+order, the tests of what the tenants add, the harnesses where they were no longer the
+skeleton's, the tenant segment in the browser's routes, and the tenant menus in its menu
+file are handed to the agent with the failing checks as the obligations.`
 }
 
 // addAuthLong is the help of add auth.

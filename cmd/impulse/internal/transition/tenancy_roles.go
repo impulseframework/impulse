@@ -85,11 +85,14 @@ func (tn Tenancy) writeRoles(a *app.App, ch *Change) error {
 	}
 	foothold := path.Join(seat.Dir, footholdFile)
 	rel := path.Join(seat.Dir, app.RolesFileName)
-	src, footholdMode, err := readFile(a, foothold)
-	if err != nil {
+	if !exists(a, foothold) {
 		ch.skipf("%s: not there, so the role a %s's administrator holds was not written: %s", foothold, tn.oneLower(), tn.roleHandStep(seat.Name))
 
 		return nil
+	}
+	src, footholdMode, err := readFile(a, foothold)
+	if err != nil {
+		return err
 	}
 	named, ok := readFootholdRoles(src, administratorRolesFunc)
 	switch {
@@ -127,22 +130,10 @@ func (tn Tenancy) writeRoles(a *app.App, ch *Change) error {
 
 		return nil
 	}
-	if roleNamed(file.Roles.Domain, role) == nil {
-		entry, left, conditional := tn.tenantAdministrator(reference, served, seat.Name)
-		if len(entry.Permissions) == 0 {
-			ch.skipf("%s: the role a %s's administrator holds was not written, since the application's permission collection (%s) names none of the %s auth's management of one %s: %s", rel, tn.oneLower(), strings.Join(served.Files, ", "), seat.Name, tn.oneLower(), tn.roleHandStep(seat.Name))
-
-			return nil
-		}
-		file.Roles.Domain = append(file.Roles.Domain, entry)
-		ch.didf("%s: the role %s, a domain role, which a %s's administrator holds: the grants of the tenanted skeleton's %s that hold under no condition, on what this application serves, %d in all, on the %s auth's people in one %s, their groups and the roles they hold there%s%s", rel, role, tn.oneLower(), referenceTenantAdministrator, grantCount(entry), seat.Name, tn.oneLower(), tn.directoryWords(), leftOutWords(left))
-		if len(conditional) > 0 {
-			ch.skipf("%s: %d grant(s) the tenanted skeleton's %s holds under a condition were not written into %s: impulse check holds every conditional grant to a test that proves it over seeded rows (conditions-proven), and the command writes no such test. They are %s. Add each with its condition and its proof, as the tenanted skeleton's test/integration/tenant_people_test.go proves them; until then a %s's administrator does none of them, and the application's own administrator does them through the %s auth's methods of the whole application", rel, len(conditional), referenceTenantAdministrator, role, strings.Join(conditional, "; "), tn.oneLower(), seat.Name)
-		}
-	} else {
-		ch.didf("%s: the domain role %s was there already and is left as it is", rel, role)
+	if !tn.holdAdministratorRole(file, reference, served, seat.Name, rel, ch) {
+		return nil
 	}
-	tn.grantTenantMaking(file, reference, served, seat.Name, rel, named, ch)
+	tn.grantTenantMaking(file, reference, served, seat.Name, rel, &named, ch)
 
 	encoded, err := file.encode()
 	if err != nil {
@@ -153,6 +144,32 @@ func (tn Tenancy) writeRoles(a *app.App, ch *Change) error {
 	}
 
 	return tn.nameAdministrator(a, foothold, src, footholdMode, ch)
+}
+
+// holdAdministratorRole gives the role file the domain role a tenant's administrator
+// holds, where the file has none of the name: the tenanted skeleton's grants that hold
+// under no condition, on what the application serves. It reports false, having said why,
+// where the application's permission collection names nothing the role could grant.
+func (tn Tenancy) holdAdministratorRole(file, reference *roleFile, served *app.Served, auth, rel string, ch *Change) bool {
+	role := tn.AdministratorRole()
+	if roleNamed(file.Roles.Domain, role) != nil {
+		ch.didf("%s: the domain role %s was there already and is left as it is", rel, role)
+
+		return true
+	}
+	entry, left, conditional := tn.tenantAdministrator(reference, served, auth)
+	if len(entry.Permissions) == 0 {
+		ch.skipf("%s: the role a %s's administrator holds was not written, since the application's permission collection (%s) names none of the %s auth's management of one %s: %s", rel, tn.oneLower(), strings.Join(served.Files, ", "), auth, tn.oneLower(), tn.roleHandStep(auth))
+
+		return false
+	}
+	file.Roles.Domain = append(file.Roles.Domain, entry)
+	ch.didf("%s: the role %s, a domain role, which a %s's administrator holds: the grants of the tenanted skeleton's %s that hold under no condition, on what this application serves, %d in all, on the %s auth's people in one %s, their groups and the roles they hold there%s%s", rel, role, tn.oneLower(), referenceTenantAdministrator, grantCount(entry), auth, tn.oneLower(), tn.directoryWords(), leftOutWords(left))
+	if len(conditional) > 0 {
+		ch.skipf("%s: %d grant(s) the tenanted skeleton's %s holds under a condition were not written into %s: impulse check holds every conditional grant to a test that proves it over seeded rows (conditions-proven), and the command writes no such test. They are %s. Add each with its condition and its proof, as the tenanted skeleton's test/integration/tenant_people_test.go proves them; until then a %s's administrator does none of them, and the application's own administrator does them through the %s auth's methods of the whole application", rel, len(conditional), referenceTenantAdministrator, role, strings.Join(conditional, "; "), tn.oneLower(), auth)
+	}
+
+	return true
 }
 
 // unreadWords says why the role could not be cut to what the application serves: no
@@ -319,7 +336,7 @@ const (
 // invitation that makes one, its withdrawal and the list of the invitations that stand,
 // as the reference's administrator holds them, on what the application serves. A grant
 // the role carries already is left as it is.
-func (tn Tenancy) grantTenantMaking(file, reference *roleFile, served *app.Served, auth, rel string, named footholdRoles, ch *Change) {
+func (tn Tenancy) grantTenantMaking(file, reference *roleFile, served *app.Served, auth, rel string, named *footholdRoles, ch *Change) {
 	source := roleNamed(reference.Roles.Global, referenceAdministrator)
 	var role *roleEntry
 	if len(named.global) > 0 {
@@ -471,9 +488,12 @@ func (tn Tenancy) nameAdministrator(a *app.App, foothold string, src []byte, mod
 // as the skeleton writes it is left as it is, since it still holds what it held.
 func (tn Tenancy) holdDeployTest(a *app.App, ch *Change) error {
 	seat := tn.seatAuth(a)
-	data, mode, err := readFile(a, deployTest)
-	if err != nil || seat == nil {
+	if seat == nil || !exists(a, deployTest) {
 		return nil
+	}
+	data, mode, err := readFile(a, deployTest)
+	if err != nil {
+		return err
 	}
 	global := seat.Name + "Global"
 	everyDomain := seat.Name + "EveryDomain"
