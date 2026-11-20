@@ -276,6 +276,22 @@ func vetsAsMade(t *testing.T, made *authoredApplication) {
 	}
 }
 
+// testsAsMade holds an application impulse new just made from a shape with no password
+// sign-in to passing its own tests as it stands, under the simulated directory's tag,
+// which is how its Procfile and its CI run them: the start wrote them for the sign-in
+// the application has, so they prove it the moment it is made, the two served suites
+// included. Those start the Spanner emulator, which the job that asks for this test has;
+// one application's run is about twenty-five seconds.
+func testsAsMade(t *testing.T, made *authoredApplication) {
+	t.Helper()
+
+	cmd := osexec.CommandContext(t.Context(), "go", "test", "-tags", "skipAuth", "-count=1", "./...")
+	cmd.Dir = made.dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("go test -tags skipAuth ./...: %v: an application that starts with no password sign-in passes its own tests as impulse new made it\n%s", err, out)
+	}
+}
+
 // holdsNoPassword holds an application that started from a shape with no password
 // sign-in to that: impulse audit reads the staff auth's methods as wanted, each as
 // "name: whom it admits; who gives the roles", and none of them a password; the auth
@@ -356,21 +372,24 @@ func holdsNoPassword(t *testing.T, made *authoredApplication, wantMethods []stri
 // open to any organization, and the persona method of the test environments; nothing
 // the commands wrote or generated serves a password; and a development run signs its
 // administrator in as the cast's persona. Its tests are the start's own, written for
-// that sign-in, and go vet passes under both tag sets as the application is made.
+// that sign-in: go vet passes under both tag sets as the application is made, and the
+// tests pass under the simulated directory's tag.
 //
 // The fourth is an application one directory gives every role of, with no password
 // sign-in either: impulse new with the shape Directory roles, Google and one Workspace
 // named. Its auth registers that one method, nobody is invited, no generated handler
 // gives a role or invites a person, and a development run signs in the person and the
-// roles the environment template names. Its tests are the start's own too, and go vet
-// passes under both tag sets as the application is made.
+// roles the environment template names. Its tests are the start's own too: go vet
+// passes under both tag sets as the application is made, and the tests pass under the
+// tag.
 //
-// It costs about seven minutes and under eight gigabytes on a machine whose Go caches and
+// It costs about eight minutes and under eight gigabytes on a machine whose Go caches and
 // emulator image are warm: each command regenerates against the emulator (about
-// twenty-five seconds), and the rest is each application's build, vet and lint runs.
+// twenty-five seconds), each of the two applications with no password sign-in runs its
+// tests (about as long), and the rest is each application's build, vet and lint runs.
 func TestAuthoredApplication(t *testing.T) {
 	if os.Getenv(runAuthored) == "" {
-		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy) and the application's lint (golangci-lint), about seven minutes", runAuthored)
+		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy), the application's lint (golangci-lint) and the tests of the applications with no password sign-in, about eight minutes", runAuthored)
 	}
 	if _, err := osexec.LookPath("golangci-lint"); err != nil {
 		t.Fatalf("%s is set and golangci-lint is not on the PATH: the application's own lint is what the result is held to", runAuthored)
@@ -517,6 +536,7 @@ func TestAuthoredApplication(t *testing.T) {
 			"persona: the personas of the test environments' persona provider; the application gives the roles",
 		})
 		vetsAsMade(t, made)
+		testsAsMade(t, made)
 		// A development run signs its administrator in as the cast's persona, whose
 		// account the bootstrap seeds.
 		if env, want := made.read(t, ".envrc.template"), "\nexport APP_PERSONA_USERNAME=admin\n"; !strings.Contains(env, want) {
@@ -541,6 +561,7 @@ func TestAuthoredApplication(t *testing.T) {
 		}
 		holdsNoPassword(t, made, []string{"google: the accounts of one Google Workspace; the directory gives the roles"})
 		vetsAsMade(t, made)
+		testsAsMade(t, made)
 		// Nobody is invited and nothing in the application gives a role: the auth has no
 		// foothold, and its generated management neither gives a role nor makes or
 		// invites a person.

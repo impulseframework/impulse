@@ -679,13 +679,14 @@ jobs:
         # shape once a Google method is on it. Two start with no password sign-in: one
         # whose tenants are their directories, one whose single directory gives every
         # role; nothing in either serves a password, and each passes go vet with and
-        # without the skipAuth tag as it is made, its tests being the start's own. What the
+        # without the skipAuth tag as it is made, its tests being the start's own, and
+        # passes those tests under the tag (the served suites, on the emulator). What the
         # commands wrote is held to each application's own formatters and lint (in every
         # package that compiles), and the tests that do not compile yet to the brief, which
         # must name each. The rendered skeleton above proves a candidate; this proves what
         # the transitions write over one, which nothing else lints. The test is asked for
         # (it starts the emulator for each regeneration), so this job, which has the
-        # emulator and the lint, sets the variable; it adds about seven minutes to the
+        # emulator and the lint, sets the variable; it adds about eight minutes to the
         # solo leg.
         if: ${{ env.RUN == 'true' && matrix.framework == 'head' && env.GO_PART == 'true' && matrix.candidate == 'solo' }}
         working-directory: impulse
