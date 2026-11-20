@@ -46,6 +46,10 @@ const (
 	passRefusedID                = "61000000-0000-4000-8000-0000000000b2"
 	passSlipKeepersBastionSlipID = "61000000-0000-4000-8000-0000000000b3"
 	passNobodyAndGroupID         = "61000000-0000-4000-8000-0000000000b4"
+	passBastionOwnID             = "61000000-0000-4000-8000-0000000000b5"
+
+	// An id that is no pass: nothing writes it.
+	passNoneID = "61000000-0000-4000-8000-0000000000bf"
 )
 
 // groupShareWorld is a world of the test's own: the seeded rows, the cast's accounts and
@@ -83,11 +87,12 @@ func (w *groupShareWorld) armorerAt(t *testing.T, username accesstypes.User, sec
 	return person
 }
 
-// post runs one of the sector's methods as the person.
-func (w *groupShareWorld) post(t *testing.T, user accesstypes.User, sector, method, body string) (int, []byte) {
+// post runs one of Anvil's methods as the Marshal, who keeps its groups, and answers the
+// status and the body.
+func (w *groupShareWorld) post(t *testing.T, method, value string) (status int, body []byte) {
 	t.Helper()
 
-	return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(sector, method), body)
+	return doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, method), value)
 }
 
 // hangars is the sector's hangars as the person lists them, by id.
@@ -100,23 +105,24 @@ func (w *groupShareWorld) hangars(t *testing.T, user accesstypes.User, sector st
 	return idsOf(t, decodeRows(t, body))
 }
 
-// rezone writes the hangar's zone as the person and answers the status: the write the
-// run level decides.
-func (w *groupShareWorld) rezone(t *testing.T, user accesstypes.User, sector, hangar, zone string) int {
+// rezone writes the zone of one of Anvil's hangars as the person and answers the status:
+// the write the run level decides.
+func (w *groupShareWorld) rezone(t *testing.T, user accesstypes.User, hangar, zone string) int {
 	t.Helper()
 
-	status, _ := doRequestAs(t, w.h, user, http.MethodPatch, sectorPath(sector, "hangars"),
+	status, _ := doRequestAs(t, w.h, user, http.MethodPatch, sectorPath(anvil, "hangars"),
 		fmt.Sprintf(`[{"op":"patch","path":"/%s","value":{"zone":%q}}]`, hangar, zone))
 
 	return status
 }
 
-// groupsOffered is what the group picker on a pass offers: the sector's own list of its
-// groups, as whoever writes the pass reads it, the id of each by its name.
-func (w *groupShareWorld) groupsOffered(t *testing.T, user accesstypes.User, sector string) map[string]string {
+// groupsOffered is what the group picker on a pass offers in Anvil: the sector's own list
+// of its groups, as the Marshal, who writes its passes, reads it, the id of each by its
+// name.
+func (w *groupShareWorld) groupsOffered(t *testing.T) map[string]string {
 	t.Helper()
 
-	status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(sector, sectorGroupsPath+"?limit=200"), "")
+	status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, sectorGroupsPath+"?limit=200"), "")
 	assertStatus(t, status, http.StatusOK, body)
 	offered := make(map[string]string)
 	for _, row := range decodeRows(t, body) {
@@ -126,13 +132,13 @@ func (w *groupShareWorld) groupsOffered(t *testing.T, user accesstypes.User, sec
 	return offered
 }
 
-// createPass writes a pass as the person, through the route the console's form uses, and
-// answers the status, the body and the id of the pass where one was written.
-func (w *groupShareWorld) createPass(t *testing.T, user accesstypes.User, sector, value string) (status int, body []byte, id string) {
+// createPass writes a pass in Anvil as the Marshal, through the route the console's form
+// uses, and answers the status, the body and the id of the pass where one was written.
+func (w *groupShareWorld) createPass(t *testing.T, value string) (status int, body []byte, id string) {
 	t.Helper()
 
-	status, body = doRequestAs(t, w.h, user, http.MethodPatch, consoleAPI+"/resources",
-		fmt.Sprintf(`[{"op":"add","path":%q,"value":%s}]`, opPath(sector, "hangar-passes"), value))
+	status, body = doRequestAs(t, w.h, "marshal", http.MethodPatch, consoleAPI+"/resources",
+		fmt.Sprintf(`[{"op":"add","path":%q,"value":%s}]`, opPath(anvil, "hangar-passes"), value))
 	if status != http.StatusOK {
 		return status, body, ""
 	}
@@ -166,6 +172,88 @@ func (w *groupShareWorld) passes(t *testing.T, where string, params map[string]a
 	}
 
 	return n
+}
+
+// updatePass sends an update of one pass as the person, through the route the console
+// uses, in Anvil, whatever sector the pass is in, and answers the status and the body.
+func (w *groupShareWorld) updatePass(t *testing.T, user accesstypes.User, pass, value string) (status int, body []byte) {
+	t.Helper()
+
+	return doRequestAs(t, w.h, user, http.MethodPatch, consoleAPI+"/resources",
+		fmt.Sprintf(`[{"op":"patch","path":%q,"value":%s}]`, opPath(anvil, "hangar-passes/"+pass), value))
+}
+
+// holderOf is who a pass names, read straight from the table.
+func (w *groupShareWorld) holderOf(t *testing.T, pass string) string {
+	t.Helper()
+
+	row, err := w.db.Single().ReadRow(w.ctx, "HangarPasses", spanner.Key{pass}, []string{"UserId", "SquadronId", "GroupId"})
+	if err != nil {
+		t.Fatalf("reading the holder of the pass %s: %v", pass, err)
+	}
+	var user, squadron, group spanner.NullString
+	if err := row.Columns(&user, &squadron, &group); err != nil {
+		t.Fatalf("reading the holder columns of the pass %s: %v", pass, err)
+	}
+
+	return fmt.Sprintf("person %s, squadron %s, group %s", user, squadron, group)
+}
+
+// passClerk makes a person up under the username and gives them, in Anvil, a role of the
+// test's own that is handed Update on a pass and on every column of one, the three
+// holder columns among them. No role file may grant those three (a role file that
+// grants Update on an immutable column is refused when it is read), so the rows are
+// written to the engine's store directly. The engine holds what the collection offers:
+// the hangar, the level and the expiry are the teller's to write, and the three holder
+// rows are skipped, because the collection takes Update off an immutable column. So the
+// role is the most a role can hold of a pass, and a holder column is nobody's to write
+// whatever a store holds.
+func (w *groupShareWorld) passClerk(t *testing.T, username accesstypes.User) {
+	t.Helper()
+
+	const clerk accesstypes.Role = "PassClerk"
+	manager := w.engine.UserManager()
+	held := accesstypes.DomainPolicyScope(anvil)
+	if err := manager.AddRole(w.ctx, held, clerk, "Is handed every column of a hangar pass."); err != nil {
+		t.Fatalf("access.UserManager.AddRole() error = %v", err)
+	}
+	if err := manager.AddRoleGrants(w.ctx, held, clerk,
+		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses"},
+		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses.hangarId"},
+		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses.userId"},
+		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses.squadronId"},
+		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses.groupId"},
+		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses.levelId"},
+		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses.expiresAt"},
+	); err != nil {
+		t.Fatalf("access.UserManager.AddRoleGrants() error = %v", err)
+	}
+	person := makeCrewAccount(w.ctx, t, w.db, username)
+	if err := manager.AddUserRoles(w.ctx, held, person, clerk); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles() error = %v", err)
+	}
+	checker := w.engine.ForUser(person)
+	scope := accesstypes.DomainScope(anvil)
+	// The rows are written in one call, so once one of them counts they have all been read.
+	for _, column := range []accesstypes.Resource{"HangarPasses.hangarId", "HangarPasses.levelId", "HangarPasses.expiresAt"} {
+		if d := decisionFor(w.ctx, t, checker, scope, accesstypes.Update, column, time.Now().Add(15*time.Second)); !d.IsGranted() {
+			t.Fatalf("Update on %s for %s, who holds %s = %s, want granted before the cases run", column, username, clerk, d)
+		}
+	}
+	for _, column := range []accesstypes.Resource{"HangarPasses.userId", "HangarPasses.squadronId", "HangarPasses.groupId"} {
+		if d := decisionFor(w.ctx, t, checker, scope, accesstypes.Update, column, time.Now()); d.IsGranted() {
+			t.Errorf("Update on %s for %s, whose role %s was handed it = %s, want it denied: the column is immutable, and the engine skips a grant the collection does not offer", column, username, clerk, d)
+		}
+	}
+}
+
+// refusalOf is the sentence a refused request answers with.
+func refusalOf(t *testing.T, body []byte) string {
+	t.Helper()
+
+	message, _ := decodeRow(t, body)["message"].(string)
+
+	return message
 }
 
 // TestGroupShare_persona holds the cast's own share, read from the seed: the sentry
@@ -255,27 +343,27 @@ func TestGroupShare_levels(t *testing.T) {
 	}
 	runs := func(when string, user accesstypes.User, zone string, want int) {
 		t.Helper()
-		if got := w.rezone(t, user, anvil, hangarAnvilDockID, zone); got != want {
+		if got := w.rezone(t, user, hangarAnvilDockID, zone); got != want {
 			t.Errorf("%s: %s re-zones the dock: status = %d, want %d", when, user, got, want)
 		}
 	}
 
 	// The Marshal makes a group in her sector and puts the keeper in it. The group holds
 	// no pass yet, and a place in it gives no hangar.
-	status, body := w.post(t, "marshal", anvil, "create-crew-sector-group", `{"name":"Dock hands","description":"The crew who keep Anvil Dock One."}`)
+	status, body := w.post(t, "create-crew-sector-group", `{"name":"Dock hands","description":"The crew who keep Anvil Dock One."}`)
 	assertStatus(t, status, http.StatusOK, body)
 	group := cell[string](t, decodeRow(t, body), "id")
-	status, body = w.post(t, "marshal", anvil, "add-crew-sector-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, group, keeper))
+	status, body = w.post(t, "add-crew-sector-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, group, keeper))
 	assertStatus(t, status, http.StatusNoContent, body)
 	open("before the group holds a pass", "keeper")
 
 	// The picker on the pass offers the sector's groups, the new one among them, and a
 	// pass written with the id it offers holds: at the visit level the dock is open to
 	// the group's member, who may not run it.
-	if got := w.groupsOffered(t, "marshal", anvil)["Dock hands"]; got != group {
+	if got := w.groupsOffered(t)["Dock hands"]; got != group {
 		t.Fatalf("the group picker offers Dock hands as %q, want the id the create answered, %q", got, group)
 	}
-	status, body, pass := w.createPass(t, "marshal", anvil, groupPass(hangarAnvilDockID, group, "visit"))
+	status, body, pass := w.createPass(t, groupPass(hangarAnvilDockID, group, "visit"))
 	assertStatus(t, status, http.StatusOK, body)
 	open("the group visits the dock", "keeper", hangarAnvilDockID)
 	status, body = doRequestAs(t, w.h, "keeper", http.MethodGet, sectorPath(anvil, "hangars/"+hangarAnvilDockID), "")
@@ -328,11 +416,11 @@ func TestGroupShare_places(t *testing.T) {
 	}
 	runs := func(when string, user accesstypes.User, zone string, want int) {
 		t.Helper()
-		if got := w.rezone(t, user, anvil, hangarQuarantineID, zone); got != want {
+		if got := w.rezone(t, user, hangarQuarantineID, zone); got != want {
 			t.Errorf("%s: %s re-zones the bay: status = %d, want %d", when, user, got, want)
 		}
 	}
-	group := w.groupsOffered(t, "marshal", anvil)["Bay keepers"]
+	group := w.groupsOffered(t)["Bay keepers"]
 	if group == "" {
 		t.Fatal("Anvil's groups do not list the Bay keepers")
 	}
@@ -353,13 +441,13 @@ func TestGroupShare_places(t *testing.T) {
 
 	// A place that begins later gives nothing until it begins.
 	later := time.Now().UTC().AddDate(0, 0, 7).Truncate(time.Microsecond)
-	status, body := w.post(t, "marshal", anvil, "add-crew-sector-group-member", periodBody(t, place(novice), later, time.Time{}))
+	status, body := w.post(t, "add-crew-sector-group-member", periodBody(t, place(novice), later, time.Time{}))
 	assertStatus(t, status, http.StatusNoContent, body)
 	open("the novice's place begins in a week", "novice")
 	runs("the novice's place begins in a week", "novice", "quarantine", http.StatusForbidden)
 
 	// Given again with no start, the place counts at the next request.
-	status, body = w.post(t, "marshal", anvil, "add-crew-sector-group-member", member(novice))
+	status, body = w.post(t, "add-crew-sector-group-member", member(novice))
 	assertStatus(t, status, http.StatusNoContent, body)
 	open("the novice's place counts", "novice", hangarQuarantineID)
 	runs("the novice's place counts", "novice", "quarantine", http.StatusOK)
@@ -375,7 +463,7 @@ func TestGroupShare_places(t *testing.T) {
 	runs("the novice's place has ended", "novice", "isolation", http.StatusForbidden)
 
 	// Taken out of the group, the sentry loses the bay at his next request.
-	status, body = w.post(t, "marshal", anvil, "remove-crew-sector-group-member", member(account(t, sentry)))
+	status, body = w.post(t, "remove-crew-sector-group-member", member(account(t, sentry)))
 	assertStatus(t, status, http.StatusNoContent, body)
 	open("the sentry is out of the group", sentry)
 	runs("the sentry is out of the group", sentry, "isolation", http.StatusForbidden)
@@ -386,7 +474,7 @@ func TestGroupShare_places(t *testing.T) {
 	if got := w.passes(t, "GroupId = @group", map[string]any{"group": group}); got != 1 {
 		t.Fatalf("the passes that name the Bay keepers = %d before the group is deleted, want 1", got)
 	}
-	status, body = w.post(t, "marshal", anvil, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q}`, group))
+	status, body = w.post(t, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q}`, group))
 	assertStatus(t, status, http.StatusNoContent, body)
 	if got := w.passes(t, "GroupId = @group OR Id = @pass", map[string]any{"group": group, "pass": passBayKeepersQuarantineID}); got != 0 {
 		t.Errorf("the passes that name the Bay keepers = %d after the group is deleted, want none", got)
@@ -437,7 +525,7 @@ func TestGroupShare_tenants(t *testing.T) {
 	}
 
 	// The picker in Anvil offers Anvil's groups and no other.
-	offered := w.groupsOffered(t, "marshal", anvil)
+	offered := w.groupsOffered(t)
 	if offered["Dock hands"] != dockHands {
 		t.Errorf("the group picker in Anvil offers Dock hands as %q, want %q", offered["Dock hands"], dockHands)
 	}
@@ -449,24 +537,24 @@ func TestGroupShare_tenants(t *testing.T) {
 
 	// A pass of Anvil's that names Bastion's group is written and opens nothing in
 	// Anvil: the keeper is in the group, and the group is not Anvil's.
-	status, body, _ := w.createPass(t, "marshal", anvil, groupPass(hangarAnvilDockID, slipHands, "run"))
+	status, body, _ := w.createPass(t, groupPass(hangarAnvilDockID, slipHands, "run"))
 	assertStatus(t, status, http.StatusOK, body)
 	open("a pass of Anvil's names Bastion's group", anvil)
-	if got := w.rezone(t, "keeper", anvil, hangarAnvilDockID, "apron"); got != http.StatusForbidden {
+	if got := w.rezone(t, "keeper", hangarAnvilDockID, "apron"); got != http.StatusForbidden {
 		t.Errorf("the keeper re-zones Anvil's dock through Bastion's group: status = %d, want 403", got)
 	}
 
 	// A pass of Anvil's that names a group kept for the whole fleet opens nothing in
 	// Anvil either: a sector's request counts the sector's own groups.
-	status, body, _ = w.createPass(t, "marshal", anvil, groupPass(hangarQuarantineID, inspectors, "run"))
+	status, body, _ = w.createPass(t, groupPass(hangarQuarantineID, inspectors, "run"))
 	assertStatus(t, status, http.StatusOK, body)
 	open("a pass of Anvil's names a group of the whole fleet", anvil)
-	if got := w.rezone(t, "keeper", anvil, hangarQuarantineID, "isolation"); got != http.StatusForbidden {
+	if got := w.rezone(t, "keeper", hangarQuarantineID, "isolation"); got != http.StatusForbidden {
 		t.Errorf("the keeper re-zones Anvil's bay through a group of the whole fleet: status = %d, want 403", got)
 	}
 
 	// The same person, the same kind of pass, and a group Anvil keeps: the dock opens.
-	status, body, _ = w.createPass(t, "marshal", anvil, groupPass(hangarAnvilDockID, dockHands, "visit"))
+	status, body, _ = w.createPass(t, groupPass(hangarAnvilDockID, dockHands, "visit"))
 	assertStatus(t, status, http.StatusOK, body)
 	open("a pass of Anvil's names Anvil's group", anvil, hangarAnvilDockID)
 
@@ -489,7 +577,7 @@ func TestGroupShare_oneHolder(t *testing.T) {
 	t.Parallel()
 
 	w := newGroupShareWorld(t)
-	group := w.groupsOffered(t, "marshal", anvil)["Bay keepers"]
+	group := w.groupsOffered(t)["Bay keepers"]
 	if group == "" {
 		t.Fatal("Anvil's groups do not list the Bay keepers")
 	}
@@ -528,7 +616,7 @@ func TestGroupShare_oneHolder(t *testing.T) {
 		},
 	}
 	for _, tt := range refused {
-		status, body, _ := w.createPass(t, "marshal", anvil, tt.value)
+		status, body, _ := w.createPass(t, tt.value)
 		if status != http.StatusBadRequest {
 			t.Errorf("a pass that names %s: status = %d, want 400: %s", tt.name, status, body)
 
@@ -582,16 +670,16 @@ func TestGroupShare_oneHolder(t *testing.T) {
 	}
 
 	// One holder of each kind is taken.
-	status, body, _ := w.createPass(t, "marshal", anvil, groupPass(hangarAnvilDockID, group, "visit"))
+	status, body, _ := w.createPass(t, groupPass(hangarAnvilDockID, group, "visit"))
 	assertStatus(t, status, http.StatusOK, body)
-	status, body, _ = w.createPass(t, "marshal", anvil, fmt.Sprintf(`{"hangarId":%q,"userId":%q,"levelId":"visit"}`, hangarAnvilDockID, person))
+	status, body, _ = w.createPass(t, fmt.Sprintf(`{"hangarId":%q,"userId":%q,"levelId":"visit"}`, hangarAnvilDockID, person))
 	assertStatus(t, status, http.StatusOK, body)
-	status, body, _ = w.createPass(t, "marshal", anvil, fmt.Sprintf(`{"hangarId":%q,"squadronId":%q,"levelId":"visit"}`, hangarAnvilDockID, squadronTongsID))
+	status, body, _ = w.createPass(t, fmt.Sprintf(`{"hangarId":%q,"squadronId":%q,"levelId":"visit"}`, hangarAnvilDockID, squadronTongsID))
 	assertStatus(t, status, http.StatusOK, body)
 
 	// An empty person is nobody, so a pass that names one beside a group has one holder,
 	// the group: the create takes it, and so does the table.
-	status, body, _ = w.createPass(t, "marshal", anvil, fmt.Sprintf(`{"hangarId":%q,"userId":"","groupId":%q,"levelId":"visit"}`, hangarAnvilDockID, group))
+	status, body, _ = w.createPass(t, fmt.Sprintf(`{"hangarId":%q,"userId":"","groupId":%q,"levelId":"visit"}`, hangarAnvilDockID, group))
 	assertStatus(t, status, http.StatusOK, body)
 	nobody := spanner.Insert("HangarPasses", []string{"Id", "SectorId", "HangarId", "UserId", "GroupId", "LevelId"}, []any{passNobodyAndGroupID, anvil, hangarAnvilDockID, "", group, "visit"})
 	if _, err := w.db.Apply(w.ctx, []*spanner.Mutation{nobody}); err != nil {
@@ -599,45 +687,32 @@ func TestGroupShare_oneHolder(t *testing.T) {
 	}
 }
 
-// TestGroupShare_holderOnUpdate holds a pass to one holder after it is written. No role
-// of the release may change a pass's holder: the Marshal's update grant names the level
-// and the expiry, so her update that names userId, squadronId or groupId is refused, and
-// the pass is as it was. A role that is given the three columns meets the rule the
-// create holds, in the create's words, before the table's holder check is asked: a
-// second holder, or none, is refused, and an update that clears the one holder and
-// names another leaves one and is taken.
+// TestGroupShare_holderOnUpdate holds a pass to the holder it was written with. The three
+// holder columns are immutable, so an update that names any of them is refused with the
+// framework's answer for an immutable field, 400 and "json field <name> is immutable",
+// whoever sends it: the Marshal, whose update grant names the level and the expiry; the
+// teller, whose role is of the test's own and was handed Update on every column of a
+// pass, the three holder columns among them, which no role file may grant and the
+// engine skips (passClerk); and the armorer, whose role names nothing of the passes.
+// Nothing of a refused update is written, and the level and the expiry, which are no
+// holder, are still theirs to change who hold them.
 func TestGroupShare_holderOnUpdate(t *testing.T) {
 	t.Parallel()
 
 	w := newGroupShareWorld(t)
-	group := w.groupsOffered(t, "marshal", anvil)["Bay keepers"]
+	group := w.groupsOffered(t)["Bay keepers"]
 	if group == "" {
 		t.Fatal("Anvil's groups do not list the Bay keepers")
 	}
 	person := string(account(t, armorer))
-	status, body, pass := w.createPass(t, "marshal", anvil, fmt.Sprintf(`{"hangarId":%q,"userId":%q,"levelId":"visit"}`, hangarAnvilDockID, person))
+	status, body, pass := w.createPass(t, fmt.Sprintf(`{"hangarId":%q,"userId":%q,"levelId":"visit"}`, hangarAnvilDockID, person))
 	assertStatus(t, status, http.StatusOK, body)
 
-	update := func(user accesstypes.User, value string) (int, []byte) {
-		t.Helper()
-
-		return doRequestAs(t, w.h, user, http.MethodPatch, consoleAPI+"/resources",
-			fmt.Sprintf(`[{"op":"patch","path":%q,"value":%s}]`, opPath(anvil, "hangar-passes/"+pass), value))
-	}
 	// holder is who the pass names, read straight from the table.
 	holder := func() string {
 		t.Helper()
 
-		row, err := w.db.Single().ReadRow(w.ctx, "HangarPasses", spanner.Key{pass}, []string{"UserId", "SquadronId", "GroupId"})
-		if err != nil {
-			t.Fatalf("reading the holder of the pass: %v", err)
-		}
-		var user, squadron, group spanner.NullString
-		if err := row.Columns(&user, &squadron, &group); err != nil {
-			t.Fatalf("reading the holder columns of the pass: %v", err)
-		}
-
-		return fmt.Sprintf("person %s, squadron %s, group %s", user, squadron, group)
+		return w.holderOf(t, pass)
 	}
 	heldByThePerson := fmt.Sprintf("person %s, squadron <null>, group <null>", person)
 	if got := holder(); got != heldByThePerson {
@@ -645,92 +720,139 @@ func TestGroupShare_holderOnUpdate(t *testing.T) {
 	}
 
 	// The Marshal writes what her grant names, so the pass is one she may change.
-	status, body = update("marshal", `{"levelId":"run"}`)
+	status, body = w.updatePass(t, "marshal", pass, `{"levelId":"run"}`)
 	assertStatus(t, status, http.StatusOK, body)
 
-	// Her update that names a holder is refused, alone and beside a column she may write,
-	// and writes nothing.
-	for _, tt := range []struct {
-		name  string
-		value string
-	}{
-		{name: "another person", value: fmt.Sprintf(`{"userId":%q}`, account(t, sentry))},
-		{name: "no person", value: `{"userId":null}`},
-		{name: "a squadron", value: fmt.Sprintf(`{"squadronId":%q}`, squadronTongsID)},
-		{name: "a group", value: fmt.Sprintf(`{"groupId":%q}`, group)},
-		{name: "a group beside the level", value: fmt.Sprintf(`{"groupId":%q,"levelId":"visit"}`, group)},
-	} {
-		status, body := update("marshal", tt.value)
-		if status != http.StatusForbidden {
-			t.Errorf("the Marshal's update that names %s: status = %d, want 403: %s", tt.name, status, body)
-		}
-		if got := holder(); got != heldByThePerson {
-			t.Errorf("after the Marshal's update that names %s the pass names %s, want %s", tt.name, got, heldByThePerson)
+	// The teller holds every column of a pass a role can, and writes one that is no holder.
+	const teller = accesstypes.User("teller")
+	w.passClerk(t, teller)
+	status, body = w.updatePass(t, teller, pass, `{"expiresAt":"2999-01-01T00:00:00Z"}`)
+	assertStatus(t, status, http.StatusOK, body)
+
+	// An update that names a holder column is refused with the one answer, alone and
+	// beside a column the sender may write, and writes nothing.
+	for _, sender := range []accesstypes.User{"marshal", teller, armorer} {
+		for _, tt := range holderUpdates(string(account(t, sentry)), group) {
+			status, body := w.updatePass(t, sender, pass, tt.value)
+			if status != http.StatusBadRequest {
+				t.Errorf("the update by %s that names %s: status = %d, want 400: %s", sender, tt.name, status, body)
+			} else if got := refusalOf(t, body); !slices.Contains(tt.says, got) {
+				t.Errorf("the update by %s that names %s is refused with %q, want %q", sender, tt.name, got, strings.Join(tt.says, " or "))
+			}
+			if got := holder(); got != heldByThePerson {
+				t.Errorf("after the update by %s that names %s the pass names %s, want %s", sender, tt.name, got, heldByThePerson)
+			}
 		}
 	}
 	if got := readColumn[string](w.ctx, t, w.db, "HangarPasses", spanner.Key{pass}, "LevelId"); got != "run" {
 		t.Errorf("the level of the pass = %q after the refused updates, want run: a refused update writes none of its columns", got)
 	}
+}
 
-	// A role of the test's own holds the three holder columns, which no role of the
-	// release does, and a person holds it in Anvil.
-	const clerk accesstypes.Role = "PassClerk"
-	manager := w.engine.UserManager()
-	held := accesstypes.DomainPolicyScope(anvil)
-	if err := manager.AddRole(w.ctx, held, clerk, "Changes who holds a hangar pass."); err != nil {
-		t.Fatalf("access.UserManager.AddRole() error = %v", err)
-	}
-	if err := manager.AddRoleGrants(w.ctx, held, clerk,
-		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses"},
-		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses.userId"},
-		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses.squadronId"},
-		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses.groupId"},
-	); err != nil {
-		t.Fatalf("access.UserManager.AddRoleGrants() error = %v", err)
-	}
-	teller := makeCrewAccount(w.ctx, t, w.db, "teller")
-	if err := manager.AddUserRoles(w.ctx, held, teller, clerk); err != nil {
-		t.Fatalf("access.UserManager.AddUserRoles() error = %v", err)
-	}
-	if d := decisionFor(w.ctx, t, w.engine.ForUser(teller), accesstypes.DomainScope(anvil), accesstypes.Update, "HangarPasses.groupId", time.Now().Add(15*time.Second)); !d.IsGranted() {
-		t.Fatalf("Update on HangarPasses.groupId for the teller, who holds %s = %s, want granted before the cases run", clerk, d)
-	}
+// TestGroupShare_holderRefusalIsOneAnswer holds the refusal of a holder's change to one
+// answer wherever the update points: at a pass of the request's sector, at a pass of
+// another sector, and at an id that is no pass. The framework refuses an immutable field
+// as it decodes the request, before it reads a grant or a row, so the three answer the
+// same status and the same sentence and nothing tells a pass that is there, in a sector
+// the sender cannot see, from one that is not. (An update that names two holder columns
+// is refused for whichever the decoder meets first, so it has two sentences, and each of
+// the three answers one of them.) What an update may still change, the level, tells them
+// apart no better: both are the 404 of a row that is not the sector's, in the same words.
+func TestGroupShare_holderRefusalIsOneAnswer(t *testing.T) {
+	t.Parallel()
 
-	// The teller's update is counted over the pass as it would leave it.
-	for _, tt := range []struct {
-		name  string
-		value string
-		says  string
-	}{
-		{name: "a group onto a person's pass", value: fmt.Sprintf(`{"groupId":%q}`, group), says: "a pass has one holder"},
-		{name: "a squadron onto a person's pass", value: fmt.Sprintf(`{"squadronId":%q}`, squadronTongsID), says: "a pass has one holder"},
-		{name: "the person taken off, and nobody put on", value: `{"userId":null}`, says: "a pass needs a holder"},
-		{name: "an empty person, who is nobody", value: `{"userId":""}`, says: "a pass needs a holder"},
-	} {
-		status, body := update("teller", tt.value)
-		if status != http.StatusBadRequest {
-			t.Errorf("the teller's update that writes %s: status = %d, want 400: %s", tt.name, status, body)
-		} else if !strings.Contains(string(body), tt.says) || !strings.Contains(string(body), "a person, a squadron or a group") {
-			t.Errorf("the refusal of the update that writes %s = %s, want it to say %q and name the three holders", tt.name, body, tt.says)
-		}
-		if got := holder(); got != heldByThePerson {
-			t.Errorf("after the refused update that writes %s the pass names %s, want %s", tt.name, got, heldByThePerson)
-		}
+	w := newGroupShareWorld(t)
+	group := w.groupsOffered(t)["Bay keepers"]
+	if group == "" {
+		t.Fatal("Anvil's groups do not list the Bay keepers")
 	}
-
-	// One update that takes the person off and puts the group on leaves one holder, and
-	// is taken; the person put back beside the group is a second holder again.
-	status, body = update("teller", fmt.Sprintf(`{"userId":null,"groupId":%q}`, group))
+	person := string(account(t, armorer))
+	status, body, own := w.createPass(t, fmt.Sprintf(`{"hangarId":%q,"userId":%q,"levelId":"visit"}`, hangarAnvilDockID, person))
 	assertStatus(t, status, http.StatusOK, body)
-	heldByTheGroup := fmt.Sprintf("person <null>, squadron <null>, group %s", group)
-	if got := holder(); got != heldByTheGroup {
-		t.Errorf("after the update that changes the holder the pass names %s, want %s", got, heldByTheGroup)
+	// Bastion's pass, which no request in Anvil reads, written straight into the table.
+	theirs := spanner.Insert("HangarPasses", []string{"Id", "SectorId", "HangarId", "UserId", "LevelId"}, []any{passBastionOwnID, bastion, hangarBastionSlipID, person, "visit"})
+	if _, err := w.db.Apply(w.ctx, []*spanner.Mutation{theirs}); err != nil {
+		t.Fatalf("writing Bastion's pass: %v", err)
 	}
-	status, body = update("teller", fmt.Sprintf(`{"userId":%q}`, person))
-	if status != http.StatusBadRequest || !strings.Contains(string(body), "a pass has one holder") {
-		t.Errorf("the teller's update that puts the person back beside the group: status = %d, want 400 saying a pass has one holder: %s", status, body)
+	if got := w.passes(t, "Id = @id", map[string]any{"id": passNoneID}); got != 0 {
+		t.Fatalf("the passes with the id that is to be no pass = %d, want 0", got)
 	}
-	if got := holder(); got != heldByTheGroup {
-		t.Errorf("after the refused update the pass names %s, want %s", got, heldByTheGroup)
+	heldInBastion := w.holderOf(t, passBastionOwnID)
+
+	const teller = accesstypes.User("teller")
+	w.passClerk(t, teller)
+	for _, sender := range []accesstypes.User{"marshal", teller} {
+		for _, tt := range holderUpdates(string(account(t, sentry)), group) {
+			ownStatus, ownBody := w.updatePass(t, sender, own, tt.value)
+			if ownStatus != http.StatusBadRequest || !slices.Contains(tt.says, refusalOf(t, ownBody)) {
+				t.Errorf("the update by %s of the sector's pass that names %s: status = %d, want 400 saying %q: %s", sender, tt.name, ownStatus, strings.Join(tt.says, " or "), ownBody)
+			}
+			for _, other := range []struct {
+				name string
+				id   string
+			}{
+				{name: "another sector's pass", id: passBastionOwnID},
+				{name: "an id that is no pass", id: passNoneID},
+			} {
+				// An update that names one holder column has one answer, so this is the
+				// answer the sector's own pass gave. One that names two is refused for
+				// whichever the decoder meets first, on the sector's own pass as here.
+				status, body := w.updatePass(t, sender, other.id, tt.value)
+				if status != ownStatus || !slices.Contains(tt.says, refusalOf(t, body)) {
+					t.Errorf("the update by %s of %s that names %s answers %d %s, want the answer for the sector's own pass, %d saying %q", sender, other.name, tt.name, status, body, ownStatus, strings.Join(tt.says, " or "))
+				}
+			}
+		}
+	}
+	if got := w.holderOf(t, passBastionOwnID); got != heldInBastion {
+		t.Errorf("after the refused updates Bastion's pass names %s, want %s", got, heldInBastion)
+	}
+
+	// The level is the teller's to write on the sector's pass. On Bastion's pass and on
+	// no pass the update finds no row of the sector, and says so in the same words.
+	status, body = w.updatePass(t, teller, own, `{"levelId":"run"}`)
+	assertStatus(t, status, http.StatusOK, body)
+	theirStatus, theirBody := w.updatePass(t, teller, passBastionOwnID, `{"levelId":"run"}`)
+	noneStatus, noneBody := w.updatePass(t, teller, passNoneID, `{"levelId":"run"}`)
+	if theirStatus != http.StatusNotFound || noneStatus != http.StatusNotFound {
+		t.Errorf("the level written to another sector's pass answers %d and to no pass %d, want 404 for both: %s | %s", theirStatus, noneStatus, theirBody, noneBody)
+	}
+	if got, want := strings.ReplaceAll(string(theirBody), passBastionOwnID, "the id"), strings.ReplaceAll(string(noneBody), passNoneID, "the id"); got != want {
+		t.Errorf("the level written to another sector's pass answers %s, and to no pass %s: want the same words, the id apart", theirBody, noneBody)
+	}
+	if got := readColumn[string](w.ctx, t, w.db, "HangarPasses", spanner.Key{passBastionOwnID}, "LevelId"); got != "visit" {
+		t.Errorf("the level of Bastion's pass = %q after the update sent through Anvil, want visit", got)
+	}
+}
+
+// holderUpdate is one update that names a holder column, and what the refusal says. An
+// update that names two of them is refused for whichever the decoder meets first.
+type holderUpdate struct {
+	name  string
+	value string
+	says  []string
+}
+
+// holderUpdates is every way an update names a holder column: each of the three set to
+// a value and to nothing, one beside a column that is no holder, and the change of
+// holder a role that held the columns could once make, the person taken off and a group
+// put on.
+func holderUpdates(person, group string) []holderUpdate {
+	const (
+		userID     = "json field userId is immutable"
+		squadronID = "json field squadronId is immutable"
+		groupID    = "json field groupId is immutable"
+	)
+
+	return []holderUpdate{
+		{name: "another person", value: fmt.Sprintf(`{"userId":%q}`, person), says: []string{userID}},
+		{name: "no person", value: `{"userId":null}`, says: []string{userID}},
+		{name: "an empty person", value: `{"userId":""}`, says: []string{userID}},
+		{name: "a squadron", value: fmt.Sprintf(`{"squadronId":%q}`, squadronTongsID), says: []string{squadronID}},
+		{name: "no squadron", value: `{"squadronId":null}`, says: []string{squadronID}},
+		{name: "a group", value: fmt.Sprintf(`{"groupId":%q}`, group), says: []string{groupID}},
+		{name: "no group", value: `{"groupId":null}`, says: []string{groupID}},
+		{name: "a group beside the level", value: fmt.Sprintf(`{"groupId":%q,"levelId":"visit"}`, group), says: []string{groupID}},
+		{name: "the person taken off and a group put on", value: fmt.Sprintf(`{"userId":null,"groupId":%q}`, group), says: []string{userID, groupID}},
 	}
 }

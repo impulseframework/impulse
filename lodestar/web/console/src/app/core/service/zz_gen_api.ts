@@ -240,9 +240,6 @@ export interface HangarPassesCreate {
 /** The fields a client may change on HangarPasses. Keys, server-owned, and immutable fields are absent. */
 export interface HangarPassesPatch {
   hangarId?: string;
-  userId?: string | null;
-  squadronId?: string | null;
-  groupId?: string | null;
   levelId?: string;
   expiresAt?: Date | null;
 }
@@ -1083,7 +1080,7 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
       page: { default: 25, max: 200 },
       order: [{ field: 'hangarId', direction: 'asc' }],
-      patchable: ['hangarId', 'userId', 'squadronId', 'groupId', 'levelId', 'expiresAt'],
+      patchable: ['hangarId', 'levelId', 'expiresAt'],
     },
     [Resources.MembersHeldRoles]: {
       resource: Resources.MembersHeldRoles,

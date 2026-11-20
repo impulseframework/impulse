@@ -46,9 +46,9 @@ type hangarPassWrite struct {
 	ID         impulse.UUID     `json:"-"`
 	SectorID   impulse.UUID     `json:"-"`
 	HangarID   impulse.UUID     `json:"hangarId"`
-	UserID     *string          `json:"userId"     sqltype:"STRING(36)"`
-	SquadronID impulse.NullUUID `json:"squadronId"`
-	GroupID    impulse.NullUUID `json:"groupId"`
+	UserID     *string          `json:"userId"     immutable:"true"     sqltype:"STRING(36)"`
+	SquadronID impulse.NullUUID `json:"squadronId" immutable:"true"`
+	GroupID    impulse.NullUUID `json:"groupId"    immutable:"true"`
 	LevelID    string           `json:"levelId"    sqltype:"STRING(64)"`
 	ExpiresAt  *time.Time       `json:"expiresAt"`
 }
@@ -652,9 +652,6 @@ func (p *HangarPassUpdatePatch) RowCreated() bool {
 }
 
 func (p *HangarPassUpdatePatch) registerDefaultFuncs() {
-	p.patchSet.RegisterValidateUpdateFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		return new(HangarPassUpdateValidator).Validate(ctx, txn, p)
-	})
 }
 
 func (p *HangarPassUpdatePatch) ID() impulse.UUID {

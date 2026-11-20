@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
@@ -42,12 +41,18 @@ type (
 	// picks the group from the sector's own (@enumerate of CrewSectorGroups), beside the
 	// picker of the sector's people. A group that is deleted takes its passes with it (the
 	// foreign key to CrewGroups, ON DELETE CASCADE). A pass that names two holders, or
-	// none, is refused: by the create validator and the update validator in words the
-	// person filling the form can act on, and by the table's holder check for every other
-	// writer. An empty userId names nobody and is not a holder, in the validators and in
-	// the table's check alike. Which role may change a pass's holder is the role file's
-	// to say, and today none may: the Marshal's update grant names the level and the
-	// expiry alone.
+	// none, is refused: by the create validator in words the person filling the form can
+	// act on, and by the table's holder check for every other writer. An empty userId
+	// names nobody and is not a holder, in the validator and in the table's check alike.
+	//
+	// A pass's holder never changes. UserID, SquadronID and GroupID are immutable: an
+	// update that names any of the three is refused for every role with the framework's
+	// own answer (400, "json field groupId is immutable"), before the request's grants are
+	// read and before any row is, so the refusal is the same for a pass of the sector, a
+	// pass of another sector and an id that is no pass. The collection takes Update off
+	// the three columns and a role file that grants it is refused when it is read. A pass
+	// that should be somebody else's is deleted and written again; its level and its
+	// expiry are what an update may change.
 	//
 	// Each set keeps its own tenant filter. A pass carries its sector on the row, so the
 	// passes read are the request's sector's; subject.squadrons is filtered to the same
@@ -69,7 +74,6 @@ type (
 	// @order(HangarID asc)
 	// @page(default: 25, max: 200)
 	// @validateCreateType(HangarPassCreateValidator)
-	// @validateUpdateType(HangarPassUpdateValidator)
 	HangarPass struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
@@ -82,10 +86,10 @@ type (
 		//     who:   UserID = subject OR SquadronID IN subject.squadrons OR GroupID IN subject.groups,
 		//     where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))
 		// @enumerate(CrewSectorUsers)
-		UserID     *string          `spanner:"UserId"`
-		SquadronID impulse.NullUUID `spanner:"SquadronId"`
+		UserID     *string          `spanner:"UserId"     conditions:"immutable"`
+		SquadronID impulse.NullUUID `spanner:"SquadronId" conditions:"immutable"`
 		// @enumerate(CrewSectorGroups)
-		GroupID   impulse.NullUUID `spanner:"GroupId"`
+		GroupID   impulse.NullUUID `spanner:"GroupId"   conditions:"immutable"`
 		LevelID   string           `spanner:"LevelId"`
 		ExpiresAt *time.Time       `spanner:"ExpiresAt"`
 	}
@@ -97,42 +101,10 @@ type HangarPassCreateValidator struct{}
 
 // Validate refuses a pass that names no holder, or more than one, and says which of the
 // three to fill. The table's holder check (CK_HangarPasses_Holder) holds the same rule
-// for a writer that does not come through the create patch.
+// for a writer that does not come through the create patch. No update needs the rule: the
+// three holder columns are immutable, so a pass keeps the holder it was written with.
 func (v *HangarPassCreateValidator) Validate(_ context.Context, _ resource.ReadWriteTransaction, p *HangarPassCreatePatch) error {
 	return oneHolder(p.UserID(), p.SquadronID(), p.GroupID())
-}
-
-// HangarPassUpdateValidator is wired in by the @validateUpdateType annotation; the
-// generated update patch calls Validate inside the mutation transaction.
-type HangarPassUpdateValidator struct{}
-
-// Validate holds an update to the create's rule: the pass names one holder once the
-// update is written. An update that names none of the three holder columns changes no
-// holder and is passed without a read. One that names any of them is counted over the
-// row as the update leaves it: the columns it names as it sets them, and the others as
-// the row holds them. So a group written onto a pass a person holds is refused in the
-// create's words, where the table's holder check would otherwise answer, and the same
-// update with the person cleared leaves one holder and is passed.
-func (v *HangarPassUpdateValidator) Validate(ctx context.Context, txn resource.ReadWriteTransaction, p *HangarPassUpdatePatch) error {
-	if !p.UserIDIsSet() && !p.SquadronIDIsSet() && !p.GroupIDIsSet() {
-		return nil
-	}
-	row, err := NewHangarPassQuery().AddColumns(NewHangarPassColumns().UserID().SquadronID().GroupID()).SetID(p.ID()).Read(ctx, txn)
-	if err != nil {
-		return errors.Wrap(err, "HangarPassQuery.Read()")
-	}
-	person, squadron, group := row.Data.UserID, row.Data.SquadronID, row.Data.GroupID
-	if p.UserIDIsSet() {
-		person = p.UserID()
-	}
-	if p.SquadronIDIsSet() {
-		squadron = p.SquadronID()
-	}
-	if p.GroupIDIsSet() {
-		group = p.GroupID()
-	}
-
-	return oneHolder(person, squadron, group)
 }
 
 // oneHolder refuses a pass that names no holder, or more than one, in words whoever
