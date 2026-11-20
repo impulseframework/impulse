@@ -1137,7 +1137,7 @@ watch desk then name the cadet by username; and
   into it and the beacon pulse mounted outside every outlet under the prefix the
   generator program declares quiet ([`generation.request-log`](cmd/generate/generator.go));
   `app/`: wiring, middleware, the ship's log, the client statement, the
-  impersonation mint route, the watch desk, the accessors of each auth's generated
+  impersonation mint route, the accessors of each auth's generated
   identity client (`users.go`) and the beacon pulse. The mission document download is
   generated from `MissionDocument.StoreKey`'s `@file`
   ([`@file.stored`](pkg/resources/mission_documents.go)), and the purser's expense
@@ -1224,11 +1224,21 @@ watch desk then name the cadet by username; and
   list over a key-less resource ([`list.keyless`](web/console/src/app/configs/standingOrders.config.ts)):
   the whole book as one page, rows identified by position, no row route, and a config
   asking for a page size or a row expansion refused when the page is built. Four pages
+  that once drew tables of their own are that list with nothing of Lodestar's drawn: the
+  [salvage hold](web/console/src/app/configs/consignments.config.ts), whose rows offer
+  Release where the server's Execute answer for the row lists it and say the typed
+  receipt in the notice that follows; the
+  [call log](web/console/src/app/configs/distressCalls.config.ts); the
+  [hazard board](web/console/src/app/configs/sectorHazardBoards.config.ts), whose rows
+  have a compound key and so no row page; and Headquarters'
+  [watch desk](web/console/src/app/configs/crewSessionImpersonations.config.ts), the
+  crew auth's generated impersonation records with Revoke, the generated method that
+  ends one, on each session still open. Four pages
   carry the field shapes a form never types and the write-only field: the
   [Documents page](web/console/src/app/configs/missionDocuments.config.ts) shows a
   document's digest as a size in its cell and as a download on its row page
   ([`field.bytes`](web/console/src/app/configs/missionDocuments.config.ts)) and its
-  provenance as JSON, the [Calls page](web/console/src/app/configs/distressCalls.config.ts)
+  provenance as JSON, the [call log](web/console/src/app/configs/distressCalls.config.ts)
   shows a call's position as JSON ([`field.object`](web/console/src/app/configs/distressCalls.config.ts))
   and draws nothing for its write-only transcript in view mode and a blank input in its
   create form and in its edit form, whose value travels only when typed; the edit form has

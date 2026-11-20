@@ -37,11 +37,11 @@ func TestRenderShapes_console(t *testing.T) {
 		{name: "the Squadrons page lists and shows the callsigns", file: filepath.Join(app, "configs", "squadrons.config.ts"), want: "Squadrons.fieldName.callsigns"},
 		{name: "the Documents page lists and shows the digest", file: filepath.Join(app, "configs", "missionDocuments.config.ts"), want: "MissionDocuments.fieldName.digest"},
 		{name: "the Documents page lists and shows the provenance", file: filepath.Join(app, "configs", "missionDocuments.config.ts"), want: "MissionDocuments.fieldName.provenance"},
-		{name: "the Calls page lists and shows the position", file: filepath.Join(app, "configs", "distressCalls.config.ts"), want: "DistressCalls.fieldName.position"},
-		{name: "the Calls page's form carries the transcript", file: filepath.Join(app, "configs", "distressCalls.config.ts"), want: "field({ name: DistressCalls.fieldName.transcript"},
-		{name: "the Calls page lists no column over the transcript, which the page would refuse", file: filepath.Join(app, "configs", "distressCalls.config.ts"), want: "{ id: DistressCalls.fieldName.transcript", absent: true},
+		{name: "the call log lists and shows the position", file: filepath.Join(app, "configs", "distressCalls.config.ts"), want: "DistressCalls.fieldName.position"},
+		{name: "the call log's form carries the transcript", file: filepath.Join(app, "configs", "distressCalls.config.ts"), want: "field({ name: DistressCalls.fieldName.transcript"},
+		{name: "the call log lists no column over the transcript, which the page would refuse", file: filepath.Join(app, "configs", "distressCalls.config.ts"), want: "{ id: DistressCalls.fieldName.transcript", absent: true},
 		{name: "the routes register the Documents page", file: filepath.Join(app, "app.routes.ts"), want: "resourceRoutes(missionDocumentsConfig, resourceMeta),"},
-		{name: "the routes register the Calls page", file: filepath.Join(app, "app.routes.ts"), want: "resourceRoutes(distressCallsConfig, resourceMeta),"},
+		{name: "the routes register the call log", file: filepath.Join(app, "app.routes.ts"), want: "resourceRoutes(distressCallsConfig, resourceMeta),"},
 	}
 
 	for _, tt := range tests {

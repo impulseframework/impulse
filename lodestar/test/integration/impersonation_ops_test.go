@@ -3,10 +3,12 @@ package integration
 // impersonation_ops_test (design plan §9): the watch desk lists a minted session with its
 // two-hour cap, revocation refuses its next request, a forged write on a read-only
 // session is refused by the middleware before any handler runs, and the desk itself is
-// gated by the manual Execute registration.
+// gated by the grants on what it reads and runs. The desk is the library's list over the
+// crew auth's generated impersonation records, and its Revoke the generated method that
+// ends one, so the suite asks what the page asks.
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,14 +16,40 @@ import (
 	"time"
 )
 
-// watchDeskEntry is one live impersonated session as the watch desk lists it.
-type watchDeskEntry struct {
-	SessionID string    `json:"sessionId"`
-	Actor     string    `json:"actor"`
-	Principal string    `json:"principal"`
-	Kind      string    `json:"kind"`
-	StartedAt time.Time `json:"startedAt"`
-	ExpiresAt time.Time `json:"expiresAt"`
+// The watch desk's two requests: the list of the impersonation records, and the method
+// that ends the session of one.
+const (
+	watchDeskList   = consoleAPI + "/crew-session-impersonations"
+	watchDeskRevoke = consoleAPI + "/end-crew-session-impersonation"
+)
+
+// watchDeskRow finds the record of one session in the watch desk's list, as the given
+// browser reads it.
+func watchDeskRow(ctx context.Context, t *testing.T, operator *browser, sessionID string) map[string]any {
+	t.Helper()
+
+	status, body := operator.do(ctx, http.MethodGet, watchDeskList+"?limit=200", nil)
+	assertStatus(t, status, http.StatusOK, body)
+	for _, row := range decodeRows(t, body) {
+		if cell[string](t, row, "sessionId") == sessionID {
+			return row
+		}
+	}
+	t.Fatalf("the watch desk does not list the session %s: %s", sessionID, body)
+
+	return nil
+}
+
+// instant reads one cell of a row as the time it names.
+func instant(t *testing.T, row map[string]any, key string) time.Time {
+	t.Helper()
+
+	at, err := time.Parse(time.RFC3339Nano, cell[string](t, row, key))
+	if err != nil {
+		t.Fatalf("cell %q of row %v is no time: %v", key, row, err)
+	}
+
+	return at
 }
 
 // Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.max-duration, impersonation.read-only-backstop.
@@ -36,42 +64,34 @@ func TestImpersonationOperator(t *testing.T) {
 	maren.signIn(ctx, "marshal")
 	status, body := maren.impersonate(ctx, viewAs(t, "cadet", "watch desk walkthrough"))
 	assertStatus(t, status, http.StatusOK, body)
-	var minted struct {
-		SessionID string `json:"sessionId"`
-	}
-	if err := json.Unmarshal(body, &minted); err != nil {
-		t.Fatal(err)
-	}
+	minted := cell[string](t, decodeRow(t, body), "sessionId")
+	revoke := fmt.Appendf(nil, `{"sessionId":%q}`, minted)
 
 	// The governor runs the watch desk from a session of their own.
 	greer := newBrowser(t, s, consoleAPI)
 	greer.signIn(ctx, "governor")
 
 	t.Run("the desk lists the live session with its actor, principal, and two-hour cap", func(t *testing.T) {
-		status, body := greer.do(ctx, http.MethodGet, "/console/api/impersonations", nil)
-		assertStatus(t, status, http.StatusOK, body)
-		var entries []watchDeskEntry
-		if err := json.Unmarshal(body, &entries); err != nil {
-			t.Fatal(err)
+		found := watchDeskRow(ctx, t, greer, minted)
+		// The record names the marshal by username and the cadet by the id of the
+		// account, which the desk's As column reads the username from: the list of the
+		// crew's accounts answers that id as the cadet's.
+		if actor, kind := cell[string](t, found, "actorUsername"), cell[string](t, found, "principalKind"); actor != "marshal" || kind != "User" {
+			t.Errorf("record = %v, want marshal holding a session as a user", found)
 		}
-		var found *watchDeskEntry
-		for i := range entries {
-			if entries[i].SessionID == minted.SessionID {
-				found = &entries[i]
-			}
+		if principal, cadet := cell[string](t, found, "principalUserId"), crewAccountID(ctx, t, greer, "cadet"); principal != cadet {
+			t.Errorf("principalUserId = %s, want the cadet's account %s", principal, cadet)
 		}
-		if found == nil {
-			t.Fatalf("watch desk = %v, want the session %s the marshal minted", entries, minted.SessionID)
+		if reason := cell[string](t, found, "reason"); reason != "watch desk walkthrough" {
+			t.Errorf("reason = %q, want the one the marshal gave", reason)
 		}
-		// Both people read by username: the record names the cadet by the id of the
-		// account, and the desk answers the account's username, never the id.
-		if found.Actor != "marshal" || found.Principal != "cadet" || found.Kind != "user" {
-			t.Errorf("entry = %+v, want marshal viewing as cadet, both by username", found)
+		if found["endedAt"] != nil {
+			t.Errorf("endedAt = %v, want none while the session stands", found["endedAt"])
 		}
 		// StartedAt is the database's commit time and ExpiresAt the mint route's own
 		// deadline, two hours from its clock a moment before the commit, so the
 		// lifetime falls short of the cap by the commit's latency and never exceeds it.
-		if lifetime := found.ExpiresAt.Sub(found.StartedAt); lifetime > 2*time.Hour || lifetime < 2*time.Hour-5*time.Second {
+		if lifetime := instant(t, found, "expiresAt").Sub(instant(t, found, "startedAt")); lifetime > 2*time.Hour || lifetime < 2*time.Hour-5*time.Second {
 			t.Errorf("lifetime = %v, want the two-hour cap the mint route sets, less the commit's latency", lifetime)
 		}
 	})
@@ -90,29 +110,24 @@ func TestImpersonationOperator(t *testing.T) {
 	t.Run("the cadet may not operate the desk", func(t *testing.T) {
 		cass := newBrowser(t, s, consoleAPI)
 		cass.signIn(ctx, "cadet")
-		status, body := cass.do(ctx, http.MethodGet, "/console/api/impersonations", nil)
+		status, body := cass.do(ctx, http.MethodGet, watchDeskList, nil)
 		assertStatus(t, status, http.StatusForbidden, body)
-		status, body = cass.do(ctx, http.MethodDelete, "/console/api/impersonations/"+minted.SessionID, nil)
+		status, body = cass.do(ctx, http.MethodPost, watchDeskRevoke, revoke)
 		assertStatus(t, status, http.StatusForbidden, body)
 	})
 
 	t.Run("revocation refuses the revoked console's next request", func(t *testing.T) {
-		status, body := greer.do(ctx, http.MethodDelete, "/console/api/impersonations/"+minted.SessionID, nil)
+		status, body := greer.do(ctx, http.MethodPost, watchDeskRevoke, revoke)
 		assertStatus(t, status, http.StatusNoContent, body)
 
 		status, body = maren.do(ctx, http.MethodGet, sectorPath(anvil, "missions"), nil)
 		assertStatus(t, status, http.StatusUnauthorized, body)
 
-		status, body = greer.do(ctx, http.MethodGet, "/console/api/impersonations", nil)
-		assertStatus(t, status, http.StatusOK, body)
-		var entries []watchDeskEntry
-		if err := json.Unmarshal(body, &entries); err != nil {
-			t.Fatal(err)
-		}
-		for _, entry := range entries {
-			if entry.SessionID == minted.SessionID {
-				t.Errorf("the revoked session %s is still listed", minted.SessionID)
-			}
+		// The desk keeps the record, now with its end: the page offers Revoke on a row
+		// that has none.
+		ended := watchDeskRow(ctx, t, greer, minted)
+		if ended["endedAt"] == nil || ended["endReason"] != "Revoked" {
+			t.Errorf("the revoked session's record: endedAt = %v, endReason = %v, want it ended as Revoked", ended["endedAt"], ended["endReason"])
 		}
 	})
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
-// The principal kinds the mint route accepts and the watch desk reports.
+// The principal kinds the mint route accepts.
 const (
 	kindUser = "user"
 	kindRole = "role"
