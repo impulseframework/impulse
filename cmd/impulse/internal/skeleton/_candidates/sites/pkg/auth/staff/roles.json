@@ -267,6 +267,7 @@
               "resource": "StaffGivableRoles",
               "fields": [
                 "description",
+                "method",
                 "domain",
                 "everyDomain"
               ]
@@ -699,7 +700,8 @@
             {
               "resource": "StaffTenantRoles",
               "fields": [
-                "description"
+                "description",
+                "method"
               ]
             },
             {

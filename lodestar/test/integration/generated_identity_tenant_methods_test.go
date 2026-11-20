@@ -30,6 +30,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -732,7 +733,9 @@ func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 // custom role held in every sector; it lists no role of the whole application and no
 // custom role of another sector. The list is the sector's own: its Marshal reads it
 // there, at another sector's address the sector is not found, and a person without the
-// grant is refused.
+// grant is refused. It is asked as a dialog asks it, for the method that gives a person
+// a role (TestGeneratedIdentitySectorRolesAreEachMethodsOwn holds one method's list
+// apart from another's).
 func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -741,7 +744,13 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	// The List grant this suite proves, pinned to the roles file (conditions-proven).
 	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorRoles", "name != 'SectorMarshal'")
 
+	// The Marshal's grant on the list carries a condition, and a computed list filters
+	// only by a field granted with no condition: the role file grants the field the
+	// list is asked by beside it, as a grant of the field alone.
+	provesFieldGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorRoles.method")
+
 	const rolesPath = "crew-sector-roles"
+	const byMethod = "filter=method:eq:AssignCrewSectorRole"
 	roles := w.engine.UserManager()
 	if err := roles.AddRole(ctx, accesstypes.DomainPolicyScope(anvil), "Wrench", "Keeps Anvil's tools"); err != nil {
 		t.Fatalf("adding Anvil's custom role: %v", err)
@@ -752,7 +761,7 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 
 	list := func(t *testing.T, user accesstypes.User, sector string) (names []string, byName map[string]map[string]any) {
 		t.Helper()
-		status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(sector, rolesPath+"?limit=all"), "")
+		status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(sector, rolesPath+"?limit=all&"+byMethod), "")
 		assertStatus(t, status, http.StatusOK, body)
 		rows := decodeRows(t, body)
 		for _, row := range rows {
@@ -848,15 +857,18 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 			t.Errorf("the Marshal's list = %v, want every role of the sector but SectorMarshal: %v", listed, want)
 		}
 
-		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"?columns=name&limit=all"), "")
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"?columns=name&limit=all&"+byMethod), "")
 		assertStatus(t, status, http.StatusOK, body)
+		if len(decodeRows(t, body)) != len(want) {
+			t.Errorf("the list of names alone holds %d roles, want the %d the grant admits: %s", len(decodeRows(t, body)), len(want), body)
+		}
 		for _, row := range decodeRows(t, body) {
 			if row["name"] == "SectorMarshal" {
 				t.Errorf("the list of names alone holds SectorMarshal: %s", body)
 			}
 		}
 
-		rec := doRequestRecordedAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=1&count=true"), "")
+		rec := doRequestRecordedAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=1&count=true&"+byMethod), "")
 		assertStatus(t, rec.Code, http.StatusOK, rec.Body.Bytes())
 		if got, want := rec.Header().Get(resource.TotalCountHeader), strconv.Itoa(len(want)); got != want {
 			t.Errorf("Total-Count = %q, want %s: the roles the grant admits", got, want)
@@ -871,9 +883,9 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	})
 
 	t.Run("the list is the sector's own", func(t *testing.T) {
-		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(bastion, rolesPath+"?limit=all"), "")
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(bastion, rolesPath+"?limit=all&"+byMethod), "")
 		assertStatus(t, status, http.StatusNotFound, body)
-		status, body = doRequestAs(t, w.h, "cadet", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all"), "")
+		status, body = doRequestAs(t, w.h, "cadet", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all&"+byMethod), "")
 		assertStatus(t, status, http.StatusForbidden, body)
 	})
 
@@ -893,8 +905,9 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 // nothing but the methods' grants keeps the Marshal's own role out (each of the four
 // carries new.role != 'SectorMarshal'): the list leaves it out still, the list of names
 // alone and the count with it, holds every other role of the sector, and the method
-// refuses the role the list left out. A page offers what the caller may do, and the
-// role file says the limit once.
+// refuses the role the list left out, whichever of the four methods the list is asked
+// for. A page offers what the caller may do, and the role file says the limit once for
+// each method.
 func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -924,32 +937,141 @@ func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
 	}
 
 	for _, user := range []accesstypes.User{"marshal", "governor"} {
-		rec := doRequestRecordedAs(t, w.h, user, http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all&count=true"), "")
-		assertStatus(t, rec.Code, http.StatusOK, rec.Body.Bytes())
-		var listed []string
-		for _, row := range decodeRows(t, rec.Body.Bytes()) {
-			name, _ := row["name"].(string)
-			listed = append(listed, name)
-		}
-		if !slices.Equal(listed, want) {
-			t.Errorf("%s is listed %v, want every role of the sector but SectorMarshal, which no method takes from them: %v", user, listed, want)
-		}
-		if got, want := rec.Header().Get(resource.TotalCountHeader), strconv.Itoa(len(want)); got != want {
-			t.Errorf("%s: Total-Count = %q, want %s: the roles the caller could give", user, got, want)
-		}
+		for _, method := range []string{"AssignCrewSectorRole", "CreateCrewSectorUser", "InviteCrewSectorUser", "GiveCrewSectorGroupRole"} {
+			byMethod := "filter=method:eq:" + method
+			rec := doRequestRecordedAs(t, w.h, user, http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all&count=true&"+byMethod), "")
+			assertStatus(t, rec.Code, http.StatusOK, rec.Body.Bytes())
+			var listed []string
+			for _, row := range decodeRows(t, rec.Body.Bytes()) {
+				name, _ := row["name"].(string)
+				listed = append(listed, name)
+			}
+			if !slices.Equal(listed, want) {
+				t.Errorf("%s is listed %v for %s, want every role of the sector but SectorMarshal, which the method does not take from them: %v", user, listed, method, want)
+			}
+			if got, want := rec.Header().Get(resource.TotalCountHeader), strconv.Itoa(len(want)); got != want {
+				t.Errorf("%s, %s: Total-Count = %q, want %s: the roles the caller could give", user, method, got, want)
+			}
 
-		status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(anvil, rolesPath+"?columns=name&limit=all"), "")
-		assertStatus(t, status, http.StatusOK, body)
-		for _, row := range decodeRows(t, body) {
-			if row["name"] == "SectorMarshal" {
-				t.Errorf("%s: the list of names alone holds SectorMarshal: %s", user, body)
+			status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(anvil, rolesPath+"?columns=name&limit=all&"+byMethod), "")
+			assertStatus(t, status, http.StatusOK, body)
+			if len(decodeRows(t, body)) != len(want) {
+				t.Errorf("%s, %s: the list of names alone holds %d roles, want %d: %s", user, method, len(decodeRows(t, body)), len(want), body)
+			}
+			for _, row := range decodeRows(t, body) {
+				if row["name"] == "SectorMarshal" {
+					t.Errorf("%s, %s: the list of names alone holds SectorMarshal: %s", user, method, body)
+				}
 			}
 		}
 	}
 
 	// The cadet holds no grant on the list, which the methods' grants do not change.
-	status, body := doRequestAs(t, w.h, "cadet", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all"), "")
+	status, body := doRequestAs(t, w.h, "cadet", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all&filter=method:eq:AssignCrewSectorRole"), "")
 	assertStatus(t, status, http.StatusForbidden, body)
+}
+
+// TestGeneratedIdentitySectorRolesAreEachMethodsOwn pins that the list a sector's role
+// is picked from answers for one method at a time. The world runs over the crew's role
+// file with the condition taken off the Marshal's List grant on the list, and off the
+// Marshal's grant of the invitation: the invitation alone then takes the Marshal's own
+// role from a Marshal. The role is in the invitation's list and in no other method's,
+// each row says the method it is listed for, a request that names no method is listed
+// no role, and one that names a method any other way, or a method of the whole
+// application, is refused with the names to send. The invitation holds what its list
+// said: the request passes its check with the role and reaches the step that makes the
+// link, which this suite's stand-in for the session manager keeps and fails.
+func TestGeneratedIdentitySectorRolesAreEachMethodsOwn(t *testing.T) {
+	t.Parallel()
+
+	const assign, create, invite, giveGroup = "AssignCrewSectorRole", "CreateCrewSectorUser", "InviteCrewSectorUser", "GiveCrewSectorGroupRole"
+	roles := withoutCondition(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorRoles")
+	roles = withoutCondition(t, roles, "SectorMarshal", "Execute", invite)
+	w := buildIdentityWorldOver(t, false, roles)
+
+	const rolesPath = "crew-sector-roles?limit=all"
+	list := func(t *testing.T, method string) []string {
+		t.Helper()
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"&filter=method:eq:"+method), "")
+		assertStatus(t, status, http.StatusOK, body)
+		var listed []string
+		for _, row := range decodeRows(t, body) {
+			name, _ := row["name"].(string)
+			if listedFor, _ := row["method"].(string); listedFor != method {
+				t.Errorf("%s is listed for the method %q, want %s, the one the request names: %v", name, listedFor, method, row)
+			}
+			listed = append(listed, name)
+		}
+
+		return listed
+	}
+
+	if listed := list(t, invite); !slices.Contains(listed, "SectorMarshal") || !slices.Contains(listed, "Cadet") {
+		t.Errorf("the invitation's list = %v, want SectorMarshal, which its grant takes from the Marshal, and Cadet among them", listed)
+	}
+	for _, method := range []string{assign, create, giveGroup} {
+		listed := list(t, method)
+		if slices.Contains(listed, "SectorMarshal") {
+			t.Errorf("the list of %s = %v, want no SectorMarshal: its own grant refuses the role, whatever the invitation's takes", method, listed)
+		}
+		if !slices.Contains(listed, "Cadet") {
+			t.Errorf("the list of %s = %v, want Cadet among them", method, listed)
+		}
+	}
+
+	status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath), "")
+	assertStatus(t, status, http.StatusOK, body)
+	if rows := decodeRows(t, body); len(rows) != 0 {
+		t.Errorf("a request that names no method is listed %d roles, want none: %s", len(rows), body)
+	}
+
+	const methods = "AssignCrewSectorRole, CreateCrewSectorUser, InviteCrewSectorUser, GiveCrewSectorGroupRole"
+	for _, filter := range []string{
+		"method:eq:AssignCrewRole",
+		"method:ne:" + assign,
+		"method:in:(" + assign + "," + invite + ")",
+	} {
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, rolesPath+"&filter="+url.QueryEscape(filter)), "")
+		if status != http.StatusBadRequest || !strings.Contains(string(body), methods) || !strings.Contains(string(body), "method:eq:") {
+			t.Errorf("filter %q: status %d, want 400 naming the methods (%s) and the filter to send: %s", filter, status, methods, body)
+		}
+	}
+
+	invited := "marshal-" + identitySuffix() + "@anvil.example"
+	status, body = doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, "invite-crew-sector-user"), fmt.Sprintf(`{"email":%q,"roles":["SectorMarshal"]}`, invited))
+	assertStatus(t, status, http.StatusInternalServerError, body)
+	prepared := preparedInvitations.take(invited)
+	if len(prepared) != 1 || prepared[0].TenantID != anvil || !slices.Equal(prepared[0].RoleNames, []string{"SectorMarshal"}) {
+		t.Errorf("the session manager's stand-in was handed %+v, want one invitation into Anvil with SectorMarshal: the role the invitation's list offered passes the invitation's check", prepared)
+	}
+}
+
+// provesFieldGrant holds the role file to a grant of one field alone, with no
+// condition: the role holds the permission on the dotted field resource by a grant that
+// names nothing else.
+func provesFieldGrant(t *testing.T, roles access.RoleFile, role, permission, field string) {
+	t.Helper()
+
+	var file map[string]map[string][]map[string]any
+	if err := json.Unmarshal(roles, &file); err != nil {
+		t.Fatalf("reading the role file: %v", err)
+	}
+	for _, set := range file["roles"] {
+		for _, entry := range set {
+			if entry["name"] != role {
+				continue
+			}
+			permissions, _ := entry["permissions"].(map[string]any)
+			grants, _ := permissions[permission].([]any)
+			for _, g := range grants {
+				grant, ok := g.(map[string]any)
+				if ok && grant["resource"] == field && len(grant) == 1 {
+					return
+				}
+			}
+		}
+	}
+	t.Fatalf("the %s role holds no %s grant of %s alone, with no condition", role, permission, field)
 }
 
 // withoutCondition is the role file with the condition taken off the grant the role

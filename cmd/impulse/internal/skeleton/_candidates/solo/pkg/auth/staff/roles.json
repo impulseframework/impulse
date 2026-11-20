@@ -233,7 +233,8 @@
             {
               "resource": "StaffGivableRoles",
               "fields": [
-                "description"
+                "description",
+                "method"
               ]
             },
             {

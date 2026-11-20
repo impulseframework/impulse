@@ -466,7 +466,7 @@ func TestManager_RolesToGive_directoryOnly(t *testing.T) {
 			t.Parallel()
 
 			m := outsiderManager(t, groupStore())
-			roles, err := m.RolesToGive(asEntering(t.Context(), erin, tt.enters...), "alpha")
+			roles, err := m.RolesToGive(asEntering(t.Context(), erin, tt.enters...), assigns, "alpha")
 			if err != nil {
 				t.Fatalf("RolesToGive() error = %v", err)
 			}

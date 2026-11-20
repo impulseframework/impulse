@@ -44,6 +44,9 @@ const metas: Record<string, ResourceMeta> = {
     'lastSignInAt',
   ),
   CrewUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
+  // The lists a role is picked from: each answers for the method its filter names.
+  CrewGivableRoles: fields('name', 'description', 'method', 'domain', 'everyDomain'),
+  CrewSectorRoles: fields('name', 'description', 'method'),
   CrewSessionIdentities: fields('id', 'userId', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
   CrewSessionMailLinks: fields(
     'id',
@@ -138,6 +141,7 @@ const crew: IdentityDescriptor = {
       lists: {
         users: 'CrewSessionUsers',
         roles: 'CrewUserRoles',
+        rolesToGive: 'CrewGivableRoles',
         identities: 'CrewSessionIdentities',
         invitations: 'CrewSessionMailLinks',
         sessions: 'CrewSessions',
@@ -174,6 +178,7 @@ const crew: IdentityDescriptor = {
       lists: {
         users: 'CrewSectorUsers',
         roles: 'CrewSectorUserRoles',
+        rolesToGive: 'CrewSectorRoles',
         identities: 'CrewSectorIdentities',
         invitations: 'CrewSectorInvitations',
       },
@@ -242,6 +247,14 @@ const presentation = (presentations: false | MethodPresentation[] | undefined, m
   return found;
 };
 const children = (config: RootConfig): ListViewConfig[] => config.relatedConfigs as ListViewConfig[];
+/** The filter a presentation asks a picker's list with, from the dialog's values; a picker it does not narrow fails the spec. */
+const narrowed = (presented: MethodPresentation, field: string): ((values: RecordData) => string) => {
+  const narrow = presented.narrows?.[field];
+  if (!narrow) {
+    throw new Error(`${presented.method} does not narrow ${field}`);
+  }
+  return narrow;
+};
 
 describe("identityPages, the whole application's side", () => {
   const pages = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
@@ -519,31 +532,71 @@ describe("identityPages, the whole application's side", () => {
     });
   });
 
-  it('asks where a role is to be held and offers the roles that exist there: each dialog that gives one narrows its role picker by the place', () => {
-    const narrowed = (presented: MethodPresentation, field: string): ((values: RecordData) => string) => {
-      const narrow = presented.narrows?.[field];
-      if (!narrow) {
-        throw new Error(`${presented.method} does not narrow ${field}`);
-      }
-      return narrow;
-    };
+  it("asks where a role is to be held and offers the roles the dialog's own method could give there: each dialog that gives one names its method and the place in its role picker's filter", () => {
     const create = narrowed(presentation(list(people).listMethods, 'CreateCrewUser'), 'roles');
     const invite = narrowed(presentation(list(people).listMethods, 'InviteCrewUser'), 'roles');
     const give = narrowed(presentation(list(people).rowMethods, 'AssignCrewRole'), 'role');
-    for (const where of [create, give]) {
-      // One sector's roles where a sector is chosen; else the whole application's, or every
-      // sector's, as "In every sector" says.
+    for (const [where, method] of [
+      [create, 'CreateCrewUser'],
+      [give, 'AssignCrewRole'],
+    ] as const) {
+      // The roles the dialog's own method takes from the caller: one sector's where a
+      // sector is chosen; else the whole application's, or every sector's, as "In every
+      // sector" says.
       expect(where({ domain: 'a1111111-1111-4111-8111-111111111111', everyDomain: false })).toBe(
-        'domain:eq:a1111111-1111-4111-8111-111111111111',
+        `method:eq:${method},domain:eq:a1111111-1111-4111-8111-111111111111`,
       );
-      expect(where({ domain: '', everyDomain: false })).toBe('everyDomain:eq:false');
-      expect(where({ domain: '', everyDomain: '' })).toBe('everyDomain:eq:false');
-      expect(where({ domain: '', everyDomain: true })).toBe('everyDomain:eq:true');
+      expect(where({ domain: '', everyDomain: false })).toBe(`method:eq:${method},everyDomain:eq:false`);
+      expect(where({ domain: '', everyDomain: '' })).toBe(`method:eq:${method},everyDomain:eq:false`);
+      expect(where({ domain: '', everyDomain: true })).toBe(`method:eq:${method},everyDomain:eq:true`);
     }
     // An invitation's dialog asks no "In every sector": until a sector is chosen it offers
     // the whole application's roles alone, so no role is given in every sector unasked.
-    expect(invite({ email: 'pat@lakeside.example', domain: '' })).toBe('everyDomain:eq:false');
-    expect(invite({ domain: 'anvil, east' })).toBe('domain:eq:"anvil, east"');
+    expect(invite({ email: 'pat@lakeside.example', domain: '' })).toBe('method:eq:InviteCrewUser,everyDomain:eq:false');
+    expect(invite({ domain: 'anvil, east' })).toBe('method:eq:InviteCrewUser,domain:eq:"anvil, east"');
+  });
+
+  it('asks a list that carries no method field for none, and names no place where the application has no tenants', () => {
+    // A list that names no method lists the same roles whichever dialog asks: the place alone is named.
+    const plain = (resource: Resource): ResourceMeta =>
+      resource === 'CrewGivableRoles' ? fields('name', 'description', 'domain', 'everyDomain') : resourceMeta(resource);
+    const [unnamed] = identityPages({ ...descriptor }, plain, { auth: 'Crew', scope: 'global' });
+    expect(
+      narrowed(presentation(list(unnamed).listMethods, 'CreateCrewUser'), 'roles')({ domain: '', everyDomain: true }),
+    ).toBe('everyDomain:eq:true');
+    // A side whose description names no list of the roles to give is asked the same way.
+    const [wholeApplication, tenant] = crew.sides;
+    const lists = { ...wholeApplication.lists, rolesToGive: undefined };
+    const unlisted = { ...descriptor, identity: [{ ...crew, sides: [{ ...wholeApplication, lists }, tenant] }] };
+    const [without] = identityPages(unlisted as ApiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+    expect(
+      narrowed(presentation(list(without).rowMethods, 'AssignCrewRole'), 'role')({ domain: '', everyDomain: false }),
+    ).toBe('everyDomain:eq:false');
+    // Without tenants every role is held for the whole application: the method alone is named.
+    const office: IdentityDescriptor = {
+      auth: 'Office',
+      label: 'Office',
+      sides: [
+        {
+          scope: 'global',
+          lists: { users: 'CrewSessionUsers', roles: 'CrewUserRoles', rolesToGive: 'CrewSectorRoles' },
+          methods: { create: 'CreateOfficeUser', invite: 'InviteOfficeUser', assignRole: 'AssignOfficeRole' },
+        },
+      ],
+    };
+    const [solo] = identityPages({ ...descriptor, identity: [office] } as ApiDescriptor, resourceMeta, {
+      auth: 'Office',
+      scope: 'global',
+    });
+    expect(narrowed(presentation(list(solo).listMethods, 'CreateOfficeUser'), 'roles')({})).toBe(
+      'method:eq:CreateOfficeUser',
+    );
+    expect(narrowed(presentation(list(solo).listMethods, 'InviteOfficeUser'), 'roles')({})).toBe(
+      'method:eq:InviteOfficeUser',
+    );
+    expect(narrowed(presentation(list(solo).rowMethods, 'AssignOfficeRole'), 'role')({})).toBe(
+      'method:eq:AssignOfficeRole',
+    );
   });
 
   it("draws a person's row page from the account's fields, with the roles, the identities and the sessions under it", () => {
@@ -751,8 +804,25 @@ describe("identityPages, a tenant's side", () => {
     const withdraw = presentation(list(invitations).rowMethods, 'WithdrawCrewSectorInvitation');
     expect([withdraw.when?.({ pending: true }), withdraw.when?.({ pending: false })]).toEqual([true, false]);
     expect(methodsOf(list(invitations).listMethods)).toEqual([['InviteCrewSectorUser', 'Invite']]);
-    // A tenant's dialogs pick from the tenant's own roles: nothing narrows them.
-    expect(presentation(list(invitations).listMethods, 'InviteCrewSectorUser').narrows).toBeUndefined();
+  });
+
+  it("offers each of a tenant's dialogs the roles its own method could give: the picker names the method and no place", () => {
+    const asks: [MethodPresentation, string][] = [
+      [presentation(list(people).listMethods, 'CreateCrewSectorUser'), 'roles'],
+      [presentation(list(people).listMethods, 'InviteCrewSectorUser'), 'roles'],
+      [presentation(list(invitations).listMethods, 'InviteCrewSectorUser'), 'roles'],
+      [presentation(list(people).rowMethods, 'AssignCrewSectorRole'), 'role'],
+    ];
+    for (const [presented, field] of asks) {
+      expect(narrowed(presented, field)({ domain: 'a1111111-1111-4111-8111-111111111111' })).toBe(
+        `method:eq:${presented.method}`,
+      );
+    }
+    // A tenant's list that names no method is every role of the tenant: nothing narrows it.
+    const plain = (resource: Resource): ResourceMeta =>
+      resource === 'CrewSectorRoles' ? fields('name', 'description') : resourceMeta(resource);
+    const [unnamed] = identityPages({ ...descriptor }, plain, { auth: 'Crew', scope: 'domain' });
+    expect(presentation(list(unnamed).rowMethods, 'AssignCrewSectorRole').narrows).toBeUndefined();
   });
 });
 
@@ -1192,10 +1262,20 @@ describe('identityPages, an Auth that keeps groups', () => {
       ['GiveCrewGroupRole', 'Give a role'],
       ['DeleteCrewGroup', 'Delete'],
     ]);
-    // A group is given a role where it is to be held, picked from the roles that exist there.
-    expect(
-      presentation(groups.rowMethods, 'GiveCrewGroupRole').narrows?.['role']?.({ domain: '', everyDomain: true }),
-    ).toBe('everyDomain:eq:true');
+    // A group is given a role where it is to be held, picked from the roles the method
+    // could give there; the same dialog opened from the group's own page asks the same.
+    const [, held] = children(global[1]);
+    for (const give of [
+      presentation(groups.rowMethods, 'GiveCrewGroupRole'),
+      presentation(held.listMethods, 'GiveCrewGroupRole'),
+    ]) {
+      expect(narrowed(give, 'role')({ domain: '', everyDomain: true })).toBe(
+        'method:eq:GiveCrewGroupRole,everyDomain:eq:true',
+      );
+      expect(narrowed(give, 'role')({ domain: 's-1', everyDomain: false })).toBe(
+        'method:eq:GiveCrewGroupRole,domain:eq:s-1',
+      );
+    }
     expect(methodsOf(groups.listMethods)).toEqual([['CreateCrewGroup', 'Add a group']]);
     expect(presentation(groups.listMethods, 'CreateCrewGroup').labels).toEqual({
       domain: 'Sector',
@@ -1285,6 +1365,13 @@ describe('identityPages, an Auth that keeps groups', () => {
     ]);
     const [people, roles] = children(domain[1]);
     expect([people.primaryResource, roles.primaryResource]).toEqual(['CrewSectorGroupUsers', 'CrewSectorGroupRoles']);
+    // A tenant's group is given a role of the tenant, among the ones the method could give.
+    for (const give of [
+      presentation(groups.rowMethods, 'GiveCrewSectorGroupRole'),
+      presentation(roles.listMethods, 'GiveCrewSectorGroupRole'),
+    ]) {
+      expect(narrowed(give, 'role')({})).toBe('method:eq:GiveCrewSectorGroupRole');
+    }
     expect(columns(roles)).toEqual([
       ['role', 'Role'],
       ['createdAt', 'Given'],

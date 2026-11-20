@@ -300,6 +300,7 @@ export interface TenantDirectories {
 export interface StaffGivableRoles {
   name: string;
   description?: string;
+  method?: string;
   domain?: string;
   everyDomain?: boolean;
 }
@@ -345,6 +346,7 @@ export interface StaffTenantDirectoryRoles {
 export interface StaffTenantRoles {
   name: string;
   description?: string;
+  method?: string;
 }
 
 export interface StaffTenantSignInWays {
@@ -824,10 +826,11 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'domain', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'everyDomain', displayType: 'boolean', required: false, isIndex: false, filterable: 'always' },
     ],
-    searchFields: ['domain'],
+    searchFields: ['method', 'domain'],
   },
   [Resources.StaffInvitedTenants]: {
     route: 'staff-invited-tenants',
@@ -905,7 +908,9 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
     ],
+    searchFields: ['method'],
   },
   [Resources.StaffTenantSignInWays]: {
     route: 'tenants/{tenantID}/staff-tenant-sign-in-ways',

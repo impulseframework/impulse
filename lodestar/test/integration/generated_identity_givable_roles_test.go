@@ -3,8 +3,9 @@ package integration
 
 // generated_identity_givable_roles_test: the roles the whole application's management
 // picks a role from (CrewGivableRoles), the list the role field of Create, Invite,
-// Assign and the group's Give a role names, so the Accounts page brings a person in with
-// a role chosen and not typed.
+// Assign and the group's Give a role names, each for itself, so the Accounts page brings
+// a person in with a role chosen and not typed, and each dialog offers what its own
+// method takes.
 
 import (
 	"context"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/impulseframework/impulse"
@@ -25,18 +27,23 @@ import (
 // TestGeneratedIdentityGivableRoles holds the list the whole application's dialogs pick
 // a role from. The world runs over the crew's role file with limits put on the
 // Headquarters role's grants of the four methods that give one: none of them gives
-// Adjutant, and only the invitation gives Surveyor. A person who holds Headquarters and
-// is no super administrator is then offered, for the whole application, every role but
-// Adjutant and the Super Administrator role: Surveyor stays, since one method takes it.
+// Adjutant, and only the invitation gives Surveyor. The list is asked for one method at
+// a time, by a filter that names it. A person who holds Headquarters and is no super
+// administrator is then offered, by each method and for the whole application, every
+// role but Adjutant and the Super Administrator role, and Surveyor by the invitation
+// alone: it is in the invitation's list and in no other method's. A request that names
+// no method is listed no role, and one that names a method any other way, or a method
+// that picks no role from the list, is refused with the names to send.
 // The list says where each role is held: the whole application's roles and every
 // sector's when no sector is named, one sector's when one is, each row with its place;
 // a filter on everyDomain narrows it as the dialog does. A super administrator is
 // offered the Super Administrator role, a person with no grant on the list is refused,
 // and the methods hold what the list said: the invitation's check passes Surveyor and
 // refuses Adjutant, and Assign, which gives a role the limits leave alone, refuses
-// both. This suite serves no session manager, so the invitation the check let through
-// fails where its link would be made (500): the status that tells the check was passed,
-// since a refused check answers 403 and never reaches that step.
+// both. This suite serves no session manager, and its stand-in for one keeps each
+// invitation it is handed before it fails (preparedInvitations), so the invitation the
+// check let through is told from any other failure: it answers 500 and the stand-in
+// was handed it, with the role, where a refused check answers 403 and hands it nothing.
 //
 // The cases share the world and run in parallel. The one write among them gives the
 // Headquarters person a role that carries no grant to give any, so it changes nothing
@@ -46,12 +53,14 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	ctx := t.Context()
 
 	const notGiven, invitedOnly = "Adjutant", "Surveyor"
+	// The four methods whose role field picks from the list, as a request names them.
+	const assign, create, invite, giveGroup = "AssignCrewRole", "CreateCrewUser", "InviteCrewUser", "GiveCrewGroupRole"
 	limit := fmt.Sprintf("new.role != '%s' AND new.role != '%s'", notGiven, invitedOnly)
 	roles := crew.Roles()
-	for _, method := range []string{"AssignCrewRole", "CreateCrewUser", "GiveCrewGroupRole"} {
+	for _, method := range []string{assign, create, giveGroup} {
 		roles = withCondition(t, roles, "Headquarters", "Execute", method, limit)
 	}
-	roles = withCondition(t, roles, "Headquarters", "Execute", "InviteCrewUser", fmt.Sprintf("new.role != '%s'", notGiven))
+	roles = withCondition(t, roles, "Headquarters", "Execute", invite, fmt.Sprintf("new.role != '%s'", notGiven))
 	w := buildIdentityWorldOver(t, true, roles)
 
 	// A person who holds Headquarters, and the Super Administrator role nowhere.
@@ -71,13 +80,15 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 		domain      string
 		everyDomain bool
 	}
-	list := func(t *testing.T, user accesstypes.User, filter string) map[place][]string {
+	// list is the list as one method's dialog asks it: the method named, then what the
+	// case filters by.
+	list := func(t *testing.T, user accesstypes.User, method, filter string) map[place][]string {
 		t.Helper()
-		target := rolesPath
+		by := "method:eq:" + method
 		if filter != "" {
-			target += "&filter=" + url.QueryEscape(filter)
+			by += "," + filter
 		}
-		status, body := doRequestAs(t, w.h, user, http.MethodGet, target, "")
+		status, body := doRequestAs(t, w.h, user, http.MethodGet, rolesPath+"&filter="+url.QueryEscape(by), "")
 		assertStatus(t, status, http.StatusOK, body)
 		held := map[place][]string{}
 		for _, row := range decodeRows(t, body) {
@@ -87,6 +98,9 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 			if description, _ := row["description"].(string); description == "" {
 				t.Errorf("%s is listed with no description: %v", name, row)
 			}
+			if listedFor, _ := row["method"].(string); listedFor != method {
+				t.Errorf("%s is listed for the method %q, want %s, the one the request names: %v", name, listedFor, method, row)
+			}
 			at := place{domain: domain, everyDomain: every}
 			held[at] = append(held[at], name)
 		}
@@ -95,15 +109,15 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	}
 	whole, everySector, inAnvil := place{}, place{everyDomain: true}, place{domain: anvil}
 
-	t.Run("for the whole application: every role the grants let the caller give, by any one of the methods", func(t *testing.T) {
+	t.Run("for the whole application: every role the method's grant lets the caller give", func(t *testing.T) {
 		t.Parallel()
-		held := list(t, desk, "")
-		for _, role := range []string{"Headquarters", "CrewCommon", invitedOnly} {
+		held := list(t, desk, assign, "")
+		for _, role := range []string{"Headquarters", "CrewCommon"} {
 			if !slices.Contains(held[whole], role) {
 				t.Errorf("the whole application's roles offered = %v, want %s among them", held[whole], role)
 			}
 		}
-		for _, role := range []string{notGiven, string(accesstypes.SuperAdministrator), "SectorMarshal"} {
+		for _, role := range []string{notGiven, invitedOnly, string(accesstypes.SuperAdministrator), "SectorMarshal"} {
 			if slices.Contains(held[whole], role) {
 				t.Errorf("the whole application's roles offered = %v, want no %s", held[whole], role)
 			}
@@ -123,9 +137,78 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 		}
 	})
 
+	// The role one method alone takes is offered by that method's dialog and by no
+	// other's: each list is its own method's grant, and never the widest of the four.
+	t.Run("a role the invitation alone gives is in the invitation's list and in no other method's", func(t *testing.T) {
+		t.Parallel()
+		invited := list(t, desk, invite, "")
+		for _, role := range []string{invitedOnly, "Headquarters", "CrewCommon"} {
+			if !slices.Contains(invited[whole], role) {
+				t.Errorf("the roles the invitation offers for the whole application = %v, want %s among them", invited[whole], role)
+			}
+		}
+		if slices.Contains(invited[whole], notGiven) {
+			t.Errorf("the roles the invitation offers for the whole application = %v, want no %s: its grant refuses the role", invited[whole], notGiven)
+		}
+		for _, method := range []string{assign, create, giveGroup} {
+			held := list(t, desk, method, "")
+			if slices.Contains(held[whole], invitedOnly) {
+				t.Errorf("%s offers %v for the whole application, want no %s: its own grant refuses the role, whatever the invitation's takes", method, held[whole], invitedOnly)
+			}
+			if !slices.Contains(held[whole], "Headquarters") {
+				t.Errorf("%s offers %v for the whole application, want Headquarters among them", method, held[whole])
+			}
+		}
+	})
+
+	t.Run("a request that names no method is listed no role", func(t *testing.T) {
+		t.Parallel()
+		for _, tt := range []struct {
+			user   accesstypes.User
+			filter string
+		}{
+			{user: desk},
+			{user: desk, filter: "domain:eq:" + anvil},
+			{user: desk, filter: "everyDomain:eq:false"},
+			// A filter that joins its conditions by OR names no method the list can read
+			// apart from the rest.
+			{user: desk, filter: "method:eq:" + assign + "|method:eq:" + invite},
+			{user: "governor"},
+		} {
+			target := rolesPath
+			if tt.filter != "" {
+				target += "&filter=" + url.QueryEscape(tt.filter)
+			}
+			status, body := doRequestAs(t, w.h, tt.user, http.MethodGet, target, "")
+			assertStatus(t, status, http.StatusOK, body)
+			if rows := decodeRows(t, body); len(rows) != 0 {
+				t.Errorf("%s, filter %q: listed %d roles with no method named, want none: %s", tt.user, tt.filter, len(rows), body)
+			}
+		}
+	})
+
+	t.Run("a filter that names a method any other way is refused, with the names to send", func(t *testing.T) {
+		t.Parallel()
+		const methods = "AssignCrewRole, CreateCrewUser, InviteCrewUser, GiveCrewGroupRole"
+		for _, filter := range []string{
+			// A method that picks no role from the list: one that gives none, and a
+			// sector's own, whose list is the sector's.
+			"method:eq:SetCrewUserName",
+			"method:eq:AssignCrewSectorRole",
+			"method:in:(" + assign + "," + invite + ")",
+			"method:ne:" + assign,
+			"method:eq:" + assign + ",method:eq:" + invite,
+		} {
+			status, body := doRequestAs(t, w.h, desk, http.MethodGet, rolesPath+"&filter="+url.QueryEscape(filter), "")
+			if status != http.StatusBadRequest || !strings.Contains(string(body), methods) || !strings.Contains(string(body), "method:eq:") {
+				t.Errorf("filter %q: status %d, want 400 naming the methods (%s) and the filter to send: %s", filter, status, methods, body)
+			}
+		}
+	})
+
 	t.Run("in one sector: the sector's roles, each naming the sector", func(t *testing.T) {
 		t.Parallel()
-		held := list(t, desk, "domain:eq:"+anvil)
+		held := list(t, desk, assign, "domain:eq:"+anvil)
 		if len(held) != 1 || len(held[inAnvil]) == 0 {
 			t.Fatalf("the roles listed are held at %v, want Anvil's alone", held)
 		}
@@ -144,17 +227,17 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 
 	t.Run("a filter on everyDomain narrows the list to one of the two places, as the dialog asks it", func(t *testing.T) {
 		t.Parallel()
-		if held := list(t, desk, "everyDomain:eq:false"); len(held) != 1 || !slices.Contains(held[whole], "Headquarters") {
+		if held := list(t, desk, assign, "everyDomain:eq:false"); len(held) != 1 || !slices.Contains(held[whole], "Headquarters") {
 			t.Errorf("everyDomain false lists %v, want the whole application's roles alone", held)
 		}
-		if held := list(t, desk, "everyDomain:eq:true"); len(held) != 1 || !slices.Contains(held[everySector], "Cadet") {
+		if held := list(t, desk, assign, "everyDomain:eq:true"); len(held) != 1 || !slices.Contains(held[everySector], "Cadet") {
 			t.Errorf("everyDomain true lists %v, want every sector's roles alone", held)
 		}
 	})
 
 	t.Run("a super administrator is offered the Super Administrator role, for the whole application alone", func(t *testing.T) {
 		t.Parallel()
-		held := list(t, "governor", "")
+		held := list(t, "governor", assign, "")
 		if !slices.Contains(held[whole], string(accesstypes.SuperAdministrator)) {
 			t.Errorf("the governor's whole-application roles = %v, want the Super Administrator role among them", held[whole])
 		}
@@ -167,18 +250,25 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 		t.Parallel()
 		status, body := doRequestAs(t, w.h, "cadet", http.MethodGet, rolesPath, "")
 		assertStatus(t, status, http.StatusForbidden, body)
+		status, body = doRequestAs(t, w.h, "cadet", http.MethodGet, rolesPath+"&filter="+url.QueryEscape("method:eq:"+assign), "")
+		assertStatus(t, status, http.StatusForbidden, body)
 	})
 
-	t.Run("a filter that names sectors any other way is refused, saying what to send", func(t *testing.T) {
+	t.Run("a filter that names sectors any other way is refused, saying what to send, whether a method is named or not", func(t *testing.T) {
 		t.Parallel()
-		status, body := doRequestAs(t, w.h, desk, http.MethodGet, rolesPath+"&filter="+url.QueryEscape("domain:ne:"+anvil), "")
-		assertStatus(t, status, http.StatusBadRequest, body)
+		for _, filter := range []string{"domain:ne:" + anvil, "method:eq:" + assign + ",domain:ne:" + anvil} {
+			status, body := doRequestAs(t, w.h, desk, http.MethodGet, rolesPath+"&filter="+url.QueryEscape(filter), "")
+			assertStatus(t, status, http.StatusBadRequest, body)
+		}
 	})
 
 	t.Run("a role the list offers by the invitation alone passes the invitation's check and no other method's, and the one it left out passes none", func(t *testing.T) {
 		t.Parallel()
-		invitation := func(role string) string {
-			return fmt.Sprintf(`{"email":"surveyor-%s@lakeside.example","roles":[%q]}`, identitySuffix(), role)
+		// Each invitation goes to an address of its own, which the stand-in for the
+		// session manager keeps it under.
+		passed, refused := "surveyor-"+identitySuffix()+"@lakeside.example", "adjutant-"+identitySuffix()+"@lakeside.example"
+		invitation := func(address, role string) string {
+			return fmt.Sprintf(`{"email":%q,"roles":[%q]}`, address, role)
 		}
 		assignment := func(role string) string {
 			return fmt.Sprintf(`{"userId":%q,"role":%q}`, deskID.String(), role)
@@ -188,18 +278,26 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 			path string
 			body string
 			want int
+			// invited is the address an invitation goes to, and prepared the roles the
+			// stand-in for the session manager is handed for it: none where the request
+			// is refused before the link is made.
+			invited  string
+			prepared []string
 		}{
 			{
-				name: "the invitation's check passes the role only it gives, and the suite has no session manager to make the link",
-				path: "/invite-crew-user",
-				body: invitation(invitedOnly),
-				want: http.StatusInternalServerError,
+				name:     "the invitation's check passes the role only it gives: the request reaches the step that makes the link, with the role, and fails there alone, in the suite's stand-in for the session manager",
+				path:     "/invite-crew-user",
+				body:     invitation(passed, invitedOnly),
+				want:     http.StatusInternalServerError,
+				invited:  passed,
+				prepared: []string{invitedOnly},
 			},
 			{
-				name: "the invitation's check refuses the role no method gives",
-				path: "/invite-crew-user",
-				body: invitation(notGiven),
-				want: http.StatusForbidden,
+				name:    "the invitation's check refuses the role no method gives, before any link is made",
+				path:    "/invite-crew-user",
+				body:    invitation(refused, notGiven),
+				want:    http.StatusForbidden,
+				invited: refused,
 			},
 			{
 				name: "Assign gives a role the limits leave alone",
@@ -224,6 +322,19 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 			status, body := doRequestAs(t, w.h, desk, http.MethodPost, consoleAPI+tt.path, tt.body)
 			if status != tt.want {
 				t.Errorf("%s: status %d, want %d: %s", tt.name, status, tt.want, body)
+			}
+			if tt.invited == "" {
+				continue
+			}
+			var prepared [][]string
+			for _, req := range preparedInvitations.take(tt.invited) {
+				prepared = append(prepared, req.RoleNames)
+			}
+			switch {
+			case tt.prepared == nil && len(prepared) != 0:
+				t.Errorf("%s: the session manager's stand-in was handed the invitation with %v, want it never reached", tt.name, prepared)
+			case tt.prepared != nil && (len(prepared) != 1 || !slices.Equal(prepared[0], tt.prepared)):
+				t.Errorf("%s: the session manager's stand-in was handed %v for %s, want one invitation with %v: a 500 that never reached it is another failure", tt.name, prepared, tt.invited, tt.prepared)
 			}
 		}
 	})

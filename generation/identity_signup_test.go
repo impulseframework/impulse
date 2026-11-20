@@ -212,7 +212,7 @@ func Test_prepareIdentity_signUpWithTenants(t *testing.T) {
 		t.Error("the crew's package was written no grants.go, want one where a tenant's role is picked from a list: the list asks which roles the caller could give")
 	}
 	assertFileContains(t, "crewidentity/client.go", []string{"identity.WithRoleGrants(grants{})"}, nil)
-	assertFileContains(t, "crewidentity/grants.go", []string{"{method: AssignCrewShipRole{}.Method(), request: &AssignCrewShipRole{Role: string(role)}},"}, []string{"GroupRole"})
+	assertFileContains(t, "crewidentity/grants.go", []string{"case AssignCrewShipRole{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &AssignCrewShipRole{Role: string(role)})"}, []string{"GroupRole"})
 }
 
 // Test_prepareIdentity_ownResetWithoutTheSignUpChoice pins an auth that declares the

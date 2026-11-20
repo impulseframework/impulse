@@ -134,12 +134,14 @@ export namespace MembersGivableRoles {
     description: 'description' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    method: 'method' as FieldName,
     name: 'name' as FieldName,
   };
   export const resourceName = {
     description: 'MembersGivableRoles.description' as Resource,
     domain: 'MembersGivableRoles.domain' as Resource,
     everyDomain: 'MembersGivableRoles.everyDomain' as Resource,
+    method: 'MembersGivableRoles.method' as Resource,
     name: 'MembersGivableRoles.name' as Resource,
   };
 }
@@ -584,10 +586,12 @@ export namespace MembersTenantInvitations {
 export namespace MembersTenantRoles {
   export const fieldName = {
     description: 'description' as FieldName,
+    method: 'method' as FieldName,
     name: 'name' as FieldName,
   };
   export const resourceName = {
     description: 'MembersTenantRoles.description' as Resource,
+    method: 'MembersTenantRoles.method' as Resource,
     name: 'MembersTenantRoles.name' as Resource,
   };
 }

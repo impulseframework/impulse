@@ -229,10 +229,13 @@ class SideBuilder {
               label: this.tenant ? 'Add a person' : 'Add an account',
               icon: 'person_add',
               labels: this.where(),
-              ...this.rolesWhere('roles'),
+              ...this.rolesWhere('roles', methods.create),
             },
           ],
-          [methods.invite, { label: 'Invite', icon: 'send', labels: this.where(), ...this.rolesWhere('roles') }],
+          [
+            methods.invite,
+            { label: 'Invite', icon: 'send', labels: this.where(), ...this.rolesWhere('roles', methods.invite) },
+          ],
         ]),
         elements: [
           section({
@@ -298,7 +301,7 @@ class SideBuilder {
               icon: 'badge',
               labels: { ...this.where(), ...periodWords },
               throughDay: periodEnds,
-              ...this.rolesWhere('role'),
+              ...this.rolesWhere('role', methods.giveGroupRole),
             },
           ],
           [
@@ -382,7 +385,11 @@ class SideBuilder {
             },
           ],
         ]),
-        listMethods: this.tenant ? this.present([[methods.invite, { label: 'Invite', icon: 'send' }]]) : [],
+        listMethods: this.tenant
+          ? this.present([
+              [methods.invite, { label: 'Invite', icon: 'send', ...this.rolesWhere('roles', methods.invite) }],
+            ])
+          : [],
         elements: [],
       }),
     });
@@ -849,11 +856,18 @@ class SideBuilder {
     }
     const resource = lists.groupRoles as Resource;
     const lost = 'Everyone in the group loses it, unless they hold it some other way.';
-    // The method runs against the group the list sits under.
+    // The method runs against the group the list sits under, and picks the role as the
+    // same method does from the group's row: among the roles of the place the dialog holds.
     const give = this.present([
       [
         methods.giveGroupRole,
-        { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords }, throughDay: periodEnds },
+        {
+          label: 'Give a role',
+          icon: 'badge',
+          labels: { ...this.where(), ...periodWords },
+          throughDay: periodEnds,
+          ...this.rolesWhere('role', methods.giveGroupRole),
+        },
       ],
     ]);
     if (this.tenant) {
@@ -1029,7 +1043,13 @@ class SideBuilder {
       [
         methods.assignRole,
         this.tenant
-          ? { label: 'Give a role', icon: 'badge', labels: periodWords, throughDay: periodEnds }
+          ? {
+              label: 'Give a role',
+              icon: 'badge',
+              labels: periodWords,
+              throughDay: periodEnds,
+              ...this.rolesWhere('role', methods.assignRole),
+            }
           : // The whole application's method takes the id of the person's account, which the row fills.
             {
               label: 'Give a role',
@@ -1037,7 +1057,7 @@ class SideBuilder {
               fill: (row) => ({ userId: row['id'] }),
               labels: { ...this.where(), ...periodWords },
               throughDay: periodEnds,
-              ...this.rolesWhere('role'),
+              ...this.rolesWhere('role', methods.assignRole),
             },
       ],
       // A person has two names: the one people read, and the username they sign in under.
@@ -1142,20 +1162,33 @@ class SideBuilder {
   }
 
   /**
-   * How the whole application's dialog that gives a role offers the roles: the dialog
-   * asks where the role is to be held first (the tenant, "In every tenant", or neither
-   * for the whole application), and the role field's picker lists the roles that exist
-   * there that the caller could give (the generated list of the roles to give, filtered
-   * by the place). A dialog of the invitation, which names no "every tenant", lists the
-   * roles of the whole application alone until a tenant is chosen (heldWhere). A
-   * tenant's own dialogs pick from that tenant's roles, and an application without
-   * tenants holds every role for the whole application: neither narrows.
+   * How a dialog that gives a role offers the roles: the role field's picker lists the
+   * roles the caller could give with the dialog's own method. The generated list of the
+   * roles to give answers for one method at a time, the one its filter names
+   * (`method:eq:InviteCrewUser`), so each dialog offers what its own request is allowed
+   * and nothing that only another method's is. The whole application's dialog also asks
+   * where the role is to be held first (the tenant, "In every tenant", or neither for
+   * the whole application), and its picker lists the roles that exist there: the filter
+   * names the place beside the method. A dialog of the invitation, which names no "every
+   * tenant", lists the roles of the whole application alone until a tenant is chosen
+   * (heldWhere). A tenant's own dialogs pick from that tenant's roles, and an
+   * application without tenants holds every role for the whole application: neither
+   * names a place. A list that carries no `method` field lists the same roles for every
+   * method (a tenant's roles, where nothing answers what the caller could give), and is
+   * asked for none.
    */
-  private rolesWhere(field: 'roles' | 'role'): Pick<MethodPresentation, 'narrows'> {
-    if (this.tenant || !this.identity.tenant) {
+  private rolesWhere(field: 'roles' | 'role', method: string | undefined): Pick<MethodPresentation, 'narrows'> {
+    const list = this.side.lists.rolesToGive as Resource | undefined;
+    const asked = method !== undefined && list !== undefined && this.has(list, 'method') ? `method:eq:${method}` : '';
+    const placed = !this.tenant && this.identity.tenant !== undefined;
+    if (!asked && !placed) {
       return {};
     }
-    return { narrows: { [field]: heldWhere } };
+    return {
+      narrows: {
+        [field]: (values) => [asked, placed ? heldWhere(values) : ''].filter((part) => part !== '').join(','),
+      },
+    };
   }
 
   /** The presentations of the methods the description names; one it does not name presents nothing. */

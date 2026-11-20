@@ -25,8 +25,11 @@ import (
 
 // The keys of the lists of a side.
 const (
-	identityListUsers          = "users"
-	identityListRoles          = "roles"
+	identityListUsers = "users"
+	identityListRoles = "roles"
+	// The list the side's methods that give a role pick it from (identity_givable.go,
+	// and a tenant's in identity_tenant.go).
+	identityListRolesToGive    = "rolesToGive"
 	identityListIdentities     = "identities"
 	identityListSignInWays     = "signInWays"
 	identityListInvitations    = "invitations"
@@ -78,10 +81,12 @@ type tsAPIIdentitySide struct {
 // application's are the declarations over the auth's tables; a tenant's are the lists
 // the tenant keeps of them (listName).
 func (i *identityInstance) pageLists(tenant bool) []identityPart {
+	data := &identitySourceData{identityInstance: i}
 	if tenant {
 		return []identityPart{
 			{identityListUsers, i.listName(listPeopleSuffix)},
 			{identityListRoles, i.listName(listRolesSuffix)},
+			{identityListRolesToGive, data.TenantRoleChoice()},
 			{identityListIdentities, i.listName(listIdentitiesSuffix)},
 			{identityListSignInWays, i.signInWayName(true)},
 			{identityListInvitations, i.listName(listInvitationsSuffix)},
@@ -91,11 +96,11 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 			{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, true)},
 		}
 	}
-	data := &identitySourceData{identityInstance: i}
 
 	parts := []identityPart{
 		{identityListUsers, data.User()},
 		{identityListRoles, data.Membership()},
+		{identityListRolesToGive, data.GivableRole()},
 		{identityListIdentities, data.Identity()},
 		{identityListSignInWays, i.signInWayName(false)},
 		{identityListInvitations, data.MailLink()},

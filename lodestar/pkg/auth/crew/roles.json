@@ -299,6 +299,7 @@
               "resource": "CrewGivableRoles",
               "fields": [
                 "description",
+                "method",
                 "domain",
                 "everyDomain"
               ]
@@ -1399,6 +1400,9 @@
                 "description"
               ],
               "condition": "name != 'SectorMarshal'"
+            },
+            {
+              "resource": "CrewSectorRoles.method"
             },
             {
               "resource": "CrewSectorDirectoryRoles",

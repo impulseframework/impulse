@@ -14,20 +14,22 @@ import (
 )
 
 // StaffGivableRole is one role a person of the Staff auth may be given by hand from
-// the whole application's management, where it is to be held: the roles that exist
-// there, the role file's and the custom ones, that the caller could give there. The
-// dialogs of the methods that give a role ask where first, then pick the role from this
-// list:
+// the whole application's management with one method, where it is to be held: the
+// roles that exist there, the role file's and the custom ones, that the caller could
+// give there with that method. The dialogs of the methods that give a role ask where
+// first, then pick the role from this list, each for itself:
 //
 //	AssignStaffRole, CreateStaffUser, InviteStaffUser, GiveStaffGroupRole
 //
-// A role file says which roles a person hands out on the grants of those methods, and
-// a condition there reads the role (new.role != 'Administrator'): the list leaves out a
-// role every one of them refuses the caller (identity.Manager.GivableRoles), so the
-// limit is said once and a page offers what the caller may do. One list serves all of
-// them, so it holds a role that one of them takes and another refuses, which the method
-// then says. The Super Administrator role is listed for the whole application alone,
-// and to a caller who holds it.
+// A role file says which roles a person hands out on the grant of each of those
+// methods, and a condition there reads the role (new.role != 'Administrator'). The
+// list is asked for one method at a time, by a filter that names it
+// (method:eq:AssignStaffRole), and leaves out a role that method refuses
+// the caller (identity.Manager.GivableRoles): the limit is said once, on the method's
+// grant, and a dialog offers what its own method takes. A role one method takes and
+// another refuses is in the first one's list alone, and a request that names no method
+// is listed no role. The Super Administrator role is listed for the whole application
+// alone, and to a caller who holds it.
 //
 // The list names the place a role is held in. Filtered by one tenant (domain:eq:<id>)
 // it lists that tenant's roles; otherwise it lists the roles held for the whole
@@ -38,7 +40,11 @@ import (
 // and only a custom role is a row of a table, so the engine is asked and no query
 // selects the list. The role file grants it like any resource, and a condition on the
 // role's name there (name != 'Administrator') narrows it further: the library judges
-// each role the list answers.
+// each role the list answers. A caller filters by the fields they may read, and a
+// computed list filters only by a field granted with no condition: the role is granted
+// method, domain and everyDomain among the fields of a grant with no condition, or, beside a
+// grant that carries one, each as a grant of the field alone
+// (StaffGivableRoles.method).
 //
 // @computed
 // @suppress(readHandler)
@@ -49,6 +55,9 @@ type StaffGivableRole struct {
 	// @attribute(name)
 	Name        string `spanner:"Name"`
 	Description string `spanner:"Description"`
+	// Method is the method the role is listed for, the one the request's filter
+	// names: the caller could give the role with it.
+	Method string `spanner:"Method" allow_filter:"true"`
 	// Domain is the one Tenant the role is held in, "" for a role held for
 	// the whole application or in every tenant.
 	Domain string `spanner:"Domain" allow_filter:"true"`
@@ -61,21 +70,36 @@ func (StaffGivableRole) Resource() accesstypes.Resource {
 	return "StaffGivableRoles"
 }
 
-// ListStaffGivableRole yields the roles the caller could give where the request's
-// filter says they are to be held; the generated handler applies the rest of the
-// filter, the sort and the page over them. The rule is handed the database and not a
+// ListStaffGivableRole yields the roles the caller could give with the method the
+// request's filter names, where the filter says they are to be held, and none for a
+// request that names no method; the generated handler applies the rest of the filter,
+// the sort and the page over them. The rule is handed the database and not a
 // transaction: it reads the roles from the permission engine outside any, and asks the
-// grants of the methods that give a role in one of its own.
+// grant of the method in one of its own.
 func ListStaffGivableRole(ctx context.Context, qSet *resource.QuerySet[StaffGivableRole], db resource.Client, client *Client) iter.Seq2[*StaffGivableRole, error] {
 	return func(yield func(*StaffGivableRole, error) bool) {
+		method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{
+			AssignStaffRole{}.Method(),
+			CreateStaffUser{}.Method(),
+			InviteStaffUser{}.Method(),
+			GiveStaffGroupRole{}.Method(),
+		}, qSet.Filter().Take("Method"))
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.GivingMethod()"))
+
+			return
+		}
 		places, err := identity.GivingPlaces(qSet.Resource(), "tenant", qSet.Filter().Take("Domain"))
 		if err != nil {
 			yield(nil, errors.Wrap(err, "identity.GivingPlaces()"))
 
 			return
 		}
+		if !named {
+			return
+		}
 		for _, place := range places {
-			roles, err := client.manager.GivableRoles(ctx, db, place)
+			roles, err := client.manager.GivableRoles(ctx, db, method, place)
 			if err != nil {
 				yield(nil, errors.Wrap(err, "identity.Manager.GivableRoles()"))
 
@@ -83,7 +107,7 @@ func ListStaffGivableRole(ctx context.Context, qSet *resource.QuerySet[StaffGiva
 			}
 			domain, _ := place.Domain()
 			for _, role := range roles {
-				row := &StaffGivableRole{Name: string(role.Name), Description: role.Description}
+				row := &StaffGivableRole{Name: string(role.Name), Description: role.Description, Method: string(method)}
 				row.Domain, row.EveryDomain = string(domain), place.IsEveryDomain()
 				if !yield(row, nil) {
 					return

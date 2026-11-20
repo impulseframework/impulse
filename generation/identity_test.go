@@ -1046,9 +1046,14 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 			generationHeader, "// @computed\n// @permissionScope(domain)\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)", "type CrewShipRole struct {",
 			"// @primarykey\n\t// @attribute(name)\n\tName ", "Description string", "return \"CrewShipRoles\"",
 			"func ListCrewShipRole(ctx context.Context, qSet *resource.QuerySet[CrewShipRole], _ resource.Client, client *Client) iter.Seq2[*CrewShipRole, error] {",
-			"domain, ok := qSet.Scope().Domain()", "client.manager.RolesToGive(ctx, domain)",
-			// The list offers the roles the caller could give, and says by which methods.
-			"role field picks from this list:\n//\n//\tAssignCrewShipRole, CreateCrewShipUser, InviteCrewShipUser\n//\n// A condition there reads the role",
+			"domain, ok := qSet.Scope().Domain()", "client.manager.RolesToGive(ctx, method, domain)",
+			// The list offers the roles the caller could give with one method, the one the
+			// request's filter names among those that pick from it, and none unnamed.
+			"role field picks from this list, each for itself:\n//\n//\tAssignCrewShipRole, CreateCrewShipUser, InviteCrewShipUser\n//\n// A condition there reads the role",
+			"Method string `spanner:\"Method\" allow_filter:\"true\"`\n}",
+			"method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{\n\t\t\tAssignCrewShipRole{}.Method(),\n\t\t\tCreateCrewShipUser{}.Method(),\n\t\t\tInviteCrewShipUser{}.Method(),\n\t\t}, qSet.Filter().Take(\"Method\"))",
+			"\t\tif !named {\n\t\t\treturn\n\t\t}\n\t\troles, err := client.manager.RolesToGive(ctx, method, domain)",
+			"&CrewShipRole{Name: string(role.Name), Description: role.Description, Method: string(method)}",
 		},
 		"crewhandlers/handlers.go":    {"func (h *Handlers) RPCClient() *crewidentity.Client {", "func (h *Handlers) ComputedClient() *crewidentity.Client {\n\treturn h.CrewIdentity()\n}"},
 		"membershandlers/handlers.go": {"func (h *Handlers) ComputedClient() *membersidentity.Client {"},

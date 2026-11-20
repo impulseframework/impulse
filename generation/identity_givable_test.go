@@ -7,7 +7,8 @@ import (
 
 // Test_prepareIdentity_givableRoles pins the list the whole application's role fields
 // pick from, in an application without tenants: the roles to give, named by the role
-// alone, listed for the whole application by the manager (GivableRoles), and named by
+// alone, listed for the whole application by the manager (GivableRoles) for the one
+// method the request's filter names and for no request that names none, and named by
 // the role field of every method that gives one by hand, after where the role is held.
 // An auth whose directory writes the roles gives none by hand, and is written no list.
 func Test_prepareIdentity_givableRoles(t *testing.T) {
@@ -23,15 +24,27 @@ func Test_prepareIdentity_givableRoles(t *testing.T) {
 		[]string{
 			generationHeader,
 			"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\ntype CrewGivableRole struct {",
-			"// @primarykey\n\t// @attribute(name)\n\tName        string `spanner:\"Name\"`\n\tDescription string `spanner:\"Description\"`\n}",
+			"// @primarykey\n\t// @attribute(name)\n\tName        string `spanner:\"Name\"`\n\tDescription string `spanner:\"Description\"`\n",
+			// The method a role is listed for is a field a request filters by, and no key:
+			// a picker's value is the role's name still.
+			"\tMethod string `spanner:\"Method\" allow_filter:\"true\"`\n}",
 			`return "CrewGivableRoles"`,
 			"func ListCrewGivableRole(ctx context.Context, qSet *resource.QuerySet[CrewGivableRole], db resource.Client, client *Client) iter.Seq2[*CrewGivableRole, error] {",
 			`places, err := identity.GivingPlaces(qSet.Resource(), "", nil)`,
-			"roles, err := client.manager.GivableRoles(ctx, db, place)",
+			// The list is one method's: the filter names it, among the methods whose role
+			// field picks from the list, and the condition is taken out of what the
+			// generated handler applies over the rows.
+			"method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{\n\t\t\tAssignCrewRole{}.Method(),\n\t\t\tCreateCrewUser{}.Method(),\n\t\t\t" +
+				"InviteCrewUser{}.Method(),\n\t\t\tGiveCrewGroupRole{}.Method(),\n\t\t}, qSet.Filter().Take(\"Method\"))",
+			// A request that names no method is listed no role, after its places were read:
+			// a filter that is wrong is refused whether a method is named or not.
+			"\t\tif !named {\n\t\t\treturn\n\t\t}\n\t\tfor _, place := range places {\n\t\t\troles, err := client.manager.GivableRoles(ctx, db, method, place)",
+			"row := &CrewGivableRole{Name: string(role.Name), Description: role.Description, Method: string(method)}",
 			"//\tAssignCrewRole, CreateCrewUser, InviteCrewUser, GiveCrewGroupRole\n",
+			"(method:eq:AssignCrewRole)",
 		},
 		// Without tenants the list names no place.
-		[]string{"Domain", "EveryDomain", "Take("},
+		[]string{"Domain", "EveryDomain", "Take(\"Domain\")"},
 	)
 	for _, file := range []string{"crewidentity/assign_crew_role.go", "crewidentity/create_crew_user.go", "crewidentity/invite_crew_user.go", "crewidentity/give_crew_group_role.go"} {
 		assertFileContains(t, file, []string{"// @enumerate(CrewGivableRoles)"}, nil)

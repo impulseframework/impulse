@@ -340,13 +340,19 @@ func Test_prepareIdentity_grants(t *testing.T) {
 			"return settled(gate, \"AssignCrewRole\")",
 			"caller.ExecuteGate(ctx, RemoveCrewRole{}.Method(), &RemoveCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
 			"return settled(gate, \"RemoveCrewRole\")",
-			// The list the whole application's role fields pick from asks each method that
-			// gives a role with the role and where it is held: a role one of them takes from
-			// the caller is listed.
-			"func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {\n\tcaller := resource.CallerFrom(ctx)\n\tdomain, everyDomain := scopeFields(scope)\n\n\treturn couldGiveBy(ctx, caller, []giving{",
-			"{method: AssignCrewRole{}.Method(), request: &AssignCrewRole{Role: string(role), Domain: domain, EveryDomain: everyDomain}},\n\t\t{method: CreateCrewUser{}.Method(), request: &CreateCrewUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain}},\n\t\t" +
-				"{method: InviteCrewUser{}.Method(), request: &InviteCrewUser{Roles: []string{string(role)}, Domain: domain}},\n\t\t{method: GiveCrewGroupRole{}.Method(), request: &GiveCrewGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain}},\n\t})",
-			"if may, settled := gate.Settled(); may || !settled {\n\t\t\treturn true, nil\n\t\t}",
+			// The list the whole application's role fields pick from asks the one method
+			// whose dialog picks, with the role and where it is held: a role that method
+			// takes from the caller is listed for it, and for no other method.
+			"func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {\n\tcaller := resource.CallerFrom(ctx)\n\tdomain, everyDomain := scopeFields(scope)\n\tswitch method {",
+			"\tcase AssignCrewRole{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &AssignCrewRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})\n" +
+				"\tcase CreateCrewUser{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &CreateCrewUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})\n" +
+				"\tcase InviteCrewUser{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &InviteCrewUser{Roles: []string{string(role)}, Domain: domain})\n" +
+				"\tcase GiveCrewGroupRole{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &GiveCrewGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})\n\t}",
+			// A method that picks no role from the list is no answer.
+			"return false, errors.Newf(\"%s is no method of the whole application that gives a role by hand: AssignCrewRole, CreateCrewUser, InviteCrewUser, GiveCrewGroupRole\", method)",
+			// One method is asked: its refusal is the answer, and a grant that admits the
+			// role, or leaves a row to decide, is a yes.
+			"func couldGiveBy(ctx context.Context, caller *resource.Caller, method accesstypes.Resource, request any) (bool, error) {\n\tgate, err := caller.ExecuteGate(ctx, method, request)\n\tif err != nil {\n\t\treturn granted(err)\n\t}\n\tmay, settled := gate.Settled()\n\n\treturn may || !settled, nil\n}",
 			// A refusal is an answer, and anything else is an error, never a pass.
 			"case httpio.HasForbidden(err), httpio.HasNotFound(err):\n\t\treturn false, nil\n\tdefault:\n\t\treturn false, errors.Wrap(err, \"resource.Caller.ExecuteGate()\")",
 		},
@@ -411,14 +417,17 @@ func Test_prepareIdentity_grants_tenant(t *testing.T) {
 			"return granted(gate.EnforceProposed(ctx, txn, held, map[string]any{\"role\": string(role), \"everyDomain\": false}))",
 			// The whole application's request is answered by its own methods still.
 			"caller.ExecuteGate(ctx, AssignCrewRole{}.Method(), &AssignCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
-			// The list a tenant's role is picked from asks each method whose role field
-			// picks from it, with the role and nothing else: a refusal is that method's no,
-			// and a grant that admits the role, or leaves the row to decide, is a yes.
-			"func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {",
-			"return couldGiveBy(ctx, caller, []giving{\n\t\t\t{method: AssignCrewShipRole{}.Method(), request: &AssignCrewShipRole{Role: string(role)}},\n\t\t\t{method: CreateCrewShipUser{}.Method(), request: &CreateCrewShipUser{Roles: []string{string(role)}}},\n\t\t\t" +
-				"{method: InviteCrewShipUser{}.Method(), request: &InviteCrewShipUser{Roles: []string{string(role)}}},\n\t\t\t{method: GiveCrewShipGroupRole{}.Method(), request: &GiveCrewShipGroupRole{Role: string(role)}},\n\t\t})\n\t}",
-			"gate, err := caller.ExecuteGate(ctx, method.method, method.request)\n\t\tif err != nil {",
-			"if _, err := granted(err); err != nil {\n\t\t\t\treturn false, err\n\t\t\t}\n\n\t\t\tcontinue",
+			// The list a tenant's role is picked from asks the one method whose dialog
+			// picks, with the role and nothing else: a refusal is that method's no, and a
+			// grant that admits the role, or leaves the row to decide, is a yes. A method
+			// of the whole application is no method of a tenant.
+			"func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {",
+			"\t\tswitch method {\n\t\tcase AssignCrewShipRole{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &AssignCrewShipRole{Role: string(role)})\n" +
+				"\t\tcase CreateCrewShipUser{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &CreateCrewShipUser{Roles: []string{string(role)}})\n" +
+				"\t\tcase InviteCrewShipUser{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &InviteCrewShipUser{Roles: []string{string(role)}})\n" +
+				"\t\tcase GiveCrewShipGroupRole{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &GiveCrewShipGroupRole{Role: string(role)})\n\t\t}\n\n" +
+				"\t\treturn false, errors.Newf(\"%s is no method of a tenant that gives a role by hand: AssignCrewShipRole, CreateCrewShipUser, InviteCrewShipUser, GiveCrewShipGroupRole\", method)\n\t}",
+			"gate, err := caller.ExecuteGate(ctx, method, request)\n\tif err != nil {\n\t\treturn granted(err)\n\t}",
 		},
 		"crewidentity/store.go": {
 			"func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {",

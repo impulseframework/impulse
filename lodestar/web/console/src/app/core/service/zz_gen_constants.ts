@@ -332,12 +332,14 @@ export namespace CrewGivableRoles {
     description: 'description' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    method: 'method' as FieldName,
     name: 'name' as FieldName,
   };
   export const resourceName = {
     description: 'CrewGivableRoles.description' as Resource,
     domain: 'CrewGivableRoles.domain' as Resource,
     everyDomain: 'CrewGivableRoles.everyDomain' as Resource,
+    method: 'CrewGivableRoles.method' as Resource,
     name: 'CrewGivableRoles.name' as Resource,
   };
 }
@@ -636,10 +638,12 @@ export namespace CrewSectorInvitations {
 export namespace CrewSectorRoles {
   export const fieldName = {
     description: 'description' as FieldName,
+    method: 'method' as FieldName,
     name: 'name' as FieldName,
   };
   export const resourceName = {
     description: 'CrewSectorRoles.description' as Resource,
+    method: 'CrewSectorRoles.method' as Resource,
     name: 'CrewSectorRoles.name' as Resource,
   };
 }

@@ -298,6 +298,38 @@ type testConfigurer struct {
 	jobs jobs.Starter
 }
 
+// invitationLog holds the invitations the suites without a session manager handed
+// their stand-in to prepare (noSessionAPI.PrepareInvitation), by the address invited.
+// The stand-in makes no link and fails every one, so a failed request alone does not
+// say how far it came: a test that sent one reads here whether it reached that step,
+// and with what. The suites share the stand-in and run in parallel, so a test invites
+// an address no other does and takes what was kept for it.
+type invitationLog struct {
+	mu      sync.Mutex
+	byEmail map[string][]session.InvitationRequest
+}
+
+// keep records one invitation the stand-in was handed.
+func (l *invitationLog) keep(req *session.InvitationRequest) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.byEmail[req.Email] = append(l.byEmail[req.Email], *req)
+}
+
+// take answers the invitations the stand-in was handed for the address, in the order
+// they came, and forgets them: a second run of the test in one process starts from none.
+func (l *invitationLog) take(email string) []session.InvitationRequest {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	taken := l.byEmail[email]
+	delete(l.byEmail, email)
+
+	return taken
+}
+
+// preparedInvitations is the log of every stand-in of this package.
+var preparedInvitations = &invitationLog{byEmail: make(map[string][]session.InvitationRequest)}
+
 // noSessionAPI stands where a suite serves no session manager: the methods that need
 // one (a temporary password's hash) are driven on the served stack, which has the
 // real one. It still says which identities sign a person in, since the removal of a
@@ -308,7 +340,12 @@ func (noSessionAPI) HashPassword(string) (string, error) {
 	return "", fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
 }
 
-func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
+// PrepareInvitation makes no link and fails, after it has kept what it was handed
+// (preparedInvitations): a request that reaches it passed every check before the link
+// is made.
+func (noSessionAPI) PrepareInvitation(_ context.Context, req *session.InvitationRequest) (session.PreparedInvitation, error) {
+	preparedInvitations.keep(req)
+
 	return nil, fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
 }
 

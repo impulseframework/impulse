@@ -235,6 +235,14 @@ export interface IdentitySideDescriptor {
 export interface IdentityLists {
   readonly users: string;
   readonly roles?: string;
+  /**
+   * The list a role is picked from by the side's methods that give one (`assignRole`,
+   * `create`, `invite`, `giveGroupRole`): the roles the caller could give. Where the
+   * list carries a `method` field it answers for one method at a time, the one the
+   * request's filter names (`method:eq:AssignCrewRole`), and a request that names none
+   * is listed no role.
+   */
+  readonly rolesToGive?: string;
   readonly identities?: string;
   /**
    * The ways a person signs in, for an Auth with a password method: the password, where

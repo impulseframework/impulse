@@ -739,6 +739,7 @@ export interface BriefingTemplates {
 export interface CrewGivableRoles {
   name: string;
   description?: string;
+  method?: string;
   domain?: string;
   everyDomain?: boolean;
 }
@@ -765,6 +766,7 @@ export interface CrewSectorDirectoryRoles {
 export interface CrewSectorRoles {
   name: string;
   description?: string;
+  method?: string;
 }
 
 export interface CrewSectorSignInWays {
@@ -1942,10 +1944,11 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'domain', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'everyDomain', displayType: 'boolean', required: false, isIndex: false, filterable: 'always' },
     ],
-    searchFields: ['domain'],
+    searchFields: ['method', 'domain'],
   },
   [Resources.CrewInvitedSectors]: {
     route: 'crew-invited-sectors',
@@ -1990,7 +1993,9 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
     ],
+    searchFields: ['method'],
   },
   [Resources.CrewSectorSignInWays]: {
     route: 'sectors/{sectorID}/crew-sector-sign-in-ways',

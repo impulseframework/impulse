@@ -304,6 +304,43 @@ describe("the library's pages over an auth's generated management", () => {
     ).not.toContain('members-invited-sectors');
   });
 
+  it("ask the list a role is picked from for the dialog's own method, on every dialog of the crew's that gives a role", () => {
+    // The generated list of the roles to give answers for one method at a time, the one
+    // the request's filter names, so a dialog offers the roles its own request is
+    // allowed. The description names the list, the metadata says it carries the method,
+    // and the pages name each dialog's method in its picker's filter: the whole
+    // service's and a sector's, from a list's row, above a list and on a group's page.
+    for (const scope of ['global', 'domain'] as const) {
+      const side = (apiDescriptor.identity ?? [])
+        .find((identity) => identity.auth === 'Crew')
+        ?.sides.find((candidate) => candidate.scope === scope);
+      // The generated description types each side by the parts it carries, and the pages
+      // read a part by its name, as here.
+      const listed = (side?.lists ?? {}) as Record<string, string | undefined>;
+      const named = (side?.methods ?? {}) as Record<string, string | undefined>;
+      const picked = listed['rolesToGive'] as Resource;
+      expect(fieldNames(picked)).toContain('method');
+
+      const giving = [named['assignRole'], named['create'], named['invite'], named['giveGroupRole']] as string[];
+      const presented = lists(identityPages(apiDescriptor, resourceMeta, { auth: 'Crew', scope }))
+        .flatMap((list) => [...((list.rowMethods || []) as MethodPresentation[]), ...(list.listMethods ?? [])])
+        .filter((presentation) => giving.includes(presentation.method));
+      expect([...new Set(presented.map((presentation) => presentation.method))].sort()).toEqual([...giving].sort());
+
+      for (const presentation of presented) {
+        const role = methodMeta(presentation.method as Method).fields.find(
+          (field) => field.enumeratedResource === picked,
+        );
+        const filter = presentation.narrows?.[role?.fieldName ?? '']?.({ domain: '', everyDomain: false }) ?? '';
+        expect([presentation.method, scope, filter.split(',')]).toEqual([
+          presentation.method,
+          scope,
+          expect.arrayContaining([`method:eq:${presentation.method}`]),
+        ]);
+      }
+    }
+  });
+
   it('says of the method that gives a sector role what the dialog needs to rehearse it', () => {
     // The Sector Marshal's grant carries a condition on the role given. The metadata
     // says a dry run previews the method and names the field the condition reads.

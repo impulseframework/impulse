@@ -19,6 +19,7 @@ func (h *Handlers) MembersGivableRoles() http.HandlerFunc {
 	type membersGivableRole struct {
 		Name        string `json:"name"        perm:"-"`
 		Description string `json:"description"`
+		Method      string `json:"method"      allow_filter:"true" search:"memory"`
 		Domain      string `json:"domain"      allow_filter:"true" search:"memory"`
 		EveryDomain bool   `json:"everyDomain" allow_filter:"true"`
 	}
@@ -67,6 +68,8 @@ func (h *Handlers) MembersGivableRoles() http.HandlerFunc {
 					rmap["name"] = rec.Name
 				case "Description":
 					rmap["description"] = rec.Description
+				case "Method":
+					rmap["method"] = rec.Method
 				case "Domain":
 					rmap["domain"] = rec.Domain
 				case "EveryDomain":

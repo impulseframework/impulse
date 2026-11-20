@@ -1222,9 +1222,9 @@ var _ identity.RoleGrants = grants{}
 // since none of it gives a power that giving the role directly would not: a person put
 // in a group is given the group's roles, and a sign-in method opened to sign-up gives
 // its default role to every person who signs up. Each is judged by the grant of the
-// method that gives a role. The list a tenant's role is picked from asks which roles
-// the caller could give at all (CouldGive), so a page offers no role every method
-// would refuse.
+// method that gives a role. A list a role is picked from asks which roles the caller
+// could give with the method whose dialog picks (CouldGive), so a dialog offers no role
+// its own method would refuse.
 //
 // The answer is the one the method's own frame would reach for the same caller, asked
 // of the request's own check (resource.Caller.ExecuteGate): the method's Execute grant
@@ -1273,27 +1273,31 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 }
 
 // CouldGive reports whether the caller could give the role in the scope by hand, to
-// somebody: the question of the list a role is picked from, asked before anybody is
-// named, with no row to read and so no transaction.
+// somebody, with the method named: the question of the list a role is picked from,
+// asked for the method whose dialog picks, before anybody is named, with no row to read
+// and so no transaction. Each method is asked of its own grant and no other's, so a
+// dialog is offered the roles its own method takes from the caller.
 {{- if .TenantGivings }}
 //
-// For a request made under a tenant, each method of the tenant whose role field picks
-// from the tenant's roles is asked with the role and nothing else:
+// For a request made under a tenant, the method is one of the tenant's whose role
+// field picks from the tenant's roles, asked with the role and nothing else:
 //
 //	{{ .GivingMethods }}
 //
-// The answer is yes where one of them does not refuse the caller the role: its grant
+// The answer is yes where the method does not refuse the caller the role: its grant
 // admits the role, or what is left of the grant's condition reads the row the method
-// names (a person, a group), so the role could be given to some of them. A role every
-// one of them refuses is one the caller gives nobody.
+// names (a person, a group), so the role could be given to some of them.
 {{- end }}
 //
-// For a request made for the whole application, each method of the whole application
-// whose role field picks from the roles to give ({{ Pluralize .GivableRole }}) is asked
-// the same way, with the role and where it is held:
+// For a request made for the whole application, the method is one of the whole
+// application's whose role field picks from the roles to give
+// ({{ Pluralize .GivableRole }}), asked the same way, with the role and where it is held:
 //
 //	{{ .GlobalGivingMethods }}
-func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+//
+// A method that is none of them gives no role by hand where the request was made, and
+// is an error.
+func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	caller := resource.CallerFrom(ctx)
 	{{- if .TenantGivings }}
 	if tenant, inTenant := caller.Scope.Domain(); inTenant {
@@ -1301,50 +1305,39 @@ func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, ro
 		if scope != accesstypes.DomainPolicyScope(tenant) {
 			return false, nil
 		}
+		switch method {
+		{{- range .TenantGivings }}
+		case {{ .Method }}{}.Method():
+			return couldGiveBy(ctx, caller, method, &{{ .Method }}{ {{- .Fields -}} })
+		{{- end }}
+		}
 
-		return couldGiveBy(ctx, caller, []giving{
-			{{- range .TenantGivings }}
-			{method: {{ .Method }}{}.Method(), request: &{{ .Method }}{ {{- .Fields -}} }},
-			{{- end }}
-		})
+		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: {{ .GivingMethods }}", method)
 	}
 {{ end }}
 	domain, everyDomain := scopeFields(scope)
-
-	return couldGiveBy(ctx, caller, []giving{
-		{{- range .GlobalGivings }}
-		{method: {{ .Method }}{}.Method(), request: &{{ .Method }}{ {{- .Fields -}} }},
-		{{- end }}
-	})
-}
-
-// giving is one method a role is given by, with a request that names the role.
-type giving struct {
-	method  accesstypes.Resource
-	request any
-}
-
-// couldGiveBy reports whether one of the methods does not refuse the caller its
-// request: its grant admits it, or what is left of the grant's condition reads the row
-// the method names, so the role could be given to some of them.
-func couldGiveBy(ctx context.Context, caller *resource.Caller, by []giving) (bool, error) {
-	for _, method := range by {
-		gate, err := caller.ExecuteGate(ctx, method.method, method.request)
-		if err != nil {
-			// A method the caller holds no grant on, or whose grant refuses the role, is a
-			// no of that method, and the next is asked.
-			if _, err := granted(err); err != nil {
-				return false, err
-			}
-
-			continue
-		}
-		if may, settled := gate.Settled(); may || !settled {
-			return true, nil
-		}
+	switch method {
+	{{- range .GlobalGivings }}
+	case {{ .Method }}{}.Method():
+		return couldGiveBy(ctx, caller, method, &{{ .Method }}{ {{- .Fields -}} })
+	{{- end }}
 	}
 
-	return false, nil
+	return false, errors.Newf("%s is no method of the whole application that gives a role by hand: {{ .GlobalGivingMethods }}", method)
+}
+
+// couldGiveBy reports whether the method does not refuse the caller its request, which
+// names the role: its grant admits it, or what is left of the grant's condition reads
+// the row the method names, so the role could be given to some of them. A method the
+// caller holds no grant on, or whose grant refuses the role, is a no.
+func couldGiveBy(ctx context.Context, caller *resource.Caller, method accesstypes.Resource, request any) (bool, error) {
+	gate, err := caller.ExecuteGate(ctx, method, request)
+	if err != nil {
+		return granted(err)
+	}
+	may, settled := gate.Settled()
+
+	return may || !settled, nil
 }
 
 // MayTake reports whether the caller may take the role the person holds in the scope

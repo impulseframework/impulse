@@ -111,6 +111,27 @@ func Test_identityOn(t *testing.T) {
 			}},
 		},
 		{
+			name:      "each side names the list its methods that give a role pick it from, where the outlet serves it",
+			outlet:    "console",
+			instances: []*identityInstance{crew},
+			served:    []string{"CrewSessionUsers", "CrewGivableRoles", "AssignCrewRole", "CrewSectorUsers", "CrewSectorRoles", "AssignCrewSectorRole"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{
+					{
+						Scope:   accesstypes.GlobalPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSessionUsers"), part("rolesToGive", "CrewGivableRoles")},
+						Methods: []identityPart{part("assignRole", "AssignCrewRole")},
+					},
+					{
+						Scope:   accesstypes.DomainPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSectorUsers"), part("rolesToGive", "CrewSectorRoles")},
+						Methods: []identityPart{part("assignRole", "AssignCrewSectorRole")},
+					},
+				},
+			}},
+		},
+		{
 			name:      "the auth that brings a tenant in by invitation names the list of the ones that stand and the two methods",
 			outlet:    "console",
 			instances: []*identityInstance{inviting},

@@ -96,10 +96,12 @@ export namespace FeatureFlags {
 export namespace StaffGivableRoles {
   export const fieldName = {
     description: 'description' as FieldName,
+    method: 'method' as FieldName,
     name: 'name' as FieldName,
   };
   export const resourceName = {
     description: 'StaffGivableRoles.description' as Resource,
+    method: 'StaffGivableRoles.method' as Resource,
     name: 'StaffGivableRoles.name' as Resource,
   };
 }

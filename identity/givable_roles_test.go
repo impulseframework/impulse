@@ -23,42 +23,54 @@ var givableRoles = map[accesstypes.PolicyScope][]accesstypes.Role{
 	everyScope:  {"Reader", accesstypes.SuperAdministrator},
 }
 
-// TestManager_GivableRoles pins the list the whole application's dialogs pick a role
-// from: the roles that exist where the role is to be held that the caller could give
-// there, asked of the role file's grants inside a transaction of the list's own. The
-// Super Administrator role is offered to a caller who holds it and to nobody else, and
-// for the whole application alone; a call outside any request lists every role and
+// TestManager_GivableRoles pins the list one of the whole application's dialogs picks a
+// role from: the roles that exist where the role is to be held that the caller could
+// give there with the dialog's own method, asked of the role file's grant on that
+// method inside a transaction of the list's own. Each method's list is its own: a role
+// one method alone takes from the caller is in that method's list and in no other's.
+// The Super Administrator role is offered to a caller who holds it and to nobody else,
+// and for the whole application alone; a call outside any request lists every role and
 // asks nothing.
 func TestManager_GivableRoles(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name      string
+		method    accesstypes.Resource
 		scope     accesstypes.PolicyScope
 		super     bool
 		outside   bool
 		noneGives []accesstypes.Role
+		onlyBy    map[accesstypes.Role]accesstypes.Resource
 		want      []string
 		wantAsked []string
 	}{
 		{
-			name: "for the whole application, a caller who does not hold the Super Administrator role is not offered it", scope: globalScope,
-			want: []string{"Steward"}, wantAsked: []string{"could give global Steward"},
+			name: "for the whole application, a caller who does not hold the Super Administrator role is not offered it", method: assigns, scope: globalScope,
+			want: []string{"Steward"}, wantAsked: []string{"AssignMembersRole could give global Steward"},
 		},
 		{
-			name: "for the whole application, a super administrator is offered the Super Administrator role too", scope: globalScope, super: true,
-			want: []string{"Steward", string(accesstypes.SuperAdministrator)}, wantAsked: []string{"could give global " + string(accesstypes.SuperAdministrator), "could give global Steward"},
+			name: "for the whole application, a super administrator is offered the Super Administrator role too", method: assigns, scope: globalScope, super: true,
+			want: []string{"Steward", string(accesstypes.SuperAdministrator)}, wantAsked: []string{"AssignMembersRole could give global " + string(accesstypes.SuperAdministrator), "AssignMembersRole could give global Steward"},
 		},
 		{
-			name: "in one tenant, the tenant's roles the grants let the caller give", scope: alphaScope, noneGives: []accesstypes.Role{"Warden"},
-			want: []string{"Reader"}, wantAsked: []string{"could give alpha Reader", "could give alpha Warden"},
+			name: "in one tenant, the tenant's roles the method's grant lets the caller give", method: assigns, scope: alphaScope, noneGives: []accesstypes.Role{"Warden"},
+			want: []string{"Reader"}, wantAsked: []string{"AssignMembersRole could give alpha Reader", "AssignMembersRole could give alpha Warden"},
 		},
 		{
-			name: "in every tenant, the roles held there, and never the Super Administrator role, even to a caller who holds it", scope: everyScope, super: true,
-			want: []string{"Reader"}, wantAsked: []string{"could give " + everyScope.String() + " Reader"},
+			name: "a role the invitation alone takes from the caller is in the invitation's list", method: invites, scope: alphaScope, onlyBy: map[accesstypes.Role]accesstypes.Resource{"Warden": invites},
+			want: []string{"Reader", "Warden"}, wantAsked: []string{"InviteMembersUser could give alpha Reader", "InviteMembersUser could give alpha Warden"},
 		},
 		{
-			name: "a call outside any request lists every role and asks nothing", scope: globalScope, outside: true, noneGives: []accesstypes.Role{"Steward"},
+			name: "and in no other method's: the list of the method that gives a person a role leaves it out", method: assigns, scope: alphaScope, onlyBy: map[accesstypes.Role]accesstypes.Resource{"Warden": invites},
+			want: []string{"Reader"}, wantAsked: []string{"AssignMembersRole could give alpha Reader", "AssignMembersRole could give alpha Warden"},
+		},
+		{
+			name: "in every tenant, the roles held there, and never the Super Administrator role, even to a caller who holds it", method: assigns, scope: everyScope, super: true,
+			want: []string{"Reader"}, wantAsked: []string{"AssignMembersRole could give " + everyScope.String() + " Reader"},
+		},
+		{
+			name: "a call outside any request lists every role and asks nothing", method: assigns, scope: globalScope, outside: true, noneGives: []accesstypes.Role{"Steward"},
 			want: []string{"Steward", string(accesstypes.SuperAdministrator)},
 		},
 	}
@@ -70,7 +82,7 @@ func TestManager_GivableRoles(t *testing.T) {
 			if tt.super {
 				held = append(held, erinSuper)
 			}
-			grants := &fakeGrants{noneGives: tt.noneGives}
+			grants := &fakeGrants{noneGives: tt.noneGives, onlyBy: tt.onlyBy}
 			store := superStore(held...)
 			m, _ := newManager(t, store, givableRoles, WithRoleGrants(grants))
 			ctx := t.Context()
@@ -78,7 +90,7 @@ func TestManager_GivableRoles(t *testing.T) {
 				ctx = asCallerThrough(ctx, managedAuth, erin)
 			}
 
-			roles, err := m.GivableRoles(ctx, fakeDatabase{}, tt.scope)
+			roles, err := m.GivableRoles(ctx, fakeDatabase{}, tt.method, tt.scope)
 			if err != nil {
 				t.Fatalf("GivableRoles() error = %v", err)
 			}
@@ -106,7 +118,7 @@ func TestManager_GivableRoles(t *testing.T) {
 		t.Parallel()
 
 		m, _ := newManager(t, superStore(), givableRoles)
-		if _, err := m.GivableRoles(asCallerThrough(t.Context(), managedAuth, erin), fakeDatabase{}, globalScope); err == nil {
+		if _, err := m.GivableRoles(asCallerThrough(t.Context(), managedAuth, erin), fakeDatabase{}, assigns, globalScope); err == nil {
 			t.Error("GivableRoles() error = nil, want a refusal: the manager cannot judge the request")
 		}
 	})
@@ -122,7 +134,7 @@ func TestManager_GivableRoles(t *testing.T) {
 			{enters: []accesstypes.Domain{"alpha"}, want: []string{"Reader", "Warden"}},
 		} {
 			m := outsiderManager(t, groupStore())
-			roles, err := m.GivableRoles(asEntering(t.Context(), erin, tt.enters...), fakeDatabase{}, alphaScope)
+			roles, err := m.GivableRoles(asEntering(t.Context(), erin, tt.enters...), fakeDatabase{}, assigns, alphaScope)
 			if err != nil {
 				t.Fatalf("GivableRoles() error = %v", err)
 			}
@@ -136,6 +148,60 @@ func TestManager_GivableRoles(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestGivingMethod pins which method a list of the roles to give answers for, from the
+// filter on the method: the one method one equality names, among the methods whose
+// role field picks from the list; no rows for a request that names none, since the
+// list is one method's at a time; and anything else refused in words that say what to
+// send and name the methods.
+func TestGivingMethod(t *testing.T) {
+	t.Parallel()
+
+	methods := []accesstypes.Resource{assigns, invites}
+	eq := func(value any) resource.Condition {
+		return resource.Condition{Field: "Method", Operator: "eq", Value: value}
+	}
+	tests := []struct {
+		name    string
+		on      []resource.Condition
+		want    accesstypes.Resource
+		wantOK  bool
+		wantErr bool
+	}{
+		{name: "no condition names no method, and the list holds no rows"},
+		{name: "one method", on: []resource.Condition{eq("InviteMembersUser")}, want: invites, wantOK: true},
+		{name: "a method that picks no role from the list", on: []resource.Condition{eq("DisableMembersUser")}, wantErr: true},
+		{name: "no name", on: []resource.Condition{eq("")}, wantErr: true},
+		{name: "two conditions", on: []resource.Condition{eq("AssignMembersRole"), eq("InviteMembersUser")}, wantErr: true},
+		{name: "a set of methods", on: []resource.Condition{{Field: "Method", Operator: "in", Values: []any{"AssignMembersRole", "InviteMembersUser"}}}, wantErr: true},
+		{name: "every method but one", on: []resource.Condition{{Field: "Method", Operator: "ne", Value: "AssignMembersRole"}}, wantErr: true},
+		{name: "a value that is no text", on: []resource.Condition{eq(7)}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok, err := GivingMethod("MembersGivableRoles", methods, tt.on)
+			if tt.wantErr {
+				if !httpio.HasBadRequest(err) {
+					t.Errorf("GivingMethod() error = %v, want a bad request", err)
+				}
+				message := httpio.Message(err)
+				if !strings.Contains(message, "one method") || !strings.Contains(message, "method:eq:<name>") || !strings.Contains(message, "AssignMembersRole, InviteMembersUser") {
+					t.Errorf("GivingMethod() refusal = %q, want what to send and the methods the list answers for", message)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("GivingMethod() error = %v", err)
+			}
+			if got != tt.want || ok != tt.wantOK {
+				t.Errorf("GivingMethod() = %q, %t, want %q, %t", got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
 }
 
 // TestGivingPlaces pins where a list of the roles to give from the whole application's

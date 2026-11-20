@@ -179,6 +179,7 @@ export interface StaffUserRoles {
 export interface StaffGivableRoles {
   name: string;
   description?: string;
+  method?: string;
 }
 
 export interface StaffSignInMethods {
@@ -514,7 +515,9 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
     ],
+    searchFields: ['method'],
   },
   [Resources.StaffSignInMethods]: {
     route: 'staff-sign-in-methods',

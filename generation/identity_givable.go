@@ -8,9 +8,10 @@ import (
 // The roles a person is given by hand from the whole application's management. The
 // dialogs of the methods that give one (Assign<Auth>Role, Create<Auth>User,
 // Invite<Auth>User and Give<Auth>GroupRole) ask where the role is to be held first,
-// then offer the roles that exist there that the caller could give: the list
-// <Auth>GivableRoles, which their role fields pick from. A tenant's own methods pick
-// from the roles of their tenant (<Auth><Tenant>Roles) the same way.
+// then offer the roles that exist there that the caller could give with the dialog's
+// own method: the list <Auth>GivableRoles, which their role fields pick from, asked
+// for one method at a time. A tenant's own methods pick from the roles of their tenant
+// (<Auth><Tenant>Roles) the same way.
 
 // givableRoleSuffix is the suffix of the computed resource that lists the roles the
 // whole application's management gives.
@@ -48,10 +49,11 @@ type globalGiving struct {
 // globalGivings are the methods of the whole application whose role field picks from
 // the roles to give, each where the instance writes it: the one that gives a person a
 // role, the create and the invitation that start a person with one, and the one that
-// gives a group a role. The list offers the roles one of them takes from the caller
-// (the generated CouldGive), so it reads the same conditions the methods are written by
-// and names none the instance does not hold. The invitation names no "every tenant": an
-// invitation into the application holds a role of a tenant's kind in every tenant.
+// gives a group a role. The list offers, for each, the roles that method takes from the
+// caller (the generated CouldGive), so it reads the same conditions the methods are
+// written by and names none the instance does not hold. The invitation names no "every
+// tenant": an invitation into the application holds a role of a tenant's kind in every
+// tenant.
 func (i *identityInstance) globalGivings() []globalGiving {
 	if i.rolesSynced || !i.has(identityMemberships) {
 		return nil
@@ -123,20 +125,22 @@ import (
 )
 
 // {{ .GivableRole }} is one role a person of the {{ .Auth }} auth may be given by hand from
-// the whole application's management, where it is to be held: the roles that exist
-// there, the role file's and the custom ones, that the caller could give there. The
-// dialogs of the methods that give a role ask where first, then pick the role from this
-// list:
+// the whole application's management with one method, where it is to be held: the
+// roles that exist there, the role file's and the custom ones, that the caller could
+// give there with that method. The dialogs of the methods that give a role ask where
+// first, then pick the role from this list, each for itself:
 //
 //	{{ .GlobalGivingMethods }}
 //
-// A role file says which roles a person hands out on the grants of those methods, and
-// a condition there reads the role (new.role != 'Administrator'): the list leaves out a
-// role every one of them refuses the caller (identity.Manager.GivableRoles), so the
-// limit is said once and a page offers what the caller may do. One list serves all of
-// them, so it holds a role that one of them takes and another refuses, which the method
-// then says. The Super Administrator role is listed for the whole application alone,
-// and to a caller who holds it.
+// A role file says which roles a person hands out on the grant of each of those
+// methods, and a condition there reads the role (new.role != 'Administrator'). The
+// list is asked for one method at a time, by a filter that names it
+// (method:eq:{{ (index .GlobalGivings 0).Method }}), and leaves out a role that method refuses
+// the caller (identity.Manager.GivableRoles): the limit is said once, on the method's
+// grant, and a dialog offers what its own method takes. A role one method takes and
+// another refuses is in the first one's list alone, and a request that names no method
+// is listed no role. The Super Administrator role is listed for the whole application
+// alone, and to a caller who holds it.
 {{- if .TenantWord }}
 //
 // The list names the place a role is held in. Filtered by one {{ .TenantWord }} (domain:eq:<id>)
@@ -149,7 +153,11 @@ import (
 // and only a custom role is a row of a table, so the engine is asked and no query
 // selects the list. The role file grants it like any resource, and a condition on the
 // role's name there (name != 'Administrator') narrows it further: the library judges
-// each role the list answers.
+// each role the list answers. A caller filters by the fields they may read, and a
+// computed list filters only by a field granted with no condition: the role is granted
+// method{{ if .TenantWord }}, domain and everyDomain{{ end }} among the fields of a grant with no condition, or, beside a
+// grant that carries one, each as a grant of the field alone
+// ({{ Pluralize .GivableRole }}.method).
 //
 // @computed
 // @suppress(readHandler)
@@ -160,6 +168,9 @@ type {{ .GivableRole }} struct {
 	// @attribute(name)
 	Name        string ` + "`spanner:\"Name\"`" + `
 	Description string ` + "`spanner:\"Description\"`" + `
+	// Method is the method the role is listed for, the one the request's filter
+	// names: the caller could give the role with it.
+	Method string ` + "`spanner:\"Method\" allow_filter:\"true\"`" + `
 	{{- if .TenantWord }}
 	// Domain is the one {{ .TenantName }} the role is held in, "" for a role held for
 	// the whole application or in every {{ .TenantWord }}.
@@ -174,13 +185,24 @@ func ({{ .GivableRole }}) Resource() accesstypes.Resource {
 	return "{{ Pluralize .GivableRole }}"
 }
 
-// List{{ .GivableRole }} yields the roles the caller could give where the request's
-// filter says they are to be held; the generated handler applies the rest of the
-// filter, the sort and the page over them. The rule is handed the database and not a
+// List{{ .GivableRole }} yields the roles the caller could give with the method the
+// request's filter names, where the filter says they are to be held, and none for a
+// request that names no method; the generated handler applies the rest of the filter,
+// the sort and the page over them. The rule is handed the database and not a
 // transaction: it reads the roles from the permission engine outside any, and asks the
-// grants of the methods that give a role in one of its own.
+// grant of the method in one of its own.
 func List{{ .GivableRole }}(ctx context.Context, qSet *resource.QuerySet[{{ .GivableRole }}], db resource.Client, client *Client) iter.Seq2[*{{ .GivableRole }}, error] {
 	return func(yield func(*{{ .GivableRole }}, error) bool) {
+		method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{
+			{{- range .GlobalGivings }}
+			{{ .Method }}{}.Method(),
+			{{- end }}
+		}, qSet.Filter().Take("Method"))
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.GivingMethod()"))
+
+			return
+		}
 		{{- if .TenantWord }}
 		places, err := identity.GivingPlaces(qSet.Resource(), "{{ .TenantWord }}", qSet.Filter().Take("Domain"))
 		{{- else }}
@@ -191,8 +213,11 @@ func List{{ .GivableRole }}(ctx context.Context, qSet *resource.QuerySet[{{ .Giv
 
 			return
 		}
+		if !named {
+			return
+		}
 		for _, place := range places {
-			roles, err := client.manager.GivableRoles(ctx, db, place)
+			roles, err := client.manager.GivableRoles(ctx, db, method, place)
 			if err != nil {
 				yield(nil, errors.Wrap(err, "identity.Manager.GivableRoles()"))
 
@@ -202,7 +227,7 @@ func List{{ .GivableRole }}(ctx context.Context, qSet *resource.QuerySet[{{ .Giv
 			domain, _ := place.Domain()
 			{{- end }}
 			for _, role := range roles {
-				row := &{{ .GivableRole }}{Name: string(role.Name), Description: role.Description}
+				row := &{{ .GivableRole }}{Name: string(role.Name), Description: role.Description, Method: string(method)}
 				{{- if .TenantWord }}
 				row.Domain, row.EveryDomain = string(domain), place.IsEveryDomain()
 				{{- end }}

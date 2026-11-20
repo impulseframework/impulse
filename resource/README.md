@@ -3471,7 +3471,7 @@ GET  <prefix>/crew-session-auth-events                     List on CrewSessionAu
 GET  <prefix>/crew-user-roles                              List on CrewUserRoles (the role memberships)
 GET  <prefix>/crew-roles                                   List on CrewRoles (the custom roles)
 GET  <prefix>/crew-role-grants                             List on CrewRoleGrants
-GET  <prefix>/crew-givable-roles                           List on CrewGivableRoles (the roles the whole application's methods give, by where they are held)
+GET  <prefix>/crew-givable-roles                           List on CrewGivableRoles (the roles one of the whole application's methods gives, by where they are held)
 GET  <prefix>/crew-groups, …/{id}                          List, Read on CrewGroups (the groups of people, sort=name)
 GET  <prefix>/crew-group-members                           List on CrewGroupMembers
 GET  <prefix>/crew-group-roles                             List on CrewGroupRoles (the roles the groups hold)
@@ -3683,63 +3683,78 @@ grants it like any resource.
 The role field of each method a person gives a role with in a tenant names the list
 (`@enumerate`): `AssignCrewSectorRole`, the create and the invitation that start a person
 with a role (`CreateCrewSectorUser`, `InviteCrewSectorUser`), and
-`GiveCrewSectorGroupRole`. A page draws the field as a picker, and a page offers what
-the caller may do, so the list holds the roles the caller could give and no other. A
-role file says which roles a person hands out once, on the methods' Execute grants,
-where a condition reads the role:
+`GiveCrewSectorGroupRole`. A page draws the field as a picker, and a dialog offers what
+its own method takes from the caller, so the list is asked for one method at a time and
+holds the roles the caller could give with it and no other. A role file says which
+roles a person hands out once, on each method's Execute grant, where a condition reads
+the role:
 
 ```json
 "Execute": [{ "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" }]
 ```
 
-For each role of the tenant the list asks the grant of every one of those methods, with
-the role and nobody named (`identity.Manager.RolesToGive`, which asks the generated
-`CouldGive` of `identity.RoleGrants`), and leaves out a role every one of them refuses
-the caller: Lodestar's Sector Marshal is offered every role of the sector but the
-Marshal's own. A grant whose condition also reads the row the method names (the person,
-the group) could admit the role for some of them, so the role is offered and the method
-decides. One list serves all four pickers, so it holds a role that one method takes
-and another refuses, which the method then says; a role file that gives the methods the
-same limit, as Lodestar's does, has a picker that offers exactly what each takes. A
-request that names a role the list left out is refused by the method's own grant, as
-before.
+A row carries a third field for this, `method`: a filter key, and nothing a page shows.
+A request names the method whose dialog is picking
+(`filter=method:eq:AssignCrewSectorRole`), and for each role of the tenant the list asks
+that method's grant, with the role and nobody named (`identity.Manager.RolesToGive`,
+which asks the generated `CouldGive` of `identity.RoleGrants`), and leaves out a role it
+refuses the caller: Lodestar's Sector Marshal is offered every role of the sector but
+the Marshal's own. A grant whose condition also reads the row the method names (the
+person, the group) could admit the role for some of them, so the role is offered and
+the method decides. A role one method takes and another refuses is in the first one's
+list and not in the second's, so each of the four pickers offers exactly what its own
+method takes. A request that names no method is answered no role: a picker that does
+not say which method it serves is empty, never wider than the method. One that names a
+method whose role field does not pick from the list, or names methods any other way
+(`in`, `ne`, two conditions), is refused (400) with the names it may send. A request
+that names a role the list left out is refused by the method's own grant, as before.
 
 The list's own List grant may carry a condition too, which narrows it further. The
 role's name is declared for conditions (`@attribute(name)` on the field), and the library
 judges the condition over each role the list answers (a computed resource's rows,
 section 2); a request for the names alone and the list's count are trimmed the same way.
 Lodestar keeps one, which says nothing its methods' grants do not, to show a condition
-judged over a computed resource's rows:
+judged over a computed resource's rows. A caller filters by the fields they may read,
+and a computed list filters only by a field granted with no condition (section 2), so a
+role is granted `method` with the list: among the fields of a grant that carries no
+condition, or, beside a grant that carries one, as a grant of the field alone:
 
 ```json
-"List": [{ "resource": "CrewSectorRoles", "fields": ["description"], "condition": "name != 'SectorMarshal'" }]
+"List": [
+  { "resource": "CrewSectorRoles", "fields": ["description"], "condition": "name != 'SectorMarshal'" },
+  { "resource": "CrewSectorRoles.method" }
+]
 ```
 
 **The roles the whole application gives.** The whole application's methods pick their
 role the same way, from one more list per Auth, `CrewGivableRoles`, declared beside the
 methods and served on their outlets (a list and no read). Its rows are the roles that
-exist where the role is to be held, each with its `name` and `description`, and, in an
-application with tenants, where it is held: `domain`, the one tenant ("" for the whole
-application or every tenant), and `everyDomain`. The two are filter keys. Filtered by
+exist where the role is to be held, each with its `name` and `description`, the
+`method` it is listed for, and, in an application with tenants, where it is held:
+`domain`, the one tenant ("" for the whole application or every tenant), and
+`everyDomain`. The three are filter keys. Filtered by
 one tenant (`domain:eq:<id>`) the list holds that tenant's roles; otherwise it holds the
 roles held for the whole application (`everyDomain` false) and those held in every
 tenant (`everyDomain` true), which a filter on `everyDomain` narrows. A filter that
 names tenants any other way beside its other conditions (`in`, `ne`, a range, two
 conditions on `domain`) is refused (400), in the application's word for a tenant; one
-that joins its conditions with `or` is answered over both places and matched row by
-row. A role is listed once for each place, so a custom role held both for the whole
+that joins its conditions with `or` names no method the list can read apart from the
+rest, and is answered no role. A role is listed once for each place, so a custom role held both for the whole
 application and in every tenant is two rows under one name until the request names a
 place, as the dialogs always do. In an application without tenants the list holds the
-whole application's roles and has neither field.
+whole application's roles and has neither field of a place.
 
 The role fields that name it (`@enumerate`) are those of `AssignCrewRole`,
 `CreateCrewUser`, `InviteCrewUser` and `GiveCrewGroupRole`, each written where the Auth
 has the method. Each request asks where the role is held first (`domain`, then
 `everyDomain`, before the role), so a dialog drawn from the metadata asks where, then
-offers the roles that exist there. As for a tenant, a role is listed where the grant of
-one of those methods could let the caller give it there, with the role, the place and
-nobody named (`identity.Manager.GivableRoles`, over the generated `CouldGive`), and
-left out where every one of them refuses; the list's own List grant may carry a
+offers the roles that exist there. As for a tenant, the list is asked for one method at
+a time, named beside the place (`filter=method:eq:InviteCrewUser,domain:eq:<id>`): a
+role is listed where that method's grant could let the caller give it there, with the
+role, the place and nobody named (`identity.Manager.GivableRoles`, over the generated
+`CouldGive`), and left out where it refuses. A role only the invitation's grant admits
+is in the invitation's picker and in no other, and a request that names no method is
+answered no role. The list's own List grant may carry a
 condition on `name` that narrows it further. Two rules hold whatever the grants say: the
 Super Administrator role is listed for the whole application alone, and only to a
 caller who holds it, since only a super administrator gives it; and a tenant's
@@ -3748,7 +3763,7 @@ tenant admits (section "Directory only", the rule the methods keep). The role fi
 grants the list to the roles that give one:
 
 ```json
-"List": [{ "resource": "CrewGivableRoles", "fields": ["description", "domain", "everyDomain"] }]
+"List": [{ "resource": "CrewGivableRoles", "fields": ["description", "method", "domain", "everyDomain"] }]
 ```
 
 An Auth whose directory writes the roles gives none by hand and has neither list. The
@@ -4603,7 +4618,7 @@ description (`zz_gen_api.ts`) carries an `identity` block beside its resources a
 methods: for each Auth whose management the outlet serves, the Auth's name and label,
 the tenant record's name where the application has one, and a side for each scope
 (`global`, the whole application's; `domain`, a tenant's) that names the lists by what
-each holds (`users`, `roles`, `identities`, `signInWays`, `invitations`, and for the whole application
+each holds (`users`, `roles`, `rolesToGive` (the list a role is picked from by the methods that give one), `identities`, `signInWays`, `invitations`, and for the whole application
 `sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`create`, `invite`,
 `withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
 `rename`, `setEmail`, `setTemporaryPassword`, `sendPasswordResetLink`, `requirePasswordChange`,
