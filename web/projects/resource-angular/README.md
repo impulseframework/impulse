@@ -529,7 +529,9 @@ confirmation link; nothing is written until the link is followed on the login pa
 never attaches to an account its follower does not control, and the component says the link is on
 its way whatever the address's state. A refusal (not an address; a mailbox sent too many links it
 did not use, `too_many_emails` with the wait) is rendered in place, and the button stays disabled
-until the wait has passed.
+until the wait has passed. A name that is no address is shown as no address: a development run
+signs a persona in without a directory, and the session then carries the persona's login name
+where a directory would have given an address.
 
 ```html
 <impulse-email-address />
