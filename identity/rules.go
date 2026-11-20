@@ -201,8 +201,10 @@ func (m *Manager) refuseImpersonatorAsSubject(ctx context.Context, userID impuls
 // an address the account holds unconfirmed (the mail of a first password or of an
 // address change asked for) is cleared like anyone's. A mask that refuses the class
 // of the actions that change who may do what (accesstypes.ClassAccess) refuses the
-// library's share of those, and one that refuses a record's writes by name
-// (accesstypes.RefuseWrites) refuses the application's.
+// library's share of those and the application's with it: the generator gives the
+// class to the writes of every record that carries a subject value or a subject set,
+// and to the change of a record such a value is read through. A record the generator
+// does not class is refused by name (accesstypes.RefuseWrites).
 func RefuseImpersonatorAsSubject(ctx context.Context, subject impulse.UUID, act string) error {
 	if !ImpersonatorIs(ctx, subject) {
 		return nil

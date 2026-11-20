@@ -38,7 +38,11 @@ import (
 // delete of the tenant is refused with the rule's sentence and its log line
 // (refuseImpersonatorAsSubject), as RemoveRole and RemoveFromGroup refuse the removal
 // that would delete it. The rule is asked once everything is read and before anything
-// is buffered.
+// is buffered. It is asked of the account alone: a clear that leaves the real person's
+// account standing, because they hold a role elsewhere, takes their own roles and their
+// own places in groups in that tenant with everyone else's, though RemoveRole and
+// RemoveFromGroup refuse each of those one at a time. They lose what they held there
+// and gain nothing.
 //
 // The generated delete of the tenant record calls it for each auth whose management the
 // program generates, before the transaction commits; the permission engine is told once

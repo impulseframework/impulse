@@ -646,7 +646,8 @@ func (g *GeneratedCollection) addActionDeclarations(res *CollectionResource) err
 		if !slices.Equal(res.Permissions, []accesstypes.Permission{accesstypes.Execute}) {
 			return errors.Newf(
 				"resource %q carries the classes %v and registers %v: a class is carried by an action alone, a name that registers Execute and nothing else. "+
-					"A record's permission is refused to an impersonated session by the record's name (accesstypes.RefusePermission, accesstypes.RefuseWrites)",
+					"A record's writes are given a class by the generator alone, where the record decides what a person may do; "+
+					"any other record is refused to an impersonated session by its name (accesstypes.RefusePermission, accesstypes.RefuseWrites)",
 				res.Name, res.Classes, res.Permissions,
 			)
 		}
@@ -732,7 +733,8 @@ func (g *GeneratedCollection) refuseClassFromOtherScope(res *CollectionResource)
 			return errors.Newf(
 				"resource %q registers %v in the scope %q and carries the classes %v in the scope %q: a class is carried by an action alone, "+
 					"a name that registers Execute and nothing else in either scope. "+
-					"A record's permission is refused to an impersonated session by the record's name (accesstypes.RefusePermission, accesstypes.RefuseWrites)",
+					"A record's writes are given a class by the generator alone, where the record decides what a person may do; "+
+					"any other record is refused to an impersonated session by its name (accesstypes.RefusePermission, accesstypes.RefuseWrites)",
 				res.Name, res.Permissions, res.Scope, classes, scope,
 			)
 		}

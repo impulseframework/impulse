@@ -1110,7 +1110,7 @@ func TestNewGeneratedCollection_actionClassValidation(t *testing.T) {
 			res:    CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
 			beside: &CollectionResource{Name: "SetPassword", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 			wantErr: `resource "SetPassword" registers [List Read] in the scope "domain" and carries the classes [credential] in the scope "global": a class is carried by an action alone, ` +
-				`a name that registers Execute and nothing else in either scope. A record's permission is refused to an impersonated session by the record's name (accesstypes.RefusePermission, accesstypes.RefuseWrites)`,
+				`a name that registers Execute and nothing else in either scope. A record's writes are given a class by the generator alone, where the record decides what a person may do; any other record is refused to an impersonated session by its name (accesstypes.RefusePermission, accesstypes.RefuseWrites)`,
 		},
 		{
 			name:    "a record for the whole application and a classed action of the same name for a tenant, the record first",
@@ -1136,7 +1136,7 @@ func TestNewGeneratedCollection_actionClassValidation(t *testing.T) {
 		{
 			name:    "a class on a record's permission",
 			res:     CollectionResource{Name: "Passwords", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Update}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
-			wantErr: `resource "Passwords" carries the classes [credential] and registers [Update]: a class is carried by an action alone, a name that registers Execute and nothing else. A record's permission is refused to an impersonated session by the record's name (accesstypes.RefusePermission, accesstypes.RefuseWrites)`,
+			wantErr: `resource "Passwords" carries the classes [credential] and registers [Update]: a class is carried by an action alone, a name that registers Execute and nothing else. A record's writes are given a class by the generator alone, where the record decides what a person may do; any other record is refused to an impersonated session by its name (accesstypes.RefusePermission, accesstypes.RefuseWrites)`,
 		},
 		{
 			name:    "a class on a name that is an action and a record at once",

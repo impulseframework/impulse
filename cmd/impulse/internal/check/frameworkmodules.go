@@ -39,8 +39,10 @@ import (
 //
 // What the check reads is those files as they stand: the application's go.mod, a
 // go.work at its root, and the go.mod of each directory that go.work uses, inside the
-// application's root or outside it. A build told to read another module file (go build
-// -modfile), a workspace file above the application's root or one the GOWORK variable
+// application's root or outside it. A build told to read files from elsewhere (the
+// -modfile flag, which names another module file, and the -overlay flag, which replaces
+// or adds source files from anywhere, each on the command line or in the GOFLAGS
+// variable), a workspace file above the application's root or one the GOWORK variable
 // names, and the code of the modules the application requires are not read here.
 type frameworkModules struct{}
 

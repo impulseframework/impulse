@@ -88,7 +88,8 @@ type accessWrite struct {
 // gains a subject value, or a value that takes a new path, is covered when the
 // application is generated again. An application does not put @class on a record
 // (rejectClassAnnotation); a mask that is to keep one of these writes names it as an
-// exception to its refusal of the class.
+// exception to its refusal of the class (accesstypes.RefuseClassExcept, with
+// accesstypes.ExceptWrites for a record or accesstypes.ExceptPermission for one write).
 func (r *resourceGenerator) writesThatDecideAccess() []accessWrite {
 	byTable := make(map[string]*resourceInfo, len(r.resources))
 	for _, res := range r.resources {

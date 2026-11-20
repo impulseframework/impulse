@@ -1143,12 +1143,17 @@ always could.
 The `act` kind goes further than the rule, which holds the real person alone. Its mask
 refuses the class `access`, for what the rule cannot see (a role that reaches a person
 through a group or a colleague), and the generator gives that class to the writes of
-those five records and to the change of a squadron, whose row says which wing each
+those five records, to the writes of a place in a group of the crew (a record the
+application offers no write of, since the identity library's own actions write it)
+and to the change of a squadron, whose row says which wing each
 member is in, so the kind names no record and a record that gains a subject value is
-covered when Lodestar is generated again. A stand-in therefore
-changes nobody's standing, their own or anyone else's, which is what the `StandIn`
+covered when Lodestar is generated again. A stand-in therefore changes no role, no
+group and no record that decides what a person may do, but for a hangar pass, which
+the kind keeps, and that is what the `StandIn`
 role's description promises: everything the person may do, except change how they sign
-in or who may do what. `SetSectorPilotClearance` carries the class `access` for the
+in or who may do what. Two things stay outside it, each stated where the kind is
+declared: a stand-in can still disable, enable and delete another person's account,
+which carry no class, and delete a hangar, which removes its passes with it. `SetSectorPilotClearance` carries the class `access` for the
 same reason, so the kind refuses the action as it refuses the record's write. A mask
 names a record's permission and not one plain field of it, so the squadron's name and
 callsigns are refused with its wing.

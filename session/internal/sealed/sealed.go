@@ -64,8 +64,10 @@
 //
 // The two checks read the application's own tree: its Go files, its go.mod, a go.work
 // at its root and the go.mod of each directory that go.work uses. Read by neither are
-// the code of the modules it requires, a build told to read another module file (go
-// build -modfile), and a workspace file that is not at the application's root: a
+// the code of the modules it requires, a build told to read files from elsewhere (the
+// -modfile flag, which names another module file, and the -overlay flag, which replaces
+// or adds source files from anywhere, each on the command line or in the GOFLAGS
+// variable), and a workspace file that is not at the application's root: a
 // go.work in a directory above it, which the go command finds by itself, and the file
 // the GOWORK variable names. Either can use a directory whose module path is under the
 // library's.

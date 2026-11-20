@@ -44,7 +44,9 @@ import (
 //
 // What the check reads is the application's own tree. The code of a module the
 // application requires is not read here unless it is vendored, and neither is a program
-// that reaches the same memory with unsafe alone.
+// that reaches the same memory with unsafe alone, or a build told to read files from
+// elsewhere: the -overlay flag replaces or adds source files from anywhere, on the
+// command line or in the GOFLAGS variable, so a file it names need not be in the tree.
 type frameworkLinkname struct{}
 
 // frameworkLinknameName is the check's name.
