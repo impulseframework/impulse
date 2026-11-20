@@ -49,6 +49,23 @@ func engines(store access.Store) error {
 	return err
 }
 `
+	const others = `package crew
+
+import (
+	_ "embed"
+
+	"github.com/impulseframework/impulse/access"
+)
+
+//go:embed roles.json
+var roleFile access.RoleFile
+
+func Roles() access.RoleFile { return roleFile }
+
+func New(store access.Store, collection access.PermissionCollection, otherRoles []access.RoleFile) (*access.Client, error) {
+	return access.New(store, access.WithDefaultRoles(collection, Roles(), otherRoles...))
+}
+`
 	const deploy = `package deploy
 
 import (
@@ -89,6 +106,13 @@ func run(ctx context.Context, data *Data) error {
 				{File: "pkg/config/data.go", Line: 11, RolesPackage: "example.com/harbor/pkg/auth/crew"},
 				{File: "pkg/config/data.go", Line: 14},
 				{File: "pkg/config/data.go", Line: 17},
+			},
+		},
+		{
+			name:  "the role file handed over beside the other auths' files",
+			files: map[string]string{"pkg/auth/crew/crew.go": others},
+			wantRoles: []DefaultRoles{
+				{File: "pkg/auth/crew/crew.go", Line: 15, RolesPackage: "example.com/harbor/pkg/auth/crew"},
 			},
 		},
 		{

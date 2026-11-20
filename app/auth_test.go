@@ -544,6 +544,11 @@ func TestReadSuperAdministrators(t *testing.T) {
 			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, RolesPackage: "example.com/harbor/pkg/auth/staff", Packages: []string{res, session, signin}},
 		},
 		{
+			name: "an engine handed its own role file beside the other auths' files",
+			body: strings.Replace(ownEngine, "Roles())", "Roles(), settings.OtherRoles...)", 1) + fmt.Sprintf(construct, scaffolded),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, RolesPackage: ownPkg, Packages: []string{res, session, signin}},
+		},
+		{
 			name: "an engine handed no role file here",
 			body: strings.Replace(ownEngine, "access.WithDefaultRoles(settings.Collection, Roles()), ", "", 1) + fmt.Sprintf(construct, scaffolded),
 			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, Packages: []string{res, session, signin}},

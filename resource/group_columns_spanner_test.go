@@ -31,7 +31,7 @@ func groupDatabase(t *testing.T, name string) *spanner.Client {
 	if err := db.MigrateUp("file://testdata/groupcolumns/schema"); err != nil {
 		t.Fatalf("initiator.SpannerDB.MigrateUp() error = %v", err)
 	}
-	if _, err := db.Client.Apply(context.Background(), []*spanner.Mutation{
+	if _, err := db.Apply(context.Background(), []*spanner.Mutation{
 		spanner.InsertMap("CastGroups", map[string]any{"Id": groupOfNorth, "DomainId": groupYardNorth, "Name": "North crew"}),
 		spanner.InsertMap("CastGroups", map[string]any{"Id": groupOfSouth, "DomainId": groupYardSouth, "Name": "South crew"}),
 		spanner.InsertMap("CastGroups", map[string]any{"Id": groupOfEveryone, "DomainId": "", "Name": "Everyone"}),

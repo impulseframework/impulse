@@ -836,9 +836,14 @@ const (
 	rolesFunc         = "Roles"
 )
 
+// defaultRolesMinArgs is the fewest arguments an access.WithDefaultRoles call hands over
+// a role file with: the collection, then the file. Any after them are other auths' files.
+const defaultRolesMinArgs = 2
+
 // parseDefaultRoles returns every access.WithDefaultRoles call in the file, each carrying
 // the package whose Roles() it hands over. ownPkg is the file's package import path, which
-// an unqualified Roles() names.
+// an unqualified Roles() names. The role file is the call's second argument: the ones after
+// it are the other auths' files, which the engine reads only to know which sets are read.
 func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
@@ -858,7 +863,7 @@ func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, e
 			return true
 		}
 		d := DefaultRoles{File: rel, Line: fset.Position(call.Pos()).Line}
-		if len(call.Args) == 2 {
+		if len(call.Args) >= defaultRolesMinArgs {
 			d.RolesPackage = rolesCallPackage(call.Args[1], imports, ownPkg)
 		}
 		calls = append(calls, d)

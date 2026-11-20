@@ -162,6 +162,11 @@ type Settings struct {
 	// opens. The package that constructs the auth passes it in; this package imports no
 	// router.
 	Collection access.PermissionCollection
+	// OtherRoles are the role files of the application's other auths. The role-file
+	// check counts a subject set as read when any auth's roles read it, so each auth is
+	// handed the others' files; the configuration passes them in, since the auths do not
+	// import each other.
+	OtherRoles []access.RoleFile
 	// Signals is the application's live service: the permission engine signals the policy
 	// kind on it after every policy write and follows the kind from every other instance
 	// (access.WithChangeSignal), so a role, grant or membership written on one instance
@@ -448,7 +453,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	_, tenantAdministrators := AdministratorRoles()
 {{- end}}
 	accessClient, err := access.New(store,
-		access.WithDefaultRoles(settings.Collection, Roles()),
+		access.WithDefaultRoles(settings.Collection, Roles(), settings.OtherRoles...),
 		access.WithChangeSignal(access.ChangeSignalFunc(announcePolicy(settings.Signals), watchPolicy(settings.Signals))),
 {{- if .IdentityPackage}}
 		// What no role file takes from a super administrator: the methods that give and

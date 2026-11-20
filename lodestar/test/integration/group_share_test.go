@@ -157,9 +157,9 @@ func (w *groupShareWorld) createPass(t *testing.T, value string) (status int, bo
 	return status, body, id
 }
 
-// groupPass is the value of a pass that names a group.
-func groupPass(hangar, group, level string) string {
-	return fmt.Sprintf(`{"hangarId":%q,"groupId":%q,"levelId":%q}`, hangar, group, level)
+// groupPass is the value of a pass on Anvil's dock that names a group.
+func groupPass(group, level string) string {
+	return fmt.Sprintf(`{"hangarId":%q,"groupId":%q,"levelId":%q}`, hangarAnvilDockID, group, level)
 }
 
 // passes counts the passes a query finds, read straight from the database.
@@ -369,7 +369,7 @@ func TestGroupShare_levels(t *testing.T) {
 	if got := w.groupsOffered(t)["Dock hands"]; got != group {
 		t.Fatalf("the group picker offers Dock hands as %q, want the id the create answered, %q", got, group)
 	}
-	status, body, pass := w.createPass(t, groupPass(hangarAnvilDockID, group, "visit"))
+	status, body, pass := w.createPass(t, groupPass(group, "visit"))
 	assertStatus(t, status, http.StatusOK, body)
 	open("the group visits the dock", "keeper", hangarAnvilDockID)
 	status, body = doRequestAs(t, w.h, "keeper", http.MethodGet, sectorPath(anvil, "hangars/"+hangarAnvilDockID), "")
@@ -567,7 +567,7 @@ func TestGroupShare_tenants(t *testing.T) {
 	}
 
 	// The same person, the same kind of pass, and a group Anvil keeps: the dock opens.
-	status, body, _ := w.createPass(t, groupPass(hangarAnvilDockID, dockHands, "visit"))
+	status, body, _ := w.createPass(t, groupPass(dockHands, "visit"))
 	assertStatus(t, status, http.StatusOK, body)
 	open("a pass of Anvil's names Anvil's group", anvil, hangarAnvilDockID)
 
@@ -616,7 +616,7 @@ func TestGroupShare_groupNotKept(t *testing.T) {
 		{name: "an id that is no group's", group: "62000000-0000-4000-8000-0000000000ff"},
 	}
 	for _, tt := range tests {
-		status, body, _ := w.createPass(t, groupPass(hangarAnvilDockID, tt.group, "run"))
+		status, body, _ := w.createPass(t, groupPass(tt.group, "run"))
 		if status != http.StatusBadRequest {
 			t.Errorf("a pass of Anvil's that names %s: status = %d, want 400: %s", tt.name, status, body)
 		}
@@ -628,7 +628,7 @@ func TestGroupShare_groupNotKept(t *testing.T) {
 		}
 	}
 
-	status, body, id := w.createPass(t, groupPass(hangarAnvilDockID, dockHands, "run"))
+	status, body, id := w.createPass(t, groupPass(dockHands, "run"))
 	assertStatus(t, status, http.StatusOK, body)
 	if n := w.passes(t, "Id = @id AND GroupId = @group", map[string]any{"id": id, "group": dockHands}); n != 1 {
 		t.Errorf("a pass of Anvil's that names Anvil's own group: %d rows written, want 1", n)
@@ -737,7 +737,7 @@ func TestGroupShare_oneHolder(t *testing.T) {
 	}
 
 	// One holder of each kind is taken.
-	status, body, _ := w.createPass(t, groupPass(hangarAnvilDockID, group, "visit"))
+	status, body, _ := w.createPass(t, groupPass(group, "visit"))
 	assertStatus(t, status, http.StatusOK, body)
 	status, body, _ = w.createPass(t, fmt.Sprintf(`{"hangarId":%q,"userId":%q,"levelId":"visit"}`, hangarAnvilDockID, person))
 	assertStatus(t, status, http.StatusOK, body)

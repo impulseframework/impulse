@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 )
@@ -18,6 +19,8 @@ const (
 	groupOfSouth    = "aaaaaaaa-0000-4000-8000-000000000002"
 	groupOfEveryone = "aaaaaaaa-0000-4000-8000-000000000003"
 	groupOfNobody   = "aaaaaaaa-0000-4000-8000-000000000009"
+	// groupUnread is a group the in-memory reader fails to read.
+	groupUnread = "aaaaaaaa-0000-4000-8000-00000000000f"
 
 	// groupRefusal is the answer to a row that names a group its yard does not keep.
 	groupRefusal = "groupId names a group that is not one of this yard's own. Choose a group kept in this yard: a group kept in another yard, or for the whole application, cannot be named here."
@@ -147,8 +150,13 @@ func TestGroupColumn_check(t *testing.T) {
 		hold("CastGroups", "Id", "DomainId", groupOfSouth, groupYardSouth)
 		hold("CastGroups", "Id", "DomainId", groupOfEveryone, "")
 		hold("GroupShares", "Id", "Yard", "north-share", groupYardNorth)
+		errRead := errors.New("the database did not answer")
 		read := func(_ context.Context, stmt *Statement) (string, bool, error) {
-			text, found := held[stmt.SQL+" "+stmt.Params["value"].(string)]
+			value, _ := stmt.Params["value"].(string)
+			if value == groupUnread {
+				return "", false, errRead
+			}
+			text, found := held[stmt.SQL+" "+value]
 
 			return text, found, nil
 		}
@@ -163,6 +171,18 @@ func TestGroupColumn_check(t *testing.T) {
 				tt.judge(t, onRow.check(context.Background(), dbType, read, tt.anchor, tt.group))
 			})
 		}
+
+		t.Run(string(dbType)+", yard on the row: a read that fails is returned and refuses nothing", func(t *testing.T) {
+			t.Parallel()
+
+			err := onRow.check(context.Background(), dbType, read, groupYardNorth, groupUnread)
+			if !errors.Is(err, errRead) {
+				t.Fatalf("error = %v, want the read's own error", err)
+			}
+			if httpio.HasBadRequest(err) {
+				t.Errorf("error = %v, want no bad request: a read that failed says nothing about the group", err)
+			}
+		})
 
 		throughParent := groupSeal{}.GroupColumns()[0]
 		for _, tt := range []groupCase{

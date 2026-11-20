@@ -3,7 +3,6 @@ package resource
 import (
 	"context"
 	"encoding"
-	"fmt"
 	"reflect"
 
 	"cloud.google.com/go/spanner"
@@ -109,10 +108,11 @@ func (c *GroupColumn) check(ctx context.Context, dbType DBType, read textReader,
 // pointTextStatement renders the read of one column of the row a key names, as text
 // whatever the column's own type.
 func pointTextStatement(dbType DBType, table, key, column, value string) *Statement {
-	sql := fmt.Sprintf("SELECT CAST(`%s` AS STRING) FROM `%s` WHERE `%s` = @value", column, table, key)
+	quote, text := "`", "STRING"
 	if dbType == PostgresDBType {
-		sql = fmt.Sprintf(`SELECT CAST("%s" AS text) FROM "%s" WHERE "%s" = @value`, column, table, key)
+		quote, text = `"`, "text"
 	}
+	sql := "SELECT CAST(" + quote + column + quote + " AS " + text + ") FROM " + quote + table + quote + " WHERE " + quote + key + quote + " = @value"
 
 	return &Statement{SQL: sql, Params: map[string]any{"value": value}}
 }
