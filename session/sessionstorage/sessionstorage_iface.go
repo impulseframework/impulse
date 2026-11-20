@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/postgres"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/spanner"
@@ -52,7 +53,15 @@ type BaseStore interface {
 	// record is consulted or written: the request's Username is the
 	// session's effective identity as the session type resolved it. It errors when no
 	// impersonation table is configured.
-	CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error)
+	//
+	// It is the session library's alone to call. The write takes whatever principal,
+	// mask and actor it is handed, so it is sealed behind a key of a type declared
+	// inside the library (session/internal/sealed), which no other module can name
+	// or make: a call from an application does not compile, and a key the library
+	// did not make is refused with nothing written. An application starts an
+	// impersonated session through the kinds it declares (session.Impersonations)
+	// and the session type's StartImpersonatedSession.
+	CreateImpersonatedSession(ctx context.Context, key sealed.ImpersonationKey, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error)
 	// DestroyImpersonatedSessions expires every live impersonated session established
 	// by actor and ends their records with reason Revoked. It errors when no
 	// impersonation table is configured.

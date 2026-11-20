@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/postgres"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/spanner"
@@ -226,6 +227,12 @@ func Test_sessionStorage_unreadableMaskIsLogged(t *testing.T) {
 	}
 }
 
+// Test_sessionStorage_CreateImpersonatedSession pins the storage's write of an
+// impersonated session: the row it hands the driver, the driver's error, and the seal.
+// The write is the session library's alone, so a key the library did not make (the
+// zero key, which is all a caller outside the library can come by) is refused with
+// ErrImpersonationSealed before the driver is reached: the mock fails the test on any
+// insert it was not told to expect.
 func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 	t.Parallel()
 
@@ -234,10 +241,21 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 	expires := started.Add(time.Hour)
 
 	tests := []struct {
-		name    string
+		name string
+		// key is the key the caller holds: the session library's unless a case says
+		// otherwise.
+		key     *sealed.ImpersonationKey
 		prepare func(*Mockdb)
 		wantErr bool
+		wantIs  error
 	}{
+		{
+			name:    "a key the session library did not make is refused with nothing written",
+			key:     &sealed.ImpersonationKey{},
+			prepare: func(*Mockdb) {},
+			wantErr: true,
+			wantIs:  ErrImpersonationSealed,
+		},
 		{
 			name: "renders the insert row and returns the id",
 			prepare: func(mockDB *Mockdb) {
@@ -285,9 +303,16 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 				StartedAt: started,
 				ExpiresAt: expires,
 			}
-			got, err := s.CreateImpersonatedSession(context.Background(), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob"}, imp)
+			key := sealed.NewImpersonationKey()
+			if tt.key != nil {
+				key = *tt.key
+			}
+			got, err := s.CreateImpersonatedSession(context.Background(), key, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob"}, imp)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("CreateImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
+				t.Errorf("CreateImpersonatedSession() error = %v, want %v", err, tt.wantIs)
 			}
 			if !tt.wantErr && got != sessionID {
 				t.Errorf("CreateImpersonatedSession() = %v, want %v", got, sessionID)

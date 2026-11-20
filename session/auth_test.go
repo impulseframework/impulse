@@ -26,6 +26,7 @@ import (
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
 	"github.com/impulseframework/impulse/session/internal/workos"
@@ -2750,8 +2751,8 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			if tt.wantPrincipal != (accesstypes.Principal{}) {
 				wantPrincipal = tt.wantPrincipal
 			}
-			f.store.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-				func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+			f.store.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ sealed.ImpersonationKey, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 					wantIssuer := ""
 					if tt.wantProviderSID != "" {
 						wantIssuer = "https://issuer"
@@ -2851,8 +2852,8 @@ func TestAuthAPI_StartImpersonatedSession_ActorNamedAsAccount(t *testing.T) {
 					// The name of an actor from elsewhere must be no user's here.
 					f.store.EXPECT().UserByUserName(gomock.Any(), tt.actor).Return(nil, httpio.NewNotFoundMessage("no such user"))
 				}
-				f.store.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-					func(_ context.Context, _ *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+				f.store.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, _ sealed.ImpersonationKey, _ *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 						if imp.Actor != tt.actor || imp.ActorRealm != tt.realm || imp.Principal != p.principal {
 							t.Errorf("CreateImpersonatedSession() record = actor %q of %q as %s; want %q of %q as %s", imp.Actor, imp.ActorRealm, imp.Principal, tt.actor, tt.realm, p.principal)
 						}

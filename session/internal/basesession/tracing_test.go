@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/cookie"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/mock/mock_cookie"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
@@ -237,7 +238,7 @@ func TestBaseSession_StartImpersonatedSession_SpanEvidence(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	sessionID := impulse.Must(impulse.NewUUID())
 	storage := mock_sessionstorage.NewMockBaseStore(ctrl)
-	storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
+	storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
 	cookieHandler := mock_cookie.NewMockHandler(ctrl)
 	cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 	cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)

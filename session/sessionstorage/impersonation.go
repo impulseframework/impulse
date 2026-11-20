@@ -8,6 +8,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/postgres"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/spanner"
@@ -81,14 +82,28 @@ func (s *sessionStorage) EndImpersonation(ctx context.Context, sessionID impulse
 	return nil
 }
 
+// ErrImpersonationSealed is returned by CreateImpersonatedSession to a caller that holds
+// no key of the session library's: the storage beneath an impersonated session is the
+// library's alone to write.
+var ErrImpersonationSealed = errors.New("the storage beneath an impersonated session is sealed: only the session library writes an impersonated session and its record. Declare the kinds of impersonation the application offers (session.Impersonations) and start one with the session's StartImpersonatedSession")
+
 // CreateImpersonatedSession creates a new session for the request together with its
 // impersonation record, atomically, and returns the session ID. Custom session data
 // follows the session type's creation semantics inside the same transaction. The
 // request's Username is written as the session's effective identity; no user record is
 // consulted here — the session type resolved the identity before calling.
-func (s *sessionStorage) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+//
+// The key seals the write to the session library: its type is declared inside the
+// library, so a call from an application does not compile, and a key the library did
+// not make (the zero key) is refused here with ErrImpersonationSealed before anything
+// is written.
+func (s *sessionStorage) CreateImpersonatedSession(ctx context.Context, key sealed.ImpersonationKey, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+
+	if !key.Held() {
+		return impulse.NilUUID, ErrImpersonationSealed
+	}
 
 	session := &dbtype.InsertSession{
 		Username: req.Username,

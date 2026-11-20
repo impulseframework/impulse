@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/cookie"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/mock/mock_cookie"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
@@ -53,8 +54,8 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 	}
 	// createdWithSource asserts the record written names sourceID as the source session.
 	createdWithSource := func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler) {
-		storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
-			DoAndReturn(func(_ context.Context, _ *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+		storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ sealed.ImpersonationKey, _ *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 				if imp.SourceSessionID != source {
 					return impulse.NilUUID, errors.Newf("SourceSessionID = %v, want %v", imp.SourceSessionID, source)
 				}
@@ -118,7 +119,7 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 			name: "a foreign actor is not checked here",
 			imp:  &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Editor")},
 			prepare: func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler) {
-				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
+				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 			},
@@ -128,7 +129,7 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 			imp:  &sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")},
 			prepare: func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler) {
 				storage.EXPECT().Session(gomock.Any(), sourceID).Return(ordinarySession(sourceID, "alice", time.Now()), nil)
-				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
+				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 			},
@@ -138,8 +139,8 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 			imp:  &sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")},
 			prepare: func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler) {
 				storage.EXPECT().Session(gomock.Any(), sourceID).Return(accountSession(sourceID, "alice", aliceID, time.Now()), nil)
-				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
-					DoAndReturn(func(_ context.Context, _ *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, _ sealed.ImpersonationKey, _ *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 						if want := impulse.NullUUIDFromUUID(aliceID); imp.ActorID != want || imp.ActorUser() != accesstypes.User(aliceID.String()) {
 							return impulse.NilUUID, errors.Newf("record written with ActorID = %v (ActorUser %q), want %v", imp.ActorID, imp.ActorUser(), want)
 						}

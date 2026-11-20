@@ -3237,10 +3237,20 @@ application can set, so a request written out by hand does not compile, and the 
 value, which no declaration made, is refused when a session is started from it. So
 the session API starts no session that no declared kind allows, and none without a
 mask somebody chose: a kind that gives everything the person holds says so where the
-application is read, with `accesstypes.AllowAll()`. (The storage beneath the session
-API is not that API. The store's own `CreateImpersonatedSession` is the write the
-session library makes once it has decided, with no check of its own, as the store's
-`CreateSession` is; an application's handlers start sessions through the session API.)
+application is read, with `accesstypes.AllowAll()`.
+
+**The storage beneath is sealed.** The store's own `CreateImpersonatedSession` is the
+write the session library makes once it has decided: it writes a session and its
+record with whatever principal, mask and actor it is handed, and asks nothing. So it
+is the session library's alone to call. It takes a key whose type lives inside the
+library (`session/internal/sealed`), which Go lets no other program import: an
+application's direct call does not compile, with no key, with a key of its own making
+or with the library's. A key nobody made, which reflection or a type parameter can
+reach without naming the type, is refused with `sessionstorage.ErrImpersonationSealed`
+before anything is written. An application starts an impersonated session through the
+session API, from a request its declaration made, and in no other way. An application
+that wraps the store keeps doing so by embedding it; one that wrote a store of its own
+from nothing can no longer write this method, and embeds the library's store for it.
 
 ```go
 // A person signed in here views bob's pages. The route is behind ValidateSession: the

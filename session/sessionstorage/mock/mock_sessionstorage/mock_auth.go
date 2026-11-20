@@ -16,6 +16,7 @@ import (
 
 	impulse "github.com/impulseframework/impulse"
 	securehash "github.com/impulseframework/impulse/securehash"
+	sealed "github.com/impulseframework/impulse/session/internal/sealed"
 	signinflow "github.com/impulseframework/impulse/session/internal/signinflow"
 	sessioninfo "github.com/impulseframework/impulse/session/sessioninfo"
 	sessionstorage "github.com/impulseframework/impulse/session/sessionstorage"
@@ -219,18 +220,18 @@ func (mr *MockAuthStoreMockRecorder[Tx]) ConsumePendingSignIn(ctx, tokenHash any
 }
 
 // CreateImpersonatedSession mocks base method.
-func (m *MockAuthStore[Tx]) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+func (m *MockAuthStore[Tx]) CreateImpersonatedSession(ctx context.Context, key sealed.ImpersonationKey, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateImpersonatedSession", ctx, req, imp)
+	ret := m.ctrl.Call(m, "CreateImpersonatedSession", ctx, key, req, imp)
 	ret0, _ := ret[0].(impulse.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateImpersonatedSession indicates an expected call of CreateImpersonatedSession.
-func (mr *MockAuthStoreMockRecorder[Tx]) CreateImpersonatedSession(ctx, req, imp any) *gomock.Call {
+func (mr *MockAuthStoreMockRecorder[Tx]) CreateImpersonatedSession(ctx, key, req, imp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateImpersonatedSession", reflect.TypeOf((*MockAuthStore[Tx])(nil).CreateImpersonatedSession), ctx, req, imp)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateImpersonatedSession", reflect.TypeOf((*MockAuthStore[Tx])(nil).CreateImpersonatedSession), ctx, key, req, imp)
 }
 
 // CreateSession mocks base method.
