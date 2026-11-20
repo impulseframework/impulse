@@ -255,6 +255,13 @@ holds no sign-in back. A person's first sign-in through a directory under the ac
 sign-in name is joined to the account as it is for an account that has no password, and
 the account keeps the password it has.
 
+A developer can give a sign-in method a rule of their own, written in code, and such a rule
+can say that a person must enter the account's password before the sign-in is joined to the
+account. On an auth with no password method nobody could enter it. That sign-in is refused:
+the person is sent back to the login page, nothing is joined to the account, and the
+server's log tells the developer in one line to give the auth the password method or to
+change the rule.
+
 Shapes 6 and 8 have one more method, single sign-on through a tenant's own identity
 provider. It is **not released yet**: the method is in the session library, the
 framework's package `session`, as an internal package (`session/internal/workos`), which

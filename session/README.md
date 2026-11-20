@@ -363,10 +363,12 @@ DML what a later rule must read.
   match by name does not have. Never choose the user by an email or
   another claim the provider does not verify. On an Auth that registers no password
   method nobody can confirm, so a rule's `Link` to a user who holds a password is
-  decided as a link to a user without one. A rule's own `Confirm` is taken at its word
-  there too: the sign-in waits for the password, and the person can enter it only where
-  the application mounts `Pending().ConfirmWithPassword()` itself and its list names
-  the confirm path. A rule on such an Auth answers `Link` or `Reject` instead.
+  decided as a link to a user without one. A rule's own `Confirm` is refused there
+  (`identity_rejected`, `signin.ErrConfirmNeedsPasswordMethod`): the sign-in would wait
+  for a password nobody can enter, so it ends on the login page with the code, nothing
+  is linked, and the server logs one error line that names the sign-in method and says
+  what to change. Register the password method on such an Auth, or have the rule answer
+  `Link` or `Reject`.
 
 A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
 
@@ -2798,7 +2800,7 @@ table is the wire contract:
 | `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
 | `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
-| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
+| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |

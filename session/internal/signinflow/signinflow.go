@@ -189,7 +189,9 @@ type Rules[Tx any] struct {
 	// a password, so a password an account holds (one the application's API set, or
 	// one kept from a release that had the method) is no reason to hold a sign-in for
 	// a confirmation no route can take: the standard rule and the link decide such an
-	// account as they decide one with no password; see asRegistered.
+	// account as they decide one with no password; see asRegistered. A rule of the
+	// registration's own that asks for the confirmation all the same is refused; see
+	// applyResolution.
 	NoPassword bool
 	// TrustedDevice reports whether the browser is a trusted device of the user, nil
 	// for none; see decideSignIn.
@@ -1247,6 +1249,13 @@ func applyResolution[Tx any](
 
 		return sessioninfo.UserProvisioned, res.Tenant(), live, nil, nil
 	case signin.RequireConfirmation:
+		// A confirmation is the user's password, and an Auth with no password method
+		// serves nothing that takes one: the sign-in would wait on what nobody can
+		// give. It is refused, and never made a link, which would join the account on
+		// less proof than the rule asked for.
+		if rules.NoPassword {
+			return "", "", false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrConfirmNeedsPasswordMethod, "identity requires a confirmation that cannot be given"), nil
+		}
 		user, err := d.UserIn(ctx, tx, res.UserID())
 		if err != nil {
 			return "", "", false, nil, errors.Wrap(err, "Driver.UserIn()")

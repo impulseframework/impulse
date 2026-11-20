@@ -6,11 +6,12 @@ package drivertest
 // confirmation, so a sign-in held for it would wait for ever. Under such an Auth
 // (signinflow.Rules.NoPassword) the standard rule and the link decide the account as
 // they decide one with no password: joined at its first sign-in through a directory,
-// and held to everything an account with no password is held to. The cases run through
-// the real sign-in flow on both drivers. They follow the sequence that locked a person
-// out (a password set, the password method taken out, a first sign-in through the
-// directory): first with the method registered, where the sign-in waits for the
-// password, then without it.
+// and held to everything an account with no password is held to. A rule of the
+// registration's own that asks for the password all the same is refused: the sign-in
+// would wait on what nobody can give. The cases run through the real sign-in flow on
+// both drivers. They follow the sequence that locked a person out (a password set, the
+// password method taken out, a first sign-in through the directory): first with the
+// method registered, where the sign-in waits for the password, then without it.
 
 import (
 	"context"
@@ -75,14 +76,15 @@ func testNoPasswordMethod(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:       "with no password method, a rule of the registration's own that asks for the password is taken at its word: the sign-in waits and nothing is linked",
+			name:       "with no password method, a rule of the registration's own that asks for the password is refused, since nobody could enter it: nothing waits and nothing is linked",
 			noPassword: true,
 			resolve: func(ada *dbtype.SessionUser) *signin.Resolution {
 				return signin.Confirm(ada.ID, signin.Tenant("lakeside"))
 			},
-			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, ada *dbtype.SessionUser) {
+			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
 				t.Helper()
-				assertConfirmationPending(ctx, t, d, err, google("sub-ada", name), ada, "lakeside")
+				assertRefused(t, err, sessioninfo.RefusedIdentityRejected, signin.ErrConfirmNeedsPasswordMethod)
+				assertNoLink(ctx, t, d, google("sub-ada", name))
 			},
 		},
 	}
