@@ -235,6 +235,11 @@ func (s *BaseSession) validateSession(ctx context.Context, evidence trace.Span) 
 // session; it does not answer one person's cookie with another person's session, which
 // the start of an impersonated session would otherwise record and the end hand back.
 //
+// Nor does it say who the session's checks are made for, or keep a session going that
+// the library's own store has ended (heldToTheLibrarysRow): a principal the store's
+// answer carries is not taken, and where the library's own read found the session,
+// whether it was signed out and when it was last used are that row's.
+//
 // A failure of the library's own read that is not one of those is the request's
 // failure: the session is not handed to the wrapper to decide.
 func (s *BaseSession) session(ctx context.Context, sessionID impulse.UUID) (*sessioninfo.SessionData, error) {
@@ -274,7 +279,7 @@ func (s *BaseSession) session(ctx context.Context, sessionID impulse.UUID) (*ses
 		return nil, err
 	}
 
-	return sess, nil
+	return heldToTheLibrarysRow(own, sess), nil
 }
 
 // heldToTheSessionAsked refuses a store's answer for an ordinary session that is not
@@ -307,6 +312,34 @@ func heldToTheSessionAsked(sessionID impulse.UUID, own, answered *sessioninfo.Se
 	}
 
 	return nil
+}
+
+// heldToTheLibrarysRow answers a store's ordinary session with what a store that wraps
+// the library's does not decide put back. Such a store adds to an ordinary session (its
+// custom data, an answer from a cache); two things it does not say:
+//   - Who the session's checks are made for. The Principal is set at validation and
+//     never stored, so one a store's answer carries is not the library's and is cleared:
+//     the principal of an ordinary session comes from the resolver, or from the
+//     session's own user.
+//   - That a session the library's own store has ended is still live. Where the
+//     library's own read found the session (own, nil when it did not), the session is
+//     expired when that row is, whatever the answer says, and it was last used when
+//     that row says it was, which is what the idle timeout counts from. A cache in front
+//     of the store therefore keeps no signed-out or idle session working. A store's
+//     answer still ends a session the row holds live, as an error from it does.
+//
+// The answer is copied before it is changed, so a cache keeps what it held.
+func heldToTheLibrarysRow(own, answered *sessioninfo.SessionData) *sessioninfo.SessionData {
+	held := *answered
+	held.Principal = accesstypes.Principal{}
+	if own != nil {
+		info := *answered.SessionInfo
+		info.Expired = info.Expired || own.Expired
+		info.UpdatedAt = own.UpdatedAt
+		held.SessionInfo = &info
+	}
+
+	return &held
 }
 
 // Establish puts the validated session in ctx, resolves its principal, and stamps the

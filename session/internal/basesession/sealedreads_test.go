@@ -169,6 +169,37 @@ func TestBaseSession_ValidateSessionAPI_whatAWrapperDecides(t *testing.T) {
 			wantUsername: "robert",
 		},
 		{
+			name: "a wrapper cannot keep a signed-out session working: the library's own row says it has ended",
+			stored: func() *sessioninfo.SessionData {
+				sess := ordinarySession(sessionID, "bob", time.Now())
+				sess.Expired = true
+
+				return sess
+			}(),
+			answer:           ordinary("bob"),
+			wantAsked:        true,
+			wantUnauthorized: true,
+		},
+		{
+			name:             "a wrapper cannot keep an idle session working: the library's own row says when it was last used",
+			stored:           ordinarySession(sessionID, "bob", time.Now().Add(-time.Hour)),
+			answer:           ordinary("bob"),
+			wantAsked:        true,
+			wantUnauthorized: true,
+		},
+		{
+			name:   "a wrapper still ends a session the library's own row holds live",
+			stored: ordinarySession(sessionID, "bob", time.Now()),
+			answer: func(impulse.UUID) (*sessioninfo.SessionData, error) {
+				sess := ordinarySession(sessionID, "bob", time.Now())
+				sess.Expired = true
+
+				return sess, nil
+			},
+			wantAsked:        true,
+			wantUnauthorized: true,
+		},
+		{
 			name:             "a wrapper cannot make an ordinary session an impersonated one",
 			stored:           ordinarySession(sessionID, "bob", time.Now()),
 			answer:           unmasked,
@@ -225,6 +256,55 @@ func TestBaseSession_ValidateSessionAPI_whatAWrapperDecides(t *testing.T) {
 			}
 			if mask := sessioninfo.MaskFromCtx(gotCtx); !mask.ReadOnly() {
 				t.Errorf("the session's mask = %q, want the stored one, reading only", mask.Words())
+			}
+		})
+	}
+}
+
+// TestBaseSession_ValidateSessionAPI_aStoresPrincipalIsNotTaken holds who an ordinary
+// session's checks are made for to the library: the principal is set at validation and
+// never stored, so one a store's answer carries is not taken, from a store that wraps
+// the library's and from one that holds no read of the library's making alike. With no
+// resolver the checks are made for the session's own user, and the answer the store
+// handed over is left as it was, since a cache may hold it.
+func TestBaseSession_ValidateSessionAPI_aStoresPrincipalIsNotTaken(t *testing.T) {
+	t.Parallel()
+
+	sessionID := impulse.Must(impulse.NewUUID())
+	bobID := impulse.Must(impulse.NewUUID())
+	alices := accesstypes.UserPrincipal("alice")
+	stores := map[string]func(ctrl *gomock.Controller, answer *sessioninfo.SessionData) sessionstorage.BaseStore{
+		"a store that wraps the library's": func(ctrl *gomock.Controller, answer *sessioninfo.SessionData) sessionstorage.BaseStore {
+			inner := mockstore.NewBaseStore(ctrl)
+			inner.EXPECT().Session(gomock.Any(), sessionID).Return(accountSession(sessionID, "bob", bobID, time.Now()), nil)
+
+			return &wrappedStore{BaseStore: inner, answer: func(impulse.UUID) (*sessioninfo.SessionData, error) {
+				return answer, nil
+			}}
+		},
+		"a store with no read of the library's making": func(ctrl *gomock.Controller, answer *sessioninfo.SessionData) sessionstorage.BaseStore {
+			storage := mock_sessionstorage.NewMockBaseStore(ctrl)
+			storage.EXPECT().Session(gomock.Any(), sessionID).Return(answer, nil)
+
+			return storage
+		},
+	}
+	for name, store := range stores {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			answer := accountSession(sessionID, "bob", bobID, time.Now())
+			answer.Principal = alices
+			s := &BaseSession{SessionTimeout: time.Minute, Storage: store(gomock.NewController(t), answer)}
+			gotCtx, err := s.ValidateSessionAPI(context.WithValue(context.Background(), sessioninfo.CTXSessionID, sessionID))
+			if err != nil {
+				t.Fatalf("ValidateSessionAPI() error = %v, want none", err)
+			}
+			if got, want := sessioninfo.PrincipalFromCtx(gotCtx), accesstypes.UserPrincipal(accesstypes.User(bobID.String())); got != want {
+				t.Errorf("the session's principal = %s, want %s: the session's own user, whatever principal the store's answer carried", got, want)
+			}
+			if answer.Principal != alices {
+				t.Errorf("the store's own answer was changed: its principal = %s, want it left as the store handed it over", answer.Principal)
 			}
 		})
 	}

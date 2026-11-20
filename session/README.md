@@ -3273,7 +3273,19 @@ and the session and its user on every later request. So:
   another account or another username than that row. A wrapper adds to an ordinary
   session and does not change whose it is, so a cache that answers one person's cookie
   with another person's session has the request refused, and no session is started as
-  that person. A session that acts as someone else starts from the session the
+  that person. The same holds for the two other things a request is known by. Its
+  `User` answer is held to the account the session names: it carries the id that was
+  asked for and, where the library's own store holds the account, the username of that
+  row, or the request is refused as an invalid session, so the routes for a person's
+  own account never act on another person's. A `Principal` its `Session` answer
+  carries is not taken: an ordinary session's checks are made for whom the principal
+  resolver chose, or for the session's own user. And where the library's own store
+  holds the session, the session is expired when that row is and was last used when
+  that row says, so a cache keeps no signed-out or idle session working (a wrapper may
+  still end a session early, by answering it expired or with an error). The rest of an
+  ordinary session is the wrapper's: its custom data, the account's other columns
+  (whether it is disabled among them), and every read of an application token, which
+  starts no session that acts as someone else. A session that acts as someone else starts from the session the
   request's cookie names, which must be held under the same account in the library's
   store as the session the request was validated as, or nothing is started. Over a
   wrapper the library reads an ordinary session twice on each request, once itself and
@@ -3357,7 +3369,9 @@ The seal is the library's API and no more. These are outside it:
 The two checks read the application's own tree as it stands: its Go files, its `go.mod`,
 a `go.work` at its root and the `go.mod` of each directory that `go.work` uses. They do
 not read the code of the modules the application requires, or a build told to read
-another module file (`go build -modfile`). They do not read a workspace file that is
+files from elsewhere: the `-modfile` flag names another module file, the `-overlay`
+flag replaces or adds source files from anywhere, and the `GOFLAGS` variable carries
+either with nothing on the command line. They do not read a workspace file that is
 not at the application's root either: the go command takes a `go.work` from any
 directory above the one it runs in, and the file the `GOWORK` variable names, and
 either can use a directory whose module path is under the library's. An application

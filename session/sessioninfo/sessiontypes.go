@@ -34,7 +34,9 @@ type SessionInfo struct {
 // is the zero Principal when no resolver is configured, when the resolver kept the
 // default, and for every session that acts as someone else, which the resolver is never
 // asked about: PrincipalFromCtx then derives the subject from the impersonation record
-// or the session's own user.
+// or the session's own user. A Principal the session store's answer carries is not
+// taken: validation clears it before the resolver is asked, so the subject comes from
+// the resolver or from the session's own user and never from a store.
 type SessionData struct {
 	*SessionInfo
 	CustomData    any

@@ -324,7 +324,7 @@ func (a *Auth[S, U, Tx]) validate(ctx context.Context) (context.Context, error) 
 // (impersonatedSessionUser), never through the exported User of a store that wraps it:
 // which account a session that acts as someone else answers for is what the library's
 // own rows say. An ordinary session's user is the store's User, as the session is the
-// store's Session.
+// store's Session, held to the account the session names (heldToTheAccountAsked).
 func (a *Auth[S, U, Tx]) sessionUser(ctx context.Context, sessData *sessioninfo.SessionData) (*sessioninfo.UserInfo, error) {
 	if imp := sessData.Impersonation; imp != nil {
 		return a.impersonatedSessionUser(ctx, sessData, imp)
@@ -341,8 +341,64 @@ func (a *Auth[S, U, Tx]) sessionUser(ctx context.Context, sessData *sessioninfo.
 
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
+	if err := a.heldToTheAccountAsked(ctx, sessData.UserID.UUID, user); err != nil {
+		return nil, err
+	}
 
 	return enabledUser(user)
+}
+
+// heldToTheAccountAsked refuses a store's answer for the account of an ordinary session
+// that is not the account the session names. The answer carries the id that was asked
+// for. And where the library's own store holds the account, the answer carries the
+// username that row does: the library's own read is asked (sealed.User), which a store
+// that wraps the library's cannot replace. A store the library made, handed over as it
+// is, answered from that very read and is not asked twice, and a store that holds no
+// read of the library's making (a mock, a store of an application's own) is held to the
+// id alone, as is an account the library's own store does not hold.
+//
+// Without this a store that wraps the library's, a read cache keyed by something other
+// than the account's id for one, could answer one person's session with another
+// person's account. The routes for a person's own account would then act on that
+// account (a token made for it, a device signed in as it, its password set), each
+// written to the library's store, so each would last after the cache was put right.
+//
+// The refusal is an invalid session, as a session with no account is. A failure of the
+// library's own read that is not one of those is the request's failure.
+func (a *Auth[S, U, Tx]) heldToTheAccountAsked(ctx context.Context, id impulse.UUID, answered *sessionstorage.SessionUser) error {
+	if answered == nil {
+		return httpio.NewUnauthorizedMessageWithError(
+			errors.Newf("the store's User answered the account %s with no account and no error", id), "invalid session",
+		)
+	}
+	if answered.ID != id {
+		return httpio.NewUnauthorizedMessageWithError(errors.Newf(
+			"the store's User answered the account %s with the account %s: the account of a session is the one its row names, "+
+				"so a store that wraps the library's answers an account with that account",
+			id, answered.ID,
+		), "invalid session")
+	}
+	if sealed.SessionIsOwn(a.storage) {
+		return nil
+	}
+
+	own, err := sealed.User(ctx, a.storage, id)
+	switch {
+	case err == nil:
+	case httpio.HasNotFound(err), errors.Is(err, sealed.ErrSealed):
+		return nil
+	default:
+		return errors.Wrap(err, "sealed.User()")
+	}
+	if answered.Username != own.Username {
+		return httpio.NewUnauthorizedMessageWithError(errors.Newf(
+			"the store's User answered the account %s under another username than the session library's own store holds it under: "+
+				"a store that wraps the library's adds to an account and does not change whose it is",
+			id,
+		), "invalid session")
+	}
+
+	return nil
 }
 
 // impersonatedSessionUser is sessionUser for a session that acts as someone else: the

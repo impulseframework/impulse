@@ -42,6 +42,8 @@ type overridingStore[Tx any] struct {
 	// nameInstead the same for UserByUserName.
 	userInstead map[impulse.UUID]impulse.UUID
 	nameInstead map[string]impulse.UUID
+	// account changes what User hands on, on every call.
+	account func(u *sessionstorage.SessionUser) *sessionstorage.SessionUser
 	// cache, when made, stands in front of Session: an answer once given is given again.
 	cache map[impulse.UUID]*sessioninfo.SessionData
 	// starting is set while the application's route is inside StartImpersonatedSession.
@@ -87,13 +89,18 @@ func (s *overridingStore[Tx]) User(ctx context.Context, id impulse.UUID) (*sessi
 	s.mu.Lock()
 	s.usersAsked = append(s.usersAsked, id)
 	instead, replaced := s.userInstead[id]
+	account := s.account
 	s.mu.Unlock()
 
 	if replaced {
 		id = instead
 	}
+	u, err := s.user(ctx, id)
+	if err != nil || account == nil {
+		return u, err
+	}
 
-	return s.user(ctx, id)
+	return account(u), nil
 }
 
 // UserByUserName is the application's own read of an account by its name, in front of
@@ -230,10 +237,10 @@ func newReadsApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *rea
 				if data.UserID.Valid {
 					view.UserID = data.UserID.String()
 				}
+				view.Principal = sessioninfo.PrincipalFromCtx(r.Context()).String()
 				if imp := data.Impersonation; imp != nil {
 					view.Impersonated = true
 					view.Actor = imp.Actor
-					view.Principal = imp.Principal.String()
 					view.Mask = imp.Mask.Text()
 					if imp.ActorID.Valid {
 						view.ActorID = imp.ActorID.String()
@@ -393,6 +400,18 @@ func runSealedReads[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "a wrapper that keeps a cache of sessions does not keep a session that acts as someone else alive after it was ended",
 			run:  readsEndedSessionCached[Tx],
+		},
+		{
+			name: "a wrapper whose User answers an ordinary session with another account, or under another username, has the request refused as an invalid session",
+			run:  readsOrdinaryAccountChanged[Tx],
+		},
+		{
+			name: "a wrapper whose Session sets a principal on an ordinary session does not decide whom its checks are made for",
+			run:  readsOrdinaryPrincipalSet[Tx],
+		},
+		{
+			name: "a wrapper that keeps a cache of sessions does not keep an ordinary session alive after it was signed out",
+			run:  readsOrdinarySessionCached[Tx],
 		},
 	}
 	for _, tt := range tests {
@@ -768,4 +787,107 @@ func readsEndedSessionCached[Tx any](ctx context.Context, t *testing.T, a *reads
 	})); n != 2 {
 		t.Errorf("the wrapper's Session was asked for the view's session %s %d times, want 2, the test's own two calls: the library never asks it for a session that acts as someone else", id, n)
 	}
+}
+
+// readsOrdinaryAccountChanged is a wrapper whose User answers the account of a person's
+// own session wrongly: first with another person's account, as a cache keyed by
+// something other than the account's id would, and then with the right account under
+// another name. Each request is refused as an invalid session, so no route for a
+// person's own account acts on the other one, and the session is the person's again
+// once the wrapper answers as the library's store does.
+func readsOrdinaryAccountChanged[Tx any](ctx context.Context, t *testing.T, a *readsApp[Tx]) {
+	t.Helper()
+
+	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	sam := a.seed(ctx, t, "sam@lakeside.edu")
+	own := a.signedIn(ctx, t, "pat@lakeside.edu")
+	if v := own.readsSession(ctx); v.User != pat.String() || v.Impersonated {
+		t.Fatalf("the session = %+v, want pat@lakeside.edu's own (%s)", v, pat)
+	}
+
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.userInstead = map[impulse.UUID]impulse.UUID{pat: sam}
+	})
+	own.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
+	if !slices.Contains(a.store.asked().users, pat) {
+		t.Errorf("the wrapper's User was never asked for %s: the account of an ordinary session is the store's to answer", pat)
+	}
+
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.userInstead = nil
+		s.account = func(u *sessionstorage.SessionUser) *sessionstorage.SessionUser {
+			renamed := *u
+			renamed.Username = "sam@lakeside.edu"
+
+			return &renamed
+		}
+	})
+	own.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
+
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.account = nil
+	})
+	if v := own.readsSession(ctx); v.User != pat.String() || v.Username != "pat@lakeside.edu" {
+		t.Errorf("the session once the wrapper answers as the library's store does = %+v, want pat@lakeside.edu's own (%s)", v, pat)
+	}
+}
+
+// readsOrdinaryPrincipalSet is a wrapper whose Session hands every ordinary session on
+// with a principal of its choosing, another person's. No resolver is configured, so the
+// checks of the session are made for the session's own user: a principal is the
+// resolver's to choose, and a store's answer does not carry one.
+func readsOrdinaryPrincipalSet[Tx any](ctx context.Context, t *testing.T, a *readsApp[Tx]) {
+	t.Helper()
+
+	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	sam := a.seed(ctx, t, "sam@lakeside.edu")
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.session = func(sess *sessioninfo.SessionData) *sessioninfo.SessionData {
+			if sess.Impersonation != nil {
+				return sess
+			}
+			changed := *sess
+			changed.Principal = accesstypes.UserPrincipal(accesstypes.User(sam.String()))
+
+			return &changed
+		}
+	})
+
+	own := a.signedIn(ctx, t, "pat@lakeside.edu")
+	v := own.readsSession(ctx)
+	if want := accesstypes.UserPrincipal(accesstypes.User(pat.String())).String(); v.Principal != want {
+		t.Errorf("the session's principal = %q, want %q: the session's own user, whatever the wrapper's Session set", v.Principal, want)
+	}
+	if v.User != pat.String() {
+		t.Errorf("the session = %+v, want pat@lakeside.edu's own (%s)", v, pat)
+	}
+}
+
+// readsOrdinarySessionCached is readsEndedSessionCached for a person's own session: the
+// wrapper keeps every session it has answered, the session is signed out in the
+// library's store, and the cache still answers it as live. The next request is refused
+// all the same, since whether a session has ended is the library's own row's to say.
+func readsOrdinarySessionCached[Tx any](ctx context.Context, t *testing.T, a *readsApp[Tx]) {
+	t.Helper()
+
+	a.seed(ctx, t, "pat@lakeside.edu")
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.cache = map[impulse.UUID]*sessioninfo.SessionData{}
+	})
+
+	own := a.signedIn(ctx, t, "pat@lakeside.edu")
+	id, err := impulse.UUIDFromString(own.readsSession(ctx).SessionID)
+	if err != nil {
+		t.Fatalf("impulse.UUIDFromString() error = %v", err)
+	}
+
+	// The session is signed out where the library keeps it, past the wrapper.
+	if err := a.store.AuthStore.DestroySession(ctx, id); err != nil {
+		t.Fatalf("DestroySession(%s) error = %v", id, err)
+	}
+	if kept, err := a.store.Session(ctx, id); err != nil || kept.Expired {
+		t.Fatalf("the wrapper's Session(%s) after the sign-out = %+v, %v, want the cache's answer from before: a live session", id, kept, err)
+	}
+
+	own.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
 }
