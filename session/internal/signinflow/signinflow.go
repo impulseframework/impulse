@@ -221,9 +221,13 @@ type Rules[Tx any] struct {
 // granted. It is accepted only as the invited address: a sign-in whose address is not
 // the one the invitation was mailed to, the directory's for an external identity and
 // the account's own for a password one, is refused before anything is read or written
-// (invitation_address), the invitation left standing for the invited account. A
-// password account that holds no address accepts by the link, since the link is what
-// the person proved, and takes the address. An external identity that asserts no
+// (invitation_address), the invitation left standing for the invited account. The
+// link only opens the invitation: whoever holds it may have been forwarded it. So a
+// password account, or one the application signs in itself, accepts at once only where
+// it holds the invited address confirmed; one that holds no address, or holds the
+// invited one and has not confirmed it, waits for the code the library mails to the
+// invited address, the wait naming the account and nothing written (acceptedByCode,
+// namedCodeWait). An external identity that asserts no
 // address, or one its method did not verify, has none to compare: its acceptance rests
 // on the code the library mails to the invited address (rules.ConfirmAddress), so the
 // sign-in waits, naming no user and writing nothing, until it carries that proof
@@ -310,11 +314,17 @@ func SignIn[Tx any](
 		return errors.New("a password sign-in names its user in req.UserID")
 	default:
 		if req.Invitation != nil {
-			// The address was held to the invited one above. A dead invitation is
-			// skipped and the sign-in goes on; an acceptor that fails ends it, the
-			// invitation standing.
-			if _, err := acceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Invitation, rules.Accept); err != nil {
+			// The address was held to the invited one above, and the acceptance is held
+			// to the code mailed to it unless the account holds it confirmed: the sign-in
+			// waits for the code, naming its account, with nothing written. A dead
+			// invitation is skipped and the sign-in goes on; an acceptor that fails ends
+			// it, the invitation standing.
+			_, stop, err := acceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Invitation, rules.Accept, namedCodeWait)
+			if err != nil {
 				return err
+			}
+			if stop != nil {
+				return stop
 			}
 		}
 	}
@@ -461,20 +471,53 @@ func notTheInvited[Tx any](ctx context.Context, d Driver[Tx], tx Tx, inv *sessio
 	return nil, nil
 }
 
-// linkedAcceptsByCode decides the acceptance, by an identity that answers for no address
-// (acceptsByCode: it asserts none, or one its method did not verify), of the invitation
-// req carries, for the user the identity is linked to. The account
+// namedCodeWait is the wait of an acceptance by an account that signed in by naming
+// itself, with its password or in a session the application starts, and has not shown
+// the invited address to be its own: the sign-in is held for the email code, which the
+// library mails to the invited address. The person is known, so the wait names the
+// account; nothing is written before the code is entered, and the invitation is
+// accepted in the transaction of the sign-in that carries the code.
+func namedCodeWait(user *dbtype.User, _ *sessioninfo.Invitation) error {
+	return &signin.PendingSignInError{
+		Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(user.ID), Username: user.Username, Tenant: "", Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+	}
+}
+
+// signedInCodeRefusal is the answer to an acceptance by hand, by a person signed in
+// whose account has not shown the invited address to be its own: a session cannot wait
+// for a code, so the acceptance is refused (invitation_address, with
+// signin.ErrInvitationCode among its causes) and the sentence says what to do
+// (InvitedCodeMessage). Nothing is written and the invitation stands.
+func signedInCodeRefusal(_ *dbtype.User, inv *sessioninfo.Invitation) error {
+	cause := fmt.Errorf("%w: %w", signin.ErrInvitationAddress, signin.ErrInvitationCode)
+
+	return Refusal("", sessioninfo.RefusedInvitationAddress, cause, InvitedCodeMessage(inv))
+}
+
+// InvitedCodeMessage is the sentence shown for an acceptance by hand that was refused
+// because the account has not confirmed the invited address: what the person does
+// instead, and where the code goes.
+func InvitedCodeMessage(inv *sessioninfo.Invitation) string {
+	return fmt.Sprintf("To accept this invitation, sign in again from the invitation's link. A code will be sent to %s to confirm the address is yours.", inv.Email)
+}
+
+// acceptedByCode decides the acceptance of inv by user, an account whose sign-in does
+// not itself answer for the invited address: one an identity is linked to that asserts
+// no address, or one its method did not verify (acceptsByCode), one that signed in by
+// naming itself (a password, a session the application starts), and one whose person,
+// signed in, accepts by hand. The link proves nothing, since anybody may have been
+// forwarded it, so the account is held to the address. The account
 // that holds the invited address confirmed is the one invited, and accepts. An account
 // that holds another confirmed address is not, and neither is any account while
 // another one holds the invited address, confirmed or not (an address an administrator
 // entered is kept for its account): both are refused as an acceptance with another
 // address is. So is an account under another name in a store whose usernames are the
 // addresses, which could not take the invited one. An account that has confirmed no
-// address accepts once the sign-in has entered the code mailed to the invited address,
-// and waits for it until then (invitedCodeWait); the acceptance writes the address on
-// the account, confirmed.
-func linkedAcceptsByCode[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User) (stop, err error) {
-	inv := req.Invitation
+// address accepts once the sign-in has entered the code mailed to the invited address
+// (Invitation.AddressProven), and until then is answered wait: the wait for the code
+// where a sign-in can be held for it, the refusal that says to sign in again where it
+// cannot. The acceptance writes the address on the account, confirmed.
+func acceptedByCode[Tx any](ctx context.Context, d Driver[Tx], tx Tx, inv *sessioninfo.Invitation, user *dbtype.User, wait error) (stop, err error) {
 	holder, err := d.UserByEmailIn(ctx, tx, inv.Email)
 	if err != nil {
 		return nil, errors.Wrap(err, "Driver.UserByEmailIn()")
@@ -486,7 +529,7 @@ func linkedAcceptsByCode[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *
 	case holder != nil && !holds, user.EmailConfirmed, d.UsernameIsEmail() && !sameAddress(inv.Email, user.Username):
 		return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), nil
 	case !inv.AddressProven:
-		return invitedCodeWait(), nil
+		return wait, nil
 	default:
 		return nil, nil
 	}
@@ -541,13 +584,14 @@ const OrganizationHasTenantMessage = "Your organization is already set up in thi
 
 // addressRefusal is the refusal (invitation_address) of an acceptance of inv by an
 // account whose address, email, is not the invited one, compared without regard to
-// case and surrounding space. An account with no address ("") may accept when
-// linkSuffices says so: a password account or a person signed in, whose only proof is
-// the link itself and who takes the invited address by accepting; a directory
-// identity that asserts no address cannot match. Nil when the acceptance may go on.
-func addressRefusal(email string, linkSuffices bool, inv *sessioninfo.Invitation) error {
+// case and surrounding space. An account with no address ("") is not refused here when
+// mayHoldNone says so: a password account or a person signed in, who can take the
+// invited address by accepting and is held to the code mailed to it instead
+// (acceptedByCode); a directory identity that asserts no address cannot match. Nil
+// when the acceptance may go on to that check.
+func addressRefusal(email string, mayHoldNone bool, inv *sessioninfo.Invitation) error {
 	email = strings.TrimSpace(email)
-	if email == "" && linkSuffices {
+	if email == "" && mayHoldNone {
 		return nil
 	}
 	if sameAddress(email, inv.Email) {
@@ -724,8 +768,13 @@ func seatDeclared[Tx any](
 // have run after the commit runs once it has landed. inv.Accepted is set to the
 // outcome. The user accepts only an invitation to their own address: one mailed to
 // another address is refused (a *sessioninfo.LoginRefusal, invitation_address) with
-// nothing written, the invitation left standing (addressRefusal); a user with no
-// address accepts by the link and takes the address. An invitation that is no longer
+// nothing written, the invitation left standing (addressRefusal). The link proves
+// nothing of the address, so the user accepts by hand only where their account holds
+// the invited address confirmed, read in the transaction: a user with no address, or
+// one who has not confirmed the invited one, is refused the same way with
+// signin.ErrInvitationCode among the causes (signedInCodeRefusal), and accepts by
+// signing in again from the invitation, which waits for the code mailed to the invited
+// address. An invitation that is no longer
 // live (consumed, expired or revoked) is NotFound with signin.ErrInvitationExpired as
 // its cause, and nothing is written; a grant that fails is the acceptor's error,
 // whatever it is, with nothing written either: the invitation stands.
@@ -744,7 +793,7 @@ func AcceptInvitation[Tx any](ctx context.Context, d Driver[Tx], userID impulse.
 	if stop := organizationAccountRefusal(inv); stop != nil {
 		return stop
 	}
-	dead, err := acceptInvitation(ctx, d, userID, username, inv, accept)
+	dead, stop, err := acceptInvitation(ctx, d, userID, username, inv, accept, signedInCodeRefusal)
 	if err != nil {
 		return err
 	}
@@ -752,25 +801,46 @@ func AcceptInvitation[Tx any](ctx context.Context, d Driver[Tx], userID impulse.
 		return httpio.NewNotFoundMessageWithError(signin.ErrInvitationExpired, "the invitation has expired or was already used")
 	}
 
-	return nil
+	return stop
 }
+
+// errAcceptanceStopped ends the transaction of an acceptance outside a resolution once
+// the account turns out not to have shown the invited address to be its own: the
+// invitation's consumption is rolled back and nothing is committed.
+var errAcceptanceStopped = errors.New("the acceptance waits for the code mailed to the invited address")
 
 // acceptInvitation is the transaction of an acceptance outside a resolution: a password
 // sign-in's, and a signed-in person's (AcceptInvitation). dead reports an invitation
-// that is no longer live, with nothing written and no error; an error is the driver's
-// or the acceptor's, and nothing is written either. inv.Accepted is set to the outcome.
+// that is no longer live, with nothing written and no error. stop is the answer to an
+// account that has not shown the invited address to be its own (acceptedByCode), decided
+// in the transaction on the user row it reads, with nothing written and no error: a
+// refusal, or what unproven answers for an account that may still enter the code mailed
+// to the invited address. An error is the driver's or the acceptor's, and nothing is
+// written either. inv.Accepted is set to the outcome.
 func acceptInvitation[Tx any](
 	ctx context.Context, d Driver[Tx], userID impulse.UUID, username string, inv *sessioninfo.Invitation, accept InvitationAcceptor[Tx],
-) (dead bool, err error) {
+	unproven func(user *dbtype.User, inv *sessioninfo.Invitation) error,
+) (dead bool, stop, err error) {
 	inv.Accepted = false
 	var committed committedWork
 	err = d.Transact(ctx, func(ctx context.Context, tx Tx) error {
 		// Each run starts with nothing owed and the invitation taken for live.
-		committed, dead = nil, false
+		committed, dead, stop = nil, false, nil
 		if err := d.ConsumeMailLinkIn(ctx, tx, inv.ID, time.Now()); err != nil {
 			dead = httpio.HasNotFound(err)
 
 			return errors.Wrap(err, "Driver.ConsumeMailLinkIn()")
+		}
+		user, err := d.UserIn(ctx, tx, userID)
+		if err != nil {
+			return errors.Wrap(err, "Driver.UserIn()")
+		}
+		if stop, err = acceptedByCode(ctx, d, tx, inv, user, unproven(user, inv)); err != nil {
+			return err
+		}
+		if stop != nil {
+			// Nothing of the acceptance is kept: the invitation stands.
+			return errAcceptanceStopped
 		}
 		if _, err := d.ClaimVerifiedEmailIn(ctx, tx, userID, inv.Email); err != nil {
 			return errors.Wrap(err, "Driver.ClaimVerifiedEmailIn()")
@@ -788,15 +858,18 @@ func acceptInvitation[Tx any](
 	})
 	if err != nil {
 		if dead {
-			return true, nil
+			return true, nil, nil
+		}
+		if stop != nil && errors.Is(err, errAcceptanceStopped) {
+			return false, stop, nil
 		}
 
-		return false, errors.Wrap(err, "Driver.Transact()")
+		return false, nil, errors.Wrap(err, "Driver.Transact()")
 	}
 	inv.Accepted = true
 	committed.run(ctx)
 
-	return false, nil
+	return false, nil, nil
 }
 
 // SignUpClosed is the answer to a sign-up through a method that is not open to it: the
@@ -1069,7 +1142,7 @@ func resolveIn[Tx any](
 // resolveLinked resolves an identity that is linked to a user, link: the user is named
 // on the request and the link's LastUsedAt is touched. An invitation the sign-in carries
 // is consumed for the user, live reporting that it was, once its acceptance is decided
-// where it rests on the code mailed to the invited address (linkedAcceptsByCode, under
+// where it rests on the code mailed to the invited address (acceptedByCode, under
 // confirm), and not for a disabled user, who is refused once the
 // sign-in is decided. tenant is the link's tenant key.
 func resolveLinked[Tx any](
@@ -1081,7 +1154,7 @@ func resolveLinked[Tx any](
 	}
 	req.UserID, req.Username = link.UserID, user.Username
 	if acceptsByCode(req, confirm) && !user.Disabled {
-		if stop, err := linkedAcceptsByCode(ctx, d, tx, req, user); err != nil || stop != nil {
+		if stop, err := acceptedByCode(ctx, d, tx, req.Invitation, user, invitedCodeWait()); err != nil || stop != nil {
 			return "", false, stop, err
 		}
 	}
@@ -1608,8 +1681,10 @@ func firstLink[Tx any](
 // own address: the address is the user's username, or the user holds it, verified or
 // not (an account that has never signed in has proven no address; the one it holds is
 // the one it was created with). What ties the person signing in to the account is the
-// link itself, which was mailed to that address and to nobody else: the address the
-// directory asserts is the directory's word and proves nothing here.
+// proof of that address the sign-in has carried by the time it comes here: a claim its
+// method verified, or the code mailed to the invited address (invitedAddressRefusal,
+// resolveUnlinked). The link alone, which can be forwarded, ties nobody, and neither
+// does an address the directory asserts without vouching for it.
 func ownInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, user *dbtype.User, inv *sessioninfo.Invitation) (bool, error) {
 	if inv == nil || inv.Email == "" {
 		return false, nil

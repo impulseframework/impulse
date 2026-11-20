@@ -122,9 +122,9 @@ func Normalize(name string) string {
 
 // The kinds of count the library keeps in the sign-in attempts table beside the names
 // people sign in under: the mail an address is sent, the sign-in codes an address is
-// sent, the password reset links an address is sent, and the guesses at the code of an
-// account's first password. Each is kept under its kind, a colon, and what it counts
-// (OwnKey).
+// sent, the codes sent to accept one invitation, the password reset links an address is
+// sent, and the guesses at the code of an account's first password. Each is kept under
+// its kind, a colon, and what it counts (OwnKey).
 //
 // A kind is spelled in capitals, and that is what keeps the counts apart from the
 // names: a name is counted under its case-folded form (Normalize), which holds no
@@ -134,6 +134,7 @@ func Normalize(name string) string {
 const (
 	KindMail          = "MAIL"
 	KindCode          = "CODE"
+	KindInvitation    = "INVITATION"
 	KindReset         = "RESET"
 	KindFirstPassword = "FIRST-PASSWORD"
 )
@@ -146,7 +147,7 @@ func OwnKey(kind, of string) string {
 
 // IsOwnKey reports whether key is one of the library's own counts and no name's.
 func IsOwnKey(key string) bool {
-	for _, kind := range []string{KindMail, KindCode, KindReset, KindFirstPassword} {
+	for _, kind := range []string{KindMail, KindCode, KindInvitation, KindReset, KindFirstPassword} {
 		if strings.HasPrefix(key, kind+":") {
 			return true
 		}

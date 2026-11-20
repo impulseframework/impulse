@@ -42,8 +42,8 @@ const AdministratorVariable = "APP_STAFF_ADMINISTRATOR"
 // application's own roles for the first administrator (FirstAdministratorRoles). The
 // person opens the link and signs in by a method of the auth, as everyone invited after
 // them does.
-// With the password method they choose a password there, their address proven by the
-// link.
+// With the password method they choose a password there and enter the code mailed to
+// the address, which proves it theirs.
 // No account is created ahead of them and no password is generated, so nothing stands
 // that anybody else could sign in with. From there they invite the others. The
 // development bootstrap creates its own logins instead (cmd/bootstrap/users.json).

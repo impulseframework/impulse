@@ -850,9 +850,11 @@ func (h *Handlers) PasswordResetComplete() http.HandlerFunc {
 	return h.PasswordReset().Complete()
 }
 
-// InvitationSignUp accepts an invitation as a stranger with a new password: the invitee
+// InvitationSignUp starts the acceptance of an invitation as a stranger with a new
+// password. The link only opened the invitation, so nothing is made yet: the sign-up
+// waits for the code mailed to the invited address. The code entered, the invitee
 // becomes a user under the sign-in name they give{{if .UsernameIsEmail}}, the invited address{{end}}, with the
-// address verified by the link, seated in the roles the invitation names.
+// address verified by the code, seated in the roles the invitation names.
 func (h *Handlers) InvitationSignUp() http.HandlerFunc {
 	return h.Invitation().SignUp()
 }
@@ -962,8 +964,8 @@ const AdministratorVariable = "{{.AdministratorVariable}}"
 // person opens the link and signs in by a method of the auth, as everyone invited after
 // them does.
 {{- if .Password}}
-// With the password method they choose a password there, their address proven by the
-// link.
+// With the password method they choose a password there and enter the code mailed to
+// the address, which proves it theirs.
 {{- end}}
 {{- if .Directory}}
 // Through a directory the invitation is what ties the sign-in to the roles, whoever

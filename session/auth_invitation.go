@@ -11,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
+	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/cookie"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
@@ -22,14 +23,19 @@ import (
 )
 
 // An invitation is a mailed link that brings a person into the application, or into
-// one of its tenants, with the roles it carries. Whoever follows it and signs in, by
-// any method, or signs up with a password, accepts it: the person proved they read
-// the mailbox, and the account they sign in with is theirs. The login page opens the
-// invitation (Invitation().Open()), which sets an encrypted cookie holding its token,
-// so the sign-in that follows, external round trip included, carries it; the store
-// accepts it once the user is known, and the application's hook gives the roles in
-// the same transaction, which it is handed. A person already signed in accepts with Accept(). See
-// "Invitations" in the README.
+// one of its tenants, with the roles it carries. The link only opens the invitation: a
+// mailed link can be forwarded, so holding one proves nothing about who reads the
+// mailbox it was sent to. The invitation is accepted by a sign-in that proves the
+// invited address: one whose method verified it, one of an account that holds it
+// confirmed, and, everywhere else, one that enters a fresh code the library mails to
+// the invited address (a directory that sends no address or an unverified one, a
+// sign-up with a password, a password account that holds no address). The login page
+// opens the invitation (Invitation().Open()), which sets an encrypted cookie holding
+// its token, so the sign-in that follows, external round trip included, carries it;
+// the store accepts it once the user is known and the address proven, and the
+// application's hook gives the roles in the same transaction, which it is handed. A
+// person already signed in whose account holds the invited address confirmed accepts
+// with Accept(). See "Invitations" in the README.
 //
 // An invitation may make a tenant instead of seating the person in one
 // (InvitationRequest.NewTenant): staff bring an organization into the application by
@@ -174,26 +180,33 @@ type InvitationHandlers struct {
 // longer live is 404. Route it behind StartSession and ValidateXSRFToken.
 func (h *InvitationHandlers) Open() http.HandlerFunc { return h.open }
 
-// Accept accepts the invitation the browser carries for the signed-in user: the
-// invitation is consumed, the user's address is set from it when they hold no verified
-// address, and the application's hook grants what it names, in one transaction. The
+// Accept accepts the invitation the browser carries for the signed-in user, whose
+// account holds the invited address confirmed: the invitation is consumed and the
+// application's hook grants what it names, in one transaction. An account that holds
+// another address is refused (403, naming the invited address), and so is one that
+// holds no address, or holds the invited one and has not confirmed it: a session
+// cannot wait for the code that would prove the address, so the answer says to sign
+// in again from the invitation's link, where the code is mailed. The
 // hook is told how the session was established (its first auth event), and an
 // invitation that makes a tenant entered through its directory only is refused (403,
-// naming what to do) for a session that came through no organization's directory, the
-// invitation left standing. It answers {"accepted": true}; 404 when the browser
-// carries no live invitation. Route it behind ValidateSession.
+// naming what to do) for a session that came through no organization's directory.
+// Every refusal leaves the invitation standing. It answers {"accepted": true}; 404
+// when the browser carries no live invitation. Route it behind ValidateSession.
 func (h *InvitationHandlers) Accept() http.HandlerFunc { return h.accept }
 
-// SignUp accepts {"password", "username"} and creates the invited person's account
-// with a password, then signs them in and accepts the invitation: the address the
-// invitation was sent to is the account's, verified. username is the address when the
-// password method declares the username as the email address, and chosen otherwise.
-// It answers as the password login does ({"mfaIsRequired"}); a taken username or
+// SignUp accepts {"password", "username"} and starts the invited person's account with
+// a password. Nothing is made yet: the link only opened the invitation, so the sign-up
+// waits, as a pending sign-in does, for the code the library mails to the invited
+// address, and it answers as a password login held for a second factor does
+// ({"mfaIsRequired": true}). Entering the code (Pending().VerifyCode()) makes the
+// account, with the invited address as its own, verified, signs the person in and
+// accepts the invitation. username is the address when the password method declares
+// the username as the email address, and chosen otherwise. A taken username or
 // address is 409, a password under eight characters 400, no password method or no
 // live invitation 404. An invitation that makes a tenant entered through its
-// directory only is refused as a sign-in is (organization_account_required) before
-// any account is created. Route it beside the password login, behind
-// ValidateXSRFToken.
+// directory only is refused as a sign-in is (organization_account_required). Route it
+// beside the password login, behind StartSession and ValidateXSRFToken, and route the
+// pending handlers, which take the code.
 func (h *InvitationHandlers) SignUp() http.HandlerFunc { return h.signUp }
 
 // Invitation returns the invitation handlers.
@@ -268,8 +281,8 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 // password, and the external registrations through which the invitation can be
 // accepted. What the login page shows the invitee turns on it: the password form for an
 // account with one, the account form where none holds the address, and a button for
-// each registration named. The link holder may know it, since following the link proved
-// they own the address.
+// each registration named. Whoever holds the link is told it: the link was mailed to
+// the address, and what it tells is no more than which form to show.
 type invitedAccountState struct {
 	exists      bool
 	hasPassword bool
@@ -409,7 +422,9 @@ func addressOf(email *string) string {
 
 // standingRefusalSentence is what a signed-in person is told when their acceptance of
 // inv by hand was refused for who they are signed in as, the invitation left standing:
-// the invited address where they hold another (invitation_address), to sign in with
+// the invited address where they hold another (invitation_address), to sign in again
+// from the invitation's link where their account has not confirmed the invited address
+// (invitation_address with signin.ErrInvitationCode among its causes), to sign in with
 // their organization's account where the invitation asks for one
 // (organization_account_required), and that their organization is set up already where
 // the application refused to make a second tenant of it (organization_has_tenant). ""
@@ -420,6 +435,10 @@ func standingRefusalSentence(err error, inv *sessioninfo.Invitation) string {
 		return ""
 	}
 	if refusal.Code() == sessioninfo.RefusedInvitationAddress {
+		if errors.Is(err, signin.ErrInvitationCode) {
+			return signinflow.InvitedCodeMessage(inv)
+		}
+
 		return signinflow.InvitedAddressMessage(inv)
 	}
 	if refusal.Code() == sessioninfo.RefusedOrganizationAccountRequired {
@@ -460,34 +479,157 @@ func (a *Auth[S, U, Tx]) invitationSignUp() http.HandlerFunc {
 		}
 		// An account with a password could not accept an invitation that is accepted
 		// through an organization's directory alone: it is refused as its sign-in would
-		// be, before the account is made, so no account is left that holds nothing.
+		// be, before anything is held or mailed.
 		if _, directoryOnly := madeTenant(inv.NewTenant); directoryOnly {
 			return writeSignInError(ctx, w, signinflow.Refusal("", sessioninfo.RefusedOrganizationAccountRequired, signin.ErrOrganizationAccountRequired, signinflow.OrganizationAccountMessage))
 		}
-		user, err := a.createAccount(ctx, inv.Email, req.Username, req.Password, inv.Name)
+		pending, err := a.holdInvitedSignUp(ctx, w, inv, req.Username, req.Password)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		// The sign-in carries the invitation from the cookie and accepts it.
-		at, err := a.passwordAttempt(user)
-		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-		outcome, err := a.signIn(ctx, w, at)
-		if err != nil {
-			return writeSignInError(ctx, w, err)
-		}
-
-		return a.answerSignIn(ctx, w, r, outcome)
+		return a.answerSignIn(ctx, w, r, &signInOutcome{pending: pending})
 	})
 }
 
+// heldSignUp is what a sign-up through an invitation keeps until the code mailed to the
+// invited address is entered: the invitation it was started for, the username the
+// account will have and the hash of the password the person chose. It travels in the
+// encrypted pending cookie, beside the token of the wait it belongs to, and nowhere
+// else: no account exists before the code, and the pending row holds none of it.
+type heldSignUp struct {
+	InvitationID impulse.UUID     `json:"invitationId"`
+	Username     string           `json:"username"`
+	PasswordHash *securehash.Hash `json:"passwordHash"`
+}
+
+// heldSignUpCtxKey is the context key for what the browser's pending cookie keeps of a
+// sign-up through an invitation, set by StartSession.
+type heldSignUpCtxKey struct{}
+
+// heldSignUpOf returns what the browser's pending cookie keeps of a sign-up through an
+// invitation, from ctx.
+func heldSignUpOf(ctx context.Context) (*heldSignUp, bool) {
+	held, ok := ctx.Value(heldSignUpCtxKey{}).(*heldSignUp)
+
+	return held, ok && held != nil && held.PasswordHash != nil && held.Username != ""
+}
+
+// signsUpInvited reports whether the pending identity p is a sign-up through an
+// invitation that waits for its code: a password identity that names nobody, since the
+// account is made once the code is entered.
+func signsUpInvited(p *pendingState) bool {
+	return !p.UserID.Valid && p.Identity.Method == sessioninfo.MethodPassword
+}
+
+// holdInvitedSignUp holds a sign-up with a password through the invitation inv as the
+// browser's pending identity, waiting for the code mailed to the invited address. The
+// link only opened the invitation, and whoever holds it may have been forwarded it, so
+// nothing is made on its strength: no account, no address held as verified and no
+// acceptance. The sign-up is checked as the account's creation will be (the password's
+// shape, a username chosen, the address and the username free, 409 otherwise), so the
+// person is told before any code is mailed; the creation itself is held to the same
+// again. The wait names nobody, its code goes to the invited address alone
+// (codeDestination), and what the account is made from waits in the pending cookie
+// (heldSignUp).
+func (a *Auth[S, U, Tx]) holdInvitedSignUp(ctx context.Context, w http.ResponseWriter, inv *sessioninfo.Invitation, username, password string) (*pendingState, error) {
+	insert, err := a.newAccount(inv.Email, username, password, inv.Name)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.accountFree(ctx, insert); err != nil {
+		return nil, err
+	}
+	wait := &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUID{}, Username: "", Tenant: "", Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode}}
+
+	return a.holdPending(ctx, w, &signInAttempt{
+		identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Email: inv.Email},
+		reason:   sessioninfo.ReasonLogin,
+		sameSite: sessioncore.SameSiteStrict,
+		signUp:   &heldSignUp{InvitationID: inv.ID, Username: insert.Username, PasswordHash: insert.PasswordHash},
+	}, wait)
+}
+
+// accountFree answers 409, in the words the account's creation would, where another
+// account holds the address or the username of insert.
+func (a *Auth[S, U, Tx]) accountFree(ctx context.Context, insert *sessionstorage.InsertSessionUser) error {
+	switch _, err := a.storage.UserByEmail(ctx, *insert.Email); {
+	case err == nil:
+		return httpio.NewConflictMessagef("the email address %q is already in use", *insert.Email)
+	case !httpio.HasNotFound(err):
+		return errors.Wrap(err, "sessionstorage.AuthStore.UserByEmail()")
+	}
+	switch _, err := a.storage.UserByUserName(ctx, insert.Username); {
+	case err == nil:
+		return httpio.NewConflictMessagef("username %q already exists", insert.Username)
+	case !httpio.HasNotFound(err):
+		return errors.Wrap(err, "sessionstorage.AuthStore.UserByUserName()")
+	}
+
+	return nil
+}
+
+// invitedSignUpAttempt makes the account of the sign-up through an invitation p holds,
+// once the code mailed to the invited address was entered (email is where the code
+// went), and returns the account's first sign-in, which accepts the invitation. The
+// account is made from what the sign-up kept in the pending cookie (heldSignUp) and
+// holds the invited address, verified: the code is what proved it. Nothing is made
+// where the browser no longer carries what the sign-up kept, or carries another
+// invitation than the one it was started for (answered as a wait that ran out), where
+// the invitation is no longer live (invitation_expired), or where the code was mailed
+// to another address than the invited one (answered as a code that died). The wait is
+// consumed before the account is made, so it completes once.
+func (a *Auth[S, U, Tx]) invitedSignUpAttempt(ctx context.Context, p *pendingState, email string) (*signInAttempt, error) {
+	held, ok := heldSignUpOf(ctx)
+	if !ok {
+		return nil, errPendingExpired()
+	}
+	inv, err := a.invitationOf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case inv == nil:
+		return nil, errInvitationEnded()
+	case inv.ID != held.InvitationID:
+		return nil, errPendingExpired()
+	case !strings.EqualFold(strings.TrimSpace(email), strings.TrimSpace(inv.Email)):
+		return nil, errCodeExpired()
+	}
+	if err := a.consumePending(ctx, p); err != nil {
+		return nil, err
+	}
+	insert := &sessionstorage.InsertSessionUser{Username: held.Username, PasswordHash: held.PasswordHash, Email: &inv.Email, EmailVerified: true}
+	if inv.Name != "" {
+		insert.Name = &inv.Name
+	}
+	user, err := a.storage.CreateUser(ctx, insert, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.CreateUser()")
+	}
+
+	// The account's first sign-in rests on the password it was just made with, records
+	// the code after the password, and is the invitation's acceptance or it is nothing.
+	at, err := a.passwordAttempt(user)
+	if err != nil {
+		return nil, err
+	}
+	at.identity.Email, at.identity.EmailVerified = inv.Email, true
+	at.reason = sessioninfo.ReasonStepUp
+	at.events = append(pendingEvents(p), sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode})
+	at.returnURL, at.fromPending = p.ReturnURL, true
+	at.codeEmail, at.acceptsInvitation = email, true
+
+	return at, nil
+}
+
 // newAccount is the account a sign-up or an invitation's sign-up makes, as a row to
-// write: the password the person chose, the address they proved they read, verified,
-// and the username, which is the address when the password method declares them one
-// and the person's choice otherwise. name is the person's name as the invitation
-// carried it, "" for none and for a sign-up, which carries none.
+// write: the password the person chose, the address they proved they read, verified
+// (by following the link they asked to be mailed at a sign-up, by entering the code
+// mailed to the invited address at an invitation's), and the username, which is the
+// address when the password method declares them one and the person's choice
+// otherwise. name is the person's name as the invitation carried it, "" for none and
+// for a sign-up, which carries none.
 func (a *Auth[S, U, Tx]) newAccount(email, username, password, name string) (*sessionstorage.InsertSessionUser, error) {
 	if err := acceptedPassword(password); err != nil {
 		return nil, err
@@ -509,22 +651,6 @@ func (a *Auth[S, U, Tx]) newAccount(email, username, password, name string) (*se
 	}
 
 	return insert, nil
-}
-
-// createAccount creates the account an invitation's sign-up makes (newAccount). The
-// invitation the browser carries is what admits the person, whatever an administrator
-// chose for the password method, and the sign-in that follows accepts it.
-func (a *Auth[S, U, Tx]) createAccount(ctx context.Context, email, username, password, name string) (*sessionstorage.SessionUser, error) {
-	insert, err := a.newAccount(email, username, password, name)
-	if err != nil {
-		return nil, err
-	}
-	user, err := a.storage.CreateUser(ctx, insert, nil)
-	if err != nil {
-		return nil, errors.Wrap(err, "sessionstorage.AuthStore.CreateUser()")
-	}
-
-	return user, nil
 }
 
 // passwordAttempt is the sign-in of a user who just set their password: a password

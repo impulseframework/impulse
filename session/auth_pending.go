@@ -32,8 +32,13 @@ import (
 // conditional update before it signs in, so the token is single-use. See "What a
 // pending identity is" in the README.
 
-// pendingCookieKey is the pending cookie's value holding the token.
-const pendingCookieKey cookie.Key = "pending"
+// pendingCookieKey is the pending cookie's value holding the token, and
+// pendingSignUpKey the one holding what a sign-up through an invitation keeps until its
+// code is entered (heldSignUp), present for such a wait alone.
+const (
+	pendingCookieKey cookie.Key = "pending"
+	pendingSignUpKey cookie.Key = "sign-up"
+)
 
 // pendingTokenSize is the token's size in bytes.
 const pendingTokenSize = 32
@@ -70,8 +75,9 @@ func hashPendingToken(raw []byte) []byte {
 }
 
 // withPendingCookie returns the request's context with the hash of the pending token
-// from the pending cookie, if there is one. pending decides whether the pending identity
-// is still accepted.
+// from the pending cookie, if there is one, and with what a sign-up through an
+// invitation keeps beside it, if the cookie holds that. pending decides whether the
+// pending identity is still accepted.
 func (a *Auth[S, U, Tx]) withPendingCookie(r *http.Request) context.Context {
 	ctx := r.Context()
 
@@ -90,7 +96,13 @@ func (a *Auth[S, U, Tx]) withPendingCookie(r *http.Request) context.Context {
 		return ctx
 	}
 
-	return context.WithValue(ctx, pendingCtxKey{}, hashPendingToken(raw))
+	ctx = context.WithValue(ctx, pendingCtxKey{}, hashPendingToken(raw))
+	var signUp heldSignUp
+	if err := cval.Get(pendingSignUpKey, &signUp); err == nil {
+		ctx = context.WithValue(ctx, heldSignUpCtxKey{}, &signUp)
+	}
+
+	return ctx
 }
 
 // pendingTokenHash returns the hash of the browser's pending token from ctx.
@@ -134,7 +146,9 @@ func errPendingExpired() error {
 // the new token. The row is created at the database's time; the events it holds that
 // have no time take that time when the sign-in completes (pendingEvents). A sign-in a
 // password proved is held with the proof of that password, and only while the user
-// still holds it (sessionstorage.ErrPasswordChanged otherwise, with nothing held).
+// still holds it (sessionstorage.ErrPasswordChanged otherwise, with nothing held). A
+// sign-up through an invitation (at.signUp) is held naming nobody, since its account is
+// made once the code is entered, and the cookie carries what the account is made from.
 func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter, at *signInAttempt, wait *signin.PendingSignInError) (*pendingState, error) {
 	events := at.events
 	if events == nil {
@@ -143,6 +157,12 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 	token, hash, err := newPendingToken()
 	if err != nil {
 		return nil, err
+	}
+	cval := cookie.NewValues().SetString(pendingCookieKey, token)
+	if at.signUp != nil {
+		if err := cval.Set(pendingSignUpKey, at.signUp); err != nil {
+			return nil, errors.Wrap(err, "cookie.Values.Set()")
+		}
 	}
 	p := &pendingState{
 		TokenHash:             hash,
@@ -160,7 +180,7 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 		ProviderSessionIssuer: at.providerSessionIssuer,
 		ExpiresAt:             time.Now().Add(a.settings.pendingTimeout),
 	}
-	if namesItsUser(at.identity) {
+	if namesItsUser(at.identity) && at.signUp == nil {
 		p.UserID = impulse.NullUUIDFromUUID(at.userID)
 	}
 	// A sign-in that rests on a password proof is held with it: the store inserts the
@@ -180,7 +200,6 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 
 	// Lax, so the cookie also reaches the login page the provider's callback redirects
 	// to. The pending handlers that change anything are POSTs behind the XSRF check.
-	cval := cookie.NewValues().SetString(pendingCookieKey, token)
 	a.pendingCookies.Cookie().WritePersistentCookie(w, a.settings.pendingCookie, a.pendingCookies.Domain, true, http.SameSiteLaxMode, 2*a.settings.pendingTimeout, cval)
 
 	return p, nil
@@ -406,6 +425,11 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 // completion is refused as a wrong password is (Unauthorized, "Invalid Credentials",
 // with sessionstorage.ErrPasswordChanged as its cause), the pending identity stays
 // consumed and the person signs in again.
+//
+// A sign-up through an invitation has no account before the code mailed to the invited
+// address is entered, so the application's own step cannot complete it (Conflict, the
+// pending identity left as it was): the library's email code does
+// (Pending().VerifyCode(), VerifyEmailCode).
 func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.ResponseWriter, stepUp ...sessioninfo.AuthEvent) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -416,6 +440,9 @@ func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.Response
 	}
 	if pending.Step != sessioninfo.PendingMFA {
 		return impulse.NilUUID, httpio.NewConflictMessage("the pending sign-in waits for a password confirmation, not MFA")
+	}
+	if signsUpInvited(pending) {
+		return impulse.NilUUID, httpio.NewConflictMessage("the pending sign-in is a sign-up through an invitation: the code mailed to the invited address completes it")
 	}
 	if err := validateEvents(stepUp); err != nil {
 		return impulse.NilUUID, err

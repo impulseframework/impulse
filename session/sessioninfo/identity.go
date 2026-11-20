@@ -342,9 +342,12 @@ const (
 	// it was mailed to: the address the sign-in asserts, the directory's for an external
 	// identity and the account's own for a password one or a person signed in, differs
 	// from the invited one, so the sign-in or acceptance is refused, the invitation left
-	// standing and nothing consumed. An account that holds no address accepts by the
-	// link. The login page names the invited address and asks for a sign-in with that
-	// account.
+	// standing and nothing consumed. The link proves no address: an account that names
+	// itself and has not confirmed the invited address is held, at a sign-in, for the
+	// code mailed to that address, and its acceptance by hand, where nothing can wait,
+	// is refused with this code and a sentence that says to sign in again from the
+	// invitation's link. The login page names the invited address and asks for a
+	// sign-in with that account.
 	RefusedInvitationAddress LoginRefusalCode = "invitation_address"
 	// RefusedGuestAccount is the code for an identity that is a guest of its directory
 	// (Identity.Guest), which the standard account rule refuses.

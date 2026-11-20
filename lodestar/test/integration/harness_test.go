@@ -1345,6 +1345,27 @@ func (b *browser) secondFactor(ctx context.Context, user string) {
 func (b *browser) secondFactorLocked(ctx context.Context, user string, remember bool) {
 	b.t.Helper()
 
+	if status, body := b.enterCodeLocked(ctx, user, remember); status != http.StatusOK {
+		b.t.Fatalf("verifying the sign-in code of %s: status %d: %s", user, status, body)
+	}
+}
+
+// enterCode is secondFactor for a sign-in the code does not finish: it asks for the
+// code, reads it from the mail and enters it, and answers what entering it was answered,
+// for the caller to judge. The code itself is right; what it would complete is refused.
+func (b *browser) enterCode(ctx context.Context, user string) (status int, body []byte) {
+	b.t.Helper()
+
+	b.served.codeMu.Lock()
+	defer b.served.codeMu.Unlock()
+
+	return b.enterCodeLocked(ctx, user, false)
+}
+
+// enterCodeLocked is enterCode for a caller holding the stack's factor lock.
+func (b *browser) enterCodeLocked(ctx context.Context, user string, remember bool) (status int, body []byte) {
+	b.t.Helper()
+
 	pending := b.pending(ctx)
 	if pending.Reason != string(sessioninfo.PendingMFA) || pending.EmailCode == nil {
 		b.t.Fatalf("the sign-in of %s waits for %+v, want the second factor with the sign-in code offered", user, pending)
@@ -1354,9 +1375,8 @@ func (b *browser) secondFactorLocked(ctx context.Context, user string, remember 
 	if err != nil {
 		b.t.Fatal(err)
 	}
-	if status, body := b.do(ctx, http.MethodPost, b.prefix+"/user/pending/code/verify", verify); status != http.StatusOK {
-		b.t.Fatalf("verifying the sign-in code of %s: status %d: %s", user, status, body)
-	}
+
+	return b.do(ctx, http.MethodPost, b.prefix+"/user/pending/code/verify", verify)
 }
 
 // sentCode asks for the sign-in code, giving the address first where the person holds

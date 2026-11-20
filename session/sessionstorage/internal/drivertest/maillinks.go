@@ -794,22 +794,22 @@ func testInvitationHookFails(ctx context.Context, t *testing.T, h *AuthHarness) 
 	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, alexLink, alexReq.Invitation)
 	assertEmail(t, "the linked user after the acceptor failed", mustUser(ctx, t, in.Driver, alex.ID), nil, false)
 
-	// A password sign-in, whose acceptance has a transaction of its own: the sign-in
-	// ends with the acceptor's error instead of going on as it does past a dead
-	// invitation, and the same by hand, for a person already signed in.
+	// A password sign-in that carries the code mailed to the invited address, whose
+	// acceptance has a transaction of its own: the sign-in ends with the acceptor's
+	// error instead of going on as it does past a dead invitation, and the address the
+	// acceptance would have written on the account is not written. The same by hand,
+	// for a person signed in whose account holds the invited address confirmed.
 	sam := passwordUser(ctx, t, in.Driver, "sam")
 	samLink := insertInvitation(ctx, t, in.Driver, "sam@lakeside.edu", "lakeside", []string{"Coach"}, tokenHash(3))
-	samReq := &sessioninfo.NewSessionRequest{
-		Reason: sessioninfo.ReasonLogin, Username: sam.Username, UserID: sam.ID,
-		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: sam.ID.String()}, Invitation: invitationOf(samLink),
-	}
+	samReq := invitedPasswordSignIn(sam, samLink, true)
 	err = signInRequest(ctx, in, samReq)
 	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, samLink, samReq.Invitation)
 	assertEmail(t, "the password user after the acceptor failed", mustUser(ctx, t, in.Driver, sam.ID), nil, false)
-	byHand := invitationOf(samLink)
-	err = in.Accept(ctx, sam.ID, sam.Username, "", byHand)
-	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, samLink, byHand)
-	assertEmail(t, "the user who accepted by hand after the acceptor failed", mustUser(ctx, t, in.Driver, sam.ID), nil, false)
+	kim := userHolding(ctx, t, in.Driver, "kim", "kim@lakeside.edu", true)
+	kimLink := insertInvitation(ctx, t, in.Driver, "kim@lakeside.edu", "lakeside", []string{"Coach"}, tokenHash(4))
+	byHand := invitationOf(kimLink)
+	err = in.Accept(ctx, kim.ID, kim.Username, "kim@lakeside.edu", byHand)
+	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, kimLink, byHand)
 
 	// The invitation stood through all of it: once the acceptor works, the stranger's
 	// next attempt at the same link is provisioned, the invitation consumed, the
@@ -917,14 +917,12 @@ func testInvitationHookCommitted(ctx context.Context, t *testing.T, h *AuthHarne
 		t.Errorf("the committed function ran %d time(s), want exactly 1", n)
 	}
 
-	// A password sign-in's acceptance, in its own transaction, and one by hand: the
-	// same, once each.
+	// The acceptance of a password sign-in that carries the code mailed to the invited
+	// address, in its own transaction, and one by hand by the account that then holds
+	// the address confirmed: the same, once each.
 	sam := passwordUser(ctx, t, in.Driver, "sam")
 	link = insertInvitation(ctx, t, in.Driver, "sam@lakeside.edu", "lakeside", []string{"Coach"}, tokenHash(2))
-	samReq := &sessioninfo.NewSessionRequest{
-		Reason: sessioninfo.ReasonLogin, Username: sam.Username, UserID: sam.ID,
-		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: sam.ID.String()}, Invitation: invitationOf(link),
-	}
+	samReq := invitedPasswordSignIn(sam, link, true)
 	if err := signInRequest(ctx, in, samReq); err != nil {
 		t.Fatalf("password sign-in with an invitation error = %v", err)
 	}
@@ -945,22 +943,62 @@ func testInvitationHookCommitted(ctx context.Context, t *testing.T, h *AuthHarne
 	}
 }
 
+// invitedPasswordSignIn is the password sign-in of user that carries the invitation link:
+// the first step, with nothing proven of the invited address, or, when proven says so,
+// the sign-in that completes the wait with the code mailed to that address.
+func invitedPasswordSignIn(user *dbtype.SessionUser, link *dbtype.MailLink, proven bool) *sessioninfo.NewSessionRequest {
+	identity := &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()}
+	if user.Email != nil {
+		identity.Email = *user.Email
+	}
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID, Identity: identity, Invitation: invitationOf(link)}
+	req.Invitation.AddressProven = proven
+
+	return req
+}
+
+// assertWaitsForCodeAs fails unless err is the wait of an account that named itself and
+// has not shown the invited address to be its own: held for the mailed code alone,
+// naming the account.
+func assertWaitsForCodeAs(t *testing.T, what string, err error, user *dbtype.SessionUser) {
+	t.Helper()
+
+	var wait *signin.PendingSignInError
+	if !errors.As(err, &wait) || wait.Reason != sessioninfo.PendingMFA || !wait.UserID.Valid || wait.UserID.UUID != user.ID || wait.Username != user.Username {
+		t.Fatalf("%s: sign-in error = %v, want the sign-in held for the code, naming the account", what, err)
+	}
+	if len(wait.Factors) != 1 || wait.Factors[0] != sessioninfo.MethodEmailCode {
+		t.Errorf("%s: the wait accepts %v, want the mailed code alone", what, wait.Factors)
+	}
+}
+
+// testInvitationAcceptedByHand holds the acceptance of an invitation by an account that
+// names itself, with its password or by hand in its session, to the invited address.
+// The link proves nothing, since a mailed link can be forwarded: the account accepts at
+// once only where it holds the invited address confirmed, and otherwise by the code
+// mailed to that address, which a sign-in waits for and an acceptance by hand, which
+// cannot wait, is refused for.
 func testInvitationAcceptedByHand(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newAcceptances()
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accept: rec.hook})
 
-	// A password sign-in accepts the invitation it carries, in a transaction of its own.
+	// A password sign-in by an account with no address accepts nothing on the link
+	// alone: it waits for the code, the invitation standing and no address written.
 	pat := passwordUser(ctx, t, in.Driver, "pat")
 	link := insertInvitation(ctx, t, in.Driver, "pat@lakeside.edu", "lakeside", []string{"Teacher"}, tokenHash(1))
-	req := &sessioninfo.NewSessionRequest{
-		Reason: sessioninfo.ReasonLogin, Username: pat.Username, UserID: pat.ID,
-		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: pat.ID.String()}, Invitation: invitationOf(link),
-	}
+	req := invitedPasswordSignIn(pat, link, false)
+	assertWaitsForCodeAs(t, "a password sign-in by an account with no address", signInRequest(ctx, in, req), pat)
+	assertInvitationKept(ctx, t, in, rec, link, req.Invitation)
+	assertEmail(t, "the password user held for the code", mustUser(ctx, t, in.Driver, pat.ID), nil, false)
+
+	// The sign-in that carries the code accepts the invitation, in a transaction of its
+	// own, and the account takes the invited address, confirmed.
+	req = invitedPasswordSignIn(pat, link, true)
 	if err := signInRequest(ctx, in, req); err != nil {
-		t.Fatalf("password sign-in with an invitation error = %v", err)
+		t.Fatalf("password sign-in that carries the code error = %v", err)
 	}
 	if !req.Invitation.Accepted {
-		t.Error("Invitation.Accepted = false after the password sign-in, want accepted")
+		t.Error("Invitation.Accepted = false after the password sign-in that carries the code, want accepted")
 	}
 	assertEmail(t, "the password user", mustUser(ctx, t, in.Driver, pat.ID), strPtr("pat@lakeside.edu"), true)
 	assertAccepted(t, rec, "accepted:pat@lakeside.edu", pat.ID.String()+" pat lakeside Teacher")
@@ -968,11 +1006,33 @@ func testInvitationAcceptedByHand(ctx context.Context, t *testing.T, h *AuthHarn
 		t.Errorf("MailLinkByToken() after the acceptance error = %v, want NotFound", err)
 	}
 
-	// An acceptance by hand, for a person already signed in, does the same, once.
-	alex := createUser(ctx, t, in.Driver, "alex")
+	// An account that holds the invited address and has not confirmed it waits for the
+	// code as well, by its password; by hand, where a session cannot wait, it is refused
+	// with the cause that says to sign in again from the invitation. So is an account
+	// with no address. Nothing is consumed, nothing granted and no address written.
+	lee := userHolding(ctx, t, in.Driver, "lee", "lee@lakeside.edu", false)
+	leeLink := insertInvitation(ctx, t, in.Driver, "lee@lakeside.edu", "", []string{"Admin"}, tokenHash(5))
+	req = invitedPasswordSignIn(lee, leeLink, false)
+	assertWaitsForCodeAs(t, "a password sign-in by an account that has not confirmed the invited address", signInRequest(ctx, in, req), lee)
+	assertInvitationKept(ctx, t, in, rec, leeLink, req.Invitation)
+	unconfirmed := invitationOf(leeLink)
+	err := in.Accept(ctx, lee.ID, lee.Username, "lee@lakeside.edu", unconfirmed)
+	assertRefused(t, err, sessioninfo.RefusedInvitationAddress, signin.ErrInvitationCode)
+	assertInvitationKept(ctx, t, in, rec, leeLink, unconfirmed)
+	assertEmail(t, "the user who has not confirmed the invited address", mustUser(ctx, t, in.Driver, lee.ID), strPtr("lee@lakeside.edu"), false)
+	dana := createUser(ctx, t, in.Driver, "dana")
+	danaLink := insertInvitation(ctx, t, in.Driver, "dana@lakeside.edu", "", []string{"Admin"}, tokenHash(6))
+	none := invitationOf(danaLink)
+	assertRefused(t, in.Accept(ctx, dana.ID, dana.Username, "", none), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationCode)
+	assertInvitationKept(ctx, t, in, rec, danaLink, none)
+	assertEmail(t, "the user with no address refused by hand", mustUser(ctx, t, in.Driver, dana.ID), nil, false)
+
+	// An acceptance by hand, for a person signed in whose account holds the invited
+	// address confirmed, accepts in a transaction of its own, once.
+	alex := userHolding(ctx, t, in.Driver, "alex", "alex@lakeside.edu", true)
 	alexLink := insertInvitation(ctx, t, in.Driver, "alex@lakeside.edu", "", []string{"Admin"}, tokenHash(2))
 	inv := invitationOf(alexLink)
-	if err := in.Accept(ctx, alex.ID, alex.Username, "", inv); err != nil {
+	if err := in.Accept(ctx, alex.ID, alex.Username, "alex@lakeside.edu", inv); err != nil {
 		t.Fatalf("Accept() error = %v", err)
 	}
 	if !inv.Accepted {
@@ -980,30 +1040,27 @@ func testInvitationAcceptedByHand(ctx context.Context, t *testing.T, h *AuthHarn
 	}
 	assertEmail(t, "the user who accepted by hand", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex@lakeside.edu"), true)
 	assertAccepted(t, rec, "accepted:alex@lakeside.edu", alex.ID.String()+" alex  Admin")
-	if err := in.Accept(ctx, alex.ID, alex.Username, "", invitationOf(alexLink)); !httpio.HasNotFound(err) {
+	if err := in.Accept(ctx, alex.ID, alex.Username, "alex@lakeside.edu", invitationOf(alexLink)); !httpio.HasNotFound(err) {
 		t.Errorf("second Accept() error = %v, want NotFound: an invitation is accepted once", err)
 	}
 
 	// An account that holds an address accepts only an invitation to that address, by
 	// hand and by a password sign-in alike: one mailed to another address is refused
-	// (invitation_address), nothing consumed and nothing granted; the account's own
-	// address, in any letter case, is accepted. An account with no address accepts by
-	// the link, as alex did.
-	kim, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "kim", Email: strPtr("kim@lakeside.edu")}, nil)
-	if err != nil {
-		t.Fatalf("CreateUser() error = %v", err)
-	}
+	// (invitation_address) with no word of a code, nothing consumed and nothing
+	// granted; the account's own confirmed address, in any letter case, is accepted.
+	kim := userHolding(ctx, t, in.Driver, "kim", "kim@lakeside.edu", true)
 	otherLink := insertInvitation(ctx, t, in.Driver, "sam@lakeside.edu", "", []string{"Admin"}, tokenHash(3))
 	other := invitationOf(otherLink)
-	assertRefused(t, in.Accept(ctx, kim.ID, kim.Username, "kim@lakeside.edu", other), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
-	assertInvitationKept(ctx, t, in, rec, otherLink, other)
-	req = &sessioninfo.NewSessionRequest{
-		Reason: sessioninfo.ReasonLogin, Username: kim.Username, UserID: kim.ID,
-		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: kim.ID.String(), Email: "kim@lakeside.edu"}, Invitation: invitationOf(otherLink),
+	err = in.Accept(ctx, kim.ID, kim.Username, "kim@lakeside.edu", other)
+	assertRefused(t, err, sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
+	if errors.Is(err, signin.ErrInvitationCode) {
+		t.Errorf("Accept() of an invitation to another address error = %v, want no word of a code: no code would make this account the invited one", err)
 	}
+	assertInvitationKept(ctx, t, in, rec, otherLink, other)
+	req = invitedPasswordSignIn(kim, otherLink, false)
 	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
 	assertInvitationKept(ctx, t, in, rec, otherLink, req.Invitation)
-	assertEmail(t, "the user refused for another address", mustUser(ctx, t, in.Driver, kim.ID), strPtr("kim@lakeside.edu"), false)
+	assertEmail(t, "the user refused for another address", mustUser(ctx, t, in.Driver, kim.ID), strPtr("kim@lakeside.edu"), true)
 	ownLink := insertInvitation(ctx, t, in.Driver, "Kim@Lakeside.edu", "", []string{"Admin"}, tokenHash(4))
 	own := invitationOf(ownLink)
 	if err := in.Accept(ctx, kim.ID, kim.Username, "kim@lakeside.edu", own); err != nil {

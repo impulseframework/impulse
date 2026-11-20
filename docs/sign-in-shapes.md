@@ -278,9 +278,17 @@ with. A new person is offered every method that admits the invited address, and,
 auth has the password method, the form that chooses a password, beside the other methods:
 the account is then made with the invited address. A person whose account has a password
 is offered the same methods, and confirms with the password. A person whose account has no
-password is offered the methods the account already signs in with. An account that has no
-address yet accepts by the link alone and takes the invited address. This is described
-under "Invitations" and "The first administrator's invitation" in
+password is offered the methods the account already signs in with.
+
+The link only opens the invitation. A mailed link can be forwarded, so holding one does
+not show that the mailbox is the person's. A person who chooses a password from an
+invitation is mailed a code at the invited address, and the account is made, with that
+address confirmed, once they enter it. A person who signs in with a password to an
+account that has not confirmed the invited address is mailed a code the same way, and the
+account takes the address when they enter it. A person who is already signed in to such
+an account is told to sign in again from the invitation's link, which mails
+the code. An account that has confirmed the invited address accepts with no code. This is
+described under "Invitations" and "The first administrator's invitation" in
 [session/README.md](../session/README.md).
 
 The persona method, the sign-in of the test environments, is not part of any shape.
@@ -404,7 +412,8 @@ confirm an address or send a code.
 An account's email address counts once the person has shown that the mailbox is theirs.
 The address is then confirmed. It gets confirmed in one of these ways:
 
-- The person accepted an invitation mailed to it, or signed up from a link mailed to it.
+- The person accepted an invitation mailed to it, by entering the code mailed to it, or
+  signed up from a link mailed to it.
 - Google vouched for it at a sign-in.
 - The person entered a code mailed to it. Microsoft and other identity providers do not
   vouch for an address. So the first time a person signs in through one of them to an

@@ -19,8 +19,9 @@ func SignInAttemptName(username string) string {
 
 // SignInAttemptKey returns the key of the row of the sign-in attempts table a listed
 // name names. The table keeps the library's own counts beside the names people sign in
-// under: the mail an address is sent, its password reset links, and the guesses at the
-// code of an account's first password, each under a key no username normalizes to. Such
+// under: the mail an address is sent, its sign-in codes, the codes sent to accept one
+// invitation, its password reset links, and the guesses at the code of an account's
+// first password, each under a key no username normalizes to. Such
 // a key is the row's as it is listed; any other name is a username's
 // (SignInAttemptName). A caller that clears the row a list shows, as the generated user
 // management's unlock does, clears the row of this key.

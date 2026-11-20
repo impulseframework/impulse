@@ -159,7 +159,7 @@ turned on, since that takes a person who is signed in through the tenant's direc
   role, the foothold a deployed environment starts from: an invitation mailed to the address the placement names for
   the environment (`APP_STAFF_ADMINISTRATOR`), which gives the Super Administrator role
   and the development administrator's roles. The person opens the link and chooses a
-  password there, their address proven by the link. No account is made ahead of them and
+  password there, and enters the code mailed to the address. No account is made ahead of them and
   no password is generated. A release leaves an invitation that stands as it is, mails a new one once
   it has run out (seven days), and withdraws one for an address the placement no longer
   names; the migrate command's `-reinvite-administrator staff` withdraws the

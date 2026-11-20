@@ -172,11 +172,22 @@ export interface Landing {
  * holds the address; a sign-in the server refuses for it comes back with
  * `organization_account_required`, or with `organization_has_tenant` where the
  * organization the person signed in through already has a tenant, each with its
- * sentence and the invitation still standing. A person the page finds already signed in accepts it with
- * one click, from a button under the heading, when their account holds the invited address
- * or none; signed in as an account that holds another address, they are told whose the
- * invitation is and how to accept it, since the server refuses that acceptance too
- * (`acceptOffered`). Under an older server that does not say what
+ * sentence and the invitation still standing. The link only opens the invitation, and
+ * nothing is accepted by it: every sign-in that does not itself prove the invited address
+ * is held for a code mailed to that address, which the pending step asks for as it does
+ * for any sign-in code. The account form is such a sign-in too: the server makes nobody
+ * until the code is entered. A person the page finds already signed in accepts it with
+ * one click, from a button under the heading, when their account holds the invited
+ * address confirmed, which is the one acceptance by hand the server takes
+ * (`acceptOffered`). Signed in as an account that holds no address yet, or that holds the
+ * invited one and has not confirmed it, they are told to sign in again, over the ways to
+ * sign in: the code mailed to the invited address is what shows it to be theirs
+ * (`signedInUnproven`). Signed in as an account that holds another address, they are told
+ * whose the invitation is and how to accept it, since the server refuses that acceptance
+ * too. Where people choose their username
+ * and no account holds the invited address, an account may hold no address yet, so the
+ * card also offers "Sign in with an account you already have", which shows the password
+ * form (`existing`). Under an older server that does not say what
  * holds the address every path is offered, the account form behind the same button, which
  * comes last, under the password form and the redirect
  * buttons, where the open "Create an account" step stands when no invitation does. The
@@ -309,6 +320,11 @@ export class LoginMethodsComponent implements OnInit {
    * form when an account with a password holds the address (`password`); and the account
    * form when no account holds it and the server offers a password method, whether or not
    * a directory could admit the address too: a new person chooses how they sign in (`create`).
+   * Where people choose their username, an account may hold no address at all, and such an
+   * account accepts by signing in with its password and entering the code mailed to the
+   * invited address: the password form is then offered behind a button while no account
+   * holds the address (`existing`), and shown once the person asks for it, or at once to a
+   * person found signed in as an account with no address (`signedInUnproven`).
    * `known` is false under an older server that did not say whether an account exists:
    * every path is then offered, as before. An invitation that makes a tenant entered
    * through its directory only (`directoryOnly`) is accepted through an organization's
@@ -324,13 +340,17 @@ export class LoginMethodsComponent implements OnInit {
     const known = invited.accountExists !== undefined;
     const passwordListed = this.passwordMethod() !== undefined;
     if (invited.directoryOnly === true) {
-      return { known, redirects, password: false, create: false };
+      return { known, redirects, password: false, create: false, existing: false };
     }
+    const holder = !known || invited.hasPassword === true;
+    const addressless = this.signedInUnproven() === 'none';
+    const existing = passwordListed && known && !invited.accountExists && !invited.usernameIsEmail;
     return {
       known,
       redirects,
-      password: passwordListed && (!known || invited.hasPassword === true),
+      password: passwordListed && (holder || addressless || (existing && this.signingInExisting())),
       create: invited.signUp && (!known || !invited.accountExists),
+      existing: existing && !addressless && !this.signingInExisting(),
     };
   });
   /** The password method's username is the person's email address: the form asks for the address. */
@@ -373,20 +393,44 @@ export class LoginMethodsComponent implements OnInit {
   signedInAs = signal<string | undefined>(undefined);
   /** The address the signed-in person's account holds, if any: with an invitation, whether they may accept it as they are. */
   signedInEmail = signal<string | undefined>(undefined);
+  /** The signed-in person's account has confirmed the address it holds. */
+  signedInVerified = signal(false);
   /**
    * The person found signed in may accept the invitation as they are: their account holds
-   * the invited address, or no address at all (it takes the invited one by accepting). An
-   * account that holds another address may not, and the server refuses it too: the screen
-   * says so and offers the ways to sign in as the invited account instead.
+   * the invited address, confirmed. That is the one acceptance by hand the server takes.
+   * The link proves nothing of who holds it, so an account that holds no address, or has
+   * not confirmed the invited one, accepts by the code instead (`signedInUnproven`), and
+   * an account that holds another address may not accept at all: the screen says so and
+   * offers the ways to sign in.
    */
   acceptOffered = computed(() => {
     const invited = this.invitation();
-    if (!this.signedInAs() || !invited) {
+    const email = this.signedInEmail();
+    if (!this.signedInAs() || !invited || !email) {
       return false;
     }
-    const email = this.signedInEmail();
-    return email === undefined || email === '' || sameAddress(email, invited.email);
+    return this.signedInVerified() && sameAddress(email, invited.email);
   });
+  /**
+   * The person found signed in can accept the invitation as this account, though not with
+   * a click: the account holds no address yet (`none`), or holds the invited one and has
+   * not confirmed it (`unconfirmed`). It accepts by signing in again and entering the code
+   * mailed to the invited address, and the note over the ways to sign in says so.
+   * Undefined for anyone else.
+   */
+  signedInUnproven = computed<'none' | 'unconfirmed' | undefined>(() => {
+    const invited = this.invitation();
+    if (!this.signedInAs() || !invited) {
+      return undefined;
+    }
+    const email = this.signedInEmail();
+    if (!email) {
+      return 'none';
+    }
+    return sameAddress(email, invited.email) && !this.signedInVerified() ? 'unconfirmed' : undefined;
+  });
+  /** "Sign in with an account you already have" was chosen on the invitation screen: the password form is shown. */
+  signingInExisting = signal(false);
   /** The username of a session found standing with nothing in the URL to act on: Continue and Sign out take the list's place. */
   signedInAlone = computed(() => (this.invitation() ? undefined : this.signedInAs()));
   /** The account form, taking the list's place: an account with a password, from the invitation or a sign-up link. */
@@ -686,7 +730,10 @@ export class LoginMethodsComponent implements OnInit {
    * session and hands the page on. A refusal for who the person is signed in as (403) and
    * a refusal to make what the invitation carries as it stands (409, a name that is taken)
    * both leave the invitation standing on the server, so the page keeps it and shows the
-   * server's sentence; any other refusal means the invitation is gone.
+   * refusal's sentence; any other refusal means the invitation is gone. A refusal for the
+   * account's address is shown in the server's own words, which say which it is: the
+   * invitation is another account's, or this account has yet to confirm the address and
+   * signs in again for the code.
    */
   accept(): Promise<void> {
     if (this.busy() || !this.acceptOffered()) {
@@ -696,7 +743,7 @@ export class LoginMethodsComponent implements OnInit {
       const result = await this.client.auth.acceptInvitation();
       if (result.outcome === 'refused') {
         if (result.status === 403 || result.status === 409) {
-          this.refusal.set(this.sentenceOf(result));
+          this.refusal.set(result.code === invitationAddressCode ? result.message : this.sentenceOf(result));
           return;
         }
         this.leaveInvitation(result);
@@ -706,9 +753,41 @@ export class LoginMethodsComponent implements OnInit {
     });
   }
 
-  /** The sentence for a person signed in as an account that may not accept the invitation: whose it is, and how to accept it. */
+  /**
+   * The sentence for a person signed in as an account that may not accept the invitation
+   * as it is: whose it is, and how to accept it. An account that holds no address, or has
+   * not confirmed the invited one, accepts by signing in again, for the code mailed to the
+   * invited address.
+   */
   signedInOtherNote(name: string, invitation: OpenedInvitation): string {
-    return `You are signed in as ${name}. To accept this invitation, sign in as ${invitation.email}.`;
+    switch (this.signedInUnproven()) {
+      case 'none':
+        return `You are signed in as ${name}, and that account has no email address yet. To accept this invitation, sign in again. A code will be sent to ${invitation.email} to confirm the address is yours.`;
+      case 'unconfirmed':
+        return `You are signed in as ${name}, and that account has not confirmed ${invitation.email} yet. To accept this invitation, sign in again. A code will be sent to that address to confirm it is yours.`;
+      default:
+        return `You are signed in as ${name}. To accept this invitation, sign in as ${invitation.email}.`;
+    }
+  }
+
+  /** The sentence over the password form on the invitation screen: what signing in does. */
+  passwordNote(invitation: OpenedInvitation): string {
+    return this.signingInExisting()
+      ? `Sign in with your password to accept it. A code will be sent to ${invitation.email} to confirm the address is yours.`
+      : 'Sign in with your password to accept it.';
+  }
+
+  /**
+   * Shows the password form on the invitation screen for a person who already has an
+   * account that holds no address yet, leaving the account form when it stands.
+   */
+  signInWithExistingAccount(): void {
+    if (this.busy() || !this.invitation()) {
+      return;
+    }
+    this.clearAccountForm();
+    this.refusal.set(undefined);
+    this.signingInExisting.set(true);
   }
 
   /**
@@ -723,6 +802,7 @@ export class LoginMethodsComponent implements OnInit {
       return;
     }
     this.refusal.set(undefined);
+    this.signingInExisting.set(false);
     this.accountOpenedItself.set(itself);
     this.account.set({ source: 'invitation', email: invitation.email, usernameIsEmail: invitation.usernameIsEmail });
   }
@@ -732,6 +812,8 @@ export class LoginMethodsComponent implements OnInit {
    * chooses one. Two passwords that differ are refused here, with no request; the server's
    * refusal is rendered in place, and one that says the link is gone returns to the list.
    * An account the server creates is signed in, and the sign-in is followed as any other.
+   * An invitation's account is not created yet: the server holds it for the code mailed to
+   * the invited address, and the code step takes the form's place.
    */
   createAccount(): Promise<void> {
     const form = this.account();
@@ -919,6 +1001,7 @@ export class LoginMethodsComponent implements OnInit {
       await firstValueFrom(this.auth.logout());
       this.signedInAs.set(undefined);
       this.signedInEmail.set(undefined);
+      this.signedInVerified.set(false);
     });
   }
 
@@ -1203,6 +1286,7 @@ export class LoginMethodsComponent implements OnInit {
     const session = await this.sessionStanding();
     this.signedInAs.set(session?.username);
     this.signedInEmail.set(session?.email ?? undefined);
+    this.signedInVerified.set(session?.emailVerified === true);
     const paths = this.invitationPaths();
     if (!session?.username && paths?.known && paths.create && paths.redirects.length === 0) {
       this.openAccountForm(true);
@@ -1246,6 +1330,7 @@ export class LoginMethodsComponent implements OnInit {
     }
     this.signedInAs.set(session.username);
     this.signedInEmail.set(session.email ?? undefined);
+    this.signedInVerified.set(session.emailVerified === true);
   }
 
   /** The session the browser arrived with, when one stands and may act; undefined otherwise. */
@@ -1302,6 +1387,8 @@ export class LoginMethodsComponent implements OnInit {
         // The server took the password, and no later step posts it: each posts its own
         // fields. The page holds it no longer than that.
         this.password = '';
+        this.accountPassword = '';
+        this.accountPasswordAgain = '';
         if (result.redirectUrl) {
           this.leaveFor(result.redirectUrl);
           return;
@@ -1382,8 +1469,10 @@ export class LoginMethodsComponent implements OnInit {
   /** Renders the refusal of an invitation that is gone and drops its note: the list stands alone. */
   private leaveInvitation(refusal: SignInRefusal): void {
     this.invitation.set(undefined);
+    this.signingInExisting.set(false);
     this.signedInAs.set(undefined);
     this.signedInEmail.set(undefined);
+    this.signedInVerified.set(false);
     this.refusal.set(this.sentenceOf(refusal));
   }
 
@@ -1412,8 +1501,10 @@ export class LoginMethodsComponent implements OnInit {
     this.clearCodeForm();
     this.pending.set(undefined);
     this.invitation.set(undefined);
+    this.signingInExisting.set(false);
     this.signedInAs.set(undefined);
     this.signedInEmail.set(undefined);
+    this.signedInVerified.set(false);
     this.clearAccountForm();
     this.refusal.set(undefined);
     if (session.passwordChangeRequired) {

@@ -227,7 +227,7 @@ Google account.
   role, the foothold a deployed environment starts from: an invitation mailed to the address the placement names for
   the environment (`APP_STAFF_ADMINISTRATOR`), which gives the Super Administrator role
   and the development administrator's roles. The person opens the link and signs in by a
-  method of the auth: they choose a password there, their address proven by the link, or
+  method of the auth: they choose a password there and enter the code mailed to the address, or
   sign in through Google, where the invitation is what ties the sign-in to the roles,
   whoever else the method admits. No account is made ahead of them and no password is
   generated. A release leaves an invitation that stands as it is, mails a new one once

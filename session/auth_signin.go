@@ -68,10 +68,15 @@ type signInAttempt struct {
 	// identity answers for no address, asserting none or one its method did not verify
 	// (sessioninfo.Invitation.AddressProven).
 	codeEmail string
-	// acceptsInvitation reports a completion of the wait of an invitation's acceptance
-	// (signinflow's invitedCodeWait): the code it entered was mailed for the invitation,
-	// so the sign-in is that invitation's acceptance or it is nothing.
+	// acceptsInvitation reports a completion of a wait of an invitation's acceptance
+	// that named no user (signinflow's invitedCodeWait, a sign-up through an
+	// invitation): the code it entered was mailed for the invitation, so the sign-in is
+	// that invitation's acceptance or it is nothing.
 	acceptsInvitation bool
+	// signUp is what a sign-up through an invitation keeps until its code is entered,
+	// for the attempt that holds it as a pending identity (invitationSignUp); nil for
+	// every other attempt.
+	signUp *heldSignUp
 }
 
 // signInOutcome is a sign-in's result: a session, or a pending identity.
@@ -229,7 +234,7 @@ func (a *Auth[S, U, Tx]) invitationCarried(ctx context.Context, at *signInAttemp
 			// or run out since the wait began). It proves nothing else: not the address of
 			// an account the sign-in would otherwise make or find, and no second factor
 			// of one.
-			return nil, signinflow.Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, "the invitation has expired or was already used")
+			return nil, errInvitationEnded()
 		}
 
 		return nil, nil
@@ -239,6 +244,12 @@ func (a *Auth[S, U, Tx]) invitationCarried(ctx context.Context, at *signInAttemp
 	inv.AddressProven = at.codeEmail != "" && strings.EqualFold(strings.TrimSpace(at.codeEmail), strings.TrimSpace(inv.Email))
 
 	return inv, nil
+}
+
+// errInvitationEnded is the refusal (invitation_expired) of a sign-in that is an
+// invitation's acceptance or nothing, where the invitation no longer stands.
+func errInvitationEnded() error {
+	return signinflow.Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, "the invitation has expired or was already used")
 }
 
 // passwordNoLongerHeld answers a sign-in that rested on a password proof and found the

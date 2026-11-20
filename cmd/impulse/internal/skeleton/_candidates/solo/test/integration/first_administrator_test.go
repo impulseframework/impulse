@@ -29,9 +29,9 @@ const (
 // way the migrate command and the login page do. Nobody of the staff auth holds the
 // Super Administrator role, so the release has an invitation mailed to the address the
 // placement names, and makes no account and no password. A second release while the invitation stands mails nothing.
-// The person opens the link and chooses a password, their address proven by the link,
-// and holds the Super Administrator role and the first administrator's roles, so they
-// can invite the others. They sign in again from another browser with that password and
+// The person opens the link, chooses a password and enters the code mailed to the
+// address, which proves it theirs, and holds the Super Administrator role and the first
+// administrator's roles, so they can invite the others. They sign in again from another browser with that password and
 // the code mailed to their address. From then on a release invites nobody, and the fresh
 // invitation the deployment's operations can ask for is refused: somebody is there to
 // invite.
@@ -69,14 +69,15 @@ func TestFirstAdministrator_invited(t *testing.T) {
 		t.Fatalf("the second release = %+v with %d message(s) mailed, want the invitation left standing and nothing mailed", again, len(s.mail.Messages())-before)
 	}
 
-	// The person opens the link and chooses a password; the link proves the address.
+	// The person opens the link and chooses a password; the code mailed to the address
+	// proves it theirs.
 	b := accepted(ctx, t, s, token, firstName, firstAddress)
 	sess := b.session(ctx)
 	if !sess.Authenticated || sess.Username != firstName || sess.PasswordChangeRequired {
 		t.Fatalf("session after the acceptance = %+v, want authenticated as %s with no password to change", sess, firstName)
 	}
 	if sess.Email != firstAddress || !sess.EmailVerified {
-		t.Errorf("session after the acceptance = %+v, want the invited address %s held and proven by the link", sess, firstAddress)
+		t.Errorf("session after the acceptance = %+v, want the invited address %s held and proven by the code", sess, firstAddress)
 	}
 	if names := accountNames(ctx, t, s); !slices.Equal(names, []string{firstName}) {
 		t.Errorf("the accounts after the acceptance = %v, want the person's alone: no account named administrator exists", names)
@@ -315,10 +316,10 @@ func opened(ctx context.Context, t *testing.T, s *served, token string) (status 
 }
 
 // accepted has the invited person follow the link and create their account from it with
-// a password they choose, as the login page does. The link and the password open no
-// session by themselves: the sign-in waits for the code mailed to the invited address,
-// so whoever holds the link without the mailbox gets no further. It returns the person's
-// browser, signed in.
+// a password they choose, as the login page does. The link and the password make no
+// account and open no session by themselves: the sign-up waits for the code mailed to
+// the invited address, so whoever holds the link without the mailbox gets no further.
+// It returns the person's browser, signed in.
 func accepted(ctx context.Context, t *testing.T, s *served, token, username, address string) *browser {
 	t.Helper()
 
@@ -339,10 +340,13 @@ func accepted(ctx context.Context, t *testing.T, s *served, token, username, add
 		t.Errorf("the acceptance answered with the password the person chose: %s", body)
 	}
 	if !heldForFactor(t, body) {
-		t.Fatalf("the acceptance as %s answered %s, want the sign-in held for the second factor: the link alone opens no session", username, body)
+		t.Fatalf("the acceptance as %s answered %s, want the sign-up held for the code: the link alone opens no session", username, body)
 	}
 	if sess := b.session(ctx); sess.Authenticated {
 		t.Fatalf("session before the sign-in code = %+v, want none: the link and a password are not the mailbox", sess)
+	}
+	if names := accountNames(ctx, t, s); slices.Contains(names, username) {
+		t.Fatalf("the accounts before the sign-in code = %v, want none named %s: the link and a password make nobody", names, username)
 	}
 	b.secondFactor(ctx, username, false)
 	if sent := s.mail.Messages(); len(sent) == 0 || sent[len(sent)-1].To != address {

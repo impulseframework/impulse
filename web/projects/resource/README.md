@@ -670,19 +670,25 @@ absent when the server did not say; and `accountExists` and `hasPassword`, wheth
 an account already holds the address and signs in with a password, absent when the server did
 not say; and, for an invitation that makes a tenant, `newTenant` and `directoryOnly`, whether
 that tenant is entered through its directory only, both absent for any other invitation), and the browser now carries it, so the sign-in that follows accepts it and the
-server's hook seats the person: a password sign-in or sign-up by whoever holds the link, a
-directory sign-in, or a password sign-in by an account that holds an address, only as the
-invited address (another address is refused with `invitation_address`, the invitation still
-standing; an account with no address accepts by the link). A directory sign-in that asserts
-no address, or one its method did not verify (the invited one or another), is held for the
-sign-in code, which the server mails to the invited address: the
+server's hook seats the person: a directory sign-in, or a password sign-in by an account
+that holds an address, only as the invited address (another address is refused with
+`invitation_address`, the invitation still standing). The link only opens the invitation,
+so every sign-in that does not itself prove the invited address is held for the sign-in
+code, which the server mails to the invited address: a directory sign-in that asserts no
+address, or one its method did not verify (the invited one or another); a password sign-in
+by an account that has not confirmed the invited address; and a sign-up with a password
+(`signUpFromInvitation` then answers `mfaIsRequired` true, and the account is made once
+the code is entered). The
 pending step's `emailCode` names it masked and never asks for one (`enrollEmail` is false), and
 `verifyCode` accepts the invitation. `signInUrl(method, returnUrl, {
 loginHint })` names the account the provider should take, which a login page sets to the
-invited address. `acceptInvitation()` accepts it for a person already signed in, under the
-same rule: an account that holds another address resolves `refused` with 403 and the
-server's sentence, the invitation still standing. `signUpFromInvitation({ password, username? })` creates the invited person's account with
-a password, the address verified, and signs them in, answering as a sign-in step does. A link
+invited address. `acceptInvitation()` accepts it for a person already signed in whose account
+holds the invited address confirmed. An account that holds another address resolves `refused`
+with 403 and the server's sentence, the invitation still standing; so does one that has not
+confirmed the invited address or holds none, whose sentence says to sign in again from the
+invitation's link, since a session cannot wait for a code. `signUpFromInvitation({ password, username? })` asks for the invited person's account with
+a password and answers the pending step that waits for the code; the code makes the account,
+its address verified, signs the person in and accepts the invitation. A link
 that has expired or was already used resolves `refused` with 404 and the server's words; a
 taken username or address 409. An invitation that makes a tenant names the tenant to be
 (`tenantName`) and has no `tenantId` yet. One whose tenant is entered through its directory

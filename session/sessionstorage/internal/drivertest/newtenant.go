@@ -161,15 +161,13 @@ func testTenantInvitationAccepted(ctx context.Context, t *testing.T, h *AuthHarn
 		t.Error("the invitation's ConsumedAt = nil after the sign-in, want consumed")
 	}
 
-	// By password, in the acceptance's own transaction: the acceptor is handed the
-	// password method and no connection, so the tenant it makes takes no directory.
+	// By password, the sign-in carrying the code mailed to the invited address, in the
+	// acceptance's own transaction: the acceptor is handed the password method and no
+	// connection, so the tenant it makes takes no directory.
 	sam := passwordUser(ctx, t, in.Driver, "sam")
 	open := lakesideHigh(false)
 	samLink := insertTenantInvitation(ctx, t, in.Driver, "sam@riverside.edu", open, tokenHash(2))
-	samReq := &sessioninfo.NewSessionRequest{
-		Reason: sessioninfo.ReasonLogin, Username: sam.Username, UserID: sam.ID,
-		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: sam.ID.String()}, Invitation: invitationOf(samLink),
-	}
+	samReq := invitedPasswordSignIn(sam, samLink, true)
 	if err := signInRequest(ctx, in, samReq); err != nil {
 		t.Fatalf("password sign-in with an invitation that makes a tenant error = %v", err)
 	}
@@ -178,13 +176,14 @@ func testTenantInvitationAccepted(ctx context.Context, t *testing.T, h *AuthHarn
 	}
 	assertRecorded(ctx, t, h, in.Raw, "made:sam@riverside.edu", madeAs("sam", open, sessioninfo.MethodPassword, ""))
 
-	// By hand, for a person already signed in: the acceptor is handed how the session
-	// was established, which the caller notes on the invitation.
-	alex := createUser(ctx, t, in.Driver, "alex")
+	// By hand, for a person already signed in whose account holds the invited address
+	// confirmed: the acceptor is handed how the session was established, which the
+	// caller notes on the invitation.
+	alex := userHolding(ctx, t, in.Driver, "alex", "alex@hillside.edu", true)
 	alexLink := insertTenantInvitation(ctx, t, in.Driver, "alex@hillside.edu", tenant, tokenHash(3))
 	byHand := invitationOf(alexLink)
 	byHand.SignInMethod, byHand.SignInConnection = sessioninfo.MethodAzure, "tenant-hillside"
-	if err := in.Accept(ctx, alex.ID, alex.Username, "", byHand); err != nil {
+	if err := in.Accept(ctx, alex.ID, alex.Username, "alex@hillside.edu", byHand); err != nil {
 		t.Fatalf("Accept() error = %v", err)
 	}
 	if !byHand.Accepted {
@@ -269,8 +268,9 @@ func testTenantInvitationRefusedByAcceptor(ctx context.Context, t *testing.T, h 
 	assertNoLink(ctx, t, in.Driver, identity)
 
 	// A person whose identity is linked already is refused the same way, and keeps the
-	// invitation; and so is an acceptance by hand.
-	alex := createUser(ctx, t, in.Driver, "alex@lakeside.edu")
+	// invitation; and so is an acceptance by hand, by a person whose account holds the
+	// invited address confirmed.
+	alex := userHolding(ctx, t, in.Driver, "alex@lakeside.edu", "alex@lakeside.edu", true)
 	alexIdentity := google("sub-alex", "alex@lakeside.edu")
 	mustLink(ctx, t, in.Driver, alex.ID, alexIdentity)
 	alexLink := insertTenantInvitation(ctx, t, in.Driver, "alex@lakeside.edu", tenant, tokenHash(2))
@@ -281,7 +281,7 @@ func testTenantInvitationRefusedByAcceptor(ctx context.Context, t *testing.T, h 
 	assertNothingMade(ctx, t, h, in, alexLink, alexReq.Invitation)
 	byHand := invitationOf(alexLink)
 	byHand.SignInMethod, byHand.SignInConnection = sessioninfo.MethodGoogle, "lakeside"
-	if got := sessioninfo.LoginRefusalCodeOf(in.Accept(ctx, alex.ID, alex.Username, "", byHand)); got != sessioninfo.RefusedOrganizationHasTenant {
+	if got := sessioninfo.LoginRefusalCodeOf(in.Accept(ctx, alex.ID, alex.Username, "alex@lakeside.edu", byHand)); got != sessioninfo.RefusedOrganizationHasTenant {
 		t.Errorf("Accept(): refusal code = %q, want %q", got, sessioninfo.RefusedOrganizationHasTenant)
 	}
 	assertNothingMade(ctx, t, h, in, alexLink, byHand)

@@ -170,6 +170,16 @@
       </mat-form-field>
       <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Create account</button>
     </form>
+    @if (form.source === 'invitation' && invitationPaths()?.existing) {
+      <button
+        mat-button
+        type="button"
+        class="impulse-login-existing-account"
+        [disabled]="busy()"
+        (click)="signInWithExistingAccount()">
+        Sign in with an account you already have
+      </button>
+    }
     @if (!accountOpenedItself()) {
       <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="cancelAccount()">
         Cancel
@@ -293,8 +303,8 @@
   }
   @if (passwordMethod(); as method) {
     @if (!invitationPaths() || invitationPaths()!.password) {
-      @if (invitationPaths()?.known) {
-        <p class="impulse-login-password-note">Sign in with your password to accept it.</p>
+      @if (invitationPaths()?.known && invitation(); as invited) {
+        <p class="impulse-login-password-note">{{ passwordNote(invited) }}</p>
       }
       <form class="impulse-login-form" (ngSubmit)="login()">
         <mat-form-field appearance="outline" class="impulse-login-field">
@@ -361,6 +371,16 @@
         [disabled]="busy()"
         (click)="openAccountForm()">
         Create an account with a password
+      </button>
+    }
+    @if (paths.existing) {
+      <button
+        mat-button
+        type="button"
+        class="impulse-login-existing-account"
+        [disabled]="busy()"
+        (click)="signInWithExistingAccount()">
+        Sign in with an account you already have
       </button>
     }
   } @else if (signUpOffered()) {

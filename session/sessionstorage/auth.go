@@ -430,11 +430,16 @@ type AuthStore[Tx any] interface {
 	// RevokeTrustedDevices revokes every device of userID that is not revoked yet: an
 	// administrator's reset of the person's factors.
 	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
-	// AcceptInvitation accepts inv for user userID in one transaction: the
-	// invitation is consumed, the user's address is set from it when the user holds
-	// no verified address, and accept, the application's hook (nil for none), gives
-	// what the invitation names, handed the transaction; what the hook asks to have
-	// run after the commit runs once it has landed. An invitation that is no longer
+	// AcceptInvitation accepts inv for user userID, a person signed in, in one
+	// transaction: the invitation is consumed and accept, the application's hook (nil
+	// for none), gives what the invitation names, handed the transaction; what the
+	// hook asks to have run after the commit runs once it has landed. The user's
+	// account must hold the invited address confirmed, read in the transaction: the
+	// invitation's link proves no address, so an account that holds none, or has not
+	// confirmed the invited one, is refused (invitation_address, with
+	// signin.ErrInvitationCode among the causes) with nothing written, and accepts by
+	// signing in again from the invitation, which waits for the code mailed to the
+	// invited address. An invitation that is no longer
 	// live is NotFound (signin.ErrInvitationExpired its cause), and nothing is
 	// written; a hook that fails is its error, and nothing is written either.
 	AcceptInvitation(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor[Tx]) error

@@ -42,8 +42,8 @@ const AdministratorVariable = "APP_STAFF_ADMINISTRATOR"
 // application's own roles for the first administrator (FirstAdministratorRoles). The
 // person opens the link and signs in by a method of the auth, as everyone invited after
 // them does.
-// With the password method they choose a password there, their address proven by the
-// link.
+// With the password method they choose a password there and enter the code mailed to
+// the address, which proves it theirs.
 // Through a directory the invitation is what ties the sign-in to the roles, whoever
 // else the directory admits and however many organizations the method is open to, and
 // the address the directory gives must be the invited one.

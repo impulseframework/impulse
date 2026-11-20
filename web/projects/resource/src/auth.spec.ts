@@ -158,7 +158,8 @@ function server(overrides: Partial<Server> = {}): Server {
     look: { status: 200, body: { scheme: 'dark', palette: 'workspace' } },
     invitationOpen: { status: 200, body: opened },
     invitationAccept: { status: 200, body: { accepted: true } },
-    invitationSignUp: { status: 200, body: { mfaIsRequired: false } },
+    // The link proves nothing of who holds it: the sign-up makes nobody and waits for the code.
+    invitationSignUp: { status: 200, body: { mfaIsRequired: true } },
     emailAdd: { status: 200, body: {} },
     emailVerify: { status: 200, body: { email: 'pax@fleet.example' } },
     emailConfirm: { status: 200, body: { email: 'pax@fleet.example' } },
@@ -1606,11 +1607,11 @@ describe('an invitation', () => {
     });
   });
 
-  it('creates an account with a password after the list is read again, the username sent only where given, and resolves the sign-in', async () => {
+  it('asks for an account with a password after the list is read again, the username sent only where given, and resolves the step that waits for the code', async () => {
     const { auth, transport } = authOver(server({ methods: mailingList }));
-    expect(await auth.signUpFromInvitation({ password: 'orbit-and-anchor' })).toEqual({ outcome: 'session' });
+    expect(await auth.signUpFromInvitation({ password: 'orbit-and-anchor' })).toEqual({ outcome: 'pending' });
     expect(await auth.signUpFromInvitation({ password: 'orbit-and-anchor', username: 'ensign' })).toEqual({
-      outcome: 'session',
+      outcome: 'pending',
     });
     expect(sent(transport)).toEqual([
       `GET /console/api/${loginMethodsRoute}`,

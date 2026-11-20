@@ -681,9 +681,7 @@ func TestAuth_Invitation(t *testing.T) {
 
 	t.Run("opening an invitation answers what it is and sets the cookie; a dead or foreign token is 404", authInvitationCase1)
 	t.Run("a signed-in person accepts the invitation the browser carries, in the store's transaction with the hook, and the cookie goes", authInvitationCase2)
-	t.Run("an invited person creates an account with a password: the address verified, the sign-in carrying the invitation", authInvitationCase3)
 	t.Run("a sign-up from an invitation refuses a short password, a missing username and a missing invitation", authInvitationCase4)
-	t.Run("where the username is the address, the sign-up takes the invitation's address as the username", authInvitationCase5)
 	t.Run("opening an invitation names the listed registrations that could admit its address, none as an empty list", authInvitationCase6)
 	t.Run("opening an invitation names its tenant by the application's namer, and by nothing for a tenant the namer does not know", authInvitationCase7)
 	t.Run("an invitation names every registration that could admit its address, and for an account with no password that signs in through an identity, only the registrations it signs in through", authInvitationCase8)
@@ -1033,38 +1031,6 @@ func authInvitationCase2(t *testing.T) {
 	}
 }
 
-func authInvitationCase3(t *testing.T) {
-	t.Parallel()
-	userID, sessionID := newIDs()
-	f, recorder, links := newMailFixture(t, gomock.NewController(t))
-	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: "lakeside"}); err != nil {
-		t.Fatal(err)
-	}
-	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
-	created := &sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}
-	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, u *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
-		if u.Username != "patl" || u.PasswordHash == nil || u.Email == nil || *u.Email != "pat@lakeside.edu" || !u.EmailVerified {
-			t.Errorf("CreateUser() given %+v, want the chosen username, a hash and the invitation's address verified", u)
-		}
-
-		return created, nil
-	})
-	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-		if req.Invitation == nil || req.Invitation.ID != links.rows[0].ID || req.UserID != userID || req.Identity.Method != sessioninfo.MethodPassword {
-			t.Errorf("SignIn() given %+v with invitation %+v, want the new user's password identity carrying the invitation", req, req.Invitation)
-		}
-		req.Invitation.Accepted = true
-	}, nil)
-
-	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
-	if rr.Code != http.StatusOK || decoded(t, rr)["mfaIsRequired"] != false || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
-		t.Errorf("SignUp() = %d %s, want a session", rr.Code, rr.Body.String())
-	}
-	if c := cookieNamed(rr, defaultInvitationCookieName); c == nil || c.Value != "" {
-		t.Error("SignUp() left the invitation cookie, want it deleted")
-	}
-}
-
 func authInvitationCase4(t *testing.T) {
 	t.Parallel()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
@@ -1085,29 +1051,6 @@ func authInvitationCase4(t *testing.T) {
 		if rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", tt.body, tt.cookies); rr.Code != tt.want {
 			t.Errorf("SignUp() with %s = %d %s, want %d", tt.name, rr.Code, rr.Body.String(), tt.want)
 		}
-	}
-}
-
-func authInvitationCase5(t *testing.T) {
-	t.Parallel()
-	userID, sessionID := newIDs()
-	f, recorder, links := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
-	links.expectAccounts(f)
-	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu"}); err != nil {
-		t.Fatal(err)
-	}
-	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
-	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, u *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
-		if u.Username != "pat@lakeside.edu" || !u.EmailVerified {
-			t.Errorf("CreateUser() given %+v, want the address as the username, verified", u)
-		}
-
-		return &sessionstorage.SessionUser{ID: userID, Username: u.Username}, nil
-	})
-	f.expectSignIn(sessionID, nil, nil)
-
-	if rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse"}, cookies); rr.Code != http.StatusOK {
-		t.Errorf("SignUp() = %d %s, want 200", rr.Code, rr.Body.String())
 	}
 }
 

@@ -210,8 +210,9 @@ type standingInvitationAnswer struct {
 	Methods []string `json:"methods"`
 	// AccountExists says an account already holds the invited address, and HasPassword
 	// that it signs in with a password: the page offers that account's password form,
-	// and offers to create an account only where none holds the address. The link
-	// holder may know it, since following the link proved they own the address.
+	// and offers to create an account only where none holds the address. Whoever
+	// holds the link is told this much, so the page can offer the right form: the
+	// link proves nothing of who holds it, and nothing is accepted by it.
 	AccountExists bool `json:"accountExists"`
 	HasPassword   bool `json:"hasPassword"`
 }

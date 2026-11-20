@@ -66,17 +66,21 @@ const (
 	defaultLinkTimeout       = 24 * time.Hour
 )
 
-// mailLimit bounds the sign-in codes and links one address is sent and does not use:
-// five within fifteen minutes, then none for fifteen minutes. It is kept in the sign-in
-// attempts table under the address, as a name's failed attempts are, in two counts.
-// The codes of the address's own sign-ins are counted by themselves (codeLimitKey):
-// only a person past the first step of the account that holds the address, or the
-// holder of an invitation's link, has one sent. Everything else is counted together
-// (mailLimitKey), and anybody who knows the address can run that count up: a sign-up
-// started for it, a link asked to add it to an account, a code asked for it by a person
-// whose account holds no address yet. Kept apart, nothing a stranger asks for in a
-// person's name holds up the codes that person signs in with. A code or link that is
-// used resets the address (clearMailLimit, clearCodeLimit), so a person who uses what
+// mailLimit bounds the sign-in codes and links that are sent and not used: five within
+// fifteen minutes, then none for fifteen minutes. It is kept in the sign-in attempts
+// table, as a name's failed attempts are, in three counts. The codes of an address's
+// own sign-ins are counted by themselves under the address (codeLimitKey): only a
+// person past the first step of the account that holds the address has one sent. The
+// codes that accept an invitation are counted under that invitation
+// (invitationCodeLimitKey) and under no address: whoever holds the invitation's link
+// has them sent, and a mailed link can be forwarded, so a stranger who holds one runs
+// up the invitation's count alone. Everything else is counted together under the
+// address (mailLimitKey), and anybody who knows the address can run that count up: a
+// sign-up started for it, a link asked to add it to an account, a code asked for it by
+// a person whose account holds no address yet. Kept apart, nothing a stranger asks for
+// in a person's name, or with a link mailed to them, holds up the codes that person
+// signs in with. A code or link that is used resets the counts it was sent under
+// (clearMailLimit, clearCodeLimit, clearInvitationCodeLimit), so a person who uses what
 // they are sent never meets the limit; it stops mail asked for over and over and never
 // used.
 var mailLimit = sessionstorage.SignInAttemptLimit{Failures: 5, Window: 15 * time.Minute, Lock: 15 * time.Minute}
@@ -93,6 +97,13 @@ func mailLimitKey(email string) string {
 // folded as mailLimitKey folds it and under a kind of its own.
 func codeLimitKey(email string) string {
 	return attempts.OwnKey(attempts.KindCode, attempts.Normalize(email))
+}
+
+// invitationCodeLimitKey is the key, in the sign-in attempts table, of the codes sent to
+// accept the invitation inv: the invitation's id under a kind of its own, so the count
+// is that invitation's and no address's.
+func invitationCodeLimitKey(inv *sessioninfo.Invitation) string {
+	return attempts.OwnKey(attempts.KindInvitation, inv.ID.String())
 }
 
 // mailSettings are the Auth's mail settings once validated.
@@ -533,12 +544,20 @@ func (a *Auth[S, U, Tx]) limitMail(ctx context.Context, email string) error {
 	return a.limitSent(ctx, mailLimitKey(email))
 }
 
-// limitCode bounds the sign-in codes sent to the address an account holds, or an
-// invitation was mailed to, as limitMail bounds the address's other mail, in a count of
-// its own (codeLimitKey): what a stranger asks for in the address's name never uses up
-// the codes its person signs in with.
+// limitCode bounds the sign-in codes sent to the address an account holds, as limitMail
+// bounds the address's other mail, in a count of its own (codeLimitKey): what a
+// stranger asks for in the address's name never uses up the codes its person signs in
+// with.
 func (a *Auth[S, U, Tx]) limitCode(ctx context.Context, email string) error {
 	return a.limitSent(ctx, codeLimitKey(email))
+}
+
+// limitInvitationCode bounds the codes sent to accept the invitation inv, as limitMail
+// bounds an address's mail, in the invitation's own count (invitationCodeLimitKey): the
+// holder of a forwarded link uses up that invitation's codes and nothing of the invited
+// person's own sign-in.
+func (a *Auth[S, U, Tx]) limitInvitationCode(ctx context.Context, inv *sessioninfo.Invitation) error {
+	return a.limitSent(ctx, invitationCodeLimitKey(inv))
 }
 
 // limitSent takes a message's place under the mail limit in the count kept under key,
@@ -570,6 +589,14 @@ func (a *Auth[S, U, Tx]) clearMailLimit(ctx context.Context, email string) {
 // clearMailLimit resets the address's other mail.
 func (a *Auth[S, U, Tx]) clearCodeLimit(ctx context.Context, email string) {
 	if err := a.storage.ClearSignInAttempts(ctx, codeLimitKey(email)); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
+	}
+}
+
+// clearInvitationCodeLimit resets the count of the codes sent to accept inv once one is
+// used, as clearMailLimit resets an address's mail.
+func (a *Auth[S, U, Tx]) clearInvitationCodeLimit(ctx context.Context, inv *sessioninfo.Invitation) {
+	if err := a.storage.ClearSignInAttempts(ctx, invitationCodeLimitKey(inv)); err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
 	}
 }

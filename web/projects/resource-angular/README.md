@@ -450,20 +450,30 @@ provider as its login hint, so the provider takes that account and skips its cho
 form shows when an account with a password holds the address ("Sign in with your password to
 accept it."); and where no account holds the address and the server offers a password method, the
 person may create an account with a password: the account form asks for a username (unless the
-username is the address) and the password twice, creates the account, signs the person in and
-accepts the invitation. It opens by itself where it is the one way to accept, and stands behind a
+username is the address) and the password twice, and the code step follows it: the server mails a
+code to the invited address, and entering it creates the account, signs the person in and accepts
+the invitation. It opens by itself where it is the one way to accept, and stands behind a
 "Create an account with a password" button under the directory buttons where a directory could
 admit the address too, so a new person chooses how they sign in. The server names in `methods` only
 the registrations whose sign-in it accepts for the invited address: for an account with no password
 that already signs in through a directory, those it signs in through and no other, so no button
-leads to a refusal. A person who accepts through a directory that does not vouch for an address (Microsoft
-Entra ID, whether or not its registration is set up to send one) is asked for a sign-in code, which
-the server mails to the invited address; nobody types an address for it. The
+leads to a refusal. The link only opens the invitation, and nothing is accepted by it: a person
+whose sign-in does not itself prove the invited address is asked for a sign-in code, which
+the server mails to the invited address; nobody types an address for it. That is a person who
+accepts through a directory that does not vouch for an address (Microsoft Entra ID, whether or not
+its registration is set up to send one), one who signs in with the password of an account that has
+not confirmed the invited address, and one who creates an account with a password. Where people
+choose their username, an account may hold no address yet; while no account holds the invited
+address the screen also offers "Sign in with an account you already have", which shows the password
+form, and that sign-in is held for the same code. The
 "Use a different account" link is not offered while an invitation stands: the invitation names the
 account. A person the page finds already signed in may accept it as they are with one click, from a
-button under the heading, when their account holds the invited address or no address at all; signed
-in as an account that holds another address, they are told whose the invitation is and how to accept
-it, and the server refuses that acceptance too. Under an older server that does not say whether an account holds the
+button under the heading, when their account holds the invited address; the server takes the click
+only where that address is confirmed, and otherwise answers with a sentence that says to sign in
+again from the invitation's link, which the screen shows. Signed in as an account that holds no
+address yet, they are told to sign in again, over the password form: the code mailed to the invited
+address makes it theirs. Signed in as an account that holds another address, they are told whose
+the invitation is and how to accept it, and the server refuses that acceptance too. Under an older server that does not say whether an account holds the
 address, every path is offered as before, the account form behind the same button, last. The
 browser keeps carrying the invitation when a redirect method refuses the
 sign-in and returns to the login page with `?code=` and no token; the methods list then names it

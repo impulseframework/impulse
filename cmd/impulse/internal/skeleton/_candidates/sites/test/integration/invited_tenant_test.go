@@ -149,8 +149,8 @@ func staffAccountID(ctx context.Context, t *testing.T, b *browser, username stri
 
 // makeTenant makes a tenant the way one comes to exist, for a suite that needs a tenant
 // of its own: the administrator sends the invitation with the tenant's name, the invited
-// person follows the mailed link, signs up with a password and completes the second
-// factor. It answers the new tenant's id and the browser of its founder, who is its
+// person follows the mailed link, signs up with a password and enters the code mailed to
+// the invited address. It answers the new tenant's id and the browser of its founder, who is its
 // first administrator and signs in as username.
 func makeTenant(ctx context.Context, t *testing.T, s *served, admin *browser, name, username string) (tenant string, founder *browser) {
 	t.Helper()
@@ -168,12 +168,10 @@ func makeTenant(ctx context.Context, t *testing.T, s *served, admin *browser, na
 		t.Fatal(err)
 	}
 	status, body := founder.do(ctx, http.MethodPost, "/api/user/invitation/sign-up", accept)
-	if status != http.StatusOK {
-		t.Fatalf("signing up at the invitation that makes %s: status %d: %s", name, status, body)
+	if status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("signing up at the invitation that makes %s: status %d: %s, want 200 held for the code mailed to the invited address", name, status, body)
 	}
-	if heldForFactor(t, body) {
-		founder.secondFactor(ctx, username)
-	}
+	founder.secondFactor(ctx, username)
 	made := tenantNamed(ctx, t, admin, name)
 	if made == nil {
 		t.Fatalf("no tenant %s after its invitation was accepted", name)
@@ -282,16 +280,22 @@ func TestInvitedTenant_theFirstSignInMakesTheTenant(t *testing.T) {
 		t.Fatalf("the invitation page: status %d: %v, want a new tenant East for founder@east.example, open to a password", status, page)
 	}
 
-	// Accepted with a password: the tenant exists with the invitation's name and no
-	// directory, under an id the acceptance generated, and the person is its
-	// administrator.
+	// Accepted with a password. The link only opened the invitation, and whoever holds
+	// it may have been forwarded it: the sign-up waits for the code mailed to the invited
+	// address, and until the code is entered there is no account and no tenant. The code
+	// entered, the tenant exists with the invitation's name and no directory, under an id
+	// the acceptance generated, and the person is its administrator.
 	status, body = founder.do(ctx, http.MethodPost, "/api/user/invitation/sign-up", []byte(`{"username":"founder","password":"`+invitedPassword+`"}`))
-	if status != http.StatusOK {
-		t.Fatalf("signing up at the invitation: status %d: %s", status, body)
+	if status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("signing up at the invitation: status %d: %s, want 200 held for the code mailed to the invited address", status, body)
 	}
-	if heldForFactor(t, body) {
-		founder.secondFactor(ctx, "founder")
+	if accountExists(ctx, t, s, "founder") {
+		t.Error("the sign-up made an account before the code was entered, want none: the link alone makes nobody")
 	}
+	if made := tenantNamed(ctx, t, admin, "East"); made != nil {
+		t.Errorf("the sign-up made the tenant before the code was entered: %v", made)
+	}
+	founder.secondFactor(ctx, "founder")
 	made := tenantNamed(ctx, t, admin, "East")
 	if made == nil {
 		t.Fatalf("the tenants after the acceptance = %v, want East among them", tenants())

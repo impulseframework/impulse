@@ -417,10 +417,16 @@ var (
 	ErrInvitationExpired = errors.New("signin: the invitation has expired or was already used")
 	// ErrInvitationAddress is the cause when a sign-in or an acceptance carried an
 	// invitation mailed to another address: an invitation is accepted only by the
-	// account it was sent to (an account with no address, by the link), so the sign-in
-	// or acceptance is refused and the invitation left standing. The code is
-	// sessioninfo.RefusedInvitationAddress.
+	// account it was sent to, so the sign-in or acceptance is refused and the invitation
+	// left standing. The code is sessioninfo.RefusedInvitationAddress.
 	ErrInvitationAddress = errors.New("signin: the directory's address is not the one the invitation was mailed to")
+	// ErrInvitationCode is a second cause, beside ErrInvitationAddress, when a person
+	// signed in accepted an invitation by hand and their account has not confirmed the
+	// invited address: the link proves nothing of the address, and a session cannot be
+	// held for the code mailed to it, so the acceptance is refused, the invitation left
+	// standing, and the person accepts by signing in again from the invitation, which
+	// waits for that code.
+	ErrInvitationCode = errors.New("signin: the invitation is accepted by the code mailed to the invited address, at a sign-in from the invitation")
 	// ErrOrganizationAccountRequired is the cause when a sign-in or an acceptance
 	// carried an invitation that makes a tenant entered through its directory only, and
 	// the person did not come through an organization's directory (a password, a

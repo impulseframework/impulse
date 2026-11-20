@@ -241,8 +241,8 @@ func TestAuth_InvitationNewTenant(t *testing.T) {
 	t.Run("opening one entered through its directory only says so and offers no account with a password; the methods listing reports the standing invitation the same", authNewTenantOpenDirectoryOnly)
 	t.Run("an invitation that makes no tenant answers that it makes none", authNewTenantOpenPlain)
 	t.Run("a sign-up from an invitation entered through its directory only is refused before any account is created, the invitation standing and the browser still carrying it", authNewTenantSignUpRefused)
-	t.Run("a sign-up from an invitation that makes a tenant anyone may enter creates the account, and its sign-in carries the tenant", authNewTenantSignUp)
-	t.Run("a sign-up whose sign-in did not accept the invitation is answered the hook's refusal: the invitation stands, and the account the sign-up made before the sign-in stays, as for any invitation", authNewTenantSignUpNotAccepted)
+	t.Run("a sign-up from an invitation that makes a tenant anyone may enter creates the account once the code mailed to the invited address is entered, and its sign-in carries the tenant", authNewTenantSignUp)
+	t.Run("a sign-up whose sign-in did not accept the invitation is answered the hook's refusal: the invitation stands, and the account the code made before the sign-in stays, as for any invitation", authNewTenantSignUpNotAccepted)
 	t.Run("a signed-in person's acceptance tells the store how the session was established", authNewTenantAcceptEstablished)
 	t.Run("an acceptance the store refuses for a session that came through no organization's directory is 403 saying what to do, the browser still carrying the invitation", authNewTenantAcceptRefused)
 	t.Run("an acceptance the application refuses because the person's organization already has a tenant is 403 saying what to do and nothing of that tenant, the browser still carrying the invitation", authNewTenantAcceptOrganizationHasTenant)
@@ -329,10 +329,13 @@ func authNewTenantSignUp(t *testing.T) {
 	userID, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	cookies, _ := tenantInvitation(t, f, recorder, links, false)
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	expectFactorCode(f, &pendingState{ID: pendingID}, "314159")
+	f.expectConsume(pendingID)
 	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(&sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}, nil)
 	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-		if req.Invitation == nil || req.Invitation.ID != links.rows[0].ID {
-			t.Fatalf("SignIn() given the invitation %+v, want the opened one", req.Invitation)
+		if req.Invitation == nil || req.Invitation.ID != links.rows[0].ID || !req.Invitation.AddressProven {
+			t.Fatalf("SignIn() given the invitation %+v, want the opened one, its address proven by the code", req.Invitation)
 		}
 		if diff := cmp.Diff(lakesideHigh(false), req.Invitation.NewTenant); diff != "" {
 			t.Errorf("SignIn() given the invitation's tenant (-want +got):\n%s", diff)
@@ -340,8 +343,8 @@ func authNewTenantSignUp(t *testing.T) {
 		req.Invitation.Accepted = true
 	}, nil)
 
-	if rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies); rr.Code != http.StatusOK || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
-		t.Errorf("SignUp() = %d %s, want a session", rr.Code, rr.Body.String())
+	if rr := f.enterCode(cookies, "314159"); rr.Code != http.StatusOK || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
+		t.Errorf("VerifyCode() = %d %s, want a session", rr.Code, rr.Body.String())
 	}
 }
 
@@ -350,22 +353,25 @@ func authNewTenantSignUpNotAccepted(t *testing.T) {
 	userID, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	cookies, _ := tenantInvitation(t, f, recorder, links, false)
+	pendingID, cookies := signUpInvited(t, f, cookies, map[string]string{"password": "correct horse", "username": "patl"}, "patl")
+	expectFactorCode(f, &pendingState{ID: pendingID}, "314159")
+	f.expectConsume(pendingID)
 	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(&sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}, nil)
 	// The application's hook refuses to make the tenant: the sign-in's first transaction
-	// keeps nothing, so the invitation stands. The account was made before the sign-in,
-	// in a step of its own, and stays: the mocked store expects no DeleteUser, and a
-	// call fails the test.
+	// keeps nothing, so the invitation stands. The account was made once the code was
+	// entered, before the sign-in and in a step of its own, and stays: the mocked store
+	// expects no DeleteUser, and a call fails the test.
 	f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationHasTenant, httpio.NewConflictMessage("Your organization is already set up here."))
 	})
 
-	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
+	rr := f.enterCode(cookies, "314159")
 
 	if body := decoded(t, rr); rr.Code != http.StatusUnauthorized || body["code"] != string(sessioninfo.RefusedOrganizationHasTenant) {
-		t.Errorf("SignUp() = %d %s, want 401 on the hook's code", rr.Code, rr.Body.String())
+		t.Errorf("VerifyCode() = %d %s, want 401 on the hook's code", rr.Code, rr.Body.String())
 	}
 	if cookieNamed(rr, internalcookie.AuthCookieName) != nil {
-		t.Error("SignUp() set a session cookie, want nobody signed in")
+		t.Error("VerifyCode() set a session cookie, want nobody signed in")
 	}
 	if row := links.rows[0]; row.ConsumedAt != nil {
 		t.Error("the invitation was consumed, want it standing")

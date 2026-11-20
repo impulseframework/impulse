@@ -219,7 +219,11 @@ export interface LoginMethods {
 
 /** An invitation as opening it describes it to the page. */
 export interface OpenedInvitation {
-  /** The address the invitation was mailed to; the account that accepts it holds it, verified, unless it already holds a verified one. */
+  /**
+   * The address the invitation was mailed to. The sign-in that accepts it proves the
+   * address the person's own, by a verified claim of its directory or by the code mailed
+   * to the address, and the account then holds it, verified.
+   */
   readonly email: string;
   /** The id of the tenant the invitation seats the person in; empty for the application's global surface. Never shown: the person reads `tenantName`. */
   readonly tenantId: string;
@@ -1172,11 +1176,14 @@ export class AuthClient {
 
   /**
    * Accepts the invitation the browser carries for the signed-in person: reads the methods
-   * list again, then posts to the accept route. The roles the invitation carried are
-   * granted, and the address it was sent to is the person's when they hold no verified one.
-   * A browser that carries no live invitation resolves `refused` with 404; an account that
-   * holds another address than the invited one resolves `refused` with 403 and the server's
-   * sentence, the invitation still standing.
+   * list again, then posts to the accept route. The server accepts it this way only for an
+   * account that holds the invited address confirmed, and then grants the roles the
+   * invitation carried. A browser that carries no live invitation resolves `refused` with
+   * 404. An account that holds another address than the invited one resolves `refused` with
+   * 403 and the server's sentence, the invitation still standing; so does an account that
+   * has not confirmed the invited address or holds none, since the link proves nothing of
+   * who holds it: the sentence tells the person to sign in again from the invitation's
+   * link, and that sign-in is held for the code mailed to the invited address.
    */
   async acceptInvitation(): Promise<InvitationAcceptResult> {
     const routes = await this.invitationRoutes();
@@ -1188,14 +1195,17 @@ export class AuthClient {
   }
 
   /**
-   * Creates the invited person's account with a password and signs them in, accepting the
-   * invitation the browser carries: reads the methods list again, then posts the account to
-   * the invitation's sign-up route. The account's address is the one the invitation was
-   * sent to, verified; its username is that address when the list says `usernameIsEmail`
-   * (none is posted), and the one given otherwise. The result is the sign-in's: the session, a pending step,
-   * or the refusal: a taken username or address (409), a password under eight characters
-   * or no username (400), no live invitation (404). A server whose list names no sign-up
-   * route for invitations offers no password method, and the call throws saying so.
+   * Asks for the invited person's account with a password, for the invitation the browser
+   * carries: reads the methods list again, then posts the account to the invitation's
+   * sign-up route. The server makes nobody yet: the link proves nothing of who holds it, so
+   * the result is a pending step that waits for the code mailed to the invited address
+   * (`sendCode`, `verifyCode`), and the code creates the account, signs the person in and
+   * accepts the invitation. The account's address is the one the invitation was sent to,
+   * verified by the code; its username is that address when the list says `usernameIsEmail`
+   * (none is posted), and the one given otherwise. A refusal is a taken username or address
+   * (409), a password under eight characters or no username (400), or no live invitation
+   * (404). A server whose list names no sign-up route for invitations offers no password
+   * method, and the call throws saying so.
    */
   async signUpFromInvitation(account: NewAccount): Promise<SignInResult> {
     const routes = await this.invitationRoutes();

@@ -218,7 +218,7 @@ func (d *memDriver) InsertUserIn(_ context.Context, tx *memTx, user *dbtype.Inse
 	id := impulse.Must(impulse.NewUUID())
 	row := &memUser{username: user.Username}
 	if user.Email != nil {
-		row.email = *user.Email
+		row.email, row.confirmed = *user.Email, user.EmailVerified
 	}
 	if user.Name != nil {
 		row.name = *user.Name
@@ -252,8 +252,13 @@ func (d *memDriver) ConsumeMailLinkIn(_ context.Context, tx *memTx, id impulse.U
 	return nil
 }
 
+// ClaimVerifiedEmailIn writes email on the user, confirmed, unless the user holds a
+// confirmed address already.
 func (d *memDriver) ClaimVerifiedEmailIn(_ context.Context, tx *memTx, userID impulse.UUID, email string) (bool, error) {
-	tx.buffer(func() { d.store.users[userID].email = email })
+	if d.store.users[userID].confirmed {
+		return false, nil
+	}
+	tx.buffer(func() { d.store.users[userID].email, d.store.users[userID].confirmed = email, true })
 
 	return true, nil
 }
@@ -267,7 +272,15 @@ func (d *memDriver) ClaimUserNameIn(_ context.Context, tx *memTx, userID impulse
 	return true, nil
 }
 
-func (d *memDriver) UserByEmailIn(context.Context, *memTx, string) (*dbtype.User, error) {
+// UserByEmailIn finds the committed user who holds email, confirmed or not, without
+// regard to case.
+func (d *memDriver) UserByEmailIn(_ context.Context, _ *memTx, email string) (*dbtype.User, error) {
+	for id, user := range d.store.users {
+		if user.email != "" && strings.EqualFold(user.email, email) {
+			return &dbtype.User{ID: id, Username: user.username, EmailConfirmed: user.confirmed}, nil
+		}
+	}
+
 	return nil, nil
 }
 
@@ -699,20 +712,22 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 	t.Parallel()
 
 	roleGone := httpio.NewNotFoundMessage("the role the invitation names no longer exists")
+	// The account holds the invited address confirmed, so its acceptance waits for no
+	// code (TestAcceptance_theLinkAloneAcceptsNothing holds the accounts that do).
 	newUser := func(store *memStore) impulse.UUID {
 		id := impulse.Must(impulse.NewUUID())
-		store.users[id] = &memUser{username: "sam"}
+		store.users[id] = &memUser{username: "sam", email: "sam@lakeside.edu", confirmed: true}
 
 		return id
 	}
 	passwordRequest := func(id impulse.UUID, inv *sessioninfo.Invitation) *sessioninfo.NewSessionRequest {
 		return &sessioninfo.NewSessionRequest{
 			Reason: sessioninfo.ReasonLogin, Username: "sam", UserID: id,
-			Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: id.String()}, Invitation: inv,
+			Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: id.String(), Email: "sam@lakeside.edu", EmailVerified: true}, Invitation: inv,
 		}
 	}
 
-	t.Run("by hand: the acceptor's roles commit with the consumption and the address, and its committed function runs once after the commit", func(t *testing.T) {
+	t.Run("by hand: the acceptor's roles commit with the consumption, and its committed function runs once after the commit", func(t *testing.T) {
 		t.Parallel()
 
 		store := newMemStore()
@@ -722,7 +737,7 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 		id := newUser(store)
 		inv := store.invite("sam@lakeside.edu", "", "Admin")
 
-		if err := AcceptInvitation(t.Context(), d, id, "sam", "", inv, hooks.accept); err != nil {
+		if err := AcceptInvitation(t.Context(), d, id, "sam", "sam@lakeside.edu", inv, hooks.accept); err != nil {
 			t.Fatalf("AcceptInvitation() error = %v", err)
 		}
 
@@ -730,15 +745,15 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 		if diff := cmp.Diff(want, store.steps); diff != "" {
 			t.Errorf("steps (-want +got):\n%s", diff)
 		}
-		if !inv.Accepted || store.users[id].email != "sam@lakeside.edu" || hooks.committed != 1 {
-			t.Errorf("Accepted = %t, address = %q, committed runs = %d; want accepted, the invited address and one run", inv.Accepted, store.users[id].email, hooks.committed)
+		if !inv.Accepted || hooks.committed != 1 {
+			t.Errorf("Accepted = %t, committed runs = %d; want accepted and one run", inv.Accepted, hooks.committed)
 		}
 		if diff := cmp.Diff(map[string][]string{"sam": {"Admin"}}, store.granted); diff != "" {
 			t.Errorf("granted (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("by hand: an acceptor that fails leaves the invitation standing and the address unset, and its NotFound is not a dead invitation's", func(t *testing.T) {
+	t.Run("by hand: an acceptor that fails leaves the invitation standing, and its NotFound is not a dead invitation's", func(t *testing.T) {
 		t.Parallel()
 
 		store := newMemStore()
@@ -747,13 +762,13 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 		id := newUser(store)
 		inv := store.invite("sam@lakeside.edu", "", "Admin")
 
-		err := AcceptInvitation(t.Context(), d, id, "sam", "", inv, hooks.accept)
+		err := AcceptInvitation(t.Context(), d, id, "sam", "sam@lakeside.edu", inv, hooks.accept)
 
 		if !errors.Is(err, roleGone) || errors.Is(err, signin.ErrInvitationExpired) {
 			t.Fatalf("AcceptInvitation() error = %v, want the acceptor's failure and not a dead invitation's", err)
 		}
-		if inv.Accepted || !store.invitations[inv.ID] || store.users[id].email != "" || len(store.granted) != 0 || hooks.committed != 0 {
-			t.Errorf("Accepted = %t, live = %t, address = %q, granted = %v, committed runs = %d; want nothing written", inv.Accepted, store.invitations[inv.ID], store.users[id].email, store.granted, hooks.committed)
+		if inv.Accepted || !store.invitations[inv.ID] || len(store.granted) != 0 || hooks.committed != 0 {
+			t.Errorf("Accepted = %t, live = %t, granted = %v, committed runs = %d; want nothing written", inv.Accepted, store.invitations[inv.ID], store.granted, hooks.committed)
 		}
 	})
 
@@ -767,7 +782,7 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 		inv := store.invite("sam@lakeside.edu", "", "Admin")
 		store.invitations[inv.ID] = false
 
-		err := AcceptInvitation(t.Context(), d, id, "sam", "", inv, hooks.accept)
+		err := AcceptInvitation(t.Context(), d, id, "sam", "sam@lakeside.edu", inv, hooks.accept)
 
 		if !httpio.HasNotFound(err) || !errors.Is(err, signin.ErrInvitationExpired) {
 			t.Fatalf("AcceptInvitation() error = %v, want NotFound with ErrInvitationExpired", err)
@@ -907,11 +922,11 @@ func TestAcceptInvitation_theInvitedName(t *testing.T) {
 			d := &memDriver{store: store}
 			hooks := &roleHooks{store: store}
 			id := impulse.Must(impulse.NewUUID())
-			store.users[id] = &memUser{username: "sam", name: tt.held}
+			store.users[id] = &memUser{username: "sam", name: tt.held, email: "sam@lakeside.edu", confirmed: true}
 			inv := store.invite("sam@lakeside.edu", "", "Admin")
 			inv.Name = tt.invited
 
-			if err := AcceptInvitation(t.Context(), d, id, "sam", "", inv, hooks.accept); err != nil {
+			if err := AcceptInvitation(t.Context(), d, id, "sam", "sam@lakeside.edu", inv, hooks.accept); err != nil {
 				t.Fatalf("AcceptInvitation() error = %v", err)
 			}
 			if got := store.users[id].name; got != tt.want {
@@ -925,7 +940,7 @@ func TestAcceptInvitation_theInvitedName(t *testing.T) {
 			d := &memDriver{store: store}
 			hooks := &roleHooks{store: store}
 			id := impulse.Must(impulse.NewUUID())
-			store.users[id] = &memUser{username: "sam", name: tt.held}
+			store.users[id] = &memUser{username: "sam", name: tt.held, email: "sam@lakeside.edu", confirmed: true}
 			inv := store.invite("sam@lakeside.edu", "", "Admin")
 			inv.Name = tt.invited
 			req := &sessioninfo.NewSessionRequest{
