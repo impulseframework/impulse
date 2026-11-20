@@ -11,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/tracer"
 )
 
 // One tenant per person.
@@ -53,6 +54,33 @@ func WithOneTenantPerPerson() Option {
 	return func(m *Manager) {
 		m.oneTenant = &signInTenants{mu: sync.Mutex{}, notes: map[any]*signInNote{}}
 	}
+}
+
+// HoldsTenant reports whether the person holds a role in some tenant, as the caller's
+// transaction reads it: a membership of their own held in one tenant, or a place in a
+// group kept in one, whose period has not ended (holds). A role held for the whole
+// application or in every tenant is no tenant's, and is not counted.
+//
+// The generated create-your-tenant route asks it in the transaction that writes the
+// tenant's row and its creator's administrator membership, so its rule that a person
+// creates one tenant is decided on what the database holds where the tenant is
+// written. The route asks the request's permissions first, before it reads a body
+// (resource.UserPermissions.HeldDomains): that answer is the permission engine's, which
+// cannot show a creation that has not committed, or one this instance has not heard of
+// yet. Of two creations by one person at once, one commits; the other, which the
+// database has read again, finds the first one's membership here and is refused. It
+// holds whether or not the application declared one tenant per person: the route's
+// rule is its own.
+func (m *Manager) HoldsTenant(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (bool, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	held, err := m.holds(ctx, txn, userID)
+	if err != nil {
+		return false, err
+	}
+
+	return tenantCount(held) > 0, nil
 }
 
 // refuseSecondTenant is the rule of one tenant per person on a membership about to be

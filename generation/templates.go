@@ -1948,7 +1948,12 @@ var _ interface {
 // a sign-in method of the {{ .Auth }} auth open to sign-up. No grant admits the call. The session
 // must be established, which the router's session group holds it to, and must hold a
 // grant in no {{ .RecordLower }}: a person creates one {{ .RecordLower }}, and the member or administrator of
-// one is refused (403). The route is the action {{ .Action }} of the permission collection,
+// one is refused (403). The rule is asked twice. The request's permissions answer it
+// before a body is read: every {{ .RecordLower }} the person holds a grant in, whatever the
+// session's mask shows of it (resource.UserPermissions.HeldDomains). The {{ .Auth }} auth's
+// tables answer it again in the transaction that writes the row: a role the person
+// holds in a {{ .RecordLower }} ({{ .IdentityAccessor }}().HoldsTenant), so of two creations by one
+// person at once one is written and the other refused. The route is the action {{ .Action }} of the permission collection,
 // classed access, so that a permission mask decides it: in a session that acts as a
 // person the creator is the person acted as, and a session whose mask refuses the class,
 // the action by name or every action is refused before anything is read (403,
@@ -2023,8 +2028,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 		// One {{ .RecordLower }} per person: a person holding a grant in any {{ .RecordLower }} is refused. Every
 		// {{ .RecordLower }} they hold counts, read around the session's mask and its admission: a
 		// session that acts as a person under a mask that hides the person's {{ .RecordLower }}
-		// creates no second one.
-		held, err := resource.HeldDomains(ctx, userPermissions)
+		// creates no second one. The permissions answer it themselves, whatever the
+		// application wrapped them in: what a person holds is a method of
+		// resource.UserPermissions, and there is no list of the session's to read in its
+		// place.
+		held, err := userPermissions.HeldDomains(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -2043,6 +2051,19 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 		var id {{ .Key.Type }}
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			// One {{ .RecordLower }} per person, decided where the {{ .RecordLower }} is written: what the
+			// creator holds is read again, in this transaction, from the {{ .Auth }} auth's
+			// tables. The answer above is the permission engine's, which cannot show a
+			// creation that has not committed, or one this instance has not heard of yet.
+			// Of two creations by one person at once, one commits and the other reads
+			// its membership here and is refused.
+			holds, err := identityClient.HoldsTenant(ctx, txn, userPermissions.User())
+			if err != nil {
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().HoldsTenant()")
+			}
+			if holds {
+				return httpio.NewForbiddenMessage("{{ .Refusal }}")
+			}
 			// Who is admitted: a person who signed up, which is a person with no {{ .RecordLower }}
 			// while an administrator has a sign-in method open to sign-up. A person who
 			// holds an invitation to create a {{ .RecordLower }} is the next admission, and is
@@ -2153,8 +2174,8 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .OfferedHandlerFunc }}() h
 			return httpio.NewEncoder(w).Ok(offer{Offered: false})
 		}
 		// One {{ .RecordLower }} per person: a person holding a grant in any {{ .RecordLower }} is offered none,
-		// by every {{ .RecordLower }} they hold, as the POST judges it.
-		held, err := resource.HeldDomains(ctx, userPermissions)
+		// by every {{ .RecordLower }} they hold, as the POST judges it before it reads a body.
+		held, err := userPermissions.HeldDomains(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}

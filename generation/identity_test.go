@@ -552,6 +552,17 @@ func Test_prepareIdentity(t *testing.T) {
 	if strings.Contains(string(members), "c.manager.RequireUser(") {
 		t.Errorf("membersidentity/client.go's AssignRole reads the account, which a user created in the same transaction is not yet:\n%s", members)
 	}
+	// And the Go call that reads whether a person holds a role in some tenant, in the
+	// caller's transaction, which the create of a tenant asks where it writes the row. A
+	// user that is no account's id holds none.
+	for _, line := range []string{
+		"func (c *Client) HoldsTenant(ctx context.Context, txn resource.ReadWriteTransaction, user accesstypes.User) (bool, error) {",
+		"userID, ok := identity.UserID(user)\n\tif !ok {\n\t\treturn false, nil\n\t}\n\tholds, err := c.manager.HoldsTenant(ctx, txn, userID)",
+	} {
+		if !strings.Contains(string(members), line) {
+			t.Errorf("membersidentity/client.go lacks %q:\n%s", line, members)
+		}
+	}
 
 	// An application with no tenant record has no tenant's methods, and the templates
 	// the two kinds of method share write nothing of a tenant into the whole

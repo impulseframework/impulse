@@ -120,6 +120,7 @@ func SessionPermissions[U SessionUserChecker, R RolePermissions](
 	var userChecker SessionUserChecker
 	var user accesstypes.User
 	var isUser bool
+	var person func() UserPermissionChecker
 	if role, ok := principal.Role(); ok {
 		var rolePerms RolePermissions
 		if forRole != nil {
@@ -130,6 +131,19 @@ func SessionPermissions[U SessionUserChecker, R RolePermissions](
 			return Masked(unsupportedRolePermissions{user: effective, role: role}, mask, classes)
 		}
 		checker = rolePrincipalPermissions{RolePermissions: rolePerms, user: effective}
+		// The session runs with a role's grants, and its person is somebody: what they
+		// hold is their own checker's to say, never the role's. An actor another
+		// application authenticated has no account here and holds nothing of this
+		// application, whatever their name spells.
+		imp, impersonated := sessioninfo.ImpersonationFromCtx(ctx)
+		foreign := impersonated && imp.Principal.IsRole() && !imp.IsLocalActor()
+		person = func() UserPermissionChecker {
+			if foreign {
+				return nil
+			}
+
+			return forUser(effective)
+		}
 	} else {
 		user, _ = principal.User()
 		isUser = true
@@ -137,7 +151,7 @@ func SessionPermissions[U SessionUserChecker, R RolePermissions](
 		checker = userChecker
 	}
 
-	perms := rosterPermissions{UserPermissionChecker: checker, roster: roster}
+	perms := rosterPermissions{UserPermissionChecker: checker, roster: roster, person: person}
 	if declarations != nil {
 		actor := sessioninfo.ActorUserFromCtx(ctx)
 		actorChecker := func() SessionUserChecker {
@@ -208,6 +222,11 @@ type rosterPermissions struct {
 	// nobody is viewing the application as. Only such a session is told which tenants
 	// are closed to it (ClosedDomains).
 	ownSignIn bool
+	// person builds the checker of the session's person where the checker above is not
+	// theirs: a session that runs with a role's grants, whose person is the real person
+	// behind it. It answers nil for a person with no account here. It is nil itself
+	// where the checker above is the person's own. HeldDomains asks it.
+	person func() UserPermissionChecker
 }
 
 // Domains lists the roster's domains where the checker holds a grant, sorted;

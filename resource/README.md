@@ -3187,12 +3187,27 @@ has no `create`), and there are two ways a tenant is made, neither a declaration
   caller is not the real person behind a session that acts as a role (both under "The
   first administrator", below), the caller holds no tenant, and a method is open. Whether
   the caller holds a tenant is read from every tenant they hold a grant in
-  (`resource.HeldDomains`), and not from the tenants the session lists: a tenant that a
-  session's mask leaves nothing of, or that is closed to the way the session signed in,
-  is still the person's, so neither opens the way to a second one. A page
-  reads it before it offers the creation, so nobody is shown a
-  dialog the server would refuse; the skeletons' home page shows its create-your-tenant
-  card only while the answer is yes.
+  (`HeldDomains`, a method of `resource.UserPermissions`), and not from the tenants the
+  session lists: a tenant that a session's mask leaves nothing of, or that is closed to
+  the way the session signed in, is still the person's, so neither opens the way to a
+  second one. Every permissions value answers it, since the method is part of the
+  interface: a type of the application's that embeds the composed value passes the call
+  through, and one that implements the interface itself does not compile until it
+  answers, from the person's grants before any mask and never from `Domains`. In a
+  session that runs with a role's grants the person is the real person behind it, and
+  the list is theirs and not the role's. A page reads the answer before it offers the
+  creation, so nobody is shown a dialog the server would refuse; the skeletons' home
+  page shows its create-your-tenant card only while the answer is yes.
+  The `POST` asks the rule twice. The permissions answer before a body is read, as the
+  `GET` does. The auth's tables answer again in the transaction that writes the tenant's
+  row and its administrator's membership (`<Auth>Identity().HoldsTenant`,
+  `identity.Manager.HoldsTenant`): a role the person holds in one tenant, of their own
+  or through a group kept in one, whose period has not ended. So of two creations one
+  person sends at once, one is written and the other is refused with the words a second
+  creation is always refused in, and a creation an instance has not heard of yet still
+  counts. The second read is of the rows and not of what they grant: a role in a tenant
+  whose period has not begun, or one that grants nothing, refuses a creation there that
+  the first read would have let through.
 
 `@tenant(creation: ...)`, which declared the choice in code, is refused at generation
 with these words. A record served by session outlets bound to different auths is refused
@@ -3238,7 +3253,7 @@ a person with no mask is to give them what the person holds. One tenant per pers
 in such a session as in the person's own, whatever its mask shows: a mask that keeps the
 creation and leaves nothing of the person's grants in their tenant takes the tenant off
 the session's list and not off the person, and the route counts the person's
-(`resource.HeldDomains`). The name is for masks
+(`resource.UserPermissions.HeldDomains`). The name is for masks
 alone, and the collection says so: the generator registers it as an action no role is
 given (`NoRole: true` in the generated collection file,
 `resource.CollectionResource.NoRole`). Nothing asks a role for it, so a grant of it

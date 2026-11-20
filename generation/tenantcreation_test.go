@@ -477,9 +477,13 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		// acts as someone else is refused in the route's own words, by the one rule.
 		"if creator, ok := identity.UserID(userPermissions.User()); ok {\n\t\t\tif err := identity.RefuseImpersonatorAsSubject(ctx, creator, \"create a station of your own\"); err != nil {\n\t\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t\t}\n\t\t}",
 		// One tenant per person is judged by every tenant the person holds, read around
-		// the session's mask, in the POST.
-		"held, err := resource.HeldDomains(ctx, userPermissions)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage(",
+		// the session's mask, in the POST: the permissions answer it themselves, by the
+		// interface's method.
+		"held, err := userPermissions.HeldDomains(ctx)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage(",
 		`httpio.NewForbiddenMessage("the session already holds a station; a person creates one station and becomes its administrator")`,
+		// And it is judged again in the transaction that writes the row, from the auth's
+		// tables, in the same words: two creations by one person at once write one tenant.
+		"holds, err := identityClient.HoldsTenant(ctx, txn, userPermissions.User())\n\t\t\tif err != nil {\n\t\t\t\treturn errors.Wrap(err, \"StaffIdentity().HoldsTenant()\")\n\t\t\t}\n\t\t\tif holds {\n\t\t\t\treturn httpio.NewForbiddenMessage(\"the session already holds a station; a person creates one station and becomes its administrator\")\n\t\t\t}",
 		// Whether sign-up is open is read in the transaction that writes the row, and a
 		// person is refused in plain words while no sign-in method is open.
 		"open, err := identityClient.AnySignInMethodOpen(ctx, txn)",
@@ -507,7 +511,7 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"if _, refused := resource.MaskRefusesAction(ctx, collection, \"CreateStation\"); refused {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
 		"if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
 		// And in the GET, which offers what the POST would serve.
-		"held, err := resource.HeldDomains(ctx, userPermissions)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
+		"held, err := userPermissions.HeldDomains(ctx)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
 		"open, err := identityClient.AnySignInMethodOpen(ctx, a.ResourceClient())",
 		"return httpio.NewEncoder(w).Ok(offer{Offered: open})",
 	}, []string{
@@ -518,8 +522,9 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		// The person names no key: none is read off the request, and none is a string.
 		"req.ID", "NewStationCreatePatch(req", "ID string",
 		// Neither handler counts the person's tenants by the session's own list, which a
-		// mask shortens.
-		"userPermissions.Domains(ctx)",
+		// mask shortens, and neither asks a function that could read that list for
+		// permissions it does not know.
+		"userPermissions.Domains(ctx)", "resource.HeldDomains(",
 	})
 
 	// The request carries the columns the wire may write and no key; the answer
@@ -546,6 +551,7 @@ func Test_tenantCreationTemplate(t *testing.T) {
 	decode := strings.Index(s, "req, err := decoder.Decode(r)")
 	begin := strings.Index(s, "ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {")
 	admitted := strings.Index(s, "if !open {")
+	counted := strings.Index(s, "identityClient.HoldsTenant(ctx, txn,")
 	created := strings.Index(s, "resources.NewStationCreatePatch()")
 	generated := strings.Index(s, "id = patch.ID()")
 	row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
@@ -557,6 +563,9 @@ func Test_tenantCreationTemplate(t *testing.T) {
 	answer := strings.Index(s, "return httpio.NewEncoder(w).Ok(")
 	if begin >= admitted || admitted >= created || created >= generated {
 		t.Errorf("order: transaction %d, the check that sign-up is open %d, the create patch %d, generated id %d; want ascending:\n%s", begin, admitted, created, generated, out)
+	}
+	if begin >= counted || counted >= admitted {
+		t.Errorf("order: transaction %d, the person's tenants read in it %d, the check that sign-up is open %d; want ascending, so the count is read inside the transaction before anything is made:\n%s", begin, counted, admitted, out)
 	}
 	if subject < 0 || subject >= gate {
 		t.Errorf("order: the rule on the person behind an impersonated session %d, gate %d; want the rule first:\n%s", subject, gate, out)

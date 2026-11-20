@@ -182,6 +182,10 @@ func (f *fakeUserPermissions) Reaches(context.Context, accesstypes.Domain) (bool
 	return true, nil
 }
 
+func (f *fakeUserPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	return []accesstypes.Domain{}, nil
+}
+
 func (f *fakeUserPermissions) User() accesstypes.User {
 	return "testUser"
 }

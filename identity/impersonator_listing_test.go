@@ -83,6 +83,10 @@ var guardedMethods = map[string]subjectRule{
 	// A person named, and nothing asked.
 	"Manager.RequireUser": {person: true, none: "it reads whether the account exists, and changes nothing"},
 	"Manager.SignInWays":  {person: true, none: reads},
+	"Manager.HoldsTenant": {
+		person: true,
+		none:   "it reads whether the person holds a role in some tenant, in the caller's transaction, and changes nothing: the route that asks it has refused the real person behind a session that acts as a role already",
+	},
 	"Manager.ClearEnded": {
 		person: true,
 		none:   "it is nobody's act: the removal, at a person's own sign-in, of rows that ended by themselves and count for nothing already",

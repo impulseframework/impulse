@@ -22,13 +22,21 @@ package integration
 // and the client, held in every sector, see Ember with nothing written for them; and the
 // second instance serves Ember at its next request. The steps run in order, each named in
 // its failure, since every one reads what the ones before it wrote.
+//
+// A second test sends two creations from one person at once, one to each instance, and
+// pins that one sector is written: one sector per person is decided in the transaction
+// that writes the sector, and not only by what the permission engine answered before.
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
@@ -59,6 +67,14 @@ const (
 	chartEmber = `{"name":"Ember","region":"Near frontier","established":"2226-10-20"}`
 	// chartEmberAgain is a second sector of the pioneer's, refused: one sector per person.
 	chartEmberAgain = `{"name":"Ember Two","region":"Near frontier","established":"2226-10-21"}`
+	// secondSectorRefused is the create-sector route's answer to a person who holds a
+	// sector already.
+	secondSectorRefused = "the session already holds a sector; a person creates one sector and becomes its administrator"
+
+	// atOnceWithin bounds each wait of the test that sends two creations at once: for a
+	// request to reach its body, and for its answer once the body is let go, which waits
+	// on a transaction the database may run again and on the engine's answer.
+	atOnceWithin = 30 * time.Second
 )
 
 // startSelfServiceInstance is an instance over the real crew engine, the way the served
@@ -209,4 +225,166 @@ func TestSelfServiceSector_pioneerChartsHerOwn(t *testing.T) {
 	for i := range steps {
 		runFlagStep(t, &steps[i])
 	}
+}
+
+// gatedBody is a request body that says when the handler first reads it and holds that
+// read until the test lets it go, so a test holds two requests at one point of a
+// handler: past everything the handler decides before it reads a body.
+type gatedBody struct {
+	body    io.Reader
+	once    sync.Once
+	reached chan struct{}
+	release <-chan struct{}
+}
+
+// newGatedBody is the body held until release is closed.
+func newGatedBody(body string, release <-chan struct{}) *gatedBody {
+	return &gatedBody{body: strings.NewReader(body), reached: make(chan struct{}), release: release}
+}
+
+// Read says, at the first read, that the handler has reached the body, and waits there
+// until the test releases it.
+func (g *gatedBody) Read(p []byte) (int, error) {
+	g.once.Do(func() {
+		close(g.reached)
+		<-g.release
+	})
+
+	return g.body.Read(p) //nolint:wrapcheck // a reader passes its source's error on, io.EOF among them
+}
+
+// TestSelfServiceSector_twoAtOnce pins one sector per person against two creations one
+// person sends at once, one to each instance. Each request is held at its body, which the
+// route reads after the request's permissions have answered that the person holds no
+// sector, so both are past that answer before either writes anything; then both are let
+// go. The route reads what the person holds again in the transaction that writes the
+// sector, from the crew's own tables, so one creation commits and the other is refused
+// in the words a second sector is always refused in. One sector is written: her chart
+// lights one, on both instances, and the sector list gains one.
+func TestSelfServiceSector_twoAtOnce(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	crewEngine := newAccessClient(t, db, crew.Roles())
+	membersEngine, err := openEngine(db, members.TablePrefix, members.Roles())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := membersEngine.Close(); err != nil {
+			t.Errorf("access.Client.Close() error = %v", err)
+		}
+	})
+	if err := provisionDemoAccess(ctx, crewEngine, membersEngine); err != nil {
+		t.Fatal(err)
+	}
+	makeCrewAccount(ctx, t, db, pioneerUser)
+
+	fake := live.NewFake()
+	first := startSelfServiceInstance(t, "the first instance", db, crewEngine, membersEngine, fake)
+	second := startSelfServiceInstance(t, "the second instance", db, crewEngine, membersEngine, fake)
+
+	opening := []flagStep{
+		{name: "the governor opens the sign-up registration", on: first, user: tenantGovernor, method: http.MethodPost, target: openSignUpRoute, body: `{"name":"sign-up"}`, wantStatus: http.StatusNoContent},
+		{name: "open: the pioneer, holding nothing, may chart a sector on the first instance", on: first, user: pioneerUser, method: http.MethodGet, target: createSectorRoute, wantStatus: http.StatusOK, check: assertOffered(true)},
+		{name: "open: and on the second", on: second, user: pioneerUser, method: http.MethodGet, target: createSectorRoute, wantStatus: http.StatusOK, check: assertOffered(true)},
+	}
+	for i := range opening {
+		runFlagStep(t, &opening[i])
+	}
+
+	// Two creations of the pioneer's, each held at its body: the route has asked the
+	// permissions what she holds, and neither request has written anything.
+	posts := []struct {
+		sector string
+		on     *flagInstance
+		body   string
+	}{
+		{sector: "Ember", on: first, body: chartEmber},
+		{sector: "Ember Two", on: second, body: chartEmberAgain},
+	}
+	release := make(chan struct{})
+	answers := make(chan creationAnswer, len(posts))
+	gates := make([]*gatedBody, len(posts))
+	for i, post := range posts {
+		gates[i] = newGatedBody(post.body, release)
+		req := httptest.NewRequestWithContext(sessionContext(t, pioneerUser), http.MethodPost, createSectorRoute, gates[i])
+		req.Header.Set("Content-Type", "application/json")
+		go func() {
+			rr := httptest.NewRecorder()
+			post.on.h.ServeHTTP(rr, req)
+			answers <- creationAnswer{sector: post.sector, on: post.on.name, status: rr.Code, body: rr.Body.Bytes()}
+		}()
+	}
+	for i, gate := range gates {
+		select {
+		case <-gate.reached:
+		case got := <-answers:
+			close(release)
+			t.Fatalf("the creation of %s on %s answered %d before both requests had reached their bodies: %s", got.sector, got.on, got.status, got.body)
+		case <-time.After(atOnceWithin):
+			close(release)
+			t.Fatalf("the creation of %s on %s did not reach its body within %s", posts[i].sector, posts[i].on.name, atOnceWithin)
+		}
+	}
+	close(release)
+
+	var created, refused []creationAnswer
+	for range posts {
+		select {
+		case got := <-answers:
+			switch got.status {
+			case http.StatusOK:
+				created = append(created, got)
+			case http.StatusForbidden:
+				refused = append(refused, got)
+			default:
+				t.Fatalf("the creation of %s on %s answered %d, want 200 or 403: %s", got.sector, got.on, got.status, got.body)
+			}
+		case <-time.After(atOnceWithin):
+			t.Fatalf("a creation did not answer within %s of both bodies being let go", atOnceWithin)
+		}
+	}
+	if len(created) != 1 || len(refused) != 1 {
+		t.Fatalf("two creations at once from one person: %d created and %d refused, want one of each: created %s, refused %s", len(created), len(refused), answersText(created), answersText(refused))
+	}
+	if !strings.Contains(string(refused[0].body), secondSectorRefused) {
+		t.Errorf("the creation of %s on %s was refused with %s, want %q", refused[0].sector, refused[0].on, refused[0].body, secondSectorRefused)
+	}
+	key := accesstypes.Domain(createdKey(t, "the creation of "+created[0].sector, created[0].body))
+
+	// One sector was written, and it is hers.
+	steps := []flagStep{
+		{name: "after: her chart lights the one sector she charted", on: first, user: pioneerUser, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(key)},
+		{name: "after: the sector list gained one sector, the one whose creation was answered", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorsRoute, wantStatus: http.StatusOK, check: assertSectorNames("Anvil", "Bastion", "Cinder", created[0].sector)},
+		{name: "after: the second instance serves it at its next request", on: second, user: pioneerUser, method: http.MethodGet, target: sectorPath(string(key), "missions"), wantStatus: http.StatusOK, settle: true, check: assertNoRows},
+		{name: "after: and her chart there lights the same one sector", on: second, user: pioneerUser, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(key)},
+		{name: "after: a third creation is refused her as the second was", on: second, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: `{"name":"Ember Three","region":"Near frontier","established":"2226-10-22"}`, wantStatus: http.StatusForbidden},
+	}
+	for i := range steps {
+		runFlagStep(t, &steps[i])
+	}
+}
+
+// creationAnswer is the answer one of two creations sent at once came back with.
+type creationAnswer struct {
+	sector string
+	on     string
+	status int
+	body   []byte
+}
+
+// answersText names each answer by its sector, its instance and its body, for a failure.
+func answersText(answers []creationAnswer) string {
+	texts := make([]string, 0, len(answers))
+	for i := range answers {
+		texts = append(texts, answers[i].sector+" on "+answers[i].on+": "+string(answers[i].body))
+	}
+
+	return "[" + strings.Join(texts, "; ") + "]"
 }

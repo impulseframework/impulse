@@ -99,6 +99,12 @@ func (s *stubPermissions) Reaches(context.Context, accesstypes.Domain) (bool, er
 	return true, nil
 }
 
+// HeldDomains is the stub's list: it runs under no mask and no admission, so what it
+// lists is what its person holds.
+func (s *stubPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	return s.domains, nil
+}
+
 func (s *stubPermissions) User() accesstypes.User { return s.user }
 
 // stubRolePermissions is a RolePermissions — deliberately without User(), as
