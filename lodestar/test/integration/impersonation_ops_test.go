@@ -3,14 +3,17 @@ package integration
 // impersonation_ops_test (design plan §9): the watch desk lists a minted session with its
 // two-hour cap, revocation refuses its next request, a forged write on a read-only
 // session is refused by the middleware before any handler runs, and the desk itself is
-// gated by the grants on what it reads and runs. The desk is the library's list over the
-// crew auth's generated impersonation records, and its Revoke the generated method that
-// ends one, so the suite asks what the page asks.
+// gated by the grants on what it reads and runs: the command staff hold them, so the
+// marshal keeps the desk as the governor does, and a cadet does not. The desk is the
+// library's list over the crew auth's generated impersonation records, and its Revoke
+// the generated method that ends one, so the suite asks what the page asks. A revoke
+// from the desk reaches the desk another person has open.
 
 import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +25,10 @@ const (
 	watchDeskList   = consoleAPI + "/crew-session-impersonations"
 	watchDeskRevoke = consoleAPI + "/end-crew-session-impersonation"
 )
+
+// watchDeskListChanged is the change document an open watch desk is sent when a record
+// it lists is written: the list of the impersonation records, which no tenant holds.
+const watchDeskListChanged = "list|CrewSessionImpersonations|||false"
 
 // watchDeskRow finds the record of one session in the watch desk's list, as the given
 // browser reads it.
@@ -107,6 +114,30 @@ func TestImpersonationOperator(t *testing.T) {
 		assertStatus(t, status, http.StatusOK, body)
 	})
 
+	t.Run("the marshal keeps the desk as the governor does, and reads who a session is held as", func(t *testing.T) {
+		// The marshal's own session, in another browser than the one that views as Cass.
+		mara := newBrowser(t, s, consoleAPI)
+		mara.signIn(ctx, "marshal")
+		found := watchDeskRow(ctx, t, mara, minted)
+		if actor, reason := cell[string](t, found, "actorUsername"), cell[string](t, found, "reason"); actor != "marshal" || reason != "watch desk walkthrough" {
+			t.Errorf("record as the marshal reads it = %v, want who holds the session and why", found)
+		}
+		// The command staff list the crew's accounts by username and by nothing else,
+		// which is what the desk's As column reads.
+		if principal, cadet := cell[string](t, found, "principalUserId"), crewAccountID(ctx, t, mara, "cadet"); principal != cadet {
+			t.Errorf("principalUserId = %s, want the cadet's account %s", principal, cadet)
+		}
+		status, body := mara.do(ctx, http.MethodGet, consoleAPI+"/crew-session-users?limit=200", nil)
+		assertStatus(t, status, http.StatusOK, body)
+		for _, row := range decodeRows(t, body) {
+			for field := range row {
+				if field != "id" && field != "username" {
+					t.Fatalf("the marshal's list of the crew's accounts carries %q: %v, want the username alone", field, row)
+				}
+			}
+		}
+	})
+
 	t.Run("the cadet may not operate the desk", func(t *testing.T) {
 		cass := newBrowser(t, s, consoleAPI)
 		cass.signIn(ctx, "cadet")
@@ -130,4 +161,44 @@ func TestImpersonationOperator(t *testing.T) {
 			t.Errorf("the revoked session's record: endedAt = %v, endReason = %v, want it ended as Revoked", ended["endedAt"], ended["endReason"])
 		}
 	})
+}
+
+// TestWatchDesk_revokeReachesAnOpenDesk pins what the desk shows without asking again:
+// the governor has the desk open, the marshal ends a session from her own desk, and the
+// governor's desk is sent the change. The revoke runs through the generated method, whose
+// handler publishes the record it wrote.
+//
+// Demonstrates: impersonation.revoke, live.pages.
+func TestWatchDesk_revokeReachesAnOpenDesk(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+
+	// The governor's desk is open: its list subscribes as it reads.
+	greer := newBrowser(t, s, consoleAPI)
+	greer.signIn(ctx, "governor")
+	resp := greer.doWith(ctx, http.MethodGet, watchDeskList+"?limit=50", nil, liveHeaders("tab-desk-1"))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("the governor's desk: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	// The marshal views as Cass in one browser, and keeps the desk in another.
+	maren := newBrowser(t, s, consoleAPI)
+	maren.signIn(ctx, "marshal")
+	status, body := maren.impersonate(ctx, viewAs(t, "cadet", "a session the desk ends"))
+	assertStatus(t, status, http.StatusOK, body)
+	minted := cell[string](t, decodeRow(t, body), "sessionId")
+
+	mara := newBrowser(t, s, consoleAPI)
+	mara.signIn(ctx, "marshal")
+	status, body = mara.do(ctx, http.MethodPost, watchDeskRevoke, fmt.Appendf(nil, `{"sessionId":%q}`, minted))
+	assertStatus(t, status, http.StatusNoContent, body)
+
+	if got := changeNames(s.live.Changes(principalID("governor"))); !slices.Contains(got, watchDeskListChanged) {
+		t.Errorf("the governor's change set after the marshal's revoke = %v, want it to hold %s", got, watchDeskListChanged)
+	}
+	status, body = maren.do(ctx, http.MethodGet, sectorPath(anvil, "missions"), nil)
+	assertStatus(t, status, http.StatusUnauthorized, body)
 }
