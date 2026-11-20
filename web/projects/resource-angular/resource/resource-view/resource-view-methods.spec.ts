@@ -230,7 +230,7 @@ describe('ResourceViewComponent row methods', () => {
     await settle(() => asked().length === 2 && component.store.viewStatus() === 'resolved');
 
     expect(opened).toEqual([{ method: 'DisableAccount', label: 'Disable', preset: { accountId: 'a-1' }, confirm: 'Disable ada?' }]);
-    expect(notices).toEqual(['Disable: done.']);
+    expect(notices).toEqual(['"Disable" is done.']);
     expect(asked()).toEqual(['Update,Delete,Execute', 'Update,Delete,Execute']);
     expect(labels()).toEqual(['Enable account']);
     expect(wentBack).toBe(0);

@@ -45,14 +45,17 @@ export function openMethodDialog(
 /**
  * What a page says once a method has run: what the page reads from the method's answer
  * where it reads one (`MethodPresentation.answered`), else the page's own words for the
- * method (`successMessage`), else the method's label and "done". `failed` marks a method
- * that ran and answers that it did not do what was asked, such as a message that could
- * not be sent.
+ * method (`successMessage`), else a sentence that names the method by its label, as the
+ * button the person pressed read: `"Claim mission" is done.` A label is what a person is
+ * asked to do ("Disable", "Send a password reset link"), so it is named in quotes and
+ * never made part of the sentence's grammar: the sentence reads the same whatever the
+ * label. `failed` marks a method that ran and answers that it did not do what was asked,
+ * such as a message that could not be sent.
  */
 export function methodDoneMessage(method: OfferedMethod, answer?: unknown): { message: string; failed: boolean } {
   const said = method.presentation?.answered?.(answer);
   if (said) {
     return { message: said.message, failed: said.failed === true };
   }
-  return { message: method.presentation?.successMessage ?? `${method.label}: done.`, failed: false };
+  return { message: method.presentation?.successMessage ?? `"${method.label}" is done.`, failed: false };
 }
