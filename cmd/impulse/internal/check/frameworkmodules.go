@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 
@@ -30,12 +31,17 @@ import (
 // application's two beside it (framework.OwnModules). Any other module path under the
 // framework's is refused in every place the application's module files name one: the
 // application's own module path, a requirement (direct or indirect) and the replaced
-// side of a replace in go.mod; and, in a go.work at the application's root, the module
-// of a directory it uses and the replaced side of a replace.
+// side of a replace in go.mod; in a go.work at the application's root, the replaced
+// side of a replace; and, in the go.mod of every directory that go.work uses, the
+// module's own path, a requirement and the replaced side of a replace. In a workspace
+// the go command applies the replaces of every module it uses to the whole build, so
+// a used directory's go.mod decides the build as the application's own does.
 //
-// What the check reads is those two files as they stand in the tree. A build told to
-// read another module file (go build -modfile), a workspace file above the
-// application, and the code of the modules the application requires are not read here.
+// What the check reads is those files as they stand: the application's go.mod, a
+// go.work at its root, and the go.mod of each directory that go.work uses, inside the
+// application's root or outside it. A build told to read another module file (go build
+// -modfile), a workspace file above the application's root or one the GOWORK variable
+// names, and the code of the modules the application requires are not read here.
 type frameworkModules struct{}
 
 // frameworkModulesName is the check's name.
@@ -68,7 +74,7 @@ func (frameworkModules) Meaning() string {
 
 func (c frameworkModules) Run(_ context.Context, env *Env) Result {
 	a := env.App
-	details := c.inGoMod(a.GoMod)
+	details := append(c.ownPath(a.GoMod), c.inGoMod(a.GoMod, goModFile, "")...)
 	inWork, err := c.inGoWork(a)
 	if err != nil {
 		return fail(c.Name(), err.Error())
@@ -87,32 +93,41 @@ func (frameworkModules) refuses(path string) bool {
 	return framework.Under(path) && !slices.Contains(framework.OwnModules, path)
 }
 
-// inGoMod lists the refused module paths go.mod names: the application's own, each
-// requirement's and the replaced side of each replace.
-func (c frameworkModules) inGoMod(mod *modfile.File) []string {
+// ownPath refuses the application's own module path when it is under the framework's.
+func (c frameworkModules) ownPath(mod *modfile.File) []string {
+	if mod == nil || mod.Module == nil || !c.refuses(mod.Module.Mod.Path) {
+		return nil
+	}
+
+	return []string{fmt.Sprintf(
+		"go.mod: the application's module path %s is under the framework's (%s): %s. Give the module a path of the application's own",
+		mod.Module.Mod.Path, FrameworkModule, insideTheFramework,
+	)}
+}
+
+// inGoMod lists the refused module paths a go.mod names besides its own: each
+// requirement's and the replaced side of each replace. file is how a line names the
+// go.mod, and also is what a line adds for a go.mod that is not the application's own:
+// the other way to clear the finding, which is to take its directory out of the
+// workspace.
+func (c frameworkModules) inGoMod(mod *modfile.File, file, also string) []string {
 	if mod == nil {
 		return nil
 	}
 	var details []string
-	if mod.Module != nil && c.refuses(mod.Module.Mod.Path) {
-		details = append(details, fmt.Sprintf(
-			"go.mod: the application's module path %s is under the framework's (%s): %s. Give the module a path of the application's own",
-			mod.Module.Mod.Path, FrameworkModule, insideTheFramework,
-		))
-	}
 	for _, r := range mod.Require {
 		if c.refuses(r.Mod.Path) {
 			details = append(details, fmt.Sprintf(
-				"go.mod requires %s, a module under the framework's path that is not the framework's: %s. The framework is the one module %s; remove the requirement and what imports it",
-				r.Mod.Path, insideTheFramework, FrameworkModule,
+				"%s requires %s, a module under the framework's path that is not the framework's: %s. The framework is the one module %s; remove the requirement and what imports it%s",
+				file, r.Mod.Path, insideTheFramework, FrameworkModule, also,
 			))
 		}
 	}
 	for _, r := range mod.Replace {
 		if c.refuses(r.Old.Path) {
 			details = append(details, fmt.Sprintf(
-				"go.mod replaces %s with %s, and the replaced module is under the framework's path and is not the framework's: %s. Remove the replace",
-				r.Old.Path, r.New.Path, insideTheFramework,
+				"%s replaces %s with %s, and the replaced module is under the framework's path and is not the framework's: %s. Remove the replace%s",
+				file, r.Old.Path, r.New.Path, insideTheFramework, also,
 			))
 		}
 	}
@@ -121,8 +136,10 @@ func (c frameworkModules) inGoMod(mod *modfile.File) []string {
 }
 
 // inGoWork lists the refused module paths a go.work at the application's root names:
-// the module of each directory it uses, read from that directory's go.mod, and the
-// replaced side of each replace. An application with no workspace file names none.
+// the replaced side of each of its replaces, and what the go.mod of each directory it
+// uses names (the module's own path, each requirement and the replaced side of each
+// replace, which the go command applies to the whole build in a workspace). An
+// application with no workspace file names none.
 func (c frameworkModules) inGoWork(a *app.App) ([]string, error) {
 	data, err := os.ReadFile(a.Abs(goWorkFile))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -137,25 +154,11 @@ func (c frameworkModules) inGoWork(a *app.App) ([]string, error) {
 	}
 	var details []string
 	for _, use := range work.Use {
-		dir := use.Path
-		if !filepath.IsAbs(dir) {
-			dir = filepath.Join(a.Root, filepath.FromSlash(dir))
-		}
-		if filepath.Clean(dir) == filepath.Clean(a.Root) {
-			// The application's own module, which go.mod answered for.
-			continue
-		}
-		used, err := os.ReadFile(filepath.Join(dir, goModFile)) //nolint:gosec // G703: a directory the application's own go.work uses, read as the go command reads it
+		used, err := c.inUsedDirectory(a, use.Path)
 		if err != nil {
-			// A directory with no go.mod is the go command's to refuse.
-			continue
+			return nil, err
 		}
-		if path := modfile.ModulePath(used); c.refuses(path) {
-			details = append(details, fmt.Sprintf(
-				"go.work uses %s, whose module is %s, under the framework's path and not the framework's: %s. Take the directory out of the workspace",
-				use.Path, path, insideTheFramework,
-			))
-		}
+		details = append(details, used...)
 	}
 	for _, r := range work.Replace {
 		if c.refuses(r.Old.Path) {
@@ -167,4 +170,37 @@ func (c frameworkModules) inGoWork(a *app.App) ([]string, error) {
 	}
 
 	return details, nil
+}
+
+// inUsedDirectory lists the refused module paths the go.mod of one directory a go.work
+// uses names. use is the directory as go.work writes it. The application's own
+// directory is go.mod's to answer for, and a directory with no go.mod is the go
+// command's to refuse.
+func (c frameworkModules) inUsedDirectory(a *app.App, use string) ([]string, error) {
+	dir := use
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(a.Root, filepath.FromSlash(dir))
+	}
+	if filepath.Clean(dir) == filepath.Clean(a.Root) {
+		return nil, nil
+	}
+	data, err := os.ReadFile(filepath.Join(dir, goModFile)) //nolint:gosec // G703: a directory the application's own go.work uses, read as the go command reads it
+	if err != nil {
+		return nil, nil //nolint:nilerr // a directory with no go.mod is the go command's to refuse
+	}
+	file := path.Join(filepath.ToSlash(use), goModFile)
+	mod, err := modfile.Parse(file, data, nil)
+	if err != nil {
+		return nil, errors.Wrapf(err, "%s, the go.mod of a directory %s uses, does not parse", file, goWorkFile)
+	}
+	var details []string
+	if mod.Module != nil && c.refuses(mod.Module.Mod.Path) {
+		details = append(details, fmt.Sprintf(
+			"go.work uses %s, whose module is %s, under the framework's path and not the framework's: %s. Take the directory out of the workspace",
+			use, mod.Module.Mod.Path, insideTheFramework,
+		))
+	}
+	also := fmt.Sprintf(", or take %s out of the workspace: %s uses it, and in a workspace the go command reads the requirements and applies the replaces of every module it uses", use, goWorkFile)
+
+	return append(details, c.inGoMod(mod, file, also)...), nil
 }

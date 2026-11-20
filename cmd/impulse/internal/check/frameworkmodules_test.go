@@ -27,9 +27,14 @@ func TestFrameworkModules(t *testing.T) {
 	const underTheSession = "module example.com/beacon\n\ngo 1.27\n\n" +
 		"require (\n\tgithub.com/impulseframework/impulse v0.1.0\n\tgithub.com/impulseframework/impulse/session/reach v0.0.0\n)\n\n" +
 		"replace github.com/impulseframework/impulse/session/reach => ./internal/reach\n"
+	// orOut is what a line about the go.mod of a directory the workspace uses adds.
+	orOut := func(use string) string {
+		return ", or take " + use + " out of the workspace: go.work uses it, and in a workspace the go command reads the requirements and applies the replaces of every module it uses"
+	}
 	tests := []struct {
 		name string
-		// goMod is the application's go.mod, and files the rest of the tree, root-relative.
+		// goMod is the application's go.mod, and files the rest of the tree, relative to
+		// the application's root, which stands one directory inside the test's own.
 		goMod       string
 		files       map[string]string
 		wantStatus  Status
@@ -121,6 +126,48 @@ func TestFrameworkModules(t *testing.T) {
 			},
 		},
 		{
+			name:  "a workspace that uses a directory whose go.mod requires and replaces a module under the framework's path fails: the go command applies that replace to the whole build",
+			goMod: "module example.com/beacon\n\ngo 1.27\n\nrequire github.com/impulseframework/impulse v0.1.0\n",
+			files: map[string]string{
+				"go.work": "go 1.27\n\nuse (\n\t.\n\t./tools\n)\n",
+				"tools/go.mod": "module example.com/beacon/tools\n\ngo 1.27\n\n" +
+					"require github.com/impulseframework/impulse/session/reach v0.0.0\n\n" +
+					"replace github.com/impulseframework/impulse/session/reach => ../reach\n",
+				"reach/go.mod": "module github.com/impulseframework/impulse/session/reach\n\ngo 1.27\n",
+			},
+			wantStatus:  Fail,
+			wantSummary: "2 module path(s) under the framework's (github.com/impulseframework/impulse) that are not the framework's",
+			wantDetails: []string{
+				"tools/go.mod requires github.com/impulseframework/impulse/session/reach, a module under the framework's path that is not the framework's: " + inside + ". The framework is the one module github.com/impulseframework/impulse; remove the requirement and what imports it" + orOut("./tools"),
+				"tools/go.mod replaces github.com/impulseframework/impulse/session/reach with ../reach, and the replaced module is under the framework's path and is not the framework's: " + inside + ". Remove the replace" + orOut("./tools"),
+			},
+		},
+		{
+			name:  "a used directory outside the application's root is read the same way",
+			goMod: "module example.com/beacon\n\ngo 1.27\n\nrequire github.com/impulseframework/impulse v0.1.0\n",
+			files: map[string]string{
+				"go.work":          "go 1.27\n\nuse (\n\t.\n\t../shared\n)\n",
+				"../shared/go.mod": "module example.com/shared\n\ngo 1.27\n\nreplace github.com/impulseframework/impulse/access/reach => ./reach\n",
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 module path(s) under the framework's (github.com/impulseframework/impulse) that are not the framework's",
+			wantDetails: []string{
+				"../shared/go.mod replaces github.com/impulseframework/impulse/access/reach with ./reach, and the replaced module is under the framework's path and is not the framework's: " + inside + ". Remove the replace" + orOut("../shared"),
+			},
+		},
+		{
+			name:  "a used directory whose go.mod names modules of its own and the framework's passes",
+			goMod: "module example.com/beacon\n\ngo 1.27\n\nrequire github.com/impulseframework/impulse v0.1.0\n",
+			files: map[string]string{
+				"go.work": "go 1.27\n\nuse (\n\t.\n\t./tools\n)\n",
+				"tools/go.mod": "module example.com/beacon/tools\n\ngo 1.27\n\n" +
+					"require (\n\tgithub.com/impulseframework/impulse v0.1.0\n\texample.com/elsewhere v1.2.0\n)\n\n" +
+					"replace github.com/impulseframework/impulse => ../../framework\n",
+			},
+			wantStatus:  Pass,
+			wantSummary: passes,
+		},
+		{
 			name:  "a workspace of the application and the framework's checkout passes",
 			goMod: "module example.com/beacon\n\ngo 1.27\n\nrequire github.com/impulseframework/impulse v0.1.0\n",
 			files: map[string]string{
@@ -136,7 +183,10 @@ func TestFrameworkModules(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			root := t.TempDir()
+			root := filepath.Join(t.TempDir(), "beacon")
+			if err := os.MkdirAll(root, 0o750); err != nil {
+				t.Fatal(err)
+			}
 			for rel, content := range tt.files {
 				abs := filepath.Join(root, filepath.FromSlash(rel))
 				if err := os.MkdirAll(filepath.Dir(abs), 0o750); err != nil {
@@ -181,6 +231,33 @@ func TestFrameworkModules_aWorkspaceThatDoesNotParse(t *testing.T) {
 	got := frameworkModules{}.Run(context.Background(), &Env{App: &app.App{Root: root, GoMod: mod}})
 	if got.Status != Fail || !strings.Contains(got.Summary, "go.work does not parse") {
 		t.Errorf("Run() = %s %q, want a failure that says go.work does not parse", got.Status, got.Summary)
+	}
+}
+
+// TestFrameworkModules_aUsedModuleFileThatDoesNotParse fails saying so: the go.mod of a
+// directory the workspace uses is one of the files that decide the build, and one the
+// check cannot read is one it cannot answer for.
+func TestFrameworkModules_aUsedModuleFileThatDoesNotParse(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.work"), []byte("go 1.27\n\nuse (\n\t.\n\t./tools\n)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "tools"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tools", "go.mod"), []byte("module example.com/beacon/tools\n\nrequire (\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mod, err := modfile.Parse("go.mod", []byte("module example.com/beacon\n\ngo 1.27\n"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := frameworkModules{}.Run(context.Background(), &Env{App: &app.App{Root: root, GoMod: mod}})
+	if got.Status != Fail || !strings.Contains(got.Summary, "tools/go.mod, the go.mod of a directory go.work uses, does not parse") {
+		t.Errorf("Run() = %s %q, want a failure that says tools/go.mod does not parse", got.Status, got.Summary)
 	}
 }
 
