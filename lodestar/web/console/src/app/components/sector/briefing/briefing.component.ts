@@ -15,7 +15,7 @@ import { SectorService } from '../sector.service';
  * takes a resource.Client instead of a transaction, reads the sector's missions AS THE
  * CALLER (so the Marshal's sheet carries every fee and the Archivist's counts
  * redactions), asks as data whether the hazard board may be folded in, and answers a
- * typed sheet. Its Dry-run switch is greyed: there is no transaction to roll back, and
+ * typed sheet. Its Dry-run switch is grayed: there is no transaction to roll back, and
  * the server refuses the header with 400, which the switch shows rather than hides.
  *
  * The template picker lists the BriefingTemplates catalog, the computed resource the
