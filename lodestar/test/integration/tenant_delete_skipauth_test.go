@@ -239,9 +239,14 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	// Each row that reaches Ember through another row, by the table, the column and
 	// the value that finds it.
 	throughEmber := []struct{ table, column, value string }{
-		{"Squadrons", "Id", emberSquadron}, {"SquadronMemberships", "SquadronId", emberSquadron},
-		{"Ships", "Id", emberShip}, {"Refits", "Id", emberRefit}, {"RefitTasks", "Id", emberRefit},
-		{"Sorties", "Id", emberSortie}, {"SortieExpenses", "SortieId", emberSortie}, {"MissionDocuments", "MissionId", emberMission},
+		{"Squadrons", "Id", emberSquadron},
+		{"SquadronMemberships", "SquadronId", emberSquadron},
+		{"Ships", "Id", emberShip},
+		{"Refits", "Id", emberRefit},
+		{"RefitTasks", "Id", emberRefit},
+		{"Sorties", "Id", emberSortie},
+		{"SortieExpenses", "SortieId", emberSortie},
+		{"MissionDocuments", "MissionId", emberMission},
 	}
 	throughBefore := map[string]int64{}
 	for _, row := range throughEmber {
