@@ -13,6 +13,11 @@ import {
 } from '@impulseframework/resource-angular/types';
 import { format, isValid, parseISO } from 'date-fns';
 
+/** Whether a consignment is still in bond: its record carries no release yet. */
+export function inBond(row: RecordData): boolean {
+  return !row[Consignments.fieldName.releasedAt];
+}
+
 /** What Release asks before it runs, naming the consignment by its bond code. */
 export function releaseQuestion(row: RecordData): string {
   return `Release ${String(row[Consignments.fieldName.bondCode] || 'this consignment')} to its owner? It can be released once.`;
@@ -34,10 +39,14 @@ export function releaseReceipt(answer: unknown): { message: string } | undefined
 }
 
 // The salvage hold: cargo in bond until its owner claims it, drawn by the library's list
-// over Consignments. Release is the plain located-row method: the once-only rule rides
-// the grant (releasedAt IS NULL), so a row's menu offers Release from the row's Execute
-// answer and a released consignment offers nothing; the method answers a typed receipt,
-// which the page says in the notice that follows it. A consignment is disposed of from
+// over Consignments. Release is the plain located-row method, and cargo is released
+// once: the method itself refuses a consignment already released, whoever asks. So a
+// row's menu offers Release on cargo in bond alone (inBond), and there only where the
+// row's Execute answer lists the method; the Supercargo's grant carries releasedAt IS
+// NULL as well, so the server answers her nothing on a released row, while the Sector
+// Marshal's grant carries no condition and the server answers hers on every row. The
+// method answers a typed receipt, which the page says in the notice that follows it,
+// and its question says the release happens once. A consignment is disposed of from
 // its own page, where Delete shows by the row's answer: the Supercargo's grant carries a
 // date literal, so only bond that expired before it can go.
 //
@@ -84,6 +93,7 @@ export const consignmentsConfig = rootConfig({
         method: Methods.ReleaseConsignment,
         label: 'Release',
         icon: 'local_shipping',
+        when: inBond,
         confirm: releaseQuestion,
         answered: releaseReceipt,
       },

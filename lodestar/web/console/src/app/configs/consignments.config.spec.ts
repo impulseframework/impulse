@@ -13,7 +13,9 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   dayAndMinuteFormat,
+  ListViewConfig,
   METHOD_META,
+  RecordData,
   RESOURCE_DOMAIN,
   RESOURCE_META,
   RowAction,
@@ -26,9 +28,12 @@ import { consignmentsConfig, releaseQuestion, releaseReceipt } from './consignme
 
 // The salvage hold is the library's list over Consignments. The server as the spec plays
 // it answers the Supercargo in Anvil: cargo still in bond, whose row the server says may
-// be released, and cargo already released, whose row offers nothing. The page names the
-// owner, says "In bond" where nothing was released, offers Release in the row's menu by
-// the server's answer alone, asks before it runs, and says the receipt the method answers.
+// be released, and cargo already released, whose row offers nothing. One released row
+// carries the answer the server gives a role whose grant has no condition (the Sector
+// Marshal's): the method is listed on it, and the page still offers nothing, since cargo
+// is released once. The page names the owner, says "In bond" where nothing was released,
+// offers Release in the row's menu on cargo in bond by the server's answer, asks before
+// it runs, and says the receipt the method answers.
 
 const anvil = 'a1111111-1111-4111-8111-111111111111';
 const halvard = 'c0000000-0000-4000-8000-000000000001';
@@ -63,6 +68,17 @@ const hold = [
     clientId: unlisted,
     mass: 40,
     expiresOn: '2027-01-10',
+    zzCapabilities: { Execute: ['ReleaseConsignment'] },
+  },
+  {
+    // Released cargo as the server answers a grant with no condition: the method is listed.
+    id: 'k-4',
+    bondCode: 'BND-0001',
+    description: 'Survey drones',
+    clientId: halvard,
+    mass: 2,
+    expiresOn: '2026-09-20',
+    releasedAt: '2026-09-28T10:30:00Z',
     zzCapabilities: { Execute: ['ReleaseConsignment'] },
   },
 ];
@@ -156,7 +172,7 @@ describe('the salvage hold', () => {
       RowAction[] | undefined) ?? [];
 
   it('draws the hold with each owner by name, the number of consignments in its title, and "In bond" where nothing was released', () => {
-    expect(element().querySelector('h1.title')?.textContent?.trim()).toBe('Salvage hold (3)');
+    expect(element().querySelector('h1.title')?.textContent?.trim()).toBe('Salvage hold (4)');
     expect(Array.from(element().querySelectorAll('th .col-header')).map((h) => h.textContent?.trim())).toEqual([
       'Bond',
       'Description',
@@ -180,23 +196,33 @@ describe('the salvage hold', () => {
       ],
       // An owner the person may not list is no name: the cell is empty, never the client's id.
       ['BND-0011', 'Ore samples', '', '40', '1/10/2027', 'In bond'],
+      [
+        'BND-0001',
+        'Survey drones',
+        'Halvard Freight',
+        '2',
+        '9/20/2026',
+        format(new Date('2026-09-28T10:30:00Z'), dayAndMinuteFormat),
+      ],
     ]);
     // The Supercargo may book a consignment in: the page offers Create.
     expect(element().querySelector('.create-button')?.textContent).toContain('Create');
   });
 
-  it("offers Release in the row's menu where the server says the consignment may be released, and nothing on a released one", () => {
-    // The list asks for each row's Execute answer; the once-only rule is the grant's.
+  it("offers Release in the row's menu on cargo in bond the server says may be released, and nothing on a released one whatever the server answers", () => {
+    // The list asks for each row's Execute answer; released cargo offers nothing even
+    // where that answer lists the method.
     const asked = transport.requests.find((request) => request.url.startsWith(`${holdPath}?`));
     expect(new URL(asked?.url ?? '', 'http://lodestar.test').searchParams.get('capabilities')).toBe('Execute');
     expect(actionsOf(0).map((action) => [action.id, action.label, action.icon])).toEqual([
       ['ReleaseConsignment', 'Release', 'local_shipping'],
     ]);
     expect(actionsOf(1)).toEqual([]);
+    expect(actionsOf(3)).toEqual([]);
     const menus = Array.from(element().querySelectorAll('tr.impulse-row')).map(
       (row) => row.querySelectorAll('button.row-actions').length,
     );
-    expect(menus).toEqual([1, 0, 1]);
+    expect(menus).toEqual([1, 0, 1, 0]);
   });
 
   it('asks before it releases, runs the method against the row, and says the receipt the method answers', async () => {
@@ -224,6 +250,18 @@ describe('the salvage hold', () => {
 });
 
 describe("the salvage hold's words", () => {
+  /** Whether the hold's config offers Release on a row: the rule its menu follows, whatever the server answers. */
+  const offersRelease = (row: RecordData): boolean | undefined =>
+    ((consignmentsConfig.parentConfig as ListViewConfig).rowMethods || [])
+      .find((method) => method.label === 'Release')
+      ?.when?.(row);
+
+  it('offers Release on cargo in bond alone: until its record carries a release', () => {
+    expect(offersRelease({ id: 'k-1' })).toBe(true);
+    expect(offersRelease({ id: 'k-1', releasedAt: null })).toBe(true);
+    expect(offersRelease({ id: 'k-2', releasedAt: '2026-10-02T14:05:00Z' })).toBe(false);
+  });
+
   it('names the consignment by its bond code in the question Release asks', () => {
     expect(releaseQuestion({ id: 'k-1', bondCode: 'BND-0007' })).toBe(
       'Release BND-0007 to its owner? It can be released once.',
