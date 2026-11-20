@@ -53,7 +53,8 @@ document the instances notify each other through,
 [further below](#one-channel-between-instances); Firestore needs no schema, so the
 bootstrap leaves it alone), bootstraps the database (schema, the demo world, and the
 cast's accounts, each created under the fixed id `cmd/bootstrap/users.json` gives it:
-the personas, the clients the demo world's rows name, and the droid service account; the
+the personas, each with the name people read (Armorer Arlo, who signs in as `armorer`),
+the clients the demo world's rows name, and the droid service account; the
 roles need no step, since each auth's role file rides in
 the binary and the bootstrap only checks the store against it; a database that already
 holds data is refused unless the bootstrap runs with `-reset`, which empties the data and

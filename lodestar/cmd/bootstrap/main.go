@@ -107,15 +107,29 @@ type devRoles struct {
 
 // devUser is one persona: a crew login and its roles. ID is the fixed id its account is
 // created under, which is how the permission store names the persona and what the demo
-// world's rows carry for them; User is its username, which is what people read and type.
+// world's rows carry for them; User is its username, which is what the persona types to
+// sign in; Name is the persona's name as people read it, the one the README's cast and
+// the login page's manifest give, which a page that lists people shows beside the
+// username.
 type devUser struct {
 	ID       impulse.UUID `json:"id"`
 	User     string       `json:"user"`
+	Name     string       `json:"name"`
 	Password string       `json:"password"`
 	Roles    devRoles     `json:"roles"`
 	// Tours are the roles the persona holds for a time: the relief officer is on a tour
 	// of Anvil, and holds nothing there once it is over.
 	Tours []devTour `json:"tours"`
+}
+
+// accountName answers the name the persona's account is created with: nil where the
+// file gives none, since an account may be without one.
+func (u *devUser) accountName() *string {
+	if u.Name == "" {
+		return nil
+	}
+
+	return &u.Name
 }
 
 // devTour is a tour of duty: the roles a persona holds in one sector, named by its name,
@@ -374,7 +388,7 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 	accounts := make(map[string]accesstypes.User, len(identities.Users))
 	for i := range identities.Users {
 		user := &identities.Users[i]
-		id, err := createAccount(ctx, crewAPI, &session.CreateUserRequest{Username: user.User, Password: &user.Password}, user.ID)
+		id, err := createAccount(ctx, crewAPI, &session.CreateUserRequest{Username: user.User, Password: &user.Password, Name: user.accountName()}, user.ID)
 		if err != nil {
 			return err
 		}
