@@ -1180,10 +1180,17 @@ installed application's scope is every URL under its start): it goes to `/consol
 name of its Angular project, with its API at `/console/api`, in the generator program
 (`GenerateRoutes("pkg/router", "console/api", ..., WebApp("/console"))`), the project's
 `baseHref` and `servePath`, its proxy, its environments, and its base element, and the
-regenerated router answers the root alone with a redirect to `/console/`. The App's
-`DeepLink` and `Assets` pair, a `LoginURL` naming the console's login page, the
-hand-written routes and tests that name `/api`, and the README and Procfile lines follow
-by hand, and the brief lists each by file and line. For a machine outlet (`--tokens
+regenerated router answers the root alone with a redirect to `/console/`. The command
+follows the move through the application's own files and reports each by file and line:
+the App's served browser app is built under `/console` (`NewBrowserApp(..., "/console")`),
+the console's auth is told its pages there (`LoginURL`, `MailLoginURL` and `DevicePage` of
+the auth's `Settings`, where the application builds them outside its tests), and the
+hand-written Go (tests included), the README, the process files and the environment
+template that named `/api` name `/console/api`. That last rewrite is of text, so the report
+lists every line for reading. A path after a host's port (`http://127.0.0.1:8090/api`), a
+login page named outside the auth's settings or as a whole address, a `DevicePage` a test's
+settings name, and a test that asks for a page at the root are left as they are. For a
+machine outlet (`--tokens
 <name>`) the program gains `WithRouterOutlet(name, prefix, Tokens("<module>/pkg/auth/<name>"))`,
 naming the auth whose Auth issues the outlet's tokens: the generated router composes the
 token check in front of the outlet's routes and the device flow's two endpoints under its
@@ -1197,10 +1204,34 @@ the client's person, and the console stays where it is. (An
 application that kept a hand-written router gains `ServesSessions()` or nothing, as
 before.) `go generate` then emits the outlet's routes, handlers, and client, and the
 generated router mounts the outlet from its declaration: its group, its login routes, its
-not-found handler, and its browser application. The App's handlers the generated
-`Handlers` now requires (the outlet's session getter and deep-link and assets pair, or its
-`<Outlet>Auth` middleware), the configuration, the members (`@outlet`), and the tests are
-the agent's, and the compiler, `outlet-wired`, `outlet-shape`, and `login-pages` hold it to them.
+not-found handler, and its browser application.
+
+Under the generated router the command then writes what the generated `Handlers` now
+requires of the application, so the application builds and passes its checks as the
+command leaves it. For a session outlet, a new file of the App's package
+(`<name>_outlet.go`) declares the outlet's session getter and its deep-link and assets
+pair, over the resource package's served browser app the App now holds for the outlet's
+built bundle; the `Configurer` gains `<Outlet>Dist()`, the site configuration reads it from
+`APP_<OUTLET>_DIST` (the outlet's directory under the web workspace's `dist` by default),
+the environment template names the variable, and the test configurers answer it with no
+directory, as they answer the console's. For a machine outlet, the auth's file gains the
+outlet's name, the `DevicePage` setting passed to the Auth's construction
+(`session.WithDeviceVerificationURL`), the registration in `New`
+(`session.RegisterMachineOutlet`, once, before the first request) and `<Outlet>Tokens()` on
+its `Handlers`, as the tool renders an auth that issues a machine outlet's tokens; every
+construction of the auth's `Settings` names the device page, a test harness's too, since
+`New` refuses an empty one; the console gains the device page (`app/components/ui/device/`,
+from the reference) and its route among the signed-in pages; and a new file of the App's
+package declares the outlet's token check. The command refuses a machine outlet named like
+something the auth's `Handlers` holds already (a sign-in method's handle, such as
+`password`), since the outlet's token check is held under the outlet's name. Where a file
+does not read as the tool writes it (no `Configurer` interface, an App that holds no
+handlers of the auth, an auth file whose `New` is laid out otherwise, routes that do not
+open the frame's children as the skeletons do, a file of the outlet's name there already),
+nothing is written there and the report lists what is missing under what the command could
+not make. The members (`@outlet`), the outlet's own routes and its tests are the agent's,
+and the compiler, `outlet-wired`, `outlet-shape`, and `login-pages` hold the application to
+the rest.
 
 `add tenancy` makes a flat, untenanted application tenanted. Nobody creates a tenant
 directly: staff bring one in by inviting the person who will administer it, and that

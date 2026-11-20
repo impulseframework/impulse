@@ -292,21 +292,27 @@ web/<name> with its API prefix, base path, and ports rewritten and registered in
 angular.json, the package scripts, and the Procfile. A console that was alone at / moves
 to /console with its API at /console/api, since no browser application is mounted at /
 beside another (an installed application's scope is every URL under its start), and the
-regenerated router answers the root alone with a redirect there; the brief lists the Go
-and prose that still name /api. A machine outlet (--tokens <name>) is a surface with no
-browser whose requests carry the bearer tokens the named auth issues to its people and
-their programs: the generator program gains WithRouterOutlet with Tokens(<pkg/auth/name>),
-the generated router composes the token check in front of the outlet's routes and the
-device flow's endpoints under its prefix, and the auth's session outlet gains the token
-routes where a signed-in person issues, lists and revokes their tokens and approves a
-command-line client. (An application that kept a hand-written router gains
-ServesSessions or nothing, as before, and the brief names the auth the outlet binds to.)
+regenerated router answers the root alone with a redirect there; the App's served browser
+app, the login pages the console's auth names, and the application's own Go and prose that
+named /api follow, and the brief lists each line. A machine outlet (--tokens <name>) is a
+surface with no browser whose requests carry the bearer tokens the named auth issues to
+its people and their programs: the generator program gains WithRouterOutlet with
+Tokens(<pkg/auth/name>), the generated router composes the token check in front of the
+outlet's routes and the device flow's endpoints under its prefix, and the auth's session
+outlet gains the token routes where a signed-in person issues, lists and revokes their
+tokens and approves a command-line client. (An application that kept a hand-written
+router gains ServesSessions or nothing, as before, and the brief names the auth the
+outlet binds to.)
 
 Either way go generate emits the outlet's routes, handlers, and client, and the
-generated router mounts the outlet from its declaration. The App's handlers the router
-now requires (the outlet's session getter and browser-application pair, or its token
-surface), the configuration, the members, and the tests are handed to the agent with
-the failing checks as the obligations.`,
+generated router mounts the outlet from its declaration. The command then writes what
+the router now requires of the application, so the application builds as the command
+leaves it: the App's session getter and browser-application pair for a session outlet,
+with the configuration naming the built bundle's directory; for a machine outlet, the
+registration on the auth, the device page in the auth's settings and in the console, and
+the App's token check. What it could not write, where a file does not read as the tool
+writes it, is listed in the brief. The members, the outlet's own routes, and the tests
+are handed to the agent with the failing checks as the obligations.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if (auth != "") == (tokens != "") {
