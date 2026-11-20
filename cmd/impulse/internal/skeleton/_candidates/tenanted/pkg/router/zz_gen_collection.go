@@ -116,6 +116,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "EndTenantDirectoryOnly",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "GiveStaffTenantGroupRole",
@@ -140,6 +141,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "MakeTenantDirectoryOnly",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "MakeTenantInviteOnly",
@@ -521,6 +523,12 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "CreateTenant",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
 				Name:        "DeleteStaffGroup",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -682,6 +690,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetStaffSelfServiceReset",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "SetStaffTemporaryPassword",

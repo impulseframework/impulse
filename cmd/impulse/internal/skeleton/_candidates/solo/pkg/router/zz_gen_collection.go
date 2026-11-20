@@ -208,6 +208,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetStaffSelfServiceReset",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "SetStaffTemporaryPassword",
