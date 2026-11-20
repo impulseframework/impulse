@@ -1256,7 +1256,9 @@ watch desk then name the cadet by username; and
   draws a form on its page. Add a pass opens the form with three pickers side by side, a person of
   the sector, a squadron and a group of the sector, each a list the generated metadata
   names; the pass names one of them, and one that names two, or none, is refused inside
-  the dialog in the server's words. Lodestar is also the browser library's
+  the dialog in the server's words. The walkthrough's "the Hangars page" section sends
+  what the page sends: the marshal adds a hangar and a pass for the Bay keepers, and the
+  sentry has both hangars through that group alone. Lodestar is also the browser library's
   application: `@impulseframework/resource` and `@impulseframework/resource-angular` live in
   this repository's `web/` workspace, hold no application of their own, and are proven
   here, linked from their local build ("Running it"). The
