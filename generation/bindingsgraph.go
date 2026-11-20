@@ -27,7 +27,9 @@ import (
 // (assignedSquadron IN subject.squadrons) visibly meet. A subject set that
 // writes a who: or a where: part lists each under the set, in the columns'
 // names, and a set that builds on another is an edge from the resource
-// declaring that other set. Facts only: no grant or condition is drawn.
+// declaring that other set. A set that writes a domain: part, the path to its
+// rows' tenant, has that path drawn as a resource's @domain path is, under the
+// set's name. Facts only: no grant or condition is drawn.
 
 // bindingsGraphKind is a binding kind, which sets its edge style.
 type bindingsGraphKind int
@@ -35,7 +37,8 @@ type bindingsGraphKind int
 const (
 	// bindingsGraphAttribute is an @attribute(via:) path, drawn solid.
 	bindingsGraphAttribute bindingsGraphKind = iota
-	// bindingsGraphDomain is an @domain(via:) path, drawn dotted.
+	// bindingsGraphDomain is an @domain(via:) path, and the path a subject
+	// set's domain: part names, drawn dotted.
 	bindingsGraphDomain
 	// bindingsGraphSubject is the requester entering an anchor, and a dotted
 	// @subjectSet / @subjectValue value continuing from it, drawn dashed.
@@ -85,14 +88,15 @@ type bindingsGraphNode struct {
 // bindingsGraph is one package's assembled graph: the resources declaring a
 // binding, the tables a path lands on or a foreign key points at, whether the
 // requester is drawn, whether a subject set writes a who: or a where: part,
-// and the deduplicated edges, every list sorted so the rendered file is
-// byte-stable across runs.
+// whether one writes a domain: part, and the deduplicated edges, every list
+// sorted so the rendered file is byte-stable across runs.
 type bindingsGraph struct {
-	Declaring []bindingsGraphNode
-	Landed    []string
-	Subject   bool
-	Parts     bool
-	Edges     []bindingsGraphEdge
+	Declaring  []bindingsGraphNode
+	Landed     []string
+	Subject    bool
+	Parts      bool
+	SetDomains bool
+	Edges      []bindingsGraphEdge
 }
 
 // bindingsGraphBuilder accumulates one package's graph facts, resource by
@@ -109,9 +113,10 @@ type bindingsGraphBuilder struct {
 	subject   bool
 	// setOwners names the resource declaring each subject set, where a set
 	// that builds on it starts its edge; parts says some set writes a who: or
-	// a where: part.
-	setOwners map[string]string
-	parts     bool
+	// a where: part, and setDomains that some set writes a domain: part.
+	setOwners  map[string]string
+	parts      bool
+	setDomains bool
 }
 
 // newBindingsGraphBuilder prepares the table-to-struct resolution over the
@@ -208,7 +213,9 @@ func (b *bindingsGraphBuilder) addResource(res *resourceInfo) {
 // has one such column, the one its annotation sits on. A written who: enters
 // at each column it compares to the requester, and each column it tests
 // against another set is an edge from the resource declaring that set, labeled
-// with the test; the set's parts are listed under it in its box.
+// with the test; the set's parts are listed under it in its box. A set's
+// domain: part is a path, so it is drawn and not listed: hop by hop in the
+// style of an @domain path, each hop labeled `name domain`.
 func (b *bindingsGraphBuilder) addSubjects(res *resourceInfo) {
 	namesByAnchor := make(map[string][]string)
 	for _, subject := range slices.Concat(res.SubjectSets, res.SubjectValues) {
@@ -228,6 +235,11 @@ func (b *bindingsGraphBuilder) addSubjects(res *resourceInfo) {
 					Label:  subject.Name + ": " + column + " IN " + bindingsGraphSubjectNode + "." + test.Set,
 				}] = true
 			}
+		}
+
+		if subject.Domain != nil {
+			b.setDomains = true
+			b.walk(res.Name(), fieldColumn(subject.Domain.Anchor), subject.Domain.Path, bindingsGraphDomain, subject.Name+" "+subjectDomainArgKey)
 		}
 
 		qualified := bindingsGraphSubjectNode + "." + subject.Name
@@ -287,7 +299,7 @@ func subjectPartLines(qualified string, subject *subjectBinding) []string {
 // name with their lines sorted, landed tables minus the declaring ones, and
 // edges by kind, source, target, label.
 func (b *bindingsGraphBuilder) graph() *bindingsGraph {
-	graph := &bindingsGraph{Subject: b.subject, Parts: b.parts}
+	graph := &bindingsGraph{Subject: b.subject, Parts: b.parts, SetDomains: b.setDomains}
 	for name, lines := range b.declaring {
 		slices.Sort(lines)
 		graph.Declaring = append(graph.Declaring, bindingsGraphNode{Name: name, Bindings: lines})
@@ -367,6 +379,13 @@ func renderBindingsDOT(graph *bindingsGraph) string {
 		fmt.Fprintf(&b, "// the columns' names: who: says which rows are the requester's, where: which of\n")
 		fmt.Fprintf(&b, "// those rows count. A set that builds on another is a dashed edge from the\n")
 		fmt.Fprintf(&b, "// resource declaring that other set, labeled `name: column IN subject.other`.\n")
+	}
+	if graph.SetDomains {
+		// Said only where a set writes one, for the same reason.
+		fmt.Fprintf(&b, "// A subject set that writes a domain: part says where its rows' tenant is found,\n")
+		fmt.Fprintf(&b, "// and in a request with a tenant the set holds that tenant's rows alone. The path\n")
+		fmt.Fprintf(&b, "// is drawn dotted, as @domain's is, under the set's name: `name domain: column` on\n")
+		fmt.Fprintf(&b, "// a continuing hop and `name domain: column ⇒ column` where it reads the tenant.\n")
 	}
 	fmt.Fprintf(&b, "digraph Bindings {\n")
 	fmt.Fprintf(&b, "\trankdir=LR;\n")

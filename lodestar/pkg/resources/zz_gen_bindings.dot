@@ -12,6 +12,10 @@
 // the columns' names: who: says which rows are the requester's, where: which of
 // those rows count. A set that builds on another is a dashed edge from the
 // resource declaring that other set, labeled `name: column IN subject.other`.
+// A subject set that writes a domain: part says where its rows' tenant is found,
+// and in a request with a tenant the set holds that tenant's rows alone. The path
+// is drawn dotted, as @domain's is, under the set's name: `name domain: column` on
+// a continuing hop and `name domain: column ⇒ column` where it reads the tenant.
 digraph Bindings {
 	rankdir=LR;
 	node [shape=box];
@@ -61,6 +65,7 @@ digraph Bindings {
 	"Ship" -> "ShipClass" [label="shipRole: ClassId ⇒ RoleId"];
 	"Sortie" -> "Mission" [label="state: MissionId ⇒ StatusId"];
 	"SortieExpense" -> "Sortie" [label="state: SortieId"];
+	"CrewGroupMember" -> "CrewGroup" [style=dotted, label="groups domain: GroupId ⇒ DomainId"];
 	"MissionDocument" -> "Mission" [style=dotted, label="domain: MissionId ⇒ SectorId"];
 	"Refit" -> "Ship" [style=dotted, label="domain: ShipId"];
 	"RefitTask" -> "Refit" [style=dotted, label="domain: Id"];
