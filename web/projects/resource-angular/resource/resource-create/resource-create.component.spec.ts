@@ -4,6 +4,7 @@ import { AbstractControl } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiDescriptor, createClient, Domain, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
+import { FormStateService } from '@impulseframework/resource-angular/resource-services';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   field,
@@ -203,6 +204,34 @@ describe('ResourceCreateComponent over the read-only shapes and a write-only fie
     component.saveForm();
     await settle(() => adds().length === 1);
     expect(adds()).toEqual([{ op: 'add', value: { name: 'Kestrel' } }]);
+  });
+
+  // The leave-page question counts the unsaved forms, so the count goes up once for a
+  // form that holds something and comes down once when the row is created or the form
+  // is canceled, and never below what it was.
+  it('counts as one unsaved form however it was filled, and as none once the row is created or the form is canceled', async () => {
+    const unsaved = TestBed.inject(FormStateService);
+    // A picker writes the value and marks the form afterwards.
+    const pick = (): void => {
+      component.form().patchValue({ name: 'Kestrel' });
+      component.form().markAsDirty();
+    };
+
+    // Canceled untouched, the form was never counted and takes nothing off the count.
+    component.cancelForm();
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    pick();
+    expect(unsaved.dirtyForms()).toBe(1);
+    component.cancelForm();
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    pick();
+    expect(unsaved.dirtyForms()).toBe(1);
+    component.saveForm();
+    await settle(() => adds().length === 1 && !component.saving());
+    expect(adds()).toEqual([{ op: 'add', value: { name: 'Kestrel' } }]);
+    expect(unsaved.dirtyForms()).toBe(0);
   });
 });
 

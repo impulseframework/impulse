@@ -1,11 +1,28 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, effect, inject, Injector, input, signal, Type, untracked, viewChild } from '@angular/core';
+import {
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  Injector,
+  input,
+  signal,
+  Type,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { MatExpansionModule, MatExpansionPanel } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ListViewConfig, RecordData, RootConfig } from '@impulseframework/resource-angular/types';
+import {
+  openCreateDialog,
+  ResourceCreateDialogComponent,
+} from '../resource-create-dialog/resource-create-dialog.component';
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
 import { ResourceListComponent } from '../resource-list/resource-list.component';
 import { ResourceStore } from '../resource-store.service';
@@ -43,6 +60,9 @@ export class ResourceListCreateComponent {
 
   route = inject(ActivatedRoute);
   router = inject(Router);
+  private dialog = inject(MatDialog);
+  /** The open dialog of this list's create, where the config opens the create in one (`createInDialog`). */
+  private createDialog?: MatDialogRef<ResourceCreateDialogComponent, boolean>;
   create = signal<boolean>(false);
   parentId = input<string>();
   /**
@@ -110,11 +130,59 @@ export class ResourceListCreateComponent {
 
   createResource(event: MouseEvent): void {
     event.stopPropagation();
+    if (this.config().createInDialog) {
+      this.openCreateDialog();
+      return;
+    }
     this.create.set(true);
 
     if (this.expPanel() && this.expPanel()?.closed) {
       this.expPanel()?.open();
     }
+  }
+
+  /**
+   * The list's create button was pressed, or its create was left. A list whose config
+   * says `createInDialog` opens the form in a dialog and stays as it is; any other draws
+   * the form on the page, above the list.
+   */
+  setCreateMode(creating: boolean): void {
+    if (creating && this.config().createInDialog) {
+      this.openCreateDialog();
+      return;
+    }
+    this.create.set(creating);
+  }
+
+  /**
+   * Opens the create in a dialog, titled with the create button's label. Once a row is
+   * created the list reads its rows again, and a collapsed panel opens so the new row
+   * is on the screen.
+   */
+  private openCreateDialog(): void {
+    if (this.createDialog) {
+      return;
+    }
+    const config = this.config();
+    const opened = openCreateDialog(
+      this.dialog,
+      {
+        label: config.createButtonLabel,
+        config: this.createConfig(),
+        parentData: this.parentData() ?? {},
+        loadCreatedResource: config.loadCreatedResource,
+      },
+      this.injector,
+    );
+    this.createDialog = opened;
+    opened.afterClosed().subscribe((created) => {
+      this.createDialog = undefined;
+      if (!created) {
+        return;
+      }
+      this.listChild()?.reloadListData();
+      this.expPanel()?.open();
+    });
   }
 
   makeCreatePatches(): void {
@@ -139,6 +207,8 @@ export class ResourceListCreateComponent {
   }
 
   constructor() {
+    // The dialog is made under this list's injector: it closes with the list.
+    inject(DestroyRef).onDestroy(() => this.createDialog?.close(false));
     // A method that ran against the page's row, or from another of its lists, reads this
     // list again. The first run only notes the count the list opened on.
     let seen = this.pageStore?.rowChanges() ?? 0;
