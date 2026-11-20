@@ -3277,14 +3277,17 @@ and the session and its user on every later request. So:
   `User` answer is held to the account the session names: it carries the id that was
   asked for and, where the library's own store holds the account, the username of that
   row, or the request is refused as an invalid session, so the routes for a person's
-  own account never act on another person's. A `Principal` its `Session` answer
+  own account never act on another person's. An account that row holds disabled is
+  disabled whatever the wrapper answers, as one the wrapper answers disabled is, so a
+  store that keeps the accounts it has read keeps no disabled account signed in. A `Principal` its `Session` answer
   carries is not taken: an ordinary session's checks are made for whom the principal
   resolver chose, or for the session's own user. And where the library's own store
   holds the session, the session is expired when that row is and was last used when
   that row says, so a cache keeps no signed-out or idle session working (a wrapper may
   still end a session early, by answering it expired or with an error). The rest of an
-  ordinary session is the wrapper's: its custom data, the account's other columns
-  (whether it is disabled among them), and every read of an application token, which
+  ordinary session is the wrapper's: its custom data, the account's other columns,
+  and every read of an application token (the account a token is for, and whether it
+  is disabled, among them), which
   starts no session that acts as someone else. A session that acts as someone else starts from the session the
   request's cookie names, which must be held under the same account in the library's
   store as the session the request was validated as, or nothing is started. Over a

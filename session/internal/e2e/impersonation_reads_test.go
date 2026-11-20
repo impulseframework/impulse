@@ -406,6 +406,10 @@ func runSealedReads[Tx any](t *testing.T, be backend[Tx]) {
 			run:  readsOrdinaryAccountChanged[Tx],
 		},
 		{
+			name: "a wrapper that keeps the accounts it has read does not keep a disabled account's session working, and still disables one itself",
+			run:  readsDisabledAccountKept[Tx],
+		},
+		{
 			name: "a wrapper whose Session sets a principal on an ordinary session does not decide whom its checks are made for",
 			run:  readsOrdinaryPrincipalSet[Tx],
 		},
@@ -822,6 +826,60 @@ func readsOrdinaryAccountChanged[Tx any](ctx context.Context, t *testing.T, a *r
 			return &renamed
 		}
 	})
+	own.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
+
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.account = nil
+	})
+	if v := own.readsSession(ctx); v.User != pat.String() || v.Username != "pat@lakeside.edu" {
+		t.Errorf("the session once the wrapper answers as the library's store does = %+v, want pat@lakeside.edu's own (%s)", v, pat)
+	}
+}
+
+// readsDisabledAccountKept is a wrapper that answers every account as enabled, as a
+// store that keeps the accounts it has read would answer one disabled since. The
+// account is disabled in the library's store, and the person's next request is refused:
+// whether an account is disabled is for the library's own row to say as well. Enabled
+// again there, the session is the person's as before, so it was the row that refused
+// it. A wrapper that answers an account as disabled which the library's row holds
+// enabled is refused too: either says so.
+func readsDisabledAccountKept[Tx any](ctx context.Context, t *testing.T, a *readsApp[Tx]) {
+	t.Helper()
+
+	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	own := a.signedIn(ctx, t, "pat@lakeside.edu")
+	answeredAs := func(disabled bool) func(*overridingStore[Tx]) {
+		return func(s *overridingStore[Tx]) {
+			s.account = func(u *sessionstorage.SessionUser) *sessionstorage.SessionUser {
+				kept := *u
+				kept.Disabled = disabled
+
+				return &kept
+			}
+		}
+	}
+
+	a.store.set(answeredAs(false))
+	if v := own.readsSession(ctx); v.User != pat.String() || v.Impersonated {
+		t.Fatalf("the session = %+v, want pat@lakeside.edu's own (%s)", v, pat)
+	}
+
+	if err := a.store.AuthStore.DeactivateUser(ctx, pat); err != nil {
+		t.Fatalf("DeactivateUser(%s) on the library's store error = %v", pat, err)
+	}
+	own.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
+	if !slices.Contains(a.store.asked().users, pat) {
+		t.Errorf("the wrapper's User was never asked for %s: the account of an ordinary session is the store's to answer", pat)
+	}
+
+	if err := a.store.AuthStore.ActivateUser(ctx, pat); err != nil {
+		t.Fatalf("ActivateUser(%s) on the library's store error = %v", pat, err)
+	}
+	if v := own.readsSession(ctx); v.User != pat.String() {
+		t.Errorf("the session once the library's store holds the account enabled again = %+v, want pat@lakeside.edu's own (%s)", v, pat)
+	}
+
+	a.store.set(answeredAs(true))
 	own.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
 
 	a.store.set(func(s *overridingStore[Tx]) {
