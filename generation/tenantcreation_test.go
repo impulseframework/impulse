@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // tenantCreationFixtureGenerator builds a generator around one tenantfixture record,
@@ -334,6 +336,70 @@ func Test_tenantCreationData_typeImports(t *testing.T) {
 	if data.RoutePath != "/api/create-station" || data.Auth != "Staff" || data.IdentityAccessor != "StaffIdentity" || data.RolesAccessor != "StationAdministratorRoles" {
 		t.Errorf("tenantCreationData() = route %q, auth %q, identity %q, roles %q", data.RoutePath, data.Auth, data.IdentityAccessor, data.RolesAccessor)
 	}
+	if data.Action != "CreateStation" || data.Act != "create a station" {
+		t.Errorf("tenantCreationData() = action %q, act %q; want the handler's name as the action a mask refuses, and what the route does in the words of its refusal", data.Action, data.Act)
+	}
+}
+
+// Test_collectTenantCreationRegistration pins the route's action in the permission
+// collection: Execute on the handler's name, in the application's scope, with the class
+// access, wherever the route is generated, so a permission mask that refuses the class
+// refuses the creation; nothing where no route is generated; and a manual registration
+// under the name refused, naming the record.
+func Test_collectTenantCreationRegistration(t *testing.T) {
+	t.Parallel()
+
+	served := func(r *resourceGenerator) {
+		r.genRoutes = true
+		r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
+	}
+
+	t.Run("a record whose route is generated", func(t *testing.T) {
+		t.Parallel()
+
+		r := tenantCreationFixtureGenerator(t, "Station", served)
+		b := resource.NewCollectionBuilder()
+		if err := r.collectTenantCreationRegistration(b); err != nil {
+			t.Fatalf("collectTenantCreationRegistration() error = %v", err)
+		}
+		want := []resource.CollectionResource{{
+			Name: "CreateStation", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute},
+			Classes: []accesstypes.ActionClass{accesstypes.ClassAccess},
+		}}
+		if diff := cmp.Diff(want, b.Data().Resources); diff != "" {
+			t.Errorf("the collection's registrations mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a record whose auth's roles a directory writes has no route and no action", func(t *testing.T) {
+		t.Parallel()
+
+		r := tenantCreationFixtureGenerator(t, "Station", func(r *resourceGenerator) {
+			r.genRoutes = true
+			r.defaultOutlet.auth = syncedAuth("example.com/app/pkg/auth/staff")
+		})
+		b := resource.NewCollectionBuilder()
+		if err := r.collectTenantCreationRegistration(b); err != nil {
+			t.Fatalf("collectTenantCreationRegistration() error = %v", err)
+		}
+		if got := b.Data().Resources; len(got) != 0 {
+			t.Errorf("the collection's registrations = %v, want none: no route is generated", got)
+		}
+	})
+
+	t.Run("a manual registration under the action's name", func(t *testing.T) {
+		t.Parallel()
+
+		r := tenantCreationFixtureGenerator(t, "Station", func(r *resourceGenerator) {
+			served(r)
+			r.manualRegistrations = []ManualRegistration{{Resource: "CreateStation", Permission: accesstypes.Execute}}
+		})
+		err := r.collectTenantCreationRegistration(resource.NewCollectionBuilder())
+		want := "CreateStation is the action of the Station record's create-your-station route, which the generator writes; a manual registration cannot take the name"
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("collectTenantCreationRegistration() error = %v, want %q", err, want)
+		}
+	})
 }
 
 // Test_tenantCreationTemplate pins the generated handler: the contract it asserts on
@@ -360,6 +426,8 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		HandlerFunc:         "CreateStation",
 		OfferedHandlerFunc:  "CreateStationOffered",
 		RoutePath:           "/api/create-station",
+		Action:              string(tenantCreationAction("Station")),
+		Act:                 tenantCreationAct("Station"),
 		Auth:                "Staff",
 		IdentityAccessor:    "StaffIdentity",
 		RolesAccessor:       "StationAdministratorRoles",
@@ -389,6 +457,11 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"decoder := resource.MustNewBodyDecoder[request](a.Validator())",
 		"roles := a.StationAdministratorRoles()",
 		"identityClient := a.StaffIdentity()",
+		// No grant admits the route, so the session's mask is asked about the route's
+		// action: a session that acts as someone under a mask that refuses it is refused
+		// in the route's own words, with the denial logged as the mask's.
+		"collection := router.Collection()",
+		"if err := resource.RefuseActionUnderMask(ctx, collection, \"CreateStation\", \"create a station\"); err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}",
 		// The creator becomes the administrator, so the real person behind a session that
 		// acts as someone else is refused in the route's own words, by the one rule.
 		"if creator, ok := identity.UserID(userPermissions.User()); ok {\n\t\t\tif err := identity.RefuseImpersonatorAsSubject(ctx, creator, \"create a station of your own\"); err != nil {\n\t\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t\t}\n\t\t}",
@@ -414,10 +487,11 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"a.LiveService().Signal(ctx, resource.KindTenants)",
 		// The answer carries the generated id.
 		"return httpio.NewEncoder(w).Ok(response{ID: id})",
-		// The route's GET answers whether the caller may create one now, by the three
+		// The route's GET answers whether the caller may create one now, by the four
 		// facts the POST refuses on, read as committed, and writes nothing.
 		"func (a *App) CreateStationOffered() http.HandlerFunc {",
 		"Offered bool `json:\"offered\"`",
+		"if _, refused := resource.MaskRefusesAction(ctx, collection, \"CreateStation\"); refused {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
 		"if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
 		"if len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
 		"open, err := identityClient.AnySignInMethodOpen(ctx, a.ResourceClient())",
@@ -441,12 +515,15 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		t.Errorf("the response struct = %q; want the generated id alone", response)
 	}
 
-	// The rule on the person behind an impersonated session before the gate, in the POST
+	// The session's mask before everything, in the POST and in the GET, the rule on the
+	// person behind an impersonated session before the gate, in the POST
 	// and in the GET, the gate before the body, whether sign-up is open asked inside the
 	// transaction before anything is made, the id generated before the row is buffered,
 	// the membership after the row and before the commit, the commit before the roster,
 	// the roster before the wait, the wait before the signal, the signal before the
 	// answer.
+	masked := strings.Index(s, "resource.RefuseActionUnderMask(ctx, collection,")
+	permissions := strings.Index(s, "userPermissions := a.UserPermissions(r)")
 	subject := strings.Index(s, "identity.RefuseImpersonatorAsSubject(ctx, creator,")
 	gate := strings.Index(s, "if len(held) > 0 {")
 	decode := strings.Index(s, "req, err := decoder.Decode(r)")
@@ -467,7 +544,13 @@ func Test_tenantCreationTemplate(t *testing.T) {
 	if subject < 0 || subject >= gate {
 		t.Errorf("order: the rule on the person behind an impersonated session %d, gate %d; want the rule first:\n%s", subject, gate, out)
 	}
+	if masked < 0 || masked >= permissions || masked >= subject {
+		t.Errorf("order: the session's mask %d, the session's permissions %d, the rule on the person behind an impersonated session %d; want the mask first, before anything is read:\n%s", masked, permissions, subject, out)
+	}
 	offered := strings.Index(s, "func (a *App) CreateStationOffered() http.HandlerFunc {")
+	if maskAsked, asked := strings.Index(s[offered:], "resource.MaskRefusesAction(ctx, collection,"), strings.Index(s[offered:], "identity.ImpersonatorIs(ctx, creator)"); maskAsked < 0 || maskAsked >= asked {
+		t.Errorf("order in the GET: the session's mask %d, the question about the person behind an impersonated session %d; want the mask first:\n%s", maskAsked, asked, out)
+	}
 	if asked, gated := strings.Index(s[offered:], "identity.ImpersonatorIs(ctx, creator)"), strings.Index(s[offered:], "if len(held) > 0 {"); asked < 0 || asked >= gated {
 		t.Errorf("order in the GET: the question about the person behind an impersonated session %d, gate %d; want the question first:\n%s", asked, gated, out)
 	}
@@ -706,6 +789,44 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 				t.Fatalf("generateTemplateOutput() error = %v", err)
 			}
 			assertContains(t, "typescriptAPITemplate", string(out), tt.wantContains, tt.wantNotContains)
+		})
+	}
+}
+
+// Test_applyOutletFilter_tenantCreationAction pins the route's action in an outlet's
+// constants: the client of an outlet that serves the tenant record names it, the client
+// of an outlet the record is not on leaves it out with the record, and where the
+// generator writes no route the name is not the generator's to leave out.
+func Test_applyOutletFilter_tenantCreationAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		creation tenantCreation
+		outlet   string
+		want     bool
+	}{
+		{name: "the outlet that serves the record keeps the action", creation: tenantCreationBoth},
+		{name: "an outlet the record is not on leaves it out", creation: tenantCreationBoth, outlet: "members", want: true},
+		{name: "no route is generated, so nothing is left out", creation: tenantCreationNone, outlet: "members"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &client{tableMap: tenantFixtureTables()}
+			resources, err := c.structsToResources(tenantFixtureStructs(t, fixtureStructs(loadFixture(t, "tenantfixture")), "Station"))
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			c.resources = resources
+			gen := &typescriptGenerator{client: c, outletName: tt.outlet, tenantCreation: tt.creation}
+			if _, _, err := gen.applyOutletFilter(slices.Clone(gen.resources), nil); err != nil {
+				t.Fatalf("applyOutletFilter() error = %v", err)
+			}
+			if got := slices.Contains(gen.outletExcluded, accesstypes.Resource("CreateStation")); got != tt.want {
+				t.Errorf("CreateStation is left out of the outlet's constants = %t, want %t (left out: %v)", got, tt.want, gen.outletExcluded)
+			}
 		})
 	}
 }

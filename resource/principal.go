@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -476,14 +477,7 @@ func Masked(perms UserPermissions, mask accesstypes.PermissionMask, classes Acti
 		return perms
 	}
 
-	masked := &maskedPermissions{UserPermissions: perms, mask: mask, classes: classes}
-	for _, refusal := range mask.Refusals() {
-		if _, ok := refusal.Class(); ok {
-			masked.refusesClasses = true
-		}
-	}
-
-	return masked
+	return newMaskedPermissions(perms, mask, classes)
 }
 
 type maskedPermissions struct {
@@ -495,6 +489,19 @@ type maskedPermissions struct {
 	// refusesClasses says the mask refuses at least one class, so a check needs the
 	// classes of what it is asked about.
 	refusesClasses bool
+}
+
+// newMaskedPermissions is perms under a mask that restricts something, with what
+// answers the classes of an action.
+func newMaskedPermissions(perms UserPermissions, mask accesstypes.PermissionMask, classes ActionClasses) *maskedPermissions {
+	masked := &maskedPermissions{UserPermissions: perms, mask: mask, classes: classes}
+	for _, refusal := range mask.Refusals() {
+		if _, ok := refusal.Class(); ok {
+			masked.refusesClasses = true
+		}
+	}
+
+	return masked
 }
 
 // refuses reports whether the mask refuses perm on res, and why. The classes asked
@@ -527,7 +534,7 @@ func (m *maskedPermissions) Check(
 	ctx context.Context, env accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
 	if !m.mask.Allows(perm) {
-		logger.FromCtx(ctx).Warnf("impersonation: %s denied by mask (%s) for %s on %v", perm, m.mask, m.User(), resources)
+		logMaskKindDenied(ctx, perm, m.mask, m.User(), resources...)
 
 		return deniedDecisions(resources), nil
 	}
@@ -541,7 +548,7 @@ func (m *maskedPermissions) Check(
 
 			continue
 		}
-		logger.FromCtx(ctx).Warnf("impersonation: %s denied by mask (%s) for %s on %s: %s", perm, m.mask, m.User(), res, why)
+		logMaskRefusal(ctx, perm, m.mask, m.User(), res, why)
 		refused = append(refused, res)
 	}
 	if len(refused) > 0 && len(passed) == 0 {
@@ -631,6 +638,89 @@ func (m *maskedPermissions) Reaches(ctx context.Context, domain accesstypes.Doma
 	}
 
 	return reaches, nil
+}
+
+// MaskRefusesAction reports whether the permission mask of the session in the context
+// refuses the action, and why in a few words for the log. It is the mask's part of a
+// check alone, with no policy behind it, for an action no grant admits. The generated
+// create-your-tenant route is one: any signed-in person who holds no tenant may call
+// it, so no permission is checked there for a mask to deny, and in a session that acts
+// as a person it would make the person acted as the new tenant's administrator
+// whatever the mask said. The route carries an action's name instead, and asks this.
+//
+// The mask refuses the action as it refuses any other (Masked): when it does not keep
+// Execute, when it refuses a class the action carries, or when it refuses the action by
+// name. A session with no mask is refused nothing: an ordinary session, and an
+// impersonated one whose kind gives everything, since to let someone act as a person
+// with no mask is to give them what the person holds.
+//
+// classes answers the classes the action carries: the application's generated
+// collection. As in Masked, a mask that refuses a class cannot be judged without them,
+// so with nil classes such a mask refuses the action.
+//
+// It logs nothing and writes no sentence: a route that answers whether an act is
+// offered asks it, and the act itself asks RefuseActionUnderMask. It panics when no
+// session is in the context, as sessioninfo.MaskFromCtx does.
+func MaskRefusesAction(ctx context.Context, classes ActionClasses, action accesstypes.Resource) (why string, refused bool) {
+	mask := sessioninfo.MaskFromCtx(ctx)
+	if mask.IsZero() {
+		return "", false
+	}
+
+	return newMaskedPermissions(nil, mask, classes).refuses(accesstypes.Execute, action)
+}
+
+// RefuseActionUnderMask refuses the action when the permission mask of the session in
+// the context refuses it (MaskRefusesAction), for a handler whose action no grant
+// admits. The refusal is logged as the masked check logs its own, so one line says a
+// mask denied something whichever of the two asked, and the person is answered 403
+// with what the session cannot do: act is the end of "this session cannot", as in
+// "create a tenant". It returns nil outside a masked session and for an action the
+// mask keeps.
+//
+//	if err := resource.RefuseActionUnderMask(ctx, router.Collection(), "CreateTenant", "create a tenant"); err != nil {
+//		return httpio.NewEncoder(w).ClientMessage(ctx, err)
+//	}
+func RefuseActionUnderMask(ctx context.Context, classes ActionClasses, action accesstypes.Resource, act string) error {
+	why, refused := MaskRefusesAction(ctx, classes, action)
+	if !refused {
+		return nil
+	}
+	mask := sessioninfo.MaskFromCtx(ctx)
+	if mask.Allows(accesstypes.Execute) {
+		logMaskRefusal(ctx, accesstypes.Execute, mask, maskedSessionUser(ctx), action, why)
+	} else {
+		logMaskKindDenied(ctx, accesstypes.Execute, mask, maskedSessionUser(ctx), action)
+	}
+
+	return httpio.NewForbiddenMessagef(
+		"you are acting as someone else, and this session cannot %s: %s. What a session that acts as someone may do is set when it starts; start one that may, or stop acting as them first", act, why,
+	)
+}
+
+// maskedSessionUser is who the log names beside a mask's denial of an action no grant
+// admits: the person the session acts as, and for a session that acts as a role the
+// person it answers for (roleSessionUser), as SessionPermissions names them.
+func maskedSessionUser(ctx context.Context) accesstypes.User {
+	principal := sessioninfo.PrincipalFromCtx(ctx)
+	if _, ok := principal.Role(); ok {
+		return roleSessionUser(ctx)
+	}
+	user, _ := principal.User()
+
+	return user
+}
+
+// logMaskKindDenied logs the denial of a permission kind the mask does not keep, on
+// every resource asked about.
+func logMaskKindDenied(ctx context.Context, perm accesstypes.Permission, mask accesstypes.PermissionMask, user accesstypes.User, resources ...accesstypes.Resource) {
+	logger.FromCtx(ctx).Warnf("impersonation: %s denied by mask (%s) for %s on %v", perm, mask, user, resources)
+}
+
+// logMaskRefusal logs the denial of a permission on one resource the mask refuses
+// inside a kind it keeps, with why: the class or the name the mask refuses.
+func logMaskRefusal(ctx context.Context, perm accesstypes.Permission, mask accesstypes.PermissionMask, user accesstypes.User, res accesstypes.Resource, why string) {
+	logger.FromCtx(ctx).Warnf("impersonation: %s denied by mask (%s) for %s on %s: %s", perm, mask, user, res, why)
 }
 
 // unsupportedRolePermissions is the fail-closed checker for a role principal

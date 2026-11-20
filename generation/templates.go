@@ -1930,13 +1930,18 @@ var _ interface {
 // a sign-in method of the {{ .Auth }} auth open to sign-up. No grant admits the call. The session
 // must be established, which the router's session group holds it to, and must hold a
 // grant in no {{ .RecordLower }}: a person creates one {{ .RecordLower }}, and the member or administrator of
-// one is refused (403). Nobody is the subject of what they do while they act as someone
-// else: in a session that acts as a role the person who would become the administrator
-// is the real person behind it, who is refused before anything is read (403,
-// identity.RefuseImpersonatorAsSubject); in a session that acts as a person the creator
-// is the person acted as. Whether sign-up is open is read in the transaction that writes
-// the row, from the auth's sign-in methods table: while every method is invite only the
-// call is refused (403) and nothing is written. The row is written first, in
+// one is refused (403). The route is the action {{ .Action }} of the permission collection,
+// classed access, so that a permission mask decides it: in a session that acts as a
+// person the creator is the person acted as, and a session whose mask refuses the class,
+// the action by name or every action is refused before anything is read (403,
+// resource.RefuseActionUnderMask, logged as the mask's denial), while a session that
+// acts with no mask creates the {{ .RecordLower }} as the person would. Nobody is the subject of what
+// they do while they act as someone else: in a session that acts as a role the person
+// who would become the administrator is the real person behind it, who is refused
+// whatever the mask keeps (403, identity.RefuseImpersonatorAsSubject). Whether sign-up
+// is open is read in the transaction that writes the row, from the auth's sign-in
+// methods table: while every method is invite only the call is refused (403) and
+// nothing is written. The row is written first, in
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // {{ .Auth }} auth's generated identity client, so the {{ .RecordLower }} and its administrator are
@@ -1974,11 +1979,19 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 		panic("{{ .RolesAccessor }}() names no role: the person who creates a {{ .Record }} holds its administrator role, which the application names there")
 	}
 	identityClient := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
+	collection := {{ .RouterPackage }}.Collection()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
+		// The mask decides: no grant admits the route, so no permission check runs here
+		// for a mask to deny, and the route asks the session's mask about its action. A
+		// session that acts as someone under a mask that refuses the action is told so
+		// before anything is read or written.
+		if err := resource.RefuseActionUnderMask(ctx, collection, {{ printf "%q" .Action }}, {{ printf "%q" .Act }}); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		userPermissions := {{ .ReceiverName }}.UserPermissions(r)
 		// Nobody is the subject of what they do while they act as someone else: the
 		// creator becomes the {{ .RecordLower }}'s administrator, and in a session that acts as a
@@ -2088,23 +2101,30 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 // their own now. A page offers a person only what they may do, so the page that offers
 // the create-your-{{ .RecordLower }} card asks this first and hides the card on a no. The answer is
 // the one {{ .HandlerFunc }} would reach for the same caller before it reads a body, by the
-// same three facts: the creator would not be the real person behind a session that acts
-// as someone else (identity.ImpersonatorIs), the session holds a grant in no {{ .RecordLower }},
-// and an administrator has a sign-in method of the {{ .Auth }} auth open to sign-up, read as
-// committed. No grant admits the call, which any signed-in person makes, and nothing is
-// written. The POST decides again in its own transaction: what is offered here may be
-// refused there a moment later.
+// same four facts: the session's permission mask does not refuse the action {{ .Action }}
+// (resource.MaskRefusesAction), the creator would not be the real person behind a
+// session that acts as someone else (identity.ImpersonatorIs), the session holds a
+// grant in no {{ .RecordLower }}, and an administrator has a sign-in method of the {{ .Auth }} auth open to
+// sign-up, read as committed. No grant admits the call, which any signed-in person
+// makes, and nothing is written or logged. The POST decides again in its own
+// transaction: what is offered here may be refused there a moment later.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .OfferedHandlerFunc }}() http.HandlerFunc {
 	type offer struct {
 		Offered bool ` + "`json:\"offered\"`" + `
 	}
 
 	identityClient := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
+	collection := {{ .RouterPackage }}.Collection()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
+		// A session whose permission mask refuses the action is offered none: the POST
+		// refuses it.
+		if _, refused := resource.MaskRefusesAction(ctx, collection, {{ printf "%q" .Action }}); refused {
+			return httpio.NewEncoder(w).Ok(offer{Offered: false})
+		}
 		userPermissions := {{ .ReceiverName }}.UserPermissions(r)
 		// The real person behind a session that acts as someone else is offered none: the
 		// POST refuses them.

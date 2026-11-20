@@ -3165,10 +3165,11 @@ has no `create`), and there are two ways a tenant is made, neither a declaration
   writes the row, whether an administrator has a sign-in method of the auth open to
   sign-up (section 21, "Who may sign up"), and refuses while every method is invite
   only. The same route answers `GET` with whether the caller may create one now
-  (`{"offered": true}`, the generated client's `Create<Record>Offered`), by the three
-  facts the creation refuses on: the caller is not the real person behind a session that
-  acts as a role ("The first administrator", below), the caller holds no tenant, and a
-  method is open. A page reads it before it offers the creation, so nobody is shown a
+  (`{"offered": true}`, the generated client's `Create<Record>Offered`), by the four
+  facts the creation refuses on: the session's mask does not refuse the creation, the
+  caller is not the real person behind a session that acts as a role (both under "The
+  first administrator", below), the caller holds no tenant, and a method is open. A page
+  reads it before it offers the creation, so nobody is shown a
   dialog the server would refuse; the skeletons' home page shows its create-your-tenant
   card only while the answer is yes.
 
@@ -3200,10 +3201,21 @@ become the tenant's administrator: nobody is the subject of what they do while t
 as someone else (section 21), so the route refuses them before it reads the body, with
 nothing written ("you are acting as someone else, so you cannot create a sector of your
 own"), and its `GET` answers that none is offered. In a session that acts as a person,
-the tenant is made and the person acted as is its administrator: no grant admits the
-route, so no class marks it and no kind of permission is asked for, and a mask that
-refuses the class `access`, or that keeps no Create, does not refuse it. A mask that
-keeps reading alone does, as it refuses every write of the session.
+the person acted as would become the tenant's administrator, and the mask decides. No
+grant admits the route, so no permission is checked there for a mask to deny; the route
+carries an action's name instead, `Create<Record>` (Lodestar's `CreateSector`), which
+the generated collection registers in the global scope with the class `access`
+(`accesstypes.ClassAccess`), and asks the session's mask about it before anything else
+(`resource.RefuseActionUnderMask`). A session whose mask refuses the class `access`,
+refuses the action by name or keeps no Execute is refused with nothing written ("you
+are acting as someone else, and this session cannot create a sector: the mask refuses
+the class access. ..."), the denial is logged as the mask's, in the line the masked
+check writes for a denial of its own, and the route's `GET` answers that none is
+offered (`resource.MaskRefusesAction`). A session that acts as a person with no mask
+makes the tenant, and the person acted as is its administrator: to let someone act as
+a person with no mask is to give them what the person holds. The name is for masks
+alone: a role's grant of it admits nobody and its absence refuses nobody, and a
+registration made by hand under the name is refused at generation.
 
 **The maker.** What makes a tenant from an accepted invitation is generated beside the
 roster: `New<Record>Maker(roster, liveService)` in the handler package answers an

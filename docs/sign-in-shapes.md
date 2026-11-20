@@ -14,8 +14,8 @@ that start an application from one, and what `impulse audit` prints for it.
 - [How wide a Google or Microsoft sign-in can be opened](#how-wide-a-google-or-microsoft-sign-in-can-be-opened)
 - [Which sign-in methods each shape can use](#which-sign-in-methods-each-shape-can-use)
 - [Shapes and the impulse command](#shapes-and-the-impulse-command)
-- [In every shape](#in-every-shape): the email address on an account, the way back in, and
-  the mail an account gets
+- [In every shape](#in-every-shape): the email address on an account, the way back in, the
+  mail an account gets, and acting as someone else
 - [Without tenants](#without-tenants): shapes [1](#1-invite-only),
   [2](#2-directory-members), [3](#3-directory-roles) and [4](#4-open-sign-up)
 - [In every shape with tenants](#in-every-shape-with-tenants)
@@ -437,6 +437,39 @@ Nothing is mailed when an account is disabled or enabled, when a role ends by it
 a person leaves a tenant themselves, or when an administrator deletes the account
 outright.
 
+### Acting as someone else
+
+An application can let chosen people act as another person, or as a role: someone in
+support who looks at what a customer sees, or an administrator who stands in for a
+colleague. No shape adds this, and the commands write no page for it. The application
+names each kind of acting it offers, with the grant a person needs to start a session of
+that kind and the most such a session may do. That limit is the session's mask. The person
+who starts a session can ask for less than the kind gives, never for more.
+
+Where an application offers it, these things hold in every shape.
+
+- A session that acts as someone does what that person may do, less what its mask refuses.
+  A mask can keep reading only. It can refuse a class of actions, and there are two
+  classes in every application: the actions that change how a person signs in (a password
+  set or removed, a reset link sent, an address or a username changed), and the actions
+  that change what anyone may do (a role, a place in a group, an invitation, an account).
+  It can also refuse one action, or the writes of one record, by name. A kind that is
+  given no mask gives the people who hold its grant everything the person holds.
+- Creating a tenant is among the actions that change what anyone may do. A person who signed up creates their own tenant
+  with no grant, so a session that acts as such a person could create one in their name,
+  and the person acted as would be its first administrator. A session whose mask refuses
+  that class is refused, and nothing is created. A session with no mask creates the
+  tenant: the application gave that kind everything the person holds.
+- Nobody changes their own account while they act as someone else, whatever the mask. A
+  person who acts as an administrator cannot give their own account a role, a place in a
+  group, a password or an address, and cannot invite their own address. A person who acts
+  as a role cannot create a tenant, since they would become its administrator themselves.
+  The same holds for a row of the application's own that names them and decides what
+  they may do. They stop acting as the other person first.
+- A session that acts as someone is started through the kinds the application named, and
+  in no other way. The application's own code cannot write one into the session store
+  around them.
+
 ## Without tenants
 
 An auth's users are one set for the whole application: they are not divided among
@@ -781,7 +814,8 @@ administrator. This works while an administrator has a sign-in method open to si
 the auth's Sign-in page. In an application with tenants, opening a method names no default
 role: a person who signs up holds no tenant, and the application offers to let them
 create one. A person who already has a tenant creates no second one this way, in any
-shape.
+shape. A session that acts as someone else creates one only where its mask allows, as
+[Acting as someone else](#acting-as-someone-else) describes.
 
 Whether its tenants are made by invitation, by sign-up or both does not change an
 application's shape. With tenants, a shape's name says how a tenant's people come to the

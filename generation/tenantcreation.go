@@ -12,7 +12,9 @@ import (
 
 	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // The ways a tenant comes to exist, separate from who may enter one. Staff bring an
@@ -37,6 +39,15 @@ import (
 // administrator of one tenant never creates another, since the record is global and
 // domain roles cannot touch it. @tenant(creation: ...), which declared the choice in
 // code, is refused with what replaced it.
+//
+// No grant admits the create-your-tenant route, and it is an action all the same: the
+// collection registers it under the handler's name (tenantCreationAction) with the
+// class access, since it makes its caller a tenant's administrator. The name is there
+// for a permission mask. In a session that acts as a person the creator is the person
+// acted as, whom the route would seat as the new tenant's administrator; a mask that
+// refuses the class, the action by name or every action refuses the creation with
+// nothing written, and a session that acts with no mask creates the tenant, since to
+// let someone act as a person with no mask is to give them what the person holds.
 
 // tenantCreation says what the generator writes to make a tenant of the record.
 type tenantCreation string
@@ -149,6 +160,45 @@ func tenantCreationHandlerFunc(record string) string {
 // whether the caller may create a tenant now: CreateTenantOffered.
 func tenantCreationOfferedHandlerFunc(record string) string {
 	return tenantCreationHandlerFunc(record) + "Offered"
+}
+
+// tenantCreationAction is the action the create-your-tenant route is in the permission
+// collection, named as its handler is: CreateTenant, CreateSector. No role's grant of it
+// admits anyone, since the route asks for none; a permission mask names it, by its
+// class or by this name, to refuse the creation to a session that acts as someone.
+func tenantCreationAction(record string) accesstypes.Resource {
+	return accesstypes.Resource(tenantCreationHandlerFunc(record))
+}
+
+// tenantCreationAct is what the route does, as the end of "this session cannot": the
+// words the route hands the mask's refusal (resource.RefuseActionUnderMask), so a
+// person whose session's mask refuses the creation reads "this session cannot create a
+// tenant".
+func tenantCreationAct(record string) string {
+	return "create " + withArticle(strings.ToLower(strcase.ToCase(record, strcase.LowerCase, ' ')))
+}
+
+// collectTenantCreationRegistration registers the create-your-tenant route's action
+// into the collection wherever the route is generated: Execute on the handler's name,
+// in the application's scope, since the route stands in no tenant, with the class
+// access. The name is the generator's: a manual registration the application declares
+// under it is refused, naming the record (an RPC method of the name is refused where
+// the route is decided, validateTenantCreation).
+func (r *resourceGenerator) collectTenantCreationRegistration(b *resource.CollectionBuilder) error {
+	record := r.tenantRecord()
+	if !r.genRoutes || record == nil || !record.TenantCreation.SelfService() {
+		return nil
+	}
+	action := tenantCreationAction(record.Name())
+	if slices.ContainsFunc(r.manualRegistrations, func(reg ManualRegistration) bool { return reg.Resource == action }) {
+		return errors.Newf("%s is the action of the %s record's create-your-%s route, which the generator writes; a manual registration cannot take the name", action, record.Name(), strcase.ToKebab(record.Name()))
+	}
+	if err := b.AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, action); err != nil {
+		return errors.Wrapf(err, "registering %s", action)
+	}
+	b.SetActionClasses(accesstypes.GlobalPermissionScope, action, []accesstypes.ActionClass{accesstypes.ClassAccess})
+
+	return nil
 }
 
 // tenantCreationRolesAccessor is the method the application supplies the administrator
@@ -319,6 +369,11 @@ type tenantCreationData struct {
 	HandlerFunc        string
 	OfferedHandlerFunc string
 	RoutePath          string
+	// Action is the route's action in the permission collection, which a permission
+	// mask refuses by its class or by name, and Act what the route does, as the end of
+	// "this session cannot", for the refusal of a session whose mask refuses it.
+	Action string
+	Act    string
 	// Auth is the outlet auth's Pascal name, IdentityAccessor the application's
 	// accessor of the auth's generated identity client, RolesAccessor the application's
 	// accessor of the administrator roles.
@@ -444,6 +499,8 @@ func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *rou
 		HandlerFunc:         tenantCreationHandlerFunc(record.Name()),
 		OfferedHandlerFunc:  tenantCreationOfferedHandlerFunc(record.Name()),
 		RoutePath:           fmt.Sprintf("/%s/%s", outlet.prefix, tenantCreationRoute(record.Name())),
+		Action:              string(tenantCreationAction(record.Name())),
+		Act:                 tenantCreationAct(record.Name()),
 		Auth:                auth,
 		IdentityAccessor:    tenantCreationIdentityAccessor(auth),
 		RolesAccessor:       tenantCreationRolesAccessor(record.Name()),

@@ -228,6 +228,10 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 		return resource.CollectionData{}, err
 	}
 
+	if err := r.collectTenantCreationRegistration(b); err != nil {
+		return resource.CollectionData{}, err
+	}
+
 	r.collectBindingRegistrations(b)
 	r.collectWorkflowMemberRegistrations(b)
 	r.collectRequiredRegistrations(b)
