@@ -62,6 +62,20 @@ func ({{ .Resource.Name }}) FileKeys() []resource.FileKey {
 	}
 }
 {{- end }}
+{{- if .Resource.GroupColumns }}
+
+// GroupColumns names the columns that name a group of people ({{ range $i, $column := .Resource.GroupColumns }}{{ if $i }}, {{ end }}{{ $column.Field.Name }}{{ end }}): a row is
+// written only with a group its own tenant keeps, so the library refuses a create or an
+// update that names another tenant's group, or a group kept for the whole application,
+// whoever writes it.
+func ({{ .Resource.Name }}) GroupColumns() []resource.GroupColumn {
+	return []resource.GroupColumn{
+	{{- range $column := .Resource.GroupColumns }}
+		{{ $column.Literal }},
+	{{- end }}
+	}
+}
+{{- end }}
 {{- if .Resource.SearchBranches }}
 
 // SearchBranches names the child text the resource's search box also searches

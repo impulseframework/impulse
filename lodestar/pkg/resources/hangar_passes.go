@@ -59,9 +59,14 @@ type (
 	// passes read are the request's sector's; subject.squadrons is filtered to the same
 	// sector through its own two-hop path, so a squadron the requester flies with in
 	// another sector opens nothing here; and subject.groups holds the groups kept in the
-	// request's sector alone, so a pass that names another sector's group, or a group kept
-	// for the whole fleet, is written and opens nothing: the picker offers neither, and
-	// the set counts neither in a sector's request.
+	// request's sector alone, so a pass that named another sector's group, or a group kept
+	// for the whole fleet, would open nothing. No such pass is written: the picker offers
+	// neither, and the library refuses a create that names either, whoever writes it (the
+	// API, the bootstrap, a job), with 400 and "groupId names a group that is not one of
+	// this sector's own. Choose a group kept in this sector: a group kept in another
+	// sector, or for the whole application, cannot be named here." The rule is the
+	// library's for every column a set follows to an auth's groups (the generated
+	// GroupColumns), so nothing in this file states it.
 	//
 	// A check of either set finds the requester's passes by UserId, by SquadronId and by
 	// GroupId, so the table carries an index for each (the sector, the column, the

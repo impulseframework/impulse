@@ -791,6 +791,48 @@ type (
 		UserID string `spanner:"UserId"`
 	}
 
+	// DepotPass opens a depot to a person or to one of the staff's groups, on a
+	// tenant's table that carries its tenant: two sets follow the group to its
+	// people, and the column that names it is declared once.
+	//
+	// @resource
+	// @permissionScope(domain)
+	DepotPass struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		TenantID string       `spanner:"TenantId"`
+		DepotID  impulse.UUID `spanner:"DepotId"`
+		// @subjectSet(depotsOpen, value: DepotID, who: UserID = subject OR GroupID IN subject.staffGroups)
+		// @subjectSet(depotsRun, value: DepotID, who: UserID = subject OR GroupID IN subject.staffGroups)
+		UserID  *string          `spanner:"UserId"`
+		GroupID impulse.NullUUID `spanner:"GroupId"`
+	}
+
+	// DepotVisit opens a depot to one of the staff's groups on a row that finds its
+	// tenant through its depot.
+	//
+	// @resource
+	// @permissionScope(domain)
+	DepotVisit struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain(via: TenantID)
+		DepotID impulse.UUID `spanner:"DepotId"`
+		// @subjectSet(depotsVisited, value: DepotID, who: UserID = subject OR GroupID IN subject.staffGroups)
+		UserID  *string          `spanner:"UserId"`
+		GroupID impulse.NullUUID `spanner:"GroupId"`
+	}
+
+	// OpenPass names one of the staff's groups on a table that is no tenant's.
+	//
+	// @resource
+	OpenPass struct {
+		ID      impulse.UUID `spanner:"Id"`
+		DepotID impulse.UUID `spanner:"DepotId"`
+		// @subjectSet(depotsShown, value: DepotID, who: UserID = subject OR GroupID IN subject.staffGroups)
+		UserID  *string          `spanner:"UserId"`
+		GroupID impulse.NullUUID `spanner:"GroupId"`
+	}
+
 	// DomainOwnTenantName is a tenant record that declares the set of the tenants a
 	// person owns, and names a tenant's name where its key belongs: a domain: of one
 	// name ends on the set's own table.

@@ -767,14 +767,20 @@ func (c *client) resolveExtractedSubjectSets(resources []*resourceInfo) error {
 // resolveRunSubjectSets checks the sets of a run that generates an auth's management,
 // once the application's resources and the management's are both extracted: the
 // management's declarations are resources of the run like any other, and the set one
-// of them declares is one an application's who: may name. A run with no generated
-// management has checked its sets where it extracted them (resolveExtractedSubjectSets).
+// of them declares is one an application's who: may name. The columns that name a
+// group of people of an auth are found here too, for the same reason
+// (nameGroupColumns). A run with no generated management has checked its sets where
+// it extracted them (resolveExtractedSubjectSets).
 func (c *client) resolveRunSubjectSets(resources []*resourceInfo) error {
 	if len(c.identity) == 0 {
 		return nil
 	}
+	if err := resolveSubjectSetReferences(resources); err != nil {
+		return err
+	}
+	c.nameGroupColumns(resources)
 
-	return resolveSubjectSetReferences(resources)
+	return nil
 }
 
 // resolveSubjectSetReferences checks what a who: part says of other sets, once

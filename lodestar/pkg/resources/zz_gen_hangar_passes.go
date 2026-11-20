@@ -23,6 +23,16 @@ func (HangarPass) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// GroupColumns names the columns that name a group of people (GroupID): a row is
+// written only with a group its own tenant keeps, so the library refuses a create or an
+// update that names another tenant's group, or a group kept for the whole application,
+// whoever writes it.
+func (HangarPass) GroupColumns() []resource.GroupColumn {
+	return []resource.GroupColumn{
+		{Field: "GroupID", Name: "groupId", Tenant: "SectorID", Groups: "CrewGroups", Key: "Id", Kept: "DomainId", TenantWord: "sector"},
+	}
+}
+
 // hangarPassRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; hangarPassReadSets holds one Set per read operation.

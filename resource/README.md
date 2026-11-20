@@ -3980,9 +3980,22 @@ holding some of them is refused at generation.
   (`who: GroupID IN subject.groups`: a hangar pass in Lodestar names a person, a squadron
   or a group). The members table is no tenant's, so the set names its own way to a
   group's tenant (`domain: GroupID.DomainID`): in a tenant's request it holds the groups
-  kept in that tenant alone, so a tenant's row that names another tenant's group, or a
-  group kept for the whole application, gives nobody anything; in a request with no
-  tenant it holds every group the caller is in. An application with several Auths that keep
+  kept in that tenant alone, so a tenant's row that named another tenant's group, or a
+  group kept for the whole application, would give nobody anything; in a request with no
+  tenant it holds every group the caller is in. The library writes no such row. Every
+  create and every update of a tenant's row that names a group asks, in the write's own
+  transaction, where the group is kept, and refuses the write unless that is the row's
+  own tenant (400, `groupId names a group that is not one of this sector's own. Choose a
+  group kept in this sector: a group kept in another sector, or for the whole application,
+  cannot be named here.`, the column by its JSON name and the tenant by the application's
+  word for one). An update that moves a row which names a group to another tenant is held
+  the same way, and an id that is no group's is refused in the same words, so the answer
+  says nothing of what another tenant keeps. The rule is the patch set's, so it holds for
+  every writer that writes through a patch (a generated route, a method, a job, a
+  bootstrap), armed or trusted, and no application states it: the generator declares the
+  columns (`GroupColumns` on the generated resource), every column of a `@domain`
+  resource that a `who:` tests against an Auth's groups set. A writer that goes past the
+  patch with SQL of its own is outside it. An application with several Auths that keep
   groups has one set for each, named for its Auth (`subject.crewGroups`,
   `subject.staffGroups`), since `subject.<name>` is one namespace for the application.
 

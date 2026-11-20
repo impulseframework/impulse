@@ -1338,6 +1338,11 @@ type resourceInfo struct {
 	SubjectSets   []*subjectBinding
 	SubjectValues []*subjectBinding
 
+	// groupColumns are the columns of a tenant's resource that name a group of people
+	// of an auth, found once the generated management's sets are known
+	// (nameGroupColumns).
+	groupColumns []*groupColumn
+
 	// Files are the resource's @file routes, one per field-scope declaration: a
 	// stored file served under the read route, its key column off the wire.
 	Files []*fileRoute

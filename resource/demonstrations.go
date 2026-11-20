@@ -53,7 +53,7 @@ var Demonstrations = []Demonstration{
 	{"@subjectSet.who", "@subjectSet(name, value: Column, who: …): which rows are the requester's, one test or several joined by OR, each a column equal to the requester or in another subject set."},
 	{"@subjectSet.where", "@subjectSet(name, value: Column, where: …): which of the requester's rows count, a condition over the row's own columns, so one table yields a set for each level and an expired row drops out."},
 	{"@subjectSet.on-set", "A subject set that follows another: its who: tests a column against a set another table declares, each set under its own tenant filter."},
-	{"@subjectSet.on-groups", "A subject set that follows the library's groups: its who: tests a column against subject.groups, the set the generated group members table declares, so a row that names a group is every member's while their place in the group counts; in a tenant's request the set holds that tenant's own groups alone (the set's domain: part)."},
+	{"@subjectSet.on-groups", "A subject set that follows the library's groups: its who: tests a column against subject.groups, the set the generated group members table declares, so a row that names a group is every member's while their place in the group counts; in a tenant's request the set holds that tenant's own groups alone (the set's domain: part), and the library refuses to write a tenant's row that names any other group."},
 	{"@subjectValue", "@subjectValue(name, value: Column): a scalar attribute of the requesting user."},
 	{"@subjectValue.two-per-anchor", "Two subject values bound on one unique-indexed user column."},
 	{"@subjectValue.second-anchor", "A second @subjectValue anchor, so a condition can compare a foreign key to the subject's company."},

@@ -47,6 +47,12 @@ const (
 	passSlipKeepersBastionSlipID = "61000000-0000-4000-8000-0000000000b3"
 	passNobodyAndGroupID         = "61000000-0000-4000-8000-0000000000b4"
 	passBastionOwnID             = "61000000-0000-4000-8000-0000000000b5"
+	passDockSlipHandsID          = "61000000-0000-4000-8000-0000000000b6"
+	passBayInspectorsID          = "61000000-0000-4000-8000-0000000000b7"
+
+	// groupNotKeptRefusal is the library's answer to a pass that names a group its
+	// sector does not keep.
+	groupNotKeptRefusal = "groupId names a group that is not one of this sector's own. Choose a group kept in this sector: a group kept in another sector, or for the whole application, cannot be named here."
 
 	// An id that is no pass: nothing writes it.
 	passNoneID = "61000000-0000-4000-8000-0000000000bf"
@@ -487,8 +493,9 @@ func TestGroupShare_places(t *testing.T) {
 // TestGroupShare_tenants holds a group to the sector that keeps it. subject.groups is
 // read under the request's sector: in a sector's request it holds the groups kept in
 // that sector, and neither another sector's group nor a group kept for the whole fleet.
-// So a pass of Anvil's that names one of those is written, since the column takes any
-// group's id, and opens nothing; the picker offers neither; and the same person reaches
+// So a pass of Anvil's that names one of those opens nothing, shown with a row written
+// straight into the table, past the library, which refuses to write one
+// (TestGroupShare_groupNotKept); the picker offers neither; and the same person reaches
 // Bastion's hangar through Bastion's group, in Bastion alone.
 func TestGroupShare_tenants(t *testing.T) {
 	t.Parallel()
@@ -535,10 +542,17 @@ func TestGroupShare_tenants(t *testing.T) {
 		}
 	}
 
-	// A pass of Anvil's that names Bastion's group is written and opens nothing in
-	// Anvil: the keeper is in the group, and the group is not Anvil's.
-	status, body, _ := w.createPass(t, groupPass(hangarAnvilDockID, slipHands, "run"))
-	assertStatus(t, status, http.StatusOK, body)
+	// A pass of Anvil's that names Bastion's group opens nothing in Anvil: the keeper is
+	// in the group, and the group is not Anvil's. No request writes such a pass, so the
+	// row goes straight into the table.
+	past := func(id, hangar, group string) {
+		t.Helper()
+		pass := spanner.Insert("HangarPasses", []string{"Id", "SectorId", "HangarId", "GroupId", "LevelId"}, []any{id, anvil, hangar, group, "run"})
+		if _, err := w.db.Apply(w.ctx, []*spanner.Mutation{pass}); err != nil {
+			t.Fatalf("writing the pass %s past the library: %v", id, err)
+		}
+	}
+	past(passDockSlipHandsID, hangarAnvilDockID, slipHands)
 	open("a pass of Anvil's names Bastion's group", anvil)
 	if got := w.rezone(t, "keeper", hangarAnvilDockID, "apron"); got != http.StatusForbidden {
 		t.Errorf("the keeper re-zones Anvil's dock through Bastion's group: status = %d, want 403", got)
@@ -546,15 +560,14 @@ func TestGroupShare_tenants(t *testing.T) {
 
 	// A pass of Anvil's that names a group kept for the whole fleet opens nothing in
 	// Anvil either: a sector's request counts the sector's own groups.
-	status, body, _ = w.createPass(t, groupPass(hangarQuarantineID, inspectors, "run"))
-	assertStatus(t, status, http.StatusOK, body)
+	past(passBayInspectorsID, hangarQuarantineID, inspectors)
 	open("a pass of Anvil's names a group of the whole fleet", anvil)
 	if got := w.rezone(t, "keeper", hangarQuarantineID, "isolation"); got != http.StatusForbidden {
 		t.Errorf("the keeper re-zones Anvil's bay through a group of the whole fleet: status = %d, want 403", got)
 	}
 
 	// The same person, the same kind of pass, and a group Anvil keeps: the dock opens.
-	status, body, _ = w.createPass(t, groupPass(hangarAnvilDockID, dockHands, "visit"))
+	status, body, _ := w.createPass(t, groupPass(hangarAnvilDockID, dockHands, "visit"))
 	assertStatus(t, status, http.StatusOK, body)
 	open("a pass of Anvil's names Anvil's group", anvil, hangarAnvilDockID)
 
@@ -566,6 +579,60 @@ func TestGroupShare_tenants(t *testing.T) {
 	}
 	open("a pass of Bastion's names Bastion's group", bastion, hangarBastionSlipID)
 	open("after Bastion's pass, in Anvil", anvil, hangarAnvilDockID)
+}
+
+// TestGroupShare_groupNotKept holds the refusal of a pass that names a group its sector
+// does not keep, by requests written by hand, since the picker offers no such group: a
+// create in Anvil that names Bastion's group, a group kept for the whole fleet, or an id
+// that is no group's is refused with the library's one sentence, which says which groups
+// a pass may name and nothing of what another sector keeps, and writes no row; the same
+// request with a group Anvil keeps is written. The rule is the library's (the generated
+// GroupColumns of HangarPass), so nothing in Lodestar states it.
+func TestGroupShare_groupNotKept(t *testing.T) {
+	t.Parallel()
+
+	w := newGroupShareWorld(t)
+	manager := w.engine.UserManager()
+	groupOf := func(scope accesstypes.PolicyScope, name string) string {
+		t.Helper()
+
+		id, err := manager.AddGroup(w.ctx, scope, name, "A group of the group share suite.")
+		if err != nil {
+			t.Fatalf("access.UserManager.AddGroup(%s) error = %v", name, err)
+		}
+
+		return string(id)
+	}
+	slipHands := groupOf(accesstypes.DomainPolicyScope(bastion), "Slip hands")
+	inspectors := groupOf(accesstypes.GlobalPolicyScope(), "Fleet inspectors")
+	dockHands := groupOf(accesstypes.DomainPolicyScope(anvil), "Dock hands")
+
+	tests := []struct {
+		name  string
+		group string
+	}{
+		{name: "a group Bastion keeps", group: slipHands},
+		{name: "a group kept for the whole fleet", group: inspectors},
+		{name: "an id that is no group's", group: "62000000-0000-4000-8000-0000000000ff"},
+	}
+	for _, tt := range tests {
+		status, body, _ := w.createPass(t, groupPass(hangarAnvilDockID, tt.group, "run"))
+		if status != http.StatusBadRequest {
+			t.Errorf("a pass of Anvil's that names %s: status = %d, want 400: %s", tt.name, status, body)
+		}
+		if got := refusalOf(t, body); got != groupNotKeptRefusal {
+			t.Errorf("a pass of Anvil's that names %s is answered\n  %s\nwant\n  %s", tt.name, got, groupNotKeptRefusal)
+		}
+		if n := w.passes(t, "GroupId = @group", map[string]any{"group": tt.group}); n != 0 {
+			t.Errorf("a pass of Anvil's that names %s: %d passes name the group, want none written", tt.name, n)
+		}
+	}
+
+	status, body, id := w.createPass(t, groupPass(hangarAnvilDockID, dockHands, "run"))
+	assertStatus(t, status, http.StatusOK, body)
+	if n := w.passes(t, "Id = @id AND GroupId = @group", map[string]any{"id": id, "group": dockHands}); n != 1 {
+		t.Errorf("a pass of Anvil's that names Anvil's own group: %d rows written, want 1", n)
+	}
 }
 
 // TestGroupShare_oneHolder holds a pass to one holder: a person, a squadron or a group.
