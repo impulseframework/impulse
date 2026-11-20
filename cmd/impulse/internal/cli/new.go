@@ -83,6 +83,12 @@ The application is named after the module path's last segment (github.com/acme/b
 beacon) unless --name says otherwise; the name is the web package (<name>-web), APP_SERVICE_NAME,
 and the development Spanner project, instance, and database in .envrc.template.
 
+The skeleton's generated files are the generator's under the skeleton's own auth name,
+staff. Under any other name new runs the application's generators once (go generate ./...)
+before the first commit, so the application is committed as its generators write it and
+does not change when it is regenerated; the generators read the schema through the
+Spanner emulator, so a container runtime has to be running.
+
 The rendered tree is committed as the application's first commit (--skip-git leaves it
 uncommitted), so impulse add can start from a clean tree.
 
@@ -248,6 +254,7 @@ type scaffold struct {
 }
 
 // renderBase renders the base skeleton with its first auth, resolves its framework pin,
+// regenerates it where the auth has another name than the skeleton's (regenerateRenamed),
 // makes the first commit unless told not to, and writes the report. With options to
 // compose, the commit is required, since the transitions build on it.
 func renderBase(cmd *cobra.Command, run check.Execer, s *scaffold) error {
@@ -256,6 +263,9 @@ func renderBase(cmd *cobra.Command, run check.Execer, s *scaffold) error {
 		return err
 	}
 	if err := settlePin(cmd.Context(), run, s.dir, s.pins); err != nil {
+		return err
+	}
+	if err := regenerateRenamed(cmd.Context(), run, s); err != nil {
 		return err
 	}
 	// The owned files are written from the code before the first commit, so the
@@ -359,6 +369,25 @@ func settlePin(ctx context.Context, run check.Execer, dir string, p frameworkPin
 	}
 	if out, err := run.Run(ctx, dir, []string{"GOWORK=off"}, "go", "mod", "tidy"); err != nil {
 		return errors.Newf("go mod tidy could not settle the requirements of the rendered application (%v): %s. %s is rendered but not committed", errors.Cause(err), strings.TrimSpace(string(out)), dir)
+	}
+
+	return nil
+}
+
+// regenerateRenamed runs the application's generators once over a base rendered with an
+// auth of another name than the skeleton's placeholder. The base's generated files are
+// the generator's own output for the placeholder, and the rendering renames the auth in
+// them as text; the generator orders what it writes by name and wraps a long list at a
+// width, so under another name it writes some of those files in another order and with
+// other line breaks. Run once here, before the first commit, it leaves what it writes
+// every time after, so the new application does not change when it is regenerated. The
+// placeholder's rendering is the generator's output already, and nothing runs.
+func regenerateRenamed(ctx context.Context, run check.Execer, s *scaffold) error {
+	if s.authName == skeleton.PlaceholderAuth {
+		return nil
+	}
+	if out, _, err := check.Generate(ctx, run, s.dir); err != nil {
+		return errors.Newf("go generate ./... could not write the generated files under the %s auth's name (%v), and a new application is committed as its generators write it. The generators read the schema through the Spanner emulator, so a container runtime has to be running. %s is rendered but not committed: fix the cause, remove it and run again:\n%s", s.authName, errors.Cause(err), s.dir, strings.TrimSpace(string(out)))
 	}
 
 	return nil

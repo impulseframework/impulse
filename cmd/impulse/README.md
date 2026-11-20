@@ -275,6 +275,18 @@ zero pseudo-version and `go.mod` gains `replace github.com/impulseframework/impu
 `go mod tidy` runs, and the application builds against the checkout; that replace line is
 for development and never for committing.
 
+The templates' generated files are the generator's own output under the templates' auth
+name, `staff`, and the rendering renames the auth in them as text. The generator orders
+what it writes by name and wraps a long list at a width, so under another name it writes
+some of those files in another order and with other line breaks. Under any name but
+`staff`, `new` therefore runs the application's generators once (`go generate ./...`)
+after the requirements are settled and before the first commit: the application is
+committed as its generators write it, a regeneration right after changes nothing, and
+`impulse check`'s `regen` passes as the application was made. The generators read the
+schema through the Spanner emulator, so a container runtime has to be running, as for
+every `impulse add`. A regeneration that fails stops `new` before the first commit, with
+the generator's output and the tree left rendered.
+
 The tree is committed as the application's first commit (`--skip-git` leaves it
 uncommitted), so `impulse add` can start from a clean tree. `new` installs nothing, and
 two things follow, each a step it prints. The application has no lockfile: the versions
