@@ -6,6 +6,7 @@ import {
   inject,
   Injector,
   input,
+  linkedSignal,
   OnInit,
   output,
   ResourceRef,
@@ -957,6 +958,31 @@ export class ResourceListComponent implements OnInit {
       this.methodRan.emit();
     });
   }
+
+  /**
+   * Whether a name some column shows is still on its way: a related resource read for
+   * the first time, or asked for keys it has not answered for. A related resource read
+   * again keeps the names it had, so it is not waited for.
+   */
+  private namesAwaited = computed(() => {
+    for (const ref of this.resourceRefMap().values()) {
+      if (ref.status() === 'loading') {
+        return true;
+      }
+    }
+    return false;
+  });
+
+  /**
+   * The rows the table draws: the page's rows, once every name their columns show is
+   * known. While a related resource is being read the table keeps the rows it had (none,
+   * on a list just opened), so a row is never drawn with a key, or with the words for a
+   * row that has no related record, where its name is drawn a moment later.
+   */
+  tableRowData = linkedSignal<{ rows: RecordData[]; awaited: boolean }, RecordData[]>({
+    source: () => ({ rows: this.processedRowData(), awaited: this.namesAwaited() }),
+    computation: (now, previous) => (now.awaited ? (previous?.value ?? []) : now.rows),
+  });
 
   loadingRowData = computed(() => {
     if (this.store.pageStatus() === 'loading') {

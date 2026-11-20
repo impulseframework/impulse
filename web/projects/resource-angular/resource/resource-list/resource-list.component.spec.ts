@@ -156,7 +156,7 @@ describe('ResourceListComponent', () => {
   const create = async (
     options: Omit<ListViewConfigOptions, 'elements'>,
     rows: Record<string, unknown>[] = [],
-    server?: (request: TransportRequest) => TransportResponse,
+    server?: (request: TransportRequest) => TransportResponse | Promise<TransportResponse>,
   ): Promise<void> => {
     const config = listViewConfig({ elements: [], ...options });
     transport = scriptedTransport(
@@ -404,6 +404,87 @@ describe('ResourceListComponent', () => {
             `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.filter-trigger') ? 'filter' : 'none'}`,
         );
       expect(filters).toEqual(['Name: none', 'Client: none', 'Home port: filter', 'Registry: none']);
+    });
+
+    it('draws a row once the name its column shows is known: never the key first, on opening or when a row arrives', async () => {
+      const rows = [
+        { id: 's-1', name: 'Kestrel', clientId: 'c-1' },
+        { id: 's-2', name: 'Vega', clientId: '' },
+      ];
+      const names: Record<string, string> = { 'c-1': 'Corvid Lines', 'c-2': 'Dray and Sons' };
+      // The read of the clients waits until the spec lets it go, each time it is asked.
+      let release = (): void => undefined;
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            multiColumnConfig({
+              id: 'clientId' as FieldName,
+              header: 'Client',
+              additionalIds: [{ resource: clients, id: 'id' as FieldName, field: 'name' as FieldName }],
+              concatFn: 'hyphen-concat',
+              fallback: (row: Record<string, unknown>) =>
+                row['clientId'] ? `Client ${String(row['clientId'])}` : 'Nobody',
+              filterable: false,
+            }),
+          ],
+        },
+        rows,
+        async (request) => {
+          if (request.url.split('?')[0] !== '/api/clients') {
+            return { status: 200, body: [...rows], headers: { 'total-count': String(rows.length) } };
+          }
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          const asked = decodeURIComponent(request.url);
+          const body = Object.entries(names)
+            .filter(([id]) => asked.includes(id))
+            .map(([id, name]) => ({ id, name }));
+          return { status: 200, body, headers: { 'total-count': String(body.length) } };
+        },
+      );
+      const turns = async (): Promise<void> => {
+        for (let i = 0; i < 20; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          fixture.detectChanges();
+        }
+      };
+      /** What the table has drawn under Client, a row at a time. */
+      const drawn = (): string[] =>
+        Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row')).map(
+          (row) => row.querySelectorAll('td.data-col')[1]?.textContent?.trim() ?? '',
+        );
+      const clientReads = (): number =>
+        transport.requests.filter((request) => request.url.split('?')[0] === '/api/clients').length;
+
+      fixture.detectChanges();
+      await settle();
+      await turns();
+      // The page's rows are in and their clients are asked for, not yet answered: no row
+      // is drawn, and the table is told it is still loading.
+      expect(clientReads()).toBe(1);
+      expect(fixture.componentInstance.store.page().rows).toHaveLength(2);
+      expect(drawn()).toEqual([]);
+      expect(fixture.componentInstance.loadingRowData()).toBe(true);
+
+      release();
+      await turns();
+      expect(drawn()).toEqual(['Corvid Lines', 'Nobody']);
+
+      // A row arrives whose client the page has not read: the table keeps the rows it
+      // had until that client's name is in, then draws the new row by name.
+      rows.push({ id: 's-3', name: 'Dishner', clientId: 'c-2' });
+      fixture.componentInstance.reloadListData();
+      await turns();
+      expect(clientReads()).toBe(2);
+      expect(fixture.componentInstance.store.page().rows).toHaveLength(3);
+      expect(drawn()).toEqual(['Corvid Lines', 'Nobody']);
+
+      release();
+      await turns();
+      expect(drawn()).toEqual(['Corvid Lines', 'Nobody', 'Dray and Sons']);
     });
   });
 
