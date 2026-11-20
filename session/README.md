@@ -3602,12 +3602,25 @@ them what the person holds, and an application closes each limit through its mas
 A row removed with its parent, which may name the person, is a limit of its own: the
 database removes a pass with the place it opens, no write of the pass is made, and so
 neither the rule nor a mask that refuses the writes of passes is asked. An application
-closes it by refusing the parent's delete under the mask
-(`accesstypes.RefusePermission(accesstypes.Delete, parent)`). A column that records who
+closes it under the mask by refusing each request that removes a row above the pass:
+the parent's delete (`accesstypes.RefusePermission(accesstypes.Delete, parent)`), the
+delete of each record further up while the cascade goes on (the grandparent's delete
+removes the parent and the pass with it), and an action that removes one of them in its
+own body, by name (`accesstypes.RefuseAction`). Where a foreign key changes the row
+instead of removing it (`ON DELETE SET NULL` or `SET DEFAULT`, and `ON UPDATE CASCADE`,
+which follows a change of the parent's key; PostgreSQL has them), the same refusals and
+the refusal of the parent's update close it. A column that records who
 made a row, which a grant compares to `subject`, is another: the row names a person and
-decides what they may do, and the rule does not read the column. Nothing is open while
-the application stamps the column from the session and people cannot write it; where
-people can write it, the application refuses the record's writes under the mask.
+decides what they may do, and the rule does not read the column. While the application
+stamps the column from the session and people cannot write it, no write moves a row
+onto the real person, and a row made acting as a person is stamped with that person. A
+row made in a session that acts as a role is the stated case: a role is not anyone, so
+the row is stamped with the person who started the session, and what the grants give
+the row's author is theirs after the session too, for a row the role's powers made. An
+application that does not want that refuses the record's create in the role kind's mask
+(`accesstypes.RefusePermission(accesstypes.Create, record)`), or stamps the column with
+nobody in such a session. Where people can write the column, the application refuses
+the record's writes under the mask.
 One limit no class closes: the rule knows the real person by the account they signed in
 with, so a second account of their own is someone else's to it, and a person who acts
 as an administrator can enable that account again, or disable or delete it, as the

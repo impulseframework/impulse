@@ -77,17 +77,31 @@ const (
 // standingRecords.
 //
 // A row removed with its parent, which may name the person, is a limit of its own: a
-// hangar pass goes with its hangar, its squadron or its sector, and no write of the
-// pass is made for the rule or for standingRecords to refuse. Neither kind refuses
-// those deletes here. Every pass gives something and none restricts, so such a delete
-// only takes away; an application whose rows restrict (a ban, a cap) refuses the
-// parent's delete in the kind's mask (accesstypes.RefusePermission(accesstypes.Delete,
-// parent)).
+// hangar pass goes with its hangar, its squadron or its sector, a hangar goes with its
+// sector too, and no write of the pass is made for the rule or for standingRecords to
+// refuse. Neither kind refuses those deletes here. Every pass gives something and none
+// restricts, so such a delete only takes away; an application whose rows restrict (a
+// ban, a cap) refuses in the kind's mask each delete that reaches the row, the parent's
+// and that of each record above it (accesstypes.RefusePermission(accesstypes.Delete,
+// parent)), and by name an action that removes one of them (accesstypes.RefuseAction).
+// Lodestar's foreign keys remove a row with its parent or refuse the parent's delete;
+// none changes a row where it stands, as PostgreSQL's ON DELETE SET NULL and ON UPDATE
+// CASCADE do.
 //
 // A column that records who made a row is another (a mission's booker,
 // Mission.BookedByUserID, which grants compare to the requester): the rule does not
-// read it. Nobody writes those columns here. Each is stamped from the session, so no
-// write puts a row in a name the session chose.
+// read it. Nobody writes those columns here. Each is stamped from the session
+// (resources.CurrentUser), so no write puts a row in a name the session chose: in a
+// session that acts as a person the stamp is that person, and in one that acts as a
+// role it is the person who started it, since a role is not anyone. That is the stated
+// case, and Lodestar keeps it. A mission booked acting as the Sector Marshal is booked
+// by the person who started the session, and what the grants give a mission's booker
+// (the Flight Lead reads it, the Booking Agent stands it down) is theirs after the
+// session too, for a mission their own role might not have booked
+// (TestImpersonation_authorUnderARole pins it). An application that does not want that
+// refuses the record's create in the role kind's mask
+// (accesstypes.RefusePermission(accesstypes.Create, record)), or stamps the column with
+// nobody in a session that acts as a role.
 //
 // Demonstrates: impersonation.grant-mask, impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, @class.
 func impersonationKinds() []session.ImpersonationKind {

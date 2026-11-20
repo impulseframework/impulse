@@ -4758,17 +4758,45 @@ own, outside any request, has no caller and is the application's act):
   write of the row is made, so the rule is not asked about the person it names, and a
   mask that refuses the row's own writes does not refuse the parent's delete. Where
   every such row gives something, the delete only takes away; where a row restricts (a
-  ban, a cap), the delete gives. An application closes it by refusing the parent's
-  delete under the mask (`accesstypes.RefusePermission(accesstypes.Delete, parent)`).
+  ban, a cap), the delete gives. An application closes it under the mask by refusing
+  each request that removes a row above it:
+
+  - the parent's delete (`accesstypes.RefusePermission(accesstypes.Delete, parent)`);
+  - the delete of each record further up while the cascade goes on, since the
+    grandparent's delete removes the parent and the row with it;
+  - an action that removes one of those rows in its own body, by name
+    (`accesstypes.RefuseAction(action)`): an action is asked for Execute on its name,
+    not for Delete on the record.
+
+  PostgreSQL has referential actions that change the row where it stands, again with
+  no write of it. `ON DELETE SET NULL` and `ON DELETE SET DEFAULT` rewrite the column
+  that named the parent when the parent is deleted, and the refusals above close them.
+  `ON UPDATE CASCADE`, `SET NULL` and `SET DEFAULT` rewrite it when the parent's key is
+  changed: a rank renamed is renamed on every row that holds it, the real person's
+  among them. Refusing the parent's update closes that
+  (`accesstypes.RefusePermission(accesstypes.Update, parent)`, or the same on the one
+  column the foreign key names, `parent.field`), with any action that changes the key.
 
   A column that records who made a row is another. A grant may compare a column of a
   record to the requester (`bookedBy = subject`). Such a column carries no
   `@subjectValue` or `@subjectSet` annotation, so it is not among the columns asked,
-  though the row names a person and decides what they may do. Nothing is open while
-  the application stamps the column from the session and people cannot write it (an
-  `output_only` field with a `default_create_fn`): no write moves a row onto the real
-  person. Where people can write such a column, the application closes it by refusing
-  the record's writes under the mask.
+  though the row names a person and decides what they may do. While the application
+  stamps the column from the session and people cannot write it (an `output_only`
+  field with a `default_create_fn`), no write moves a row that exists onto the real
+  person, and a row made in a session that acts as a person is stamped with the person
+  acted as. A session that acts as a role is the stated case. A role is not anyone, so
+  the request's `User()` there is the person who started the session, and a stamp
+  taken from it puts their name on a row the role's powers made. What the grants give
+  the row's author (reading it, an action on it) is theirs from then on, after the
+  session has ended too, though their own roles might not have let them make the row.
+  An application that does not want that closes it one of two ways: the role kind's
+  mask refuses the record's create
+  (`accesstypes.RefusePermission(accesstypes.Create, record)`), or the function that
+  stamps the column answers nobody, a value that is no account's id, in a session that
+  acts as a role (`sessioninfo.PrincipalFromCtx(ctx).Role()` says it is one), so that
+  no grant that compares the column to the requester holds for the row. Where people
+  can write such a column, the application closes it by refusing the record's writes
+  under the mask.
 
   The unlock knows the person's counts by their username, their account and the address
   they confirmed; a count kept under an address the account holds unconfirmed (the mail

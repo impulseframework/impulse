@@ -483,14 +483,26 @@ Where an application offers it, these things hold in every shape.
 - A row removed with its parent, which may name the person, is a stated limit of its
   own. A pass is removed when the place it opens is deleted. No write of the pass is
   made, so neither the rule nor a mask that refuses the writes of passes is asked. An
-  application closes it by refusing the delete of the parent record in the mask of the
-  kind.
+  application closes it in the mask of the kind, by refusing everything that removes a
+  record above the row: the delete of the parent record; the delete of each record
+  above that one, as far as the database carries a delete down (deleting the site
+  removes the place, and the pass with it); and any action that removes one of them
+  itself. On PostgreSQL a foreign key can also change the row where it stands, when the
+  parent is deleted (`ON DELETE SET NULL`, `ON DELETE SET DEFAULT`) or when the parent's
+  key is changed (`ON UPDATE CASCADE`). The application then refuses the parent's delete
+  and the change of that key as well.
 - A column that records who made a row is another stated limit. Where what a person may
   do with a row depends on that column (the person who booked a job may cancel it), the
   row names a person and decides what they may do, and the rule does not read the
-  column. Nothing is open while the application fills the column in from the session
-  and nobody can write it. Where people can write it, the application refuses the
-  writes of that record in the mask of the kind.
+  column. While the application fills the column in from the session and nobody can
+  write it, no row that exists is moved onto the real person, and a row made while
+  acting as a person carries that person. A row made while acting as a role carries the
+  real person, because a role is not anyone. After the session they hold what the row's
+  author holds, for a row that was made with the role's powers. An application that
+  does not want that refuses creating the record in the mask of the kind that acts as a
+  role, or fills the column in with nobody in such a session. Where people can write
+  the column, the application refuses the writes of that record in the mask of the
+  kind.
 - Disabling, enabling and deleting an account are not in that class. A person who acts
   as an administrator does them as the administrator would, on anyone's account but
   their own. The rule knows the person by the account they signed in with. If they have

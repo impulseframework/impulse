@@ -51,12 +51,23 @@ const ClassCredential ActionClass = "credential"
 // (RefuseWrites), and a session whose mask does not refuse the record's writes
 // writes such a row, whether or not the mask refuses the class. A row removed with
 // its parent, which may name the person, is a limit of its own: no write of the row
-// is made, and a mask closes it by refusing the parent's delete
-// (RefusePermission(Delete, parent)). A column that records who made a row, which a
-// grant compares to the requester, is another: nothing is open while the
-// application stamps it from the session and people cannot write it, and where
-// people can, a mask refuses the record's writes. Each of these is a stated limit
-// of the rule, which a mask that does not refuse it leaves open.
+// is made, and a mask closes it by refusing each request that removes a row above
+// it. Those are the parent's delete (RefusePermission(Delete, parent)), the delete
+// of each record further up while the cascade goes on, and an action that removes
+// one of them in its own body (RefuseAction). Where a foreign key changes the row
+// instead of removing it (PostgreSQL's ON DELETE SET NULL and SET DEFAULT, and its
+// ON UPDATE CASCADE, which follows a change of the parent's key), the same refusals
+// and the refusal of the parent's update close it. A column that records who made
+// a row, which a grant compares to the requester, is another. While the
+// application stamps it from the session and people cannot write it, no write
+// moves a row onto the real person, and where people can write it, a mask refuses
+// the record's writes. A row made in a session that acts as a role is the stated
+// case: a role is not anyone, so the row is stamped with the person who started
+// the session, and what the grants give its author is theirs after the session
+// too. A role kind whose mask refuses the record's create
+// (RefusePermission(Create, record)) closes that, as does a column the application
+// stamps with nobody in such a session. Each of these is a stated limit of the
+// rule, which a mask that does not refuse it leaves open.
 //
 // One limit the class does not close. The rule knows the real person by the account
 // they signed in with, so a second account of their own is someone else's to it:
