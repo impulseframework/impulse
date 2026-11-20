@@ -2,6 +2,12 @@
   display: block;
 }
 
+// The mark is as wide as the card and has no height, whatever the card holds: its width is
+// the room the card has, and no change of layout resizes it.
+.width-mark {
+  height: 0;
+}
+
 // The frame is as wide as the card gives it and never as wide as what it holds: a table
 // too wide for the card must not widen a page that sizes itself by its content, or the
 // card would measure room it does not have.

@@ -615,7 +615,9 @@ column for each permission. Where they do not, each resource is a block of its o
 and its permissions under it, each named beside its answer. So the same card fits a phone and fits a wide
 window where the page gives it a narrow column, and it has no frame of its own that scrolls sideways. The
 card measures what its own table needs, so a page with longer names or more permissions changes over at
-the width its content needs; a page sets no width and writes no layout for it.
+the width its content needs; a page sets no width and writes no layout for it. The change is drawn before
+the browser paints the new width, so no frame shows a table too wide for the card, or blocks where a table
+fits.
 
 What a page writes inside the element is drawn under the table, in the same card. A card with no
 resources says "You hold nothing here."; an element marked `permissionsCardEmpty` replaces those words:

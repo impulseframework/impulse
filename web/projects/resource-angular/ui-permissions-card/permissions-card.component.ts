@@ -1,6 +1,7 @@
 import {
   afterNextRender,
   afterRenderEffect,
+  ChangeDetectorRef,
   Component,
   computed,
   DestroyRef,
@@ -70,9 +71,16 @@ export class PermissionsCardComponent {
   /** How the card is drawn now. */
   readonly layout = signal<PermissionsCardLayout>('table');
 
-  private readonly frame = viewChild.required<ElementRef<HTMLElement>>('frame');
+  private readonly mark = viewChild.required<ElementRef<HTMLElement>>('mark');
   private readonly table = viewChild.required<ElementRef<HTMLElement>>('table');
   private readonly maskedNames = computed(() => new Set(this.masked()));
+  private readonly changes = inject(ChangeDetectorRef);
+
+  /**
+   * What reports a new width: the card's, by its mark, and its table's while the card is
+   * drawn as one. There is none where nothing is laid out, nor before the card is drawn.
+   */
+  private observer?: ResizeObserver;
 
   /**
    * The width the table was last seen to need, which it is drawn as a table again at. It
@@ -87,18 +95,30 @@ export class PermissionsCardComponent {
       this.resources();
       this.permissions();
       this.needed = 0;
-      this.layout.set('table');
+      untracked(() => this.lay('table'));
     });
     // Where nothing is laid out (a test, a page drawn on the server) the card stays a table.
     if (typeof ResizeObserver === 'undefined') {
       return;
     }
     // The card is measured when its own width changes, which the browser reports, and
-    // when what it lists changes, once that is drawn.
-    const observer = new ResizeObserver(() => this.fit());
+    // when what it lists changes, once that is drawn. The browser reports a width after
+    // it has laid the page out and before it paints, so a change of layout is drawn inside
+    // the report itself: the frame that paints is the layout its width calls for, never
+    // one frame of a table too wide for the card, nor of blocks where a table fits.
+    const observer = new ResizeObserver(() => {
+      const before = this.layout();
+      this.fit();
+      if (this.layout() !== before) {
+        this.changes.detectChanges();
+      }
+    });
     afterNextRender(() => {
-      observer.observe(this.frame().nativeElement);
-      observer.observe(this.table().nativeElement);
+      this.observer = observer;
+      observer.observe(this.mark().nativeElement);
+      if (this.layout() === 'table') {
+        observer.observe(this.table().nativeElement);
+      }
     });
     afterRenderEffect({
       read: () => {
@@ -121,20 +141,41 @@ export class PermissionsCardComponent {
    * the card is drawn as blocks until its frame is that wide again.
    */
   private fit(): void {
-    const room = this.frame().nativeElement.clientWidth;
+    const room = this.mark().nativeElement.clientWidth;
     if (room === 0) {
       return;
     }
     if (this.layout() === 'blocks') {
       if (room >= this.needed) {
-        this.layout.set('table');
+        this.lay('table');
       }
       return;
     }
     const needs = this.table().nativeElement.offsetWidth;
     if (needs > room) {
       this.needed = needs;
-      this.layout.set('blocks');
+      this.lay('blocks');
+    }
+  }
+
+  /**
+   * Draws the card as the layout given. The table's own width is watched only while the
+   * card is drawn as a table: as blocks its width says nothing, and a report asked of an
+   * element the report itself has just resized is one the browser cannot deliver in the
+   * same frame, which it says as an error on the page.
+   */
+  private lay(layout: PermissionsCardLayout): void {
+    if (this.layout() === layout) {
+      return;
+    }
+    this.layout.set(layout);
+    if (!this.observer) {
+      return;
+    }
+    if (layout === 'table') {
+      this.observer.observe(this.table().nativeElement);
+    } else {
+      this.observer.unobserve(this.table().nativeElement);
     }
   }
 }

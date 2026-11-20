@@ -60,6 +60,10 @@ describe('PermissionsCardComponent', () => {
   const frame = (): HTMLElement => {
     return element.querySelector('.frame') as HTMLElement;
   };
+  /** The mark whose width is the room the card has. */
+  const mark = (): HTMLElement => {
+    return element.querySelector('.width-mark') as HTMLElement;
+  };
   const texts = (selector: string, within: Element = element): string[] => {
     return Array.from(within.querySelectorAll(selector)).map((found) => found.textContent?.trim() ?? '');
   };
@@ -82,17 +86,17 @@ describe('PermissionsCardComponent', () => {
    * its elements.
    */
   const declares = (all: string[], without: string[] = []): string => {
-    const mark = frame()
+    const scoped = frame()
       .getAttributeNames()
       .find((name) => name.startsWith('_ngcontent'));
-    expect(mark).toBeDefined();
+    expect(scoped).toBeDefined();
     const sheet = Array.from(document.querySelectorAll('style'))
       .map((style) => style.textContent ?? '')
       .join('\n');
     return Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
       .filter(([, selector]) => {
         return (
-          selector.includes(mark ?? '') &&
+          selector.includes(scoped ?? '') &&
           all.every((name) => names(selector, name)) &&
           without.every((name) => !names(selector, name))
         );
@@ -214,8 +218,8 @@ describe('PermissionsCardComponent', () => {
         watched.push({ target, report: this.report });
       }
 
-      unobserve(): void {
-        // Nothing to let go of: the specs end by forgetting everything watched.
+      unobserve(target: Element): void {
+        watched = watched.filter((entry) => entry.report !== this.report || entry.target !== target);
       }
 
       disconnect(): void {
@@ -233,19 +237,26 @@ describe('PermissionsCardComponent', () => {
       delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
     });
 
-    /** The browser lays the card out with this much room, and says so. */
-    const roomIs = (width: number): void => {
-      Object.defineProperty(frame(), 'clientWidth', { configurable: true, value: width });
-      const reports = watched.filter((entry) => entry.target === frame());
+    /**
+     * The browser lays the card out with this much room, and says so: the report alone,
+     * as the browser makes it between laying the page out and painting it.
+     */
+    const reportRoom = (width: number): void => {
+      Object.defineProperty(mark(), 'clientWidth', { configurable: true, value: width });
+      const reports = watched.filter((entry) => entry.target === mark());
       expect(reports.length).toBeGreaterThan(0);
       reports.forEach((entry) => entry.report());
+    };
+    /** The browser lays the card out with this much room, says so, and the page is drawn again. */
+    const roomIs = (width: number): void => {
+      reportRoom(width);
       fixture.detectChanges();
     };
     /** The table's columns, each cell on one line, take this much: the table is drawn this wide or wider. */
     const tableNeeds = (width: number): void => {
       Object.defineProperty(table(), 'offsetWidth', {
         configurable: true,
-        get: () => Math.max(width, frame().clientWidth),
+        get: () => Math.max(width, mark().clientWidth),
       });
     };
     const layout = (): string => {
@@ -305,6 +316,41 @@ describe('PermissionsCardComponent', () => {
       expect(layout()).toBe('table');
       roomIs(639);
       expect(layout()).toBe('blocks');
+    });
+
+    it('changes over inside the report of a new width, so no frame paints the wrong layout', async () => {
+      await draw(marshal);
+      tableNeeds(640);
+      roomIs(900);
+      expect(layout()).toBe('table');
+
+      // The browser reports a width after it lays the page out and before it paints. The
+      // card is drawn again by the time the report returns, with nothing else run between.
+      reportRoom(358);
+      expect(layout()).toBe('blocks');
+      reportRoom(900);
+      expect(layout()).toBe('table');
+    });
+
+    it('watches a mark of its own width that no layout resizes, and its table only while it is one', async () => {
+      await draw(marshal);
+      tableNeeds(640);
+      const targets = (): Element[] => watched.map((entry) => entry.target);
+      // The mark has no height, as a table or as blocks: a report drawn inside itself
+      // resizes nothing the browser was asked to report on, the frame least of all.
+      expect(declares(['.width-mark'])).toContain('height:0');
+      expect(targets()).toContain(mark());
+      expect(targets()).not.toContain(frame());
+
+      roomIs(900);
+      expect(targets()).toContain(table());
+      // As blocks the table's width says nothing, and the changeover itself resized it.
+      reportRoom(358);
+      expect(targets()).not.toContain(table());
+      expect(targets()).toContain(mark());
+      // A table again is watched again.
+      reportRoom(900);
+      expect(targets().filter((target) => target === table())).toHaveLength(1);
     });
 
     it("is laid out by the card's width, whatever the window's", async () => {
