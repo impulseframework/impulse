@@ -239,24 +239,24 @@ export class PermissionStore {
     if (domain) {
       query.set('domain', domain);
     }
-    const load = this.request<PermissionDigest | null>('GET', this.routes.digest, { query })
-      .finally(() => {
+    // The read is no longer under way by the time anything hears of its outcome, so a
+    // subscriber or a listener that asks for the scope again starts a read of its own.
+    const load = this.request<PermissionDigest | null>('GET', this.routes.digest, { query }).then(
+      (digest) => {
         this.inflight.delete(key);
-      })
-      .then(
-        (digest) => {
-          const read = digest ?? {};
-          this.setDigest(key, read);
-          return read;
-        },
-        (error: unknown) => {
-          const failure = digestFailure(error);
-          for (const listener of this.unreadListeners) {
-            listener(domain, failure);
-          }
-          throw error;
-        },
-      );
+        const read = digest ?? {};
+        this.setDigest(key, read);
+        return read;
+      },
+      (error: unknown) => {
+        this.inflight.delete(key);
+        const failure = digestFailure(error);
+        for (const listener of this.unreadListeners) {
+          listener(domain, failure);
+        }
+        throw error;
+      },
+    );
     this.inflight.set(key, load);
     return load;
   }

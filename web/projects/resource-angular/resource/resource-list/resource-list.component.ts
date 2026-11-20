@@ -258,6 +258,11 @@ export class ResourceListComponent implements OnInit {
    */
   across = computed(() => this.config().acrossTenants === true);
   /**
+   * The tenants whose digest this list has asked for, for the links of a list across
+   * tenants: each is asked once while the list is on the screen, answered or not.
+   */
+  private readonly askedDigests = new Set<string>();
+  /**
    * The page a row of a list across tenants opens on: where the application mounts a row
    * route for the record a row opens (rowPageRoute), as its config wrote the route.
    * Undefined when the application mounts none, and then the rows draw no link: a link
@@ -1135,13 +1140,18 @@ export class ResourceListComponent implements OnInit {
       effect(() => {
         // A row of a list across tenants links to its own page where its tenant's digest
         // lets the person read it: the digests of the tenants on the page are loaded as
-        // the page arrives, each once.
+        // the page arrives, each once. A digest that could not be read is not asked again
+        // by a later page: nothing is known of the tenant, and its rows stay without a link.
         if (!this.acrossRowRoute()) {
           return;
         }
         for (const row of this.store.page().rows) {
           const tenant = row[TenantProperty];
-          if (typeof tenant === 'string' && tenant !== '' && !this.auth.hasDigest(tenant as Domain)) {
+          if (typeof tenant !== 'string' || tenant === '' || this.askedDigests.has(tenant)) {
+            continue;
+          }
+          if (!this.auth.hasDigest(tenant as Domain)) {
+            this.askedDigests.add(tenant);
             this.auth.loadDigest(tenant as Domain).subscribe();
           }
         }
