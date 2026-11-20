@@ -365,12 +365,12 @@ func holdsNoPassword(t *testing.T, made *authoredApplication, wantMethods []stri
 // roles the environment template names. Its tests are the start's own too, and go vet
 // passes under both tag sets as the application is made.
 //
-// It costs about six minutes and under seven gigabytes on a machine whose Go caches and
+// It costs about seven minutes and under eight gigabytes on a machine whose Go caches and
 // emulator image are warm: each command regenerates against the emulator (about
 // twenty-five seconds), and the rest is each application's build, vet and lint runs.
 func TestAuthoredApplication(t *testing.T) {
 	if os.Getenv(runAuthored) == "" {
-		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy) and the application's lint (golangci-lint), about six minutes", runAuthored)
+		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy) and the application's lint (golangci-lint), about seven minutes", runAuthored)
 	}
 	if _, err := osexec.LookPath("golangci-lint"); err != nil {
 		t.Fatalf("%s is set and golangci-lint is not on the PATH: the application's own lint is what the result is held to", runAuthored)
