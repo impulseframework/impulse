@@ -3320,15 +3320,23 @@ impersonations, err := session.NewImpersonations(session.NamedActions("ViewAsUse
 What a request carries is read through its methods (`Kind`, `Actor`, `ActorRealm`,
 `ActorSessionID`, `Principal`, `Mask`, `Reason`, `MaxDuration`), so a route can answer
 the person with what their session may do (`req.Mask().Words()`). None hands out
-anything that can be written to, and a request is for the call that follows it: the
-grant was checked when it was made.
+anything that can be written to.
+
+A request starts one session. It is for the call that follows it: the grant was checked
+once, when the request was made, and that check stands for one start. The first
+`StartImpersonatedSession` a request is handed spends it, whether or not the session
+came to be, and a second start from the same request, or from a copy of it, is refused
+before anything is written, with an error that says so (a mistake in the program, so no
+client message). A handler takes a new request from the declaration for each session it
+starts, which checks the grant again.
 
 The session row and the record are written in one transaction; the cookie is set only
 after the `Started` event has been delivered (a failing audit hook destroys the session
-and fails the call). Refused everywhere: a request no declaration made, a missing actor
-or principal, a caller that is itself an impersonated session (no chaining, refused
-when the request is asked for and again when a session starts), and a person of this
-application whose own session is not their live session here.
+and fails the call). Refused everywhere: a request no declaration made, a request that
+has started a session already, a missing actor or principal, a caller that is itself an
+impersonated session (no chaining, refused when the request is asked for and again when
+a session starts), and a person of this application whose own session is not their live
+session here.
 
 A call that arrives on a validated session of this application (the context has passed
 `ValidateSession`) is bound to that session twice. The declaration names nobody but its

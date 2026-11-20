@@ -231,7 +231,8 @@ func (c *capturedLog) take() string {
 // tenant, which no grant admits and the mask alone decides, with nothing made; a session
 // that acts with no mask does each. A server-side caller, which names an actor another
 // system signed in, goes through the same declaration with a check of its own, and its
-// session is held to the kind's mask.
+// session is held to the kind's mask. A request starts one session: a second start from
+// the request, or from a copy of it, is refused with nothing written.
 //
 // The test runs on its own, never in parallel: the application logs through the
 // standard logger, which the test redirects to read each denial.
@@ -390,6 +391,47 @@ func newMaskApp[Tx any](t *testing.T, store *sessionstorage.Preauth[Tx]) *httpte
 			return
 		}
 		_ = httpio.NewEncoder(w).Ok(map[string]string{"sessionId": id.String(), "mask": req.Mask().Words()})
+	})
+	// One request, started from three times: a handler that keeps the request it was
+	// given and starts again, from the request and from a copy of it. The answer carries
+	// the session the first start made and what each later start was told, for the
+	// scenarios to hold a request to one session.
+	r.Post("/handoff/twice", func(w http.ResponseWriter, r *http.Request) {
+		var body maskHandOff
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+
+			return
+		}
+		systemMay := func(_ context.Context, grant accesstypes.Resource) (bool, error) {
+			return slices.Contains(systems[body.System], grant), nil
+		}
+		req, err := impersonations.RequestFor(r.Context(),
+			session.ImpersonationActor{Name: body.Actor, Realm: body.System}, &session.ImpersonationAsk{Kind: body.Kind, Principal: body.Principal}, systemMay,
+		)
+		if err != nil {
+			_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+			return
+		}
+		id, err := api.StartImpersonatedSession(r.Context(), w, req)
+		if err != nil {
+			_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+			return
+		}
+		copied := *req
+		again := make([]string, 0, 2)
+		for _, later := range []*session.ImpersonationRequest{req, &copied} {
+			// A later start answers into a response of its own, so a session it made
+			// would not hide behind the first one's cookies.
+			told := "a session was started"
+			if _, err := api.StartImpersonatedSession(r.Context(), httptest.NewRecorder(), later); err != nil {
+				told = err.Error()
+			}
+			again = append(again, told)
+		}
+		_ = httpio.NewEncoder(w).Ok(map[string]any{"sessionId": id.String(), "again": again})
 	})
 	r.Group(func(r chi.Router) {
 		r.Use(auth.ValidateSession, auth.ValidateXSRFToken)
@@ -809,6 +851,38 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 	portal.expect(ctx, http.StatusForbidden, http.MethodGet, "/check/"+string(wireFunds), nil)
 	if got, want := logged.take(), "Execute denied by mask (List,Read) for bob on [WireFunds]"; !strings.Contains(got, want) {
 		t.Errorf("the handed-over session's check of WireFunds logged %q, want it to carry %q: the kind's mask holds a session a server-side caller starts", got, want)
+	}
+
+	// A request starts one session. The portal hands alice over once more, through a
+	// handler that starts from its one request three times: the first start is her
+	// session, and the second, and one from a copy of the request, are each refused in
+	// plain words with nothing written: one more live impersonated session than before,
+	// the first start's, and no other.
+	liveBefore := listed(portal)
+	again := newBrowser(t, server)
+	var once struct {
+		SessionID string   `json:"sessionId"`
+		Again     []string `json:"again"`
+	}
+	if err := json.Unmarshal(again.expect(ctx, http.StatusOK, http.MethodPost, "/handoff/twice", maskHandOff{System: "admin-portal", Actor: "alice@example.com", maskAsk: maskAsk{Kind: "view", Principal: "carol"}}), &once); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if _, username, impersonated := again.whoami(ctx); username != "carol" || !impersonated {
+		t.Errorf("the session the request's first start made is %q, impersonated %t; want carol's, impersonated", username, impersonated)
+	}
+	if len(once.Again) != 2 {
+		t.Fatalf("the later starts from the one request were told %q, want an answer for each of the two", once.Again)
+	}
+	for i, told := range once.Again {
+		for _, want := range []string{`the impersonation request (kind "view", alice@example.com acting as user:carol) has been used to start a session already`, "a request starts one session", "Nothing was written"} {
+			if !strings.Contains(told, want) {
+				t.Errorf("later start %d from the one request was told %q, want it to carry %q", i+1, told, want)
+			}
+		}
+	}
+	liveAfter := listed(again)
+	if _, started := liveAfter[once.SessionID]; !started || len(liveAfter) != len(liveBefore)+1 {
+		t.Errorf("the live impersonations went from %d to %d (the first start's session among them: %t), want one more, the first start's: a refused start writes nothing", len(liveBefore), len(liveAfter), started)
 	}
 
 	// A kind whose declaration gives everything keeps no mask: the column is NULL, and

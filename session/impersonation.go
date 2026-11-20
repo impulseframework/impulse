@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -21,14 +22,24 @@ import (
 // else. The request has no field an application can set, so one built by hand does not
 // compile; the zero value, which no declaration made, is refused when a session is
 // started from it. What a request carries is read through its methods, none of which
-// hands out anything that can be written to. A request is for the call that follows
-// it: the grant was checked when it was made, so a program does not keep one for later.
+// hands out anything that can be written to.
+//
+// A request starts one session. It is for the call that follows it: the grant was
+// checked once, when the request was made, and that check stands for one start. The
+// first StartImpersonatedSession a request is handed spends it, whether or not the
+// session came to be, and a second start from the same request (or from a copy of it)
+// is refused before anything is written. A program that wants another session, or
+// another try, takes a new request from the declaration, which checks the grant again.
 type ImpersonationRequest struct {
 	// kind names the declared kind the request was made for. It is empty on a value
 	// no declaration made.
 	kind string
 	// core is the request as the session library establishes it.
 	core sessioncore.ImpersonationRequest
+	// spent is set by the first start made from the request. The declaration makes it
+	// with the request, and a copy of the request shares it, so a copy starts nothing
+	// the original has started. It is nil on a value no declaration made.
+	spent *atomic.Bool
 }
 
 // Kind returns the name of the declared kind of impersonation the request was made for.
@@ -76,14 +87,23 @@ func (r *ImpersonationRequest) MaxDuration() time.Duration {
 	return r.core.MaxDuration
 }
 
-// established returns the request as the session library establishes it, or the
-// refusal of a value no declaration made: the nil request and the zero one. That
-// refusal is a mistake in the program, never a person's, so it is no client message.
+// established spends the request and returns it as the session library establishes
+// it. It refuses a value no declaration made (the nil request and the zero one) and a
+// request a start has been made from already: a request starts one session. Either
+// refusal is a mistake in the program, never a person's, so it is no client message,
+// and each is made before the storage is asked for anything.
 func (r *ImpersonationRequest) established() (*sessioncore.ImpersonationRequest, error) {
-	if r == nil || r.kind == "" {
+	if r == nil || r.kind == "" || r.spent == nil {
 		return nil, errors.New(
 			"the impersonation request was made by no declaration, so nothing checked a grant or set a mask for it: " +
 				"declare the kinds of impersonation the application offers (session.NewImpersonations) and take the request from its Request or RequestFor",
+		)
+	}
+	if !r.spent.CompareAndSwap(false, true) {
+		return nil, errors.Newf(
+			"the impersonation request (kind %q, %s acting as %s) has been used to start a session already, and a request starts one session: "+
+				"its grant was checked once, for that start. Nothing was written. Take a new request from the declaration's Request or RequestFor for each session the application starts",
+			r.kind, r.core.Actor, r.core.Principal,
 		)
 	}
 	core := r.core

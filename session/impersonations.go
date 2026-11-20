@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -483,6 +484,7 @@ func (i *Impersonations) request(ctx context.Context, actor *ImpersonationActor,
 			Reason:          ask.Reason,
 			MaxDuration:     ask.MaxDuration,
 		},
+		spent: new(atomic.Bool),
 	}, nil
 }
 

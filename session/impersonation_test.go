@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ func impersonatedCtx(sessionID impulse.UUID, username string, imp *sessioninfo.I
 // it has one, whatever kind made it; what makes one is the declaration's own tests
 // (TestImpersonations_Request, TestImpersonations_RequestFor).
 func declaredRequest(core *sessioncore.ImpersonationRequest) *ImpersonationRequest {
-	return &ImpersonationRequest{kind: "test", core: *core}
+	return &ImpersonationRequest{kind: "test", core: *core, spent: new(atomic.Bool)}
 }
 
 // liveSession is an ordinary, just-active session row for username.
