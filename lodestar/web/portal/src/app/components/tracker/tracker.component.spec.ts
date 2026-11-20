@@ -115,7 +115,7 @@ const kestrel = {
   title: 'Tow the Kestrel',
   kindId: 'rescue',
   hazard: 2,
-  fee: 900,
+  fee: '900',
   deadline: '2031-01-01T08:00:00Z',
   statusId: 'open',
   zzCapabilities: { Execute: ['StandDownMission'] },

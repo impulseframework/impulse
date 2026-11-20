@@ -159,7 +159,7 @@ function answerFor(world: World): (request: TransportRequest) => TransportRespon
               kindId: 'rescue',
               clientId: 'c-1',
               hazard: 2,
-              fee: 900,
+              fee: '900',
               deadline: '2031-01-01T08:00:00Z',
               statusId: 'open',
               notes: 'bring spare couplings',
@@ -412,7 +412,7 @@ describe('FlightDeckComponent', () => {
           clientId: 'c-1',
           kindId: 'escort',
           hazard: 1,
-          fee: 0,
+          fee: '0',
         }),
       },
     ]);
@@ -668,7 +668,7 @@ describe('FlightDeckComponent', () => {
     await pageFor({
       grants: marshal,
       capabilities: { Execute: ['CompleteMission'] },
-      sent: { 'complete-mission': { status: 409, body: { expenses: 1750, fee: 900, net: -850 } } },
+      sent: { 'complete-mission': { status: 409, body: { expenses: '1750', fee: '900', net: '-850' } } },
     });
     await openMission();
     await press('Complete');
@@ -746,7 +746,7 @@ describe('FlightDeckComponent', () => {
         'hold-mission': { status: 403, body: { message: 'user lead does not have Update on Missions.notes' } },
         'resume-mission': { status: 409, body: { message: 'ResumeMission: the mission is not on hold' } },
         // The declared answer of a completion comes with figures and no words.
-        'complete-mission': { status: 409, body: { expenses: 1750, fee: 900, net: -850 } },
+        'complete-mission': { status: 409, body: { expenses: '1750', fee: '900', net: '-850' } },
         // A refusal that comes with nothing at all.
         'fail-mission': { status: 409, body: undefined },
       },
@@ -1012,7 +1012,7 @@ describe('FlightDeckComponent', () => {
       {
         op: 'add',
         path: `/sectors/${anvilID}/sortie-expenses`,
-        value: { sortieId: 'so-1', category: 'fuel', amount: 120 },
+        value: { sortieId: 'so-1', category: 'fuel', amount: '120' },
       },
     ]);
     expect(dialogOpen()).toBe(false);

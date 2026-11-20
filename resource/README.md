@@ -1629,10 +1629,11 @@ refused:
 Every offending field in a run is reported together.
 
 **The built-in table.** `string`, `bool`, and the numeric types by their names;
-`impulse.UUID` and `impulse.NullUUID` (`uuid`, a `string` in the interface); `decimal.Decimal` and
-`decimal.NullDecimal` (`number`); `time.Time` (`Date`); `civil.Date` (`civilDate`, a
+`impulse.UUID` and `impulse.NullUUID` (`uuid`, a `string` in the interface); `decimal.Decimal`,
+`decimal.NullDecimal`, and `spanner.NullNumeric` (the `number` display type, a `string` in
+the interface; see below); `time.Time` (`Date`); `civil.Date` (`civilDate`, a
 `Date` in the interface); the Spanner Null wrappers (`spanner.NullString` is `string`,
-`NullInt64`, `NullFloat32`, `NullFloat64`, and `NullNumeric` are `number`, `NullBool` is
+`NullInt64`, `NullFloat32`, and `NullFloat64` are `number`, `NullBool` is
 `boolean`, `NullTime` is `Date`, `NullDate` is `civilDate`); `securehash.Hash` (`string`,
 its text form); and `spanner.NullJSON` and `json.RawMessage` (`unknown`, a value with no
 fixed shape, display type `object`; the two share one wire form, any JSON value or
@@ -1644,6 +1645,16 @@ does. A `json.RawMessage` is pass-through: a nil one marshals as `null`, and byt
 not valid JSON fail `encoding/json` at response time, the application's own
 responsibility. Declare a type whenever a TypeScript type exists for the value (below);
 `json.RawMessage` is for the value the application does not model.
+
+**A decimal is a string in the interface.** `decimal.Decimal`, `decimal.NullDecimal`, and
+`spanner.NullNumeric` each write their JSON as a quoted string (`"fee":"15000"`), which
+keeps every digit a floating-point number would round. So a decimal is `string` in every
+generated interface, a row's, a write shape's (`MissionsCreate`, `MissionsPatch`), a
+method's request and result, a computed row's, and a struct nested in any of them, and a
+list of decimals is `string[]`. The metadata keeps the display type `number`, so a form
+draws the number control and a table prints the value as it arrives. A page that prints
+one formats the string, and a page that sends one sends the string: the quoted form is
+the one all three types read back.
 
 **`json.RawMessage` on a Spanner column is refused.** The Spanner client types a named
 byte slice as `BYTES`, so a read of a `JSON` column through it fails with a type mismatch
@@ -1760,7 +1771,7 @@ by construction and never checks the generator's output.
 | Display type | In the interface | Emitted for |
 | --- | --- | --- |
 | `string` | `string` | text columns and fields, named string types, `securehash.Hash` |
-| `number` | `number` | integers, floats, and decimals |
+| `number` | `number`; `string` for a decimal | integers and floats; `decimal.Decimal`, `decimal.NullDecimal`, and `spanner.NullNumeric`, a quoted string on the wire |
 | `boolean` | `boolean` | a `bool` column that is `NOT NULL`, and every `bool` field on the other paths |
 | `nullboolean` | `NullBoolean` | a nullable `BOOL` column (`*bool`, `spanner.NullBool`); the tri-state rule for one column |
 | `date` | `Date` | `time.Time`, `spanner.NullTime` |

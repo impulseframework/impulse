@@ -330,7 +330,7 @@ describe('serverWords', () => {
 
   it('says the server gave no reason where it gave none, never a status code', () => {
     expect(serverWords(refused(409, undefined))).toBe('The server gave no reason.');
-    expect(serverWords(refused(409, { expenses: 3, fee: 2 }))).toBe('The server gave no reason.');
+    expect(serverWords(refused(409, { expenses: '3', fee: '2' }))).toBe('The server gave no reason.');
     expect(serverWords(refused(500, ''))).toBe('The server gave no reason.');
   });
 

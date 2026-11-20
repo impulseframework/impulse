@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe, formatNumber } from '@angular/common';
 import {
   Component,
   computed,
@@ -23,7 +23,7 @@ import { MatTableModule } from '@angular/material/table';
 import { MatTimepickerModule } from '@angular/material/timepicker';
 import { Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
 import { MissionKind } from '@app/service/zz_gen_enums';
-import { methodMeta } from '@app/service/zz_gen_methods';
+import { CompleteMissionResult, methodMeta } from '@app/service/zz_gen_methods';
 import { MissionDocuments, Missions, Sorties, SortieExpenses, Workflows } from '@app/service/zz_gen_resources';
 import { ApiError, Method, MethodHandle, MethodMeta, Page, rowCapabilities } from '@impulseframework/resource';
 import { nameInWords } from '@impulseframework/resource-angular/types';
@@ -810,7 +810,8 @@ export class FlightDeckComponent {
     ) {
       patch['assignedSquadronId'] = this.editAssignedSquadronId;
     }
-    if (this.canEdit(mission, 'fee') && this.editFee !== null) patch['fee'] = this.editFee;
+    // A fee is a decimal, and a decimal travels as a string that keeps every digit.
+    if (this.canEdit(mission, 'fee') && this.editFee !== null) patch['fee'] = String(this.editFee);
     if (Object.keys(patch).length === 0) {
       // Nothing was changed, so nothing is sent.
       this.close();
@@ -872,7 +873,7 @@ export class FlightDeckComponent {
         title: this.newTitle,
         brief: this.newBrief || undefined,
         hazard: this.newHazard ?? 1,
-        fee: this.newFee ?? 0,
+        fee: String(this.newFee ?? 0),
         deadline,
         notes: this.newNotes || undefined,
       }),
@@ -904,7 +905,7 @@ export class FlightDeckComponent {
       this.sectors.sectorApi().sortieExpenses.create({
         sortieId: sortie.id,
         category: this.newExpenseCategory,
-        amount,
+        amount: String(amount),
       }),
     );
     if (added) {
@@ -925,25 +926,29 @@ function combineDateAndTime(day: Date | null, time: Date | null): Date | null {
 /** Words in a row, as a sentence lists them: "the deadline and the fee". */
 const listed = new Intl.ListFormat('en-US', { style: 'long', type: 'conjunction' });
 
-/** The figures CompleteMission answers with: what the sorties cost, the fee, and what is left. */
-interface Settlement {
-  expenses: number;
-  fee: number;
-  net: number;
-}
+/**
+ * The figures CompleteMission's refusal carries: what the sorties cost, and the fee. Each
+ * is a decimal, which the server writes as a string that keeps every digit, and the
+ * generated result says so.
+ */
+type Settlement = Pick<CompleteMissionResult, 'expenses' | 'fee'>;
 
 /** Whether a refused call's body carries a settlement's figures. */
 function isSettlement(body: unknown): body is Settlement {
   return (
     typeof body === 'object' &&
     body !== null &&
-    typeof (body as Settlement).expenses === 'number' &&
-    typeof (body as Settlement).fee === 'number'
+    typeof (body as Settlement).expenses === 'string' &&
+    typeof (body as Settlement).fee === 'string'
   );
 }
 
+/** An amount of credits as the deck writes a fee: whole credits, the thousands apart. */
+function credits(amount: string): string {
+  return `${formatNumber(Number(amount), 'en-US', '1.0-0')} cr`;
+}
+
 /** Why a mission cannot be completed, with the server's figures: its sorties cost more than its fee. */
-function overspent(settlement: { expenses: number; fee: number }): string {
-  const credits = (amount: number): string => `${amount.toLocaleString('en-US')} cr`;
+function overspent(settlement: Settlement): string {
   return `The expenses (${credits(settlement.expenses)}) are more than the fee (${credits(settlement.fee)}).`;
 }
