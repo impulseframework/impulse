@@ -454,6 +454,69 @@ func TestManager_impersonatorIsNeverTheSubject(t *testing.T) {
 	}
 }
 
+// TestManager_AddGroupMember_underAMaskThatKeepsTheAction pins the rule behind an
+// exception of a kind of impersonation. A kind that keeps the action that puts a person
+// in a group out of its refusal of the class access lets the action through the mask,
+// so the rule is what is left to hold the account of the person who acts: dana acts as
+// erin in a session whose record carries such a mask, and putting herself in a group is
+// refused with the sentence and buffers nothing, by each way the Manager and a Tenant
+// offer, while frank is put in.
+func TestManager_AddGroupMember_underAMaskThatKeepsTheAction(t *testing.T) {
+	t.Parallel()
+
+	keeps := accesstypes.AllowAll().Refusing(
+		accesstypes.RefuseClass(accesstypes.ClassCredential),
+		accesstypes.RefuseClassExcept(accesstypes.ClassAccess, accesstypes.ExceptAction("AddGroupMember")),
+	)
+	acting := func(ctx context.Context, tenant bool) context.Context {
+		session := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{ActorID: impulse.NullUUIDFromUUID(userID), Mask: keeps}}
+
+		return context.WithValue(asErin(ctx, managedAuth, tenant), sessioninfo.CtxSessionInfo, session)
+	}
+
+	asked := 0
+	for _, act := range impersonatorActs {
+		if act.says != "put yourself in a group" {
+			continue
+		}
+		asked++
+		t.Run(act.name+": on her own account", func(t *testing.T) {
+			t.Parallel()
+
+			store := impersonatorStore()
+			m, _ := impersonatorManager(t, store)
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return act.act(acting(ctx, act.tenant), txn, m, &danaHerself)
+			})
+			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+act.says+":") {
+				t.Fatalf("error = %v, want the refusal %q: the mask keeps the action, and the rule still holds her own account", err, actingAsSomeoneElse+act.says)
+			}
+			if len(store.writes) != 0 {
+				t.Errorf("buffered writes = %v, want none", store.writes)
+			}
+		})
+
+		t.Run(act.name+": on another person", func(t *testing.T) {
+			t.Parallel()
+
+			store := impersonatorStore()
+			m, _ := impersonatorManager(t, store)
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return act.act(acting(ctx, act.tenant), txn, m, &frankTheOther)
+			})
+			if err != nil {
+				t.Fatalf("error = %v, want the act to go through: frank is not the person acting", err)
+			}
+			if len(store.writes) == 0 {
+				t.Error("the act buffered nothing, so it does not show that frank was put in the group")
+			}
+		})
+	}
+	if asked != 4 {
+		t.Errorf("the acts that put a person in a group = %d, want the Manager's two and a Tenant's two", asked)
+	}
+}
+
 // TestManager_ownAccount_withoutACaller pins the end of the rule that nobody disables or
 // deletes themselves: where no generated route stamped a caller, the session still says
 // who is acting, and the person who impersonates is refused their own account.

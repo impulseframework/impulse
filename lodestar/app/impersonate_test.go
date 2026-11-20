@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -272,6 +273,64 @@ func TestActKindRefusesTheRecordsThatDecideWhatAPersonMayDo(t *testing.T) {
 			if asked := len(policy.asked) != 0; asked == refused {
 				t.Errorf("%s: policy asked = %t and the kind refuses the write = %t: the kind refuses the writes classed access, but for the hangar pass's, and leaves the rest to policy", write, asked, refused)
 			}
+		}
+	}
+}
+
+// TestActKindKeepingAnActionOfTheLibrarysOwn holds an exception that names an action
+// to the actions the identity library generates, each classed access by the library and
+// not by the application: a kind that acts as a person and keeps the action that puts a
+// person in a group is a declaration the application's collection accepts, its sessions
+// reach policy with that action, and every other action of the class stays refused
+// before policy is asked, the tenant's own twin of the kept action among them, since an
+// exception keeps the one name it carries. The rule that nobody is the subject of what
+// they do is the identity library's and is asked behind the mask
+// (identity.TestManager_AddGroupMember_underAMaskThatKeepsTheAction).
+func TestActKindKeepingAnActionOfTheLibrarysOwn(t *testing.T) {
+	t.Parallel()
+
+	const kept accesstypes.Resource = "AddCrewGroupMember"
+	collection := router.Collection()
+	keeps := append(accesstypes.ExceptWrites(resources.HangarPass{}.Resource()), accesstypes.ExceptAction(kept))
+	declared, err := session.NewImpersonations(collection, session.ImpersonatesUser(kindAct, resources.ActAsUser, accesstypes.AllowAll().Refusing(
+		accesstypes.RefuseClass(router.ClassCredential),
+		accesstypes.RefuseClassExcept(router.ClassAccess, keeps...),
+	)))
+	if err != nil {
+		t.Fatalf("session.NewImpersonations() refuses a kind that keeps the action %s out of the class access: %v", kept, err)
+	}
+	mask := declared.Kinds()[0].Widest()
+	if got, want := mask.Words(), "everything except access actions (still allowed: the action AddCrewGroupMember and writing HangarPasses) and credential actions"; got != want {
+		t.Errorf("the mask in words = %q, want %q", got, want)
+	}
+
+	reaches := func(scope accesstypes.Scope, action accesstypes.Resource) bool {
+		t.Helper()
+
+		policy := &policyAsked{}
+		if _, err := resource.Masked(policy, mask, collection).Check(t.Context(), accesstypes.NewEnvironment(), scope, accesstypes.Execute, action); err != nil {
+			t.Fatalf("Check(Execute, %s) error = %v", action, err)
+		}
+
+		return len(policy.asked) != 0
+	}
+	if !reaches(accesstypes.GlobalScope(), kept) {
+		t.Errorf("the action %s does not reach policy: the kind keeps it out of its refusal of the class access", kept)
+	}
+	sector := accesstypes.DomainScope("a sector")
+	refused := []struct {
+		scope  accesstypes.Scope
+		action accesstypes.Resource
+	}{
+		{accesstypes.GlobalScope(), "RemoveCrewGroupMember"},
+		{accesstypes.GlobalScope(), "AssignCrewRole"},
+		{accesstypes.GlobalScope(), "GiveCrewGroupRole"},
+		{sector, "AddCrewSectorGroupMember"},
+		{sector, "AssignCrewSectorRole"},
+	}
+	for _, check := range refused {
+		if reaches(check.scope, check.action) {
+			t.Errorf("the action %s reaches policy: the exception names %s alone, and the class access refuses the rest", check.action, kept)
 		}
 	}
 }
