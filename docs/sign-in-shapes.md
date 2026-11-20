@@ -248,6 +248,13 @@ through the tenant's own directory, so a password could enter no tenant. An appl
 started from either has no password method: its login page shows the directory's sign-in
 and no password form, and a person's account page has no password to change.
 
+An auth with no password method asks nobody for a password, whatever shape it is in. An
+account there can still hold one: the application's own code may have set it, or the auth
+had the password method once and no longer has it. Nobody could enter that password, so it
+holds no sign-in back. A person's first sign-in through a directory under the account's
+sign-in name is joined to the account as it is for an account that has no password, and
+the account keeps the password it has.
+
 Shapes 6 and 8 have one more method, single sign-on through a tenant's own identity
 provider. It is **not released yet**: the method is in the session library, the
 framework's package `session`, as an internal package (`session/internal/workos`), which
@@ -893,6 +900,9 @@ under the account's sign-in name is joined to the account, through any of the au
 methods. An account that has a password asks for it first. An account that has none, and
 has never signed in, is joined to the first sign-in under its name, as in an application
 without tenants.
+
+Where the auth has no password method, nothing asks for a password: an account that has
+one is joined as an account that has none.
 
 The rest of this section, and the next, describe an application whose tenants can have
 directories.

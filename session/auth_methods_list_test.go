@@ -32,13 +32,39 @@ func registerThree(t *testing.T) *Auth[NoCustomData, NoCustomData, mockTx] {
 	return a
 }
 
+// registerTwoDirectories registers a Google and an Azure registration and no password
+// method on a bare Auth: the Auth of an application where nobody signs in with a
+// password, which asks nobody for one.
+func registerTwoDirectories(t *testing.T) *Auth[NoCustomData, NoCustomData, mockTx] {
+	t.Helper()
+
+	a := newBareAuth(t, gomock.NewController(t))
+	google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("example", "example.com")})
+	azure.SignIn(a, "lakeside-entra", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/entra/callback"})
+
+	return a
+}
+
+// listAuth is the Auth a list is checked against: the one with the password method
+// beside the two directories, or, for noPassword, the one with the directories alone.
+func listAuth(t *testing.T, noPassword bool) *Auth[NoCustomData, NoCustomData, mockTx] {
+	t.Helper()
+
+	if noPassword {
+		return registerTwoDirectories(t)
+	}
+
+	return registerThree(t)
+}
+
 func TestAuth_Methods(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		list *MethodList
-		want map[string]any
+		name       string
+		noPassword bool
+		list       *MethodList
+		want       map[string]any
 	}{
 		{
 			name: "every listed method in the list's order, the password one a form, the external ones redirects, with the pending routes",
@@ -83,7 +109,8 @@ func TestAuth_Methods(t *testing.T) {
 			},
 		},
 		{
-			name: "a list with no password method may leave the confirm path out, and the page is then told of none",
+			name:       "a list of an Auth that registers no password method may leave the confirm path out, and the page is then told of none",
+			noPassword: true,
 			list: &MethodList{
 				Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}},
 				Pending: PendingRoutes{
@@ -100,7 +127,20 @@ func TestAuth_Methods(t *testing.T) {
 			},
 		},
 		{
-			name: "a list with no password method that names the confirm path is told it: an account may hold a password the API set",
+			name: "a list that does not offer the password method names the confirm path where the Auth registers the method, and the page is told it: " +
+				"a sign-in through the directory may wait for a password",
+			list: &MethodList{
+				Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}},
+				Pending: PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
+			},
+			want: map[string]any{
+				"methods": []any{map[string]any{"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}},
+				"pending": map[string]any{"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
+			},
+		},
+		{
+			name:       "a list of an Auth that registers no password method that names the confirm path is told it: an account rule of the application's own may ask for a confirmation",
+			noPassword: true,
 			list: &MethodList{
 				Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}},
 				Pending: PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
@@ -114,7 +154,7 @@ func TestAuth_Methods(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a := registerThree(t)
+			a := listAuth(t, tt.noPassword)
 
 			rr := httptest.NewRecorder()
 			a.Methods(tt.list).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/user/methods", http.NoBody))
@@ -137,9 +177,10 @@ func TestAuth_MethodsRefused(t *testing.T) {
 
 	pending := PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"}
 	tests := []struct {
-		name string
-		list *MethodList
-		want string
+		name       string
+		noPassword bool
+		list       *MethodList
+		want       string
 	}{
 		{name: "no list", list: nil, want: "given no sign-in method"},
 		{name: "an empty list", list: &MethodList{}, want: "given no sign-in method"},
@@ -155,10 +196,11 @@ func TestAuth_MethodsRefused(t *testing.T) {
 		{name: "a pending route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Confirm: "https://evil.example/confirm", Cancel: pending.Cancel}, ChangePassword: "/password"}, want: "name the status, confirm and cancel paths together"},
 		{name: "the password method without the confirm path", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: pending.Cancel}, ChangePassword: "/password"}, want: "name the status, confirm and cancel paths together"},
 		{name: "the password method beside a directory without the confirm path", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/google"}, {Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: pending.Cancel}, ChangePassword: "/password"}, want: "name the status, confirm and cancel paths together"},
-		{name: "no password method and some of the pending routes", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status}}, want: "name the status and cancel paths together"},
-		{name: "no password method and a cancel path off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: "https://evil.example/cancel"}}, want: "it may leave the confirm path out"},
-		{name: "no password method and a confirm path off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Confirm: "https://evil.example/confirm", Cancel: pending.Cancel}}, want: "name the status, confirm and cancel paths together"},
-		{name: "no password method and the mailed code's routes alone", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email"}}, want: "name the status and cancel paths together"},
+		{name: "a list that does not offer the password method without the confirm path, on an Auth that registers the method", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/google"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: pending.Cancel}}, want: "this Auth registers the password method"},
+		{name: "no password method and some of the pending routes", noPassword: true, list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status}}, want: "name the status and cancel paths together"},
+		{name: "no password method and a cancel path off-site", noPassword: true, list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: "https://evil.example/cancel"}}, want: "this Auth registers no password method, so the list may leave the confirm path out"},
+		{name: "no password method and a confirm path off-site", noPassword: true, list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Confirm: "https://evil.example/confirm", Cancel: pending.Cancel}}, want: "name the status, confirm and cancel paths together"},
+		{name: "no password method and the mailed code's routes alone", noPassword: true, list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email"}}, want: "name the status and cancel paths together"},
 		{name: "the password method without the password change route", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}}, want: "lists the password method with the password change route \"\""},
 		{name: "a password change route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "https://evil.example/password"}, want: "lists the password method with the password change route"},
 		{name: "a forget-this-browser route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", ForgetBrowser: "https://evil.example/forget"}, want: "forget-this-browser route"},
@@ -169,7 +211,7 @@ func TestAuth_MethodsRefused(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a := registerThree(t)
+			a := listAuth(t, tt.noPassword)
 
 			recovered := registrationPanic(func() { a.Methods(tt.list) })
 			if recovered == nil {

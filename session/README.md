@@ -225,6 +225,10 @@ DML what a later rule must read.
     already signs in through an identity is linked no second one on the name, on the
     same connection or another (see "Never a second identity on a name alone" below).
     An address a user holds unverified is a reservation, not a match.
+    The rule asks what the Auth registers. On an Auth with no password method nobody
+    can enter a password, so a password a user holds there (one the API set, or one
+    kept from a release that registered the method) asks for no confirmation: the user
+    is linked as one who has none, by the same checks, and keeps the password.
   - **A person who has none is decided by what an administrator chose for the method**,
     the registration's row of the sign-in methods table, read in the same transaction
     (see "Open to sign-up, or invite only"). A method with no row is **invite only**:
@@ -357,7 +361,12 @@ DML what a later rule must read.
   through is refused unless the link is `trusted`. A rule's link on a connection the
   user already signs in through is made on the rule's word, which the standard rule's
   match by name does not have. Never choose the user by an email or
-  another claim the provider does not verify.
+  another claim the provider does not verify. On an Auth that registers no password
+  method nobody can confirm, so a rule's `Link` to a user who holds a password is
+  decided as a link to a user without one. A rule's own `Confirm` is taken at its word
+  there too: the sign-in waits for the password, and the person can enter it only where
+  the application mounts `Pending().ConfirmWithPassword()` itself and its list names
+  the confirm path. A rule on such an Auth answers `Link` or `Reject` instead.
 
 A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
 
@@ -910,10 +919,13 @@ the password method is listed.
   named together or not at all (`PendingRoutes`); a page told them runs the library's
   second factor (see "The second factor") when a sign-in waits for it.
 - The pending block's `confirm` is where a person whose sign-in matched an account with
-  a password enters it. A list with the password method names it. A list with no
-  password method may leave it out (`PendingRoutes.Confirm`), as an application where
-  nobody holds a password does: it mounts no `ConfirmWithPassword()` handler, the
-  answer carries no `confirm`, and the page offers no password confirmation.
+  a password enters it. Every list of an Auth that registers the password method names
+  it, a list that does not offer the method among them: the person may come through any
+  of the Auth's methods, and `Methods` refuses a list that leaves it out. An Auth that
+  registers no password method asks nobody for a password, so its lists may leave it
+  out (`PendingRoutes.Confirm`): the application mounts no `ConfirmWithPassword()`
+  handler, the answer carries no `confirm`, and the page offers no password
+  confirmation.
 - `changePassword` is the path of the password method's `ChangeUserPassword` handler,
   which the page posts `{"oldPassword", "newPassword"}` to when a sign-in finds the
   user must change their password (the session read's `passwordChangeRequired`). It is

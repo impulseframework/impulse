@@ -140,6 +140,9 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
 			Account: rule, Method: method, Audience: audience, SeededUsers: seeded, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
 			Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn,
+			// The rule asks what the Auth registers: with no password method no sign-in
+			// can prove a password, so one an account holds holds no sign-in for it.
+			NoPassword:    !a.registered().passwordRegistered(),
 			TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
 			// A person who comes through a directory that does not vouch for their address
 			// confirms one by the mailed code before their first session, where the Auth
