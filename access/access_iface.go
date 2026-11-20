@@ -142,19 +142,23 @@ type UserManager interface {
 	AddRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error
 
 	// AddUserRoles assigns roles to user, the memberships held in scope, each
-	// with no period: it counts until it is removed, and a role the user held
-	// for a period loses the period. Errors if any role doesn't exist in
-	// scope, as AddRoleUsers defines it.
+	// with no period and no reason: it counts until it is removed, and a role
+	// the user held for a period loses the period and the reason it was given
+	// for. Errors if any role doesn't exist in scope, as AddRoleUsers defines
+	// it.
 	AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error
 
 	// AssignUserRole gives user the role in scope for the period: the role
 	// counts from the period's start, where it has one, until its end, where
-	// it has one, with no row written in between. Assigning again is how a
-	// period changes: the period handed replaces the one the assignment had.
+	// it has one, with no row written in between. reason says why the role is
+	// given, one line of plain text that is empty for none (ValidateReason),
+	// kept with the membership and listed with it (UserRolesHeld). Assigning
+	// again is how a period changes: the period and the reason handed replace
+	// the ones the assignment had, so nothing edits a reason by itself.
 	// Errors as AddUserRoles does, if the period ends at or before its start,
-	// and if it puts an end or a start on the Super Administrator role, which
-	// takes neither.
-	AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
+	// if it puts an end or a start on the Super Administrator role, which
+	// takes neither, and if the reason is not one line.
+	AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error
 
 	// DeleteRoleUsers removes users from role, the memberships held in scope.
 	// Errors if role doesn't exist.
@@ -186,6 +190,15 @@ type UserManager interface {
 	// where the user's own membership holds it: no group gives it.
 	UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error)
 
+	// UserRolesHeld returns the roles user holds as one list, each with where
+	// it comes from: a membership of their own, with its period and the
+	// reason it was given for, or a group they are in that holds the role
+	// (see HeldRole). A role held both ways is listed once for each. The
+	// person's own are the memberships that have not ended, one whose period
+	// has not begun among them; the ones through a group are the ones
+	// UserRoles counts now.
+	UserRolesHeld(ctx context.Context, user accesstypes.User) ([]HeldRole, error)
+
 	// TenantsAdministered lists the tenants user administers now, sorted: the
 	// tenant domains where they hold one of the application's tenant
 	// administrator roles (WithTenantAdministratorRoles) in the tenant itself,
@@ -216,6 +229,20 @@ type UserManager interface {
 
 	// Groups returns the groups kept in scope, sorted by name.
 	Groups(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupInfo, error)
+
+	// GroupContents returns the groups kept in scope, sorted by name, each
+	// with how many people are in it and the roles it holds (see
+	// GroupContent). Both count what has not ended, an assignment whose
+	// period has not begun among it: a group listed with no people and no
+	// roles is one DeleteGroup removes.
+	GroupContents(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupContent, error)
+
+	// GroupRoleLosers returns the people who lose role in scope when group
+	// stops holding it there: the people in the group now who hold the role
+	// there through this group and in no other way, sorted. A person who also
+	// holds it themselves, through another group, or in every tenant when
+	// scope is one tenant, keeps it and is not listed.
+	GroupRoleLosers(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error)
 
 	// UserGroups returns the groups user is in, wherever each is kept.
 	UserGroups(ctx context.Context, user accesstypes.User) ([]GroupInfo, error)

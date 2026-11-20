@@ -43,7 +43,7 @@ The `access.Store` interface the two subpackages implement is sealed: only this 
 - `UserRoles` stands alone. A membership names its role by name alone, since a default role has no row to reference, so `InsertUserRole` writes by role name; the access package checks that the name resolves before it writes. An index led by the user (`{Prefix}{Store}UserRolesByUserID`) serves `ListUserMemberships`, which lists every membership a user holds wherever it is held.
 - `RoleGrants` belongs to its custom role: interleaved in `Roles` on Spanner and a foreign key on PostgreSQL, both with cascading delete. A grant needs its role's row, and deleting a custom role deletes its grants.
 - `DeleteRole` refuses while memberships held in that scope that have not ended still name the role, checked in the same transaction as the delete, and takes the ended ones with the role.
-- A membership, a place in a group and a group's role each carry the period they count in, in two nullable columns, `StartsAt` and `EndsAt` (see Periods). An insert gives the row its period: it writes the row where the key is free, and where it is taken it replaces the period and leaves the rest of the row as it was. No row is written when a period begins or ends. The listings of what a person or a group holds return the rows that count at the database's present; `ReadPolicy` returns every row with its period.
+- A membership, a place in a group and a group's role each carry the period they count in, in two nullable columns, `StartsAt` and `EndsAt` (see Periods). An insert gives the row its period: it writes the row where the key is free, and where it is taken it replaces the period and leaves the rest of the row as it was. A membership carries the reason it was given for too, in a nullable column `Reason` (see What is held and why): its insert writes the reason with the period and replaces both where the key is taken, so the reason kept is the one the role was last given with. No row is written when a period begins or ends. The listings of what a person or a group holds return the rows that count at the database's present; `ReadPolicy` returns every row with its period.
 - `Groups` holds the groups of people, each under an id the access package generates, with where it is kept (`Kind` is `global` or `domain`, checked in the database: no group is kept in every domain), its name and its description. A unique index (`{Prefix}{Store}GroupsByName`) holds a name to one group where the group is kept.
 - `GroupMembers` holds the people in each group and `GroupRoles` the roles each group holds, a role named by name alone as a membership names it. Both reference their group (a foreign key in both stores), so `DeleteGroup` refuses a group that still has a member or holds a role that has not ended, checked in the same transaction as the delete, takes the ended ones with the group, and the database stands behind the check. An index led by the user (`{Prefix}{Store}GroupMembersByUserId`) serves the groups a person is in, and one led by where a role is held (`{Prefix}{Store}GroupRolesByScope`) serves the group roles held in one tenant.
 - `ReadPolicy` reads the custom roles, their grants, the memberships, and the groups with their members and roles, with one consistent view of the store, for the snapshot to compile.
@@ -519,9 +519,9 @@ tenant1 := accesstypes.DomainPolicyScope("tenant1")
 // Until Friday noon, from now: no start is from the moment the role is given.
 friday := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 period, err := accesstypes.NewPeriod(nil, &friday)
-mgr.AssignUserRole(ctx, tenant1, "john.doe", "Editor", period)
+mgr.AssignUserRole(ctx, tenant1, "john.doe", "Editor", period, "Covering the release on Friday")
 
-// Assigning again replaces the period; with none, the role stands until it is removed.
+// Assigning again replaces the period and the reason; with none, the role stands until it is removed.
 mgr.AddUserRoles(ctx, tenant1, "john.doe", "Editor")
 
 // A person's place in a group and a group's role take a period the same way.
@@ -557,6 +557,43 @@ mgr.AssignGroupRole(ctx, watch, tenant1, "Editor", period)
   person's ended assignments at their next sign-in; until then the row counts for nothing
 - A caller that writes an assignment's row in a transaction of its own asks
   `ValidatePeriod` before it writes, as it asks `Membership` or `GroupRole` for the key
+
+### What is held and why
+
+A person's role may carry the reason it was given for, and the user manager answers
+three questions a page asks of what is held: where each of a person's roles comes from,
+what each group holds, and who loses a role a group stops holding.
+
+```go
+// The reason is the last argument of AssignUserRole: one line, empty for none.
+mgr.AssignUserRole(ctx, tenant1, "john.doe", "Editor", period, "Covering the release on Friday")
+
+held, err := mgr.UserRolesHeld(ctx, "john.doe")       // []access.HeldRole: their own with period and reason, and through each group
+groups, err := mgr.GroupContents(ctx, tenant1)          // []access.GroupContent: each group with its people counted and its roles
+losers, err := mgr.GroupRoleLosers(ctx, watch, tenant1, "Editor") // who loses Editor in tenant1 when the group stops holding it
+```
+
+- The reason is one line of plain text of at most `MaxReason` characters, kept less the
+  space around it; a line break or a character that cannot be shown is refused
+  (`ValidateReason`, which a caller that writes the row in a transaction of its own asks
+  before it writes). It is not policy: no check reads it, and `ReadPolicy` does not carry
+  it
+- Nothing edits a reason by itself. Assigning again replaces the period and the reason
+  together, and the `Add` methods give neither, so a role given again with no reason
+  carries none
+- `UserRolesHeld` lists a role once for each way the person holds it: a membership of
+  their own (`Group` is nil), with its period and its reason, and each group they are in
+  that holds the role (`Group` names it). The person's own are the memberships that have
+  not ended, one whose period has not begun among them; the ones through a group are the
+  ones `UserRoles` counts now
+- `GroupContents` counts what has not ended, an assignment whose period has not begun
+  among it, which is what `DeleteGroup` refuses a group for: a group listed with no
+  people and no roles is one `DeleteGroup` removes
+- `GroupRoleLosers` lists the people in the group now who hold the role there through
+  this group and in no other way. A person who also holds it themselves, through another
+  group, or in every tenant when the scope is one tenant, keeps it and is not listed.
+  Nobody is listed while the group does not give the role: its period has not begun or
+  has ended, or the role is one its members do not hold through it
 
 ### Role Management
 

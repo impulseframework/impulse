@@ -80,6 +80,17 @@ type Membership struct {
 	Period accesstypes.Period
 }
 
+// Assignment is one membership of a person's own as a listing of what the
+// person holds returns it: the membership and the reason it was given for, ""
+// where none was given. The reason is not policy: the snapshot compiler never
+// reads it, so ReadPolicy leaves it out and Membership, which the compiler
+// reads, does not carry it.
+type Assignment struct {
+	Membership
+
+	Reason string
+}
+
 // Role is one custom role row: a role that exists where its Scope says
 // because the store holds it, with or without grants. The release's default
 // roles have no row.

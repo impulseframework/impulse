@@ -63,7 +63,12 @@ type tsAPIIdentity struct {
 	// since the row carries the tenant's key, an id nobody reads. Empty where the outlet
 	// does not serve the record, and the page shows the key.
 	TenantResource string
-	Sides          []*tsAPIIdentitySide
+	// RolesFrom is the directories that decide the auth's roles, in the words of its
+	// login page's buttons ("Google", "Google or Microsoft"), where a directory writes
+	// them: the auth keeps no groups of its own, and the Groups page says whose groups
+	// do that job. Empty where the application gives the roles by hand.
+	RolesFrom string
+	Sides     []*tsAPIIdentitySide
 }
 
 // tsAPIIdentitySide is one side of an auth's management: the whole application's (the
@@ -76,12 +81,13 @@ type tsAPIIdentitySide struct {
 
 // pageLists names the structs of the lists of a side by what each holds. The whole
 // application's are the declarations over the auth's tables; a tenant's are the lists
-// the tenant keeps of them (listName).
+// the tenant keeps of them (listName). A person's roles are the one list that says where
+// each comes from, on both sides (identity_holdings.go).
 func (i *identityInstance) pageLists(tenant bool) []identityPart {
 	if tenant {
 		return []identityPart{
 			{identityListUsers, i.listName(listPeopleSuffix)},
-			{identityListRoles, i.listName(listRolesSuffix)},
+			{identityListRoles, i.listName(listHeldRolesSuffix)},
 			{identityListIdentities, i.listName(listIdentitiesSuffix)},
 			{identityListSignInWays, i.signInWayName(true)},
 			{identityListInvitations, i.listName(listInvitationsSuffix)},
@@ -92,10 +98,19 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		}
 	}
 	data := &identitySourceData{identityInstance: i}
+	// A person's roles are one list where the schema holds what it reads, and the
+	// groups and their roles are listed with what each holds (identity_holdings.go).
+	roles, groups, groupRoles := data.Membership(), data.Group(), data.GroupRole()
+	if i.listsHeldRoles() {
+		roles = data.HeldRole()
+	}
+	if i.keepsGroups() {
+		groups, groupRoles = data.ListedGroup(), data.ListedGroupRole()
+	}
 
 	parts := []identityPart{
 		{identityListUsers, data.User()},
-		{identityListRoles, data.Membership()},
+		{identityListRoles, roles},
 		{identityListIdentities, data.Identity()},
 		{identityListSignInWays, i.signInWayName(false)},
 		{identityListInvitations, data.MailLink()},
@@ -103,10 +118,11 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		{identityListSignInAttempts, data.SignInAttempt()},
 		{identityListSignInMethods, data.SignInMethod()},
 		{identityListSignUpRoles, data.SignUpRole()},
-		{identityListGroups, data.Group()},
+		{identityListGroups, groups},
 		{identityListGroupUsers, i.groupListName(listGroupPeopleSuffix, false)},
-		{identityListGroupRoles, data.GroupRole()},
+		{identityListGroupRoles, groupRoles},
 		{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, false)},
+		{identityListTakenRoles, data.TakenRole()},
 	}
 	if i.invitesTenants() {
 		parts = append(parts, identityPart{identityListInvitedTenants, i.invitedTenantName()})
@@ -157,6 +173,7 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 			identityPart{"openSignUp", "Open" + i.auth + "SignUp"},
 			identityPart{"makeInviteOnly", "Make" + i.auth + "InviteOnly"},
 			identityPart{"setSelfServiceReset", "Set" + i.auth + "SelfServiceReset"},
+			identityPart{identityMethodTakeRole, i.takeRoleMethod()},
 		)
 		if i.invitesTenants() {
 			parts = append(parts,
@@ -188,7 +205,7 @@ func (t *typescriptGenerator) identityOn(data *tsAPIData) []*tsAPIIdentity {
 		if !slices.Contains(inst.outlets, t.targetOutlet()) {
 			continue
 		}
-		identity := &tsAPIIdentity{Auth: inst.auth, Label: authLabel(inst.auth)}
+		identity := &tsAPIIdentity{Auth: inst.auth, Label: authLabel(inst.auth), RolesFrom: strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(inst.rolesFrom())}
 		sides := []bool{false}
 		if inst.tenant != nil {
 			identity.Tenant = inst.tenant.name

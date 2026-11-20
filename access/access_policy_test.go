@@ -384,11 +384,11 @@ func TestClient_CheckPolicy(t *testing.T) {
 		{
 			name: "memberships naming a role nothing defines, the members sorted",
 			seed: func(ctx context.Context, store *fakeStore) error {
-				if err := store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}); err != nil {
+				if err := store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}, ""); err != nil {
 					return err
 				}
 
-				return store.InsertUserRole(ctx, tenant1Policy, "amy", "Ghost", accesstypes.Period{})
+				return store.InsertUserRole(ctx, tenant1Policy, "amy", "Ghost", accesstypes.Period{}, "")
 			},
 			want:     []Warning{paymasterWarning, &OrphanedMembership{Scope: tenant1Policy, Role: "Ghost", Users: []accesstypes.User{"amy", "zed"}}},
 			wantText: []string{"without Read or List", "role Ghost is held by 2 user(s) in scope tenant1"},
@@ -396,7 +396,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 		{
 			name: "a membership of a default role resolves",
 			seed: func(ctx context.Context, store *fakeStore) error {
-				return store.InsertUserRole(ctx, everyDomainPolicy, "dana", "Paymaster", accesstypes.Period{})
+				return store.InsertUserRole(ctx, everyDomainPolicy, "dana", "Paymaster", accesstypes.Period{}, "")
 			},
 			want:     []Warning{paymasterWarning},
 			wantText: []string{"without Read or List"},
@@ -408,7 +408,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 					return err
 				}
 
-				return store.InsertUserRole(ctx, tenant1Policy, "dana", "Scout", accesstypes.Period{})
+				return store.InsertUserRole(ctx, tenant1Policy, "dana", "Scout", accesstypes.Period{}, "")
 			},
 			want:     []Warning{paymasterWarning},
 			wantText: []string{"without Read or List"},
@@ -429,7 +429,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 			name: "every kind at once, in report order",
 			seed: func(ctx context.Context, store *fakeStore) error {
 				for _, err := range []error{
-					store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}),
+					store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}, ""),
 					store.InsertRole(ctx, tenant1Policy, "Paymaster", aDescription),
 					store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription),
 					store.InsertGrant(ctx, tenant1Policy, "Rogue", "Read", "Nowhere", "", ""),
@@ -510,7 +510,7 @@ func TestClient_CheckPolicy_findingsAreErrors(t *testing.T) {
 	store := newFakeStore()
 	for _, err := range []error{
 		store.InsertRole(ctx, tenant1Policy, "Paymaster", aDescription),
-		store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}),
+		store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}, ""),
 		store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription),
 		store.InsertGrant(ctx, tenant1Policy, "Rogue", "Read", "Nowhere", "", ""),
 	} {
@@ -644,7 +644,7 @@ func TestClient_CheckPolicy_findingsReachReloadHook(t *testing.T) {
 	store := newFakeStore()
 	for _, err := range []error{
 		store.InsertRole(ctx, tenant1Policy, "Paymaster", aDescription),
-		store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}),
+		store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}, ""),
 		store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription),
 		store.InsertGrant(ctx, tenant1Policy, "Rogue", "Read", "Nowhere", "", ""),
 	} {

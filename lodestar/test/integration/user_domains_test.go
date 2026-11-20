@@ -8,6 +8,7 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -92,7 +93,7 @@ func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
 		Closed string `json:"closed"`
 	}
 	if err := json.Unmarshal(body, &listed); err != nil {
-		return err
+		return fmt.Errorf("json.Unmarshal(): %w", err)
 	}
 	out := make([]T, 0, len(listed))
 	for _, entry := range listed {
@@ -115,7 +116,7 @@ func closedDomains(body []byte) (map[string]string, error) {
 		Closed string `json:"closed"`
 	}
 	if err := json.Unmarshal(body, &listed); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("json.Unmarshal(): %w", err)
 	}
 	closed := map[string]string{}
 	for _, entry := range listed {

@@ -109,8 +109,10 @@ func (d *identitySourceData) JudgesRoleChanges() bool { return d.judgesRoleChang
 // file, for an instance that keeps groups, whose changes are judged as the role changes
 // they make, for one whose administrator picks the default role of an open method, for
 // one whose tenant's administrator picks the role everyone from the tenant's directory
-// gets (seatsDirectory), and for one whose tenant gives roles by hand, where the list a
-// role is picked from offers the roles the caller could give (picksRoles).
+// gets (seatsDirectory), for one whose tenant gives roles by hand, where the list a
+// role is picked from offers the roles the caller could give (picksRoles), and for one
+// whose people take a role for a set time, which is judged as the role given directly
+// (takesRoles).
 func (i *identityInstance) roleGrantsSource() []identitySourceFile {
 	var needs []identityTable
 	switch {
@@ -120,6 +122,9 @@ func (i *identityInstance) roleGrantsSource() []identitySourceFile {
 		needs = []identityTable{identitySignInMethods, identityMemberships}
 	case i.seatsDirectory(), i.picksRoles():
 		needs = []identityTable{identityMemberships}
+	case i.takesRoles():
+		// A role taken for a set time is judged as the same role given directly.
+		needs = []identityTable{identityUsers, identityMemberships}
 	default:
 		return nil
 	}

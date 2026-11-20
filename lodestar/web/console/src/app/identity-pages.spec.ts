@@ -3,7 +3,7 @@ import { apiDescriptor } from '@app/service/zz_gen_api';
 import { Methods, Resources } from '@app/service/zz_gen_constants';
 import { methodMeta as generatedMethodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
-import { identityPages } from '@impulseframework/resource-angular/identity-pages';
+import { identityMenuPages, identityPages } from '@impulseframework/resource-angular/identity-pages';
 import {
   ListViewConfig,
   Method,
@@ -45,14 +45,16 @@ const sampleRow = (resource: Resource): RecordData =>
   Object.fromEntries(fieldNames(resource).map((name) => [name, `${name}-value`]));
 
 describe("the library's pages over an auth's generated management", () => {
-  it('are the accounts, groups, mailed links, invited sectors, sessions, failed sign-ins and sign-in methods of the whole service, and the people, groups and invitations of a sector', () => {
+  it('are the accounts, groups, mailed links, invited sectors, sessions, failed sign-ins, sign-in methods and Break glass of the whole service, and the people, groups and invitations of a sector', () => {
     const routes = (auth: string, scope: 'global' | 'domain'): (string | undefined)[] =>
       identityPages(apiDescriptor, resourceMeta, { auth, scope }).map((page) => page.routeData.route);
 
     // The crew's auth carries the choice of who may sign up, so it has the Sign-in page;
     // the members' auth, whose roles a directory writes, has none. The crew's people
     // make the sectors, so its pages hold the invitations that make one; the members'
-    // do not.
+    // do not. The crew's roles are given by hand, so a person of the crew takes one for
+    // a set time on Break glass; nobody gives the members a role by hand, and they have
+    // no such page.
     expect(routes('Crew', 'global')).toEqual([
       'crew-accounts',
       'crew-groups',
@@ -61,19 +63,34 @@ describe("the library's pages over an auth's generated management", () => {
       'crew-sessions',
       'crew-failed-sign-ins',
       'crew-sign-in',
+      'crew-break-glass',
     ]);
     expect(routes('Crew', 'domain')).toEqual([
       'sectors/:sectorID/crew-people',
       'sectors/:sectorID/crew-groups',
       'sectors/:sectorID/crew-invitations',
     ]);
-    // The members' roles are their directory's, and so are its groups: no page of groups.
+    // The members' roles are their directory's, and so are its groups: no list of groups.
     expect(routes('Members', 'global')).toEqual([
       'members-accounts',
       'members-mailed-links',
       'members-sessions',
       'members-failed-sign-ins',
     ]);
+  });
+
+  it("keep the Groups entry in the members' menu, with a page that lists nothing: the directory's groups do that job", () => {
+    const entries = identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' });
+    expect(entries.map((entry) => [entry.label, entry.route])).toEqual([
+      ['Accounts', ['members-accounts']],
+      ['Groups', ['members-groups']],
+      ['Mailed links', ['members-mailed-links']],
+      ['Sessions', ['members-sessions']],
+      ['Failed sign-ins', ['members-failed-sign-ins']],
+    ]);
+    // The description names the directory, in the words its sign-in button carries.
+    const members = (apiDescriptor.identity ?? []).find((identity) => identity.auth === 'Members');
+    expect(members?.rolesFrom).toBe('Company directory');
   });
 
   it("offer nothing on the members' pages that gives or takes a role, adds an account or invites one: a directory writes the members' roles", () => {

@@ -45,9 +45,12 @@ type (
 		// @primarykey
 		DomainID string `spanner:"DomainId" index:"true"`
 		// @primarykey
-		Role     string     `spanner:"Role"     index:"true"`
-		StartsAt *time.Time `spanner:"StartsAt"`
-		EndsAt   *time.Time `spanner:"EndsAt"`
+		Role string `spanner:"Role" index:"true"`
+		// CreatedAt is when the person came to hold the role through the group: the later
+		// of when the group was given the role and when the person was put in the group.
+		CreatedAt time.Time  `spanner:"CreatedAt"`
+		StartsAt  *time.Time `spanner:"StartsAt"`
+		EndsAt    *time.Time `spanner:"EndsAt"`
 	}
 )
 
@@ -64,6 +67,7 @@ SELECT
   r.Axis AS Axis,
   r.DomainId AS DomainId,
   r.Role AS Role,
+  GREATEST(r.CreatedAt, m.CreatedAt) AS CreatedAt,
   COALESCE(GREATEST(r.StartsAt, m.StartsAt), r.StartsAt, m.StartsAt) AS StartsAt,
   COALESCE(LEAST(r.EndsAt, m.EndsAt), r.EndsAt, m.EndsAt) AS EndsAt
 FROM StaffGroupRoles r

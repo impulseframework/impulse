@@ -18,7 +18,7 @@ import (
 // @outlet(portal)
 // @answers(204)
 type DescribeMembersGroup struct {
-	// @target(MembersGroup)
+	// @target(MembersListedGroup)
 	GroupID     impulse.UUID
 	Description string `validate:"required"`
 }

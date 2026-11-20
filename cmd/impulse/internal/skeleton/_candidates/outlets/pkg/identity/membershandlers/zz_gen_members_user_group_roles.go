@@ -28,6 +28,7 @@ func (h *Handlers) MembersUserGroupRoles() http.HandlerFunc {
 		Axis      string       `json:"axis"      perm:"-"`
 		DomainID  string       `json:"domainId"  index:"true" perm:"-"`
 		Role      string       `json:"role"      index:"true" perm:"-"`
+		CreatedAt time.Time    `json:"createdAt"`
 		StartsAt  *time.Time   `json:"startsAt"`
 		EndsAt    *time.Time   `json:"endsAt"`
 	}
@@ -103,6 +104,10 @@ func (h *Handlers) MembersUserGroupRoles() http.HandlerFunc {
 					if !row.Masked("role") {
 						rmap["role"] = rec.Role
 					}
+				case "CreatedAt":
+					if !row.Masked("createdAt") {
+						rmap["createdAt"] = rec.CreatedAt
+					}
 				case "StartsAt":
 					if !row.Masked("startsAt") {
 						rmap["startsAt"] = rec.StartsAt
@@ -142,6 +147,7 @@ func (h *Handlers) MembersUserGroupRole() http.HandlerFunc {
 		Axis      string       `json:"axis"      index:"true" perm:"-"`
 		DomainID  string       `json:"domainId"  index:"true" perm:"-"`
 		Role      string       `json:"role"      index:"true" perm:"-"`
+		CreatedAt time.Time    `json:"createdAt"`
 		StartsAt  *time.Time   `json:"startsAt"`
 		EndsAt    *time.Time   `json:"endsAt"`
 	}
@@ -209,6 +215,10 @@ func (h *Handlers) MembersUserGroupRole() http.HandlerFunc {
 			case "Role":
 				if !row.Masked("role") {
 					rmap["role"] = rec.Role
+				}
+			case "CreatedAt":
+				if !row.Masked("createdAt") {
+					rmap["createdAt"] = rec.CreatedAt
 				}
 			case "StartsAt":
 				if !row.Masked("startsAt") {

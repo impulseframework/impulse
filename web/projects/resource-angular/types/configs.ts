@@ -54,6 +54,12 @@ export interface RowAction {
   label: string;
   icon?: string;
   run: () => void;
+  /**
+   * The entry says something and does nothing: the words a row shows in the place of a
+   * method it does not offer (MethodPresentation.otherwise). It is drawn grayed out and
+   * a click runs nothing.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -117,6 +123,14 @@ export interface MethodPresentation {
    * linked to them) says so from them.
    */
   when?: (row: RecordData, listed?: readonly RecordData[]) => boolean;
+  /**
+   * What a row says in the method's place where `when` answers no: words drawn where the
+   * method's entry would be, which a click does nothing with (a group that still has
+   * people in it says what is left, where Delete would be). Answering nothing draws
+   * nothing. It is said only on a row the server lets the caller run the method on, so
+   * nobody reads about an act that is not theirs to take.
+   */
+  otherwise?: (row: RecordData) => string | undefined;
   /**
    * The question the dialog asks before a method that takes nothing but the row. For a
    * method above a list it is asked of the row the list sits under, with `listed`, the
@@ -266,6 +280,13 @@ interface ColumnConfigBase {
   formatType?: FormatType | string;
   hidden?: boolean;
   emptyDataValue?: DataType;
+  /**
+   * Draws a list field's items a line each, in place of one line of them joined by
+   * commas and cut short: for a short list a person reads whole (the roles a group
+   * holds). A row is as tall as its longest list. On a field that holds no list it
+   * changes nothing.
+   */
+  lines?: boolean;
   /**
    * Opt the column out of its filter control. A control is drawn only where the
    * generated metadata says the server filters the field (`filterable`); `false` removes
@@ -859,6 +880,12 @@ export interface BaseConfigOptions {
   };
   showBackButton?: boolean;
   createNavigation?: string[];
+  /**
+   * What a row's page is headed by, from the row: the row's own name (a group's page is
+   * headed by the group's name). Until the row has been read the page is headed by
+   * nothing. Unset, the page is headed by `title`, as the list is.
+   */
+  rowTitle?: (row: RecordData) => string;
 }
 export interface BaseConfig {
   title: string;
@@ -875,6 +902,8 @@ export interface BaseConfig {
   };
   showBackButton: boolean;
   createNavigation: string[];
+  /** What a row's page is headed by; see BaseConfigOptions.rowTitle. */
+  rowTitle?: (row: RecordData) => string;
 }
 
 @Directive()
@@ -1017,6 +1046,14 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
   /** Show the server's total row count in the title. */
   showRowCount?: boolean;
   /**
+   * Further lists drawn under this one on its page, in order, each a list of its own
+   * with its own title, rows and methods: for a page that is more than one list of the
+   * same kind of thing (what is held right now, then what has ended). Only the list a
+   * page is built on draws them; a list under a row's page names its lists among the
+   * row's related configs.
+   */
+  below?: ListViewConfig[];
+  /**
    * A standing notice above the list, drawn in the library's warning colors under a
    * warning icon: what the page must not let a person overlook for as long as it holds
    * (a sign-in method that is open to sign-up). It is said from the rows on the page,
@@ -1115,6 +1152,8 @@ export interface ListViewConfig extends BaseConfig {
   sorts: FieldSort[];
   shouldRenderActions: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
   showRowCount: boolean;
+  /** The lists drawn under this one on its page; see ListViewConfigOptions.below. */
+  below?: ListViewConfig[];
   /** The page's standing notice; see ListViewConfigOptions.notice. */
   notice?: (rows: RecordData[]) => string | undefined;
   /** What the empty table says of a list with no row; see ListViewConfigOptions.emptyMessage. */

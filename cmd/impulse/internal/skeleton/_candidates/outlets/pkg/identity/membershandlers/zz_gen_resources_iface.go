@@ -13,16 +13,20 @@ type Resourcer interface {
 	resource.Resourcer
 	membersresources.MembersGroup | membersresources.MembersGroupMember |
 		membersresources.MembersGroupRole | membersresources.MembersGroupUser |
-		membersresources.MembersRole | membersresources.MembersRoleGrant |
-		membersresources.MembersSession | membersresources.MembersSessionAuthEvent |
-		membersresources.MembersSessionIdentity | membersresources.MembersSessionMailLink |
+		membersresources.MembersHeldRole | membersresources.MembersListedGroup |
+		membersresources.MembersListedGroupRole | membersresources.MembersRole |
+		membersresources.MembersRoleGrant | membersresources.MembersSession |
+		membersresources.MembersSessionAuthEvent | membersresources.MembersSessionIdentity |
+		membersresources.MembersSessionMailLink |
 		membersresources.MembersSessionSignInAttempt |
 		membersresources.MembersSessionSignInMethod | membersresources.MembersSessionToken |
 		membersresources.MembersSessionTrustedDevice | membersresources.MembersSessionUser |
-		membersresources.MembersTenantGroup | membersresources.MembersTenantGroupRole |
-		membersresources.MembersTenantGroupUser | membersresources.MembersTenantIdentity |
+		membersresources.MembersTakenRole | membersresources.MembersTenantGroup |
+		membersresources.MembersTenantGroupRole | membersresources.MembersTenantGroupUser |
+		membersresources.MembersTenantHeldRole | membersresources.MembersTenantIdentity |
 		membersresources.MembersTenantInvitation | membersresources.MembersTenantUser |
 		membersresources.MembersTenantUserGroupRole |
 		membersresources.MembersTenantUserRole | membersresources.MembersUserGroupRole |
-		membersresources.MembersUserRole | membersidentity.MembersTenantRole
+		membersresources.MembersUserRole | membersidentity.MembersTakeLength |
+		membersidentity.MembersTakeableRole | membersidentity.MembersTenantRole
 }

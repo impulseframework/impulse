@@ -61,7 +61,7 @@ func RunEngine(t *testing.T, store access.Store, within Transaction) {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
 	for _, user := range []accesstypes.User{alice, bob, carol} {
-		if err := store.InsertUserRole(ctx, tenant1, user, editor, accesstypes.Period{}); err != nil {
+		if err := store.InsertUserRole(ctx, tenant1, user, editor, accesstypes.Period{}, ""); err != nil {
 			t.Fatalf("InsertUserRole(%q) error = %v", user, err)
 		}
 	}

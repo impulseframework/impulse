@@ -47,7 +47,13 @@ what they hold.
   file gives the groups, their members and their roles to the `Administrator`, who manages
   the people. A group gives nobody a power that giving the role directly would not: who is
   in a group, and what it holds, is changed by someone who may give or take those roles
-  directly.
+  directly. The list of groups says how many people each group has and the roles it
+  holds, and offers Delete only on a group that holds nothing; a person's page lists
+  their roles in one list that says "Their own" or names the group each comes through.
+  On the Break glass page (`/staff-break-glass`) a person takes a role for a set time and
+  says why, when they hold the page's grant and could give themselves that role: the role
+  ends by itself, and whoever may take it away ends it early. The role file gives the
+  page's lists and its method, and the giving of roles, to the `Administrator` alone.
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   the role policy check (`CheckRoles`), which prints what the store holds that this
   release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table to the
