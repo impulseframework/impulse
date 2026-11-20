@@ -553,45 +553,53 @@ describe('ResourceListComponent', () => {
       ]);
     });
 
-    it('keeps what it says above its rows where it is while the same read is asked again, and takes it away once that read answers', async () => {
-      // The read of the clients is asked again each time the list brings other rows: the
-      // first is refused at once, each later one is held until the spec answers it.
+    /** A column that names each ship's client by the client's name, or by the key the ship carries where the client is not read. */
+    const clientColumn = (): MultiColumnConfig =>
+      multiColumnConfig({
+        id: 'clientId' as FieldName,
+        header: 'Client',
+        additionalIds: [{ resource: clients, id: 'id' as FieldName, field: 'name' as FieldName }],
+        concatFn: 'hyphen-concat',
+        fallback: (row: Record<string, unknown>) => `Client ${String(row['clientId'])}`,
+      });
+
+    /** The reads of the clients the list has asked the server for, each as the ids it named. */
+    const clientReads = (): string[] =>
+      transport.requests
+        .filter((request) => request.url.split('?')[0] === '/api/clients')
+        .map((request) => /id:in:\(([^)]*)\)/.exec(decodeURIComponent(request.url))?.[1] ?? '');
+
+    // A read on its way keeps the application from being stable, so the page is turned by hand.
+    const turns = async (): Promise<void> => {
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        fixture.detectChanges();
+      }
+    };
+
+    it('keeps what it says above its rows where it is while another read is asked, and takes it away once a read answers', async () => {
+      // The read of the clients is asked again each time the list brings rows that name
+      // other clients: the first is refused at once, each later one is held until the spec
+      // answers it.
       const answer: ((response: TransportResponse) => void)[] = [];
       const kestrel = [{ id: 's-1', name: 'Kestrel', clientId: 'c-1' }];
       const vega = [{ id: 's-2', name: 'Vega', clientId: 'c-2' }];
+      const heron = [{ id: 's-3', name: 'Heron', clientId: 'c-3' }];
       let clientsAsked = 0;
       await create(
-        {
-          primaryResource: ships,
-          listColumns: [
-            { id: 'name' as FieldName },
-            multiColumnConfig({
-              id: 'clientId' as FieldName,
-              header: 'Client',
-              additionalIds: [{ resource: clients, id: 'id' as FieldName, field: 'name' as FieldName }],
-              concatFn: 'hyphen-concat',
-              fallback: (row: Record<string, unknown>) => `Client ${String(row['clientId'])}`,
-            }),
-          ],
-        },
+        { primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, clientColumn()] },
         kestrel,
         (request) => {
           if (request.url.split('?')[0] === '/api/clients') {
             clientsAsked++;
             return clientsAsked === 1 ? refused : new Promise((resolve) => answer.push(resolve));
           }
-          const page = decodeURIComponent(request.url).includes('sort=name:desc') ? vega : kestrel;
+          const url = decodeURIComponent(request.url);
+          const page = url.includes('sort=name:desc') ? vega : url.includes('sort=name:asc') ? heron : kestrel;
           return { status: 200, body: page, headers: { 'total-count': '1' } };
         },
       );
       const element = fixture.nativeElement as HTMLElement;
-      // A read on its way keeps the application from being stable, so the page is turned by hand.
-      const turns = async (): Promise<void> => {
-        for (let i = 0; i < 20; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-          fixture.detectChanges();
-        }
-      };
       const sentence = 'You do not have permission to see the records named in the Client column.';
       const read = (): string | undefined => fixture.componentInstance.resourceRefMap().get('Clients::id')?.status();
       fixture.detectChanges();
@@ -608,27 +616,123 @@ describe('ResourceListComponent', () => {
       expect(noticesOf(element)).toEqual([sentence]);
       expect(element.querySelector('.notice[role="status"]')).toBe(line);
 
-      // Refused again: still the one line, never taken away in between.
+      // Refused too: still the one line, never taken away in between.
       answer[0](refused);
       await turns();
       expect(read()).toBe('error');
       expect(noticesOf(element)).toEqual([sentence]);
       expect(element.querySelector('.notice[role="status"]')).toBe(line);
 
-      // Asked a third time, it answers: the line is there while it is asked, and gone once it has answered.
+      // A third client is asked for, and that read answers: the line is there while it is asked, and gone once it has answered.
       fixture.componentInstance.onSortChange([{ field: 'name', direction: 'asc' }]);
       await turns();
       expect([clientsAsked, answer.length, read()]).toEqual([3, 2, 'loading']);
       expect(noticesOf(element)).toEqual([sentence]);
-      answer[1]({ status: 200, body: [{ id: 'c-1', name: 'Corvid Lines' }], headers: { 'total-count': '1' } });
+      answer[1]({ status: 200, body: [{ id: 'c-3', name: 'Corvid Lines' }], headers: { 'total-count': '1' } });
       await turns();
       expect(read()).toBe('resolved');
       expect(noticesOf(element)).toEqual([]);
-      expect(cellsOf(element)).toEqual([['Kestrel', 'Corvid Lines']]);
-      // Each refusal went to the console once: the line that stood through the second ask wrote nothing more.
+      expect(cellsOf(element)).toEqual([['Heron', 'Corvid Lines']]);
+      // Each of the two refusals went to the console once: the line that stood through the second ask wrote nothing more.
       expect(written(consoleError)).toEqual([
         `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
         `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
+      ]);
+
+      // The first row again: the server refused its client once, and it is not asked a
+      // second time. The list says again what it could not read, and writes nothing more.
+      fixture.componentInstance.onSortChange([]);
+      await turns();
+      expect(cellsOf(element)).toEqual([['Kestrel', 'Client c-1']]);
+      expect([clientsAsked, read()]).toEqual([3, 'error']);
+      expect(clientReads()).toEqual(['c-1', 'c-2', 'c-3']);
+      expect(noticesOf(element)).toEqual([sentence]);
+      expect(written(consoleError).length).toBe(2);
+    });
+
+    /** Two ships, each with its client, in the order the list is sorted by; the server answers for the clients as told. */
+    const twoShips = async (clientsAnswer: () => TransportResponse): Promise<HTMLElement> => {
+      const fleet = [
+        { id: 's-1', name: 'Kestrel', clientId: 'c-1' },
+        { id: 's-2', name: 'Vega', clientId: 'c-2' },
+      ];
+      await create(
+        { primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, clientColumn()] },
+        fleet,
+        (request) => {
+          if (request.url.split('?')[0] === '/api/clients') {
+            return clientsAnswer();
+          }
+          const rows = decodeURIComponent(request.url).includes('sort=name:desc') ? [...fleet].reverse() : fleet;
+          return { status: 200, body: rows, headers: { 'total-count': '2' } };
+        },
+      );
+      fixture.detectChanges();
+      await turns();
+      return fixture.nativeElement as HTMLElement;
+    };
+
+    it('asks a read the server refused once for the same records, however the list is then sorted, and writes it to the console once', async () => {
+      const element = await twoShips(() => refused);
+      const sentence = 'You do not have permission to see the records named in the Client column.';
+      expect(clientReads()).toEqual(['c-1,c-2']);
+      expect(noticesOf(element)).toEqual([sentence]);
+      const line = element.querySelector('.notice[role="status"]');
+
+      // Sorted the other way, the list reads its rows again and they name the same two
+      // clients, the other one first. The server has said it will not answer for them.
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'desc' }]);
+      await turns();
+      expect(cellsOf(element)).toEqual([
+        ['Vega', 'Client c-2'],
+        ['Kestrel', 'Client c-1'],
+      ]);
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'asc' }]);
+      await turns();
+      expect(cellsOf(element)).toEqual([
+        ['Kestrel', 'Client c-1'],
+        ['Vega', 'Client c-2'],
+      ]);
+
+      // The list was read three times and the clients once.
+      expect(transport.requests.filter((request) => request.url.split('?')[0] === '/api/ships').length).toBe(3);
+      expect(clientReads()).toEqual(['c-1,c-2']);
+      expect(fixture.componentInstance.resourceRefMap().get('Clients::id')?.status()).toBe('error');
+      expect(noticesOf(element)).toEqual([sentence]);
+      expect(element.querySelector('.notice[role="status"]')).toBe(line);
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
+      ]);
+    });
+
+    it('asks a read that failed again when the list is sorted, as the next answer may be another, and writes each failure', async () => {
+      const failure = 'spanner: code = "Unavailable", desc = "the session pool is closed"';
+      let asked = 0;
+      const element = await twoShips(() => {
+        asked++;
+        return asked === 1
+          ? { status: 500, body: { message: failure } }
+          : {
+              status: 200,
+              body: [
+                { id: 'c-1', name: 'Corvid Lines' },
+                { id: 'c-2', name: 'Halcyon Freight' },
+              ],
+              headers: { 'total-count': '2' },
+            };
+      });
+      expect(noticesOf(element)).toEqual(['The records named in the Client column could not be loaded.']);
+
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'desc' }]);
+      await turns();
+      expect(clientReads()).toEqual(['c-1,c-2', 'c-2,c-1']);
+      expect(noticesOf(element)).toEqual([]);
+      expect(cellsOf(element)).toEqual([
+        ['Vega', 'Halcyon Freight'],
+        ['Kestrel', 'Corvid Lines'],
+      ]);
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${failure}`,
       ]);
     });
 

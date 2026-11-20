@@ -39,6 +39,7 @@ import { NotificationService } from '@impulseframework/resource-angular/ui-notif
 import {
   acrossTenantsHandle,
   AnyResourceHandle,
+  ApiError,
   BatchResult,
   Capability,
   Domain,
@@ -58,7 +59,7 @@ import {
   sameSubscription,
   wholeListQuery,
 } from '@impulseframework/resource';
-import { from, map, mergeMap, Observable, of, tap, toArray } from 'rxjs';
+import { from, map, mergeMap, Observable, of, tap, throwError, toArray } from 'rxjs';
 import { PagedList, PagedListRequest } from './paged-list';
 import { PagePosition, positionAfter } from './resource-list/list-request';
 import { methodsTargeting } from './row-methods/row-methods';
@@ -824,6 +825,13 @@ export class ResourceStore {
    * page per batch of the page's keys, each batch no larger than its maximum (and than
    * `batchSize`), each answered by the key's index in one request; nothing is walked and
    * nothing is read whole.
+   *
+   * A read the server refused (an answer in the 400s: the caller may not list the source,
+   * or the source would not be asked that way) is not asked again for the same keys by the
+   * same reader, in whatever order the page holds them: a sort or a filter that brings rows
+   * naming the same records ends in the refusal the server gave, the same error, and no
+   * request is made. A read that failed (no answer, or one in the 500s) is asked again, as
+   * the next answer may be another.
    */
   resourceListByKeys(
     route: Signal<string>,
@@ -835,6 +843,9 @@ export class ResourceStore {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new Error(`resourceListByKeys: batchSize must be a positive integer, got ${batchSize}`);
     }
+
+    // The reads the server refused, each by what was asked.
+    const refused = new Map<string, ApiError>();
 
     return untracked(() => {
       return rxResource({
@@ -870,6 +881,17 @@ export class ResourceStore {
           if (params.keys.length === 0) {
             return of([] as RecordData[]);
           }
+          const asked = JSON.stringify([
+            params.route,
+            params.keyField,
+            params.columns,
+            params.domain,
+            [...params.keys].sort(),
+          ]);
+          const refusal = refused.get(asked);
+          if (refusal !== undefined) {
+            return throwError(() => refusal);
+          }
           return from(keyBatches(handle.descriptor, params.keys, batchSize)).pipe(
             mergeMap(
               (batch) =>
@@ -882,6 +904,13 @@ export class ResourceStore {
             ),
             toArray(),
             map((results) => results.flat()),
+            tap({
+              error: (error: unknown) => {
+                if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+                  refused.set(asked, error);
+                }
+              },
+            }),
           );
         },
       }) as ResourceRef<RecordData[]>;

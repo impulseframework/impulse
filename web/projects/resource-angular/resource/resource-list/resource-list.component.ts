@@ -231,7 +231,9 @@ export class ResourceListComponent implements OnInit {
    * read ended in. A read asked again stays here while it is on its way: a page turn, a
    * sort or a filter brings other rows, so other keys to read, and the read that could not
    * be made a moment ago is the same read, most often with the same answer. It leaves when
-   * it answers.
+   * it answers. A read the server refused is not asked again for the same keys while the
+   * list stands (the store's reader keeps the refusal): it comes back here as the same
+   * error, so nothing more is written of it.
    */
   private unanswered = linkedSignal<{ refKey: string; status: string; error: unknown }[], Map<string, unknown>>({
     source: () =>
