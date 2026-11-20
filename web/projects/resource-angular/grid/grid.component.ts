@@ -110,10 +110,32 @@ function laidOut(drawn: number, scale: number): number {
   return scale === 1 ? drawn : Math.round((drawn / scale) * 1000) / 1000;
 }
 
-/** How wide what an element holds is laid out, cut short or not: its text's own line, the box of an icon. */
+/** How wide what an element holds is laid out, cut short or not: its text's own line. */
 function contentWidth(element: Element, range: Range, scale: number): number {
   range.selectNodeContents(element);
   return laidOut(range.getBoundingClientRect().width, scale);
+}
+
+/**
+ * How wide what a cell of a row holds is laid out, cut short or not. An icon is read by
+ * its box, which the stylesheet fixes, and never as a line of text: an icon is written as
+ * the word that names it, and where the icons' font is not there (still on its way when
+ * the wait for it ran out, or failed) that word is laid out in other letters, wider than
+ * the box that clips it, so the column would be read as needing the word's room and keep
+ * it. A list drawn a line each is read by its longest line, each by its own text: a
+ * line's box is as wide as its cell whatever the line says, so read by its box the column
+ * would need whatever it happened to be drawn at. Anything else is its text's own line.
+ */
+function cellContentWidth(cell: Element, range: Range, scale: number): number {
+  const icon = cell.querySelector(':scope > mat-icon');
+  if (icon) {
+    return laidOut(icon.getBoundingClientRect().width, scale);
+  }
+  const lines = Array.from(cell.querySelectorAll(':scope > .cell-line'));
+  if (lines.length === 0) {
+    return contentWidth(cell, range, scale);
+  }
+  return lines.reduce((widest, line) => Math.max(widest, contentWidth(line, range, scale)), 0);
 }
 
 /**
@@ -670,7 +692,8 @@ export class AppGridComponent {
   /**
    * Reads what each column of no width of its own needs: the widest of its heading, with
    * the marks beside it, and the values the list is showing, with the cell's padding and
-   * lines. It is read off what is drawn (the text's own line, an icon's box), not worked
+   * lines. It is read off what is drawn (the text's own line, an icon's box, the longest
+   * line of a list drawn a line each: `cellContentWidth`), not worked
    * out from the type, so it holds for whatever a cell draws and however the page styles
    * it, and each read is brought back to what the page lays out (`drawnScale`), so it also
    * holds while something around the list is drawn smaller or larger than it is: a dialog
@@ -687,8 +710,9 @@ export class AppGridComponent {
    * is not yet what it shows (a related record not yet read is drawn as its key, longer
    * than the name that replaces it), and a need read from it would never come down. It is
    * read once the list has loaded. Nor has a list whose page has a font on its way: a text
-   * is drawn in other letters until its font arrives, and an icon as the word that names
-   * it, and a need read from those would never come down either. Laying a text out is what
+   * is drawn in other letters until its font arrives, and a need read from those would
+   * never come down either (an icon is read by its box, whatever is drawn in it, so the
+   * word that names it counts for nothing then or after). Laying a text out is what
    * starts its font's load, so a pass of reads that leaves a font on its way is not kept.
    * The list is read when the font has arrived, or has failed to (`loadingdone`), and a
    * list that has never been read with its columns is not drawn until then (`heldBack`).
@@ -769,7 +793,7 @@ export class AppGridComponent {
         }
         read.add(words);
         around ??= aroundContent(cell, view);
-        need = Math.max(need, Math.ceil(contentWidth(cell, range, scale) + around) + SPARE_WIDTH);
+        need = Math.max(need, Math.ceil(cellContentWidth(cell, range, scale) + around) + SPARE_WIDTH);
       }
       next.set(col.id, Math.min(MIN_TEXT_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, need)));
     });

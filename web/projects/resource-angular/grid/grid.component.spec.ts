@@ -1845,6 +1845,14 @@ describe('a list and the width of its frame', () => {
     /** Whether laying a text out starts the load of its font, as the first text drawn in a font does. */
     let startsFont: boolean;
     /**
+     * Whether an icon is laid out as the letters of its name, as it is where the icons'
+     * font is not there: the letters run past the icon's box, which clips them and keeps
+     * its width.
+     */
+    let iconsAsLetters: boolean;
+    /** How wide the box of a line is laid out in a list drawn a line each: as wide as its cell leaves it, whatever the line says. */
+    let lineBox: number;
+    /**
      * How much what is around the list draws it smaller or larger than it is laid out: 1
      * unless a case says, as on a page. A dialog that grows open draws what it holds
      * at nine tenths of its size and more until it has opened.
@@ -1852,6 +1860,10 @@ describe('a list and the width of its frame', () => {
     let scale: number;
     /** The length the list's stylesheet gives its rule, which a browser lays out and jsdom does not. */
     const ruleLength = 100;
+    /** How wide the box of an icon is laid out, whatever is drawn in it: a check's, any other icon's, and nothing for what is no icon. */
+    const iconBox = (drawn: Element): number => {
+      return drawn.tagName !== 'MAT-ICON' ? 0 : drawn.classList.contains('cell-yes') ? 30 : 24;
+    };
     /**
      * A length as a browser hands back what it draws: scaled, and no finer than the
      * numbers it keeps a drawing in, so a length brought back from it is a hair off.
@@ -1865,6 +1877,8 @@ describe('a list and the width of its frame', () => {
       wider = 1;
       scale = 1;
       startsFont = false;
+      iconsAsLetters = false;
+      lineBox = 0;
       placed = new Map();
       told = new Map();
       fonts = {
@@ -1886,13 +1900,17 @@ describe('a list and the width of its frame', () => {
         if (startsFont) {
           fonts.status = 'loading';
         }
+        // What a range over what an element holds takes in, as a browser has it: the box
+        // of each element in it and the line of each text in it, an icon's letters with
+        // its box and the box of a line set on its own with the line's text.
         const drawn = this.startContainer as HTMLElement;
         const icon = drawn.querySelector('mat-icon');
+        const letters = (drawn.textContent ?? '').trim().length * character * wider;
         const width = icon
-          ? icon.classList.contains('cell-yes')
-            ? 30
-            : 24
-          : (drawn.textContent ?? '').trim().length * character * wider;
+          ? Math.max(iconBox(icon), iconsAsLetters ? letters : 0)
+          : drawn.querySelector('.cell-line')
+            ? Math.max(lineBox, letters)
+            : letters;
         return { width: asDrawn(width) } as DOMRect;
       };
       const view = document.defaultView as Window;
@@ -1920,7 +1938,7 @@ describe('a list and the width of its frame', () => {
       ): DOMRect {
         const laid = this.classList.contains('scale-rule')
           ? { left: 0, right: ruleLength }
-          : (placed.get(this) ?? { left: 0, right: 0 });
+          : (placed.get(this) ?? { left: 0, right: this.closest('td') ? iconBox(this) : 0 });
         const at = { left: asDrawn(laid.left), right: asDrawn(laid.right) };
         return { ...at, width: at.right - at.left, top: 0, bottom: 0, height: 0 } as DOMRect;
       });
@@ -2777,6 +2795,73 @@ describe('a list and the width of its frame', () => {
         detect();
         expect(drawn()).toBe(true);
         expect([widths()[0], widths()[3]]).toEqual(inItsPlace);
+      });
+
+      it("reads an icon by its box, not by the letters of its name: a column of icons read once the wait for the icons' font has run out is as wide as the icon needs", async () => {
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', [
+          { name: 'Commendations', enabled: true, standing: 'Cleared', [iconCellKey('standing')]: 'verified_user' },
+        ]);
+        fixture.componentRef.setInput('columnDefs', [
+          { id: 'name' },
+          { id: 'enabled', header: 'On' },
+          { id: 'standing', header: 'Is', iconConfig: { icons: { Cleared: 'verified_user' } } },
+          { id: 'more' },
+        ]);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        await settle(fixture);
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        // The icons' font is on its way and does not arrive: each icon is laid out as the
+        // letters of its name, which its box clips.
+        iconsAsLetters = true;
+        fonts.status = 'loading';
+        frameIs(100);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(3000);
+        detect();
+        expect(drawn()).toBe(true);
+
+        // A check's box is 30 where "check" is five letters, and the other icon's 24 where
+        // "verified_user" is thirteen: each column is as wide as the box needs.
+        expect(cells(0)[1].querySelector('mat-icon.cell-yes')?.textContent).toBe('check');
+        expect(cells(0)[2].querySelector('mat-icon.cell-icon')?.textContent?.trim()).toBe('verified_user');
+        const boxes = [`${30 + aroundCell + spare}px`, `${24 + aroundCell + spare}px`];
+        expect(widths().slice(1, 3)).toEqual(boxes);
+        expect(5 * character).toBeGreaterThan(30);
+        expect(13 * character).toBeGreaterThan(24);
+
+        // The font arrives after all: the icons are drawn, and nothing moves.
+        iconsAsLetters = false;
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(widths().slice(1, 3)).toEqual(boxes);
+      });
+
+      it('reads a list drawn a line each by its longest line, not by the box of a line, which is as wide as its cell whatever the line says', async () => {
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', [
+          { name: 'Ada', roles: ['Reader', 'Deck warden'] },
+          { name: 'Mo', roles: ['Reader'] },
+        ]);
+        fixture.componentRef.setInput('columnDefs', [{ id: 'name' }, { id: 'roles', lines: true }, { id: 'more' }]);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        await settle(fixture);
+        // The column is drawn at the library's width until it is read: its lines' boxes
+        // are what that leaves inside the cell's padding and line.
+        lineBox = text - aroundCell;
+        frameIs(100);
+
+        expect(Array.from(cells(0)[1].querySelectorAll('.cell-line')).map((line) => line.textContent)).toEqual([
+          'Reader',
+          'Deck warden',
+        ]);
+        // "Deck warden" is eleven characters, more than the heading needs.
+        expect(widths()[1]).toBe(`${cellOf(11)}px`);
+        expect(cellOf(11)).toBeGreaterThan(headingOf(5));
+        expect(cellOf(11)).toBeLessThan(text);
       });
 
       it('counts that wait once for the page, not again for each list: a list opened while it runs waits what is left of it, and one opened after it has run out is drawn at once', async () => {
