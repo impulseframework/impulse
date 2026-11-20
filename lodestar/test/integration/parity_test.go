@@ -429,8 +429,11 @@ func seedDemoGroupPasses(ctx context.Context, db *initiator.SpannerDB) error {
 						WHERE h.SectorId = @sector AND h.Name = @hangar AND g.Name = @group AND g.Kind = 'domain'`,
 					Params: map[string]any{"id": pass.ID.String(), "level": pass.Level, "sector": string(domain), "hangar": pass.Hangar, "group": group.Name},
 				})
+				if err != nil {
+					return fmt.Errorf("spanner.ReadWriteTransaction.Update(): %w", err)
+				}
 
-				return err
+				return nil
 			}); err != nil {
 				return fmt.Errorf("the pass of the group %s to the hangar %s: %w", group.Name, pass.Hangar, err)
 			}
