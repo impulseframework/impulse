@@ -1,4 +1,10 @@
-<svg [attr.viewBox]="'0 0 ' + width() + ' ' + height()" class="graph" role="img" aria-label="Workflow graph">
+<svg
+  [attr.viewBox]="'0 0 ' + width() + ' ' + height()"
+  class="graph"
+  [class.down]="down()"
+  [style.max-width.px]="down() ? width() : null"
+  role="img"
+  aria-label="Workflow graph">
   <defs>
     <marker
       id="arrow"

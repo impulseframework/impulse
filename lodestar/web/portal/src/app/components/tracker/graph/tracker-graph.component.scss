@@ -1,3 +1,9 @@
+// The graph takes the width of what it sits in, and measures that width to choose which
+// way to draw itself.
+:host {
+  display: block;
+}
+
 .graph {
   width: 100%;
   max-width: 640px;

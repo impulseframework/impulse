@@ -447,6 +447,46 @@ describe('TrackerComponent for a signed-in client', () => {
     expect(text(element())).not.toMatch(/StandDownMission|state graph|edge|descriptor|manual resource|change log/i);
   });
 
+  it('draws the graph top to bottom when its card is narrow, with no line through a label', async () => {
+    const watched: { target: Element; changed: () => void }[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        disconnect = vi.fn();
+        constructor(private readonly changed: () => void) {}
+        observe(target: Element): void {
+          watched.push({ target, changed: this.changed });
+        }
+      },
+    );
+    try {
+      await pageFor({ grants: follows, missions: [heron] });
+      await openMission('Refuel the Heron');
+      const host = element().querySelector('app-tracker-graph')!;
+      const graph = host.querySelector('svg')!;
+      const columns = (): number =>
+        new Set(Array.from(graph.querySelectorAll('.node:not(.terminal) rect')).map((box) => box.getAttribute('x')))
+          .size;
+      expect(columns()).toBe(3);
+
+      // The card narrows, the window as wide as it was: the graph measures itself.
+      vi.spyOn(host, 'getBoundingClientRect').mockReturnValue({ width: 320 } as DOMRect);
+      watched.filter((watch) => watch.target === host).forEach((watch) => watch.changed());
+      await settle(() => columns() === 1);
+
+      expect(columns()).toBe(1);
+      expect(graph.classList.contains('down')).toBe(true);
+      expect(Array.from(graph.querySelectorAll('.edge text')).map((label) => text(label))).toEqual([
+        'Stand down',
+        'Stand down',
+        'Stand down',
+      ]);
+      expect(labelFaults(graph)).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('Stand down asks first: the dialog names the mission, and nothing is sent until it is confirmed', async () => {
     await pageFor({ grants: follows, missions: [kestrel] });
     await openMission('Tow the Kestrel');
