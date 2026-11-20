@@ -18,7 +18,6 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
-// @class(access)
 type DisableStaffUser struct {
 	// @target(StaffSessionUser)
 	UserID impulse.UUID

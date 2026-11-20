@@ -115,7 +115,6 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "DeleteMembersTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "MembersTenantUsers",
 			},
 			{
@@ -129,7 +128,6 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "DeleteStaffTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantUsers",
 			},
 			{
@@ -148,28 +146,24 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "DisableMembersTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "MembersTenantUsers",
 			},
 			{
 				Name:        "DisableStaffTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantUsers",
 			},
 			{
 				Name:        "EnableMembersTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "MembersTenantUsers",
 			},
 			{
 				Name:        "EnableStaffTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantUsers",
 			},
 			{
@@ -924,6 +918,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				NoRole:      true,
 			},
 			{
 				Name:        "DeleteMembersGroup",
@@ -936,7 +931,6 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "DeleteMembersUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "MembersSessionUsers",
 			},
 			{
@@ -950,7 +944,6 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "DeleteStaffUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffSessionUsers",
 			},
 			{
@@ -969,28 +962,24 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "DisableMembersUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "MembersSessionUsers",
 			},
 			{
 				Name:        "DisableStaffUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffSessionUsers",
 			},
 			{
 				Name:        "EnableMembersUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "MembersSessionUsers",
 			},
 			{
 				Name:        "EnableStaffUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffSessionUsers",
 			},
 			{

@@ -83,7 +83,6 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "DeleteStaffTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantUsers",
 			},
 			{
@@ -96,14 +95,12 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "DisableStaffTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantUsers",
 			},
 			{
 				Name:        "EnableStaffTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantUsers",
 			},
 			{
@@ -527,6 +524,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				NoRole:      true,
 			},
 			{
 				Name:        "DeleteStaffGroup",
@@ -539,7 +537,6 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "DeleteStaffUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffSessionUsers",
 			},
 			{
@@ -552,14 +549,12 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "DisableStaffUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffSessionUsers",
 			},
 			{
 				Name:        "EnableStaffUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffSessionUsers",
 			},
 			{

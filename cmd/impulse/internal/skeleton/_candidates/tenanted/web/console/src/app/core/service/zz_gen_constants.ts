@@ -113,7 +113,6 @@ export const Methods = {
   WithdrawStaffInvitation: 'WithdrawStaffInvitation' as Method,
   WithdrawStaffInvitedTenant: 'WithdrawStaffInvitedTenant' as Method,
   WithdrawStaffTenantInvitation: 'WithdrawStaffTenantInvitation' as Method,
-  CreateTenant: 'CreateTenant' as Method,
   EndTenantDirectoryOnly: 'EndTenantDirectoryOnly' as Method,
   MakeTenantDirectoryOnly: 'MakeTenantDirectoryOnly' as Method,
   MakeTenantInviteOnly: 'MakeTenantInviteOnly' as Method,

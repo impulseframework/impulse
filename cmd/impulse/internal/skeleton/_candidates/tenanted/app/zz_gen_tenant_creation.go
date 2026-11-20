@@ -103,8 +103,11 @@ func (a *App) CreateTenant() http.HandlerFunc {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 		}
-		// One tenant per person: a session holding a grant in any tenant is refused.
-		held, err := userPermissions.Domains(ctx)
+		// One tenant per person: a person holding a grant in any tenant is refused. Every
+		// tenant they hold counts, read around the session's mask and its admission: a
+		// session that acts as a person under a mask that hides the person's tenant
+		// creates no second one.
+		held, err := resource.HeldDomains(ctx, userPermissions)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -228,8 +231,9 @@ func (a *App) CreateTenantOffered() http.HandlerFunc {
 		if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {
 			return httpio.NewEncoder(w).Ok(offer{Offered: false})
 		}
-		// One tenant per person: a session holding a grant in any tenant is offered none.
-		held, err := userPermissions.Domains(ctx)
+		// One tenant per person: a person holding a grant in any tenant is offered none,
+		// by every tenant they hold, as the POST judges it.
+		held, err := resource.HeldDomains(ctx, userPermissions)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}

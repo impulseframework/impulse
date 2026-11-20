@@ -17,7 +17,6 @@ import (
 // @rpc
 // @outlet(portal)
 // @answers(204)
-// @class(access)
 type EnableMembersUser struct {
 	// @target(MembersSessionUser)
 	UserID impulse.UUID
