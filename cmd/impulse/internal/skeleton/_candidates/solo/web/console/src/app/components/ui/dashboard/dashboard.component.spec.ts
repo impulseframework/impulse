@@ -83,6 +83,12 @@ describe('DashboardComponent', () => {
       Array.from(cell.classList).find((name) => name !== 'state'),
     );
     expect(states).toEqual(['granted', 'granted', 'absent', 'conditional', 'absent', 'absent']);
+    // Each answer names its permission beside it, for a card too narrow for the column
+    // headings, and the table sits in no frame that scrolls sideways.
+    expect(Array.from(rows[0]?.querySelectorAll('td.state .permission') ?? []).map((name) => name.textContent)).toEqual(
+      ['List', 'Read', 'Create', 'Update', 'Delete', 'Execute'],
+    );
+    expect(element.querySelector('.table-scroll')).toBeNull();
     expect(transport.requests.map((request) => `${request.method} ${request.url}`)).toEqual([
       `GET ${environment.apiUrl}/user/session`,
       `GET ${environment.apiUrl}/permission-digest`,

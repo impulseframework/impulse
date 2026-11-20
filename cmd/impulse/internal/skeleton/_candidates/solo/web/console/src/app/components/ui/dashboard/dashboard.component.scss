@@ -1,10 +1,8 @@
+// The card measures itself, so the table inside is laid out by the room the card has,
+// whatever the window's width and whether the menu is open beside the page.
 .permissions-card {
   margin-top: 16px;
-}
-
-// The table scrolls sideways inside its card on a narrow screen, rather than being cut off.
-.table-scroll {
-  overflow-x: auto;
+  container-type: inline-size;
 }
 
 .card-table {
@@ -43,6 +41,55 @@
   .empty {
     color: var(--mat-sys-on-surface-variant);
     text-align: left;
+  }
+
+  // The permission's name beside its answer: shown where the table is drawn as blocks
+  // (below), where no column heading stands over the cell.
+  .permission {
+    display: none;
+    margin-right: 4px;
+    font-size: 11px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+// A card too narrow for the seven columns draws each resource as a block of its own: the
+// name on a line, and under it the six permissions, each named beside its answer, wrapping
+// as the card needs. Nothing runs past the edge and nothing scrolls sideways.
+@container (max-width: 600px) {
+  .card-table {
+    display: block;
+
+    thead {
+      display: none;
+    }
+
+    tbody {
+      display: block;
+    }
+
+    tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 2px 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--mat-sys-outline-variant);
+    }
+
+    td {
+      padding: 0;
+      border-bottom: 0;
+    }
+
+    td:first-child {
+      flex: 0 0 100%;
+      overflow-wrap: anywhere;
+    }
+
+    .permission {
+      display: inline;
+    }
   }
 }
 
