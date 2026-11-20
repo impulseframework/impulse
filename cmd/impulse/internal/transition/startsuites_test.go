@@ -388,9 +388,17 @@ func TestDirectoryStart_Apply_loginPageSpec(t *testing.T) {
 					t.Errorf("%s does not contain %q", loginPageSpec, want)
 				}
 			}
-			for _, never := range []string{"kind: 'password'", `input[name="password"]`, "/user/password/login", "signUp", "[[", "staff", "solo"} {
+			// The confirmation of a pending sign-in is a password's, and the generated router
+			// of an auth with no password method serves none: the spec answers the methods
+			// route as that server does, with the status and the cancel alone.
+			for _, never := range []string{"kind: 'password'", `input[name="password"]`, "/user/password/login", "/user/pending/confirm", "confirm:", "signUp", "[[", "staff", "solo"} {
 				if strings.Contains(spec, never) {
 					t.Errorf("%s contains %q", loginPageSpec, never)
+				}
+			}
+			for _, want := range []string{"status: `${environment.apiUrl}/user/pending`,", "cancel: `${environment.apiUrl}/user/pending/cancel`,"} {
+				if !strings.Contains(spec, want) {
+					t.Errorf("%s does not name the pending route %q", loginPageSpec, want)
 				}
 			}
 

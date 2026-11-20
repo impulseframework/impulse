@@ -1049,15 +1049,18 @@ external method under its registration name, `GET user/<name>/login` and `GET
 user/<name>/callback` (`GET user/<name>/logout` too for Azure, the directory's
 front-channel logout). The sign-in's POSTs sit behind the outlet's XSRF guard alone, as
 the session library wires them: `POST user/password/login`, `POST user/password/change`,
-`POST user/password/remove`, `POST user/pending/confirm`, `POST user/pending/cancel`, `POST user/pending/code` (mails
+`POST user/password/remove`, `POST user/pending/cancel`, `POST user/pending/code` (mails
 the sign-in code to a sign-in that waits for the second factor), `POST
 user/pending/code/verify` and `POST user/pending/email` (the address a person who holds
 none gives for the code); `POST user/email/confirm` (the link an administrator's change
 of a person's address mails to the new address, confirmed by a person who need not be
-signed in); and, for an Auth with a password method, `POST user/password-reset` (a
-person's own request for a reset link), `POST user/password-reset/open` and `POST
-user/password-reset/complete` (the mailed link opened, and completed with the new
-password). A browser reaches them with the XSRF cookie its first request
+signed in); and, for an Auth with a password method, `POST user/pending/confirm` (a
+sign-in that matched an account with a password, finished with that password), `POST
+user/password-reset` (a person's own request for a reset link), `POST
+user/password-reset/open` and `POST user/password-reset/complete` (the mailed link
+opened, and completed with the new password). An Auth with no password method gives
+nobody a password, so its outlet serves no `user/pending/confirm`, names none in what
+the login page is told, and its session surface needs no `PendingConfirmWithPassword`. A browser reaches them with the XSRF cookie its first request
 was issued, echoed in the header. The methods route names the reset paths
 (`passwordReset`), the request's only while an administrator lets people ask for a link
 themselves (section 21, "Who may sign up"), so the login page offers "Forgot your

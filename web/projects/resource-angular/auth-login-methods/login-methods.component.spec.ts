@@ -19,6 +19,7 @@ import { of } from 'rxjs';
 import packageJson from '../package.json';
 import {
   LoginMethodsComponent,
+  NO_PASSWORD_CONFIRMATION,
   PAGE_OLDER_THAN_SERVER,
   PASSWORDS_DIFFER,
   SIGN_IN_STEPS,
@@ -976,6 +977,57 @@ describe('LoginMethodsComponent renders the pending step', () => {
       expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
     });
   }
+
+  describe('on a server with no password sign-in, whose list names no confirmation route', () => {
+    const directoryList: LoginMethods = {
+      methods: [google],
+      pending: {
+        status: pendingRoutes.status,
+        cancel: pendingRoutes.cancel,
+        sendCode: pendingRoutes.sendCode,
+        verifyCode: pendingRoutes.verifyCode,
+        enrollEmail: pendingRoutes.enrollEmail,
+      },
+    };
+
+    it('a sign-in that waits for the mailed code shows the code form', async () => {
+      const body = { ...waiting, reason: 'mfa', factors: ['email-code'], emailCode: { ...codeMailed } };
+      const page = await pageOver(server({ methods: directoryList, status: { status: 200, body } }), {
+        pending: 'mfa',
+      });
+      expect(page.component.confirmOffered()).toBe(false);
+      expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+      expect(page.element.querySelector('input[name="confirmation"]')).toBeNull();
+      expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
+    });
+
+    it('a sign-in that waits for a password offers no password form, says why, and posts nothing but the cancel', async () => {
+      const page = await pageOver(server({ methods: directoryList, status: { status: 200, body: waiting } }), {
+        pending: 'confirmation',
+      });
+      expect(page.element.querySelector('input[name="confirmation"]')).toBeNull();
+      expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).toBe(
+        NO_PASSWORD_CONFIRMATION,
+      );
+      page.component.confirmation = 'lodestar';
+      await page.component.confirm();
+      expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', 'GET /console/api/user/pending']);
+      expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
+      await page.component.cancel();
+      expect(sent(page.transport).slice(2)).toEqual([
+        'GET /console/api/user/methods',
+        'POST /console/api/user/pending/cancel',
+      ]);
+    });
+  });
+
+  it('a list that names the confirmation route offers the password form', async () => {
+    const page = await pageOver(server({ status: { status: 200, body: waiting } }), { pending: 'confirmation' });
+    expect(page.component.confirmOffered()).toBe(true);
+    expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).not.toBe(
+      NO_PASSWORD_CONFIRMATION,
+    );
+  });
 
   it('declares the steps it renders in the package as in the code', () => {
     expect(packageJson.impulseframework.signInSteps).toEqual([...SIGN_IN_STEPS]);

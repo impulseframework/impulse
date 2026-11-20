@@ -487,8 +487,8 @@ shape of the session library's login routes.
 `name` it was registered under, the library `method` behind it (`password`, `google`, `azure`,
 `workos`), its `kind` (`password`, a form the page posts; `redirect`, a navigation that sends
 the browser to the identity provider), its `label` and its `path`; and `pending`, the pending
-sign-in's status, confirmation and cancel paths, with the sign-in code's send, verification and
-enrollment paths on a server that sends mail. The answer is kept in `api.auth.snapshot`, a
+sign-in's status and cancel paths, its confirmation path on a server with a password sign-in,
+and the sign-in code's send, verification and enrollment paths on a server that sends mail. The answer is kept in `api.auth.snapshot`, a
 `Store` a framework mirrors into its own reactivity, so a page re-renders whenever the list is
 read again. A listed method of a kind the client does not drive is left out and announced once
 through the warn hook.
@@ -533,7 +533,10 @@ the page it returns to; `none`; or `refused` with `pending_expired` when the sig
 or was already used), `confirmPending(password)` posts the confirmation (the session, a further
 step, or a refusal: a wrong password answers 401 in the server's words and leaves the step in
 place), and `cancelPending()` discards it. A server whose list names no pending routes never
-holds a sign-in, and these three throw saying so.
+holds a sign-in, and these three throw saying so. A server with no password sign-in names no
+confirmation path (`pending.confirm` is absent, as nobody there has a password to confirm
+with): `pending()` and `cancelPending()` work as they do elsewhere, and `confirmPending`
+throws saying the server names no such route.
 
 A sign-in the policy holds for a second factor waits with the reason `mfa`, and when the policy
 accepts the mailed code the status carries `emailCode`, the step this client drives: the masked

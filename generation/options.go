@@ -258,6 +258,15 @@ func (a outletAuth) packageName() string {
 	return assumedPackageName(a.importPath)
 }
 
+// hasPassword reports whether the auth registers the password method. The generated
+// router serves what only a password answers (the sign-up, the first password, the
+// password reset and the password confirmation of a pending sign-in) where it does.
+func (a outletAuth) hasPassword() bool {
+	return slices.ContainsFunc(a.methods, func(m AuthMethod) bool {
+		return m.kind == methodPassword
+	})
+}
+
 // suffix returns the outlet's contribution to generated identifiers
 // (Generated<suffix>Handlers, generated<suffix>Routes, Patch<suffix>Resources);
 // empty for the default outlet, whose identifiers carry no outlet name.

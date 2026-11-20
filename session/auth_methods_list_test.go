@@ -82,6 +82,34 @@ func TestAuth_Methods(t *testing.T) {
 				"methods": []any{map[string]any{"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}},
 			},
 		},
+		{
+			name: "a list with no password method may leave the confirm path out, and the page is then told of none",
+			list: &MethodList{
+				Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}},
+				Pending: PendingRoutes{
+					Status: "/api/user/pending", Cancel: "/api/user/pending/cancel",
+					SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email",
+				},
+			},
+			want: map[string]any{
+				"methods": []any{map[string]any{"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}},
+				"pending": map[string]any{
+					"status": "/api/user/pending", "cancel": "/api/user/pending/cancel",
+					"sendCode": "/api/user/pending/code", "verifyCode": "/api/user/pending/code/verify", "enrollEmail": "/api/user/pending/email",
+				},
+			},
+		},
+		{
+			name: "a list with no password method that names the confirm path is told it: an account may hold a password the API set",
+			list: &MethodList{
+				Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}},
+				Pending: PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
+			},
+			want: map[string]any{
+				"methods": []any{map[string]any{"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}},
+				"pending": map[string]any{"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -125,6 +153,12 @@ func TestAuth_MethodsRefused(t *testing.T) {
 		{name: "the root", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/"}}}, want: "not a canonical path"},
 		{name: "some of the pending routes", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: "/api/user/pending"}, ChangePassword: "/password"}, want: "name the status, confirm and cancel paths together"},
 		{name: "a pending route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Confirm: "https://evil.example/confirm", Cancel: pending.Cancel}, ChangePassword: "/password"}, want: "name the status, confirm and cancel paths together"},
+		{name: "the password method without the confirm path", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: pending.Cancel}, ChangePassword: "/password"}, want: "name the status, confirm and cancel paths together"},
+		{name: "the password method beside a directory without the confirm path", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/google"}, {Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: pending.Cancel}, ChangePassword: "/password"}, want: "name the status, confirm and cancel paths together"},
+		{name: "no password method and some of the pending routes", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status}}, want: "name the status and cancel paths together"},
+		{name: "no password method and a cancel path off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Cancel: "https://evil.example/cancel"}}, want: "it may leave the confirm path out"},
+		{name: "no password method and a confirm path off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Confirm: "https://evil.example/confirm", Cancel: pending.Cancel}}, want: "name the status, confirm and cancel paths together"},
+		{name: "no password method and the mailed code's routes alone", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, Pending: PendingRoutes{SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email"}}, want: "name the status and cancel paths together"},
 		{name: "the password method without the password change route", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}}, want: "lists the password method with the password change route \"\""},
 		{name: "a password change route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "https://evil.example/password"}, want: "lists the password method with the password change route"},
 		{name: "a forget-this-browser route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", ForgetBrowser: "https://evil.example/forget"}, want: "forget-this-browser route"},

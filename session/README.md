@@ -909,6 +909,11 @@ the password method is listed.
   block's `sendCode`, `verifyCode` and `enrollEmail` are the sign-in code's routes,
   named together or not at all (`PendingRoutes`); a page told them runs the library's
   second factor (see "The second factor") when a sign-in waits for it.
+- The pending block's `confirm` is where a person whose sign-in matched an account with
+  a password enters it. A list with the password method names it. A list with no
+  password method may leave it out (`PendingRoutes.Confirm`), as an application where
+  nobody holds a password does: it mounts no `ConfirmWithPassword()` handler, the
+  answer carries no `confirm`, and the page offers no password confirmation.
 - `changePassword` is the path of the password method's `ChangeUserPassword` handler,
   which the page posts `{"oldPassword", "newPassword"}` to when a sign-in finds the
   user must change their password (the session read's `passwordChangeRequired`). It is

@@ -390,7 +390,9 @@ component renders the sentence with the wait, "Too many attempts. Try again in 1
 leaves the form, or the pending step, where it is for the retry. A pending step, entered with `?pending=` or answered
 to a password sign-in, is read from the pending status route and takes the list's place: for a
 confirmation, the password form of the user the sign-in matched, posting to the confirmation route,
-with a cancel that returns to the list and emits `cancelled`; a step the server names a page for
+with a cancel that returns to the list and emits `cancelled` (where the list names no confirmation
+route, as on a server with no password sign-in, the step shows one sentence saying the sign-in
+cannot be finished here and the cancel, and no form); a step the server names a page for
 (a pending hook's `redirectUrl`) sends the browser there. A step that has expired returns to the
 list with the sentence for `pending_expired`. The component drops the password once the server has
 taken it and asks for a step, and a step that is canceled or has expired returns to an empty
