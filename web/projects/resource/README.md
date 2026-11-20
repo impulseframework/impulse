@@ -565,10 +565,9 @@ malformed request, a server fault, no response, throws as the client's requests 
 The Angular binding's `<impulse-login-methods>` renders all of this; a page over another framework
 does the same over these calls.
 
-A password that must be changed (one an operator set when the account was created, one an
-administrator required a new one of) is temporary: the server refuses every
+Where an administrator required a new password of a person, the server refuses every
 request of the signed-in person with 403 and the code `password_change_required` until they
-change it, answering only the session read (which carries `passwordChangeRequired: true`), the
+choose one, answering only the session read (which carries `passwordChangeRequired: true`), the
 logout and the change. The methods list names the change path as `changePassword` when the
 server offers a password method, and `changePassword(oldPassword, newPassword)` posts there,
 reading the list again first like every step: `changed`, after which the page checks the

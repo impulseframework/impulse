@@ -52,10 +52,10 @@ export const OIDCAuthenticationGuard = (
  *
  * If the user is not authenticated, they are redirected to the application's
  * internal FRONTEND_LOGIN_PATH route. The attempted URL is stored in the AuthService so the
- * user can be redirected back after successful login. A session whose operator-set
- * password must change (`passwordChangeRequired`) is sent there the same way: the server
- * serves the page nothing until the person sets a password of their own, and the login
- * page serves the change form.
+ * user can be redirected back after successful login. The session of a person who must
+ * choose a new password because an administrator required one (`passwordChangeRequired`)
+ * is sent there the same way: the server serves the page nothing until the person chooses
+ * it, and the login page serves the change form.
  *
  */
 export const LoginAuthenticationGuard: CanActivateFn = (

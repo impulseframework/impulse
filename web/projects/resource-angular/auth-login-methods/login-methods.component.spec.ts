@@ -179,7 +179,7 @@ interface Server {
   resetComplete: TransportResponse;
   emailConfirm: TransportResponse;
   authenticated: boolean;
-  /** The session's operator-set password must change before anything else is served. */
+  /** An administrator required a new password, which the person chooses before anything else is served. */
   passwordChangeRequired: boolean;
   /** The browser arrives signed in: the session read answers authenticated before any sign-in. */
   arrivesSignedIn: boolean;
@@ -1577,7 +1577,7 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
   });
 });
 
-describe('LoginMethodsComponent changes a password the operator set', () => {
+describe('LoginMethodsComponent changes a password when an administrator required a new one', () => {
   async function signIn(page: Page): Promise<void> {
     page.component.username = 'overseer';
     page.component.password = 'lodestar';
@@ -1604,8 +1604,10 @@ describe('LoginMethodsComponent changes a password the operator set', () => {
     expect(page.component.changing()).toBe(true);
     expect(fieldsOf(page)).toEqual(['oldPassword', 'newPassword', 'newPasswordAgain']);
     expect(buttonsOf(page)).toEqual([]);
+    // The sentence says what happened: an administrator asked for a new password, and
+    // nobody but the person ever set one.
     expect(page.element.querySelector('.impulse-login-change-note')?.textContent?.trim()).toBe(
-      DEFAULT_LOGIN_MESSAGES['password_change_required'],
+      'An administrator asked you to choose a new password. Choose one to continue.',
     );
     expect(sent(page.transport)).not.toContain('GET /console/api/permission-digest');
     expect(TestBed.inject(AuthService).authenticated()).toBe(true);

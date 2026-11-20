@@ -228,7 +228,7 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
     'This Google account is not one this application accepts. Sign in with the Google account your organization gave you.',
   email_not_verified: 'The email address of this account is not verified.',
   no_roles: 'This account has no role in this application. Please contact your administrator.',
-  password_change_required: 'Your password was set by an administrator. Choose a new password to continue.',
+  password_change_required: 'An administrator asked you to choose a new password. Choose one to continue.',
   no_email_claim: 'The service you signed in with did not say which account signed in.',
   unlisted_tenant: 'This account belongs to an organization that cannot sign in here.',
   personal_account: 'Personal Microsoft accounts cannot sign in here. Use your work or school account.',

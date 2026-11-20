@@ -424,11 +424,10 @@ generated server asks the page for to that declaration, so a release never pairs
 page that cannot render what the server asks; a new step is added to the component, the list and
 the declaration together.
 
-A session the sign-in establishes may carry `passwordChangeRequired`: the person must change their
-password (an operator set it when the account was created, or an administrator required a new
-one), and
+A session the sign-in establishes may carry `passwordChangeRequired`: an administrator required a
+new password of the person, and
 the server serves nothing but the password change, the session read and the logout until the person
-sets a password of their own, refusing everything else with a 403 and the code
+chooses one, refusing everything else with a 403 and the code
 `password_change_required`. The component renders the change form in the list's place, with the
 sentence the application holds for that code over it, posts the old and the new password through the
 client (`api.auth.changePassword`) to the change path the methods list names, checks the session
