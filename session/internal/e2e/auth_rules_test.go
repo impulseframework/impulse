@@ -491,6 +491,10 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			name: "an invitation accepted through a directory that sends an address it did not verify waits for the code as one that sends none: a directory that says the invited address is its person's makes no account and spends no invitation, one that says another address is not refused for it, and the person who reads the invited mailbox accepts with the code",
 			run:  seamRulesInvitationUnverifiedAddress[Tx],
 		},
+		{
+			name: "a verified Google sign-in for an address another account holds unconfirmed, through a method open to sign-up, makes a second account beside the first: the first keeps the address, unconfirmed, and gets no link, and the second holds the Google identity and no address",
+			run:  seamRulesVerifiedBesideUnconfirmed[Tx],
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1060,6 +1064,45 @@ func seamRulesOpenSignUp[Tx any](ctx context.Context, t *testing.T, be backend[T
 	u := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, u, map[string]any{"sub": "g-sub-u", "email": "u@gmail.example", "email_verified": false}), "/login", url.Values{"code": {"email_not_verified"}})
 	a.assertNoRow(ctx, t, u, "u@gmail.example")
+}
+
+// seamRulesVerifiedBesideUnconfirmed is the scenario "a verified Google sign-in for an
+// address another account holds unconfirmed". It records what happens today, which
+// nobody has chosen. An administrator made an account under a username of its own and
+// entered an address for it, which its person has not confirmed. Then the person who
+// holds that address at Google signs in through a method open to sign-up. An address
+// held unconfirmed finds no account: whoever typed it may know the account's password,
+// so finding it would put a proven identity on an account somebody else can enter. The
+// sign-in therefore makes a second account, under the address as its username. One
+// address has one holder, so the second account is written none, and the first keeps
+// it, unconfirmed, with the roles it was given. Refusing the sign-in, or moving the
+// address to the account that proved it, are the other ways out; whoever chooses one
+// changes this scenario with the rule.
+func seamRulesVerifiedBesideUnconfirmed[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, &rulesShape{
+		tenants: azure.AnyTenant(), entraAccounts: inviteOnly,
+		workspaces: google.AnyGoogleAccount(), googleAccounts: openSignUp,
+	})
+	const address = "pat@gmail.example"
+	first := a.seedWithEmail(ctx, t, "pat", address)
+
+	b := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, b, map[string]any{"sub": "g-sub-pat", "email": address, "email_verified": true}), "/home", url.Values{})
+	second := signedInAs(ctx, t, b, address)
+	if second.UserID == first.String() {
+		t.Fatalf("the Google sign-in entered %s, the account that holds the address unconfirmed, want an account of its own", first)
+	}
+	assertOneLink(t, a.links(ctx, t, second.UserID), google.AnyAccountConnection, google.AnyAccountConnection)
+	if links := a.links(ctx, t, first.String()); len(links) != 0 {
+		t.Errorf("the first account has %d identity links, want none: nothing proved it is the Google person's", len(links))
+	}
+
+	if email, confirmed := a.address(ctx, t, "pat"); email != address || confirmed {
+		t.Errorf("the first account holds %q, confirmed %t, want %q, still unconfirmed", email, confirmed, address)
+	}
+	if email, _ := a.address(ctx, t, address); email != "" {
+		t.Errorf("the second account holds the address %q, want none: one address has one holder", email)
+	}
 }
 
 // seamRulesPersonalAccounts is the scenario "personal accounts beside one tenant, invite only".
