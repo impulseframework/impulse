@@ -2,9 +2,12 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialog, MatDialogRef } from '@angular/material/dialog';
+import { provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { createApi, createTenantRoute } from '@app/service/zz_gen_api';
+import { DomainRoutePath } from '@app/service/zz_gen_resources';
 import { ClientBase, Domain, PermissionDigest, TransportRequest, TransportResponse } from '@impulseframework/resource';
-import { provideFrame, TenantService } from '@impulseframework/resource-angular/auth-frame';
+import { provideFrame, tenantGuard, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
@@ -197,5 +200,70 @@ describe('DashboardComponent', () => {
     const fixture = await render(member);
     http.expectNone(offerUrl);
     expect((fixture.nativeElement as HTMLElement).querySelector('.create-tenant-card')).toBeNull();
+  });
+});
+
+describe('DashboardComponent, opened by its address under a tenant', () => {
+  it("draws no card until the tenant's digest is in, and never says a person who holds something holds nothing", async () => {
+    // A member who holds nothing outside the tenant: every row of theirs is the tenant's.
+    // The read of the tenant's digest is answered only when the spec lets it go.
+    const played = server({ ...member, global: {} });
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const transport = scriptedTransport(async (request) => {
+      if (request.url.endsWith(`/permission-digest?domain=${north}`)) {
+        await held;
+      }
+      return played(request);
+    });
+    await TestBed.configureTestingModule({
+      imports: [DashboardComponent],
+      providers: [
+        provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
+        // The dashboard under the tenant segment, behind the library's guard, as the application routes it.
+        provideRouter([
+          {
+            path: DomainRoutePath,
+            canActivate: [tenantGuard],
+            children: [{ path: 'dashboard', component: DashboardComponent }],
+          },
+        ]),
+        provideFrame({ home: 'dashboard', menus: [] }),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    }).compileComponents();
+    await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
+    const harness = await RouterTestingHarness.create();
+    const settle = async (): Promise<void> => {
+      for (let turn = 0; turn < 3; turn++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        harness.detectChanges();
+      }
+    };
+
+    const landing = harness.navigateByUrl(`/${DomainRoutePath.replace(/:[^/]+/, north)}/dashboard`);
+    await settle();
+    // The digest is asked for and not yet answered: nothing of the page is drawn, so the
+    // card's line for a person who holds nothing is not drawn either.
+    expect(transport.requests.map((request) => request.url)).toContain(
+      `${environment.apiUrl}/permission-digest?domain=${north}`,
+    );
+    expect(harness.routeNativeElement?.querySelector('impulse-permissions-card') ?? null).toBeNull();
+    expect(harness.routeNativeElement?.textContent ?? '').not.toContain('You hold nothing here');
+
+    release();
+    await landing;
+    harness.detectChanges();
+    // The first card drawn holds the member's rows, and no line for holding nothing.
+    const page = harness.routeNativeElement;
+    expect(page?.querySelector('td.nothing-held') ?? null).toBeNull();
+    expect(
+      Array.from(page?.querySelectorAll('impulse-permissions-card table.permissions tbody tr') ?? []).map((row) =>
+        row.querySelector('td.resource-name')?.textContent?.replace(/\s+/g, ' ').trim(),
+      ),
+    ).toEqual(['Announcements North']);
   });
 });
