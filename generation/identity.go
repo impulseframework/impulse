@@ -378,6 +378,9 @@ func (r *resourceGenerator) prepareIdentity() error {
 		if err := inst.refuseInvitationNamesTaken(); err != nil {
 			return err
 		}
+		if err := r.requireEveryTenantColumn(inst); err != nil {
+			return err
+		}
 		if err := r.requireNewTenantColumn(inst); err != nil {
 			return err
 		}

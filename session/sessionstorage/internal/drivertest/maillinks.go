@@ -56,7 +56,59 @@ func insertInvitation(ctx context.Context, t *testing.T, d AuthDriver, email, te
 
 // invitationOf is the invitation a sign-in carries for link.
 func invitationOf(link *dbtype.MailLink) *sessioninfo.Invitation {
-	return &sessioninfo.Invitation{ID: link.ID, Email: link.Email, TenantID: link.TenantID, RoleNames: link.RoleNames, InvitedByUserID: link.InvitedByUserID, ExpiresAt: link.ExpiresAt, NewTenant: link.NewTenant}
+	return &sessioninfo.Invitation{
+		ID: link.ID, Email: link.Email, TenantID: link.TenantID, EveryTenant: link.EveryTenant, RoleNames: link.RoleNames, InvitedByUserID: link.InvitedByUserID,
+		ExpiresAt: link.ExpiresAt, NewTenant: link.NewTenant,
+	}
+}
+
+// testInvitationPlaceRoundTrip pins, on every backend, that an invitation's row keeps
+// the place its roles are held in: one tenant, every tenant, or neither, which is the
+// application's global surface. The acceptance gives each role in that place and
+// nowhere else, so a backend that dropped the mark for every tenant would turn such an
+// invitation into one for the global surface. Every other kind of link reads false.
+func testInvitationPlaceRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+
+	inTenant := insertInvitation(ctx, t, in.Driver, "alex@lakeside.edu", "lakeside", []string{"Teacher"}, tokenHash(1))
+	everyTenant := newMailLink(dbtype.MailLinkInvitation, "sam@lakeside.edu", tokenHash(2))
+	everyTenant.EveryTenant, everyTenant.RoleNames = true, []string{"Reader"}
+	if err := in.Driver.InsertMailLink(ctx, everyTenant); err != nil {
+		t.Fatalf("InsertMailLink() error = %v", err)
+	}
+	global := insertInvitation(ctx, t, in.Driver, "pat@lakeside.edu", "", []string{"Reader"}, tokenHash(3))
+	signUp := newMailLink(dbtype.MailLinkSignUp, "lee@lakeside.edu", tokenHash(4))
+	if err := in.Driver.InsertMailLink(ctx, signUp); err != nil {
+		t.Fatalf("InsertMailLink() error = %v", err)
+	}
+
+	places := []struct {
+		link        *dbtype.MailLink
+		tenantID    string
+		everyTenant bool
+	}{
+		{link: inTenant, tenantID: "lakeside"},
+		{link: everyTenant, everyTenant: true},
+		{link: global},
+		{link: signUp},
+	}
+	for _, tt := range places {
+		got, err := in.Driver.MailLinkByToken(ctx, tt.link.TokenHash, time.Now())
+		if err != nil {
+			t.Fatalf("MailLinkByToken(%s) error = %v", tt.link.Email, err)
+		}
+		if got.TenantID != tt.tenantID || got.EveryTenant != tt.everyTenant {
+			t.Errorf("MailLinkByToken(%s) holds its roles in tenant %q, every tenant %t; want tenant %q, every tenant %t", tt.link.Email, got.TenantID, got.EveryTenant, tt.tenantID, tt.everyTenant)
+		}
+	}
+
+	live, err := in.Driver.LiveMailLinks(ctx, dbtype.MailLinkInvitation, time.Now())
+	if err != nil {
+		t.Fatalf("LiveMailLinks() error = %v", err)
+	}
+	if diff := cmp.Diff([]*dbtype.MailLink{inTenant, everyTenant, global}, live, mailLinkOpts); diff != "" {
+		t.Errorf("LiveMailLinks() mismatch (-want +got):\n%s", diff)
+	}
 }
 
 // acceptances records what the invitation acceptor was handed, the way an application

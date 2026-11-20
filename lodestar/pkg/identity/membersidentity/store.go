@@ -472,15 +472,18 @@ func (invitationWrite) Resource() accesstypes.Resource {
 
 func (store) InsertInvitation(_ context.Context, txn resource.ReadWriteTransaction, row *session.InvitationRow) error {
 	// The row as the session library says an invitation is written
-	// (session.InvitationRow): the user and the consumption are left null.
+	// (session.InvitationRow): the user and the consumption are left null. EveryTenant
+	// is written on every row, true or false: with TenantId it is the place the
+	// acceptance gives the roles in.
 	columns := map[string]any{
-		"Id":        row.ID,
-		"TokenHash": row.TokenHash,
-		"Kind":      string(sessionstorage.MailLinkInvitation),
-		"Email":     row.Email,
-		"RoleNames": row.RoleNames,
-		"CreatedAt": spanner.CommitTimestamp,
-		"ExpiresAt": row.ExpiresAt,
+		"Id":          row.ID,
+		"TokenHash":   row.TokenHash,
+		"Kind":        string(sessionstorage.MailLinkInvitation),
+		"Email":       row.Email,
+		"EveryTenant": row.EveryTenant,
+		"RoleNames":   row.RoleNames,
+		"CreatedAt":   spanner.CommitTimestamp,
+		"ExpiresAt":   row.ExpiresAt,
 	}
 	if row.Name != "" {
 		columns["Name"] = row.Name

@@ -105,8 +105,8 @@ func (a *Auth[S, U, Tx]) invitationOf(ctx context.Context) (*sessioninfo.Invitat
 // invitationOf renders a mail link row as the invitation a sign-in carries.
 func invitationOf(link *sessionstorage.MailLink) *sessioninfo.Invitation {
 	return &sessioninfo.Invitation{
-		ID: link.ID, Email: link.Email, Name: link.Name, TenantID: link.TenantID, RoleNames: link.RoleNames, InvitedByUserID: link.InvitedByUserID, CreatedAt: link.CreatedAt,
-		ExpiresAt: link.ExpiresAt, NewTenant: cloneNewTenant(link.NewTenant),
+		ID: link.ID, Email: link.Email, Name: link.Name, TenantID: link.TenantID, EveryTenant: link.EveryTenant, RoleNames: link.RoleNames,
+		InvitedByUserID: link.InvitedByUserID, CreatedAt: link.CreatedAt, ExpiresAt: link.ExpiresAt, NewTenant: cloneNewTenant(link.NewTenant),
 	}
 }
 
@@ -680,9 +680,15 @@ type InvitationRequest struct {
 	// acceptance creates carries it unless the sign-in asserts a name of its own, and
 	// an existing account that holds none takes it.
 	Name string
-	// TenantID is the tenant the invitation seats the person in, "" for the
-	// application's global surface.
+	// TenantID is the tenant the invitation seats the person in, "" for an invitation
+	// that names no one tenant.
 	TenantID string
+	// EveryTenant says the roles are held in every tenant. With TenantID it is the
+	// place the invitation stores for its roles: the tenant TenantID names, every
+	// tenant when EveryTenant is set, the application's global surface when neither
+	// is. The acceptance gives each role in that place and nowhere else. A request
+	// that sets it and names a tenant, or makes one, is a BadRequest.
+	EveryTenant bool
 	// RoleNames are the roles the acceptance grants, as the application's hook
 	// understands them.
 	RoleNames []string
@@ -695,6 +701,24 @@ type InvitationRequest struct {
 	// details and seats the person in it. The tenant's name is required, since the
 	// invitation page shows it.
 	NewTenant *sessioninfo.NewTenant
+}
+
+// onePlace holds a request to one place for its roles: a request for every tenant that
+// names a tenant too, or makes one, is a BadRequest, since the acceptance gives each
+// role in the place the invitation stores and nowhere else.
+func (req *InvitationRequest) onePlace() error {
+	if !req.EveryTenant {
+		return nil
+	}
+	if req.TenantID != "" {
+		return httpio.NewBadRequestMessage("An invitation gives its roles in one tenant or in every tenant, not in both. Name the tenant, or every tenant.")
+	}
+	if req.NewTenant != nil {
+		return httpio.NewBadRequestMessage("An invitation that makes a tenant gives no roles in every tenant: " +
+			"whoever accepts it becomes the new tenant's first administrator. Send a second invitation for every tenant.")
+	}
+
+	return nil
 }
 
 // newTenant holds the tenant a request's invitation makes to what such an invitation
@@ -741,6 +765,9 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 	if err != nil {
 		return nil, err
 	}
+	if err := req.onePlace(); err != nil {
+		return nil, err
+	}
 	newTenant, err := req.newTenant()
 	if err != nil {
 		return nil, err
@@ -751,8 +778,8 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 	}
 	lifetime := m.settings.InvitationTimeout
 	link := &sessionstorage.MailLink{
-		TokenHash: hash, Kind: sessionstorage.MailLinkInvitation, Email: email, Name: name, TenantID: req.TenantID, RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID,
-		NewTenant: newTenant, ExpiresAt: time.Now().Add(lifetime),
+		TokenHash: hash, Kind: sessionstorage.MailLinkInvitation, Email: email, Name: name, TenantID: req.TenantID, EveryTenant: req.EveryTenant, RoleNames: req.RoleNames,
+		InvitedByUserID: req.InvitedByUserID, NewTenant: newTenant, ExpiresAt: time.Now().Add(lifetime),
 	}
 	if err := p.auth.storage.InsertMailLink(ctx, link); err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
@@ -813,10 +840,11 @@ func (a *Auth[S, U, Tx]) sendInvitation(ctx context.Context, m *mailSettings, id
 // (Tables.MailLinks), for a caller that writes it in a transaction of its own. The
 // caller writes every field to the column of its name (TokenHash as the bytes they
 // are), Kind as sessionstorage.MailLinkInvitation, CreatedAt as the commit time, and
-// leaves UserId and ConsumedAt null; TenantId is null for the application's global
-// surface (""), InvitedByUserID null when unknown, and NewTenant null for an invitation
-// that makes no tenant. The row is what the sign-in reads when the link is followed,
-// so a row written otherwise is an invitation nobody can accept.
+// leaves UserId and ConsumedAt null; TenantId is null for an invitation that names no
+// one tenant (""), EveryTenant is written as it is, true or false, InvitedByUserID is
+// null when unknown, and NewTenant null for an invitation that makes no tenant. The row
+// is what the sign-in reads when the link is followed, so a row written otherwise is an
+// invitation nobody can accept, or one whose roles are given in another place.
 type InvitationRow struct {
 	// ID is the invitation's id.
 	ID impulse.UUID
@@ -828,9 +856,13 @@ type InvitationRow struct {
 	// Name is the invited person's name as the inviter gave it, without the space
 	// around it; "" for none.
 	Name string
-	// TenantID is the tenant the acceptance seats the person in, "" for the
-	// application's global surface, and RoleNames the roles it grants.
-	TenantID  string
+	// TenantID is the tenant the acceptance seats the person in, "" for an invitation
+	// that names no one tenant.
+	TenantID string
+	// EveryTenant says the roles are held in every tenant; with TenantID "" and
+	// EveryTenant false they are held in the application's global surface.
+	EveryTenant bool
+	// RoleNames are the roles the acceptance grants.
 	RoleNames []string
 	// InvitedByUserID is the user who sent the invitation, null when unknown.
 	InvitedByUserID impulse.NullUUID
@@ -914,6 +946,9 @@ func (p *AuthAPI[S, U, Tx]) PrepareInvitation(ctx context.Context, req *Invitati
 	if err != nil {
 		return nil, err
 	}
+	if err := req.onePlace(); err != nil {
+		return nil, err
+	}
 	newTenant, err := req.newTenant()
 	if err != nil {
 		return nil, err
@@ -930,8 +965,8 @@ func (p *AuthAPI[S, U, Tx]) PrepareInvitation(ctx context.Context, req *Invitati
 
 	return &preparedInvitation{
 		row: InvitationRow{
-			ID: id, TokenHash: hash, Email: email, Name: name, TenantID: req.TenantID, RoleNames: slices.Clone(req.RoleNames), InvitedByUserID: req.InvitedByUserID,
-			NewTenant: newTenant, ExpiresAt: time.Now().Add(lifetime),
+			ID: id, TokenHash: hash, Email: email, Name: name, TenantID: req.TenantID, EveryTenant: req.EveryTenant, RoleNames: slices.Clone(req.RoleNames),
+			InvitedByUserID: req.InvitedByUserID, NewTenant: newTenant, ExpiresAt: time.Now().Add(lifetime),
 		},
 		send: func(ctx context.Context) error {
 			return a.sendInvitation(ctx, m, id, email, token, lifetime)

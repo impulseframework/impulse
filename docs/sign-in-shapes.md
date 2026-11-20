@@ -53,7 +53,8 @@ that start an application from one, and what `impulse audit` prints for it.
   document "tenant" alone always means the application's, and Microsoft's is always
   written "Microsoft Entra tenant".
 - **Invitation**: a link mailed to an email address. Accepting it gives the person the
-  roles it carries.
+  roles it carries, in the place it was sent for (one tenant, every tenant or the whole
+  application) and nowhere else.
 - **Sign-in method**: one way an auth's people sign in: a password, Google, Microsoft, or
   another identity provider. An auth registers each method in code, under a name. The
   command's words for the kinds are `password`, `google`, `azure` (Microsoft) and `oidc`

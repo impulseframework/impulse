@@ -210,7 +210,7 @@ func (m *Manager) InviteTenant(ctx context.Context, txn resource.ReadWriteTransa
 		return impulse.NilUUID, errors.Wrap(err, "json.Marshal()")
 	}
 	req := &session.InvitationRequest{
-		Email: email, Name: "", TenantID: "", RoleNames: nil, InvitedByUserID: m.callerAccount(ctx, txn),
+		Email: email, Name: "", TenantID: "", EveryTenant: false, RoleNames: nil, InvitedByUserID: m.callerAccount(ctx, txn),
 		NewTenant: &sessioninfo.NewTenant{Name: tenantName, DirectoryOnly: inv.DirectoryOnly, Details: details},
 	}
 	if inv.Name != nil {

@@ -617,6 +617,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a failing invitation hook fails the transaction that consumes the invitation: the invitation stands, a stranger is not provisioned, the hook's writes are not committed, and the next attempt accepts it", run: testInvitationHookFails},
 		{name: "an invitation hook's committed function runs exactly once, after the commit and before the policy decides", run: testInvitationHookCommitted},
 		{name: "a password sign-in accepts the invitation it carries only by the code mailed to the invited address, in a transaction of its own, and an acceptance by hand only for the address the account holds confirmed", run: testInvitationAcceptedByHand},
+		{name: "an invitation is read back with the place its roles are held in, one tenant, every tenant or the global surface, by its token hash and in the listing of the live ones", run: testInvitationPlaceRoundTrip},
 		{name: "an invitation that makes a tenant is read back with the tenant it carries, by its token hash and in the listing of the live ones", run: testTenantInvitationRoundTrip},
 		{name: "an invitation that makes a tenant hands its acceptor the tenant and how the person signed in, through a directory, by password and by hand, in the transaction that consumes it", run: testTenantInvitationAccepted},
 		{name: "an invitation whose tenant is directory only is refused a password, a personal account and a session that came through neither, and nothing is written: no account, no link, and the invitation stands", run: testTenantInvitationDirectoryOnly},

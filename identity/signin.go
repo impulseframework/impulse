@@ -10,7 +10,6 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -152,35 +151,36 @@ func (m *Manager) giveInvitedRoles(ctx context.Context, txn resource.ReadWriteTr
 	return nil
 }
 
-// giveInvitedRole buffers one role of an invitation: in the invitation's tenant, or,
-// for an invitation that stores no tenant, in the global scope for a role that exists
-// there and in every tenant otherwise. The stored invitation does not tell one into
-// the whole application from one into every tenant, so the role's kind does: Invite
-// held each role to the place the sender named, a role of the whole application for
-// the one and a role of the tenants with no global namesake for the other. The
-// membership write answers NotFound for a role that does not exist where it is asked
-// for, with nothing written, which is how the kind is told. A role the person holds
+// giveInvitedRole buffers one role of an invitation in the place the invitation stores
+// (invitedPlace) and nowhere else. The place is the sender's choice, kept on the
+// invitation when it was sent (Invite), and the roles that exist when it is accepted do
+// not move it: a role that has gone from that place since is not looked for in another,
+// and a role of the same name that another place has gained is not given in its stead.
+// The membership write answers NotFound for a role that does not exist where it is
+// asked for, with nothing written, which fails the acceptance. A role the person holds
 // there already is left as it stands (giveUnlessHeld).
 func (m *Manager) giveInvitedRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation, role accesstypes.Role) error {
-	if inv.TenantID != "" {
-		if err := m.giveUnlessHeld(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(inv.TenantID)), userID, role); err != nil {
-			return errors.Wrapf(err, "the invitation to %s gives %q the role %s in %s", inv.Email, username, role, inv.TenantID)
-		}
-
-		return nil
-	}
-	err := m.giveUnlessHeld(ctx, txn, accesstypes.GlobalPolicyScope(), userID, role)
-	if err == nil {
-		return nil
-	}
-	if !httpio.HasNotFound(err) {
-		return errors.Wrapf(err, "the invitation to %s gives %q the role %s", inv.Email, username, role)
-	}
-	if err := m.giveUnlessHeld(ctx, txn, accesstypes.EveryDomainPolicyScope(), userID, role); err != nil {
-		return errors.Wrapf(err, "the invitation to %s gives %q the role %s, which exists neither globally nor in every tenant", inv.Email, username, role)
+	scope, where := invitedPlace(inv)
+	if err := m.giveUnlessHeld(ctx, txn, scope, userID, role); err != nil {
+		return errors.Wrapf(err, "the invitation to %s gives %q the role %s %s, and nowhere else", inv.Email, username, role, where)
 	}
 
 	return nil
+}
+
+// invitedPlace is the place an invitation stores for its roles, as the scope they are
+// held in and as an error says it: the invitation's tenant, every tenant for an
+// invitation that says so (EveryTenant), and the global scope for one that names
+// neither, which is an invitation into the whole application.
+func invitedPlace(inv *sessioninfo.Invitation) (scope accesstypes.PolicyScope, where string) {
+	switch {
+	case inv.TenantID != "":
+		return accesstypes.DomainPolicyScope(accesstypes.Domain(inv.TenantID)), "in " + inv.TenantID
+	case inv.EveryTenant:
+		return accesstypes.EveryDomainPolicyScope(), "in every tenant"
+	default:
+		return accesstypes.GlobalPolicyScope(), "in the whole application"
+	}
 }
 
 // giveUnlessHeld buffers the membership an accepted invitation gives, with no period,

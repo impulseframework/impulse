@@ -16,7 +16,7 @@ import (
 )
 
 // mailLinkColumns are the mail links table's columns, in mailLinkRow's order.
-const mailLinkColumns = `"Id", "TokenHash", "Kind", "Email", "UserId", "TenantId", "RoleNames", "InvitedByUserId", "CreatedAt", "ExpiresAt", "ConsumedAt", "Name", "NewTenant"`
+const mailLinkColumns = `"Id", "TokenHash", "Kind", "Email", "UserId", "TenantId", "RoleNames", "InvitedByUserId", "CreatedAt", "ExpiresAt", "ConsumedAt", "Name", "NewTenant", "EveryTenant"`
 
 // mailLinkRow is a mail link as the table holds it.
 type mailLinkRow struct {
@@ -33,12 +33,13 @@ type mailLinkRow struct {
 	ConsumedAt      *time.Time    `db:"ConsumedAt"`
 	Name            *string       `db:"Name"`
 	NewTenant       *string       `db:"NewTenant"`
+	EveryTenant     bool          `db:"EveryTenant"`
 }
 
 func (r *mailLinkRow) link() (*dbtype.MailLink, error) {
 	l := &dbtype.MailLink{
 		ID: r.ID, TokenHash: r.TokenHash, Kind: dbtype.MailLinkKind(r.Kind), Email: r.Email, RoleNames: r.RoleNames,
-		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, ConsumedAt: r.ConsumedAt,
+		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, ConsumedAt: r.ConsumedAt, EveryTenant: r.EveryTenant,
 	}
 	if r.UserID != nil {
 		l.UserID = impulse.NullUUIDFromUUID(*r.UserID)
@@ -85,8 +86,8 @@ func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.Mai
 	if err != nil {
 		return errors.Wrap(err, "dbtype.NewTenantColumn()")
 	}
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, NULL, $10, $11)`, s.mailLinksTable(), mailLinkColumns)
-	args := []any{l.ID, l.TokenHash, string(l.Kind), l.Email, userID, dbtype.OptionalString(l.TenantID), l.RoleNames, invitedBy, l.ExpiresAt, dbtype.OptionalString(l.Name), newTenant}
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, NULL, $10, $11, $12)`, s.mailLinksTable(), mailLinkColumns)
+	args := []any{l.ID, l.TokenHash, string(l.Kind), l.Email, userID, dbtype.OptionalString(l.TenantID), l.RoleNames, invitedBy, l.ExpiresAt, dbtype.OptionalString(l.Name), newTenant, l.EveryTenant}
 	if _, err := s.conn.Exec(ctx, query, args...); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}

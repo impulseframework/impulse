@@ -74,8 +74,10 @@ creates them; a users table named per group takes the same DDL under its name. T
 auth set adds the email address columns `Email`, `NormalizedEmail` and
 `EmailVerifiedAt` (`SessionUserEmail`), the mail links table (`SessionMailLinks`) and
 the second factor's tables (`SessionFactorCodes`, `SessionTrustedDevices`), the
-person's name `Name` (`SessionNames`), and the tenant an invitation makes, the mail
-links table's `NewTenant` column (`SessionTenantInvitations`); see "Users and their
+person's name `Name` (`SessionNames`), the tenant an invitation makes, the mail
+links table's `NewTenant` column (`SessionTenantInvitations`), and the mark that an
+invitation's roles are held in every tenant, its `EveryTenant` column
+(`SessionInvitationPlaces`); see "Users and their
 email address" for the two shapes the address columns take, "A person's name" and
 "Invitations".
 
@@ -138,6 +140,16 @@ invitation's row in a transaction of its own (`PrepareInvitation`) writes the sa
 document, which the row answers (`InvitationRow.NewTenantColumn()`), and a mail links
 table named per group, or kept in the application's own migrations, carries the column
 as the shipped one does.
+
+The mail links table also holds the place an invitation's roles are held in: `TenantId`
+for one tenant, `EveryTenant` for every tenant, and neither for the application's
+global surface. `EveryTenant` is a boolean that is never null (`EveryTenant BOOL NOT
+NULL DEFAULT (false)`; `boolean NOT NULL DEFAULT false` on PostgreSQL), false on every
+link that is no invitation. The drivers write and read it on every link, an
+application that stores an invitation's row itself writes `InvitationRow.EveryTenant`
+as it is, and a mail links table named per group, or kept in the application's own
+migrations, carries the column as the shipped one does. A table without it fails the
+first link written or read.
 
 The schema keeps its own integrity: a session belongs to an existing user (`UserId`,
 null only for a role-principal impersonation), and deleting a user deletes its
@@ -1305,7 +1317,7 @@ and is not asked.
 | `NoticeFactorReset(ctx, id)`, `NoticeRemovedFromTenant(ctx, to, tenant, accountDeleted)` | The notices of an administrator's reset of the second factor and of a removal from a tenant, for an application that makes either change in rows of its own; each goes to a confirmed address and to no other. |
 | `WaitForMail()` | Waits for the mail a person's own request for a reset link sends after its answer; for a test, and for a shutdown that lets mail finish: the auth package `impulse` writes calls it in its `Close`, which an application calls once it has stopped serving and before it closes the database. |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
-| `Invite(ctx, &InvitationRequest{Email, Name, Tenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
+| `Invite(ctx, &InvitationRequest{Email, Name, TenantID, EveryTenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
 | `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent withdraws the invitation. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
 
 **A seed that gives a user its roles.** A role is held by the id of an account, so a
@@ -1769,10 +1781,18 @@ to the invited address: a sign-up with a password, a password account that has n
 confirmed the address, and a directory that sends no address or does not vouch for the
 one it sends.
 
-- **Sending**: `auth.API().Invite(ctx, &session.InvitationRequest{Email, Name, Tenant,
-  RoleNames, InvitedByUserID})` stores the invitation and mails the link; `Name`, optional, is
+- **Sending**: `auth.API().Invite(ctx, &session.InvitationRequest{Email, Name, TenantID,
+  EveryTenant, RoleNames, InvitedByUserID})` stores the invitation and mails the link; `Name`, optional, is
   the name the sender gives the person (see "A person's name"), and `NewTenant`, in
   place of a tenant and roles, makes the invitation one that makes a tenant (below).
+  `TenantID` and `EveryTenant` are the place the roles are held in: the tenant
+  `TenantID` names, every tenant when `EveryTenant` is set, and the application's
+  global surface when neither is. The invitation stores the place, and the acceptance
+  hook is handed it (`sessioninfo.Invitation.TenantID` and `EveryTenant`), so the
+  application gives each role there and nowhere else, whatever another place holds
+  under the same name by the time the person accepts. A request that names a tenant
+  and every tenant, or makes a tenant and says every tenant, is a bad request, in
+  words.
   The invitation stands for
   `MailSettings.InvitationTimeout` (seven days). `Invitations(ctx)` lists those that
   stand; `RevokeInvitation(ctx, id)` withdraws one. The tenant and the roles are the

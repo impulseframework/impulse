@@ -32,10 +32,11 @@ func newInviter(t *testing.T, store Store, mail *fakeMail) *Manager {
 // TestManager_Invite pins the invitation: the row buffered in the caller's transaction,
 // the message sent once the transaction has committed and never when it has not, the
 // answer told how the send went, an invitation whose message could not be sent
-// withdrawn, a role required and held to where the acceptance seats it, an invitation
-// that says every tenant held to roles of every tenant alone, and the caller recorded
-// as the sender: the account whose id the caller carries, where a user of the auth
-// holds it.
+// withdrawn, a role required and held to the place the invitation names, that place
+// kept on the row (one tenant, every tenant, or neither for the whole application), an
+// invitation that says every tenant held to roles of every tenant alone, and the caller
+// recorded as the sender: the account whose id the caller carries, where a user of the
+// auth holds it.
 func TestManager_Invite(t *testing.T) {
 	t.Parallel()
 
@@ -92,12 +93,12 @@ func TestManager_Invite(t *testing.T) {
 			wantSent:   ptr(true),
 		},
 		{
-			// The row names no tenant: the acceptance seats a role of the tenants' kind in
-			// every tenant where no role of the global scope carries its name.
-			name:       "an invitation into every tenant carries no tenant, and its roles are the tenants'",
+			// The row names no tenant and says every tenant: the acceptance gives the
+			// role there and nowhere else.
+			name:       "an invitation into every tenant carries the mark for every tenant and no tenant, and its roles are the tenants'",
 			inv:        Invitation{Email: "pat@example.com", EveryDomain: true, Roles: []accesstypes.Role{"Reader"}},
 			caller:     dana,
-			wantWrites: []string{row("pat@example.com", "", "Reader", userID.String())},
+			wantWrites: []string{row("pat@example.com", "", "Reader", userID.String()) + " every-tenant"},
 			wantMailed: []string{"pat@example.com"},
 			wantSent:   ptr(true),
 		},
@@ -190,13 +191,14 @@ func TestManager_Invite(t *testing.T) {
 			wantErr: httpio.HasBadRequest,
 		},
 		{
-			// The acceptance seats a role by its name, the global scope first.
-			name:   "a role of every tenant whose name a global role carries too is refused for every tenant",
-			inv:    Invitation{Email: "pat@example.com", EveryDomain: true, Roles: []accesstypes.Role{"Reader"}},
-			custom: map[access.RoleKey]bool{globalReader: true},
-			wantErr: func(err error) bool {
-				return httpio.HasBadRequest(err) && strings.Contains(httpio.Message(err), `The whole application has a role named "Reader" too`)
-			},
+			// The row keeps the place, so the acceptance gives the tenants' role and
+			// never the global one of its name.
+			name:       "a role of every tenant whose name a global role carries too is invited for every tenant",
+			inv:        Invitation{Email: "pat@example.com", EveryDomain: true, Roles: []accesstypes.Role{"Reader"}},
+			custom:     map[access.RoleKey]bool{globalReader: true},
+			wantWrites: []string{row("pat@example.com", "", "Reader", "<nobody>") + " every-tenant"},
+			wantMailed: []string{"pat@example.com"},
+			wantSent:   ptr(true),
 		},
 		{
 			name:       "a role whose name both kinds carry is the global one where the invitation names neither a tenant nor every tenant",
@@ -303,6 +305,43 @@ func TestManager_Invite(t *testing.T) {
 			t.Errorf("Invite() error = %v, writes = %v; want a refusal and nothing written", err, store.writes)
 		}
 	})
+}
+
+// TestManager_Invite_roleNamedInBothPlaces pins that the list an invitation's dialog
+// picks a role from and the invitation agree on a role of every tenant whose name a
+// global role carries too: the list for every tenant offers it, and the invitation that
+// posts it is written for every tenant, where its acceptance gives it.
+func TestManager_Invite_roleNamedInBothPlaces(t *testing.T) {
+	t.Parallel()
+
+	roles := map[accesstypes.PolicyScope][]accesstypes.Role{globalScope: {"Steward", "Reader"}, alphaScope: {"Reader"}, everyScope: {"Reader"}}
+	store := superStore()
+	mail := &fakeMail{id: invitationID}
+	m, err := New(managedAuth, store, &fakeEngine{roles: roles}, fakeSessions{mail: mail}, WithRoleGrants(&fakeGrants{}))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	offered, err := m.GivableRoles(asCallerThrough(t.Context(), managedAuth, erin), fakeDatabase{}, invites, everyScope)
+	if err != nil {
+		t.Fatalf("GivableRoles() error = %v", err)
+	}
+	if len(offered) != 1 || offered[0].Name != "Reader" {
+		t.Fatalf("GivableRoles() for every tenant = %v, want Reader offered", offered)
+	}
+
+	err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		_, err := m.Invite(asCallerThrough(ctx, managedAuth, erin), txn, &Invitation{Email: "pat@example.com", EveryDomain: true, Roles: []accesstypes.Role{offered[0].Name}}, nil)
+
+		return err
+	})
+	if err != nil {
+		t.Fatalf("Invite() of the role the list offered error = %v, want it accepted", err)
+	}
+	want := []string{"insert invitation " + invitationID.String() + " pat@example.com tenant= roles=Reader by=" + otherUser.String() + " every-tenant"}
+	if diff := cmp.Diff(want, store.writes); diff != "" {
+		t.Errorf("buffered writes (-want +got):\n%s", diff)
+	}
 }
 
 // TestManager_WithdrawInvitation pins the withdrawal: an invitation that stands is

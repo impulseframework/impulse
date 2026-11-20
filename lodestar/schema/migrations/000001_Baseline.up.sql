@@ -1123,7 +1123,9 @@ CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STO
 
 -- The crew's mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
--- to an address, carrying the sector and the roles its acceptance seats and who sent it,
+-- to an address, carrying the roles its acceptance gives, the place they are held in
+-- (TenantId for one sector, EveryTenant for every sector, neither for the whole
+-- application: the acceptance gives each role there and nowhere else) and who sent it,
 -- or, for an invitation that brings an organization in, the sector its first sign-in
 -- makes (NewTenant, a JSON document: the sector's name, whether it is entered through its
 -- directory only, and its details; null on every other link);
@@ -1148,6 +1150,7 @@ CREATE TABLE CrewSessionMailLinks (
     Name       STRING(MAX),
     UserId     STRING(36),
     TenantId   STRING(MAX),
+    EveryTenant BOOL NOT NULL DEFAULT (false),
     RoleNames  ARRAY<STRING(MAX)>,
     NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
@@ -1217,7 +1220,9 @@ CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Usernam
 
 -- The members' mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
--- to an address, carrying the sector and the roles its acceptance seats and who sent it,
+-- to an address, carrying the roles its acceptance gives, the place they are held in
+-- (TenantId for one sector, EveryTenant for every sector, neither for the whole
+-- application: the acceptance gives each role there and nowhere else) and who sent it,
 -- or, for an invitation that brings an organization in, the sector its first sign-in
 -- makes (NewTenant, a JSON document: the sector's name, whether it is entered through its
 -- directory only, and its details; null on every other link);
@@ -1242,6 +1247,7 @@ CREATE TABLE MembersSessionMailLinks (
     Name       STRING(MAX),
     UserId     STRING(36),
     TenantId   STRING(MAX),
+    EveryTenant BOOL NOT NULL DEFAULT (false),
     RoleNames  ARRAY<STRING(MAX)>,
     NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),

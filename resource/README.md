@@ -4452,14 +4452,21 @@ them in every tenant; one into the whole application gives them in the global sc
 that makes a tenant makes it there, in the same transaction, and gives the person the
 roles that administer it ("The invitation that makes a tenant", below). The sender says
 where the roles go: `domain` for one tenant, `everyDomain` for every tenant, or
-neither, which is the whole application. An invitation is held to its place when it is
-sent. One that says every tenant takes roles that exist in every tenant: a role of the
-whole application alone is refused (400), and so is a custom role whose name a role of
-the whole application carries too, since an invitation keeps its roles by name and the
-acceptance would give the whole application's. One that says neither takes roles of the
+neither, which is the whole application. The invitation's row keeps that place
+(`TenantId` for one tenant, the boolean `EveryTenant` for every tenant, neither for the
+whole application), and the acceptance gives each role there and nowhere else, whatever
+another place holds under the same name by then. The mail links table of every Auth
+therefore carries the column (`EveryTenant BOOL NOT NULL DEFAULT (false)`, which the
+session migration `impulse` renders has), and a schema without it is refused at
+generation, naming the column and the statement that adds it. An invitation is held to
+its place when it is sent. One that says every tenant takes roles that exist in every
+tenant: a role of the whole application alone is refused (400), and a custom role whose
+name a role of the whole application carries too is invited like any other, the person
+being given the tenants' one. One that says neither takes roles of the
 whole application alone: a role that exists only in the tenants is refused (400), in
-words that say to choose the tenant it is for, or every tenant. A role that can
-no longer be given (the role file changed since the invitation was sent) fails the
+words that say to choose the tenant it is for, or every tenant. A role that its place
+no longer holds when the person accepts (the role file changed, or a custom role was
+deleted, since the invitation was sent) fails the
 transaction: the invitation stands and no account is created. The permission engine is
 told once the transaction has committed, before the sign-in policy decides. The client
 of an Auth whose roles a directory writes has none of the hooks: the directory's answer at

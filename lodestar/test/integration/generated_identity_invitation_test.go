@@ -84,8 +84,8 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	}
 	// A sector's role in an invitation that names neither a sector nor every sector:
 	// the invitation is into the whole application, where no such role exists, and
-	// the refusal says what to choose. Were it sent, its acceptance would give the
-	// role in every sector, which the sender never said.
+	// the refusal says what to choose. Were it sent, nobody could accept it: the
+	// acceptance gives a role in the place the invitation keeps and nowhere else.
 	const noSector = `is a role held in a sector, and this invitation names none. Choose the sector it is for, or every sector`
 	for _, roles := range []string{`["SectorMarshal"]`, `["ClientBrowser","Pilot"]`} {
 		status, respBody := hq.do(ctx, http.MethodPost, consoleAPI+"/invite-crew-user", []byte(`{"email":"ensign@example.com","roles":`+roles+`}`))
@@ -186,8 +186,9 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	}
 
 	// An invitation into every sector, as the dialog sends it when the person ticks
-	// "In every sector": it names no sector and keeps the sector role, which the
-	// acceptance gives in every sector.
+	// "In every sector": it names no sector and keeps the sector role beside the mark
+	// for every sector, which is where the acceptance gives it
+	// (TestGeneratedIdentityInvitationPlace).
 	everywhere := inviteCrew(ctx, t, hq, `{"email":"rover@example.com","roles":["Pilot"],"everyDomain":true}`)
 	if !everywhere.Sent {
 		t.Errorf("the answer of the invitation into every sector says the message did not go: %+v", everywhere)

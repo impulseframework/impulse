@@ -142,7 +142,9 @@ CREATE TABLE MembersSessionSignInMethods (
 ) PRIMARY KEY (Name);
 
 -- The mail links: the single-use links the auth mails. A row is one link: an invitation
--- to an address, carrying the tenant and the roles its acceptance seats, the name its
+-- to an address, carrying the roles its acceptance gives and the place they are held in
+-- (TenantId for one tenant, EveryTenant for every tenant, neither for the whole
+-- application: the acceptance gives each role there and nowhere else), the name its
 -- sender gave the person (Name, null for none) and who sent it, or, for an invitation
 -- that brings an organization in, the tenant its first sign-in makes (NewTenant, a JSON
 -- document: the tenant's name, whether it is entered through its directory only, and
@@ -168,6 +170,7 @@ CREATE TABLE MembersSessionMailLinks (
     Name       STRING(MAX),
     UserId     STRING(36),
     TenantId   STRING(MAX),
+    EveryTenant BOOL NOT NULL DEFAULT (false),
     RoleNames  ARRAY<STRING(MAX)>,
     NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
