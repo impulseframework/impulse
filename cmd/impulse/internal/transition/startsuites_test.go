@@ -682,6 +682,8 @@ func Test_renderSuites(t *testing.T) {
 		{set: byDirectorySuites, data: &suiteData{Record: "Tenant", OneTenant: true, North: devTenantNorth}, want: withLoginPageSpec(byDirectoryWritten)},
 		{set: passwordTenantsSuites, data: &suiteData{Record: "Tenant", Directories: true, North: devTenantNorth}, want: passwordTenantsWritten},
 		{set: passwordTenantsSuites, data: &suiteData{Record: "ServiceArea", OneTenant: true, North: devTenantNorth}, want: passwordTenantsWritten},
+		{set: tenantPeopleSuites, data: &suiteData{Record: "Tenant", Kebab: "tenant", Segment: "tenants", South: devTenantSouth, Password: true}, want: []string{tenantPeopleTest}},
+		{set: tenantPeopleSuites, data: &suiteData{Record: "ServiceArea", OneTenant: true, Kebab: "service-area", Segment: "service-areas", South: devTenantSouth}, want: []string{tenantPeopleTest}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.set+" "+tt.data.Method+tt.data.Record, func(t *testing.T) {

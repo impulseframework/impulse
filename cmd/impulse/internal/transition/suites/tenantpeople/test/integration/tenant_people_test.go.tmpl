@@ -1,0 +1,503 @@
+package integration
+
+import (
+	"context"
+	"encoding/json"
+[[- if not .Password]]
+	"io"
+[[- end]]
+	"net/http"
+	"testing"
+	"time"
+
+	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
+	"github.com/impulseframework/impulse/session"
+[[- if .Password]]
+	"github.com/impulseframework/impulse/session/sessioninfo"
+[[- end]]
+)
+
+// memberUser is the login of north's administrator, whom the test makes: an
+// administrator of one tenant, who holds nothing else.
+const memberUser = "member"
+
+// TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone proves the
+// conditions the role file puts on a tenant administrator's grants over the tenant's
+// people, on the served stack.
+//
+// An account is one row for the whole application: a person who holds a role in two
+// tenants is one account, and so is a person who holds a role of the whole application
+// beside a tenant's. The methods a tenant acts on an account through (a new name, a new
+// address, a delete) change that one account, so the role file grants them to a
+// tenant's administrator for the people the tenant holds alone and nobody else
+// (heldElsewhere = false AND heldGlobally = false). Without the condition north's
+// administrator could change an account that also manages the application. The same
+// reasoning hides the address and the directory's subject of a person another tenant
+// holds too (heldElsewhere = false),
+[[- if .Password]] and whether such a person has a password (password
+// = false OR heldElsewhere = false on the list of how a person signs in),
+[[- end]] leaves a role
+// held in every tenant for the application's administrator to take (everyDomain =
+// false), and lets an invitation be withdrawn while it stands and not after (pending =
+// true).
+//
+// The people: nora holds a role in north alone; sam in north and in south; gail in
+// north and, for the whole application, FeatureAdministrator.
+[[- if .OneTenant]] A person belongs to one
+// tenant here unless they hold a role of the whole application, so sam is given
+// FeatureAdministrator before the role in south: the address and the subject, which
+// north reads of gail and not of sam, still tell a person another tenant holds from one
+// the whole application holds.
+[[- end]] The member is north's administrator and nothing else,
+// so every answer here is the role file's.
+func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *testing.T) {
+	t.Parallel()
+
+	// The conditional grants this test proves, pinned to the role file: impulse check
+	// reads these calls to find a conditional grant no test names.
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "List", "Staff[[.Record]]Users", "heldElsewhere = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Read", "Staff[[.Record]]Users", "heldElsewhere = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "List", "Staff[[.Record]]Identities", "heldElsewhere = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Read", "Staff[[.Record]]Identities", "heldElsewhere = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "DisableStaff[[.Record]]User", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "EnableStaff[[.Record]]User", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "DeleteStaff[[.Record]]User", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RenameStaff[[.Record]]User", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "SetStaff[[.Record]]UserName", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "SetStaff[[.Record]]UserEmail", "heldElsewhere = false AND heldGlobally = false")
+[[- if .Password]]
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "SetStaff[[.Record]]TemporaryPassword", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RequireStaff[[.Record]]PasswordChange", "heldElsewhere = false AND heldGlobally = false")
+[[- end]]
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RevokeStaff[[.Record]]UserTrustedDevices", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "EndStaff[[.Record]]UserSessions", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "UnlinkStaff[[.Record]]SessionIdentity", "heldElsewhere = false AND heldGlobally = false")
+[[- if .Password]]
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RemoveStaff[[.Record]]Password", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "List", "Staff[[.Record]]SignInWays", "password = false OR heldElsewhere = false")
+[[- end]]
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "RemoveStaff[[.Record]]Role", "everyDomain = false")
+	provesGrant(t, staff.Roles(), "[[.Record]]Administrator", "Execute", "WithdrawStaff[[.Record]]Invitation", "pending = true")
+
+	// south is the development seed's second tenant, by the id the seed gives it.
+	const south = "[[.South]]"
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	admin, member := tenantAdministrators(ctx, t, s)
+
+	// North's administrator creates the three in north; the application's administrator
+	// then gives sam a role in south and gail one of the whole application.
+	ids := map[string]string{}
+	for _, name := range []string{"nora", "sam", "gail"} {
+		status, body := tenantPost(ctx, member, north, "create-staff-[[.Kebab]]-user", map[string]any{
+			"username": name, "name": "  " + name + " of north ", "email": name + "@example.com",[[if .Password]] "password": "first-day-pass",[[end]] "roles": []string{"[[.Record]]Administrator"},
+		})
+		if status != http.StatusOK {
+			t.Fatalf("creating %s in %s: status %d: %s", name, north, status, body)
+		}
+		var created struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(body, &created); err != nil || created.ID == "" {
+			t.Fatalf("creating %s answered %s (%v), want the new account's id", name, body, err)
+		}
+		ids[name] = created.ID
+	}
+	globalRole := func(name string) []byte {
+		return []byte(`{"userId":"` + ids[name] + `","role":"FeatureAdministrator","everyDomain":false}`)
+	}
+[[- if .OneTenant]]
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", globalRole("sam")); status != http.StatusNoContent {
+		t.Fatalf("giving sam a role of the whole application: status %d: %s", status, body)
+	}
+[[- end]]
+	// A tenant's own method gives a role to a person the tenant already holds, so the
+	// role in south is given through the whole application's method, which names the
+	// tenant, and the person by the id of their account as every method does.
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+ids["sam"]+`","role":"[[.Record]]Administrator","domain":"`+south+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving sam a role in %s: status %d: %s", south, status, body)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", globalRole("gail")); status != http.StatusNoContent {
+		t.Fatalf("giving gail a role of the whole application: status %d: %s", status, body)
+	}
+	// sam is one of south's people now, as its administrator reads them; and south is
+	// no tenant north's administrator reaches: holding nothing there, they are answered
+	// as if it did not exist.
+	if row := tenantRows(ctx, t, admin, south, "staff-[[.Kebab]]-users")[ids["sam"]]; row["username"] != "sam" {
+		t.Fatalf("sam among south's people = %v, want the account north created", row)
+	}
+	if status, body := tenantPost(ctx, member, south, "disable-staff-[[.Kebab]]-user", map[string]any{"userId": ids["sam"]}); status != http.StatusNotFound {
+		t.Fatalf("north's administrator calling a method of south's: status %d, want 404: %s", status, body)
+	}
+	// One identity link each, written as a directory sign-in writes one.
+	links := map[string]string{}
+	linkRows := make([]*spanner.Mutation, 0, len(ids))
+	for name, userID := range ids {
+		id, err := impulse.NewUUID()
+		if err != nil {
+			t.Fatalf("impulse.NewUUID() error = %v", err)
+		}
+		links[name] = id.String()
+		linkRows = append(linkRows, spanner.InsertMap("StaffSessionIdentities", map[string]any{
+			"Id": id.String(), "UserId": userID, "Method": "google", "Connection": "example.com", "Subject": "subject-of-" + name,
+			"EmailAtLink": name + "@example.com", "CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+		}))
+	}
+	if _, err := s.db.Apply(ctx, linkRows); err != nil {
+		t.Fatalf("writing the identity links: %v", err)
+	}
+
+	// The private fields of a person are answered where no other tenant holds them. gail
+	// holds a role of the whole application and none in another tenant, so the condition
+	// on the fields (heldElsewhere = false) holds for her as for nora.
+	for name, want := range map[string]bool{"nora": true, "gail": true, "sam": false} {
+		people := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-users")
+		for where, row := range map[string]map[string]any{
+			"list": people[ids[name]],
+			"read": tenantRow(ctx, t, member, north, "staff-[[.Kebab]]-users", ids[name]),
+		} {
+			if row["username"] != name {
+				t.Errorf("%s: the %s of north's people answers %v, want the person with the fields the grant carries with no condition", name, where, row)
+			}
+			// The name the account was created with, without the space around it: shown
+			// for every person of the tenant, as the username is.
+			if row["name"] != name+" of north" {
+				t.Errorf("%s: the name in the %s = %v, want %q", name, where, row["name"], name+" of north")
+			}
+			if _, got := row["email"]; got != want {
+				t.Errorf("%s: the address in the %s is answered = %v, want %v: %v", name, where, got, want, row)
+			}
+		}
+		identities := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-identities")
+		for where, row := range map[string]map[string]any{
+			"list": identities[links[name]],
+			"read": tenantRow(ctx, t, member, north, "staff-[[.Kebab]]-identities", links[name]),
+		} {
+			if row["method"] != "google" {
+				t.Errorf("%s: the %s of north's identities answers %v, want the link with the fields the grant carries with no condition", name, where, row)
+			}
+			if _, got := row["subject"]; got != want {
+				t.Errorf("%s: the directory's subject in the %s is answered = %v, want %v: %v", name, where, got, want, row)
+			}
+		}
+	}
+[[if .Password]]
+	// Whether the identity each person was given can sign them in is the auth's to say:
+	// it can where the login page offers a sign-in through that directory, and it cannot
+	// in an application whose login page offers the password alone. The list of how a
+	// person signs in and the removal of a password are both judged by it.
+	linkSignsIn := len(s.auth.Session().API().SignsInThrough(sessioninfo.MethodGoogle, "example.com")) > 0
+
+	// How a person signs in is read under the same reasoning as their private fields. An
+	// identity that signs them in is listed for every person of the tenant, as their
+	// identities are, and the password only of a person no other tenant holds: north
+	// does not learn whether sam, whom south holds too, has a password, as it does not
+	// learn whether sam must change it, and a page that offers the removal by these rows
+	// offers none for sam.
+	for name, want := range map[string]bool{"nora": true, "gail": true, "sam": false} {
+		ways := tenantWays(ctx, t, member, north, ids[name])
+		if _, got := ways["password"]; got != want {
+			t.Errorf("%s: the password among the ways north reads = %v, want %v: %v", name, got, want, ways)
+		}
+		if _, got := ways[links[name]]; got != linkSignsIn {
+			t.Errorf("%s: the identity among the ways north reads = %v, want %v, since the list holds the identities that can sign a person in: %v", name, got, linkSignsIn, ways)
+		}
+	}
+[[end]]
+	// The methods that act on an account, each with the body it takes and the answer it
+	// gives for a person who is north's alone.
+	user := func(name string) map[string]any {
+		return map[string]any{"userId": ids[name]}
+	}
+	accountMethods := []struct {
+		method string
+		body   func(name string) map[string]any
+		want   int
+	}{
+		{"set-staff-[[.Kebab]]-user-name", func(name string) map[string]any {
+			return map[string]any{"userId": ids[name], "name": name + " renamed"}
+		}, http.StatusNoContent},
+		// The method that asks for a new address answers how its mailing went.
+		{"set-staff-[[.Kebab]]-user-email", func(name string) map[string]any {
+			return map[string]any{"userId": ids[name], "email": name + ".new@example.com"}
+		}, http.StatusOK},
+		{"rename-staff-[[.Kebab]]-user", func(name string) map[string]any {
+			return map[string]any{"userId": ids[name], "username": name + "-renamed"}
+		}, http.StatusNoContent},
+[[- if .Password]]
+		// A person keeps one way in: a password is removed while an identity that signs
+		// them in is linked, and an identity unlinked while a password is held. So the
+		// password the person was created with goes first, while the link stands, and
+		// the temporary one set next is what lets the link go further down. Where the
+		// link signs nobody in, the removal is north's to ask for and that rule refuses
+		// it: the grant let the call reach the rule, which is what the condition decides.
+		{"remove-staff-[[.Kebab]]-password", user, passwordRemoval(linkSignsIn)},
+		{"set-staff-[[.Kebab]]-temporary-password", func(name string) map[string]any {
+			return map[string]any{"userId": ids[name], "password": "second-day-pass"}
+		}, http.StatusNoContent},
+		{"require-staff-[[.Kebab]]-password-change", user, http.StatusNoContent},
+[[- end]]
+		{"end-staff-[[.Kebab]]-user-sessions", user, http.StatusNoContent},
+		{"revoke-staff-[[.Kebab]]-user-trusted-devices", user, http.StatusNoContent},
+		{"disable-staff-[[.Kebab]]-user", user, http.StatusNoContent},
+		{"enable-staff-[[.Kebab]]-user", user, http.StatusNoContent},
+[[- if .Password]]
+		{"unlink-staff-[[.Kebab]]-session-identity", func(name string) map[string]any {
+			return map[string]any{"identityId": links[name]}
+		}, http.StatusNoContent},
+[[- else]]
+		// A person keeps one way in, and nobody here holds a password: the one identity
+		// linked to a person is their only way in, so its unlinking is north's to ask
+		// for and that rule refuses it. The grant let the call reach the rule, which is
+		// what the condition decides: the same call for sam or gail never gets there.
+		{"unlink-staff-[[.Kebab]]-session-identity", func(name string) map[string]any {
+			return map[string]any{"identityId": links[name]}
+		}, http.StatusConflict},
+[[- end]]
+		{"delete-staff-[[.Kebab]]-user", user, http.StatusNoContent},
+	}
+
+	// An account another tenant or the whole application holds too is not north's to
+	// change: every method is refused for sam and for gail.
+	for _, m := range accountMethods {
+		for _, name := range []string{"sam", "gail"} {
+			if status, body := tenantPost(ctx, member, north, m.method, m.body(name)); status != http.StatusForbidden {
+				t.Errorf("%s on %s: status %d, want 403: %s", m.method, name, status, body)
+			}
+		}
+	}
+	// Nothing a refused call asked for was done: both are listed as they were, by the
+	// name they were created with, and their links stand.
+	people := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-users")
+	identities := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-identities")
+	for _, name := range []string{"sam", "gail"} {
+		if row := people[ids[name]]; row["username"] != name || row["name"] != name+" of north" || row["disabled"] != false {
+			t.Errorf("%s after the refused calls = %v, want the account as it was", name, row)
+		}
+		if identities[links[name]] == nil {
+			t.Errorf("%s's identity link is gone after a refused call", name)
+		}
+	}
+
+	// An account north holds alone is north's to change: every method is north's to
+	// call for nora, in the order above, and answers as the method does.
+	for _, m := range accountMethods {
+		if status, body := tenantPost(ctx, member, north, m.method, m.body("nora")); status != m.want {
+			t.Fatalf("%s on nora: status %d, want %d: %s", m.method, status, m.want, body)
+		}
+	}
+	// The last of the methods deleted the account.
+	if row, listed := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-users")[ids["nora"]]; listed {
+		t.Errorf("nora is still one of north's people after the delete: %v", row)
+	}
+
+	// A role held in every tenant is not one tenant's to take. The application's
+	// administrator holds [[.Record]]Administrator in every tenant: one membership, which
+	// north's list of the roles held shows and north does not own.
+	if status, body := tenantPost(ctx, member, north, "remove-staff-[[.Kebab]]-role", map[string]any{"userId": s.adminID, "role": "[[.Record]]Administrator"}); status != http.StatusForbidden {
+		t.Errorf("north taking a role held in every tenant: status %d, want 403: %s", status, body)
+	}
+	if roles := tenantRolesOf(ctx, t, member, north, adminUser); len(roles) != 1 {
+		t.Errorf("the administrator's roles in north after the refusal = %v, want the one held in every tenant", roles)
+	}
+	// A role held in north itself is north's to take, whatever else the person holds:
+	// sam keeps the account and the role in south.
+	if status, body := tenantPost(ctx, member, north, "remove-staff-[[.Kebab]]-role", map[string]any{"userId": ids["sam"], "role": "[[.Record]]Administrator"}); status != http.StatusNoContent {
+		t.Fatalf("north taking the role sam holds in north: status %d, want 204: %s", status, body)
+	}
+	if roles := tenantRolesOf(ctx, t, member, north, "sam"); len(roles) != 0 {
+		t.Errorf("sam's roles in north after the role was taken = %v, want none", roles)
+	}
+	if roles := tenantRolesOf(ctx, t, admin, south, "sam"); len(roles) != 1 {
+		t.Errorf("sam's roles in south = %v, want the one given there", roles)
+	}
+
+	// An invitation is withdrawn while it stands.
+	status, body := tenantPost(ctx, member, north, "invite-staff-[[.Kebab]]-user", map[string]any{"email": "regret@example.com", "roles": []string{"[[.Record]]Administrator"}})
+	if status != http.StatusOK {
+		t.Fatalf("inviting into north: status %d: %s", status, body)
+	}
+	var invitation struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &invitation); err != nil || invitation.ID == "" {
+		t.Fatalf("the invitation answered %s (%v), want its id", body, err)
+	}
+	withdraw := map[string]any{"invitationId": invitation.ID}
+	if status, body := tenantPost(ctx, member, north, "withdraw-staff-[[.Kebab]]-invitation", withdraw); status != http.StatusNoContent {
+		t.Fatalf("withdrawing the invitation: status %d, want 204: %s", status, body)
+	}
+	// Withdrawn, it stands no more, and the grant no longer reaches it.
+	if status, body := tenantPost(ctx, member, north, "withdraw-staff-[[.Kebab]]-invitation", withdraw); status != http.StatusForbidden {
+		t.Errorf("withdrawing it a second time: status %d, want 403: %s", status, body)
+	}
+}
+
+// tenantAdministrators returns two signed-in browsers: the development login's, holding
+// [[.Record]]Administrator in every tenant as a deployment's first administrator does, and
+// that of north's administrator, an account the stack is given here that holds the role
+// in north and nothing else.
+[[- if .Password]] The harness gives its logins one password, so the
+// account takes it too.
+[[- else]] Nobody here holds a password, so the account is a persona of
+// a cast the suite seeds beside the auth's own, as the cast's persona is.
+[[- end]] The engine's
+// snapshot swap is asynchronous, so each role is waited for before anybody signs in.
+func tenantAdministrators(ctx context.Context, t *testing.T, s *served) (admin, member *browser) {
+	t.Helper()
+[[if .Password]]
+	password := adminPassword
+	id, err := s.auth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: memberUser, Password: &password})
+	if err != nil {
+		t.Fatalf("CreateSessionUser(%s) error = %v", memberUser, err)
+	}
+	memberID := id.String()
+[[- else]]
+	if _, err := s.auth.SeedCastFile(ctx, io.Discard, []byte(`{"personas": [{"login": "`+memberUser+`", "name": "North's Administrator", "email": "`+memberUser+`@example.com"}]}`)); err != nil {
+		t.Fatalf("staff.Auth.SeedCastFile(%s) error = %v", memberUser, err)
+	}
+	memberID := session.SeedUserID(staff.Name, memberUser).String()
+[[- end]]
+	holders := []struct {
+		user  string
+		scope accesstypes.PolicyScope
+	}{
+		{s.adminID, accesstypes.EveryDomainPolicyScope()},
+		{memberID, accesstypes.DomainPolicyScope(north)},
+	}
+	for _, h := range holders {
+		if err := s.access.UserManager().AddUserRoles(ctx, h.scope, accesstypes.User(h.user), "[[.Record]]Administrator"); err != nil {
+			t.Fatalf("AddUserRoles(%s, %v) error = %v", h.user, h.scope, err)
+		}
+	}
+	for _, h := range holders {
+		if d := decisionFor(ctx, t, s.access.ForUser(accesstypes.User(h.user)), accesstypes.DomainScope(north), accesstypes.List, "Staff[[.Record]]UserRoles", time.Now().Add(15*time.Second)); !d.IsGranted() {
+			t.Fatalf("List on Staff[[.Record]]UserRoles in north for %s = %s, want granted before anybody signs in", h.user, d)
+		}
+	}
+	admin, member = newBrowser(t, s), newBrowser(t, s)
+[[- if .Password]]
+	admin.signIn(ctx, adminUser)
+	member.signIn(ctx, memberUser)
+[[- else]]
+	admin.signIn(ctx, staff.PersonaRegistration, adminUser)
+	member.signIn(ctx, staff.PersonaRegistration, memberUser)
+[[- end]]
+
+	return admin, member
+}
+[[if .Password]]
+// passwordRemoval is what the removal of a password answers for a person north holds
+// alone, who has a password and one linked identity: done where the identity can sign
+// them in, and refused as their only way in where it cannot.
+func passwordRemoval(linkSignsIn bool) int {
+	if linkSignsIn {
+		return http.StatusNoContent
+	}
+
+	return http.StatusConflict
+}
+[[end]]
+// tenantPost calls a method of the tenant's as the browser b, with the body as JSON.
+func tenantPost(ctx context.Context, b *browser, tenant, method string, body map[string]any) (status int, respBody []byte) {
+	b.t.Helper()
+
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+
+	return b.do(ctx, http.MethodPost, "/api/[[.Segment]]/"+tenant+"/"+method, encoded)
+}
+[[if .Password]]
+// tenantWays reads how one of the tenant's people signs in, as the browser b, and
+// answers the rows the browser's roles let it see by the way each names: "password",
+// or an identity's id.
+func tenantWays(ctx context.Context, t *testing.T, b *browser, tenant, userID string) map[string]map[string]any {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/[[.Segment]]/"+tenant+"/staff-[[.Kebab]]-sign-in-ways?filter=userId:eq:"+userID, nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET how %s signs in, in %s: status %d: %s", userID, tenant, status, body)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(body, &rows); err != nil {
+		t.Fatalf("how %s signs in is not a list: %v: %s", userID, err, body)
+	}
+	byWay := make(map[string]map[string]any, len(rows))
+	for _, row := range rows {
+		way, _ := row["way"].(string)
+		byWay[way] = row
+	}
+
+	return byWay
+}
+[[end]]
+// tenantRows reads one of the tenant's lists as the browser b and answers its rows by
+// id, each with the fields the browser's roles let it see.
+func tenantRows(ctx context.Context, t *testing.T, b *browser, tenant, list string) map[string]map[string]any {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/[[.Segment]]/"+tenant+"/"+list+"?limit=200", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET %s's %s: status %d: %s", tenant, list, status, body)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(body, &rows); err != nil {
+		t.Fatalf("%s's %s are not a list: %v: %s", tenant, list, err, body)
+	}
+	byID := make(map[string]map[string]any, len(rows))
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		byID[id] = row
+	}
+
+	return byID
+}
+
+// tenantRow reads one row of one of the tenant's lists by its id, as the browser b.
+func tenantRow(ctx context.Context, t *testing.T, b *browser, tenant, list, id string) map[string]any {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/[[.Segment]]/"+tenant+"/"+list+"/"+id, nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET %s's %s/%s: status %d: %s", tenant, list, id, status, body)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(body, &row); err != nil {
+		t.Fatalf("%s's %s/%s is not a row: %v: %s", tenant, list, id, err, body)
+	}
+
+	return row
+}
+
+// tenantRolesOf reads the roles the user holds in the tenant, as the browser b: what the
+// tenant's list of the roles held shows them under, by the username, and none when the
+// user holds none there.
+func tenantRolesOf(ctx context.Context, t *testing.T, b *browser, tenant, user string) []string {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/[[.Segment]]/"+tenant+"/staff-[[.Kebab]]-user-roles?limit=200", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET %s's roles held: status %d: %s", tenant, status, body)
+	}
+	var rows []struct {
+		Username string `json:"username"`
+		Role     string `json:"role"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil {
+		t.Fatalf("the roles held are not a list: %v: %s", err, body)
+	}
+	var roles []string
+	for _, row := range rows {
+		if row.Username == user {
+			roles = append(roles, row.Role)
+		}
+	}
+
+	return roles
+}

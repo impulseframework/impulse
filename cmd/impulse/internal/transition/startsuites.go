@@ -52,11 +52,17 @@ const (
 // grants to the engine, neither of which signs anybody in.
 const tenantedSuites = "tenanted"
 
+// tenantPeopleSuites is the set, and the tree, of the one test that proves the conditions
+// on the grants of the role a tenant's administrator holds. It is written with the role,
+// after the regeneration, and never with a start's other tests.
+const tenantPeopleSuites = "tenantpeople"
+
 // suiteTrees are the trees of suiteFiles a set is rendered from.
 var suiteTrees = map[string][]string{
 	directoryRolesSuites:  {directoryRolesSuites},
 	byDirectorySuites:     {tenantedSuites, byDirectorySuites},
 	passwordTenantsSuites: {tenantedSuites, passwordTenantsSuites},
+	tenantPeopleSuites:    {tenantPeopleSuites},
 }
 
 // The base's tests a start reads, writes again or takes out by name.
@@ -87,6 +93,18 @@ type suiteData struct {
 	OneTenant   bool
 	Directories bool
 	North       string
+	// What the test of a tenant administrator's conditions takes beside them: Kebab is
+	// the record as a method's route spells it and Segment the tenant segment of the
+	// routes, South is the id the development seed gives its second tenant, and Password
+	// reports that the auth whose people make tenants has the password method.
+	Kebab, Segment, South string
+	Password              bool
+	// Proven reports that the test of a tenant administrator's conditions is written beside
+	// the harness. Every grant it proves is one role's, so the harness's provesGrant takes
+	// that role in each call, and says so to the application's lint (unparam), as the
+	// tenanted reference application's harness does. A harness with no such test beside it
+	// says nothing, since a directive that silences nothing is itself refused.
+	Proven bool
 }
 
 // removedSuite is a test of the base that a start takes out, with the reason.

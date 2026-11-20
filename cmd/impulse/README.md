@@ -1324,16 +1324,35 @@ resource the application does not serve. The command then writes the role a tena
 administrator holds, since an application with tenants builds no router until one is
 named: `<Record>Administrator` (`TenantAdministrator` over `Tenants`), a domain role in the
 role file of the auth whose people make tenants, with the grants the tenanted skeleton's
-`TenantAdministrator` holds under no condition on what the application serves (a tenant's
-people, their groups and the roles they hold there, and the tenant's directory where it
-can have one). The grants the skeleton holds under a condition, which are the methods
-that change a person and the lists that show more of one, each kept from a person
-another tenant also holds, are not written: `impulse check` holds every conditional
-grant to a test that proves it over seeded rows (`conditions-proven`), and the command
-writes no such test, so a line under what it could not make names each grant with its
-condition, to add with its proof as the tenanted skeleton's
-`test/integration/tenant_people_test.go` proves them. Until then a tenant's
-administrator does none of them. The auth's `AdministratorRoles()` and
+`TenantAdministrator` holds on what the application serves (a tenant's people, their
+groups and the roles they hold there, and the tenant's directory where it can have one),
+each under the condition the skeleton holds it to. The grants under a condition are the
+methods that change a person and the lists that show more of one, each kept from a
+person another tenant or the whole application also holds, with the withdrawal of an
+invitation that still stands and the removal of a role held in the tenant. `impulse
+check` holds every conditional grant to a test that proves it over seeded rows
+(`conditions-proven`), so the command writes that test with the role:
+`test/integration/tenant_people_test.go`, the tenanted skeleton's test of the same name
+in the application's names, which serves the application, signs a tenant's administrator
+in and proves each condition both ways round. Where the auth has the password method the
+test signs people in with a password; where it has none (the start of Tenant-owned
+users, by directory) the role carries no grant on a person's password, which such an
+application does not serve, and the test signs people in through the simulated directory,
+so it runs under `-tags skipAuth` and is skipped, saying so, under the default build.
+Every grant the test proves is the one role's, and the application's lint refuses a
+parameter that takes one value in every call, so the command writes the harness again
+beside the test with its `provesGrant` marked for the lint (`//nolint:unparam`, with the
+reason), as the tenanted skeleton's harness is; a harness with no such test beside it
+carries no mark, since the lint refuses a mark that silences nothing. The
+command writes the test only where it holds as the application is: where a test of that
+name is there already, where the harness, `grants_test.go` or the sign-in helpers it
+stands on are no longer as the command writes them, where another test of the package
+declares one of its names, or where the conditional grants the application serves are not
+the ones the test proves, the role is written with the grants that hold under no
+condition, and a line under what the command could not make names each grant left out
+with its condition and says why the test was not written. Until the author adds those,
+each with its proof, a tenant's administrator does none of them. The auth's
+`AdministratorRoles()` and
 `FirstAdministratorRoles()` (`foothold.go`) name it as held in every tenant, the
 deployment package's test of the first administrator's roles holds it to the role file,
 and the application's own administrator role gains the grants a tenant is made with: the

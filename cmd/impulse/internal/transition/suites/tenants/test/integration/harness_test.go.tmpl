@@ -410,6 +410,10 @@ func invited(ctx context.Context, t *testing.T, s *served, admin *browser, email
 // conditions-proven check reads these calls to find the conditional grants no case names.
 // Write the file as the auth package's Roles() call and the coordinates as literals: the
 // check reads them from the source.
+[[- if .Proven]]
+//
+//nolint:unparam // The role file's conditional grants are all one role's today; the next role's case names its own.
+[[- end]]
 func provesGrant(t *testing.T, roles access.RoleFile, role accesstypes.Role, permission accesstypes.Permission, res accesstypes.Resource, condition string) {
 	t.Helper()
 

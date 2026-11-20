@@ -33,7 +33,7 @@ func tenantedAfter(t *testing.T, tn Tenancy, auth string, prepare func(t *testin
 	if prepare != nil {
 		prepare(t, a)
 	}
-	run := &tenantedRegeneration{collection: referenceFile(t, collectionFile)}
+	run := &tenantedRegeneration{collection: referenceCollection(t)}
 	run.a = a
 	run.removes = []string{"pkg/identity/" + auth + "handlers/zz_gen_" + auth + "_sign_up_roles.go"}
 	ch, err := tn.Apply(t.Context(), a, run)

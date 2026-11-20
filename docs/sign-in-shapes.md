@@ -986,6 +986,15 @@ a tenant's administrator can do this much:
 A browser a person trusted is one they asked the application to remember, after they
 entered the code the application mails at a sign-in that asks for a second step.
 
+An application that `impulse new` makes with tenants, or that `impulse add tenancy` gives
+them, starts with this role in its own names (`<Record>Administrator`): each of these
+grants on what the application serves, under the same condition. The command writes
+`test/integration/tenant_people_test.go` with it, the test that proves each condition
+on the served application, because `impulse check` refuses a conditional grant that no
+test proves (`conditions-proven`). Where the auth has no password sign-in, the role and
+its test leave out the rows about a password, which such an application does not serve,
+and the test signs people in through the simulated directory (`-tags skipAuth`).
+
 `impulse check` has a check for the last row, named `tenant-accounts`. It fails when a
 grant lets a role held in a tenant run one of those operations on an account with no
 condition that tests the person's row. Which condition is the application's to choose.
