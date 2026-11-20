@@ -32,6 +32,24 @@ const (
 	wireFunds accesstypes.Resource = "WireFunds"
 )
 
+// createTenant is the action of the mask scenarios' create-your-tenant route, as the
+// generator names and classes it for a tenant record called Tenant. No grant admits the
+// route, so no permission is checked there: the mask alone refuses it.
+const createTenant accesstypes.Resource = "CreateTenant"
+
+// maskAccessActions are the mask scenarios' sign-in settings, which the generator
+// classes access, under the names a tenant record called Tenant and an auth called
+// Staff give them: the two methods of the switch that makes a tenant sign in with its
+// directory alone, which run in the tenant, and the setting that lets people ask at the
+// sign-in page for a link that resets their password.
+func maskAccessActions() []accesstypes.Resource {
+	return []accesstypes.Resource{
+		"EndTenantDirectoryOnly",
+		"MakeTenantDirectoryOnly",
+		"SetStaffSelfServiceReset",
+	}
+}
+
 // maskCredentialActions are the mask scenarios' credential actions: the six acts the
 // generated identity methods class credential, under the names an auth called Staff
 // gives them, and the tenant's form of one.
@@ -48,8 +66,10 @@ func maskCredentialActions() []accesstypes.Resource {
 }
 
 // maskCollection is the permission collection of the mask scenarios' application, as a
-// generator would write it: the grants, the credential actions carrying the library's
-// class, an action carrying a class of the application's own, and two that carry none.
+// generator would write it: the grants, the credential actions and the sign-in settings
+// carrying the library's two classes, the action of the create-your-tenant route, which
+// carries access too, an action carrying a class of the application's own, and two that
+// carry none.
 func maskCollection(t *testing.T) *resource.GeneratedCollection {
 	t.Helper()
 
@@ -59,6 +79,7 @@ func maskCollection(t *testing.T) *resource.GeneratedCollection {
 		{Name: grantAct, Scope: accesstypes.GlobalPermissionScope, Permissions: execute},
 		{Name: grantFull, Scope: accesstypes.GlobalPermissionScope, Permissions: execute},
 		{Name: wireFunds, Scope: accesstypes.GlobalPermissionScope, Permissions: execute, Classes: []accesstypes.ActionClass{"money_movement"}},
+		{Name: createTenant, Scope: accesstypes.GlobalPermissionScope, Permissions: execute, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}},
 		{Name: "EndStaffUserSessions", Scope: accesstypes.GlobalPermissionScope, Permissions: execute},
 		{Name: "Ledgers", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read, accesstypes.Update}},
 	}
@@ -68,6 +89,13 @@ func maskCollection(t *testing.T) *resource.GeneratedCollection {
 			scope = accesstypes.DomainPermissionScope
 		}
 		resources = append(resources, resource.CollectionResource{Name: action, Scope: scope, Permissions: execute, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}})
+	}
+	for _, action := range maskAccessActions() {
+		scope := accesstypes.GlobalPermissionScope
+		if strings.Contains(string(action), "Tenant") {
+			scope = accesstypes.DomainPermissionScope
+		}
+		resources = append(resources, resource.CollectionResource{Name: action, Scope: scope, Permissions: execute, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}})
 	}
 	collection, err := resource.NewGeneratedCollection(resource.CollectionData{Resources: resources})
 	if err != nil {
@@ -141,6 +169,28 @@ type maskHandOff struct {
 	maskAsk
 }
 
+// madeTenants are the tenants the mask scenarios' create-your-tenant route has made,
+// each by the name of the person it made the tenant's administrator.
+type madeTenants struct {
+	mu     sync.Mutex
+	makers []string
+}
+
+// add records a tenant made for the person.
+func (m *madeTenants) add(maker string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.makers = append(m.makers, maker)
+}
+
+// list answers the makers of the tenants made so far, in the order they were made.
+func (m *madeTenants) list() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return slices.Clone(m.makers)
+}
+
 // capturedLog collects what the application logs through the standard logger while a
 // mask scenario runs.
 type capturedLog struct {
@@ -176,9 +226,12 @@ func (c *capturedLog) take() string {
 // the session permissions' masked check behind every action. On PostgreSQL and on
 // Spanner alike, the record keeps the mask with its refusals in its one Mask column,
 // the session reads it back and is refused what it refuses with the denial logged as
-// the mask's, and a request for more than the grant gives starts nothing. A server-side
-// caller, which names an actor another system signed in, goes through the same
-// declaration with a check of its own, and its session is held to the kind's mask.
+// the mask's, and a request for more than the grant gives starts nothing. A mask that
+// refuses the class access refuses the tenant's two sign-in settings and the making of a
+// tenant, which no grant admits and the mask alone decides, with nothing made; a session
+// that acts with no mask does each. A server-side caller, which names an actor another
+// system signed in, goes through the same declaration with a check of its own, and its
+// session is held to the kind's mask.
 //
 // The test runs on its own, never in parallel: the application logs through the
 // standard logger, which the test redirects to read each denial.
@@ -238,6 +291,7 @@ func newMaskApp[Tx any](t *testing.T, store *sessionstorage.Preauth[Tx]) *httpte
 	}
 	api := auth.API()
 	collection := maskCollection(t)
+	tenants := &madeTenants{}
 	impersonations, err := session.NewImpersonations(collection,
 		session.ImpersonatesUser("view", grantView, accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
 		session.ImpersonatesUser("act", grantAct, accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential))),
@@ -388,10 +442,33 @@ func newMaskApp[Tx any](t *testing.T, store *sessionstorage.Preauth[Tx]) *httpte
 		// The masked check on its own, behind a safe method: the read-only guard lets a
 		// GET through, so a read-only session's denial here is the check's.
 		r.Get("/check/{action}", run)
+		// The create-your-tenant route's two answers, as the generator writes them. No
+		// grant admits the route, so no permission is checked for a mask to deny: the
+		// route asks the mask about its action itself, before anything else. Whether
+		// the act is offered is answered without a word in the log, and the tenants
+		// made are listed for the scenarios to count.
+		r.Get("/create-tenant", func(w http.ResponseWriter, r *http.Request) {
+			_, refused := resource.MaskRefusesAction(r.Context(), collection, createTenant)
+			_ = httpio.NewEncoder(w).Ok(map[string]bool{"offered": !refused})
+		})
+		r.Get("/tenants", func(w http.ResponseWriter, _ *http.Request) {
+			_ = httpio.NewEncoder(w).Ok(tenants.list())
+		})
 		// The action as an application serves it: behind the read-only guard.
 		r.Group(func(r chi.Router) {
 			r.Use(auth.EnforceReadOnlyMask)
 			r.Post("/run/{action}", run)
+			r.Post("/create-tenant", func(w http.ResponseWriter, r *http.Request) {
+				if err := resource.RefuseActionUnderMask(r.Context(), collection, createTenant, "create a tenant"); err != nil {
+					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+					return
+				}
+				// The tenant is made for the person the session is: in a session that
+				// acts as someone, the person acted as.
+				tenants.add(sessioninfo.FromCtx(r.Context()).Username)
+				w.WriteHeader(http.StatusCreated)
+			})
 		})
 	})
 
@@ -409,6 +486,7 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 
 	server := newMaskApp(t, store)
 	credential := maskCredentialActions()
+	access := maskAccessActions()
 
 	var logged capturedLog
 	previous := log.Writer()
@@ -443,12 +521,43 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 		return bySession
 	}
 
-	// The person the sessions act as, unmasked: every action is theirs to run.
+	// made answers the makers of the tenants the application has made so far, and
+	// offered whether the create-your-tenant route offers the act to the session.
+	made := func(b *browser) []string {
+		t.Helper()
+		var makers []string
+		if err := json.Unmarshal(b.expect(ctx, http.StatusOK, http.MethodGet, "/tenants", nil), &makers); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+
+		return makers
+	}
+	offered := func(b *browser) bool {
+		t.Helper()
+		var offer struct {
+			Offered bool `json:"offered"`
+		}
+		if err := json.Unmarshal(b.expect(ctx, http.StatusOK, http.MethodGet, "/create-tenant", nil), &offer); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+
+		return offer.Offered
+	}
+
+	// The person the sessions act as, unmasked: every action is theirs to run, and so
+	// is a tenant of their own to make.
 	alice := newBrowser(t, server)
 	alice.login(ctx, "alice")
 	logged.take()
-	for _, action := range append(credential, wireFunds, "EndStaffUserSessions") {
+	for _, action := range slices.Concat(credential, access, []accesstypes.Resource{wireFunds, "EndStaffUserSessions"}) {
 		alice.expect(ctx, http.StatusNoContent, http.MethodPost, "/run/"+string(action), nil)
+	}
+	if !offered(alice) {
+		t.Error("alice's own session is not offered a tenant of her own to make")
+	}
+	alice.expect(ctx, http.StatusCreated, http.MethodPost, "/create-tenant", nil)
+	if got, want := made(alice), []string{"alice"}; !slices.Equal(got, want) {
+		t.Errorf("the tenants made after alice made hers = %v, want %v", got, want)
 	}
 	if got := logged.take(); strings.Contains(got, "denied by mask") {
 		t.Errorf("alice's own session logged a mask denial:\n%s", got)
@@ -495,6 +604,10 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 		// kept are actions it leaves to policy.
 		refused map[accesstypes.Resource]string
 		kept    []accesstypes.Resource
+		// creation is what the log says when the session is refused the making of a
+		// tenant, which no grant admits and the mask alone decides; empty for a session
+		// whose mask leaves it, which then makes one for the person it acts as.
+		creation string
 	}{
 		{
 			name:       "the grant's own mask when the request names none: reading only",
@@ -503,7 +616,8 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 			wantColumn: "List,Read",
 			wantWords:  "reading only",
 			readOnly:   true,
-			refused:    refusedBy(append(credential, wireFunds, "EndStaffUserSessions"), "Execute denied by mask (List,Read) for alice on [%s]"),
+			refused:    refusedBy(slices.Concat(credential, access, []accesstypes.Resource{wireFunds, "EndStaffUserSessions"}), "Execute denied by mask (List,Read) for alice on [%s]"),
+			creation:   "Execute denied by mask (List,Read) for alice on [CreateTenant]",
 		},
 		{
 			name:       "a mask without Execute, narrower than the grant's",
@@ -511,7 +625,8 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 			ask:        maskAsk{Kind: "act", Principal: "alice", Mask: []accesstypes.Permission{accesstypes.List, accesstypes.Read, accesstypes.Update}},
 			wantColumn: "List,Read,Update;-class:credential",
 			wantWords:  "List, Read and Update only, except credential actions",
-			refused:    refusedBy(append(credential, wireFunds, "EndStaffUserSessions"), "Execute denied by mask (List,Read,Update;-class:credential) for alice on [%s]"),
+			refused:    refusedBy(slices.Concat(credential, access, []accesstypes.Resource{wireFunds, "EndStaffUserSessions"}), "Execute denied by mask (List,Read,Update;-class:credential) for alice on [%s]"),
+			creation:   "Execute denied by mask (List,Read,Update;-class:credential) for alice on [CreateTenant]",
 		},
 		{
 			name:       "the grant's own mask: everything except the credential actions",
@@ -520,7 +635,7 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 			wantColumn: "*;-class:credential",
 			wantWords:  "everything except credential actions",
 			refused:    refusedBy(credential, "Execute denied by mask (*;-class:credential) for alice on %s: the mask refuses the class credential"),
-			kept:       []accesstypes.Resource{wireFunds, "EndStaffUserSessions"},
+			kept:       slices.Concat(access, []accesstypes.Resource{wireFunds, "EndStaffUserSessions"}),
 		},
 		{
 			name:       "a class of the application's own and one named action, joined to what the grant refuses",
@@ -542,6 +657,25 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 			wantWords:  "everything except the action SetStaffUserEmail",
 			refused:    map[accesstypes.Resource]string{"SetStaffUserEmail": "on SetStaffUserEmail: the mask refuses Execute on SetStaffUserEmail"},
 			kept:       []accesstypes.Resource{"SetStaffTemporaryPassword", "RenameStaffUser", wireFunds, "EndStaffUserSessions"},
+		},
+		{
+			name:       "the class access under a grant that gives everything: the sign-in settings and the making of a tenant",
+			actor:      "owner",
+			ask:        maskAsk{Kind: "full", Principal: "alice", RefuseClasses: []accesstypes.ActionClass{accesstypes.ClassAccess}},
+			wantColumn: "*;-class:access",
+			wantWords:  "everything except access actions",
+			refused:    refusedBy(access, "Execute denied by mask (*;-class:access) for alice on %s: the mask refuses the class access"),
+			kept:       slices.Concat(credential, []accesstypes.Resource{wireFunds, "EndStaffUserSessions"}),
+			creation:   "Execute denied by mask (*;-class:access) for alice on CreateTenant: the mask refuses the class access",
+		},
+		{
+			name:       "the making of a tenant alone, refused by its action's name",
+			actor:      "owner",
+			ask:        maskAsk{Kind: "full", Principal: "alice", RefuseActions: []accesstypes.Resource{createTenant}},
+			wantColumn: "*;-on:Execute:CreateTenant",
+			wantWords:  "everything except the action CreateTenant",
+			kept:       slices.Concat(access, []accesstypes.Resource{wireFunds}),
+			creation:   "Execute denied by mask (*;-on:Execute:CreateTenant) for alice on CreateTenant: the mask refuses Execute on CreateTenant",
 		},
 	}
 	for i := range sessions {
@@ -584,6 +718,46 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 		}
 		if got := logged.take(); strings.Contains(got, "denied by mask") {
 			t.Errorf("%s: an action the mask keeps logged a mask denial:\n%s", tt.name, got)
+		}
+
+		// The making of a tenant, which no grant admits: the mask alone decides it. A
+		// session it leaves the act makes a tenant for the person it acts as; one it
+		// refuses is told so, with the denial logged as the mask's and nothing made, and
+		// is not offered the act.
+		before := made(b)
+		logged.take()
+		status, body := b.do(ctx, http.MethodPost, "/create-tenant", nil)
+		if tt.creation == "" {
+			if status != http.StatusCreated {
+				t.Errorf("%s: POST /create-tenant = %d %s, want 201: the mask leaves the act", tt.name, status, body)
+			}
+			if got := logged.take(); strings.Contains(got, "denied by mask") {
+				t.Errorf("%s: a creation the mask leaves logged a mask denial:\n%s", tt.name, got)
+			}
+			if got, want := made(b), slices.Concat(before, []string{"alice"}); !slices.Equal(got, want) {
+				t.Errorf("%s: the tenants made = %v, want %v: the tenant is made for the person acted as", tt.name, got, want)
+			}
+			if !offered(b) {
+				t.Errorf("%s: the session is not offered the making of a tenant, which its mask leaves it", tt.name)
+			}
+
+			continue
+		}
+		says, want := "you are acting as someone else, and this session cannot create a tenant", tt.creation
+		if tt.readOnly {
+			says, want = "this session is read-only", "impersonation: POST /create-tenant refused for"
+		}
+		if status != http.StatusForbidden || !strings.Contains(string(body), says) {
+			t.Errorf("%s: POST /create-tenant = %d %s, want 403 saying %q", tt.name, status, body, says)
+		}
+		if got := logged.take(); !strings.Contains(got, want) {
+			t.Errorf("%s: POST /create-tenant logged %q, want it to carry %q: the denial is the mask's", tt.name, got, want)
+		}
+		if got := made(b); !slices.Equal(got, before) {
+			t.Errorf("%s: the tenants made = %v, want %v: a refused creation makes nothing", tt.name, got, before)
+		}
+		if offered(b) {
+			t.Errorf("%s: the session is offered the making of a tenant, which its mask refuses", tt.name)
 		}
 	}
 
@@ -643,8 +817,19 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 	if got := column(sessionID); got != nil || words != "everything" {
 		t.Errorf("an unmasked kind: the record's Mask column = %v, in words %q; want NULL and everything", deref(got), words)
 	}
-	for _, action := range credential {
+	for _, action := range slices.Concat(credential, access) {
 		owner.expect(ctx, http.StatusNoContent, http.MethodPost, "/run/"+string(action), nil)
+	}
+	// To let someone act as a person with no mask is to give them what the person
+	// holds: the making of a tenant too, made for the person acted as.
+	before := made(owner)
+	logged.take()
+	owner.expect(ctx, http.StatusCreated, http.MethodPost, "/create-tenant", nil)
+	if got, want := made(owner), slices.Concat(before, []string{"alice"}); !slices.Equal(got, want) {
+		t.Errorf("an unmasked kind: the tenants made = %v, want %v", got, want)
+	}
+	if got := logged.take(); strings.Contains(got, "denied by mask") || !offered(owner) {
+		t.Errorf("an unmasked kind: the making of a tenant is not offered, or logged a mask denial:\n%s", got)
 	}
 }
 
