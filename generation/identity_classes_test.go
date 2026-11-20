@@ -74,13 +74,18 @@ var identityMethodActs = map[string]accesstypes.ActionClass{
 	// settings that say who is let in.
 	"SetSelfServiceReset": changesAccess,
 
-	// Whether a person has an account and may use it. An account is made with the roles
-	// its person holds; one disabled or deleted may do nothing, and one enabled may do
-	// again all it held.
-	"CreateUser":  changesAccess,
-	"DeleteUser":  changesAccess,
-	"DisableUser": changesAccess,
-	"EnableUser":  changesAccess,
+	// An account made is made with the roles its person holds, so making one gives
+	// someone what they may do.
+	"CreateUser": changesAccess,
+
+	// An account disabled, enabled or deleted: the work a person who stands in for an
+	// administrator is there to do, which a mask that refuses the class access leaves to
+	// them. Nobody does it to themselves: the rule that the person acting is never the
+	// subject of what they do (identity.RefuseImpersonatorAsSubject) refuses each on the
+	// real person's own account, whatever the mask says.
+	"DeleteUser":  unclassed,
+	"DisableUser": unclassed,
+	"EnableUser":  unclassed,
 
 	// The name people read, and what a group is described as: words, which change
 	// nothing anybody may do.
@@ -242,7 +247,4 @@ var wantAccessMethods = map[string][]string{
 	"MakeInviteOnly":        {"MakeCrewInviteOnly"},
 	"SetSelfServiceReset":   {"SetCrewSelfServiceReset"},
 	"CreateUser":            {"CreateCrewShipUser", "CreateCrewUser", "CreateMembersShipUser", "CreateMembersUser"},
-	"DeleteUser":            {"DeleteCrewShipUser", "DeleteCrewUser", "DeleteMembersShipUser", "DeleteMembersUser"},
-	"DisableUser":           {"DisableCrewShipUser", "DisableCrewUser", "DisableMembersShipUser", "DisableMembersUser"},
-	"EnableUser":            {"EnableCrewShipUser", "EnableCrewUser", "EnableMembersShipUser", "EnableMembersUser"},
 }

@@ -3469,14 +3469,17 @@ sent, a sign-in identity unlinked, a username or an address changed).
 `accesstypes.ClassAccess`, `access`, is on every one that gives or takes away what
 someone may do (a role given or removed, a person put in a group or taken out, a role
 given to a group or taken from it, a group made or deleted, an invitation sent or
-withdrawn, an account made, disabled, enabled or deleted, and what a sign-in method or a
-tenant's directory gives everyone who arrives through it), and on the settings that say
+withdrawn, an account made, which is made with the roles its person holds, and what a
+sign-in method or a tenant's directory gives everyone who arrives through it), and on the
+settings that say
 who may sign in at all: the switch that makes a tenant sign in with its directory
 alone, and the one that lets people ask at the sign-in page for a link that resets
 their own password. The making of a tenant of one's own carries it too: the generated
 create-your-tenant route, which no grant admits, has an action's name for the mask to
 refuse, and asks the mask itself (the resource package's "How a tenant comes to
-exist", "The first administrator"). An application marks its own
+exist", "The first administrator"). An account disabled, enabled or deleted carries
+neither class: that is the work a person who stands in for an administrator is there to
+do, so a mask that refuses both classes leaves it to them. An application marks its own
 actions with either or with a class it names. The generated permission collection
 carries each action's classes, which is where a check reads them.
 
@@ -3485,7 +3488,7 @@ do: the generated user management refuses every change to the account of the per
 started the session, whatever the mask keeps and whether or not the kind was declared,
 since the rule reads the session's record alone (the actor it names). A person who acts
 as an administrator would otherwise give their own account a role and keep it after the
-session ends. The rule covers a record that decides what a person may do as well: the
+session ends, or enable their own account again after it was disabled. The rule covers a record that decides what a person may do as well: the
 generated write of a record the policy reads as a subject value or a subject set (a
 clearance, a place in a team) refuses the real person a row that names them, asked
 before the write and after it, so they neither raise their own clearance nor move
@@ -3498,6 +3501,11 @@ without naming them is beside it: a pass given to a team they are in, or their o
 moved to another division. These are the rule's stated limits. A session whose mask
 refuses nothing does each of them, since to let someone act as a person with no mask is
 to give them what the person holds, and an application closes them through its mask.
+One limit no class closes: the rule knows the real person by the account they signed in
+with, so a second account of their own is someone else's to it, and a person who acts
+as an administrator can enable that account again, or disable or delete it, as the
+administrator can. An application that must hold this refuses the three actions by name
+in the kind's mask (`accesstypes.RefuseAction`).
 An application that lets people act as a person and
 does not mean them to change who may do what refuses both classes, as the declaration
 above does, and refuses by name the writes of its own records that decide what a person

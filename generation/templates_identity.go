@@ -1790,7 +1790,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)` + identityAccessClass + `
+// @answers(204)
 type Disable{{ .Subject }}User struct {
 	// @target({{ .SubjectUser }})
 	UserID impulse.UUID
@@ -2092,7 +2092,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)` + identityAccessClass + `
+// @answers(204)
 type Enable{{ .Subject }}User struct {
 	// @target({{ .SubjectUser }})
 	UserID impulse.UUID
@@ -2291,7 +2291,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)` + identityAccessClass + `
+// @answers(204)
 type Delete{{ .Subject }}User struct {
 	// @target({{ .SubjectUser }})
 	UserID impulse.UUID

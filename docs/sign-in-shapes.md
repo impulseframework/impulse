@@ -478,6 +478,12 @@ Where an application offers it, these things hold in every shape.
   This is a stated limit of the rule. An application closes it through the mask of the
   kind: a kind that is not to change what anyone may do refuses that class of actions,
   and the writes of each such record by name.
+- Disabling, enabling and deleting an account are not in that class. A person who acts
+  as an administrator does them as the administrator would, on anyone's account but
+  their own. The rule knows the person by the account they signed in with. If they have
+  a second account, the rule does not see that it is theirs, so they can enable it again
+  while they act as an administrator. An application that must stop this refuses those
+  three actions by name in the mask of the kind.
 - A session that acts as someone is started through the kinds the application named, and
   in no other way. The application's own code cannot write one into the session store
   around them.

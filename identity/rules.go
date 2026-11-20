@@ -178,7 +178,12 @@ func (m *Manager) refuseImpersonatorAsSubject(ctx context.Context, userID impuls
 // RefuseImpersonatorAsRowSubject says which), an invitation to an address they hold and
 // never confirmed on the account, an act on a colleague who returns the favor. These
 // are stated limits: a session whose mask refuses nothing does each of them, and an
-// application closes them through its mask. The unlock knows the account by
+// application closes them through its mask. A second account of the person's own is
+// one more: the rule knows the real person by the account they signed in with, so
+// another account of theirs is someone else's to it, and a person who acts as an
+// administrator can enable it again, or disable or delete it, as the administrator
+// can. No class refuses those three; an application that must hold this refuses them
+// by name in the kind's mask (accesstypes.RefuseAction). The unlock knows the account by
 // its username, its id and the address it confirmed, so a count the library keeps under
 // an address the account holds unconfirmed (the mail of a first password or of an
 // address change asked for) is cleared like anyone's. A mask that refuses the class
