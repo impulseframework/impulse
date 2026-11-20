@@ -3267,11 +3267,17 @@ and the session and its user on every later request. So:
   cache in front of it keeps none alive after it ended. A wrapper does decide an
   ordinary session: its `Session` is asked for every session the library's own read
   does not find impersonated, and its `User` for that session's user. An answer of its
-  own that carries an impersonation record is refused as an invalid session. The
-  actor's own session, when a session is started from it, must be held under the same
-  account in the library's store as the one the request arrived as, or nothing is
-  started. Over a wrapper the library reads an ordinary session twice on each request,
-  once itself and once through the wrapper.
+  own that carries an impersonation record is refused as an invalid session. So is an
+  answer that is not the session the request's cookie names: one that carries another
+  session's id, and, where the library's own store holds the session, one that names
+  another account or another username than that row. A wrapper adds to an ordinary
+  session and does not change whose it is, so a cache that answers one person's cookie
+  with another person's session has the request refused, and no session is started as
+  that person. A session that acts as someone else starts from the session the
+  request's cookie names, which must be held under the same account in the library's
+  store as the session the request was validated as, or nothing is started. Over a
+  wrapper the library reads an ordinary session twice on each request, once itself and
+  once through the wrapper.
 - **A store written from nothing is no session store.** It cannot declare the methods,
   so a program that hands one to `NewAuth` or `NewPreauth` does not compile. A test
   double written by hand embeds `sessionstorage.NoImpersonatedSessions`, which gives it
@@ -3303,7 +3309,9 @@ The seal is the library's API and no more. These are outside it:
   the session and its record is a write of its own on those tables in that transaction,
   which is the limit above.
 - **What a store that wraps the library's still carries.** It answers for ordinary
-  sessions, as said above. And the writes that end or extend an impersonated session
+  sessions, as said above: what it adds to one is the application's, and a session the
+  library's own store does not hold is its to answer whole, under the id that was asked
+  for. And the writes that end or extend an impersonated session
   pass through it (`DestroySession`, `DestroyImpersonatedSession`,
   `DestroyImpersonatedSessions`, `EndImpersonation`, `UpdateSessionActivity`), as does
   the listing of the live ones (`ActiveImpersonations`). A wrapper that drops one of

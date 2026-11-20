@@ -514,8 +514,10 @@ Where an application offers it, these things hold in every shape.
   write one into the session store around them. A store the application wraps does not
   decide one either. The library reads who started it, whom it acts as, what its mask
   keeps and whether it has ended from its own store, and never asks the wrapper. The
-  wrapper still answers for an ordinary session, and the writes that end a session
-  that acts as someone pass through it. The application owns its tables, so SQL of its
+  wrapper still answers for an ordinary session, as the session the request's cookie
+  names and no other: an answer that is another person's session is refused, so nobody
+  starts a session that acts as someone under another person's name. The writes that
+  end a session that acts as someone pass through the wrapper. The application owns its tables, so SQL of its
   own can write any row, and the library does not see that. This includes the
   function an application registers to fill in its own session data, which the library
   calls with the request inside the transaction that writes the session.

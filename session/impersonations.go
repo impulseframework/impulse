@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/basesession"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
@@ -367,9 +368,13 @@ func (i *Impersonations) Request(ctx context.Context, ask *ImpersonationAsk, hol
 		)
 	}
 
+	// The actor's own session is the one the request's cookie names, which the library
+	// holds the validated session to when the session is established.
+	own := basesession.RequestSessionID(ctx, current)
+
 	return i.request(ctx, &ImpersonationActor{
 		Name:      current.Username,
-		SessionID: impulse.NullUUID{UUID: current.ID, Valid: !current.ID.IsNil()},
+		SessionID: impulse.NullUUID{UUID: own, Valid: !own.IsNil()},
 	}, ask, holds, "starting a session of the kind %q takes Execute on %s, which you do not hold")
 }
 

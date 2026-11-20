@@ -229,6 +229,12 @@ func (s *BaseSession) validateSession(ctx context.Context, evidence trace.Span) 
 //     there is refused: a session is impersonated only where the library's own store
 //     says so.
 //
+// The store's answer is held to the session that was asked for (heldToTheSessionAsked):
+// it is that session, by its id, and where the library's own read found the session it
+// is that row's account under that row's username. A wrapper adds to an ordinary
+// session; it does not answer one person's cookie with another person's session, which
+// the start of an impersonated session would otherwise record and the end hand back.
+//
 // A failure of the library's own read that is not one of those is the request's
 // failure: the session is not handed to the wrapper to decide.
 func (s *BaseSession) session(ctx context.Context, sessionID impulse.UUID) (*sessioninfo.SessionData, error) {
@@ -244,11 +250,18 @@ func (s *BaseSession) session(ctx context.Context, sessionID impulse.UUID) (*ses
 		return own, nil
 	case err != nil && !httpio.HasNotFound(err) && !errors.Is(err, sealed.ErrSealed):
 		return nil, errors.Wrap(err, "sealed.Session()")
+	case err != nil:
+		// The library's own store does not hold the session, or the store has no read
+		// of the library's making: there is no row of the library's to hold the answer to.
+		own = nil
 	}
 
 	sess, err := s.Storage.Session(ctx, sessionID)
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.BaseStore.Session()")
+	}
+	if sess == nil || sess.SessionInfo == nil {
+		return nil, errors.Newf("the store's Session answered session %s with no session and no error", sessionID)
 	}
 	if sess.Impersonation != nil {
 		return nil, errors.Newf(
@@ -257,8 +270,43 @@ func (s *BaseSession) session(ctx context.Context, sessionID impulse.UUID) (*ses
 			sessionID,
 		)
 	}
+	if err := heldToTheSessionAsked(sessionID, own, sess); err != nil {
+		return nil, err
+	}
 
 	return sess, nil
+}
+
+// heldToTheSessionAsked refuses a store's answer for an ordinary session that is not
+// the session the request's cookie names. The answer carries that session's id. And
+// where the library's own store holds the session (own, nil when it does not), the
+// answer names the account and the username that row does.
+//
+// Without this a store that wraps the library's, a read cache keyed by something other
+// than the session's id for one, could answer one person's cookie with another person's
+// live session. The request would run as that person, and a session that acts as
+// someone else started from it would record them as the actor and, when it ended, hand
+// the browser their own session's cookie.
+func heldToTheSessionAsked(sessionID impulse.UUID, own, answered *sessioninfo.SessionData) error {
+	if answered.ID != sessionID {
+		return errors.Newf(
+			"the store's Session answered session %s with session %s: the session of a request is the one its cookie names, "+
+				"so a store that wraps the library's answers a session with that session",
+			sessionID, answered.ID,
+		)
+	}
+	if own == nil {
+		return nil
+	}
+	if answered.UserID != own.UserID || answered.Username != own.Username {
+		return errors.Newf(
+			"the store's Session answered session %s as the session of another account or under another username than the session library's own store holds it under: "+
+				"a store that wraps the library's adds to an ordinary session and does not change whose it is",
+			sessionID,
+		)
+	}
+
+	return nil
 }
 
 // Establish puts the validated session in ctx, resolves its principal, and stamps the

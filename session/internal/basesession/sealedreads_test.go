@@ -58,11 +58,16 @@ func impersonatedSession(id impulse.UUID) *sessioninfo.SessionData {
 // own read first, which the wrapper has by promotion and cannot replace. A session that
 // read finds impersonated is that session, and the wrapper is never asked: it cannot
 // clear the mask, and a cache it keeps cannot serve an ended session. Every other
-// session is the wrapper's to answer, as an ordinary one alone.
+// session is the wrapper's to answer, as an ordinary one alone, and as the session that
+// was asked for: its id, and where the library's own store holds it, its account and
+// its username.
 func TestBaseSession_ValidateSessionAPI_whatAWrapperDecides(t *testing.T) {
 	t.Parallel()
 
 	sessionID := impulse.Must(impulse.NewUUID())
+	otherSessionID := impulse.Must(impulse.NewUUID())
+	bobID := impulse.Must(impulse.NewUUID())
+	aliceID := impulse.Must(impulse.NewUUID())
 
 	// unmasked is the stored session as a wrapper would hand it on with its mask
 	// cleared: the zero mask keeps every permission.
@@ -76,6 +81,11 @@ func TestBaseSession_ValidateSessionAPI_whatAWrapperDecides(t *testing.T) {
 		return func(impulse.UUID) (*sessioninfo.SessionData, error) {
 			return ordinarySession(sessionID, username, time.Now()), nil
 		}
+	}
+	// anothers is a wrapper that answers the session asked for with alice's own live
+	// session, as a read cache keyed by something other than the session's id would.
+	anothers := func(impulse.UUID) (*sessioninfo.SessionData, error) {
+		return accountSession(otherSessionID, "alice", aliceID, time.Now()), nil
 	}
 
 	tests := []struct {
@@ -116,10 +126,40 @@ func TestBaseSession_ValidateSessionAPI_whatAWrapperDecides(t *testing.T) {
 		},
 		{
 			name:         "an ordinary session is the wrapper's to answer",
-			stored:       ordinarySession(sessionID, "bob", time.Now()),
-			answer:       ordinary("robert"),
+			stored:       ordinarySession(sessionID, "bob", time.Now().Add(-time.Second)),
+			answer:       ordinary("bob"),
 			wantAsked:    true,
-			wantUsername: "robert",
+			wantUsername: "bob",
+		},
+		{
+			name:             "a wrapper cannot answer an ordinary session under another username than the library's store holds it under",
+			stored:           ordinarySession(sessionID, "bob", time.Now()),
+			answer:           ordinary("robert"),
+			wantAsked:        true,
+			wantUnauthorized: true,
+		},
+		{
+			name:   "a wrapper cannot answer an ordinary session as another account's than the library's store holds it under",
+			stored: accountSession(sessionID, "bob", bobID, time.Now()),
+			answer: func(impulse.UUID) (*sessioninfo.SessionData, error) {
+				return accountSession(sessionID, "bob", aliceID, time.Now()), nil
+			},
+			wantAsked:        true,
+			wantUnauthorized: true,
+		},
+		{
+			name:             "a wrapper cannot answer an ordinary session with another person's session",
+			stored:           accountSession(sessionID, "bob", bobID, time.Now()),
+			answer:           anothers,
+			wantAsked:        true,
+			wantUnauthorized: true,
+		},
+		{
+			name:             "a wrapper cannot answer a session the library's store does not hold with another session",
+			storedErr:        httpio.NewNotFoundMessagef("session %q not found", sessionID),
+			answer:           anothers,
+			wantAsked:        true,
+			wantUnauthorized: true,
 		},
 		{
 			name:         "a session the library's store does not hold is the wrapper's to answer",
@@ -228,6 +268,15 @@ func TestBaseSession_ValidateSessionAPI_aStoreWithNoLibraryStore(t *testing.T) {
 				t.Errorf("the session's username = %q, want bob", got)
 			}
 		})
+		t.Run(name+": a session answered with another session is refused", func(t *testing.T) {
+			t.Parallel()
+			another := ordinarySession(impulse.Must(impulse.NewUUID()), "alice", time.Now())
+			s := &BaseSession{SessionTimeout: time.Minute, Storage: store(gomock.NewController(t), another)}
+			_, err := s.ValidateSessionAPI(context.WithValue(context.Background(), sessioninfo.CTXSessionID, sessionID))
+			if !httpio.HasUnauthorized(err) {
+				t.Fatalf("ValidateSessionAPI() error = %v, want the session refused as invalid", err)
+			}
+		})
 		t.Run(name+": a session answered with an impersonation record is refused", func(t *testing.T) {
 			t.Parallel()
 			s := &BaseSession{SessionTimeout: time.Minute, Storage: store(gomock.NewController(t), impersonatedSession(sessionID))}
@@ -313,6 +362,69 @@ func TestBaseSession_StartImpersonatedSession_theActorIsTheStoredOne(t *testing.
 			}
 		})
 	}
+}
+
+// TestBaseSession_StartImpersonatedSession_theSourceIsTheCookiesSession holds the session
+// a person starts from to the one the request's cookie names. A request validated as
+// another session than its cookie names, which is what a store that answered one
+// person's cookie with another person's live session would make of it, starts nothing:
+// the library's store is asked for no session, and nothing is written. And a start that
+// names no source session takes the cookie's.
+func TestBaseSession_StartImpersonatedSession_theSourceIsTheCookiesSession(t *testing.T) {
+	t.Parallel()
+
+	sessionID := impulse.Must(impulse.NewUUID())
+	bobsSessionID := impulse.Must(impulse.NewUUID())
+	alicesSessionID := impulse.Must(impulse.NewUUID())
+	aliceID := impulse.Must(impulse.NewUUID())
+
+	t.Run("a request validated as another session than its cookie names starts nothing", func(t *testing.T) {
+		t.Parallel()
+		// No read and no write is expected of the library's store.
+		storage := &wrappedStore{BaseStore: mockstore.NewBaseStore(gomock.NewController(t))}
+		s := New(storage)
+		s.SessionTimeout = 10 * time.Minute
+
+		// Bob's cookie names his session, and the request runs as alice's.
+		ctx := context.WithValue(context.Background(), sessioninfo.CTXSessionID, bobsSessionID)
+		ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, accountSession(alicesSessionID, "alice", aliceID, time.Now()))
+		for name, source := range map[string]impulse.NullUUID{
+			"naming no source session":        {},
+			"naming alice's session":          {UUID: alicesSessionID, Valid: true},
+			"naming the cookie's own session": {UUID: bobsSessionID, Valid: true},
+		} {
+			imp := &sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")}
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
+			if _, err := s.StartImpersonatedSession(ctx, httptest.NewRecorder(), req, imp); !httpio.HasForbidden(err) {
+				t.Errorf("StartImpersonatedSession() %s error = %v, want it refused (403)", name, err)
+			}
+		}
+	})
+
+	t.Run("a start that names no source session takes the cookie's", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		inner := mockstore.NewBaseStore(ctrl)
+		inner.EXPECT().Session(gomock.Any(), alicesSessionID).Return(accountSession(alicesSessionID, "alice", aliceID, time.Now()), nil)
+		inner.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
+		cookieHandler := mock_cookie.NewMockHandler(ctrl)
+		cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+		cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+		s := New(&wrappedStore{BaseStore: inner})
+		s.SessionTimeout = 10 * time.Minute
+		s.CookieHandler = cookieHandler
+
+		ctx := context.WithValue(context.Background(), sessioninfo.CTXSessionID, alicesSessionID)
+		ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, accountSession(alicesSessionID, "alice", aliceID, time.Now()))
+		imp := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor")}
+		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
+		if _, err := s.StartImpersonatedSession(ctx, httptest.NewRecorder(), req, imp); err != nil {
+			t.Fatalf("StartImpersonatedSession() error = %v, want none", err)
+		}
+		if want := (impulse.NullUUID{UUID: alicesSessionID, Valid: true}); imp.SourceSessionID != want {
+			t.Errorf("the record's SourceSessionID = %v, want %v, the session the request's cookie names", imp.SourceSessionID, want)
+		}
+	})
 }
 
 // TestBaseSession_StartImpersonatedSession_aLocalActorOverAStoreWithNoLibraryStore holds

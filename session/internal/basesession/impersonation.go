@@ -110,11 +110,13 @@ func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.Respo
 // bindActorToSession ties an establishing call that arrives on a validated session of
 // this application to that session. The request's own session is proof of who is at
 // the keyboard, so the actor must be its user, and a local actor's SourceSessionID
-// must be it (and defaults to it when omitted). A claim to a foreign realm is refused:
-// an actor logged in here is local. Without a validated session in ctx (a server-side
-// caller, which names the actor through session.Impersonations.RequestFor) the
-// request's claims stand as given, for verifyLocalActor and the caller's own check of
-// the kind's grant to hold.
+// must be it (and defaults to it when omitted). The session of a request is the one its
+// cookie names (RequestSessionID), and the validated session in ctx must be that
+// session too: one put there under another id is refused. A claim to a foreign realm
+// is refused: an actor logged in here is local. Without a validated session in ctx (a
+// server-side caller, which names the actor through session.Impersonations.RequestFor)
+// the request's claims stand as given, for verifyLocalActor and the caller's own check
+// of the kind's grant to hold.
 //
 // Without this, an actor who learned another user's session ID — it appears in logs,
 // spans and ActiveImpersonations — could mint a session as that user by naming them.
@@ -133,16 +135,33 @@ func bindActorToSession(ctx context.Context, imp *sessioninfo.Impersonation) err
 	if imp.Actor != sessData.Username {
 		return httpio.NewForbiddenMessagef("actor %q is not the user of the session making the request", imp.Actor)
 	}
+	own := RequestSessionID(ctx, sessData)
+	if sessData.ID != own {
+		return httpio.NewForbiddenMessage("the session this request was validated as is not the session its cookie names, so it starts no session that acts as someone else")
+	}
 	if !imp.SourceSessionID.Valid {
-		imp.SourceSessionID = impulse.NullUUID{UUID: sessData.ID, Valid: true}
+		imp.SourceSessionID = impulse.NullUUID{UUID: own, Valid: true}
 
 		return nil
 	}
-	if imp.SourceSessionID.UUID != sessData.ID {
+	if imp.SourceSessionID.UUID != own {
 		return httpio.NewForbiddenMessage("the session named as the actor's own is not the session making the request")
 	}
 
 	return nil
+}
+
+// RequestSessionID is the session a request arrived as: the one its cookie names
+// (sessioninfo.CTXSessionID, which StartSession and a token's validation put in the
+// context), never the id a store answered for it. A context that carries a validated
+// session and no such id is one a program put together itself, and the session it put
+// there is the one it arrived as.
+func RequestSessionID(ctx context.Context, sessData *sessioninfo.SessionData) impulse.UUID {
+	if id, ok := ctx.Value(sessioninfo.CTXSessionID).(impulse.UUID); ok {
+		return id
+	}
+
+	return sessData.ID
 }
 
 // verifyLocalActor proves a local actor's claim. An actor with no ActorRealm is an

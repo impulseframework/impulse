@@ -273,6 +273,15 @@ func newReadsApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *rea
 				}
 				_ = httpio.NewEncoder(w).Ok(map[string]string{"sessionId": id.String()})
 			})
+			r.Post("/end", func(w http.ResponseWriter, r *http.Request) {
+				restored, err := api.EndImpersonation(r.Context(), w)
+				if err != nil {
+					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+					return
+				}
+				_ = httpio.NewEncoder(w).Ok(map[string]bool{"restored": restored})
+			})
 		})
 	})
 
@@ -366,8 +375,12 @@ func runSealedReads[Tx any](t *testing.T, be backend[Tx]) {
 			run:  readsActorChangedAtTheStart[Tx],
 		},
 		{
-			name: "a session the wrapper hands every request as another account's starts no session that acts as someone else",
+			name: "a session the wrapper hands every request as another account's is refused as an invalid session, and starts no session that acts as someone else",
 			run:  readsActorChangedOnEveryRequest[Tx],
+		},
+		{
+			name: "a wrapper that answers one person's session with another person's live session has the request refused, so nothing is started as that person and no end hands their session over",
+			run:  readsAnothersSession[Tx],
 		},
 		{
 			name: "a wrapper whose User answers another account is never asked whom the session acts as: it acts as the person the request named",
@@ -505,8 +518,9 @@ func readsActorChangedAtTheStart[Tx any](ctx context.Context, t *testing.T, a *r
 
 // readsActorChangedOnEveryRequest is a wrapper that changes who started a session on
 // every request: its Session hands the actor's own session on under another account,
-// always. The request then arrives as that account's, and the library's own store says
-// otherwise.
+// always. The library's own store holds the session under the account that signed in,
+// so the answer is not that session's and the request is refused before any handler
+// runs, the start among them.
 func readsActorChangedOnEveryRequest[Tx any](ctx context.Context, t *testing.T, a *readsApp[Tx]) {
 	t.Helper()
 
@@ -518,17 +532,130 @@ func readsActorChangedOnEveryRequest[Tx any](ctx context.Context, t *testing.T, 
 	a.store.set(func(s *overridingStore[Tx]) {
 		s.session = asAccount(carol)
 	})
-	if own := acting.readsSession(ctx); own.UserID != carol.String() || own.Username != "pat@lakeside.edu" {
-		t.Fatalf("the actor's own session = %+v, want the wrapper's answer: pat@lakeside.edu's session under %s", own, carol)
-	}
 
-	acting.expect(ctx, http.StatusForbidden, http.MethodPost, "/impersonate", map[string]string{"kind": kindFull, "principal": sam.String()})
+	acting.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
+	acting.expect(ctx, http.StatusUnauthorized, http.MethodPost, "/impersonate", map[string]string{"kind": kindFull, "principal": sam.String()})
 	records, err := a.api.ActiveImpersonations(ctx, nil)
 	if err != nil {
 		t.Fatalf("ActiveImpersonations() error = %v", err)
 	}
 	if len(records) != 0 {
 		t.Errorf("ActiveImpersonations() = %+v, want none: the start was refused", records)
+	}
+
+	// The wrapper's Session is there and does hand the session on under the other
+	// account, so the refusals above are the library's and not a wrapper that changes
+	// nothing.
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.session = nil
+	})
+	own := acting.readsSession(ctx)
+	sourceID, err := impulse.UUIDFromString(own.SessionID)
+	if err != nil {
+		t.Fatalf("impulse.UUIDFromString(%q) error = %v", own.SessionID, err)
+	}
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.session = asAccount(carol)
+	})
+	changed, err := a.store.Session(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("the wrapper's Session(%s), called by the test, error = %v", sourceID, err)
+	}
+	if changed.UserID.UUID != carol {
+		t.Errorf("the wrapper's Session(%s), called by the test, answered the session of %s, want it handed on as %s's", sourceID, changed.UserID, carol)
+	}
+}
+
+// readsAnothersSession is a wrapper that answers one person's session with another
+// person's: a read cache in front of Session keyed by something other than the session's
+// id would, and so would a wrapper that means harm. Bob's cookie names his own session,
+// and the wrapper answers it with the live session of alice, who may start a session
+// that acts as someone else.
+//
+// Left alone, bob's request would run as alice, a session he started would record alice
+// as the person who started it, and its end would hand his browser the cookie of
+// alice's own session, which the library's store answers with no wrapper involved. So
+// the answer is refused: it is not the session bob's cookie names. Nothing is started,
+// there is nothing to end, and bob's browser still holds bob's session once the wrapper
+// answers truly again.
+func readsAnothersSession[Tx any](ctx context.Context, t *testing.T, a *readsApp[Tx]) {
+	t.Helper()
+
+	a.seed(ctx, t, "alice@lakeside.edu")
+	bob := a.seed(ctx, t, "bob@lakeside.edu")
+	sam := a.seed(ctx, t, "sam@lakeside.edu")
+
+	alices := a.signedIn(ctx, t, "alice@lakeside.edu")
+	alicesSession := alices.readsSession(ctx)
+	bobs := a.signedIn(ctx, t, "bob@lakeside.edu")
+	bobsSession := bobs.readsSession(ctx)
+	if bobsSession.SessionID == alicesSession.SessionID || bobsSession.UserID != bob.String() {
+		t.Fatalf("the two sessions = %+v and %+v, want one of alice's and one of bob's (%s)", alicesSession, bobsSession, bob)
+	}
+	alicesSessionID, err := impulse.UUIDFromString(alicesSession.SessionID)
+	if err != nil {
+		t.Fatalf("impulse.UUIDFromString(%q) error = %v", alicesSession.SessionID, err)
+	}
+	bobsSessionID, err := impulse.UUIDFromString(bobsSession.SessionID)
+	if err != nil {
+		t.Fatalf("impulse.UUIDFromString(%q) error = %v", bobsSession.SessionID, err)
+	}
+	// The row of alice's live session, as the library's store holds it.
+	alicesRow, err := a.store.AuthStore.Session(ctx, alicesSessionID)
+	if err != nil {
+		t.Fatalf("the library's store's Session(%s) error = %v", alicesSessionID, err)
+	}
+	anothers := func(sess *sessioninfo.SessionData) *sessioninfo.SessionData {
+		if sess.ID != bobsSessionID {
+			return sess
+		}
+
+		return alicesRow
+	}
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.session = anothers
+	})
+
+	// Bob's request does not run as alice.
+	if status, body := bobs.do(ctx, http.MethodGet, "/session", nil); status != http.StatusUnauthorized {
+		t.Errorf("GET /session with bob's cookie, answered by the wrapper with alice's session = %d, want %d: %s", status, http.StatusUnauthorized, body)
+	}
+	// Bob starts nothing as alice.
+	if status, body := bobs.do(ctx, http.MethodPost, "/impersonate", map[string]string{"kind": kindFull, "principal": sam.String()}); status != http.StatusUnauthorized {
+		t.Errorf("POST /impersonate with bob's cookie, answered by the wrapper with alice's session = %d, want %d: %s", status, http.StatusUnauthorized, body)
+	}
+	records, err := a.api.ActiveImpersonations(ctx, nil)
+	if err != nil {
+		t.Fatalf("ActiveImpersonations() error = %v", err)
+	}
+	if len(records) != 0 {
+		t.Errorf("ActiveImpersonations() = %+v, want none: nothing was started", records)
+	}
+
+	// Whatever bob's browser holds now, ending it hands him no session of alice's. The
+	// wrapper answers truly from here on, as a cache that was emptied would.
+	_, _ = bobs.do(ctx, http.MethodPost, "/end", nil)
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.session = nil
+	})
+	if v := bobs.readsSession(ctx); v.SessionID != bobsSession.SessionID || v.Username != "bob@lakeside.edu" || v.UserID != bob.String() || v.Impersonated {
+		t.Errorf("the session bob's browser holds after the end = %+v, want his own session %s: it is never handed alice's session %s", v, bobsSession.SessionID, alicesSession.SessionID)
+	}
+	// Alice's own session is untouched.
+	if v := alices.readsSession(ctx); v.SessionID != alicesSession.SessionID || v.Username != "alice@lakeside.edu" {
+		t.Errorf("alice's session = %+v, want her own session %s", v, alicesSession.SessionID)
+	}
+
+	// The wrapper's Session is there and does answer bob's session with alice's.
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.session = anothers
+	})
+	answered, err := a.store.Session(ctx, bobsSessionID)
+	if err != nil {
+		t.Fatalf("the wrapper's Session(%s), called by the test, error = %v", bobsSessionID, err)
+	}
+	if answered.ID != alicesSessionID {
+		t.Errorf("the wrapper's Session(%s), called by the test, answered session %s, want alice's session %s", bobsSessionID, answered.ID, alicesSessionID)
 	}
 }
 

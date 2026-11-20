@@ -31,7 +31,9 @@
 //     tables.
 //   - A store that wraps the library's still answers for an ordinary session (its
 //     Session is asked for every session the library's own read does not find
-//     impersonated, and may not answer an impersonated one), and still carries the
+//     impersonated; it may not answer an impersonated one, and its answer is held to
+//     the session asked for: that session's id, and, where the library's own store
+//     holds the session, that row's account and username), and still carries the
 //     writes that end or extend an impersonated session (DestroySession,
 //     DestroyImpersonatedSession, DestroyImpersonatedSessions, EndImpersonation,
 //     UpdateSessionActivity) and the listing of the live ones (ActiveImpersonations). A
