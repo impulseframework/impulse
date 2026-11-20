@@ -76,18 +76,31 @@ describe('DashboardComponent', () => {
     // The address and the look are the person's: the account page and the person's menu.
     expect(element.querySelector('impulse-email-address')).toBeNull();
     expect(element.querySelector('impulse-theme-picker')).toBeNull();
-    const rows = Array.from(element.querySelectorAll('tbody tr'));
-    expect(rows.map((row) => row.querySelector('td')?.textContent?.trim())).toEqual(['Beacons', 'Harbors']);
-    // The columns are List, Read, Create, Update, Delete, Execute; each cell carries its state as a class.
-    const states = Array.from(rows[0]?.querySelectorAll('td.state') ?? []).map((cell) =>
-      Array.from(cell.classList).find((name) => name !== 'state'),
-    );
-    expect(states).toEqual(['granted', 'granted', 'absent', 'conditional', 'absent', 'absent']);
+    // The card is the library's: one table, titled, with a row per resource.
+    const card = element.querySelector('impulse-permissions-card');
+    expect(card?.querySelector('mat-card-title')?.textContent).toBe('Your permissions');
+    expect(element.querySelectorAll('table')).toHaveLength(1);
+    const rows = Array.from(card?.querySelectorAll('table.permissions tbody tr') ?? []);
+    expect(rows.map((row) => row.querySelector('td.resource-name')?.textContent?.trim())).toEqual(['Beacons', 'Harbors']);
+    // The columns are List, Read, Create, Update, Delete, Execute; each cell says its answer in words.
+    expect(Array.from(rows[0]?.querySelectorAll('td.held .pill') ?? []).map((pill) => pill.textContent)).toEqual([
+      'granted',
+      'granted',
+      '—',
+      'terms apply',
+      '—',
+      '—',
+    ]);
     // Each answer names its permission beside it, for a card too narrow for the column
     // headings, and the table sits in no frame that scrolls sideways.
-    expect(Array.from(rows[0]?.querySelectorAll('td.state .permission') ?? []).map((name) => name.textContent)).toEqual(
-      ['List', 'Read', 'Create', 'Update', 'Delete', 'Execute'],
-    );
+    expect(Array.from(rows[0]?.querySelectorAll('td.held .permission') ?? []).map((name) => name.textContent)).toEqual([
+      'List',
+      'Read',
+      'Create',
+      'Update',
+      'Delete',
+      'Execute',
+    ]);
     expect(element.querySelector('.table-scroll')).toBeNull();
     expect(transport.requests.map((request) => `${request.method} ${request.url}`)).toEqual([
       `GET ${environment.apiUrl}/user/session`,
@@ -102,6 +115,6 @@ describe('DashboardComponent', () => {
     const element: HTMLElement = fixture.nativeElement;
 
     expect(element.querySelectorAll('tbody tr')).toHaveLength(1);
-    expect(element.querySelector('td.empty')?.textContent).toContain('No resources yet');
+    expect(element.querySelector('td.nothing-held')?.textContent).toContain('No resources yet');
   });
 });

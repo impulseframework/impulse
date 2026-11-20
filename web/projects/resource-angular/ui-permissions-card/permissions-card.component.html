@@ -1,0 +1,59 @@
+<mat-card appearance="outlined" class="permissions-card">
+  @if (heading() || subheading()) {
+    <mat-card-header>
+      <mat-card-title>{{ heading() }}</mat-card-title>
+      @if (subheading()) {
+        <mat-card-subtitle>{{ subheading() }}</mat-card-subtitle>
+      }
+    </mat-card-header>
+  }
+  <mat-card-content>
+    <div class="frame" #frame>
+      <table class="permissions" #table [class.blocks]="layout() === 'blocks'">
+        <thead>
+          <tr>
+            <th scope="col">Resource</th>
+            @for (permission of permissions(); track permission) {
+              <th scope="col" [class.masked]="isMasked(permission)">{{ permission }}</th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (resource of resources(); track resource.name) {
+            <tr>
+              <td class="resource-name">
+                {{ resource.name }}
+                @if (resource.scope) {
+                  <span class="scope">{{ resource.scope }}</span>
+                }
+              </td>
+              @for (permission of permissions(); track permission) {
+                <td class="held" [class.masked]="isMasked(permission)">
+                  <span class="permission">{{ permission }}</span>
+                  @switch (resource.held[permission]) {
+                    @case ('granted') {
+                      <span class="pill granted">granted</span>
+                    }
+                    @case ('conditional') {
+                      <span class="pill conditional">terms apply</span>
+                    }
+                    @default {
+                      <span class="pill absent">—</span>
+                    }
+                  }
+                </td>
+              }
+            </tr>
+          } @empty {
+            <tr>
+              <td class="nothing-held" [attr.colspan]="permissions().length + 1">
+                <ng-content select="[permissionsCardEmpty]">You hold nothing here.</ng-content>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <ng-content />
+  </mat-card-content>
+</mat-card>

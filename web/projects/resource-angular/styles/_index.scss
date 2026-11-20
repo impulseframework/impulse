@@ -83,6 +83,12 @@
 }
 
 // Resource config classes
+//
+// These names are plain and bound to no component: a rule here reaches every element of
+// the application that carries the class, inside any component. A component that draws
+// something else names none of them. global-classes.test.ts holds the permissions card to
+// that: a cell of its table named `resource` is laid out as the flex row below, is no
+// longer a cell of its row, and the row's line is drawn with a step.
 
 // Variables
 $columns: 12;

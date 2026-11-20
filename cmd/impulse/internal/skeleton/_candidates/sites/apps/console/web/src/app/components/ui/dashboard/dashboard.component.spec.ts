@@ -110,11 +110,9 @@ describe('DashboardComponent', () => {
 
   afterEach(() => http.verify());
 
-  /** The state class of each cell in a row: the columns are List, Read, Create, Update, Delete, Execute. */
-  function states(row: Element | undefined): (string | undefined)[] {
-    return Array.from(row?.querySelectorAll('td.state') ?? []).map((cell) =>
-      Array.from(cell.classList).find((name) => name !== 'state'),
-    );
+  /** What each cell of a row says: the columns are List, Read, Create, Update, Delete, Execute. */
+  function answers(row: Element | undefined): (string | null)[] {
+    return Array.from(row?.querySelectorAll('td.held .pill') ?? []).map((pill) => pill.textContent);
   }
 
   it('renders who is signed in and the digest per resource, tenant-scoped ones in the open tenant', async () => {
@@ -126,16 +124,25 @@ describe('DashboardComponent', () => {
     expect(element.querySelector('impulse-email-address')).toBeNull();
     expect(element.querySelector('impulse-theme-picker')).toBeNull();
     expect(element.querySelector('p strong')?.textContent).toBe('North');
-    const rows = Array.from(element.querySelectorAll('tbody tr'));
-    const labels = rows.map((row) => row.querySelector('td')?.textContent?.replace(/\s+/g, ' ').trim());
+    // The card is the library's: one table, titled, with a row per resource.
+    const card = element.querySelector('impulse-permissions-card');
+    expect(card?.querySelector('mat-card-title')?.textContent).toBe('Your permissions');
+    expect(element.querySelectorAll('table')).toHaveLength(1);
+    const rows = Array.from(card?.querySelectorAll('table.permissions tbody tr') ?? []);
+    const labels = rows.map((row) => row.querySelector('td.resource-name')?.textContent?.replace(/\s+/g, ' ').trim());
     expect(labels).toEqual(['Announcements North', 'Tenants global']);
-    expect(states(rows[0])).toEqual(['granted', 'granted', 'absent', 'conditional', 'absent', 'absent']);
-    expect(states(rows[1])).toEqual(['granted', 'granted', 'absent', 'absent', 'absent', 'absent']);
+    expect(answers(rows[0])).toEqual(['granted', 'granted', '—', 'terms apply', '—', '—']);
+    expect(answers(rows[1])).toEqual(['granted', 'granted', '—', '—', '—', '—']);
     // Each answer names its permission beside it, for a card too narrow for the column
     // headings, and the table sits in no frame that scrolls sideways.
-    expect(Array.from(rows[0]?.querySelectorAll('td.state .permission') ?? []).map((name) => name.textContent)).toEqual(
-      ['List', 'Read', 'Create', 'Update', 'Delete', 'Execute'],
-    );
+    expect(Array.from(rows[0]?.querySelectorAll('td.held .permission') ?? []).map((name) => name.textContent)).toEqual([
+      'List',
+      'Read',
+      'Create',
+      'Update',
+      'Delete',
+      'Execute',
+    ]);
     expect(element.querySelector('.table-scroll')).toBeNull();
 
     const asked = transport.requests.map((request) => `${request.method} ${request.url}`);
@@ -156,7 +163,7 @@ describe('DashboardComponent', () => {
 
     expect(element.querySelector('p strong')?.textContent).toBe('no tenant');
     expect(element.querySelectorAll('tbody tr')).toHaveLength(1);
-    expect(element.querySelector('td.empty')?.textContent).toContain('You hold nothing here');
+    expect(element.querySelector('td.nothing-held')?.textContent).toContain('You hold nothing here');
     // Nothing is offered on a guess: the card waits for the server's answer.
     expect(element.querySelector('.create-tenant-card')).toBeNull();
     const asked = http.expectOne(offerUrl);

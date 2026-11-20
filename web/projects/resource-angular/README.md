@@ -28,6 +28,8 @@ Then import the library's stylesheet once, from the application's global styles 
 
 The form and list components request its classes by name — the twelve-column field grid, the read-only and edit-mode treatments, the sticky list header — and it declares the color tokens the components draw with, which the application's theme sets (see Theming below). Without the import, fields lose their grid and section labels lose their styling.
 
+Those classes have plain names (`.resource`, `.field`, `.row`, `.col-1` to `.col-12`, `.readonly-field`, `.hidden-field`, `.resource-container`, `.form-edit-mode`, `.header-container`) and the sheet is global, so it styles every element of the application that carries one of them, inside any component. A component of your own that draws something else gives its elements other names: a table cell named `resource` would be laid out as a form's flex row.
+
 The stylesheet also brings the fonts the components render in, served by the application itself: Roboto in the three weights the Material typography uses (300, 400, 500; the latin and latin-ext subsets) and the filled Material Icons, as files of this package the application's build carries into its bundle as same-origin assets. The application's `index.html` carries no Google Fonts link and its content security policy no font host (`style-src` and `font-src` stay at `'self'`): a progressive web app's service worker fetches the page's requests under the policy delivered with its own script, whose `connect-src` names no font host, so a third-party font fails on every worker-controlled load, while a same-origin font is fetched under `connect-src 'self'` and cached by the worker's asset group, so the application renders offline and during an outage. The Material typography tokens, which the prebuilt themes set to `Roboto` alone, get a fallback chain (`Roboto, 'Helvetica Neue', Arial, sans-serif`), so a font that fails to load never leaves a component in the browser's serif default. An application that wants the fonts alone imports `@impulseframework/resource-angular/styles/fonts`. The outlined icon set is not shipped; a component that needs it adds it here.
 
 ## Theming
@@ -576,6 +578,57 @@ beside it where it wants one.
 <impulse-release />
 ```
 
+## The permissions card
+
+`<impulse-permissions-card>` (`@impulseframework/resource-angular/ui-permissions-card`) is the card for what
+a person may do: for each resource, what they hold of each permission. A page hands it the resources and
+what the person holds on each, read from the permission digest; the card reads no session and asks the
+server for nothing. Each answer is in words: `granted`, `terms apply` for a conditional grant (the server
+decides row by row), and a dash for nothing.
+
+```html
+<impulse-permissions-card heading="Your permissions" [resources]="rows()" />
+```
+
+```ts
+private tenants = inject(TenantService);
+
+// The digest's answer for each permission where the page is open: 'granted', 'conditional', or nothing.
+rows = computed<PermissionsCardResource[]>(() =>
+  Object.values(Resources).map((resource) => ({
+    name: resource,
+    held: Object.fromEntries(READ_AND_WRITE.map((name) => [name, this.tenants.state(name as Permission, resource)])),
+  })),
+);
+```
+
+| Input         | What it is                                                                                                                                                       |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resources`   | The rows: each resource's `name`, an optional `scope` written small beside it (a tenant's name, `global`), and `held`, the state of each permission by its name. |
+| `permissions` | The permissions the card answers for, in order. `List`, `Read`, `Create`, `Update`, `Delete` unless the page names its own.                                      |
+| `heading`     | The card's title. A card with no title and no line under it draws no header.                                                                                     |
+| `subheading`  | The line under the title.                                                                                                                                        |
+| `masked`      | The permissions a session's mask has removed. The card stripes them, heading and answers alike.                                                                  |
+
+The card is laid out by its own width, not the window's. While its columns fit, it is a table with a
+column for each permission. Where they do not, each resource is a block of its own: its name on a line
+and its permissions under it, each named beside its answer. So the same card fits a phone and fits a wide
+window where the page gives it a narrow column, and it has no frame of its own that scrolls sideways. The
+card measures what its own table needs, so a page with longer names or more permissions changes over at
+the width its content needs; a page sets no width and writes no layout for it.
+
+What a page writes inside the element is drawn under the table, in the same card. A card with no
+resources says "You hold nothing here."; an element marked `permissionsCardEmpty` replaces those words:
+
+```html
+<impulse-permissions-card heading="Your permissions" [resources]="rows()">
+  <span permissionsCardEmpty>No resources yet.</span>
+  <p>Ask an administrator for anything you are missing.</p>
+</impulse-permissions-card>
+```
+
+The skeletons' dashboards and Lodestar's service card are this card.
+
 ## User management
 
 The pages that administer the people of an Auth are not a component an application composes:
@@ -652,7 +705,7 @@ places, not inside one, so the link lands on it whichever place the person works
 - **`impulse-tokens`**: The signed-in person's token page and the device approval page, configured from the generated descriptor's tokens block.
 - **`auth-frame`**: The frame every signed-in page sits in: the bar, the menus from the application's menu file, the place switcher, the person's menu, the account and API keys pages, and the About pop-up.
 - **`auth`**: This module provides authentication and authorization, including the login methods component, the email address component, route guards, and permission directives.
-- **`ui`**: This module contains UI components and services, such as alerts, notifications, the update and maintenance notices, and the theme picker with its service.
+- **`ui`**: This module contains UI components and services, such as alerts, notifications, the update and maintenance notices, the theme picker with its service, and the card for what a person may do.
 - **`utils`**: A collection of utility pipes and functions for various purposes.
 
 ## Development
