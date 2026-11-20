@@ -7,12 +7,18 @@ import (
 	"io"
 [[- end]]
 	"net/http"
+[[- if .Password]]
+	"slices"
+[[- end]]
 	"testing"
 	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+[[- if .Password]]
+	"github.com/impulseframework/impulse/accesstypes/condition"
+[[- end]]
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
 	"github.com/impulseframework/impulse/session"
 [[- if .Password]]
@@ -50,7 +56,11 @@ const memberUser = "member"
 // tenant here unless they hold a role of the whole application, so sam is given
 // FeatureAdministrator before the role in south: the address and the subject, which
 // north reads of gail and not of sam, still tell a person another tenant holds from one
-// the whole application holds.
+// the whole application holds. Both hold a role of the whole application, which alone
+// keeps north from changing their accounts, so a fourth person shows the other half of
+// that condition at work: erin holds a role in north and the tenants' role in every
+// tenant, which no tenant owns, and no role of the whole application. Only
+// heldElsewhere = false keeps north from changing her account.
 [[- end]] The member is north's administrator and nothing else,
 // so every answer here is the role file's.
 func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *testing.T) {
@@ -91,8 +101,11 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 
 	// North's administrator creates the three in north; the application's administrator
 	// then gives sam a role in south and gail one of the whole application.
+[[- if .OneTenant]] erin is
+	// created with them, and given the tenants' role in every tenant.
+[[- end]]
 	ids := map[string]string{}
-	for _, name := range []string{"nora", "sam", "gail"} {
+	for _, name := range []string{"nora", "sam", "gail"[[if .OneTenant]], "erin"[[end]]} {
 		status, body := tenantPost(ctx, member, north, "create-staff-[[.Kebab]]-user", map[string]any{
 			"username": name, "name": "  " + name + " of north ", "email": name + "@example.com",[[if .Password]] "password": "first-day-pass",[[end]] "roles": []string{"[[.Record]]Administrator"},
 		})
@@ -124,6 +137,13 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", globalRole("gail")); status != http.StatusNoContent {
 		t.Fatalf("giving gail a role of the whole application: status %d: %s", status, body)
 	}
+[[- if .OneTenant]]
+	// A role held in every tenant is one membership that no tenant owns, and it is no
+	// role of the whole application: erin is held outside north and not globally.
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+ids["erin"]+`","role":"[[.Record]]Administrator","everyDomain":true}`)); status != http.StatusNoContent {
+		t.Fatalf("giving erin a role in every tenant: status %d: %s", status, body)
+	}
+[[- end]]
 	// sam is one of south's people now, as its administrator reads them; and south is
 	// no tenant north's administrator reaches: holding nothing there, they are answered
 	// as if it did not exist.
@@ -154,7 +174,10 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	// The private fields of a person are answered where no other tenant holds them. gail
 	// holds a role of the whole application and none in another tenant, so the condition
 	// on the fields (heldElsewhere = false) holds for her as for nora.
-	for name, want := range map[string]bool{"nora": true, "gail": true, "sam": false} {
+[[- if .OneTenant]] erin's role in
+	// every tenant is held outside north, so her fields are hidden as sam's are.
+[[- end]]
+	for name, want := range map[string]bool{"nora": true, "gail": true, "sam": false[[if .OneTenant]], "erin": false[[end]]} {
 		people := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-users")
 		for where, row := range map[string]map[string]any{
 			"list": people[ids[name]],
@@ -198,7 +221,7 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	// does not learn whether sam, whom south holds too, has a password, as it does not
 	// learn whether sam must change it, and a page that offers the removal by these rows
 	// offers none for sam.
-	for name, want := range map[string]bool{"nora": true, "gail": true, "sam": false} {
+	for name, want := range map[string]bool{"nora": true, "gail": true, "sam": false[[if .OneTenant]], "erin": false[[end]]} {
 		ways := tenantWays(ctx, t, member, north, ids[name])
 		if _, got := ways["password"]; got != want {
 			t.Errorf("%s: the password among the ways north reads = %v, want %v: %v", name, got, want, ways)
@@ -263,8 +286,12 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 
 	// An account another tenant or the whole application holds too is not north's to
 	// change: every method is refused for sam and for gail.
+[[- if .OneTenant]] sam and gail hold a role
+	// of the whole application, which refuses them whatever else they hold; erin holds
+	// none, so what refuses every method for her is the role she holds in every tenant.
+[[- end]]
 	for _, m := range accountMethods {
-		for _, name := range []string{"sam", "gail"} {
+		for _, name := range []string{"sam", "gail"[[if .OneTenant]], "erin"[[end]]} {
 			if status, body := tenantPost(ctx, member, north, m.method, m.body(name)); status != http.StatusForbidden {
 				t.Errorf("%s on %s: status %d, want 403: %s", m.method, name, status, body)
 			}
@@ -272,9 +299,11 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	}
 	// Nothing a refused call asked for was done: both are listed as they were, by the
 	// name they were created with, and their links stand.
+[[- if .OneTenant]] So is erin.
+[[- end]]
 	people := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-users")
 	identities := tenantRows(ctx, t, member, north, "staff-[[.Kebab]]-identities")
-	for _, name := range []string{"sam", "gail"} {
+	for _, name := range []string{"sam", "gail"[[if .OneTenant]], "erin"[[end]]} {
 		if row := people[ids[name]]; row["username"] != name || row["name"] != name+" of north" || row["disabled"] != false {
 			t.Errorf("%s after the refused calls = %v, want the account as it was", name, row)
 		}
@@ -336,7 +365,68 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		t.Errorf("withdrawing it a second time: status %d, want 403: %s", status, body)
 	}
 }
+[[if .Password]]
+// TestTenantPeople_theWaysAPersonSignsInAreListedButForAPasswordAnotherTenantSharesIn
+// proves both halves of the condition on a tenant administrator's list of how a person
+// signs in (password = false OR heldElsewhere = false), on the condition itself.
+//
+// The half that lists what is not the password is what lets a tenant read the
+// identities of a person another tenant holds too. The served test above shows it at
+// work wherever the login page offers a sign-in through a directory. Where the page
+// offers the password alone, no identity signs anybody in: the list holds no row but
+// the password, and no request can show that half. So the grant is read from the role
+// file and judged the way the list judges its rows, over the row an identity is and the
+// row a password is, for a person the tenant holds alone and for one it does not.
+func TestTenantPeople_theWaysAPersonSignsInAreListedButForAPasswordAnotherTenantSharesIn(t *testing.T) {
+	t.Parallel()
 
+	listed := signInWaysCondition(t)
+	for row, tt := range map[string]struct{ password, heldElsewhere, want bool }{
+		"an identity of a person the tenant holds alone":        {false, false, true},
+		"an identity of a person another tenant holds too":      {false, true, true},
+		"the password of a person the tenant holds alone":       {true, false, true},
+		"the password of a person another tenant holds too":     {true, true, false},
+	} {
+		truth, err := condition.Evaluate(listed, &condition.Image{Pre: map[string]any{"password": tt.password, "heldElsewhere": tt.heldElsewhere}})
+		if err != nil {
+			t.Fatalf("judging %s: %v", row, err)
+		}
+		if truth.Permits() != tt.want {
+			t.Errorf("%s is listed for the tenant's administrator = %v, want %v", row, truth.Permits(), tt.want)
+		}
+	}
+}
+
+// signInWaysCondition reads, from the role file, the condition on the tenant
+// administrator's grant to list how a person signs in, parsed as the engine parses it.
+func signInWaysCondition(t *testing.T) condition.Expr {
+	t.Helper()
+
+	parsed, err := staff.Roles().Parse()
+	if err != nil {
+		t.Fatalf("parsing the role file: %v", err)
+	}
+	for _, r := range slices.Concat(parsed.Roles.Global, parsed.Roles.Domain) {
+		if r.Name != "[[.Record]]Administrator" {
+			continue
+		}
+		for _, g := range r.Permissions["List"] {
+			if g.Resource != "Staff[[.Record]]SignInWays" {
+				continue
+			}
+			expr, err := condition.Parse(g.Condition)
+			if err != nil {
+				t.Fatalf("parsing the condition %q: %v", g.Condition, err)
+			}
+
+			return expr
+		}
+	}
+	t.Fatal("the role file grants the tenant's administrator no list of how a person signs in")
+
+	return nil
+}
+[[end]]
 // tenantAdministrators returns two signed-in browsers: the development login's, holding
 // [[.Record]]Administrator in every tenant as a deployment's first administrator does, and
 // that of north's administrator, an account the stack is given here that holds the role
