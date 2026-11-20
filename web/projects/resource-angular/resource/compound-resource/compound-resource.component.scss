@@ -11,14 +11,15 @@
 // library's rule for every heading row (`.header-container` in the library's styles), by
 // the application's switch for sticky headers: off, the row scrolls away with the page;
 // on, it stays at the top of what scrolls, which is what `top` and `z-index` are for here,
-// as on the heading row of a view, a list and a create form.
+// as on the heading row of a view, a list and a create form, and it covers what scrolls
+// under it, as the title row of a list does.
 .header-container {
+  @include headings.covers;
   display: flex;
   flex-direction: row;
   max-width: 100%;
   top: 0;
   z-index: 11;
-  background: transparent;
 }
 
 .title {

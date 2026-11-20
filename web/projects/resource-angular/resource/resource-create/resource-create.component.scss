@@ -28,13 +28,14 @@
   position: relative;
 }
 
-// The form's title and, at the far end of its line or under it, Cancel and Create.
+// The form's title and, at the far end of its line or under it, Cancel and Create. Where it
+// stays at the top it covers the fields that scroll under it, as the title row of a list does.
 .header-container {
   @include headings.row;
+  @include headings.covers;
   margin: 20px 20px 0px 20px;
   top: 0;
   z-index: 11;
-  background: transparent;
 }
 
 // A create form is a section of the page it is drawn on.

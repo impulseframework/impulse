@@ -852,6 +852,43 @@ describe("CompoundResourceComponent: the page's title", () => {
     expect(rule).not.toContain('position');
   });
 
+  /** The background a rule gives, as the stylesheet declares it; 'none' where it gives none. */
+  const background = (rule: string): string => {
+    return /(?:^|[\s;])background(?:-color)?:\s*([^;]+)/.exec(rule)?.[1]?.trim() ?? 'none';
+  };
+  /** The title row of the list under the row, and the background the list's stylesheet gives it. */
+  const listTitleRow = (fixture: ComponentFixture<unknown>): { row: HTMLElement; background: string } => {
+    const row = element(fixture).querySelector('impulse-resource-list .header-container') as HTMLElement;
+    expect(row.classList.contains('show-background')).toBe(true);
+    return { row, background: background(declared(row, ['.show-background'])) };
+  };
+
+  it('draws its own title row on the surface the title row of a list is drawn on, so what scrolls under a row that stays at the top does not show through it', async () => {
+    const fixture = await present(viewConfig({ ...titled, collapsible: true }));
+    const row = (ownTitle(fixture) as HTMLElement).parentElement?.parentElement as HTMLElement;
+    const list = listTitleRow(fixture);
+
+    // The list's title row covers the rows that scroll under it. The page's own does the same, on the same surface.
+    expect(list.background).toBe('var(--impulse-surface)');
+    expect(background(declared(row, ['.header-container']))).toBe(list.background);
+    // The row of the view folded into a panel sits on the panel, and is left as the panel draws it.
+    const inPanel = element(fixture).querySelector('impulse-resource-view mat-expansion-panel .header-container');
+    expect(inPanel).not.toBeNull();
+    expect(inPanel?.classList.contains('show-background')).toBe(false);
+    expect(background(declared(inPanel as Element, ['.header-container'], ['>']))).toBe('none');
+  });
+
+  it("draws the heading row of its row's view on that surface too, where the view is drawn on the page itself", async () => {
+    const fixture = await present(titled);
+    const row = headingRow(fixture);
+    const list = listTitleRow(fixture);
+
+    expect(row.classList.contains('show-background')).toBe(true);
+    expect(background(declared(row, ['.show-background']))).toBe(list.background);
+    // Nothing the row is given takes the surface away again.
+    expect(background(declared(row, ['.header-container'], ['>']))).toBe('none');
+  });
+
   it('keeps the room above what it holds on a page with no title and no form of its own', async () => {
     const fixture = await present(viewConfig({ ...titled, title: '', collapsible: true }));
 

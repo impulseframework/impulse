@@ -100,8 +100,9 @@
   display: none;
 }
 
+// The title row of a list that is not folded into a panel covers what scrolls under it.
 .show-background {
-  background-color: var(--impulse-surface);
+  @include headings.covers;
   padding-bottom: 20px;
 }
 

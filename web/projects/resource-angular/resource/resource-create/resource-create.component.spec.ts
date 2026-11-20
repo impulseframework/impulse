@@ -2,7 +2,14 @@ import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { AbstractControl } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { ApiDescriptor, createClient, Domain, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
+import {
+  ApiDescriptor,
+  createClient,
+  Domain,
+  Resource,
+  TransportRequest,
+  TransportResponse,
+} from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
@@ -66,6 +73,20 @@ describe('ResourceCreateComponent', () => {
     expect(declared(title, ['.title', 'h1'])).toContain('font-size: var(--impulse-section-title-size)');
     expect(declared(title, ['.title', 'h1'])).toContain('overflow-wrap: anywhere');
   });
+
+  it('draws that row on the surface the page sits on, so the fields that scroll under a row that stays at the top do not show through it', () => {
+    fixture.componentRef.setInput(
+      'resourceConfig',
+      viewConfig({ title: 'Squadron', primaryResource: 'Squadrons' as Resource, elements: [] }),
+    );
+    fixture.detectChanges();
+    const row = (fixture.nativeElement as HTMLElement).querySelector('.header-container') as HTMLElement;
+    const rule = declared(row, ['.header-container'], ['>']);
+
+    // It stays at the top where the application turns sticky headers on, over what scrolls under it.
+    expect(rule).toContain('top: 0');
+    expect(/(?:^|[\s;])background(?:-color)?:\s*([^;]+)/.exec(rule)?.[1]?.trim()).toBe('var(--impulse-surface)');
+  });
 });
 
 /**
@@ -80,7 +101,9 @@ function declared(of: Element, names: string[], without: string[] = []): string 
     .join('\n');
   return Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
     .filter(([, selector]) => {
-      return [scope, ...names].every((name) => selector.includes(name)) && without.every((name) => !selector.includes(name));
+      return (
+        [scope, ...names].every((name) => selector.includes(name)) && without.every((name) => !selector.includes(name))
+      );
     })
     .map(([, , declarations]) => declarations)
     .join('\n');
@@ -158,8 +181,14 @@ describe('ResourceCreateComponent over the read-only shapes and a write-only fie
     await TestBed.configureTestingModule({
       imports: [ResourceCreateComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
-        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta | undefined => (resource === probes ? meta : undefined) },
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === probes ? meta : undefined),
+        },
       ],
     }).compileComponents();
 
@@ -234,7 +263,10 @@ describe('ResourceCreateComponent opens the new row', () => {
     ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
   const meta: ResourceMeta = {
     route: 'missions',
-    fields: [fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }), fieldMeta('name', { required: true })],
+    fields: [
+      fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }),
+      fieldMeta('name', { required: true }),
+    ],
   };
 
   let fixture: ComponentFixture<ResourceCreateComponent>;
@@ -273,10 +305,19 @@ describe('ResourceCreateComponent opens the new row', () => {
     await TestBed.configureTestingModule({
       imports: [ResourceCreateComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
-        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta | undefined => (resource === missions ? meta : undefined) },
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === missions ? meta : undefined),
+        },
         { provide: RESOURCE_DOMAIN, useValue: signal<Domain | undefined>(options.domain) },
-        { provide: ActivatedRoute, useValue: { snapshot: { data: { config: page }, params: options.params ?? {}, queryParams: {} } } },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { data: { config: page }, params: options.params ?? {}, queryParams: {} } },
+        },
       ],
     }).compileComponents();
     navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
@@ -288,7 +329,11 @@ describe('ResourceCreateComponent opens the new row', () => {
   };
 
   const cases: { name: string; options: Parameters<typeof create>[0]; want: string[] }[] = [
-    { name: "on the page's route as written, when it names no parameter", options: { route: 'ops/missions' }, want: ['ops/missions', 'm-1'] },
+    {
+      name: "on the page's route as written, when it names no parameter",
+      options: { route: 'ops/missions' },
+      want: ['ops/missions', 'm-1'],
+    },
     {
       name: "on the page's route under the route's tenant",
       options: { route: 'sectors/:sectorID/missions', params: { sectorID: 'anvil' }, domain: 'forge' as Domain },
