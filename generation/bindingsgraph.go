@@ -22,7 +22,7 @@ import (
 // draws each workflow: a box per resource declaring an attribute or subject
 // binding, listing its bare bindings; the tables paths land on or foreign
 // keys point at; the requester where every subject binding starts; one edge
-// per hop however many paths share it; and a thin grey edge from a bare
+// per hop however many paths share it; and a thin gray edge from a bare
 // binding on a foreign key to its table, so the two names a condition pairs
 // (assignedSquadron IN subject.squadrons) visibly meet. A subject set that
 // writes a who: or a where: part lists each under the set, in the columns'
@@ -44,7 +44,7 @@ const (
 	// @subjectSet / @subjectValue value continuing from it, drawn dashed.
 	bindingsGraphSubject
 	// bindingsGraphReference is a bare binding on a foreign key pointing at
-	// the table it references, drawn thin and grey.
+	// the table it references, drawn thin and gray.
 	bindingsGraphReference
 )
 
@@ -370,7 +370,7 @@ func renderBindingsDOT(graph *bindingsGraph) string {
 	fmt.Fprintf(&b, "// edge per hop, drawn once however many paths share it: solid for @attribute,\n")
 	fmt.Fprintf(&b, "// dotted for @domain, dashed for a subject binding, labeled `name: column` on a\n")
 	fmt.Fprintf(&b, "// continuing hop and `name: column ⇒ column` where the path terminates; a thin\n")
-	fmt.Fprintf(&b, "// grey edge points a bare binding on a foreign key at its table. Facts only: no\n")
+	fmt.Fprintf(&b, "// gray edge points a bare binding on a foreign key at its table. Facts only: no\n")
 	fmt.Fprintf(&b, "// grant or condition is drawn.\n")
 	if graph.Parts {
 		// Said only where a set writes a part, so a package whose sets write none

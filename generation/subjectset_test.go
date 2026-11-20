@@ -860,7 +860,7 @@ func TestGenerateBindingsGraph_subjectSetParts(t *testing.T) {
 // edge per hop, drawn once however many paths share it: solid for @attribute,
 // dotted for @domain, dashed for a subject binding, labeled ` + "`name: column`" + ` on a
 // continuing hop and ` + "`name: column ⇒ column`" + ` where the path terminates; a thin
-// grey edge points a bare binding on a foreign key at its table. Facts only: no
+// gray edge points a bare binding on a foreign key at its table. Facts only: no
 // grant or condition is drawn.
 // A subject set that writes a who: or a where: part lists each under the set, in
 // the columns' names: who: says which rows are the requester's, where: which of
@@ -950,7 +950,7 @@ func TestGenerateBindingsGraph_subjectSetDomain(t *testing.T) {
 // edge per hop, drawn once however many paths share it: solid for @attribute,
 // dotted for @domain, dashed for a subject binding, labeled ` + "`name: column`" + ` on a
 // continuing hop and ` + "`name: column ⇒ column`" + ` where the path terminates; a thin
-// grey edge points a bare binding on a foreign key at its table. Facts only: no
+// gray edge points a bare binding on a foreign key at its table. Facts only: no
 // grant or condition is drawn.
 // A subject set that writes a domain: part says where its rows' tenant is found,
 // and in a request with a tenant the set holds that tenant's rows alone. The path
