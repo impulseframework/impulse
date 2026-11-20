@@ -1481,7 +1481,8 @@ file per method; its session tables are written as migrations under the new pref
 its access tables copied from an auth the application has; and the data level constructs
 it beside that auth, its settings built by a function of its own on the environment
 struct (`<name>Settings`, copied from the auth it is written beside, so the constructor
-stays one call per auth), with an accessor in a new file. The package carries the engine's
+stays one call per auth; a directory registration of that auth's stays behind, and the new
+auth's own join the copy), with an accessor in a new file. The package carries the engine's
 change signal over the live service as the skeletons' auths do (`access.WithChangeSignal`
 from `Settings.Signals`), so the `change-signal` check passes for it. The outlet the auth
 serves is pointed at it: its declaration in the generator program gains

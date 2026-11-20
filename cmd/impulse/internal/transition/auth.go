@@ -826,13 +826,31 @@ func withoutMaker(text string) string {
 	return makerParameterRE.ReplaceAllString(text, ")")
 }
 
+// registrationLoginRE finds the login page a directory sends a person back to in a
+// settings function's Settings literal, an element on a line of its own.
+var registrationLoginRE = regexp.MustCompile(`(?m)^[ \t]*LoginURL:[^\n]*,\n`)
+
+// withoutRegistrations takes the directory registrations of the auth a settings function
+// was copied from out of the copy made for the named auth: the login page, and each
+// registration's settings, an element of the Settings literal that is a literal of its
+// own and closes on a line of its own. They are the source auth's alone. The new auth's
+// Settings have a place for them only where the auth has a directory method, and its own
+// then join the literal (directoryFields), so a copy that kept the source's would not
+// compile, or would name the page twice.
+func withoutRegistrations(text, auth string) string {
+	registration := regexp.MustCompile(`(?m)^[ \t]*\w+:[ \t]*` + regexp.QuoteMeta(auth) + `\.\w+Settings\{\n(?:[^\n]*\n)*?[ \t]*\},\n`)
+
+	return registration.ReplaceAllString(registrationLoginRE.ReplaceAllString(text, ""), "")
+}
+
 // envVarRE finds the data level's environment struct: the variable envconfig fills.
 var envVarRE = regexp.MustCompile(`(?m)^\s*env := &(\w+)\{\}`)
 
 // copySettings gives the copied construction the new auth's settings. A construction
 // reading the source auth's settings from its settings function on the environment
 // struct (env.<src>Settings(...), the skeleton's shape) has the call renamed, and the
-// function copied for the new auth after the source auth's, under the new auth's name;
+// function copied for the new auth after the source auth's, under the new auth's name
+// and without the source auth's directory registrations (withoutRegistrations);
 // a construction carrying the Settings literal inline (an application composed before
 // the function) keeps the literal in the copy. The directory methods' settings then go
 // where the literal is. The source auth's maker of an invited tenant stays behind unless
@@ -867,7 +885,7 @@ func (au Auth) copySettings(rel string, edited []byte, src *authSource, statemen
 			text = withoutMaker(text)
 		}
 
-		return text
+		return withoutRegistrations(text, au.Name)
 	})
 	if err != nil {
 		return "", "", nil, err

@@ -1318,6 +1318,103 @@ func Test_servesTenantRecord(t *testing.T) {
 	}
 }
 
+// TestWithoutRegistrations pins what a copy of the settings function of an auth that signs
+// in through a directory leaves behind: the login page the directory sends a person back
+// to and the registration's settings, elements of the function's Settings literal as the
+// outlets skeleton's data level writes them for its members auth. The Settings of an auth
+// with no directory method have neither field, so a copy that kept them would not
+// compile. Everything else of the copy stands, the page a mailed link opens among it, and
+// so does a literal of another auth's.
+func TestWithoutRegistrations(t *testing.T) {
+	t.Parallel()
+
+	sub, err := skeleton.FS("outlets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := fs.ReadFile(sub, "pkg/config/data.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	level := string(data)
+	const (
+		page         = "\t\tLoginURL:       \"/portal/login\",\n"
+		registration = "\t\tDirectory: members.DirectorySettings{\n\t\t\tTenantID:            env.MembersDirectoryTenantID,\n\t\t\tAdministeredTenants: env.MembersDirectoryAdministeredTenants,\n\t\t\tClientID:            env.MembersDirectoryClientID,\n\t\t\tClientSecret:        env.MembersDirectoryClientSecret,\n\t\t\tRedirectURL:         env.MembersDirectoryRedirectURL,\n\t\t},\n"
+		before       = "\t\tMailLoginURL:   env.PublicURL + \"/portal/login\",\n"
+		after        = "\t\tTenantDeclarations: app.NewTenantDeclarationReader(),\n"
+	)
+	if carried := before + page + registration + after; !strings.Contains(level, carried) {
+		t.Fatalf("the outlets skeleton's data level no longer carries the members auth's registration as %q, which withoutRegistrations reads", carried)
+	}
+
+	got := withoutRegistrations(level, "members")
+	if !strings.Contains(got, before+after) {
+		t.Errorf("withoutRegistrations() does not leave %q:\n%s", before+after, got)
+	}
+	if want := strings.Replace(level, page+registration, "", 1); got != want {
+		t.Errorf("withoutRegistrations() took out more or less than the page and the registration (-want +got):\n%s", cmp.Diff(want, got))
+	}
+
+	// Under another auth's name the registration is not the copy's own to lose: the page
+	// alone goes.
+	if got, want := withoutRegistrations(level, "staff"), strings.Replace(level, page, "", 1); got != want {
+		t.Errorf("withoutRegistrations() under another auth's name (-want +got):\n%s", cmp.Diff(want, got))
+	}
+}
+
+// TestAuthApply_settingsBesideADirectoryAuth holds the settings function impulse add auth
+// copies for the new auth from an auth that signs in through a directory, in an
+// application started with Directory roles: the copy carries nothing of the staff auth's
+// registration, and the new auth's own registration joins it once, so the data level
+// compiles whichever way the new auth signs in. The staff auth's function keeps its own.
+func TestAuthApply_settingsBesideADirectoryAuth(t *testing.T) {
+	t.Parallel()
+
+	const base = "func (env *dataConfig) partnersSettings(collection access.PermissionCollection, signals partners.Signals, cookieKey string, sender mail.Sender) *partners.Settings {\n\treturn &partners.Settings{\n\t\tCollection:     collection,\n\t\tSignals:        signals,\n\t\tCookieKey:      cookieKey,\n\t\tSessionTimeout: env.SessionTimeout,\n\t\tMail:           sender,\n\t\tMailLoginURL:   env.PublicURL + \"/login\",\n"
+	tests := []struct {
+		name    string
+		methods []authpkg.Method
+		// want is the function's Settings literal after the elements every auth has.
+		want string
+	}{
+		{
+			name: "an auth whose people sign in with a password takes no registration",
+			want: "\t}\n}\n",
+		},
+		{
+			name:    "an auth with a registration of its own takes its own alone",
+			methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}},
+			want:    "\t\tLoginURL:       \"/login\",\n\t\tWorkspace: partners.WorkspaceSettings{\n\t\t\tHostedDomain:           env.PartnersWorkspaceHostedDomain,\n\t\t\tAdministeredWorkspaces: env.PartnersWorkspaceAdministeredWorkspaces,\n\t\t\tClientID:               env.PartnersWorkspaceClientID,\n\t\t\tClientSecret:           env.PartnersWorkspaceClientSecret,\n\t\t\tRedirectURL:            env.PartnersWorkspaceRedirectURL,\n\t\t},\n\t}\n}\n",
+		},
+		{
+			name:    "an auth with a registration named as the staff auth's takes its own once, with its own fields",
+			methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication}},
+			want:    "\t\tLoginURL:       \"/login\",\n\t\tGoogle: partners.GoogleSettings{\n\t\t\tHostedDomain:           env.PartnersGoogleHostedDomain,\n\t\t\tAdministeredWorkspaces: env.PartnersGoogleAdministeredWorkspaces,\n\t\t\tClientID:               env.PartnersGoogleClientID,\n\t\t\tClientSecret:           env.PartnersGoogleClientSecret,\n\t\t\tRedirectURL:            env.PartnersGoogleRedirectURL,\n\t\t},\n\t}\n}\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a := directoryRoles(t)
+			staffs := "\t\tLoginURL:       \"/login\",\n\t\tGoogle: staff.GoogleSettings{\n\t\t\tHostedDomain:           env.StaffGoogleHostedDomain,\n"
+			if level := read(t, a, baseDataLevel); !strings.Contains(level, staffs) {
+				t.Fatalf("the start's data level does not carry the staff auth's registration as %q:\n%s", staffs, level)
+			}
+			added(t, a, &Auth{Name: "partners", Methods: tt.methods, Outlet: app.DefaultOutletName})
+
+			level := read(t, a, baseDataLevel)
+			if want := base + tt.want; !strings.Contains(level, want) {
+				t.Errorf("%s does not hold the partners auth's settings as %q:\n%s", baseDataLevel, want, level)
+			}
+			if !strings.Contains(level, staffs) {
+				t.Errorf("%s lost the staff auth's registration:\n%s", baseDataLevel, level)
+			}
+			wellFormed(t, a, baseDataLevel)
+		})
+	}
+}
+
 // TestWithoutMaker pins what a copy of the wiring of the auth a tenant is made through
 // leaves behind for an auth that makes none: the settings function's parameter and the
 // paragraph of its comment that names it, the element of its Settings literal, and the
