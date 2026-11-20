@@ -641,6 +641,14 @@ The method is neither opened to sign-up nor made invite only: the directory deci
 signs in. The directory gives the Super Administrator role too, like any other role, so
 no first administrator is invited.
 
+The application still sends mail, though it invites nobody. Through Microsoft, each
+person's first sign-in stops for a code mailed to the address they give, as
+[The email address on an account](#the-email-address-on-an-account) says. Through either
+directory, a sign-in that carries no second factor of the directory's own stops for a
+code mailed to the person's address. So each deployed environment needs its mailbox,
+although no release asks for one: without it the code is written to the server's log,
+and the person stays on the login page.
+
 Where the roles come from depends on the method.
 
 - A Microsoft method reads the application roles in the token of the sign-in.

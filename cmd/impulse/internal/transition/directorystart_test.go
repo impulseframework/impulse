@@ -249,6 +249,60 @@ func TestDirectoryStart_Command(t *testing.T) {
 	}
 }
 
+// TestDirectoryStart_Meaning_mailbox holds the brief of a Directory roles start to saying
+// that the environment needs its mailbox. A release of such an application invites
+// nobody, so it asks for none, and the application still mails the sign-in code: to every
+// sign-in the directory does not answer for, and, through Microsoft, to each person's
+// first, since that directory vouches for no address. A start that invites a first
+// administrator says nothing of it here: its release refuses without the mailbox.
+func TestDirectoryStart_Meaning_mailbox(t *testing.T) {
+	t.Parallel()
+
+	const (
+		mailbox  = "Give each deployed environment its mailbox (`APP_MAIL_MAILBOX`, with the secret `APP_MAIL_APP_PASSWORD`) before anybody signs in. No release asks for one, since nobody is invited, and the application mails all the same: "
+		noSender = "Without the mailbox the code is written to the server's log and reaches nobody, and the person is left at the login page's code step."
+		first    = "Each person's first sign-in waits for one whatever the directory says of a second factor: Microsoft Entra ID vouches for no address, so the login page asks the person for theirs, and the code proves it."
+	)
+	tests := []struct {
+		name  string
+		start DirectoryStart
+		wants []string
+		never []string
+	}{
+		{
+			name: "directory roles through Google", start: directoryRolesStart(app.MethodGoogle, "fleet.example"),
+			wants: []string{
+				mailbox + "a sign-in waits for a code mailed to the person's address unless the Workspace is one the deployment administers (`APP_STAFF_GOOGLE_ADMINISTERED_WORKSPACES`), or the browser is one the person asked to be remembered. " + noSender,
+			},
+			never: []string{first, "token says"},
+		},
+		{
+			name: "directory roles through Microsoft", start: directoryRolesStart(app.MethodAzure, ""),
+			wants: []string{
+				mailbox + "a sign-in waits for a code mailed to the person's address unless the tenant is one the deployment administers (`APP_STAFF_AZURE_ADMINISTERED_TENANTS`), the directory's token says a second factor was passed, or the browser is one the person asked to be remembered. " + first + " " + noSender,
+			},
+		},
+		{name: "tenant-owned users, by directory", start: byDirectoryStart("members"), never: []string{"its mailbox", "APP_MAIL_MAILBOX"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			meaning := tt.start.Meaning()
+			for _, want := range tt.wants {
+				if !strings.Contains(meaning, want) {
+					t.Errorf("Meaning() lacks %q:\n%s", want, meaning)
+				}
+			}
+			for _, never := range tt.never {
+				if strings.Contains(meaning, never) {
+					t.Errorf("Meaning() carries %q:\n%s", never, meaning)
+				}
+			}
+		})
+	}
+}
+
 // TestDirectoryStart_Apply_byDirectory holds what a new application that starts from
 // Tenant-owned users, by directory is left with: an auth with no password method that
 // registers Google, Microsoft and the persona sign-in, with the application giving the

@@ -787,6 +787,33 @@ func (d *DirectoryStart) MeaningIn(a *app.App) string {
 	return d.meaning(set)
 }
 
+// mailboxItem is what a Directory roles start leaves the author to do about the mailbox.
+// A release of such an application asks for none, since it invites nobody, and the
+// application mails all the same: the sign-in code is the second factor of every sign-in
+// the directory does not answer for, and it goes to the address on the person's account.
+// A directory that vouches for no address (Microsoft Entra ID) leaves the person to give
+// theirs at the first sign-in and to prove it with that code, whatever the directory
+// says of a second factor. Without a mailbox the code is written to the server's log, so
+// the item names the settings that give an environment one.
+func (d *DirectoryStart) mailboxItem() string {
+	m := d.methods()[0]
+	organization, unless := "Workspace", "or"
+	first := ""
+	if m.Kind == app.MethodAzure {
+		organization, unless = "tenant", "the directory's token says a second factor was passed, or"
+		first = " Each person's first sign-in waits for one whatever the directory says of a second factor: Microsoft Entra ID vouches for no address, so the login page asks the person for theirs, and the code proves it."
+	}
+	administered := ""
+	fields := m.Fields()
+	for i := range fields {
+		if f := &fields[i]; f.Name == authpkg.FieldAdministeredTenants || f.Name == authpkg.FieldAdministeredWorkspaces {
+			administered = fmt.Sprintf(" (`%s`)", m.Variable(d.Auth, f))
+		}
+	}
+
+	return fmt.Sprintf("Give each deployed environment its mailbox (`APP_MAIL_MAILBOX`, with the secret `APP_MAIL_APP_PASSWORD`) before anybody signs in. No release asks for one, since nobody is invited, and the application mails all the same: a sign-in waits for a code mailed to the person's address unless the %s is one the deployment administers%s, %s the browser is one the person asked to be remembered.%s Without the mailbox the code is written to the server's log and reaches nobody, and the person is left at the login page's code step.", organization, administered, unless, first)
+}
+
 // meaning is the start's account, given the tests it wrote (a tree of suiteFiles, or
 // none).
 func (d *DirectoryStart) meaning(set string) string {
@@ -823,6 +850,7 @@ func (d *DirectoryStart) meaning(set string) string {
 		items = append(items,
 			"Define the roles in the role file and assign them in the directory: nothing is seeded for people who sign in this way, and the development person holds what `APP_ROLES` lists.",
 			"Leave what invites a first administrator where it is (the deployment package's `InviteAdministrators` and `ReinviteAdministrator`, the migrate command's `-reinvite-administrator`, the data level's address setting and the environment template's variable). It invites nobody while `AdministratorAuths` names no auth, so a release mails no invitation, whatever address the variable names. It stays because `impulse add auth` does not write it: an auth added later that invites a first administrator is wired into it as it stands.",
+			d.mailboxItem(),
 		)
 	} else if d.persona() {
 		items = append(items,
