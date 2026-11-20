@@ -44,14 +44,32 @@ import (
 // tenant as ever.
 //
 // What it cannot see is a row that reaches the person without naming them: a row that
-// names a set the person is in (a pass given to their team), the row another record's
-// value is read through (the team's own row, which says which division the team is
-// in), and a row the database removes with its parent. They are a stated limit of the
-// rule, beside the one RefuseImpersonatorAsSubject names for a role given to a group
-// the person is in: a session whose mask refuses nothing writes such a row, and the
-// rule does not look for the person in the set or behind the value. An application
-// closes that through its mask: a kind of impersonation that refuses the record's
-// writes by name (accesstypes.RefuseWrites) refuses them, for every person.
+// names a set the person is in (a pass given to their team), and the row another
+// record's value is read through (the team's own row, which says which division the
+// team is in). They are a stated limit of the rule, beside the one
+// RefuseImpersonatorAsSubject names for a role given to a group the person is in: a
+// session whose mask does not refuse the record's writes writes such a row, whether or
+// not the mask refuses a class, since the write of a record carries none, and the rule
+// does not look for the person in the set or behind the value. An application closes
+// that through its mask: a kind of impersonation that refuses the record's writes by
+// name (accesstypes.RefuseWrites) refuses them, for every person.
+//
+// A row removed with its parent, which may name the person, is a limit of its own. The
+// database removes the row when the parent's row is deleted (an interleaved table or a
+// foreign key declared ON DELETE CASCADE: a pass goes with the place it opens). No
+// write of the row is made, so the rule is not asked about the person it names, and a
+// mask that refuses the row's own writes does not refuse the parent's delete. An
+// application closes it by refusing the parent's delete under the mask
+// (accesstypes.RefusePermission(accesstypes.Delete, parent)).
+//
+// A column that records who made a row is another. A grant may compare a column of a
+// record to the requester (bookedBy = subject). Such a column carries no subject
+// annotation, so it is not among userFields and the rule does not read it, though the
+// row names a person and decides what they may do. Nothing is open while the
+// application stamps the column from the session and people cannot write it (an
+// output_only field with a default_create_fn): no write moves a row onto the real
+// person. Where people can write such a column, the application refuses the record's
+// writes under the mask.
 func RefuseImpersonatorAsRowSubject[Resource resource.Resourcer](
 	ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet,
 	patchSet *resource.PatchSet[Resource], record string, userFields ...accesstypes.Field,

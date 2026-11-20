@@ -472,12 +472,25 @@ Where an application offers it, these things hold in every shape.
   The same holds for a row of the application's own that names them and decides what
   they may do. They stop acting as the other person first.
 - That rule sees what names the person, and no more. It does not see a role given to a
-  group they are in. In the same way, it does not see a row of the application's own that
-  reaches them without naming them: a pass given to a team they are in, or their own team
-  moved to another division. A session whose mask refuses nothing can do each of these.
-  This is a stated limit of the rule. An application closes it through the mask of the
-  kind: a kind that is not to change what anyone may do refuses that class of actions,
-  and the writes of each such record by name.
+  group they are in: a session whose mask does not refuse that class of actions can give
+  one. In the same way, it does not see a row of the application's own that reaches them
+  without naming them: a pass given to a team they are in, or their own team moved to
+  another division. A session whose mask does not refuse the record's writes can write
+  such a row, whether or not the mask refuses the class: writing a record is not an
+  action of that class. These are stated limits of the rule. An application closes them
+  through the mask of the kind: a kind that is not to change what anyone may do refuses
+  that class of actions, and the writes of each such record by name.
+- A row removed with its parent, which may name the person, is a stated limit of its
+  own. A pass is removed when the place it opens is deleted. No write of the pass is
+  made, so neither the rule nor a mask that refuses the writes of passes is asked. An
+  application closes it by refusing the delete of the parent record in the mask of the
+  kind.
+- A column that records who made a row is another stated limit. Where what a person may
+  do with a row depends on that column (the person who booked a job may cancel it), the
+  row names a person and decides what they may do, and the rule does not read the
+  column. Nothing is open while the application fills the column in from the session
+  and nobody can write it. Where people can write it, the application refuses the
+  writes of that record in the mask of the kind.
 - Disabling, enabling and deleting an account are not in that class. A person who acts
   as an administrator does them as the administrator would, on anyone's account but
   their own. The rule knows the person by the account they signed in with. If they have

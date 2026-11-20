@@ -3526,8 +3526,19 @@ cannot see: a role that reaches the person through a group they are in, through 
 account or through a colleague. A row of the application's own that reaches the person
 without naming them is beside it: a pass given to a team they are in, or their own team
 moved to another division. These are the rule's stated limits. A session whose mask
-refuses nothing does each of them, since to let someone act as a person with no mask is
-to give them what the person holds, and an application closes them through its mask.
+does not refuse the class gives such a role, and a session whose mask does not refuse
+the record's writes writes such a row, whether or not it refuses the class: the write
+of a record carries no class. To let someone act as a person with no mask is to give
+them what the person holds, and an application closes each limit through its mask.
+A row removed with its parent, which may name the person, is a limit of its own: the
+database removes a pass with the place it opens, no write of the pass is made, and so
+neither the rule nor a mask that refuses the writes of passes is asked. An application
+closes it by refusing the parent's delete under the mask
+(`accesstypes.RefusePermission(accesstypes.Delete, parent)`). A column that records who
+made a row, which a grant compares to `subject`, is another: the row names a person and
+decides what they may do, and the rule does not read the column. Nothing is open while
+the application stamps the column from the session and people cannot write it; where
+people can write it, the application refuses the record's writes under the mask.
 One limit no class closes: the rule knows the real person by the account they signed in
 with, so a second account of their own is someone else's to it, and a person who acts
 as an administrator can enable that account again, or disable or delete it, as the
@@ -3536,8 +3547,9 @@ in the kind's mask (`accesstypes.RefuseAction`).
 An application that lets people act as a person and
 does not mean them to change who may do what refuses both classes, as the declaration
 above does, and refuses by name the writes of its own records that decide what a person
-may do (`accesstypes.RefuseWrites(record)`): the rule holds the real person alone, and
-the mask is what keeps such a session from changing anyone else's.
+may do (`accesstypes.RefuseWrites(record)`) and the delete of a record such rows are
+removed with: the rule holds the real person alone, and the mask is what keeps such a
+session from changing anyone else's.
 
 A masked check is refused when the mask does not keep its kind, refuses one of its
 resource's classes, or refuses the permission on the resource by name. The refusal comes

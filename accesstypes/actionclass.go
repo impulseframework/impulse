@@ -46,8 +46,15 @@ const ClassCredential ActionClass = "credential"
 // colleague. A row of the application's own that reaches the person without naming
 // them (a pass given to a team they are in) is beside those, and is no action of
 // the library's for the class to mark: a mask refuses the record's writes by name
-// (RefuseWrites). Under a mask that refuses nothing, each of these is a stated
-// limit of the rule.
+// (RefuseWrites), and a session whose mask does not refuse the record's writes
+// writes such a row, whether or not the mask refuses the class. A row removed with
+// its parent, which may name the person, is a limit of its own: no write of the row
+// is made, and a mask closes it by refusing the parent's delete
+// (RefusePermission(Delete, parent)). A column that records who made a row, which a
+// grant compares to the requester, is another: nothing is open while the
+// application stamps it from the session and people cannot write it, and where
+// people can, a mask refuses the record's writes. Each of these is a stated limit
+// of the rule, which a mask that does not refuse it leaves open.
 //
 // One limit the class does not close. The rule knows the real person by the account
 // they signed in with, so a second account of their own is someone else's to it:

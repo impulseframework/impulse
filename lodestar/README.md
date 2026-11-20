@@ -1170,14 +1170,19 @@ it (`NoRole: true`), a role file that grants it is refused, with the reason, by 
 permission engine and by `impulse check`, and the console's generated `Methods`
 constants leave it out.
 
-What the rule cannot see stays open to a session whose mask refuses nothing, and that
-is a stated limit of the rule, not something it promises. The marshal who acts as the
+What the rule cannot see stays open to a session whose mask does not refuse it (the
+class `access` for a role, the record's writes for a row), and that is a stated limit
+of the rule, not something it promises. The marshal who acts as the
 `Headquarters` role is refused a role, a pass or a place in a squadron given to her own
 account. She is not refused a hangar pass given to a squadron she is in, or her own
 squadron moved to another wing: each reaches her through a row that does not name her,
 as a role given to a group she is in does. An application closes this through its
 mask, as the `act` kind does: the kind that is not to change anyone's standing says
-so, by the class and by the records it names.
+so, by the class and by the records it names. A hangar pass also goes with its hangar,
+its squadron or its sector when one is deleted, whoever the pass names. No write of the
+pass is made, so neither the rule nor the `act` kind's mask is asked, and neither kind
+refuses those deletes: every pass gives something, so such a delete only takes away.
+An application whose rows restrict refuses the parent's delete in the kind's mask.
 
 | Login | Who | What their view proves |
 | --- | --- | --- |

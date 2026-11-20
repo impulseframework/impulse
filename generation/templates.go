@@ -924,8 +924,10 @@ const (
 	//
 	// The generated comment states the rule's limit where a reader of the handler meets
 	// the rule: a row that reaches a person without naming them is written by a session
-	// whose mask refuses nothing, as a role given to a group they are in is, and an
-	// application closes that through its mask.
+	// whose mask does not refuse the record's writes, whether or not the mask refuses a
+	// class, and an application closes that through its mask. The comment names the two
+	// limits beside it, a row removed with its parent and a column that records who made
+	// a row, and where each is described.
 	subjectGuarded = `// The policy reads this record's rows as what a person may do, so nobody
 					// writes the row that names them while they act as someone else,
 					// whatever the session's mask keeps: the rule is asked about the person
@@ -935,9 +937,13 @@ const (
 					// The rule sees the rows that name a person. A row that reaches them
 					// without naming them (one that names a set they are in, or the row a
 					// value of theirs is read through) is its stated limit, beside a role
-					// given to a group they are in: a session whose mask refuses nothing
-					// writes it, and an application closes that through its mask, which
-					// refuses the record's writes by name (accesstypes.RefuseWrites).
+					// given to a group they are in: a session whose mask does not refuse
+					// the record's writes writes it, whether or not the mask refuses a
+					// class, and an application closes that through its mask, which
+					// refuses the record's writes by name (accesstypes.RefuseWrites). A
+					// row removed with its parent, and a column that records who made a
+					// row, are limits of their own: identity.RefuseImpersonatorAsRowSubject
+					// says what closes each.
 					subjectKey := resource.KeySet{}
 					{{- if .PrimaryKeyIsGeneratedUUID }}
 					if op.Type != resource.OperationCreate {

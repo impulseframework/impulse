@@ -70,9 +70,24 @@ const (
 //
 // A row that reaches a person without naming them is beside that: a hangar pass given
 // to a squadron the real person is in, or their own squadron moved to another wing.
-// Under a mask that refuses nothing, the role kind's, a session writes such a row: it
-// is a stated limit of the rule, and an application closes it through its mask, as
-// the act kind does here with standingRecords.
+// A session whose mask does not refuse the record's writes, here the role kind's,
+// writes such a row, and refusing the class access alone would not stop it, since the
+// write of a record carries no class: it is a stated limit of the rule, and an
+// application closes it through its mask, as the act kind does here with
+// standingRecords.
+//
+// A row removed with its parent, which may name the person, is a limit of its own: a
+// hangar pass goes with its hangar, its squadron or its sector, and no write of the
+// pass is made for the rule or for standingRecords to refuse. Neither kind refuses
+// those deletes here. Every pass gives something and none restricts, so such a delete
+// only takes away; an application whose rows restrict (a ban, a cap) refuses the
+// parent's delete in the kind's mask (accesstypes.RefusePermission(accesstypes.Delete,
+// parent)).
+//
+// A column that records who made a row is another (a mission's booker,
+// Mission.BookedByUserID, which grants compare to the requester): the rule does not
+// read it. Nobody writes those columns here. Each is stamped from the session, so no
+// write puts a row in a name the session chose.
 //
 // Demonstrates: impersonation.grant-mask, impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, @class.
 func impersonationKinds() []session.ImpersonationKind {

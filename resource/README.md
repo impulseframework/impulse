@@ -4708,16 +4708,37 @@ own, outside any request, has no caller and is the application's act):
   who returns the favor, and an action of the application's own that does not ask. Of
   a record's rows it sees the ones that name the person, and not a row that reaches
   them without naming them: a row that names a set they are in (a pass given to their
-  team), the row a dotted `value:` is read through (the team's own row, which says
-  which division the team is in), and a row the database removes with its parent.
-  These are the rule's stated limits, the rows that reach a person without naming them
-  beside the role given to a group they are in: a session whose mask refuses nothing
-  does each of them, since to let someone act as a person with no mask is to give them
-  what the person holds. An application closes them through its mask: a kind of
-  impersonation that is not to change who may do what refuses the class `access`, and
-  the writes of each such record by name (`accesstypes.RefuseWrites(record)`), which
-  refuses them for every person and not the real one alone. The
-  unlock knows the person's counts by their username, their account and the address
+  team), and the row a dotted `value:` is read through (the team's own row, which says
+  which division the team is in). These are the rule's stated limits, the rows that
+  reach a person without naming them beside the role given to a group they are in. A
+  session whose mask does not refuse the class `access` gives such a role, and a
+  session whose mask does not refuse the record's writes writes such a row, whether or
+  not it refuses the class: the write of a record carries no class. To let someone act
+  as a person with no mask is to give them what the person holds. An application
+  closes them through its mask: a kind of impersonation that is not to change who may
+  do what refuses the class `access`, and the writes of each such record by name
+  (`accesstypes.RefuseWrites(record)`), which refuses them for every person and not the
+  real one alone.
+
+  A row removed with its parent, which may name the person, is a limit of its own. The
+  database removes the row when the parent's row is deleted (an interleaved table or a
+  foreign key declared `ON DELETE CASCADE`: a pass goes with the place it opens). No
+  write of the row is made, so the rule is not asked about the person it names, and a
+  mask that refuses the row's own writes does not refuse the parent's delete. Where
+  every such row gives something, the delete only takes away; where a row restricts (a
+  ban, a cap), the delete gives. An application closes it by refusing the parent's
+  delete under the mask (`accesstypes.RefusePermission(accesstypes.Delete, parent)`).
+
+  A column that records who made a row is another. A grant may compare a column of a
+  record to the requester (`bookedBy = subject`). Such a column carries no
+  `@subjectValue` or `@subjectSet` annotation, so it is not among the columns asked,
+  though the row names a person and decides what they may do. Nothing is open while
+  the application stamps the column from the session and people cannot write it (an
+  `output_only` field with a `default_create_fn`): no write moves a row onto the real
+  person. Where people can write such a column, the application closes it by refusing
+  the record's writes under the mask.
+
+  The unlock knows the person's counts by their username, their account and the address
   they confirmed; a count kept under an address the account holds unconfirmed (the mail
   of a first password, or of an address change asked for) is cleared like anyone's. A
   mask that refuses the class `access` refuses the library's share of those. One limit
