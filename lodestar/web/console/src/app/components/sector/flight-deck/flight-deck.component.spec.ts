@@ -91,6 +91,48 @@ interface World {
   noSquadrons?: boolean;
   /** The sector's digest and every list answer late, so the page is seen while it waits. */
   slow?: boolean;
+  /**
+   * What the sector keeps under its missions, in the order the server lists each: read as
+   * the server reads it, by the request's filter and a page at a time. A list not given
+   * is the one sortie of the board's mission, no expense and no document.
+   */
+  kept?: { sorties?: Kept[]; expenses?: Kept[]; documents?: Kept[] };
+}
+
+/** A row the scripted server keeps. */
+type Kept = Record<string, unknown>;
+
+/**
+ * Answers a list as the server does: the rows the request's filter names (every row, for
+ * a request with none), one page of them, ten when the request names no size, and the
+ * next page's address while there is one.
+ */
+function paged(rows: Kept[], url: URL): TransportResponse {
+  const filter = url.searchParams.get('filter') ?? '';
+  const [field = ''] = filter.split(':');
+  const named = new Set(filter.split(/[:(),]/));
+  const matching = rows.filter((row) => filter === '' || named.has(String(row[field])));
+  const limit = Number(url.searchParams.get('limit') ?? 10);
+  const start = Number(url.searchParams.get('cursor') ?? 0);
+  const next = new URL(url);
+  next.searchParams.set('cursor', String(start + limit));
+  return {
+    status: 200,
+    body: matching.slice(start, start + limit),
+    headers: start + limit < matching.length ? { link: `<${next.pathname}${next.search}>; rel="next"` } : {},
+  };
+}
+
+/** A sortie as the server lists one to the Marshal, who may add an expense to it. */
+function sortie(id: string, missionId: string, launchedAt: string): Kept {
+  return {
+    id,
+    missionId,
+    shipId: 'sh-1',
+    pilotUserId: 'u-cadet',
+    launchedAt,
+    zzCapabilities: { Create: ['SortieExpenses'] },
+  };
 }
 
 /** The routes of the mission workflow's edges. */
@@ -169,6 +211,9 @@ function answerFor(world: World): (request: TransportRequest) => TransportRespon
           headers: { 'total-count': String(world.total ?? 1) },
         };
       case `${sector}/sorties`:
+        if (world.kept?.sorties) {
+          return paged(world.kept.sorties, url);
+        }
         return {
           status: 200,
           body: [
@@ -183,8 +228,9 @@ function answerFor(world: World): (request: TransportRequest) => TransportRespon
           ],
         };
       case `${sector}/sortie-expenses`:
+        return paged(world.kept?.expenses ?? [], url);
       case `${sector}/mission-documents`:
-        return { status: 200, body: [] };
+        return paged(world.kept?.documents ?? [], url);
       case `${sector}/squadrons`:
         return { status: 200, body: world.noSquadrons ? [] : [{ id: 's-1', name: 'Kestrel Flight' }] };
       case `${sector}/ships`:
@@ -253,6 +299,8 @@ describe('FlightDeckComponent', () => {
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const text = (e: Element | null): string => e?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
   const texts = (selector: string): string[] => Array.from(element().querySelectorAll(selector)).map(text);
+  /** The open mission's sorties as drawn: a document's row is drawn with a sortie's class, and says nothing of a launch. */
+  const sortieRows = (): string[] => texts('.detail-card .sortie').filter((row) => row.includes(' launched '));
   const inDialog = <E extends HTMLElement>(selector: string): E | null =>
     document.querySelector<E>(`.cdk-overlay-container mat-dialog-container ${selector}`);
   const dialogTexts = (selector: string): string[] =>
@@ -992,6 +1040,106 @@ describe('FlightDeckComponent', () => {
       },
     ]);
     expect(dialogOpen()).toBe(false);
+  });
+
+  it('shows a mission every sortie of its own and no other mission’s, in a sector that keeps more than a page of them', async () => {
+    // The sector's newest sorties and largest expenses are another mission's: its first page of each holds none of this one's.
+    const others = Array.from({ length: 11 }, (_, i) => sortie(`other-${i}`, 'm-9', `2031-02-${10 + i}T08:00:00Z`));
+    const own = Array.from({ length: 12 }, (_, i) => sortie(`own-${i}`, 'm-1', `2030-11-${10 + i}T08:00:00Z`));
+    const kept = {
+      sorties: [...others, ...own],
+      expenses: [
+        ...others.map((other, i) => ({ id: `e-other-${i}`, sortieId: other['id'], category: 'fuel', amount: '90000' })),
+        { id: 'e-own', sortieId: 'own-11', category: 'fuel', amount: '40' },
+      ],
+      documents: [
+        ...Array.from({ length: 26 }, (_, i) => ({ id: `d-other-${i}`, missionId: 'm-9', title: `Manifest ${i}` })),
+        { id: 'd-own', missionId: 'm-1', title: 'Tow plan', fileName: 'tow.pdf' },
+      ],
+    };
+    await pageFor({ grants: marshal, kept });
+    await openMission();
+
+    expect(sortieRows()).toHaveLength(12);
+    expect(texts('.detail-card .expenses li')).toEqual(['fuel — 40 cr']);
+    expect(text(element().querySelector('.detail-card'))).toContain('Tow plan');
+    expect(text(element().querySelector('.detail-card'))).not.toContain('Manifest');
+    // Each list was asked for by the mission, never as the sector's newest page.
+    const asked = (route: string): string[] =>
+      transport.requests
+        .filter((r) => r.method === 'GET' && r.url.startsWith(`${environment.apiUrl}/sectors/${anvilID}/${route}?`))
+        .map((r) => new URL(r.url, 'http://lodestar.test').searchParams.get('filter') ?? '');
+    expect(new Set(asked('sorties'))).toEqual(new Set(['missionId:eq:m-1']));
+    expect(new Set(asked('mission-documents'))).toEqual(new Set(['missionId:eq:m-1']));
+    expect(asked('sortie-expenses').every((filter) => filter.startsWith('sortieId:in:(own-0,own-1,'))).toBe(true);
+
+    // One more sortie is added: it joins the twelve, and pushes none of them off.
+    await press('Add sortie');
+    await pick('sortieShip', 'Tug Brava');
+    await pick('sortiePilot', 'Cass');
+    kept.sorties.unshift(sortie('own-12', 'm-1', '2031-03-01T08:00:00Z'));
+    await send();
+    await settle(() => !dialogOpen() && sortieRows().length > 12, 50);
+
+    expect(sortieRows()).toHaveLength(13);
+    expect(texts('.detail-card .expenses li')).toEqual(['fuel — 40 cr']);
+  });
+
+  it('follows the server’s pages to a mission’s last sortie where one page does not hold them all', async () => {
+    const own = Array.from({ length: 104 }, (_, i) =>
+      sortie(`own-${i}`, 'm-1', `2030-11-10T08:${String(i % 60).padStart(2, '0')}:00Z`),
+    );
+    await pageFor({
+      grants: marshal,
+      kept: { sorties: own, expenses: [{ id: 'e-last', sortieId: 'own-103', category: 'medical', amount: '75' }] },
+    });
+    await openMission();
+
+    expect(sortieRows()).toHaveLength(104);
+    expect(texts('.detail-card .expenses li')).toEqual(['medical supplies — 75 cr']);
+  });
+
+  it('says an expense in the words the Add expense form offers it under, and its amount as a fee is written', async () => {
+    await pageFor({
+      grants: marshal,
+      kept: {
+        expenses: [
+          { id: 'e-1', sortieId: 'so-1', category: 'tow_gear', amount: '1500', memo: 'spare line' },
+          { id: 'e-2', sortieId: 'so-1', category: 'medical', amount: '20000' },
+          { id: 'e-3', sortieId: 'so-1', category: 'dock_fees', amount: '12.4' },
+        ],
+      },
+    });
+    await openMission();
+
+    // No stored code and no raw figure: "tow_gear" and "1500" are the server's, not a person's.
+    expect(texts('.detail-card .expenses li')).toEqual([
+      'tow gear — 1,500 cr (spare line)',
+      'medical supplies — 20,000 cr',
+      'dock fees — 12 cr',
+    ]);
+
+    await press('Add expense');
+    inDialog('mat-select[name="expenseCategory"] .mat-mdc-select-trigger')?.click();
+    await settle();
+    const offered = Array.from(document.querySelectorAll('.cdk-overlay-container mat-option')).map(text);
+    expect(offered).toEqual(['fuel', 'medical supplies', 'tow gear']);
+    Array.from(document.querySelectorAll<HTMLElement>('.cdk-overlay-container mat-option'))
+      .find((option) => text(option) === 'tow gear')
+      ?.click();
+    await settle();
+    type('expenseAmount', '300');
+    await send();
+    await settle(() => !dialogOpen(), 50);
+
+    // The same list gives the words and the code that is stored.
+    expect(writes()).toEqual([
+      {
+        op: 'add',
+        path: `/sectors/${anvilID}/sortie-expenses`,
+        value: { sortieId: 'so-1', category: 'tow_gear', amount: '300' },
+      },
+    ]);
   });
 
   it("Add expense opens its form in a dialog under the button's words and adds the expense under the sortie", async () => {

@@ -9,6 +9,7 @@ import {
   ApiError,
   ClientBase,
   Domain,
+  Page,
   PermissionDigest,
   TransportRequest,
   TransportResponse,
@@ -20,7 +21,7 @@ import { provideResourceTesting } from '@impulseframework/resource-angular/testi
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
-import { grantedColumns, SectorService, serverWords } from './sector.service';
+import { grantedColumns, ListHandle, SectorService, serverWords } from './sector.service';
 
 // A global reader (globalList, globalPage) asks for its list when the digest grants it and
 // again only when the answer to that global question changes. The open sector's digest
@@ -284,6 +285,33 @@ describe('SectorService sector readers', () => {
       });
     });
   }
+
+  it('everyRow reads every page the server names, at the largest page the resource allows, and asks nothing without the grant', async () => {
+    const sectors = await enterAnvil();
+    const asked: unknown[] = [];
+    const reload = (): Promise<Page<{ id: string }>> => Promise.reject(new Error('not read again'));
+    const last: Page<{ id: string }> = { rows: [{ id: 'c' }], reload };
+    const first: Page<{ id: string }> = { rows: [{ id: 'a' }, { id: 'b' }], next: () => Promise.resolve(last), reload };
+    const handle = (granted: boolean): ListHandle<{ id: string }> =>
+      ({
+        descriptor: { page: { default: 10, max: 100 } },
+        can: () => granted,
+        page: (query: unknown) => {
+          asked.push(query);
+          return Promise.resolve(first);
+        },
+      }) as unknown as ListHandle<{ id: string }>;
+
+    expect(await sectors.everyRow(handle(true), { filter: 'missionId:eq:m-1' })).toEqual([
+      { id: 'a' },
+      { id: 'b' },
+      { id: 'c' },
+    ]);
+    expect(asked).toEqual([{ filter: 'missionId:eq:m-1', limit: 100 }]);
+
+    expect(await sectors.everyRow(handle(false), {})).toEqual([]);
+    expect(asked).toHaveLength(1);
+  });
 
   it('known answers no until the digest of the open sector is in, and settled until the lists have answered', async () => {
     const sectors = await enterAnvil();

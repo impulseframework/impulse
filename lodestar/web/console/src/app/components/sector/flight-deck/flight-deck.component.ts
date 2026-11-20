@@ -76,11 +76,33 @@ export interface Verdict {
   says: string;
 }
 
-/** The mission the deck has open, with the server's verdict on each of its edges. */
+/**
+ * What is one mission's own: its sorties, their expenses and its documents. Each is read
+ * by a filter on the mission, every row of it, so a mission shows all that is its own
+ * however much the rest of the sector holds.
+ */
+interface MissionLists {
+  sorties: Sorties[];
+  expenses: SortieExpenses[];
+  documents: MissionDocuments[];
+}
+
+/** The mission the deck has open, with the server's verdict on each of its edges and the lists that are its own. */
 interface OpenMission {
   mission: Missions;
   verdicts: Readonly<Record<string, Verdict>>;
+  lists: MissionLists;
 }
+
+/** The kinds of expense a sortie books: each as the server stores it, and as the deck says it. */
+const expenseCategories: readonly { code: string; words: string }[] = [
+  { code: 'fuel', words: 'fuel' },
+  { code: 'medical', words: 'medical supplies' },
+  { code: 'tow_gear', words: 'tow gear' },
+];
+
+/** How many sorties' expenses are asked for in one request: a list of ids rides the request's address. */
+const sortiesPerRead = 50;
 
 /**
  * The flight deck: the sector's missions as call sheets, by deadline, and the open
@@ -190,9 +212,6 @@ export class FlightDeckComponent {
     }
     return `${shown} of ${total} missions`;
   });
-  sorties = this.sectors.sectorList((sector) => sector.sorties, { capabilities: ['Create', 'Update'] });
-  expenses = this.sectors.sectorList((sector) => sector.sortieExpenses, { capabilities: ['Update', 'Delete'] });
-  documents = this.sectors.sectorList((sector) => sector.missionDocuments);
   squadrons = this.sectors.sectorList((sector) => sector.squadrons);
   ships = this.sectors.sectorList((sector) => sector.ships);
   clients = this.sectors.globalList((api) => api.clients);
@@ -205,16 +224,7 @@ export class FlightDeckComponent {
    * has answered. Until then the deck draws nothing, and then it draws whole.
    */
   ready = computed(() =>
-    this.sectors.settled(
-      this.missionsPage,
-      this.sorties,
-      this.expenses,
-      this.documents,
-      this.squadrons,
-      this.ships,
-      this.clients,
-      this.pilots,
-    ),
+    this.sectors.settled(this.missionsPage, this.squadrons, this.ships, this.clients, this.pilots),
   );
 
   /** The open sector's name, as the session's sector list carries it. */
@@ -232,9 +242,11 @@ export class FlightDeckComponent {
   // back; each answer says whether that edge would go through for this person, in the
   // words the real call would use: the Flight Lead learns of the hold's refusal before
   // touching anything, the completion the server would refuse says so with its figures.
-  // An edge that asks for something is tried with a stand-in. The open mission is set
-  // once every answer is in, so it is drawn whole, and it stays as it was while a newer
-  // row's answers are on their way.
+  // An edge that asks for something is tried with a stand-in. With the verdicts the deck
+  // reads what is the mission's own: its sorties, their expenses and its documents, by a
+  // filter on the mission and never out of the sector's newest page. The open mission is
+  // set once every answer is in, so it is drawn whole, and it stays as it was while a
+  // newer row's answers are on their way.
   private opened = signal<OpenMission | undefined>(undefined);
   selected = computed(() => this.opened()?.mission);
   pendingEdge = signal<Method | undefined>(undefined);
@@ -341,19 +353,68 @@ export class FlightDeckComponent {
   }
 
   /**
-   * Opens the picked mission once the server has answered for each of its edges, and
-   * closes the open one when none is picked. A row that is no longer the picked one by
-   * the time its answers are in is dropped: a newer row's answers are on their way.
+   * Opens the picked mission once the server has answered for each of its edges and for
+   * each of its lists, and closes the open one when none is picked. A row that is no
+   * longer the picked one by the time its answers are in is dropped: a newer row's
+   * answers are on their way.
    */
   private async openMission(mission: Missions | undefined): Promise<void> {
     if (!mission) {
       this.opened.set(undefined);
       return;
     }
-    const verdicts = await this.tryEdges(mission);
+    const [verdicts, lists] = await Promise.all([this.tryEdges(mission), this.readLists(mission)]);
     if (this.picked() === mission) {
-      this.opened.set({ mission, verdicts });
+      this.opened.set({ mission, verdicts, lists });
     }
+  }
+
+  /**
+   * Reads what is one mission's own: every sortie and every document the server keeps
+   * under the mission, and every expense of those sorties, a few sorties' at a time.
+   */
+  private async readLists(mission: Missions): Promise<MissionLists> {
+    const sector = this.sectors.sectorApi();
+    const [sorties, documents] = await Promise.all([
+      this.sectors.everyRow(sector.sorties, {
+        filter: { field: 'missionId', op: 'eq', value: mission.id },
+        capabilities: ['Create', 'Update'],
+      }),
+      this.sectors.everyRow(sector.missionDocuments, { filter: { field: 'missionId', op: 'eq', value: mission.id } }),
+    ]);
+    const expenses: SortieExpenses[] = [];
+    for (let i = 0; i < sorties.length; i += sortiesPerRead) {
+      const ids = sorties.slice(i, i + sortiesPerRead).map((sortie) => sortie.id);
+      expenses.push(
+        ...(await this.sectors.everyRow(sector.sortieExpenses, {
+          filter: { field: 'sortieId', op: 'in', value: ids },
+          capabilities: ['Update', 'Delete'],
+        })),
+      );
+    }
+    return { sorties, expenses, documents };
+  }
+
+  /**
+   * Reads the open mission's own lists again, after a sortie, an expense or a document
+   * was added to it, and draws them once they are in: until then the mission stays as it
+   * was.
+   */
+  private async readListsAgain(): Promise<void> {
+    const open = this.opened();
+    if (!open) {
+      return;
+    }
+    const lists = await this.readLists(open.mission);
+    if (this.opened() === open) {
+      this.opened.set({ ...open, lists });
+    }
+  }
+
+  /** What the deck has read of a mission's own: nothing, unless it is the one that is open. */
+  private listsOf(mission: Missions): MissionLists | undefined {
+    const open = this.opened();
+    return open?.mission.id === mission.id ? open.lists : undefined;
   }
 
   /** Opens one of the deck's dialogs over the page, with no refusal shown yet. */
@@ -619,11 +680,11 @@ export class FlightDeckComponent {
   }
 
   sortiesOf(mission: Missions): Sorties[] {
-    return this.sorties.value().filter((s) => s.missionId === mission.id);
+    return this.listsOf(mission)?.sorties ?? [];
   }
 
   documentsOf(mission: Missions): MissionDocuments[] {
-    return this.documents.value().filter((d) => d.missionId === mission.id);
+    return this.listsOf(mission)?.documents ?? [];
   }
 
   /**
@@ -666,11 +727,22 @@ export class FlightDeckComponent {
       throw e;
     }
     this.close();
-    this.documents.reload();
+    await this.readListsAgain();
   }
 
   expensesOf(sortie: Sorties): SortieExpenses[] {
-    return this.expenses.value().filter((e) => e.sortieId === sortie.id);
+    return (this.opened()?.lists.expenses ?? []).filter((e) => e.sortieId === sortie.id);
+  }
+
+  /** The kinds of expense the Add expense form offers. */
+  readonly expenseCategories = expenseCategories;
+
+  /**
+   * What the deck calls an expense's category: the words the Add expense form offers it
+   * under, and for a category the form does not offer, its stored name in words.
+   */
+  categoryWords(code: string | undefined): string {
+    return expenseCategories.find((category) => category.code === code)?.words ?? (code ?? '').replaceAll('_', ' ');
   }
 
   squadronName(id: string | null | undefined): string {
@@ -790,9 +862,9 @@ export class FlightDeckComponent {
         return;
     }
     // The edge went through: its dialog closes, and the closing clears the pending edge.
+    // The board is read again, and with its new row the mission's own lists are too.
     this.close();
     this.missionsPage.reload();
-    this.sorties.reload();
   }
 
   async saveEdits(mission: Missions): Promise<void> {
@@ -894,7 +966,7 @@ export class FlightDeckComponent {
       }),
     );
     if (added) {
-      this.sorties.reload();
+      await this.readListsAgain();
     }
   }
 
@@ -909,7 +981,7 @@ export class FlightDeckComponent {
       }),
     );
     if (added) {
-      this.expenses.reload();
+      await this.readListsAgain();
     }
   }
 }

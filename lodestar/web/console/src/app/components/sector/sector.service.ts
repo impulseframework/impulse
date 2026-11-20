@@ -298,6 +298,27 @@ export class SectorService {
   }
 
   /**
+   * everyRow reads every row a query names of a resource that is read a page at a time:
+   * the largest page the resource allows, then each next page the server names, until
+   * there is none. It is for a list its filter keeps small (one mission's sorties), where
+   * the sector's newest page would leave some of them out; a whole resource is still read
+   * a page at a time (sectorPage). Where the digest does not grant List it asks nothing
+   * and answers no rows.
+   */
+  async everyRow<Row>(handle: ListHandle<Row>, query: ListQuery<Row>): Promise<Row[]> {
+    if (!handle.can(Permissions.List)) {
+      return [];
+    }
+    let page: Page<Row> = await handle.page({ ...query, limit: handle.descriptor.page?.max });
+    const rows = [...page.rows];
+    while (page.next) {
+      page = await page.next();
+      rows.push(...page.rows);
+    }
+    return rows;
+  }
+
+  /**
    * sectorPage is sectorList's paged form: the loader asks the server for one page
    * with its neighbors (the resource's declared default size when the query names
    * none), and the component steps through them by setting the resource to
