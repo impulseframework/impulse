@@ -4,10 +4,11 @@ import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { createApi } from '@app/service/zz_gen_api';
-import { resourceMeta } from '@app/service/zz_gen_resources';
+import { DomainRoutePath, resourceMeta } from '@app/service/zz_gen_resources';
 import { ClientBase, Domain, PermissionDigest, TransportRequest, TransportResponse } from '@impulseframework/resource';
-import { provideFrame, TenantService } from '@impulseframework/resource-angular/auth-frame';
+import { provideFrame, tenantGuard, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { ResourceListComponent } from '@impulseframework/resource-angular/resource';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
@@ -262,5 +263,79 @@ describe('DashboardComponent, for a person who may list the service ledger', () 
     const asked = transport.requests.filter((request) => request.url.includes('service-ledgers'));
     expect(asked).toHaveLength(1);
     expect(asked[0]?.method).toBe('GET');
+  });
+});
+
+describe('DashboardComponent, opened by its address under a sector', () => {
+  /** Anvil's digest for a marshal who also reads the ship's log, a record the generated metadata does not place. */
+  const anvilWithLog: PermissionDigest = { ...anvil, ShipsLogEntries: { List: 'granted', Read: 'granted' } };
+
+  /** The names on the service card's rows, each with where it is held. */
+  const cardRows = (page: HTMLElement | null | undefined): string[] =>
+    Array.from(page?.querySelectorAll('impulse-permissions-card table.permissions tbody tr') ?? []).map((row) =>
+      (row.querySelector('td.resource-name')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    );
+
+  it("draws no service card until the sector's digest is in, then every row at once", async () => {
+    // The server as the marshal's, with the read of Anvil's digest answered only when the
+    // spec lets it go: the page is opened by its address, and the digest is on its way.
+    const played = serverFor('marshal', {});
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const transport = scriptedTransport(async (request) => {
+      const url = new URL(request.url, 'http://lodestar.test');
+      if (url.pathname === `${environment.apiUrl}/permission-digest` && url.searchParams.get('domain') === anvilID) {
+        await held;
+        return { status: 200, body: anvilWithLog };
+      }
+      return played(request);
+    });
+    await TestBed.configureTestingModule({
+      imports: [DashboardComponent],
+      providers: [
+        provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        // The dashboard under the sector segment, behind the library's guard, as the console routes it.
+        provideRouter([
+          {
+            path: DomainRoutePath,
+            canActivate: [tenantGuard],
+            children: [{ path: 'dashboard', component: DashboardComponent }],
+          },
+        ]),
+        provideFrame({ home: 'dashboard', menus: [] }),
+        { provide: RESOURCE_META, useValue: resourceMeta },
+      ],
+    }).compileComponents();
+    await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
+    const harness = await RouterTestingHarness.create();
+    const settle = async (): Promise<void> => {
+      for (let turn = 0; turn < 3; turn++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        harness.detectChanges();
+      }
+    };
+
+    const landing = harness.navigateByUrl(`/${DomainRoutePath.replace(/:[^/]+/, anvilID)}/dashboard`);
+    await settle();
+    // The digest is asked for and not yet answered: no card is drawn, so none is drawn a row short.
+    expect(transport.requests.map((request) => request.url)).toContain(
+      `${environment.apiUrl}/permission-digest?domain=${anvilID}`,
+    );
+    expect(harness.routeNativeElement?.querySelector('impulse-permissions-card') ?? null).toBeNull();
+
+    release();
+    await landing;
+    harness.detectChanges();
+    // The first card drawn holds every row: the ship's log, which only Anvil's digest
+    // gives a state, is among them, and nothing is added once everything has settled.
+    const first = cardRows(harness.routeNativeElement);
+    expect(first).toContain('ShipsLogEntries global');
+    expect(first).toContain('Missions domain');
+    await settle();
+    expect(cardRows(harness.routeNativeElement)).toEqual(first);
   });
 });
