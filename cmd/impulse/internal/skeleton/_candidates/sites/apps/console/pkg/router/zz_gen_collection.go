@@ -897,6 +897,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "consumedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "email", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "everyTenant", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "expiresAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "id"},
 					{Name: "invitedByUserId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},

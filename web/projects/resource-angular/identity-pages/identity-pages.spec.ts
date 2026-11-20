@@ -54,6 +54,7 @@ const metas: Record<string, ResourceMeta> = {
     'email',
     'name',
     'tenantId',
+    'everyTenant',
     'roleNames',
     'createdAt',
     'expiresAt',
@@ -707,7 +708,11 @@ describe("identityPages, the whole application's side", () => {
       'Sent',
       'Expires',
       'Used',
+      // Whether a link invites into every sector is read with each row and not drawn.
+      undefined,
     ]);
+    const unseen = list(invitations).listColumns.filter((column) => column.hidden);
+    expect(unseen.map((column) => column.id)).toEqual(['everyTenant']);
     // The sector a link invites into is named the same way, under a heading that is the
     // sector's word already, so the name stands alone. Where the reader may not read the
     // sector's name the cell says so, and never shows the key.
@@ -717,10 +722,29 @@ describe("identityPages, the whole application's side", () => {
     expect(into.said).toBeUndefined();
     expect(into.fallback?.({ tenantId: 'a1111111-1111-4111-8111-111111111111' })).toBe('A sector you cannot see');
     expect(into.fallback?.({ tenantId: null })).toBe('');
+    // A link that names no sector says where its roles are held: in every sector, or in
+    // the whole application. One that gives no role is held nowhere and says nothing: a
+    // verification, and an invitation that makes a sector.
+    expect(into.fallback?.({ tenantId: null, everyTenant: true, roleNames: ['Pilot'] })).toBe('Every sector');
+    expect(into.fallback?.({ tenantId: null, everyTenant: false, roleNames: ['Clerk'] })).toBe('The whole application');
+    expect(into.fallback?.({ tenantId: null, everyTenant: false, roleNames: [] })).toBe('');
     expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
     expect(columns(list(sessions)).map(([id]) => id)).toEqual(['username', 'authenticatedAt', 'updatedAt', 'expired']);
     expect(methodsOf(list(attempts).rowMethods)).toEqual([['UnlockCrewSignIn', 'Unlock']]);
     expect(methodsOf(children(people)[2].rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
+  });
+
+  it('says nothing of where a mailed link gives its roles where the reader may not read the every-sector mark', () => {
+    // Without the mark an invitation into every sector reads like one into the whole
+    // application, so the list says neither.
+    const unmarked = (resource: Resource): ResourceMeta =>
+      resource === 'CrewSessionMailLinks'
+        ? fields('id', 'kind', 'email', 'name', 'tenantId', 'roleNames', 'createdAt', 'expiresAt', 'consumedAt')
+        : metas[resource];
+    const [, unmarkedLinks] = identityPages({ ...descriptor }, unmarked, { auth: 'Crew', scope: 'global' });
+    expect(list(unmarkedLinks).listColumns.some((column) => column.hidden)).toBe(false);
+    const into = list(unmarkedLinks).listColumns[3] as MultiColumnConfig;
+    expect(into.fallback?.({ tenantId: null, roleNames: ['Clerk'] })).toBe('');
   });
 });
 
@@ -1714,6 +1738,7 @@ describe('identityPages, an application without tenants', () => {
       'email',
       'name',
       'tenantId',
+      'everyTenant',
       'roleNames',
       'createdAt',
       'expiresAt',

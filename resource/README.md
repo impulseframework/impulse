@@ -4468,7 +4468,9 @@ whole application), and the acceptance gives each role there and nowhere else, w
 another place holds under the same name by then. The mail links table of every Auth
 therefore carries the column (`EveryTenant BOOL NOT NULL DEFAULT (false)`, which the
 session migration `impulse` renders has), and a schema without it is refused at
-generation, naming the column and the statement that adds it. An invitation is held to
+generation, naming the column and the statement that adds it. The Auth's list of its
+mail links serves the place as two fields (`tenantId` and `everyTenant`), so a page tells
+an invitation into every tenant from one into the whole application. An invitation is held to
 its place when it is sent. One that says every tenant takes roles that exist in every
 tenant: a role of the whole application alone is refused (400), and a custom role whose
 name a role of the whole application carries too is invited like any other, the person

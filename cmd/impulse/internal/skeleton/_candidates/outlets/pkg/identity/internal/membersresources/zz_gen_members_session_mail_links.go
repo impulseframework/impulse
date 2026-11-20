@@ -33,6 +33,7 @@ type membersSessionMailLinkRead struct {
 	Name            *string       `json:"name"`
 	UserID          *impulse.UUID `json:"userId"`
 	TenantID        *string       `json:"tenantId"`
+	EveryTenant     bool          `json:"everyTenant"`
 	RoleNames       []string      `json:"roleNames"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 	CreatedAt       time.Time     `json:"createdAt"`
@@ -52,6 +53,7 @@ type membersSessionMailLinkWrite struct {
 	Name            *string       `json:"name"`
 	UserID          *impulse.UUID `json:"userId"`
 	TenantID        *string       `json:"tenantId"`
+	EveryTenant     bool          `json:"everyTenant"`
 	RoleNames       []string      `json:"roleNames"       nullable:"true"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 	CreatedAt       time.Time     `json:"createdAt"`
@@ -171,6 +173,7 @@ func (c *MembersSessionMailLinkColumns) All() *MembersSessionMailLinkColumns {
 		"Name",
 		"UserID",
 		"TenantID",
+		"EveryTenant",
 		"RoleNames",
 		"InvitedByUserID",
 		"CreatedAt",
@@ -213,6 +216,12 @@ func (c *MembersSessionMailLinkColumns) UserID() *MembersSessionMailLinkColumns 
 
 func (c *MembersSessionMailLinkColumns) TenantID() *MembersSessionMailLinkColumns {
 	c.fields = append(c.fields, "TenantID")
+
+	return c
+}
+
+func (c *MembersSessionMailLinkColumns) EveryTenant() *MembersSessionMailLinkColumns {
+	c.fields = append(c.fields, "EveryTenant")
 
 	return c
 }
@@ -363,6 +372,10 @@ func (c *membersSessionMailLinkSort) UserID() *MembersSessionMailLinkSort {
 
 func (c *membersSessionMailLinkSort) TenantID() *MembersSessionMailLinkSort {
 	return c.addField("TenantID")
+}
+
+func (c *membersSessionMailLinkSort) EveryTenant() *MembersSessionMailLinkSort {
+	return c.addField("EveryTenant")
 }
 
 func (c *membersSessionMailLinkSort) RoleNames() *MembersSessionMailLinkSort {
@@ -562,6 +575,22 @@ func (p *MembersSessionMailLinkCreatePatch) TenantID() *string {
 
 func (p *MembersSessionMailLinkCreatePatch) TenantIDIsSet() bool {
 	return p.patchSet.IsSet("TenantID")
+}
+
+func (p *MembersSessionMailLinkCreatePatch) SetEveryTenant(v bool) *MembersSessionMailLinkCreatePatch {
+	p.patchSet.Set("EveryTenant", v)
+
+	return p
+}
+
+func (p *MembersSessionMailLinkCreatePatch) EveryTenant() bool {
+	v, _ := p.patchSet.Get("EveryTenant").(bool)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkCreatePatch) EveryTenantIsSet() bool {
+	return p.patchSet.IsSet("EveryTenant")
 }
 
 func (p *MembersSessionMailLinkCreatePatch) SetRoleNames(v []string) *MembersSessionMailLinkCreatePatch {
@@ -834,6 +863,22 @@ func (p *MembersSessionMailLinkUpdatePatch) TenantID() *string {
 
 func (p *MembersSessionMailLinkUpdatePatch) TenantIDIsSet() bool {
 	return p.patchSet.IsSet("TenantID")
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) SetEveryTenant(v bool) *MembersSessionMailLinkUpdatePatch {
+	p.patchSet.Set("EveryTenant", v)
+
+	return p
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) EveryTenant() bool {
+	v, _ := p.patchSet.Get("EveryTenant").(bool)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) EveryTenantIsSet() bool {
+	return p.patchSet.IsSet("EveryTenant")
 }
 
 func (p *MembersSessionMailLinkUpdatePatch) SetRoleNames(v []string) *MembersSessionMailLinkUpdatePatch {

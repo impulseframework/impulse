@@ -483,6 +483,11 @@ class SideBuilder {
           ['expiresAt', 'Expires'],
           ['consumedAt', 'Used'],
         ];
+    // Whether the list says where a link that names no tenant gives its roles: the whole
+    // application's list, in an application with tenants, where the reader may read the
+    // mark of an invitation into every tenant.
+    const placed = !this.tenant && this.identity.tenant ? this.has(resource, 'everyTenant') : false;
+    const into = (row: RecordData): string => String(row['tenantId'] ?? '') || this.invitedInto(row, placed);
     return rootConfig({
       page: this.tenant ? { label: 'Invitations', icon: 'mail' } : { label: 'Mailed links', icon: 'forward_to_inbox' },
       routeData: {
@@ -494,12 +499,15 @@ class SideBuilder {
         primaryResource: resource,
         showViewButton: false,
         showRowCount: true,
-        // The tenant a link invites into is named, where the tenant record can be read.
-        listColumns: this.columns(resource, fields).map((column) =>
-          column.id === 'tenantId'
-            ? this.tenantNamed(column.id, column.header ?? '', (row) => String(row['tenantId'] ?? ''))
-            : column,
-        ),
+        // The tenant a link invites into is named, where the tenant record can be read,
+        // and a link that names none says where its roles are held instead.
+        listColumns: [
+          ...this.columns(resource, fields).map((column) =>
+            column.id === 'tenantId' ? this.tenantNamed(column.id, column.header ?? '', into) : column,
+          ),
+          // Read with each row and not drawn.
+          ...(placed ? [{ id: 'everyTenant' as FieldName, hidden: true }] : []),
+        ],
         rowMethods: this.present([
           [
             methods.withdrawInvitation,
@@ -1534,6 +1542,25 @@ class SideBuilder {
       default:
         return 'The whole application';
     }
+  }
+
+  /**
+   * Where a mailed link that names no tenant gives its roles, in words: every tenant, or
+   * the whole application. A link that gives no role says nothing, since nothing is held
+   * anywhere: a verification, and an invitation that makes a tenant, which the list of
+   * invited tenants shows. Nothing either where the list does not say the place (placed
+   * is false): without the mark of an invitation into every tenant the two could not be
+   * told apart.
+   */
+  private invitedInto(row: RecordData, placed: boolean): string {
+    if (!placed) {
+      return '';
+    }
+    if (row['everyTenant'] === true) {
+      return `Every ${this.tenantWord}`;
+    }
+    const roles = row['roleNames'];
+    return Array.isArray(roles) && roles.length > 0 ? 'The whole application' : '';
   }
 
   /**

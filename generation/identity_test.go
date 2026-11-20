@@ -516,7 +516,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/set_crew_user_name.go":                {"type SetCrewUserName struct {", "// @target(CrewSessionUser)", "Name   *string", "// @answers(204)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
 		"membersidentity/set_members_user_name.go":          {"type SetMembersUserName struct {", "// @target(MembersSessionUser)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
 		"internal/crewresources/crew_session_users.go":      {"Name                   *string      `spanner:\"Name\"`"},
-		"internal/crewresources/crew_session_mail_links.go": {"Name            *string       `spanner:\"Name\"`"},
+		"internal/crewresources/crew_session_mail_links.go": {"Name            *string       `spanner:\"Name\"`", "EveryTenant     bool          `spanner:\"EveryTenant\"`"},
 		// A role is given to and taken from a person by the id of their account, and given
 		// to nobody an id names no user of.
 		"crewidentity/assign_crew_role.go": {

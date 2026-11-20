@@ -121,6 +121,9 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	if cell[string](t, listed, "email") != email || cell[string](t, listed, "kind") != "invitation" || listed["consumedAt"] != nil {
 		t.Errorf("the invitation as the generated resource reads it = %v, want it standing for %s", listed, email)
 	}
+	if marked, _ := listed["everyTenant"].(bool); marked {
+		t.Errorf("the invitation into the application as the generated resource reads it = %v, want no mark for every sector", listed)
+	}
 	if _, hashed := listed["tokenHash"]; hashed {
 		t.Errorf("the generated resource serves the token's hash: %v", listed)
 	}
@@ -198,6 +201,13 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	}
 	if got := readColumn[[]string](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{everywhere.ID}, "RoleNames"); !slices.Equal(got, []string{"Pilot"}) {
 		t.Errorf("the every-sector invitation's roles = %v, want Pilot", got)
+	}
+	// The list of mailed links says the place: the governor reads the mark on the row, which
+	// is how a page tells this invitation from one into the whole application.
+	status, body = hq.do(ctx, http.MethodGet, consoleAPI+"/crew-session-mail-links/"+everywhere.ID, nil)
+	assertStatus(t, status, http.StatusOK, body)
+	if roving := decodeRow(t, body); !cell[bool](t, roving, "everyTenant") {
+		t.Errorf("the every-sector invitation as the generated resource reads it = %v, want the mark for every sector", roving)
 	}
 
 	// A message that cannot be sent: the method still answers, the answer says the

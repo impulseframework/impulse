@@ -26,6 +26,7 @@ func (h *Handlers) MembersSessionMailLinks() http.HandlerFunc {
 		Name            *string       `json:"name"`
 		UserID          *impulse.UUID `json:"userId"          index:"true"`
 		TenantID        *string       `json:"tenantId"        index:"true"`
+		EveryTenant     bool          `json:"everyTenant"`
 		RoleNames       []string      `json:"roleNames"`
 		InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 		CreatedAt       time.Time     `json:"createdAt"`
@@ -96,6 +97,10 @@ func (h *Handlers) MembersSessionMailLinks() http.HandlerFunc {
 					if !row.Masked("tenantId") {
 						rmap["tenantId"] = rec.TenantID
 					}
+				case "EveryTenant":
+					if !row.Masked("everyTenant") {
+						rmap["everyTenant"] = rec.EveryTenant
+					}
 				case "RoleNames":
 					if !row.Masked("roleNames") {
 						rmap["roleNames"] = rec.RoleNames
@@ -145,6 +150,7 @@ func (h *Handlers) MembersSessionMailLink() http.HandlerFunc {
 		Name            *string       `json:"name"`
 		UserID          *impulse.UUID `json:"userId"`
 		TenantID        *string       `json:"tenantId"`
+		EveryTenant     bool          `json:"everyTenant"`
 		RoleNames       []string      `json:"roleNames"`
 		InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 		CreatedAt       time.Time     `json:"createdAt"`
@@ -202,6 +208,10 @@ func (h *Handlers) MembersSessionMailLink() http.HandlerFunc {
 			case "TenantID":
 				if !row.Masked("tenantId") {
 					rmap["tenantId"] = rec.TenantID
+				}
+			case "EveryTenant":
+				if !row.Masked("everyTenant") {
+					rmap["everyTenant"] = rec.EveryTenant
 				}
 			case "RoleNames":
 				if !row.Masked("roleNames") {
