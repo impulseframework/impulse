@@ -17,12 +17,34 @@ import (
 
 // stubActions is the application a declaration of impersonation is held to: the
 // permissions it registers by resource, in the global scope and in a tenant's, the
-// fields that carry a permission themselves, and the classes in use.
+// fields that carry a permission themselves, the classes in use, and the classes each
+// action and each record's writes carry.
 type stubActions struct {
 	registered map[accesstypes.Resource][]accesstypes.Permission
 	domain     map[accesstypes.Resource][]accesstypes.Permission
 	fields     map[accesstypes.Resource]accesstypes.TagPermissions
 	classes    []accesstypes.ActionClass
+	// actionClasses are the classes an action carries, and writeClasses the ones
+	// each of a record's three writes carries.
+	actionClasses map[accesstypes.Resource][]accesstypes.ActionClass
+	writeClasses  map[accesstypes.Resource][]accesstypes.ActionClass
+}
+
+func (s stubActions) ActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource) []accesstypes.ActionClass {
+	if scope != accesstypes.GlobalPermissionScope {
+		return nil
+	}
+
+	return s.actionClasses[action]
+}
+
+func (s stubActions) WriteClasses(scope accesstypes.PermissionScope, permission accesstypes.Permission, record accesstypes.Resource) []accesstypes.ActionClass {
+	writes := []accesstypes.Permission{accesstypes.Create, accesstypes.Update, accesstypes.Delete}
+	if scope != accesstypes.GlobalPermissionScope || !slices.Contains(writes, permission) {
+		return nil
+	}
+
+	return s.writeClasses[record]
 }
 
 func (s stubActions) HasPermission(scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) bool {

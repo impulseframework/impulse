@@ -94,6 +94,13 @@ export interface SessionImpersonation {
   /** The permissions the session is refused on a named action or record; absent when it is refused none. */
   refused?: SessionMaskRefusal[];
   /**
+   * What the session keeps out of the classes it is refused: each entry is one permission on one
+   * named action, record or field that a refused class would otherwise take. Absent when no
+   * refused class carries an exception. The permission digest already holds what these keep, so
+   * a page offers it without reading this list.
+   */
+  excepted?: SessionMaskException[];
+  /**
    * The whole mask as a person would say it: "everything", "reading only", "everything
    * except credential actions". The session endpoint sends it for every impersonated
    * session, and a banner shows it as it is.
@@ -105,6 +112,13 @@ export interface SessionImpersonation {
 
 /** One permission an impersonated session is refused on one named action or record. */
 export interface SessionMaskRefusal {
+  permission: string;
+  resource: string;
+}
+
+/** One permission on one named action, record or field that an impersonated session keeps out of a class it is refused. */
+export interface SessionMaskException {
+  class: string;
   permission: string;
   resource: string;
 }

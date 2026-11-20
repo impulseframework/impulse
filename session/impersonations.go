@@ -92,6 +92,12 @@ type ImpersonationActions interface {
 	// TagsRequiring lists the fields of the record res that carry permission
 	// themselves, which are the fields a check asks about one by one.
 	TagsRequiring(res accesstypes.Resource, permission accesstypes.Permission) []accesstypes.Tag
+	// ActionClasses lists the classes the action carries within scope; none for a
+	// name that is no action there.
+	ActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource) []accesstypes.ActionClass
+	// WriteClasses lists the classes the write permission of the record carries
+	// within scope; none for a write that carries no class.
+	WriteClasses(scope accesstypes.PermissionScope, permission accesstypes.Permission, record accesstypes.Resource) []accesstypes.ActionClass
 }
 
 // NamedActions is what a declaration is held to in an application with no generated
@@ -125,6 +131,16 @@ func (namedActions) TagsRequiring(accesstypes.Resource, accesstypes.Permission) 
 	return nil
 }
 
+// ActionClasses reports none: a named action carries no class.
+func (namedActions) ActionClasses(accesstypes.PermissionScope, accesstypes.Resource) []accesstypes.ActionClass {
+	return nil
+}
+
+// WriteClasses reports none: the application has no records.
+func (namedActions) WriteClasses(accesstypes.PermissionScope, accesstypes.Permission, accesstypes.Resource) []accesstypes.ActionClass {
+	return nil
+}
+
 // Impersonations is what an application declares of the impersonation it offers: its
 // kinds, each with its grant and its widest mask. It is the only way to start an
 // impersonated session: it alone makes the ImpersonationRequest one starts from
@@ -144,7 +160,10 @@ type Impersonations struct {
 // name, a name two kinds share, a grant that is no action of the application or that
 // two kinds share (a grant carries one widest mask), and a mask that keeps a kind that
 // is no permission kind, or refuses a class no action carries, or names an action, a
-// record or a field the application does not have.
+// record or a field the application does not have. An exception a mask keeps out of a
+// class it refuses is held the same way: one that names what the application does not
+// have, what the class does not cover, or what the same mask refuses all the same (by
+// name, by kind or through another class) would keep nothing, and is refused.
 func NewImpersonations(actions ImpersonationActions, kinds ...ImpersonationKind) (*Impersonations, error) {
 	if actions == nil {
 		return nil, errors.New("the impersonation an application offers is held to its actions: pass the generated collection (router.Collection())")
@@ -202,7 +221,8 @@ func registered(actions ImpersonationActions, perm accesstypes.Permission, res a
 // that is no permission kind, a class no action carries, or an action, a record or a
 // field of no such name. It answers "" for a mask that names nothing of the sort. A
 // kind or a refusal that names nothing would keep or refuse nothing, and whoever wrote
-// it would believe otherwise.
+// it would believe otherwise. The same holds for what a refusal of a class keeps out
+// of it (unkept).
 func (i *Impersonations) unknown(mask accesstypes.PermissionMask) string {
 	if kinds := mask.UnknownKinds(); len(kinds) > 0 {
 		return fmt.Sprintf("keeps the kind %q, which is no permission kind: the kinds are %s, spelled so", string(kinds[0]), permissionList(accesstypes.PermissionKinds()))
@@ -213,6 +233,11 @@ func (i *Impersonations) unknown(mask accesstypes.PermissionMask) string {
 		if class, ok := refusal.Class(); ok {
 			if !slices.Contains(inUse, class) {
 				return fmt.Sprintf("refuses the class %q, which no action of the application carries (the classes in use: %s)", string(class), classList(inUse))
+			}
+			for _, exception := range refusal.Exceptions() {
+				if problem := i.unkept(mask, class, exception); problem != "" {
+					return problem
+				}
 			}
 
 			continue
@@ -254,6 +279,70 @@ func (i *Impersonations) unknownNamed(perm accesstypes.Permission, res accesstyp
 	}
 
 	return fmt.Sprintf("refuses %s on %q, and the application registers no %s on a resource of that name", perm, string(res), perm)
+}
+
+// unkept holds one exception of a class the mask refuses to the application and to the
+// rest of the mask, and answers as unknown does. An exception keeps something only
+// when four things hold, and each failure has its own sentence: the application has
+// what it names (as unknownNamed asks of a refusal); the class covers it, since an
+// exception of something the class does not refuse changes nothing; the mask does not
+// refuse it by name or by its kind, since either beats the exception; and no other
+// class the mask refuses carries it without the same exception. A field is judged by
+// its record, as the check judges it.
+func (i *Impersonations) unkept(mask accesstypes.PermissionMask, class accesstypes.ActionClass, exception accesstypes.MaskException) string {
+	perm, res := exception.Named()
+	keeps := fmt.Sprintf("keeps %s on %q out of the refusal of the class %q", perm, string(res), string(class))
+
+	record, field, isField := strings.Cut(string(res), ".")
+	switch {
+	case registered(i.actions, perm, res):
+	case isField && slices.Contains(i.actions.TagsRequiring(accesstypes.Resource(record), perm), accesstypes.Tag(field)):
+	case isField:
+		return fmt.Sprintf(
+			"%s, and the application checks no %s on a field of that name: "+
+				"a field is asked about by itself only when it carries the permission, so name such a field, or name the record to keep all of it",
+			keeps, perm,
+		)
+	case perm != accesstypes.Execute && isRecord(i.actions, res):
+	default:
+		return fmt.Sprintf("%s, and the application registers no %s on a resource of that name", keeps, perm)
+	}
+
+	carried := carriedClasses(i.actions, perm, accesstypes.Resource(record))
+	if !slices.Contains(carried, class) {
+		return fmt.Sprintf(
+			"%s, which does not cover it (the classes it carries: %s): an exception names something the class refuses, so take it out, or put it on the class that refuses it",
+			keeps, classList(carried),
+		)
+	}
+	if !mask.Allows(perm) {
+		return fmt.Sprintf("%s, and the mask does not keep the kind %s: the exception keeps nothing, so take it out or keep the kind", keeps, perm)
+	}
+	if _, byName := mask.Refuses(perm, res); byName {
+		return fmt.Sprintf("%s and refuses it by name as well: a refusal by name beats an exception, so the exception keeps nothing, and one of the two comes out", keeps)
+	}
+	if why, refused := mask.Refuses(perm, res, carried...); refused {
+		return fmt.Sprintf("%s, and it is refused all the same (%s): name the exception on that class too, or take it out", keeps, why)
+	}
+
+	return ""
+}
+
+// carriedClasses lists the classes the application's check gives a name, for the whole
+// application and for a tenant: an action's own, and for a record the ones that write
+// of it carries.
+func carriedClasses(actions ImpersonationActions, perm accesstypes.Permission, name accesstypes.Resource) []accesstypes.ActionClass {
+	var carried []accesstypes.ActionClass
+	for _, scope := range []accesstypes.PermissionScope{accesstypes.GlobalPermissionScope, accesstypes.DomainPermissionScope} {
+		for _, class := range slices.Concat(actions.ActionClasses(scope, name), actions.WriteClasses(scope, perm, name)) {
+			if !slices.Contains(carried, class) {
+				carried = append(carried, class)
+			}
+		}
+	}
+	slices.Sort(carried)
+
+	return carried
 }
 
 // recordPermissions are the permissions a record is registered with; an action is
@@ -462,15 +551,28 @@ func (i *Impersonations) request(ctx context.Context, actor *ImpersonationActor,
 	}
 	mask, err := kind.widest.Narrow(ask.Mask)
 	if err != nil {
-		var wider *accesstypes.WiderMaskError
-		if !errors.As(err, &wider) {
+		// A request for more than the kind gives is refused whole, never trimmed to
+		// what the kind gives: a kind it does not keep, or something kept out of a
+		// class the kind refuses that the kind does not keep out of it.
+		var (
+			wider *accesstypes.WiderMaskError
+			added *accesstypes.AddedExceptionError
+		)
+		switch {
+		case errors.As(err, &wider):
+			return nil, httpio.NewForbiddenMessagef(
+				"the kind %q gives %s, and the request asks for %s as well: ask for no more than the kind gives, or name no mask to take all of it",
+				kind.name, kind.widest.Words(), permissionList(wider.Beyond),
+			)
+		case errors.As(err, &added):
+			return nil, httpio.NewForbiddenMessagef(
+				"the kind %q gives %s, and the request keeps %s out of the refusal of %s actions as well: "+
+					"a request may drop what the kind keeps and never add to it, so name no more than the kind keeps, or name no mask to take all of it",
+				kind.name, kind.widest.Words(), added.AddedWords(), added.Class,
+			)
+		default:
 			return nil, errors.Wrap(err, "accesstypes.PermissionMask.Narrow()")
 		}
-
-		return nil, httpio.NewForbiddenMessagef(
-			"the kind %q gives %s, and the request asks for %s as well: ask for no more than the kind gives, or name no mask to take all of it",
-			kind.name, kind.widest.Words(), permissionList(wider.Beyond),
-		)
 	}
 
 	principal := accesstypes.UserPrincipal(accesstypes.User(ask.Principal))

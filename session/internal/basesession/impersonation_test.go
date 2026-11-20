@@ -327,6 +327,30 @@ func TestNewImpersonationResponse(t *testing.T) {
 				MaskWords: "Execute, List and Read only, except sensitive actions and the action LaunchMission", ExpiresAt: expires,
 			},
 		},
+		{
+			name: "a class refused with exceptions: the record lists them and the words say them",
+			imp: &sessioninfo.Impersonation{
+				Actor:     "alice",
+				Principal: accesstypes.UserPrincipal("bob"),
+				Mask: accesstypes.AllowAll().Refusing(
+					accesstypes.RefuseClass(accesstypes.ClassCredential),
+					accesstypes.RefuseClassExcept(accesstypes.ClassAccess, append(accesstypes.ExceptWrites("Passes"), accesstypes.ExceptAction("AddGroupMember"))...),
+				),
+				ExpiresAt: expires,
+			},
+			want: &ImpersonationResponse{
+				Actor: "alice", PrincipalKind: "User", Principal: "bob",
+				RefusedClasses: []string{"access", "credential"},
+				Excepted: []ImpersonationExcepted{
+					{Class: "access", Permission: "Execute", Resource: "AddGroupMember"},
+					{Class: "access", Permission: "Create", Resource: "Passes"},
+					{Class: "access", Permission: "Delete", Resource: "Passes"},
+					{Class: "access", Permission: "Update", Resource: "Passes"},
+				},
+				MaskWords: "everything except access actions (still allowed: the action AddGroupMember and writing Passes) and credential actions",
+				ExpiresAt: expires,
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

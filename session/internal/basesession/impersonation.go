@@ -343,9 +343,13 @@ type ImpersonationResponse struct {
 	// each omitted when the mask refuses none.
 	RefusedClasses []string             `json:"refusedClasses,omitempty"`
 	Refused        []ImpersonationNamed `json:"refused,omitempty"`
+	// Excepted is what the mask keeps out of the classes it refuses: each entry is one
+	// permission on one named action, record or field that a refused class would
+	// otherwise take. It is omitted when no refused class carries an exception.
+	Excepted []ImpersonationExcepted `json:"excepted,omitempty"`
 	// MaskWords says the whole mask as a person would (accesstypes.PermissionMask.Words):
-	// "everything", "reading only", "everything except credential actions". A banner
-	// shows it as it is.
+	// "everything", "reading only", "everything except credential actions", "everything
+	// except access actions (still allowed: writing Passes)". A banner shows it as it is.
 	MaskWords string    `json:"maskWords"`
 	Reason    string    `json:"reason,omitempty"`
 	ExpiresAt time.Time `json:"expiresAt"`
@@ -353,6 +357,14 @@ type ImpersonationResponse struct {
 
 // ImpersonationNamed is one permission a mask refuses on one named action or record.
 type ImpersonationNamed struct {
+	Permission string `json:"permission"`
+	Resource   string `json:"resource"`
+}
+
+// ImpersonationExcepted is one permission on one named action, record or field that a
+// mask keeps out of a class it refuses.
+type ImpersonationExcepted struct {
+	Class      string `json:"class"`
 	Permission string `json:"permission"`
 	Resource   string `json:"resource"`
 }
@@ -384,6 +396,10 @@ func NewImpersonationResponse(imp *sessioninfo.Impersonation) *ImpersonationResp
 	for _, refusal := range imp.Mask.Refusals() {
 		if class, ok := refusal.Class(); ok {
 			res.RefusedClasses = append(res.RefusedClasses, string(class))
+			for _, exception := range refusal.Exceptions() {
+				perm, resource := exception.Named()
+				res.Excepted = append(res.Excepted, ImpersonationExcepted{Class: string(class), Permission: string(perm), Resource: string(resource)})
+			}
 
 			continue
 		}

@@ -24,6 +24,8 @@ accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes
 accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential))  // everything except the credential actions
 accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("ScrapShip"))   // everything except one action
 accesstypes.AllowAll().Refusing(accesstypes.RefuseWrites("Invoices")...) // everything except one record's writes
+accesstypes.AllowAll().Refusing(accesstypes.RefuseClassExcept(accesstypes.ClassAccess,
+    accesstypes.ExceptWrites("Passes")...)) // everything except the access actions, of which writing Passes is kept
 ```
 
 `MaskPermissions(fallback, perms...)` keeps exactly the kinds listed, and the
@@ -51,23 +53,47 @@ one's own. An account disabled, enabled or deleted is in neither class: that
 is work a person who stands in for an administrator is there to do. An
 application names its own beside them.
 
+`RefuseClassExcept(class, exceptions...)` refuses a class and keeps what it
+names out of the refusal: an action (`ExceptAction`), a record's three writes
+(`ExceptWrites`), or one permission on a record or on one field of it
+(`ExceptPermission`, the field named `Record.field`). A name beats its class,
+and the rest of the class stays refused, whatever is added to it later. The
+exceptions belong to that refusal of that class: another class the same name
+carries, refused by the same mask, still refuses it, and a refusal by name
+(`RefuseAction`, `RefusePermission`) beats an exception. An excepted record is
+kept with its fields. An excepted field is kept to a write that sets that field
+and no other: `RefusesWrite(perm, record, fields, classes...)` is the question
+a write asks, and a check that names no fields is refused the record.
+`Refusing` can only refuse more, so a class refused a second time keeps the
+exceptions both refusals carry.
+
 `ceiling.Narrow(request)` is the arithmetic of a grant that carries a mask: the
 mask a request gets under the widest mask its grant gives. A request that names
 no kinds keeps the ceiling's; one that names kinds keeps those, each of which
 the ceiling must keep; the refusals of both are joined. A request for a kind
 the ceiling does not keep is refused with a `*WiderMaskError`, never trimmed.
+A class the ceiling refuses with exceptions stays as the ceiling has it when
+the request does not refuse the class. A request that refuses the class too
+says which of the ceiling's exceptions it keeps: it may drop any of them, and
+one it adds is refused with an `*AddedExceptionError`, never trimmed. An
+exception the request refuses by name is dropped from the mask.
 `UnknownKinds()` lists the kinds a mask keeps that are no permission kind
 (`read` for `Read`): such a kind keeps nothing, so whatever takes a mask from a
 person refuses it, with the kinds there are (`PermissionKinds()`).
 
 `Text()` is the persistence form and `ParseMask` reads it back: the kinds,
 sorted and joined with commas (`*` for every kind), then each refusal after a
-semicolon, `-class:<class>` or `-on:<Permission>:<Resource>`. `List,Read` is a
+semicolon, `-class:<class>` or `-on:<Permission>:<Resource>`, and each
+exception of a class after the class it belongs to, as
+`+class:<class>:<Permission>:<Resource>`. `List,Read` is a
 read-only mask and `*;-class:credential` keeps everything except the credential
-actions. `Words()` says the mask as a person would ("reading only", "everything
+actions. A text that keeps something out of a class it does not refuse is no
+mask's text. `Words()` says the mask as a person would ("reading only", "everything
 except credential actions"), for a banner and a list of impersonated sessions. A
 record refused its three writes (`RefuseWrites`) is said once, "everything except
 writing Invoices"; one or two of the three are each said ("creating Invoices").
+What a class keeps is said beside it: "everything except access actions (still
+allowed: writing Passes)".
 `NullMaskWords` is the type of a record's field that reads the stored text as
 those words: a list of impersonation records carries it, so the list says
 "everything" for a NULL column and "everything except credential actions" for

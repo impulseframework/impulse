@@ -564,7 +564,13 @@ func newMaskedPermissions(perms UserPermissions, mask accesstypes.PermissionMask
 // spelled wrong, a name checked by hand and never registered, and a name of a
 // collection other than the one the check was handed are each such a name, and each
 // would otherwise pass a mask written to refuse a whole class.
-func (m *maskedPermissions) refuses(perm accesstypes.Permission, res accesstypes.Resource) (why string, refused bool) {
+//
+// fields are the fields a write of the record res sets, when the check is such a
+// write's and says so (writtenFields): a refusal of a class whose exceptions name
+// fields of the record keeps a write that sets those fields and no other
+// (accesstypes.PermissionMask.RefusesWrite). A check that names no fields is refused
+// the record, so nothing that asks by hand passes on an exception of a field.
+func (m *maskedPermissions) refuses(perm accesstypes.Permission, res accesstypes.Resource, fields ...accesstypes.Resource) (why string, refused bool) {
 	if !m.refusesClasses {
 		return m.mask.Refuses(perm, res)
 	}
@@ -593,8 +599,44 @@ func (m *maskedPermissions) refuses(perm accesstypes.Permission, res accesstypes
 		m.classes.WriteClasses(accesstypes.GlobalPermissionScope, perm, name),
 		m.classes.WriteClasses(accesstypes.DomainPermissionScope, perm, name),
 	)
+	if len(fields) > 0 {
+		return m.mask.RefusesWrite(perm, res, fields, classes...)
+	}
 
 	return m.mask.Refuses(perm, res, classes...)
+}
+
+// writtenFieldsKey is the context key of the fields a write sets (withWrittenFields).
+type writtenFieldsKey struct{}
+
+// writtenFieldsValue is the record a write is of and the fields it sets, each named
+// as a check names a field (Record.field).
+type writtenFieldsValue struct {
+	record accesstypes.Resource
+	fields []accesstypes.Resource
+}
+
+// withWrittenFields tells the permission check that follows which fields the write
+// of record sets, every one of them, whether or not the field carries a permission
+// of its own. An armed write says it before it asks for its permission on the record
+// (QuerySet.checkContext), because a mask whose refusal of a class keeps one field of
+// a record keeps the write only when it sets nothing else, and the check of the
+// record is otherwise told no field. The context carries it so that any wrapper
+// around the masked check passes it on, and a check that says nothing is refused:
+// the answer is the narrower one wherever the fields are not known.
+func withWrittenFields(ctx context.Context, record accesstypes.Resource, fields []accesstypes.Resource) context.Context {
+	return context.WithValue(ctx, writtenFieldsKey{}, writtenFieldsValue{record: record, fields: fields})
+}
+
+// writtenFields returns the fields the context says a write of res sets; none when
+// the context says nothing or speaks of another record.
+func writtenFields(ctx context.Context, res accesstypes.Resource) []accesstypes.Resource {
+	written, ok := ctx.Value(writtenFieldsKey{}).(writtenFieldsValue)
+	if !ok || written.record != res {
+		return nil
+	}
+
+	return written.fields
 }
 
 // registersAction reports whether the application registers Execute on action, for the
@@ -638,7 +680,7 @@ func (m *maskedPermissions) Check(
 	var refused []accesstypes.Resource
 	passed := make([]accesstypes.Resource, 0, len(resources))
 	for _, res := range resources {
-		why, refuses := m.refuses(perm, res)
+		why, refuses := m.refuses(perm, res, writtenFields(ctx, res)...)
 		if !refuses {
 			passed = append(passed, res)
 
@@ -670,7 +712,12 @@ func (m *maskedPermissions) Check(
 // PermissionDigest delegates and then drops every entry the mask refuses, by its
 // kind, its resource's class or its resource's name, so the frontend's digest agrees
 // with what Check will enforce; a resource left with no permissions is dropped
-// (absence means denied).
+// (absence means denied). What an exception of a refused class keeps stays in the
+// digest, so the pages offer it: an excepted record's writes, an excepted action, and
+// for an exception of a field the field's entry and its record's, since a write of
+// the excepted fields alone goes through; the record's other fields carrying the
+// permission are dropped, and a write that sets any other field is refused when it
+// is made.
 func (m *maskedPermissions) PermissionDigest(ctx context.Context, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
 	digest, err := m.UserPermissions.PermissionDigest(ctx, scope)
 	if err != nil {
@@ -681,7 +728,7 @@ func (m *maskedPermissions) PermissionDigest(ctx context.Context, scope accessty
 	for res, perms := range digest {
 		kept := make(map[accesstypes.Permission]accesstypes.DigestState, len(perms))
 		for perm, state := range perms {
-			if _, refuses := m.refuses(perm, res); !refuses {
+			if _, refuses := m.refuses(perm, res, m.mask.ExceptedFields(perm, res)...); !refuses {
 				kept[perm] = state
 			}
 		}
