@@ -15,7 +15,12 @@ export interface ImpersonationRecord {
   mask?: string[];
   /** The classes of action the session is refused: access and credential for one that acts as a person. */
   refusedClasses?: string[];
-  /** The session's whole mask in the server's words: "reading only", "everything except access actions and credential actions". */
+  /**
+   * The session's whole mask in the server's words: "reading only", or for a session that
+   * acts as a person "everything except access actions, credential actions, writing
+   * ClientContacts, writing HangarPasses, writing PilotCertifications, writing Pilots,
+   * writing SquadronMemberships and changing Squadrons".
+   */
   maskWords: string;
   reason?: string;
   expiresAt: string;

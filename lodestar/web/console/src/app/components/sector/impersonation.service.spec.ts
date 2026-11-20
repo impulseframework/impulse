@@ -95,12 +95,13 @@ describe('ImpersonationService', () => {
         principalKind: 'User',
         principal: 'f0000000-0000-4000-8000-000000000002',
         refusedClasses: ['access', 'credential'],
-        maskWords: 'everything except access actions and credential actions',
+        maskWords:
+          'everything except access actions, credential actions, writing ClientContacts, writing HangarPasses, writing PilotCertifications, writing Pilots, writing SquadronMemberships and changing Squadrons',
         expiresAt: cap,
       },
     });
     expect(service.banner()?.text).toBe(
-      'Acting as marshal: everything except access actions and credential actions. You are governor.',
+      'Acting as marshal: everything except access actions, credential actions, writing ClientContacts, writing HangarPasses, writing PilotCertifications, writing Pilots, writing SquadronMemberships and changing Squadrons. You are governor.',
     );
     // Every kind is kept: no column of the service card is struck.
     expect(service.masked('Update')).toBe(false);
