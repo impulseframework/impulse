@@ -220,3 +220,107 @@ func Test_writesThatDecideAccess_theTenantRecord(t *testing.T) {
 		})
 	}
 }
+
+// TestSubjectPathWarnings pins the warning for a subject set whose dotted value is read
+// through a table no resource of the run declares. The generator classes the change of
+// a record such a value is read through, and a table with no record has no write to
+// class, so the run says so, naming the table: a route written by hand for it moves the
+// standing of everyone the set reaches. With the table declared the run is silent.
+//
+// A path is resolved through the struct of each table it lands on, and a table with no
+// struct at all is refused there, so the table a path lands on with no record is the
+// table of a struct that carries no @resource. Every struct of the fixture carries the
+// annotation, so a case names the ones to hold as if they did not: each stays in the
+// package for the path to be resolved through and is taken out of the run's resources,
+// which is the list a struct with no @resource leaves.
+func TestSubjectPathWarnings(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "subjectsetfixture"))
+
+	tests := []struct {
+		name string
+		// structs are the structs of the package. Stake reads its set's value through
+		// Projects, the table of Project.
+		structs []string
+		// plain are the structs held as carrying no @resource: no resource of the run.
+		plain []string
+		want  []Warning
+	}{
+		{
+			name:    "the table the value is read through is no resource's",
+			structs: []string{"TeamMember", "Project", "Stake"},
+			plain:   []string{"Project"},
+			want:    []Warning{SubjectPathWarning{Resource: "Stake", Name: "portfolios", Table: "Projects"}},
+		},
+		{
+			name:    "the table is declared",
+			structs: []string{"TeamMember", "Project", "Stake"},
+		},
+		{
+			name:    "a set that yields a column of its own row",
+			structs: []string{"TeamMember"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := subjectSetFixtureClient(t, structs)
+			resources, err := c.structsToResources(subjectSetStructs(t, structs, tt.structs...))
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			resources = slices.DeleteFunc(resources, func(res *resourceInfo) bool {
+				return slices.Contains(tt.plain, res.Name())
+			})
+
+			var got []Warning
+			for _, warning := range c.schemaWarnings(resources) {
+				if _, ok := warning.(SubjectPathWarning); ok {
+					got = append(got, warning)
+				}
+			}
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("schemaWarnings() mismatch in its SubjectPathWarning values (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestSubjectPathWarning_String pins the one-line text a runner prints, for a set and
+// for a value: the table by name, what a route written by hand for it does, and the two
+// things its author can do.
+func TestSubjectPathWarning_String(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		warning SubjectPathWarning
+		want    string
+	}{
+		{
+			name:    "a subject set",
+			warning: SubjectPathWarning{Resource: "Stake", Name: "portfolios", Table: "Projects"},
+			want: "Stake declares subject.portfolios, a @subjectSet read through Projects, a table no @resource struct declares, so no generated route changes Projects and its change carries no class; " +
+				"a route written by hand that changes a row of Projects moves the standing of everyone the set reaches, and a mask that refuses the class access does not refuse it: " +
+				"declare Projects as a @resource struct, or register that route as an action of the class (@manualAddResource(Execute) with @class(access))",
+		},
+		{
+			name:    "a subject value",
+			warning: SubjectPathWarning{Resource: "Seat", Name: "tier", Scalar: true, Table: "Plans"},
+			want: "Seat declares subject.tier, a @subjectValue read through Plans, a table no @resource struct declares, so no generated route changes Plans and its change carries no class; " +
+				"a route written by hand that changes a row of Plans moves the standing of everyone the value reaches, and a mask that refuses the class access does not refuse it: " +
+				"declare Plans as a @resource struct, or register that route as an action of the class (@manualAddResource(Execute) with @class(access))",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.warning.String(); got != tt.want {
+				t.Errorf("String() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

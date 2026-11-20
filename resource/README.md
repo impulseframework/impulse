@@ -3763,7 +3763,12 @@ gives the class `access` to the writes of every record that carries a subject va
 a subject set, to the change of a record such a value is read through, and to the
 delete of the tenant record, which takes every role held in the tenant with it, so a mask
 that refuses the class refuses them, and a mask names any other record it is to refuse
-(`accesstypes.RefuseWrites`).
+(`accesstypes.RefuseWrites`). A value read through a table that no `@resource` struct
+declares has no record to carry the class. Generation warns of it at every run, naming
+the table (`SubjectPathWarning`): a route written by hand that changes a row of that
+table moves the standing of everyone the set reaches, and a mask that refuses the class
+does not refuse it until the table is declared or the route is registered as an action
+of the class.
 
 The generator's own tests list the methods and fail when one is written without the
 class its act is listed with, or with a class it is not listed with: `identityMethodActs`

@@ -278,7 +278,8 @@ func (r *resourceInfo) SubjectGuarded() bool {
 // columns facts about people are read through: every hop of every subject set's and
 // subject value's dotted value that lands on the record, as the field that holds the
 // hop's column and the fact's name, each pair once. A hop onto a table no record of the
-// run declares has no generated write to ask the rule in.
+// run declares has no generated write to ask the rule in: the run warns of it, naming
+// the table (SubjectPathWarning).
 func subjectReadThroughs(resources []*resourceInfo, table func(*resourceInfo) string) map[*resourceInfo][]subjectReadThrough {
 	byTable := make(map[string]*resourceInfo, len(resources))
 	for _, res := range resources {

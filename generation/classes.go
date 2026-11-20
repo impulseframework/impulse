@@ -127,7 +127,8 @@ func (r *resourceGenerator) writesThatDecideAccess() []accessWrite {
 		for _, subject := range subjects {
 			for _, hop := range subject.Path {
 				// A hop onto a table no resource of this run declares has no record
-				// for a write to be checked on.
+				// for a write to be checked on: the run warns of it, naming the table
+				// (SubjectPathWarning).
 				if through, ok := byTable[hop.Table]; ok {
 					add(through, accesstypes.Update)
 				}
