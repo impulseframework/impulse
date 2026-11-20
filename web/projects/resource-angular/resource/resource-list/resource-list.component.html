@@ -32,6 +32,15 @@
       <p class="notice-words">{{ notice() }}</p>
     </div>
   }
+  @if (linksUnread()) {
+    <div class="notice links-unread" role="status" [class.indent]="indentTitle()">
+      <mat-icon class="notice-icon" aria-hidden="true">warning</mat-icon>
+      <p class="notice-words">The links to open some rows could not be loaded.</p>
+      <button mat-stroked-button type="button" class="try-again" [disabled]="linksRetrying()" (click)="retryLinks()">
+        Try again
+      </button>
+    </div>
+  }
   @if (showSearchBox()) {
     <div class="search-container" [class.indent]="indentTitle()">
       <impulse-search-box

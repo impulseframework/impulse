@@ -1,5 +1,6 @@
 import { NgComponentOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, viewChild } from '@angular/core';
+import { MatButtonModule } from '@angular/material/button';
 import { MatSidenav, MatSidenavModule } from '@angular/material/sidenav';
 import { RouterOutlet } from '@angular/router';
 import { Frame } from './frame';
@@ -17,10 +18,16 @@ import { PlaceService } from './place.service';
  * the parent of every signed-in page, behind the sign-in guard. While it is on the screen
  * the place the page is in is remembered as where the person works (PlaceService), which
  * the sign-in and sign-out pages, routed outside it, never are.
+ *
+ * Where what the person holds could not be read (PlaceService.unread: a guard could not
+ * decide the page that was asked for, or the global digest is unread), the frame draws
+ * "This page could not be loaded" with Try again where the page goes, and no page: a page
+ * drawn then would be the page of a person who holds nothing. Once a read answers, the
+ * page is drawn.
  */
 @Component({
   selector: 'impulse-frame',
-  imports: [FrameBarComponent, MatSidenavModule, MenuDrawerComponent, NgComponentOutlet, RouterOutlet],
+  imports: [FrameBarComponent, MatButtonModule, MatSidenavModule, MenuDrawerComponent, NgComponentOutlet, RouterOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <mat-sidenav-container class="shell">
@@ -38,7 +45,16 @@ import { PlaceService } from './place.service';
         }
         <impulse-frame-bar (menuOpened)="panel.open()" />
         <main class="page-content">
-          <router-outlet />
+          @if (places.unread()) {
+            <div class="unread">
+              <h1>This page could not be loaded</h1>
+              <button mat-stroked-button type="button" class="try-again" [disabled]="trying()" (click)="tryAgain()">
+                Try again
+              </button>
+            </div>
+          } @else {
+            <router-outlet />
+          }
         </main>
       </mat-sidenav-content>
     </mat-sidenav-container>
@@ -63,19 +79,40 @@ import { PlaceService } from './place.service';
         flex: 1;
         min-width: 0;
       }
+
+      .unread {
+        padding: 1rem;
+      }
     }
   `,
 })
 export class FrameComponent {
   readonly menus = inject(MenuService);
   readonly frame = inject(Frame);
+  protected readonly places = inject(PlaceService);
   private layout = inject(Layout);
   private panel = viewChild.required<MatSidenav>('panel');
 
+  /** Whether what could not be read is being read again: the button waits for the answer. */
+  protected trying = signal(false);
+
   constructor() {
-    inject(PlaceService).drawn(inject(DestroyRef));
+    this.places.drawn(inject(DestroyRef));
     effect(() => {
       if (!this.layout.phone()) void this.panel().close();
     });
+  }
+
+  /**
+   * tryAgain reads again what could not be read (PlaceService.tryAgain). A read that
+   * answers draws the page; one that fails again leaves the frame as it is.
+   */
+  protected async tryAgain(): Promise<void> {
+    this.trying.set(true);
+    try {
+      await this.places.tryAgain();
+    } finally {
+      this.trying.set(false);
+    }
   }
 }

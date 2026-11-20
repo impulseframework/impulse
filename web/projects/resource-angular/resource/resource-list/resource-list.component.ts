@@ -13,6 +13,7 @@ import {
   runInInjectionContext,
   signal,
   Type,
+  untracked,
 } from '@angular/core';
 import { ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -259,9 +260,12 @@ export class ResourceListComponent implements OnInit {
   across = computed(() => this.config().acrossTenants === true);
   /**
    * The tenants whose digest this list has asked for, for the links of a list across
-   * tenants: each is asked once while the list is on the screen, answered or not.
+   * tenants: each is asked once while the list is on the screen, answered or not, and
+   * again only when the person asks (retryLinks).
    */
   private readonly askedDigests = new Set<string>();
+  /** The tenants whose digest this list asked for and whose read has ended: answered, refused or failed. */
+  private readonly endedDigests = signal<ReadonlySet<string>>(new Set());
   /**
    * The page a row of a list across tenants opens on: where the application mounts a row
    * route for the record a row opens (rowPageRoute), as its config wrote the route.
@@ -964,6 +968,61 @@ export class ResourceListComponent implements OnInit {
     });
   }
 
+  /** The tenants the rows of a list across tenants are in, where the rows link to their own pages; none otherwise. */
+  private linkTenants = computed<readonly string[]>(() => {
+    if (!this.acrossRowRoute()) {
+      return [];
+    }
+    const tenants = new Set<string>();
+    for (const row of this.store.page().rows) {
+      const tenant = row[TenantProperty];
+      if (typeof tenant === 'string' && tenant !== '') {
+        tenants.add(tenant);
+      }
+    }
+    return [...tenants];
+  });
+
+  /**
+   * Whether a link some row shows is still on its way: the digest of a tenant on the page
+   * is not held and its read has not ended. A row's link is drawn where the tenant's digest
+   * lets the person read the record, so until the digest answers nothing says whether the
+   * row has one.
+   */
+  private linksAwaited = computed(() => {
+    const ended = this.endedDigests();
+    return this.linkTenants().some((tenant) => !this.auth.hasDigest(tenant as Domain) && !ended.has(tenant));
+  });
+
+  /**
+   * Whether the links of some rows could not be worked out: the digest of a tenant on the
+   * page could not be read, so nothing is known of what the person may open there. Those
+   * rows draw no link, which is not a person who may read none of them, and the list says
+   * so above its rows, with a way to try again. A tenant the server refuses is an answer:
+   * its rows have no link, and nothing is said.
+   */
+  linksUnread = computed(() => this.linkTenants().some((tenant) => this.auth.digestUnread(tenant as Domain)));
+
+  /** Whether the digests that could not be read are being read again: Try again waits for the answer. */
+  linksRetrying = computed(() => this.linksUnread() && this.linksAwaited());
+
+  /** retryLinks asks again for the digest of every tenant on the page whose read failed. */
+  retryLinks(): void {
+    for (const tenant of this.linkTenants()) {
+      if (this.auth.digestUnread(tenant as Domain)) {
+        this.askDigest(tenant);
+      }
+    }
+  }
+
+  /** Asks for one tenant's digest, for the links of its rows, and notes when the read has ended. */
+  private askDigest(tenant: string): void {
+    this.askedDigests.add(tenant);
+    this.endedDigests.update((ended) => new Set([...ended].filter((asked) => asked !== tenant)));
+    const end = (): void => this.endedDigests.update((ended) => new Set(ended).add(tenant));
+    this.auth.loadDigest(tenant as Domain).subscribe({ complete: end, error: end });
+  }
+
   /**
    * Whether a name some column shows is still on its way: a related resource read for
    * the first time, or asked for keys it has not answered for. A related resource read
@@ -980,17 +1039,19 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * The rows the table draws: the page's rows, once every name their columns show is
-   * known. While a related resource is being read the table keeps the rows it had (none,
-   * on a list just opened), so a row is never drawn with a key, or with the words for a
-   * row that has no related record, where its name is drawn a moment later.
+   * known, and on a list across tenants once the digest of every tenant on the page has
+   * answered or failed. While a related resource or a digest is being read the table keeps
+   * the rows it had (none, on a list just opened), so a row is never drawn with a key, or
+   * with the words for a row that has no related record, where its name is drawn a moment
+   * later, and never without a link that is drawn a moment later.
    */
   tableRowData = linkedSignal<{ rows: RecordData[]; awaited: boolean }, RecordData[]>({
-    source: () => ({ rows: this.processedRowData(), awaited: this.namesAwaited() }),
+    source: () => ({ rows: this.processedRowData(), awaited: this.namesAwaited() || this.linksAwaited() }),
     computation: (now, previous) => (now.awaited ? (previous?.value ?? []) : now.rows),
   });
 
   loadingRowData = computed(() => {
-    if (this.store.pageStatus() === 'loading') {
+    if (this.store.pageStatus() === 'loading' || this.linksAwaited()) {
       return true;
     }
     for (const ref of this.resourceRefMap().values()) {
@@ -1141,19 +1202,13 @@ export class ResourceListComponent implements OnInit {
         // A row of a list across tenants links to its own page where its tenant's digest
         // lets the person read it: the digests of the tenants on the page are loaded as
         // the page arrives, each once. A digest that could not be read is not asked again
-        // by a later page: nothing is known of the tenant, and its rows stay without a link.
-        if (!this.acrossRowRoute()) {
-          return;
-        }
-        for (const row of this.store.page().rows) {
-          const tenant = row[TenantProperty];
-          if (typeof tenant !== 'string' || tenant === '' || this.askedDigests.has(tenant)) {
+        // by a later page: nothing is known of the tenant, its rows stay without a link,
+        // and the list says the links could not be loaded, with a way to try again.
+        for (const tenant of this.linkTenants()) {
+          if (this.askedDigests.has(tenant) || this.auth.hasDigest(tenant as Domain)) {
             continue;
           }
-          if (!this.auth.hasDigest(tenant as Domain)) {
-            this.askedDigests.add(tenant);
-            this.auth.loadDigest(tenant as Domain).subscribe();
-          }
+          untracked(() => this.askDigest(tenant));
         }
       });
 

@@ -1054,15 +1054,31 @@ describe('ResourceListComponent', () => {
     let domain: ReturnType<typeof signal<Domain | undefined>>;
     /** The tenant whose digest the server fails to answer, when a spec names one. */
     let digestFails: string | undefined;
+    /** The tenant whose digest the server refuses to read, when a spec names one. */
+    let digestRefused: string | undefined;
+    /** The tenant whose digest the server answers only once the spec lets it, when a spec names one. */
+    let digestHeld: { domain: string; until: Promise<void> } | undefined;
 
-    const server = (request: TransportRequest): TransportResponse => {
+    const server = (request: TransportRequest): TransportResponse | Promise<TransportResponse> => {
       const url = new URL(request.url, 'http://missions.test');
+      const held = digestHeld;
+      if (url.pathname === '/api/permission-digest' && held && url.searchParams.get('domain') === held.domain) {
+        digestHeld = undefined;
+        return held.until.then(() => server(request));
+      }
       if (
         url.pathname === '/api/permission-digest' &&
         digestFails !== undefined &&
         url.searchParams.get('domain') === digestFails
       ) {
         return { status: 500, body: { message: 'the digest could not be read' } };
+      }
+      if (
+        url.pathname === '/api/permission-digest' &&
+        digestRefused !== undefined &&
+        url.searchParams.get('domain') === digestRefused
+      ) {
+        return { status: 404, body: { message: 'no such sector' } };
       }
       if (url.pathname === '/api/user-domains') {
         return {
@@ -1107,6 +1123,8 @@ describe('ResourceListComponent', () => {
       });
       warnings = [];
       digestFails = undefined;
+      digestRefused = undefined;
+      digestHeld = undefined;
       domain = signal<Domain | undefined>(undefined);
       transport = scriptedTransport(server);
       await TestBed.configureTestingModule({
@@ -1205,6 +1223,71 @@ describe('ResourceListComponent', () => {
         `/api/permission-digest?domain=${bastion}`,
       ]);
       expect(rowLinks()).toEqual([null, null]);
+    });
+
+    it('says the links could not be loaded where a digest does not answer, and draws them once Try again reads it', async () => {
+      await page(missions);
+      digestFails = anvil;
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      // Both rows are drawn, Anvil's without a link. Nothing says the person may read no
+      // mission there, so the list says what happened, above its rows.
+      const element = fixture.nativeElement as HTMLElement;
+      expect(rowLinks()).toEqual([null, null]);
+      expect(element.querySelector('.links-unread .notice-words')?.textContent?.trim()).toBe(
+        'The links to open some rows could not be loaded.',
+      );
+
+      digestFails = undefined;
+      element.querySelector<HTMLButtonElement>('.links-unread button.try-again')!.click();
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      expect(element.querySelector('.links-unread')).toBeNull();
+      expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
+      // The tenant that answered is not asked again.
+      expect(digestRequests()).toEqual([
+        `/api/permission-digest?domain=${anvil}`,
+        `/api/permission-digest?domain=${bastion}`,
+        `/api/permission-digest?domain=${anvil}`,
+      ]);
+    });
+
+    it('says nothing where every digest answers, and nothing for a tenant the server refuses', async () => {
+      await page(missions);
+      digestRefused = bastion;
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      // Bastion is not there for this session: its row has no link, and that is an answer.
+      expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
+      expect((fixture.nativeElement as HTMLElement).querySelector('.links-unread')).toBeNull();
+    });
+
+    it('draws no row before the digest of every tenant on the page has answered: no link arrives on a row already drawn', async () => {
+      await page(missions);
+      let answerAnvil: () => void = () => undefined;
+      digestHeld = { domain: anvil, until: new Promise<void>((resolve) => (answerAnvil = resolve)) };
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      // The page of rows has arrived and Bastion has answered; Anvil has not. Neither
+      // mission is drawn yet.
+      const drawn = (): string => (fixture.nativeElement as HTMLElement).querySelector('tbody')?.textContent ?? '';
+      expect(listRequests()).toHaveLength(1);
+      expect(digestRequests()).toHaveLength(2);
+      expect(drawn()).not.toContain('Hauler');
+      expect(drawn()).not.toContain('Beacon');
+
+      answerAnvil();
+      await settle();
+      await settle();
+      expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
     });
 
     it('draws no link, and asks no digest, for a record the application mounts no row route', async () => {
