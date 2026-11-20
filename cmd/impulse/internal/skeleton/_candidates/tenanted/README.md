@@ -37,10 +37,12 @@ its own people in its groups, while an account from outside the tenant is put th
 the whole application's accounts. The list of groups says how many people each group has and the roles it
 holds, and offers Delete only on a group that holds nothing; a person's page lists their
 roles in one list that says "Their own" or names the group each comes through. On the
-Break glass page (`/staff-break-glass`) a person who may give themselves a role takes one
-in a tenant for a set time and says why: the role ends by itself, the tenant's
-administrator reads the reason beside it and may end it early, and the role file gives
-the page's lists and its method to the `Administrator`. The library draws them from the API description
+Break glass page (`/staff-break-glass`) a person takes a role in a tenant for a set time
+and says why, when they hold the page's grant and could give themselves that role there:
+the role ends by itself, and the tenant's administrator reads the reason beside it and
+may end it early. The role file gives the page's lists and its method to the
+`Administrator` alone: a `TenantAdministrator`, who may give themselves a role in their
+own tenant, holds no grant of the page and takes none for a set time. The library draws them from the API description
 (`identityRoutes` in `app.routes.ts`, placed by `identityMenuPages` in the menu file), and
 a tenant's pages read the tenant from the URL (the frame provides `RESOURCE_DOMAIN`).
 The menu file (`app.menus.ts`) shows Tenants (All tenants, the library's list page over the
