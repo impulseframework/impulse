@@ -368,12 +368,13 @@ directory, `google` (a Google Workspace) or `azure` (a Microsoft Entra tenant), 
 `:<registration>` to name the registration, and `--organization` names its one
 organization, a Workspace by its domain or an Entra tenant by its tenant id; each is
 asked for when it is not given, and refused as missing where nobody is at the terminal.
-No first administrator is invited and nothing in the application gives a role. What
-invites one stays in the application all the same (the deployment package's
-`InviteAdministrators` and `ReinviteAdministrator`, the migrate command's
-`-reinvite-administrator`, the `APP_<AUTH>_ADMINISTRATOR` setting): it invites nobody
-while `AdministratorAuths` names no auth, and `impulse add auth` does not write it, so
-an auth added later that invites a first administrator is wired into it. The
+No first administrator is invited and nothing in the application gives a role, so the
+application holds nothing that invites one: the deployment package's
+`InviteAdministrators` and `ReinviteAdministrator`, the migrate command's invitation
+after its role check and its `-reinvite-administrator` flag, and the
+`APP_<AUTH>_ADMINISTRATOR` setting with its variable in the environment template are
+taken out of what the base writes, and the change says so. `impulse add auth` writes
+them for an auth added later that invites a first administrator. The
 application mails although it invites nobody: a sign-in the directory does not answer
 for with a second factor waits for a code mailed to the person's address, and through
 Microsoft each person's first sign-in waits for one whatever the directory says, since
@@ -397,8 +398,10 @@ and say so. The base's tests of what the auth does not have are taken out, and t
 change names each with the reason: a password reset and a sign-up in both starts, and
 with `--shape directory-roles` the first administrator's invitation and the groups too.
 With `--shape directory-roles` the deployment's tests (`pkg/deploy`,
-`cmd/deployment/migrate`) lose the cases of a first administrator and prove that a
-release invites nobody; with `--shape tenant-owned-users-by-directory` the two harnesses
+`cmd/deployment/migrate`) lose the cases of a first administrator, the test of what the
+deployment reports about an invitation goes with what it tested, and the migrate
+command's test proves that a release invites nobody and that the command takes no
+`-reinvite-administrator`; with `--shape tenant-owned-users-by-directory` the two harnesses
 (`test/integration`, `test/authz`) build the tenant roster and the generated maker, and
 the first administrator's invitation is proven accepted through Google. The new
 application passes `go vet` with and without the tag as it is made. The spec of the

@@ -3,6 +3,7 @@ package transition
 import (
 	"context"
 	"encoding/json"
+	"go/format"
 	"go/parser"
 	"go/token"
 	"os"
@@ -83,7 +84,18 @@ func (r *regeneration) Run(ctx context.Context, dir string, env []string, name s
 func started(t *testing.T, d *DirectoryStart, removes ...string) (*app.App, *Change) {
 	t.Helper()
 
+	return startedOver(t, d, nil, removes...)
+}
+
+// startedOver applies the start to a new base somebody edited first, whose regeneration
+// removes the handlers named, and returns the application read again with the change.
+func startedOver(t *testing.T, d *DirectoryStart, edit func(a *app.App), removes ...string) (*app.App, *Change) {
+	t.Helper()
+
 	a := newBase(t, d.Auth)
+	if edit != nil {
+		edit(a)
+	}
 	for i, name := range removes {
 		removes[i] = "pkg/identity/" + d.Auth + "handlers/zz_gen_" + name + ".go"
 	}
@@ -495,7 +507,7 @@ func TestDirectoryStart_Apply_directoryRoles(t *testing.T) {
 	t.Parallel()
 
 	start := directoryRolesStart(app.MethodGoogle, "fleet.example")
-	a, _ := started(t, &start, "set_staff_temporary_password", "assign_staff_role", "remove_staff_role", "invite_staff_user", "withdraw_staff_invitation", "create_staff_user")
+	a, ch := started(t, &start, "set_staff_temporary_password", "assign_staff_role", "remove_staff_role", "invite_staff_user", "withdraw_staff_invitation", "create_staff_user")
 
 	t.Run("the auth registers the one method, whose directory gives the roles", func(t *testing.T) {
 		t.Parallel()
@@ -521,24 +533,79 @@ func TestDirectoryStart_Apply_directoryRoles(t *testing.T) {
 		}
 	})
 
-	t.Run("the deployment invites nobody and still compiles", func(t *testing.T) {
+	t.Run("nothing in the application invites a first administrator", func(t *testing.T) {
 		t.Parallel()
 
-		deploy := read(t, a, deployFile)
-		if strings.Contains(deploy, "staff.") || strings.Contains(deploy, `"example.com/acme/depot/pkg/auth/staff"`) {
-			t.Errorf("%s still names the staff auth, whose InviteAdministrator and ReinviteAdministrator are gone with its foothold: the package does not compile", deployFile)
+		taken := map[string][]string{
+			deployFile:      {"Administrator", "staff.", `"example.com/acme/depot/pkg/auth/staff"`, `"time"`, "/session\""},
+			migrateCommand:  {"reinvite", "InviteAdministrators", "first administrator", `"slices"`, `"strings"`, "invitation"},
+			baseDataLevel:   {"StaffAdministrator", "APP_STAFF_ADMINISTRATOR", "first administrator", "The log is no mailbox", "invite its first"},
+			baseEnvTemplate: {"APP_STAFF_ADMINISTRATOR", "first administrator"},
 		}
-		if !strings.Contains(deploy, "func AdministratorAuths() []string {\n\treturn nil\n}") {
-			t.Errorf("%s: AdministratorAuths does not answer that no auth invites a first administrator", deployFile)
+		for rel, gone := range taken {
+			text := read(t, a, rel)
+			for _, one := range gone {
+				if strings.Contains(text, one) {
+					t.Errorf("%s still contains %q", rel, one)
+				}
+			}
+			if !strings.HasSuffix(rel, ".go") {
+				continue
+			}
+			if _, err := parser.ParseFile(token.NewFileSet(), rel, text, parser.SkipObjectResolution); err != nil {
+				t.Errorf("%s does not parse: %v", rel, err)
+			}
+			if formatted, err := format.Source([]byte(text)); err != nil || string(formatted) != text {
+				t.Errorf("%s is not as gofmt writes it (error %v)", rel, err)
+			}
 		}
-		// A function that only refused would leave its callers' error checks always true,
-		// which the application's own lint finds once the package's test compiles, so it
-		// looks the name up among the auths that invite, of which there is none.
-		if !strings.Contains(deploy, "func administratorOf(_ *config.DataConfiguration, auth string) (*firstAdministrator, error) {\n\t// No auth of the application invites a first administrator. One that does is added\n\t// here, built from the data level, and named in AdministratorAuths.\n\tadministrators := map[string]*firstAdministrator{}\n\tadministrator, ok := administrators[auth]\n\tif !ok {\n\t\treturn nil, errors.Newf(") {
-			t.Errorf("%s: administratorOf does not refuse every name as a name it does not find among the auths that invite a first administrator:\n%s", deployFile, deploy)
+		if exists(a, deployAdministratorsTest) {
+			t.Errorf("%s is still there, and what it tests was taken out", deployAdministratorsTest)
 		}
-		if _, err := parser.ParseFile(token.NewFileSet(), a.Abs(deployFile), nil, parser.SkipObjectResolution); err != nil {
-			t.Errorf("%s does not parse: %v", deployFile, err)
+		for rel, kept := range map[string][]string{
+			deployFile: {
+				"// Package deploy holds the database steps a deployment runs and the development\n// bootstrap reuses: applying the schema migrations, checking the release's role policy\n// against what the permission engine's store holds, and bringing the feature\n// flags to the release's declarations.\npackage deploy\n",
+				"func CheckRoles(", "func MigrateFeatures(", "func RetireSecret(",
+				"import (\n\t\"context\"\n\t\"fmt\"\n\t\"io\"\n\t\"path/filepath\"\n\t\"strings\"\n\n\t\"example.com/acme/depot/pkg/config\"\n\t\"example.com/acme/depot/pkg/resources\"\n\t\"github.com/go-playground/errors/v5\"\n\t\"github.com/impulseframework/impulse/access\"\n\tinitiator \"github.com/impulseframework/impulse/db\"\n\t\"github.com/impulseframework/impulse/resource\"\n)\n",
+			},
+			migrateCommand: {
+				// The application's own imports sort before the libraries' under this module
+				// path, and stay: what is taken out of the block is the standard library's.
+				"import (\n\t\"context\"\n\t\"flag\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"os/signal\"\n\t\"strconv\"\n\n\t\"example.com/acme/depot/pkg/auth/staff\"\n\t\"example.com/acme/depot/pkg/config\"\n\t\"example.com/acme/depot/pkg/deploy\"\n\t\"github.com/go-playground/errors/v5\"\n)\n",
+				"// Package main is the deployment's migration step: it applies the schema migrations and\n// checks the release's role policy against what the permission engine's store holds. It\n// reads the core and data configuration levels and nothing above them.\n",
+				"// being retired among them. It applies no migration and goes with no other flag.\npackage main\n",
+				"so -seed does not go with it; a retirement goes\n// alone.\nfunc parse(",
+				"// run does what the flags ask: the report, the force, the retirement, or the\n// migrations.\nfunc run(",
+				"\tcase o.retireSecret != \"\":\n\t\treturn retireSecret(ctx, o.retireSecret, out)\n\t}\n\n\treturn migrate(ctx, settings, o.seed)\n}\n",
+				"// migrate is the deployment's migration step itself.\nfunc migrate(ctx context.Context, settings config.DatabaseSettings, seed bool) error {\n",
+				"\t\treturn errors.Wrap(err, \"deploy.CheckRoles()\")\n\t}\n\n\t// The feature flags the release declares",
+				"deploy.CheckRoles(ctx, data.Staff().Access(), staff.Name)",
+			},
+			baseDataLevel: {
+				"MailAppPassword string `env:\"APP_MAIL_APP_PASSWORD\" secret:\"true\"`\n", "StaffGoogleHostedDomain", "func (c *DataConfiguration) Staff() *staff.Auth {",
+				"// relay takes over once the version is pinned; a release to any other environment is\n// refused until it is.\nfunc openMailSender(",
+			},
+		} {
+			text := read(t, a, rel)
+			for _, one := range kept {
+				if !strings.Contains(text, one) {
+					t.Errorf("%s does not contain %q:\n%s", rel, one, text)
+				}
+			}
+		}
+		files := strings.Join([]string{deployFile, migrateCommand, baseDataLevel, deployAdministratorsTest, baseEnvTemplate}, ", ")
+		if got := linesWith(ch.Did, files+": what invites a first administrator was taken out, since the staff auth's directory gives every role", []string{
+			"AdministratorAuths, InviteAdministrators and ReinviteAdministrator with what they stand on",
+			"the migrate command's invitation after the role check and its -reinvite-administrator flag",
+			"the data level's address setting (APP_STAFF_ADMINISTRATOR) with its accessor, and what its comment on the mail sender says of an invitation",
+			"the test of what the deployment writes about an invitation",
+			"the environment template's variable",
+			"impulse add auth writes the invitation for an auth added later that invites a first administrator",
+		}); len(got) != 1 {
+			t.Errorf("the change does not say once what it took out and why: %q", ch.Did)
+		}
+		if got := linesWith(ch.Skipped, "", []string{"what invites a first administrator"}); len(got) != 0 {
+			t.Errorf("the change hands what invites a first administrator on to the author, and it was taken out: %q", got)
 		}
 	})
 

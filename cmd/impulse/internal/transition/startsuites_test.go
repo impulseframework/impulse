@@ -129,7 +129,7 @@ func TestDirectoryStart_Apply_directoryRolesSuites(t *testing.T) {
 			t.Errorf("%s lost the test that validates the role file", deployTest)
 		}
 		migrate := read(t, a, migrateTest)
-		for _, gone := range []string{"AdministratorVariable", "withHolder", "withUser", "noMailbox", "name one of staff", "accesstypes"} {
+		for _, gone := range []string{"AdministratorVariable", "withHolder", "withUser", "noMailbox", "name one of staff", "accesstypes", "no auth of that name invites", "goes with no other flag\",\n\t\t},\n\t\t{\n\t\t\tname:     \"a fresh invitation", "flag needs an argument: -reinvite-administrator"} {
 			if strings.Contains(migrate, gone) {
 				t.Errorf("%s still contains %q", migrateTest, gone)
 			}
@@ -138,7 +138,10 @@ func TestDirectoryStart_Apply_directoryRolesSuites(t *testing.T) {
 			`t.Setenv("APP_STAFF_GOOGLE_HOSTED_DOMAIN", "fleet.example")`,
 			`t.Setenv("APP_STAFF_GOOGLE_REDIRECT_URL", "http://solo.test/api/user/google/callback")`,
 			`t.Setenv("APP_STAFF_GOOGLE_GROUP_PREFIX", "staff-")`,
-			`wantErr:  "-reinvite-administrator staff: no auth of that name invites a first administrator",`,
+			`name:     "a fresh invitation is no flag of the command: nobody is invited to the staff auth",`,
+			`wantErr:  "flag provided but not defined: -reinvite-administrator",`,
+			"the migrations with the seed, the report on a fresh, a migrated and a dirty\n",
+			"// release invites no first administrator and asks for no mailbox on that account, and\n// the command has no -reinvite-administrator flag.",
 			"apply every schema and data migration and invite nobody",
 			"func TestRetirementProblem(",
 		} {
@@ -167,14 +170,17 @@ func TestDirectoryStart_Apply_directoryRolesSuites(t *testing.T) {
 		if got := skippedLine(ch, integrationHarness+" and "+migrateTest+": the google registration validates"); len(got) != 0 {
 			t.Errorf("the change hands on the settings of a method, and the tests it wrote already give them: %q", got)
 		}
-		if got := linesWith(ch.Did, deployFile+", pkg/config and the environment template: what invites a first administrator was kept as it is", []string{"APP_STAFF_ADMINISTRATOR", "the cases of " + migrateTest + " prove that it refuses every name", "impulse add auth hands the first administrator of an auth it adds on to be wired as this is written, and writes none of it back"}); len(got) != 1 {
-			t.Errorf("the change does not say once that what invites a first administrator was kept, why, and which tests go with it: %q", ch.Did)
+		if got := linesWith(ch.Did, migrateTest+": the cases that invite or reinvite a first administrator were taken out", []string{"two cases prove that a release invites nobody and that the command has no flag for a fresh invitation"}); len(got) != 1 {
+			t.Errorf("the change does not say once what became of the migrate command's test: %q", ch.Did)
 		}
-		if got := skippedLine(ch, deployFile+", pkg/config"); len(got) != 0 {
-			t.Errorf("the change hands what invites a first administrator on to the author, and it is kept: %q", got)
+		got := start.MeaningIn(a)
+		for _, kept := range []string{"Leave what invites a first administrator", "kept as it is", "names no auth", "It stays because"} {
+			if strings.Contains(got, kept) {
+				t.Errorf("the start's account still says %q, and what invites a first administrator was taken out", kept)
+			}
 		}
-		if got := start.MeaningIn(a); !strings.Contains(got, "Leave what invites a first administrator where it is") || strings.Contains(got, "Take the first administrator out") {
-			t.Error("the start's account of what is left does not say that what invites a first administrator stays")
+		if !strings.Contains(got, "The deployment invites no first administrator for it: nothing in the deployment package, the migrate command or the data level speaks of one, and `impulse add auth` writes the invitation for an auth added later that invites one.") {
+			t.Errorf("the start's account does not say that nothing in the application invites a first administrator:\n%s", got)
 		}
 		if got := start.MeaningIn(a); !strings.Contains(got, "1. Read the tests the start wrote.") {
 			t.Error("the start's account of what is left does not say the tests were written")
@@ -463,9 +469,10 @@ func TestDirectoryStart_Apply_suitesNotWritten(t *testing.T) {
 		// wantSkipped a line it says of what the author gives the tests.
 		wantLeft    map[string]string
 		wantSkipped string
-		// wantTests is what the change says of the tests that go with what invites a
-		// first administrator, which it keeps.
-		wantTests string
+		// wantTaken is whether the change says that what invites a first administrator
+		// was taken out, which a start whose directory gives the roles does whatever
+		// becomes of its tests.
+		wantTaken bool
 	}{
 		{
 			name: "the start is not told the tenants",
@@ -500,7 +507,7 @@ func TestDirectoryStart_Apply_suitesNotWritten(t *testing.T) {
 				"test/integration/first_administrator_test.go": "nobody is invited to this auth, whose directory gives every role, so remove it",
 			},
 			wantSkipped: integrationHarness + " and " + migrateTest + ": the google registration validates its organization slot and its role groups' prefix",
-			wantTests:   "the tests that name the staff auth's first administrator are among what the change leaves",
+			wantTaken:   true,
 		},
 	}
 	for _, tt := range tests {
@@ -540,8 +547,8 @@ func TestDirectoryStart_Apply_suitesNotWritten(t *testing.T) {
 			if tt.wantSkipped != "" && len(skippedLine(ch, tt.wantSkipped)) != 1 {
 				t.Errorf("the change does not say once %q: %q", tt.wantSkipped, ch.Skipped)
 			}
-			if tt.wantTests != "" && len(linesWith(ch.Did, deployFile+", pkg/config", []string{tt.wantTests})) != 1 {
-				t.Errorf("the change does not say once %q of what invites a first administrator: %q", tt.wantTests, ch.Did)
+			if got := linesWith(ch.Did, deployFile+", ", []string{"what invites a first administrator was taken out"}); (len(got) == 1) != tt.wantTaken {
+				t.Errorf("the change says %q of what invites a first administrator, want it said once: %t", got, tt.wantTaken)
 			}
 			if got := start.MeaningIn(a); !strings.Contains(got, "1. Bring the tests to the sign-in the auth has.") || strings.Contains(got, "Read the tests the start wrote") {
 				t.Error("the start's account of what is left does not hand the tests on, and it wrote none")

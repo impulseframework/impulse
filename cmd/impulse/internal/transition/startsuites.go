@@ -386,7 +386,7 @@ func (d *DirectoryStart) deriveDeploymentTests(a *app.App, ch *Change, settled m
 		did    string
 	}{
 		{deployTest, d.derivedDeployTest, "the two tests that hold the first administrator's roles to the role file were taken out, since the auth has no foothold; the test that validates the role file stands"},
-		{migrateTest, d.derivedMigrateTest, "the cases that invite or reinvite a first administrator were taken out, two cases prove that a release invites nobody and that a fresh invitation is refused, and the run is given the method's settings, which the registration validates as the data level opens"},
+		{migrateTest, d.derivedMigrateTest, "the cases that invite or reinvite a first administrator were taken out, two cases prove that a release invites nobody and that the command has no flag for a fresh invitation, and the run is given the method's settings, which the registration validates as the data level opens"},
 	}
 	for _, one := range derivations {
 		src, mode, err := readFile(a, one.rel)
@@ -420,10 +420,11 @@ func (d *DirectoryStart) derivedDeployTest(src []byte) ([]byte, error) {
 }
 
 // The declarations of the base's migrate test that serve its first administrator's cases
-// alone, and what a case of its table names when it is one of them.
+// alone, and what a case of its table names when it is one of them or a case of the flag
+// that sends an invitation again.
 var (
 	migrateFoothold      = []string{"administratorAddress", "roleHeld", "someone", "withUser", "withHolder"}
-	migrateFootholdCases = regexp.MustCompile(`\b(administratorAddress|roleHeld|noMailbox|whoseInvitation|mailboxHandStep|withUser|withHolder|AdministratorVariable)\b`)
+	migrateFootholdCases = regexp.MustCompile(`\b(administratorAddress|roleHeld|noMailbox|whoseInvitation|mailboxHandStep|withUser|withHolder|AdministratorVariable|reinvite-administrator)\b`)
 )
 
 // derivedMigrateTest is the migrate command's test for an auth that invites nobody.
@@ -437,11 +438,11 @@ func (d *DirectoryStart) derivedMigrateTest(src []byte) ([]byte, error) {
 			after:     nobodyInvited,
 		},
 		{
-			name:     "a fresh invitation for the %[1]s auth is refused before the database is touched: nobody is invited to it",
+			name:     "a fresh invitation is no flag of the command: nobody is invited to the %[1]s auth",
 			missing:  true,
 			args:     []string{"-reinvite-administrator", %[1]s.Name},
 			wantCode: exitRefused,
-			wantErr:  "-reinvite-administrator %[1]s: no auth of that name invites a first administrator",
+			wantErr:  "flag provided but not defined: -reinvite-administrator",
 		},`, d.Auth)
 	out, err := cutSource(migrateTest, src, migrateFoothold, "TestExecute", migrateFootholdCases, cases)
 	if err != nil {
@@ -454,12 +455,8 @@ func (d *DirectoryStart) derivedMigrateTest(src []byte) ([]byte, error) {
 			"\t// No mailbox, whatever the shell the suite runs in names.\n",
 		},
 		{
-			fmt.Sprintf("no auth of that name invites a first administrator; name one of %s\"", d.Auth),
-			"no auth of that name invites a first administrator\"",
-		},
-		{
 			"the first administrator's invitation where the\n// command can decide it without mailing, the report on a fresh, a migrated and a dirty\n",
-			"the refusal of a first administrator's\n// invitation, the report on a fresh, a migrated and a dirty\n",
+			"the report on a fresh, a migrated and a dirty\n",
 		},
 		{
 			"\tt.Setenv(\"APP_PUBLIC_URL\", \"http://solo.test\")\n",
@@ -476,7 +473,7 @@ func (d *DirectoryStart) derivedMigrateTest(src []byte) ([]byte, error) {
 	if from < 0 || to < from {
 		return nil, errors.New("TestExecute's account of the first administrator is not there")
 	}
-	text = text[:from] + fmt.Sprintf("// The %[1]s auth's directory gives every role, the Super Administrator's included, so a\n// release invites no first administrator and asks for no mailbox on that account, and\n// -reinvite-administrator has no auth to name. Whatever a case does, no invitation's\n// link is in what the command wrote: its output, its errors and its log are read for one\n// after every run.\n", d.Auth) + text[to:]
+	text = text[:from] + fmt.Sprintf("// The %[1]s auth's directory gives every role, the Super Administrator's included, so a\n// release invites no first administrator and asks for no mailbox on that account, and\n// the command has no -reinvite-administrator flag. Whatever a case does, no invitation's\n// link is in what the command wrote: its output, its errors and its log are read for one\n// after every run.\n", d.Auth) + text[to:]
 
 	return finishSource(migrateTest, src, []byte(text))
 }
@@ -575,7 +572,8 @@ func cutSource(rel string, src []byte, gone []string, fn string, mentions *regex
 }
 
 // declaredNames lists the names a top-level declaration declares, a function's own or a
-// const or var declaration's, and where the declaration begins, its comment included.
+// const, var or type declaration's, and where the declaration begins, its comment
+// included.
 func declaredNames(decl ast.Decl) (declared []string, from token.Pos) {
 	from = decl.Pos()
 	switch decl := decl.(type) {
@@ -589,10 +587,13 @@ func declaredNames(decl ast.Decl) (declared []string, from token.Pos) {
 			from = decl.Doc.Pos()
 		}
 		for _, spec := range decl.Specs {
-			if value, ok := spec.(*ast.ValueSpec); ok {
-				for _, name := range value.Names {
+			switch spec := spec.(type) {
+			case *ast.ValueSpec:
+				for _, name := range spec.Names {
 					declared = append(declared, name.Name)
 				}
+			case *ast.TypeSpec:
+				declared = append(declared, spec.Name.Name)
 			}
 		}
 	}

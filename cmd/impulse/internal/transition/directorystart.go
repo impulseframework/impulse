@@ -212,9 +212,8 @@ func (d *DirectoryStart) Apply(ctx context.Context, a *app.App, exec check.Exece
 	if err := d.developmentLogins(a, pkg, spec, ch); err != nil {
 		return nil, err
 	}
-	nobody := false
 	if !authpkg.Foothold(spec) {
-		if nobody, err = d.inviteNobody(a, pkg, ch); err != nil {
+		if err := d.inviteNobody(a, ch); err != nil {
 			return nil, err
 		}
 	}
@@ -236,9 +235,6 @@ func (d *DirectoryStart) Apply(ctx context.Context, a *app.App, exec check.Exece
 		for i := range spec.Methods {
 			slotHandoff(ch, d.Auth, &spec.Methods[i])
 		}
-	}
-	if nobody {
-		d.noteFirstAdministrator(ch, settled[migrateTest])
 	}
 	d.noteBaseSuites(a, ch, settled)
 	// Each method's settings are passed by the same step, which says the same of the
@@ -530,61 +526,6 @@ func (d *DirectoryStart) seedCastByHand() string {
 	return fmt.Sprintf(", and seed the cast after the development logins (data.%s().SeedCast(ctx, os.Stdout)), so the development administrator's account is there for the persona sign-in to link", names.Pascal(d.Auth))
 }
 
-// deployFile is the base's deployment package file, which invites the first auth's
-// first administrator.
-const deployFile = "pkg/deploy/deploy.go"
-
-// inviteNobody takes the auth out of the deployment's first administrators, where a
-// directory gives its roles: such an auth has no foothold, nobody is invited to it, and
-// the base's deployment package would not compile against it. It reports whether the
-// package now invites nobody, which what still speaks of a first administrator is then
-// held to (noteFirstAdministrator).
-func (d *DirectoryStart) inviteNobody(a *app.App, pkg *app.AuthPackage, ch *Change) (bool, error) {
-	byHand := fmt.Sprintf("the %s auth invites no first administrator, since its directory gives every role, the Super Administrator's included: take it out of AdministratorAuths and administratorOf", d.Auth)
-	data, mode, err := readFile(a, deployFile)
-	if err != nil {
-		ch.skipf("%s: not read (%v); %s", deployFile, errors.Cause(err), byHand)
-
-		return false, nil
-	}
-	auths := regexp.MustCompile(`(?m)^\treturn \[\]string\{` + regexp.QuoteMeta(d.Auth) + `\.Name\}\n`)
-	administrator := regexp.MustCompile(`(?m)^func administratorOf\(data \*config\.DataConfiguration, auth string\) \(\*firstAdministrator, error\) \{\n\tswitch auth \{\n\tcase ` + regexp.QuoteMeta(d.Auth) + `\.Name:\n\t\treturn &firstAdministrator\{[^\n]*\}, nil\n\tdefault:\n(\t\treturn nil, errors\.Newf\([^\n]*\)\n)\t\}\n\}\n`)
-	if !auths.Match(data) || !administrator.Match(data) {
-		ch.skipf("%s: AdministratorAuths and administratorOf are not as the base writes them, and the package does not compile against an auth with no foothold; %s", deployFile, byHand)
-
-		return false, nil
-	}
-	out := auths.ReplaceAll(data, []byte("\treturn nil\n"))
-	out = administrator.ReplaceAll(out, []byte("func administratorOf(_ *config.DataConfiguration, auth string) (*firstAdministrator, error) {\n\t// No auth of the application invites a first administrator. One that does is added\n\t// here, built from the data level, and named in AdministratorAuths.\n\tadministrators := map[string]*firstAdministrator{}\n\tadministrator, ok := administrators[auth]\n\tif !ok {\n$1\t}\n\n\treturn administrator, nil\n}\n"))
-	if !strings.Contains(string(out), d.Auth+".") {
-		imported := regexp.MustCompile(`(?m)^\t"` + regexp.QuoteMeta(pkg.Path) + `"\n`)
-		out = imported.ReplaceAll(out, nil)
-	}
-	if out, err = format.Source(out); err != nil {
-		return false, errors.Wrapf(err, "format.Source(): %s", deployFile)
-	}
-	if err := os.WriteFile(a.Abs(deployFile), out, mode); err != nil {
-		return false, errors.Wrap(err, "os.WriteFile()")
-	}
-	ch.didf("%s: no auth invites a first administrator (AdministratorAuths names none, and administratorOf refuses every name): the %s auth's directory gives every role, the Super Administrator's included, so a release invites nobody and asks for no mailbox on that account", deployFile, d.Auth)
-
-	return true, nil
-}
-
-// noteFirstAdministrator says that what invites a first administrator stays once the
-// deployment invites nobody, and why: impulse add auth hands the first administrator of
-// an auth it adds on to be wired as the application's is written, and writes none of it,
-// so what was taken out here could not be written back. It names the tests that go with
-// it: the cases the start wrote into the migrate command's test where it derived that
-// test, and the tests the change lists as left otherwise.
-func (d *DirectoryStart) noteFirstAdministrator(ch *Change, derived bool) {
-	tests := "the tests that name the " + d.Auth + " auth's first administrator are among what the change leaves"
-	if derived {
-		tests = "the cases of " + migrateTest + " prove that it refuses every name"
-	}
-	ch.didf("%s, pkg/config and the environment template: what invites a first administrator was kept as it is (InviteAdministrators and ReinviteAdministrator, the migrate command's -reinvite-administrator, %s). It invites nobody while AdministratorAuths names no auth, and %s. Leave it in: impulse add auth hands the first administrator of an auth it adds on to be wired as this is written, and writes none of it back", deployFile, authpkg.AdministratorVariable(d.Auth), tests)
-}
-
 // generatedHandlers lists the generated handler files of an auth's management, by name,
 // or nothing where the directory is not there.
 func generatedHandlers(a *app.App, dir string) map[string]bool {
@@ -724,7 +665,7 @@ var passwordSuites = []struct{ file, fate, directory, application string }{
 	{file: "test/integration/groups_test.go", fate: "signs in with a password through the harness; it follows the harness"},
 	{
 		file: migrateTest, fate: "constructs the auth with the base's settings; give the construction each registration's settings, as the change's lines above say",
-		directory: "it also names the first administrator's address by {auth}.AdministratorVariable, which the auth no longer has, so it does not compile: take out the cases that invite or reinvite a first administrator",
+		directory: "it also names the first administrator's address by {auth}.AdministratorVariable, which the auth no longer has, so it does not compile: take out the cases that invite or reinvite a first administrator, the refusals of -reinvite-administrator among them, since the command has no such flag now",
 	},
 	{
 		file:      deployTest,
@@ -822,7 +763,7 @@ func (d *DirectoryStart) meaning(set string) string {
 	if d.syncsRoles() {
 		m := d.methods()[0]
 		fmt.Fprintf(&b, "It registers one method, %s, through %s, and that directory gives every role, the Super Administrator's included: every sign-in reconciles the person's roles to what the directory asserts, everyone the directory signs in with a role the role file defines becomes a user, nobody is invited, and nothing in the application gives or takes a role. The method stands alone in its auth: a second method would be a second authority over the same people, and impulse check refuses it. ", m.Name, slotSentence(&m))
-		b.WriteString("The deployment invites no first administrator for it (pkg/deploy names no auth), and a development run signs in the person APP_USERNAME names with the roles APP_ROLES lists, which stand in for the directory's under the session library's skipAuth tag.")
+		b.WriteString("The deployment invites no first administrator for it: nothing in the deployment package, the migrate command or the data level speaks of one, and `impulse add auth` writes the invitation for an auth added later that invites one. A development run signs in the person APP_USERNAME names with the roles APP_ROLES lists, which stand in for the directory's under the session library's skipAuth tag.")
 	} else {
 		var named []string
 		for _, m := range d.methods() {
@@ -841,15 +782,18 @@ func (d *DirectoryStart) meaning(set string) string {
 	if set != "" {
 		tests = "Read the tests the start wrote. The application's Go tests sign in through the simulated directory, so run them as the Procfile and CI do, with `go test -tags skipAuth ./...`: under the default build the cases that sign in are skipped. The spec of the browser application's login page (`" + loginPageSpec + "`) is the start's too: it answers the methods route with the methods the auth registers, and expects a button for each and no password form. The change names the tests of the base it took out, each with the reason, and lists any it left as it found it."
 	}
+	readme := "the development login, the first administrator's password"
+	if d.syncsRoles() {
+		readme = "the development login, the first administrator's password, and the first administrator a release invites, with the migrate command's `-reinvite-administrator`, which the start took out of the application"
+	}
 	items := []string{
 		tests,
 		fmt.Sprintf("Read the role file (`pkg/auth/%s/roles.json`). The grants on what the generated management no longer serves were taken out; read what the roles' descriptions say of passwords, and what the remaining grants give.", d.Auth),
-		"Bring the README's account of signing in (the development login, the first administrator's password) to what the application does now, and the comments that still speak of a password: the generator program's (`cmd/generate/resourcegenerator/generator.go`), the bootstrap's (`cmd/bootstrap/main.go`) and `app/users.go`'s.",
+		"Bring the README's account of signing in (" + readme + ") to what the application does now, and the comments that still speak of a password: the generator program's (`cmd/generate/resourcegenerator/generator.go`), the bootstrap's (`cmd/bootstrap/main.go`) and `app/users.go`'s.",
 	}
 	if d.syncsRoles() {
 		items = append(items,
 			"Define the roles in the role file and assign them in the directory: nothing is seeded for people who sign in this way, and the development person holds what `APP_ROLES` lists.",
-			"Leave what invites a first administrator where it is (the deployment package's `InviteAdministrators` and `ReinviteAdministrator`, the migrate command's `-reinvite-administrator`, the data level's address setting and the environment template's variable). It invites nobody while `AdministratorAuths` names no auth, so a release mails no invitation, whatever address the variable names. It stays because `impulse add auth` does not write it: an auth added later that invites a first administrator is wired into it as it stands.",
 			d.mailboxItem(),
 		)
 	} else if d.persona() {
