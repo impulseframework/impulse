@@ -1142,8 +1142,10 @@ always could.
 
 The `act` kind goes further than the rule, which holds the real person alone. Its mask
 refuses the class `access`, for what the rule cannot see (a role that reaches a person
-through a group or a colleague), and it names the writes of those five records, and the
-change of a squadron, whose row says which wing each member is in. A stand-in therefore
+through a group or a colleague), and the generator gives that class to the writes of
+those five records and to the change of a squadron, whose row says which wing each
+member is in, so the kind names no record and a record that gains a subject value is
+covered when Lodestar is generated again. A stand-in therefore
 changes nobody's standing, their own or anyone else's, which is what the `StandIn`
 role's description promises: everything the person may do, except change how they sign
 in or who may do what. `SetSectorPilotClearance` carries the class `access` for the
