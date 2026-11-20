@@ -398,9 +398,13 @@ func (m *Manager) refuseTakingPlace(ctx context.Context, txn resource.ReadWriteT
 			return err
 		}
 		if m.callerIs(ctx, userID) {
+			kept, err := group.kept()
+			if err != nil {
+				return err
+			}
 			for i := range holding.roles {
 				gone := &removal{
-					user: user, role: holding.roles[i].Role, group: GroupID(groupID), wholeGroup: false,
+					user: user, role: holding.roles[i].Role, group: GroupID(groupID), kept: &kept, wholeGroup: false,
 					unnamed: "you cannot take yourself out of a group that gives you a role in a " + m.tenantWord,
 					before:  "leave the group that gives you yours",
 				}
@@ -574,13 +578,13 @@ func (m *Manager) refuseTakingGroupRole(ctx context.Context, txn resource.ReadWr
 	if holding.periods.Roles[*key].Ended(now) {
 		return nil
 	}
+	kept, err := group.kept()
+	if err != nil {
+		return err
+	}
 	if judged, err := m.judged(ctx); err != nil {
 		return err
 	} else if judged {
-		kept, err := group.kept()
-		if err != nil {
-			return err
-		}
 		act := fmt.Sprintf("taking a role from the group %s takes away from everyone in it", group.Name)
 		if err := m.refuseTakingThrough(ctx, txn, kept, []access.GroupRoleKey{*key}, holding.members, act); err != nil {
 			return err
@@ -591,7 +595,7 @@ func (m *Manager) refuseTakingGroupRole(ctx context.Context, txn resource.ReadWr
 		return nil
 	}
 	gone := &removal{
-		user: caller, role: key.Role, group: GroupID(groupID), wholeGroup: true,
+		user: caller, role: key.Role, group: GroupID(groupID), kept: &kept, wholeGroup: true,
 		unnamed: "you cannot take a role away from a group you are in, where the group holds it in a " + m.tenantWord,
 		before:  "take it from the group that gives you yours",
 	}

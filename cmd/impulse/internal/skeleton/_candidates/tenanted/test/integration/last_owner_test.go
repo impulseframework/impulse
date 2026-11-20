@@ -18,9 +18,11 @@ import (
 // whole application that is not that one goes freely, since a super administrator gives
 // it back, as does TenantAdministrator held in every tenant; in a tenant an invitation
 // made, whose first sign-in made the invited person its administrator, that person is
-// refused giving the role up as its last holder and gives it up once the administrator
-// holds it in every tenant again; and once the member is a super administrator beside
-// them, the administrator gives that up too. So an operator brings a customer's tenant in
+// refused giving the role up as its last holder, and still refused while the
+// administrator holds it in every tenant, which makes nobody an administrator of the
+// tenant's own, and gives it up once the member holds it in the tenant too; and once the
+// member is a super administrator beside them, the administrator gives that up too. So an
+// operator brings a customer's tenant in
 // by inviting its first administrator and leaves, and neither the application nor a
 // tenant is left with nobody to give the next role. Every
 // method names its person by the id of their account, and the rule knows the caller by
@@ -73,21 +75,31 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	}
 
 	// In a tenant: the invitation's first sign-in made the invited person west's
-	// administrator, and with no holder in every tenant left, they are its last one,
-	// refused in the tenant's words; once the administrator holds the role in every
-	// tenant again, they give up west's own.
+	// administrator, and they are its last one, refused in the tenant's words. The
+	// administrator holding the role in every tenant again changes nothing: a holder in
+	// every tenant is no administrator of the tenant's own, the one a tenant that admits
+	// its people through its directory only still lets in. Once the member holds the
+	// role in west itself, the founder gives up their own.
 	west, founder := makeTenant(ctx, t, s, admin, "West", "founder")
 	founderID := staffUserID(ctx, t, admin, "founder")
 	westRole := "/api/tenants/" + west + "/remove-staff-tenant-role"
+	const lastAdministrator = "you are the last administrator of this tenant: give another person the role before you remove your own"
 	status, body = founder.do(ctx, http.MethodPost, westRole, tenantRoleOf(founderID, "TenantAdministrator"))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator of this tenant: give another person the role before you remove your own") {
+	if status != http.StatusForbidden || !strings.Contains(string(body), lastAdministrator) {
 		t.Fatalf("the founder giving up West's role as its one holder: status %d, want 403 naming the rule: %s", status, body)
 	}
 	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(adminID, "TenantAdministrator", true)); status != http.StatusNoContent {
 		t.Fatalf("the administrator taking TenantAdministrator in every tenant again: status %d: %s", status, body)
 	}
+	status, body = founder.do(ctx, http.MethodPost, westRole, tenantRoleOf(founderID, "TenantAdministrator"))
+	if status != http.StatusForbidden || !strings.Contains(string(body), lastAdministrator) {
+		t.Fatalf("the founder giving up West's role while the administrator holds it in every tenant alone: status %d, want 403 naming the rule: %s", status, body)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+s.memberID+`","role":"TenantAdministrator","domain":"`+west+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving the member the role in West: status %d: %s", status, body)
+	}
 	if status, body := founder.do(ctx, http.MethodPost, westRole, tenantRoleOf(founderID, "TenantAdministrator")); status != http.StatusNoContent {
-		t.Fatalf("the founder giving up West's role while the administrator holds it in every tenant: status %d, want 204: %s", status, body)
+		t.Fatalf("the founder giving up West's role once the member holds it there: status %d, want 204: %s", status, body)
 	}
 
 	// Another holder given the role, the administrator gives it up.

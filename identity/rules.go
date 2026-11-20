@@ -95,9 +95,11 @@ type removal struct {
 	user accesstypes.User
 	role accesstypes.Role
 	// group is the group the role is held through, empty for a membership of the
-	// person's own; wholeGroup says the group itself loses the role, so everyone in it
-	// does, and not the one person their place.
+	// person's own, and kept is where that group is kept, nil for a membership;
+	// wholeGroup says the group itself loses the role, so everyone in it does, and not
+	// the one person their place.
 	group      accesstypes.Group
+	kept       *accesstypes.PolicyScope
 	wholeGroup bool
 	// unnamed is the refusal where the application named no administrator roles, and
 	// before what the person does last ("remove your own"), for the refusal of the last
@@ -107,25 +109,24 @@ type removal struct {
 }
 
 // takes reports whether the removal takes the holding away: the membership of the
-// person's own held in the scope, the person's holdings through the group they leave,
+// person's own held in the tenant, the person's holdings through the group they leave,
 // or everyone's holding of the role through the group that loses it there.
-func (r *removal) takes(h *administratorHolding, scope accesstypes.PolicyScope) bool {
+func (r *removal) takes(h *administratorHolding) bool {
 	switch {
 	case r.group == "":
-		return h.group == "" && h.user == r.user && h.role == r.role && h.scope == scope
+		return h.group == "" && h.user == r.user && h.role == r.role
 	case r.wholeGroup:
-		return h.group == r.group && h.role == r.role && h.scope == scope
+		return h.group == r.group && h.role == r.role
 	default:
 		return h.group == r.group && h.user == r.user
 	}
 }
 
 // administratorHolding is one way a person administers a tenant now: an administrator
-// role they hold in the tenant or in every tenant, by a membership of their own (group
-// is empty) or through a group.
+// role they hold in the tenant itself, by a membership of their own (group is empty) or
+// through a group kept in the tenant.
 type administratorHolding struct {
 	user  accesstypes.User
-	scope accesstypes.PolicyScope
 	role  accesstypes.Role
 	group accesstypes.Group
 }
@@ -136,17 +137,27 @@ type administratorHolding struct {
 // it is an administrator role of the tenant and nobody else would hold one there after:
 // a tenant is never left without an administrator of its own, and a person who gives a
 // role up otherwise is given it back by one who remains. The holders counted are the
-// tenant's and the ones who hold the role in every tenant, by a membership of their own
-// or through a group, each inside its period (administratorHoldings): a holder through
-// a group is a holder. The person keeps the tenant's administration too where they hold
-// the same role another way, in every tenant or through another group. Without the
-// administrator roles (WithAdministratorRoles) a person removes no role from themselves
-// in a tenant or in every tenant.
+// tenant's own, the ones the permission engine counts (access.AdministersTenant): the
+// people who hold the role in the tenant itself, by a membership of their own or
+// through a group kept in the tenant, each inside its period (administratorHoldings).
+// A holder through a group of the tenant is a holder. The person keeps the tenant's
+// administration too where they hold the same role there another way, by a membership
+// beside the group or through another group of the tenant. Without the administrator
+// roles (WithAdministratorRoles) a person removes no role from themselves in a tenant
+// or in every tenant.
+//
+// A person who holds the role in every tenant, or through a group kept for the whole
+// application, is no administrator of the tenant's own: a tenant that admits its people
+// through its directory only keeps them out with everyone else, so they do not stand in
+// for the tenant's last administrator, and the tenant's last one keeps the role while
+// they are all it would have. What such a holding gives is not the tenant's
+// administration to lose, so it goes: a role held in every tenant, and a role a group
+// kept for the whole application holds in the tenant, which a person in the group takes
+// from it or leaves behind.
 //
 // A role held in the global partition goes: the application's last administrator is its
 // last super administrator, whose role is kept by a rule of its own, whoever asks
 // (refuseLastSuperAdministrator), and a super administrator gives any other role back.
-// A role held in every tenant is no administrator role of one tenant, and goes.
 func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, gone *removal) error {
 	if scope.IsGlobal() {
 		return nil
@@ -154,10 +165,7 @@ func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.Read
 	if m.administrators == nil {
 		return httpio.NewForbiddenMessage(gone.unnamed)
 	}
-	if _, inDomain := scope.Domain(); !inDomain {
-		return nil
-	}
-	if !slices.Contains(m.administrators.domain, gone.role) {
+	if _, counts := access.AdministersTenant(m.administrators.domain, scope, gone.role, gone.kept); !counts {
 		return nil
 	}
 	holdings, err := m.administratorHoldings(ctx, txn, scope)
@@ -165,12 +173,12 @@ func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.Read
 		return err
 	}
 	for i := range holdings {
-		if gone.takes(&holdings[i], scope) {
+		if gone.takes(&holdings[i]) {
 			continue
 		}
 		// Another person administers the tenant, or the person keeps the same role
-		// another way: in every tenant, or through a group that is not the one they
-		// leave.
+		// there another way: by a membership of their own, or through a group of the
+		// tenant that is not the one they leave.
 		if holdings[i].user != gone.user || holdings[i].role == gone.role {
 			return nil
 		}
@@ -182,37 +190,35 @@ func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.Read
 }
 
 // administratorHoldings lists every way a person administers the tenant scope names
-// now: for each administrator role, held in the tenant or in every tenant, the people
-// who hold it by a membership of their own that counts (countingHolders), and the
-// people in a group that holds it there, where the group's role and the person's place
-// both count. A group kept in one tenant gives its roles in that tenant alone, so a row
-// of such a group anywhere else, written past the rules, makes nobody an administrator.
+// now: for each administrator role held in the tenant itself, the people who hold it by
+// a membership of their own that counts (countingHolders), and the people in a group
+// kept in the tenant that holds it there, where the group's role and the person's place
+// both count (countingMembers). A role held in every tenant is not read: its holder is
+// no administrator of the tenant's own (access.AdministersTenant).
 func (m *Manager) administratorHoldings(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope) ([]administratorHolding, error) {
 	now := time.Now()
 	var holdings []administratorHolding
-	for _, held := range []accesstypes.PolicyScope{scope, accesstypes.EveryDomainPolicyScope()} {
-		for _, role := range m.administrators.domain {
-			at := access.NewMembershipKey(held, "", role)
-			key := access.RoleKey{Kind: at.Kind, Axis: at.Axis, Domain: at.Domain, Role: role}
-			own, err := m.countingHolders(ctx, txn, &key)
+	for _, role := range m.administrators.domain {
+		at := access.NewMembershipKey(scope, "", role)
+		key := access.RoleKey{Kind: at.Kind, Axis: at.Axis, Domain: at.Domain, Role: role}
+		own, err := m.countingHolders(ctx, txn, &key)
+		if err != nil {
+			return nil, err
+		}
+		for _, user := range own {
+			holdings = append(holdings, administratorHolding{user: user, role: role, group: ""})
+		}
+		groups, err := m.store.GroupsHolding(ctx, txn, &key)
+		if err != nil {
+			return nil, errors.Wrap(err, "identity.Store.GroupsHolding()")
+		}
+		for _, groupID := range groups {
+			members, err := m.countingMembers(ctx, txn, groupID, scope, role, now)
 			if err != nil {
 				return nil, err
 			}
-			for _, user := range own {
-				holdings = append(holdings, administratorHolding{user: user, scope: held, role: role, group: ""})
-			}
-			groups, err := m.store.GroupsHolding(ctx, txn, &key)
-			if err != nil {
-				return nil, errors.Wrap(err, "identity.Store.GroupsHolding()")
-			}
-			for _, groupID := range groups {
-				members, err := m.countingMembers(ctx, txn, groupID, held, role, now)
-				if err != nil {
-					return nil, err
-				}
-				for _, user := range members {
-					holdings = append(holdings, administratorHolding{user: user, scope: held, role: role, group: GroupID(groupID)})
-				}
+			for _, user := range members {
+				holdings = append(holdings, administratorHolding{user: user, role: role, group: GroupID(groupID)})
 			}
 		}
 	}
@@ -220,9 +226,12 @@ func (m *Manager) administratorHoldings(ctx context.Context, txn resource.ReadWr
 	return holdings, nil
 }
 
-// countingMembers lists the people who hold the role in the scope through the group
-// now: the people whose place counts, where the group's role counts and is one the
-// group gives its members.
+// countingMembers lists the people the role makes administrators of the tenant scope
+// names through the group now: the people whose place counts, where the group's role
+// counts and the group is kept in the tenant. A group kept anywhere else makes nobody an
+// administrator of the tenant's own, whatever it holds there: one kept for the whole
+// application seats the application's own people, and a row of another tenant's group,
+// written past the rules, gives nothing here (access.AdministersTenant).
 func (m *Manager) countingMembers(
 	ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, scope accesstypes.PolicyScope, role accesstypes.Role, now time.Time,
 ) ([]accesstypes.User, error) {
@@ -237,7 +246,7 @@ func (m *Manager) countingMembers(
 	if err != nil {
 		return nil, err
 	}
-	if _, inTenant := kept.Domain(); inTenant && kept != scope {
+	if _, counts := access.AdministersTenant(m.administrators.domain, scope, role, &kept); !counts {
 		return nil, nil
 	}
 	holding, err := m.groupHolding(ctx, txn, groupID, now)

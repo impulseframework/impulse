@@ -226,7 +226,7 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 			return err
 		}
 	case m.callerIs(ctx, userID):
-		gone := &removal{user: key.User, role: key.Role, group: "", wholeGroup: false, unnamed: "you cannot remove a role from yourself", before: "remove your own"}
+		gone := &removal{user: key.User, role: key.Role, group: "", kept: nil, wholeGroup: false, unnamed: "you cannot remove a role from yourself", before: "remove your own"}
 		if err := m.refuseLastAdministrator(ctx, txn, scope, gone); err != nil {
 			return err
 		}

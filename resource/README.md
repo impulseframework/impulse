@@ -3801,7 +3801,13 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
 - The rules are the whole application's, in the same code: nobody disables or deletes
   their own account, the tenant's last administrator keeps the role, a rename moves the
   roles, the last role a person holds anywhere takes the account with it, an
-  invitation gives at least one role. A refusal that speaks of a tenant says the
+  invitation gives at least one role. A tenant's administrators are counted as the
+  permission engine counts them (`access.AdministersTenant`): the people who hold an
+  administrator's role in the tenant itself, themselves or through a group kept in the
+  tenant. A person who holds the role in every tenant, or through a group kept for the
+  whole application, does not stand in for the tenant's last one, since a tenant that
+  admits its people through its directory only keeps that person out with everyone
+  else. A refusal that speaks of a tenant says the
   application's word for one, the tenant record's label or its name in words ("you are
   the last administrator of this sector"): the generated client hands it to the rules
   (`identity.WithTenantWord`).

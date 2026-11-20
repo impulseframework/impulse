@@ -588,8 +588,9 @@ func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
 // methods' routes: nobody disables their own account; the service's last super
 // administrator keeps the role; a person who removes a role from themselves in a sector
 // keeps an administrator role nobody else would hold there (the marshal's, which a
-// marshal of every sector holds there too); and the removal of a person's
-// last role anywhere deletes the account in the same transaction.
+// marshal of every sector does not stand in for: they are no marshal of the sector's
+// own); and the removal of a person's last role anywhere deletes the account in the
+// same transaction.
 func TestGeneratedIdentityRules(t *testing.T) {
 	t.Parallel()
 	w := newIdentityWorld(t)
@@ -635,11 +636,12 @@ func TestGeneratedIdentityRules(t *testing.T) {
 	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/enable-crew-user", `{"userId":"`+ivanID+`"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
 
-	// The last administrator of a sector. While the governor is marshal of every
-	// sector, a sector's own marshal may leave: hana gives the role up and is given it
-	// again. Once the governor has given up the role held everywhere (no
-	// administrator role of the application, so it goes), hana is the sector's one
-	// marshal and keeps the role until ivan holds it there too.
+	// The last administrator of a sector. The governor is marshal of every sector, and
+	// that makes nobody a marshal of the sector's own: hana is the sector's one marshal
+	// and keeps the role, refused in the rule's words, while the governor holds it
+	// everywhere. The governor gives up the role held everywhere (no administrator role
+	// of one sector, so it goes), and hana gives up hers once ivan holds it in the
+	// sector too.
 	marshal := func(user accesstypes.User) string {
 		return `{"userId":"` + string(user) + `","role":"SectorMarshal","domain":"` + sector + `"}`
 	}
@@ -648,18 +650,14 @@ func TestGeneratedIdentityRules(t *testing.T) {
 	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role", marshal(hanaUser))
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/remove-crew-role", marshal(hanaUser))
-	assertStatus(t, status, http.StatusNoContent, body)
-	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role", marshal(hanaUser))
-	assertStatus(t, status, http.StatusNoContent, body)
-	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", `{"userId":"`+string(governor)+`","role":"SectorMarshal","everyDomain":true}`)
-	assertStatus(t, status, http.StatusNoContent, body)
-	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/remove-crew-role", marshal(hanaUser))
 	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator of this sector: give another person the role before you remove your own") {
-		t.Errorf("hana giving up the sector's last marshal role: status %d, want 403 naming the rule: %s", status, body)
+		t.Errorf("hana giving up the sector's last marshal role while the governor is marshal of every sector: status %d, want 403 naming the rule: %s", status, body)
 	}
 	if got := readColumn[string](ctx, t, w.db, "CrewUserRoles", heldKey, "UserId"); got != string(hanaUser) {
 		t.Errorf("hana's marshal membership after the refusal: user = %q, want it kept", got)
 	}
+	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", `{"userId":"`+string(governor)+`","role":"SectorMarshal","everyDomain":true}`)
+	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role", marshal(ivanUser))
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/remove-crew-role", marshal(hanaUser))

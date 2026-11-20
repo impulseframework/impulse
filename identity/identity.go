@@ -349,10 +349,12 @@ type administratorRoles struct {
 type Option func(*Manager)
 
 // WithAdministratorRoles names the roles whose holders administer a tenant: the domain
-// roles a person holds in the tenant, or in every tenant. The rule on a person removing
-// a role from themselves in a tenant reads them (RemoveRole): nobody gives up a tenant's
-// administrator role nobody else would hold there. Without them a person removes no
-// role from themselves in a tenant at all.
+// roles a person holds in the tenant itself, by a membership of their own or through a
+// group kept in the tenant. The rule on a person removing a role from themselves in a
+// tenant reads them (RemoveRole): nobody gives up a tenant's administrator role nobody
+// else would hold there. A person who holds one in every tenant is none of the tenant's
+// own administrators, and does not stand in for its last one. Without them a person
+// removes no role from themselves in a tenant at all.
 //
 // The application as a whole needs no such list: its last administrator is the last
 // super administrator, the holder of the role the framework defines

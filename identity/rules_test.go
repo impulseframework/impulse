@@ -274,16 +274,16 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 			wantRemoved: true,
 		},
 		{
-			name: "a person who holds the role in every tenant is the tenant's administrator too",
+			name: "a person who holds the role in every tenant is no administrator of the tenant's own: its last one keeps the role",
 			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, erin, "Warden")},
-			wantRemoved: true,
+			held:    []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, erin, "Warden")},
+			wantErr: httpio.HasForbidden,
 		},
 		{
-			name: "the caller's own membership in every tenant keeps them the tenant's administrator",
+			name: "the caller's own membership in every tenant does not stand in for the one they hold in the tenant",
 			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, dana, "Warden")},
-			wantRemoved: true,
+			held:    []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, dana, "Warden")},
+			wantErr: httpio.HasForbidden,
 		},
 		{
 			name: "a role held in every tenant is no administrator role of the application",

@@ -156,15 +156,21 @@ func TestManager_RemoveGroupMember_severalTenants(t *testing.T) {
 
 // TestManager_lastAdministrator_groups pins the rule on a tenant's last administrator
 // where groups are in play, in both directions. A person who holds the administrator
-// role through a group is a holder: they keep the tenant administered when another
-// removes their own role, and they are held to the rule when they leave the group, or
-// take the role from it, themselves. A place or a group's role outside its period
-// administers nothing.
+// role through a group kept in the tenant is a holder: they keep the tenant
+// administered when another removes their own role, and they are held to the rule when
+// they leave the group, or take the role from it, themselves. A place or a group's role
+// outside its period administers nothing. And a group kept for the whole application
+// gives the tenant no administrator of its own, where the permission engine counts none
+// (access.AdministersTenant): its people do not keep the tenant administered, and they
+// leave it, or take the role from it, whoever else the tenant has.
 func TestManager_lastAdministrator_groups(t *testing.T) {
 	t.Parallel()
 
 	ended, upcoming, _ := periodFixtures()
+	// eveningID is a second group kept in the tenant, beside the night shift.
+	eveningID := mustUUID("0190b000-0000-7000-8000-000000000004")
 	nightWarden := access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Warden")
+	eveningWarden := access.NewGroupRoleKey(GroupID(eveningID), alphaScope, "Warden")
 	staffWarden := access.NewGroupRoleKey(GroupID(staffID), alphaScope, "Warden")
 	danaWarden := access.NewMembershipKey(alphaScope, dana, "Warden")
 	erinWarden := access.NewMembershipKey(alphaScope, erin, "Warden")
@@ -178,8 +184,16 @@ func TestManager_lastAdministrator_groups(t *testing.T) {
 	removeOwn := func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 		return m.RemoveRole(ctx, txn, alphaScope, userID, "Warden")
 	}
+	leaveStaff := func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+		return m.RemoveGroupMember(ctx, txn, staffID, userID)
+	}
+	takeFromStaff := func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+		return m.TakeGroupRole(ctx, txn, staffID, alphaScope, "Warden")
+	}
 	left := "delete group member " + nightID.String() + " " + userID.String()
+	leftStaff := "delete group member " + staffID.String() + " " + userID.String()
 	taken := "delete group role " + groupRoleText(&nightWarden)
+	takenFromStaff := "delete group role " + groupRoleText(&staffWarden)
 	removed := "delete membership " + membershipText(&danaWarden)
 
 	tests := []struct {
@@ -210,18 +224,39 @@ func TestManager_lastAdministrator_groups(t *testing.T) {
 			act:    leave, wantDone: left,
 		},
 		{
-			name: "they leave once another person holds it through another group",
+			name: "they leave once another person holds it through another group of the tenant",
 			opts: []Option{administrators}, caller: dana, held: []access.MembershipKey{danaSteward},
-			roles:  map[access.GroupRoleKey]accesstypes.Period{nightWarden: {}, staffWarden: {}},
-			places: map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): {}, memberKey(staffID, otherUser): {}},
+			roles:  map[access.GroupRoleKey]accesstypes.Period{nightWarden: {}, eveningWarden: {}},
+			places: map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): {}, memberKey(eveningID, otherUser): {}},
 			act:    leave, wantDone: left,
 		},
 		{
 			name: "another person whose place in that group has not begun administers nothing yet",
 			opts: []Option{administrators}, caller: dana, held: []access.MembershipKey{danaSteward},
-			roles:  map[access.GroupRoleKey]accesstypes.Period{nightWarden: {}, staffWarden: {}},
-			places: map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): {}, memberKey(staffID, otherUser): upcoming},
+			roles:  map[access.GroupRoleKey]accesstypes.Period{nightWarden: {}, eveningWarden: {}},
+			places: map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): {}, memberKey(eveningID, otherUser): upcoming},
 			act:    leave, wantSays: "you are the last administrator",
+		},
+		{
+			name: "another person who holds it through a group kept for the whole application is no administrator of the tenant's own",
+			opts: []Option{administrators}, caller: dana, held: []access.MembershipKey{danaSteward},
+			roles:  map[access.GroupRoleKey]accesstypes.Period{nightWarden: {}, staffWarden: {}},
+			places: map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): {}, memberKey(staffID, otherUser): {}},
+			act:    leave, wantSays: "you are the last administrator of this tenant: give another person the role before you leave the group that gives you yours",
+		},
+		{
+			name: "a person leaves a group kept for the whole application that holds the role in the tenant: they were no administrator of the tenant's own",
+			opts: []Option{administrators}, caller: dana, held: []access.MembershipKey{danaSteward},
+			roles:  map[access.GroupRoleKey]accesstypes.Period{staffWarden: {}},
+			places: map[access.GroupMemberKey]accesstypes.Period{memberKey(staffID, userID): {}},
+			act:    leaveStaff, wantDone: leftStaff,
+		},
+		{
+			name: "a person in a group kept for the whole application takes from it the role it holds in the tenant",
+			opts: []Option{administrators}, caller: dana, held: []access.MembershipKey{danaSteward},
+			roles:  map[access.GroupRoleKey]accesstypes.Period{staffWarden: {}},
+			places: map[access.GroupMemberKey]accesstypes.Period{memberKey(staffID, userID): {}},
+			act:    takeFromStaff, wantDone: takenFromStaff,
 		},
 		{
 			name: "they leave where they hold the same role themselves",
@@ -291,6 +326,7 @@ func TestManager_lastAdministrator_groups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			store := groupStore()
+			store.groups[eveningID] = &Group{Kind: "domain", Domain: "alpha", Name: "Evening shift"}
 			for _, key := range tt.held {
 				store.memberships[key] = true
 			}
