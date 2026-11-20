@@ -138,13 +138,13 @@ Lodestar builds against the packages in `web/dist`, so build them first; then
 `cd lodestar/web && bun install && bun run build` and, for the Go side,
 `cd lodestar && go build ./... && go vet ./... && go test -race -tags skipAuth ./...` (the
 tag simulates the directories Lodestar's people sign in through; the served suites skip
-without it). CI lints Lodestar's module as it lints the root one, whole and under the same
-two tag sets, with the configuration at `lodestar/.golangci.yml`:
-`cd lodestar && golangci-lint run && golangci-lint run --build-tags dev`. Neither tag set
-reads the files that build only with `skipAuth`. The skeletons the
-tool renders are validated by rendering each one and building, testing, linting and
-checking the result, which CI does for every skeleton against the framework at the commit
-(`impulse render <candidate> <dir> --module <path> --dev-root <checkout>`).
+without it). CI lints Lodestar's module as it lints the root one, whole, with the
+configuration at `lodestar/.golangci.yml`, under three tag sets: the root lint's two, and
+`skipAuth`, since the files that build only with that tag are read under no other:
+`cd lodestar && golangci-lint run && golangci-lint run --build-tags dev && golangci-lint run --build-tags skipAuth`.
+The skeletons the tool renders are validated by rendering each one and building, testing,
+linting and checking the result, which CI does for every skeleton against the framework at
+the commit (`impulse render <candidate> <dir> --module <path> --dev-root <checkout>`).
 
 The web workspaces move together. `web`, `lodestar/web` and every skeleton's web root pin
 the same version of each third-party package they share, so the library is tested on the

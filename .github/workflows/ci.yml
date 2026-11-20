@@ -449,14 +449,17 @@ jobs:
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
   lodestar-go-lint:
     # Lodestar's Go is linted as the framework's is: the golangci-lint golang-ci installs,
-    # over the whole of Lodestar's module, once under each tag set golang-ci's lint uses. It
-    # runs from lodestar/, where the configuration it reads is Lodestar's own
-    # (lodestar/.golangci.yml). golang-ci's lint does not reach Lodestar, for the reason its
-    # tests do not (see lodestar-go-integration).
+    # over the whole of Lodestar's module, once under each of three tag sets. Two are the
+    # tag sets golang-ci's lint uses, none and dev. The third is skipAuth, the tag
+    # lodestar-go-integration builds the suite with: the files that build only with it, the
+    # served suites, are read under neither of the other two, and code CI builds and tests
+    # is code CI lints. It runs from lodestar/, where the configuration it reads is
+    # Lodestar's own (lodestar/.golangci.yml). golang-ci's lint does not reach Lodestar, for
+    # the reason its tests do not (see lodestar-go-integration).
     #
     # The lint is a static check: it runs on a draft as on a ready pull request, on the
     # standard runner, and on master's push, which saves the caches a pull request reads.
-    # Its two jobs start on every pull request and push, since a matrix job skipped whole
+    # Its three jobs start on every pull request and push, since a matrix job skipped whole
     # reports one check under its unexpanded name, and skip every step on a pull request
     # that touches neither Lodestar, Go nor this workflow. The lodestar-go job below reports
     # what they came to under the required check's name.
@@ -465,8 +468,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The tag sets of golang-ci's build-tags above.
-        build-tag: ['', dev]
+        # The tag sets of golang-ci's build-tags above, and the tag the integration suite
+        # is built with.
+        build-tag: ['', dev, skipAuth]
     if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
     runs-on: ubuntu-latest
     env:
@@ -545,7 +549,7 @@ jobs:
         run: |
           echo "the integration suite, every part: $INTEGRATION"
           echo "build, vet, the other suites, impulse check: $REST"
-          echo "golangci-lint, both tag sets: $LINT"
+          echo "golangci-lint, all three tag sets: $LINT"
           for result in "$INTEGRATION" "$REST" "$LINT"; do
             case "$result" in
               success | skipped) ;;
