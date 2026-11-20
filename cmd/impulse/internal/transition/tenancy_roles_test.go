@@ -6,6 +6,7 @@ import (
 	"go/format"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -587,6 +588,88 @@ func TestReadFootholdRoles(t *testing.T) {
 			}
 			if ok && got.resultType != "[]accesstypes.Role" {
 				t.Errorf("readFootholdRoles() result type = %q, want []accesstypes.Role", got.resultType)
+			}
+		})
+	}
+}
+
+// lockedRegeneration is a tenanted regeneration that takes every permission off one file
+// of the application as go generate ./... runs. The regeneration is the last step before
+// the roles are written, so every step before it reads the file, and the step that writes
+// the roles finds it there and cannot read it.
+type lockedRegeneration struct {
+	tenantedRegeneration
+	locks string
+}
+
+func (r *lockedRegeneration) Run(ctx context.Context, dir string, env []string, name string, args ...string) ([]byte, error) {
+	if name == "go" && len(args) > 0 && args[0] == "generate" {
+		if err := os.Chmod(r.a.Abs(r.locks), 0); err != nil {
+			return nil, errors.Wrap(err, "os.Chmod()")
+		}
+	}
+
+	return r.tenantedRegeneration.Run(ctx, dir, env, name, args...)
+}
+
+// skipWhereNoFileIsUnreadable skips a test that needs a file it cannot read where the
+// user it runs as reads a file whatever its mode says, as root does.
+func skipWhereNoFileIsUnreadable(t *testing.T) {
+	t.Helper()
+
+	if os.Geteuid() == 0 {
+		t.Skip("the test runs as root, which reads a file whatever its mode, so it can make no file unreadable")
+	}
+	probe := filepath.Join(t.TempDir(), "probe")
+	if err := os.WriteFile(probe, nil, 0); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	if _, err := os.ReadFile(probe); err == nil {
+		t.Skip("the test's user reads a file with every permission taken off it, so it can make no file unreadable")
+	}
+}
+
+// A file the role step reads that is there and cannot be read stops the command with the
+// error: read as a file that is not there, the foothold would have the command say the
+// application has none, a test the proof of the role's conditions stands on would have it
+// say the test is not the command's and write the role without its conditional grants, and
+// the deployment test would be passed over with nothing said.
+func TestTenancy_Apply_stopsOnAFileItCannotRead(t *testing.T) {
+	t.Parallel()
+
+	const (
+		roles    = "pkg/auth/staff/roles.json"
+		foothold = "pkg/auth/staff/foothold.go"
+	)
+	for _, tt := range []struct {
+		name string
+		file string
+		// wantWritten is whether the role is in the role file by the time the file is read.
+		wantWritten bool
+	}{
+		{name: "the foothold", file: foothold},
+		{name: "a test the proof of the role's conditions stands on", file: grantsSuite},
+		{name: "the deployment test", file: deployTest, wantWritten: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			skipWhereNoFileIsUnreadable(t)
+
+			a := newBase(t, "staff")
+			run := &lockedRegeneration{locks: tt.file}
+			run.collection = referenceCollection(t)
+			run.a = a
+			run.removes = []string{"pkg/identity/staffhandlers/zz_gen_staff_sign_up_roles.go"}
+
+			ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), a, run)
+			if err == nil {
+				t.Fatalf("Tenancy.Apply() error = nil with %s there and unreadable; the change skipped %q", tt.file, ch.Skipped)
+			}
+			if !errors.Is(err, fs.ErrPermission) {
+				t.Errorf("Tenancy.Apply() error = %v, want the refusal to read %s", err, tt.file)
+			}
+			if got := roleNamed(roleFileOf(t, a, roles).Roles.Domain, "TenantAdministrator") != nil; got != tt.wantWritten {
+				t.Errorf("%s has the role TenantAdministrator = %t, want %t", roles, got, tt.wantWritten)
 			}
 		})
 	}
