@@ -24,6 +24,10 @@ import { FlightDeckComponent } from './flight-deck.component';
 // what the server refuses is shown in the dialog in the server's words and the form stays
 // as it was filled. An edge that needs no input, and Delete, stay plain buttons. The row's
 // capability envelope still decides which buttons a mission offers.
+//
+// An edge is shown in a person's words, "Claim", "Put on hold", "Stand down", on its
+// button, on its edge of the graph, over its dialog and on the dialog's button that
+// sends: nowhere does the deck say a method's name.
 
 /** Anvil's id: a sector's key is an id its create generates, and the name is a field. */
 const anvilID = 'a1111111-1111-4111-8111-111111111111';
@@ -250,8 +254,8 @@ describe('FlightDeckComponent', () => {
     await openMission();
 
     expect(texts('.detail-card button')).toEqual([
-      'ClaimMission',
-      'StandDownMission',
+      'Claim',
+      'Stand down',
       'Edit call sheet',
       'Delete',
       'Attach document',
@@ -364,15 +368,15 @@ describe('FlightDeckComponent', () => {
     expect(element().querySelector('.refusal')).toBeNull();
   });
 
-  it("an edge that needs input opens its form in a dialog under the edge's name, and the claim names the squadron picked", async () => {
+  it("an edge that needs input opens its form in a dialog under the edge's words, and the claim names the squadron picked", async () => {
     await pageFor({ grants: marshal });
     await openMission();
     const before = reads('missions');
-    await press('ClaimMission');
+    await press('Claim');
 
-    expect(dialogTexts('[mat-dialog-title]')).toEqual(['ClaimMission']);
+    expect(dialogTexts('[mat-dialog-title]')).toEqual(['Claim']);
     expect(dialogTexts('mat-label')).toEqual(['Squadron']);
-    expect(dialogTexts('mat-dialog-actions button')).toEqual(['Cancel', 'ClaimMission']);
+    expect(dialogTexts('mat-dialog-actions button')).toEqual(['Cancel', 'Claim']);
     expect(fired('claim-mission')).toEqual([]);
 
     await pick('claimSquadron', 'Kestrel Flight');
@@ -384,10 +388,85 @@ describe('FlightDeckComponent', () => {
     expect(reads('missions')).toBe(before + 1);
   });
 
+  it("every edge of a mission is shown in a person's words: on its button, on the graph, over its dialog and on the button that sends", async () => {
+    // The envelope names every edge of the workflow, in the order the server gives them.
+    await pageFor({
+      grants: marshal,
+      capabilities: {
+        Execute: [
+          'ClaimMission',
+          'LaunchMission',
+          'HoldMission',
+          'ResumeMission',
+          'CompleteMission',
+          'FailMission',
+          'StandDownMission',
+        ],
+      },
+    });
+    await openMission();
+
+    expect(texts('.detail-card .edges button')).toEqual([
+      'Claim',
+      'Launch',
+      'Put on hold',
+      'Resume',
+      'Complete',
+      'Mark as failed',
+      'Stand down',
+    ]);
+    // The graph draws one edge for each state a transition leaves, in the workflow's order.
+    expect(texts('.detail-card svg .edge text')).toEqual([
+      'Claim',
+      'Complete',
+      'Mark as failed',
+      'Put on hold',
+      'Launch',
+      'Resume',
+      'Stand down',
+      'Stand down',
+      'Stand down',
+    ]);
+    // The mission is open, so the edges that leave open are the ones lit, and a screen
+    // reader says the same words of them.
+    expect(
+      Array.from(element().querySelectorAll('.detail-card svg .edge.live')).map((edge) =>
+        edge.getAttribute('aria-label'),
+      ),
+    ).toEqual(['Claim', 'Stand down']);
+
+    // Each edge that asks for something opens its form under its own words.
+    for (const [words, labels] of [
+      ['Claim', ['Squadron']],
+      ['Launch', ['Ship', 'Pilot']],
+      ['Put on hold', ['Reason']],
+      ['Mark as failed', ['Reason']],
+    ] as const) {
+      await press(words);
+
+      expect(dialogOpen()).toBe(true);
+      expect(dialogTexts('[mat-dialog-title]')).toEqual([words]);
+      expect(dialogTexts('mat-label')).toEqual([...labels]);
+      expect(dialogTexts('mat-dialog-actions button')).toEqual(['Cancel', words]);
+
+      await cancel();
+    }
+
+    // Nothing the deck drew says a method's name ("ClaimMission", "StandDownMission").
+    expect(text(element())).not.toMatch(/\b(?:[A-Z][a-z]+)+Mission\b/);
+  });
+
+  it('an edge the deck has no words for is shown as its name in words, never as the name', async () => {
+    await pageFor({ grants: marshal, capabilities: { Execute: ['ClaimMission', 'ScrubMission'] } });
+    await openMission();
+
+    expect(texts('.detail-card .edges button')).toEqual(['Claim', 'Scrub mission']);
+  });
+
   it('an edge whose form is cancelled sends nothing', async () => {
     await pageFor({ grants: marshal });
     await openMission();
-    await press('ClaimMission');
+    await press('Claim');
     expect(dialogOpen()).toBe(true);
     await pick('claimSquadron', 'Kestrel Flight');
     await cancel();
@@ -400,7 +479,7 @@ describe('FlightDeckComponent', () => {
     const sentence = 'ClaimMission: the squadron is grounded';
     await pageFor({ grants: marshal, claim: { status: 409, body: { message: sentence } } });
     await openMission();
-    await press('ClaimMission');
+    await press('Claim');
     await pick('claimSquadron', 'Kestrel Flight');
     await send();
     await settle(() => dialogTexts('.refusal').length > 0, 50);
@@ -419,7 +498,7 @@ describe('FlightDeckComponent', () => {
   it('an edge that needs no input is sent from its button, with no dialog', async () => {
     await pageFor({ grants: marshal });
     await openMission();
-    await press('StandDownMission');
+    await press('Stand down');
     await settle(() => fired('stand-down-mission').length > 0, 50);
 
     expect(fired('stand-down-mission')).toEqual([{ missionId: 'm-1' }]);

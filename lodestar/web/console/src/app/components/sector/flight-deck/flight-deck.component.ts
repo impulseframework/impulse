@@ -16,9 +16,25 @@ import { MissionKind } from '@app/service/zz_gen_enums';
 import { methodMeta } from '@app/service/zz_gen_methods';
 import { MissionDocuments, Missions, Sorties, SortieExpenses } from '@app/service/zz_gen_resources';
 import { ApiError, Method, MethodHandle, MethodMeta, rowCapabilities } from '@impulseframework/resource';
+import { nameInWords } from '@impulseframework/resource-angular/types';
 import { openFormDialog } from '../form-dialog';
 import { SectorService } from '../sector.service';
 import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.component';
+
+/**
+ * What a person calls each of a mission's edges. The generated metadata gives a method
+ * its name and no words, so the words are the deck's own, as a list's are where its
+ * configuration names a method.
+ */
+const edgeWords: Readonly<Record<string, string>> = {
+  [Methods.ClaimMission]: 'Claim',
+  [Methods.LaunchMission]: 'Launch',
+  [Methods.HoldMission]: 'Put on hold',
+  [Methods.ResumeMission]: 'Resume',
+  [Methods.CompleteMission]: 'Complete',
+  [Methods.FailMission]: 'Mark as failed',
+  [Methods.StandDownMission]: 'Stand down',
+};
 
 /**
  * The flight deck: every mission is a live state graph. Call sheets list what the
@@ -42,6 +58,12 @@ import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.compone
  * notice, so what the server refuses of a form is shown in the form, in the server's
  * words, and the form stays as it was filled. Deleting a mission and the edges that need
  * no input stay plain buttons: there is nothing to fill.
+ *
+ * An edge is shown in a person's words wherever the deck shows it: "Claim", "Put on
+ * hold", "Stand down" on its button, on its edge of the graph, over its dialog and on
+ * the dialog's button that sends. No button or dialog says a method's name
+ * ("ClaimMission"); an edge the deck has no words for is shown as the library's pages
+ * show a method, its name in words.
  *
  * Demonstrates: capability-envelope, create-under-parent, cell-masking, @answers, rpc.dry-run, @upload, @enumerate, @enumerate.enum-table, paging.descriptor-sizes, workflow.ts-constant, paging.link-header, paging.total-count, condition.now, client.uncaught-notice.
  */
@@ -303,6 +325,9 @@ export class FlightDeckComponent {
   executable(mission: Missions): Method[] {
     return (rowCapabilities(mission)?.Execute ?? []) as Method[];
   }
+
+  /** The words an edge is shown with: the deck's own, or the method's name in words. */
+  readonly words = (method: string): string => edgeWords[method] ?? nameInWords(method);
 
   /** The placeholder body each edge's dry run carries; the target row is the mission. */
   private probeBody(mission: Missions, method: Method): Record<string, unknown> | undefined {

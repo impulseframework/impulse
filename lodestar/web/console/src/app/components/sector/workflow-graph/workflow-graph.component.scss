@@ -18,11 +18,11 @@
       stroke-width: 1.4;
     }
 
+    // An edge's label is words a person says, so it is set as the page's words are.
     text {
       font-size: 9px;
       text-anchor: middle;
       fill: currentColor;
-      font-family: 'Roboto Mono', monospace;
     }
 
     &.live {

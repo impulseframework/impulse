@@ -83,12 +83,13 @@
         [root]="resources.Missions"
         [current]="mission.statusId ?? ''"
         [executable]="executable(mission)"
+        [words]="words"
         (fire)="onEdge(mission, $event)"></app-workflow-graph>
 
       <div class="edges">
         @for (method of executable(mission); track method) {
           <span class="edge">
-            <button mat-stroked-button (click)="onEdge(mission, method)">{{ method }}</button>
+            <button mat-stroked-button (click)="onEdge(mission, method)">{{ words(method) }}</button>
             @if (check(method); as verdict) {
               <span
                 class="probe"
@@ -261,7 +262,7 @@
 <ng-template #edgeForm>
   @if (selected(); as mission) {
     @if (pendingEdge(); as edge) {
-      <div mat-dialog-title>{{ edge }}</div>
+      <div mat-dialog-title>{{ words(edge) }}</div>
       <form class="dialog-form" (ngSubmit)="fire(mission, edge)">
         <mat-dialog-content>
           @switch (edge) {
@@ -329,7 +330,7 @@
             color="accent"
             class="send"
             [disabled]="edge === methods.HoldMission && holdCheck()?.ok === false">
-            {{ edge }}
+            {{ words(edge) }}
           </button>
         </mat-dialog-actions>
       </form>

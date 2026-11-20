@@ -1,6 +1,7 @@
 import { Component, computed, input, output } from '@angular/core';
 import { Workflows } from '@app/service/zz_gen_resources';
 import { Method, Resource } from '@impulseframework/resource';
+import { nameInWords } from '@impulseframework/resource-angular/types';
 
 interface Node {
   state: string;
@@ -12,6 +13,8 @@ interface Node {
 
 interface Edge {
   method: string;
+  /** What the edge is called on the graph, and what a screen reader says of it. */
+  words: string;
   from: string;
   to: string;
   path: string;
@@ -29,6 +32,10 @@ interface Edge {
  * policy not) carried into the product: the graph is a fact about the workflow, the
  * live edges are a fact about you.
  *
+ * An edge is drawn in words, never as its method's name: the words its page gives it
+ * (`words`), and where the page gives none the name in words, as the library's pages
+ * show a method ("Begin refit" for BeginRefit).
+ *
  * Demonstrates: workflow.ts-constant, capability-envelope.
  */
 @Component({
@@ -43,6 +50,8 @@ export class WorkflowGraphComponent {
   current = input.required<string>();
   /** The methods the row's Execute envelope lists — the edges lit for this user. */
   executable = input<readonly string[]>([]);
+  /** What the page calls a method; a page that gives no words gets each method's name in words. */
+  words = input<(method: string) => string>(nameInWords);
   /** Fires when a live edge is clicked. */
   fire = output<Method>();
 
@@ -78,6 +87,7 @@ export class WorkflowGraphComponent {
     if (!wf) return [];
     const pos = new Map(this.nodes().map((n) => [n.state, n]));
     const executable = new Set(this.executable());
+    const words = this.words();
     const edges: Edge[] = [];
     for (const t of wf.transitions) {
       for (const from of t.from) {
@@ -91,6 +101,7 @@ export class WorkflowGraphComponent {
         const my = (a.y + b.y) / 2 + bend;
         edges.push({
           method: t.method,
+          words: words(t.method),
           from,
           to: t.to,
           path: `M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}`,
