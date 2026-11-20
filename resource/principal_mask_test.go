@@ -16,22 +16,33 @@ import (
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
-// stubClasses answers the classes of the tests' actions, each within one scope.
+// stubClasses answers for the tests' application: the actions it registers, each within
+// one scope, with the classes each carries (none for an action that carries no class).
+// A name that is not here is no action of the application.
 type stubClasses map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.ActionClass
 
 func (s stubClasses) ActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource) []accesstypes.ActionClass {
 	return s[scope][action]
 }
 
-// maskTestClasses are the classes the masked tests' actions carry: two credential
-// actions of the whole application, one of a tenant, and an action of a class of the
-// application's own.
+// HasPermission reports Execute on an action the application registers within scope.
+func (s stubClasses) HasPermission(scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) bool {
+	_, registered := s[scope][res]
+
+	return registered && permission == accesstypes.Execute
+}
+
+// maskTestClasses are the masked tests' actions and the classes they carry: two
+// credential actions of the whole application, one of a tenant, an action of a class of
+// the application's own, and two actions that carry no class.
 func maskTestClasses() stubClasses {
 	return stubClasses{
 		accesstypes.GlobalPermissionScope: {
 			"SetPassword":    {accesstypes.ClassCredential},
 			"UnlinkIdentity": {accesstypes.ClassCredential},
 			"WireFunds":      {"money_movement"},
+			"Launch":         nil,
+			"LaunchProbe":    nil,
 		},
 		accesstypes.DomainPermissionScope: {
 			"RenameUser": {accesstypes.ClassCredential},
@@ -87,7 +98,9 @@ func TestMasked_refusesInsideAKeptKind(t *testing.T) {
 		wantDenied []accesstypes.Resource
 		// wantDelegated are the resources policy was asked about.
 		wantDelegated []accesstypes.Resource
-		wantDigest    accesstypes.PermissionDigest
+		// holds is what the person holds before the mask; maskTestDigest when nil.
+		holds      accesstypes.PermissionDigest
+		wantDigest accesstypes.PermissionDigest
 	}{
 		{
 			name:          "a refused class: its actions are denied, the others are policy's",
@@ -187,6 +200,66 @@ func TestMasked_refusesInsideAKeptKind(t *testing.T) {
 			wantDigest: accesstypes.PermissionDigest{},
 		},
 		{
+			// Decommission is granted to the person and is no action of the application
+			// the check was handed, and Lanch is Launch spelled wrong: neither carries a
+			// class anyone declared, so under a mask that refuses a class neither is let
+			// through on the guess that it carries none.
+			name:          "a refused class and an action the application does not register: denied before policy is asked, and left out of the digest",
+			mask:          accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)),
+			classes:       maskTestClasses(),
+			scope:         accesstypes.GlobalScope(),
+			perm:          accesstypes.Execute,
+			check:         []accesstypes.Resource{"Launch", "Decommission", "Lanch", "Decommission.reason"},
+			wantDenied:    []accesstypes.Resource{"Decommission", "Lanch", "Decommission.reason"},
+			wantDelegated: []accesstypes.Resource{"Launch"},
+			holds: accesstypes.PermissionDigest{
+				"Launch":       {accesstypes.Execute: accesstypes.DigestGranted},
+				"Decommission": {accesstypes.Execute: accesstypes.DigestGranted, accesstypes.Read: accesstypes.DigestGranted},
+			},
+			wantDigest: accesstypes.PermissionDigest{
+				"Launch":       {accesstypes.Execute: accesstypes.DigestGranted},
+				"Decommission": {accesstypes.Read: accesstypes.DigestGranted},
+			},
+		},
+		{
+			name:          "an action a tenant's scope registers is an action of the application in a check for the whole application",
+			mask:          accesstypes.AllowAll().Refusing(accesstypes.RefuseClass("money_movement")),
+			classes:       maskTestClasses(),
+			scope:         accesstypes.GlobalScope(),
+			perm:          accesstypes.Execute,
+			check:         []accesstypes.Resource{"RenameUser", "WireFunds"},
+			wantDenied:    []accesstypes.Resource{"WireFunds"},
+			wantDelegated: []accesstypes.Resource{"RenameUser"},
+			wantDigest:    without(map[accesstypes.Resource][]accesstypes.Permission{"WireFunds": {accesstypes.Execute}}),
+		},
+		{
+			name:          "a mask that refuses no class leaves an action the application does not register to policy",
+			mask:          accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("Launch")),
+			classes:       maskTestClasses(),
+			scope:         accesstypes.GlobalScope(),
+			perm:          accesstypes.Execute,
+			check:         []accesstypes.Resource{"Decommission", "Launch"},
+			wantDenied:    []accesstypes.Resource{"Launch"},
+			wantDelegated: []accesstypes.Resource{"Decommission"},
+			holds: accesstypes.PermissionDigest{
+				"Launch":       {accesstypes.Execute: accesstypes.DigestGranted},
+				"Decommission": {accesstypes.Execute: accesstypes.DigestGranted},
+			},
+			wantDigest: accesstypes.PermissionDigest{"Decommission": {accesstypes.Execute: accesstypes.DigestGranted}},
+		},
+		{
+			// A record carries no class, so what a mask that refuses a class does to a
+			// record is nothing, whether or not the name is one the check knows.
+			name:          "a refused class and a record: a record's permissions are policy's",
+			mask:          accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)),
+			classes:       maskTestClasses(),
+			scope:         accesstypes.GlobalScope(),
+			perm:          accesstypes.Update,
+			check:         []accesstypes.Resource{"Ships", "Ships.name", "Shipyards"},
+			wantDelegated: []accesstypes.Resource{"Ships", "Ships.name", "Shipyards"},
+			wantDigest:    without(map[accesstypes.Resource][]accesstypes.Permission{"SetPassword": {accesstypes.Execute}, "UnlinkIdentity": {accesstypes.Execute}, "RenameUser": {accesstypes.Execute}}),
+		},
+		{
 			name:       "the kind is refused whatever the class",
 			mask:       accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read).Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)),
 			classes:    maskTestClasses(),
@@ -212,7 +285,11 @@ func TestMasked_refusesInsideAKeptKind(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			stub := &stubPermissions{user: "bob", digest: maskTestDigest(), domains: []accesstypes.Domain{"tenant"}}
+			holds := tt.holds
+			if holds == nil {
+				holds = maskTestDigest()
+			}
+			stub := &stubPermissions{user: "bob", digest: holds, domains: []accesstypes.Domain{"tenant"}}
 			perms := Masked(stub, tt.mask, tt.classes)
 
 			decisions, err := perms.Check(context.Background(), accesstypes.NewEnvironment(), tt.scope, tt.perm, tt.check...)
@@ -357,6 +434,13 @@ func TestMasked_denialIsLoggedAsTheMasks(t *testing.T) {
 			res:  "Launch",
 			want: "impersonation: Execute denied by mask (*;-on:Execute:Launch) for a mask-log person on Launch: the mask refuses Execute on Launch",
 		},
+		{
+			name: "a refused class and an action the application does not register",
+			mask: accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)),
+			perm: accesstypes.Execute,
+			res:  "Decommission",
+			want: "impersonation: Execute denied by mask (*;-class:credential) for a mask-log person on Decommission: " + unknownActionWhy("Decommission"),
+		},
 	}
 
 	for _, tt := range tests {
@@ -380,6 +464,13 @@ func TestMasked_denialIsLoggedAsTheMasks(t *testing.T) {
 	}
 }
 
+// unknownActionWhy is why a mask that refuses a class refuses Execute on a name that is
+// no action of the application.
+func unknownActionWhy(action string) string {
+	return `the mask refuses a class of actions and "` + action + `" is no action of the application, so the classes it carries cannot be known: ` +
+		"register it by hand (@manualAddResource(Execute) on the constant, with the @class it carries) or correct the name"
+}
+
 // maskedSession is the context of a session that acts as person under mask, started by
 // the person named starter.
 func maskedSession(person accesstypes.User, mask accesstypes.PermissionMask) context.Context {
@@ -391,7 +482,8 @@ func maskedSession(person accesstypes.User, mask accesstypes.PermissionMask) con
 // impersonated one alike, and a mask refuses the action when it does not keep Execute,
 // when it refuses a class the action carries in either scope, or when it refuses the
 // action by name. A mask that refuses a class is not judged on a guess: with no classes
-// it refuses the action.
+// it refuses the action, and it refuses an action the application does not register,
+// which a mask that refuses no class leaves alone.
 func TestMaskRefusesAction(t *testing.T) {
 	t.Parallel()
 
@@ -472,6 +564,34 @@ func TestMaskRefusesAction(t *testing.T) {
 			wantWhy: "the mask refuses a class of actions and the application handed the check no classes (resource.SessionPermissions takes the generated collection)",
 			want:    true,
 		},
+		{
+			name:    "a mask that refuses a class, asked about an action the application does not register",
+			ctx:     maskedSession(aliceUser, refusesAccess),
+			classes: classes,
+			action:  "CreateWorkspace",
+			wantWhy: unknownActionWhy("CreateWorkspace"),
+			want:    true,
+		},
+		{
+			name:    "a mask that refuses a class the action does not carry, asked about an action the application does not register",
+			ctx:     maskedSession(aliceUser, accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential))),
+			classes: classes,
+			action:  "CreatTenant",
+			wantWhy: unknownActionWhy("CreatTenant"),
+			want:    true,
+		},
+		{
+			name:    "a mask that refuses no class, asked about an action the application does not register",
+			ctx:     maskedSession(aliceUser, accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("WireFunds"))),
+			classes: classes,
+			action:  "CreateWorkspace",
+		},
+		{
+			name:    "a session of the person's own, asked about an action the application does not register",
+			ctx:     sessionCtx("alice", nil),
+			classes: classes,
+			action:  "CreateWorkspace",
+		},
 	}
 
 	for _, tt := range tests {
@@ -479,6 +599,40 @@ func TestMaskRefusesAction(t *testing.T) {
 			t.Parallel()
 
 			why, refused := MaskRefusesAction(tt.ctx, tt.classes, tt.action)
+			if refused != tt.want || why != tt.wantWhy {
+				t.Errorf("MaskRefusesAction() = %q, %t; want %q, %t", why, refused, tt.wantWhy, tt.want)
+			}
+		})
+	}
+}
+
+// TestMaskRefusesAction_generatedCollection pins the rule over the collection an
+// application hands the check, the generated one: under a mask that refuses a class, an
+// action it registers is judged by the classes it carries (the action no role is given
+// among them, which is registered for this check alone), and a name it registers no
+// Execute on is refused, a record's name included.
+func TestMaskRefusesAction_generatedCollection(t *testing.T) {
+	t.Parallel()
+
+	collection, _ := noRoleCollection(t)
+	ctx := maskedSession(aliceUser, accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassAccess)))
+
+	tests := []struct {
+		name    string
+		action  accesstypes.Resource
+		wantWhy string
+		want    bool
+	}{
+		{name: "the action no role is given, which carries the class", action: "CreateShop", wantWhy: "the mask refuses the class access", want: true},
+		{name: "an action that carries no class", action: "Launch"},
+		{name: "a name the collection does not hold", action: "CreateShopp", wantWhy: unknownActionWhy("CreateShopp"), want: true},
+		{name: "a record's name, which is no action", action: "Widgets", wantWhy: unknownActionWhy("Widgets"), want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			why, refused := MaskRefusesAction(ctx, collection, tt.action)
 			if refused != tt.want || why != tt.wantWhy {
 				t.Errorf("MaskRefusesAction() = %q, %t; want %q, %t", why, refused, tt.wantWhy, tt.want)
 			}
@@ -503,6 +657,10 @@ func TestRefuseActionUnderMask(t *testing.T) {
 	tests := []struct {
 		name string
 		ctx  context.Context
+		// action is the action the handler asks about, with act, what the session
+		// cannot do in the answer's words; creating a tenant when empty.
+		action accesstypes.Resource
+		act    string
 		// wantSays is what the answer says, and wantLogged the log's line; both empty
 		// for a session the mask refuses nothing.
 		wantSays   string
@@ -551,13 +709,36 @@ func TestRefuseActionUnderMask(t *testing.T) {
 				"What a session that acts as someone may do is set when it starts; start one that may, or stop acting as them first",
 			wantLogged: "impersonation: Execute denied by mask (*;-class:access) for a role-route person on CreateTenant: the mask refuses the class access",
 		},
+		{
+			// The handler asks about an action the application never registered: under
+			// a mask that refuses a class the session is refused, and both the answer
+			// and the log say which name is no action and what to do about it.
+			name:   "a mask that refuses a class, asked about an action the application does not register",
+			ctx:    maskedSession("an unregistered-route person", accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassAccess))),
+			action: "CreateWorkspace",
+			act:    "create a workspace",
+			wantSays: "you are acting as someone else, and this session cannot create a workspace: " + unknownActionWhy("CreateWorkspace") + ". " +
+				"What a session that acts as someone may do is set when it starts; start one that may, or stop acting as them first",
+			wantLogged: "impersonation: Execute denied by mask (*;-class:access) for an unregistered-route person on CreateWorkspace: " + unknownActionWhy("CreateWorkspace"),
+		},
+		{
+			name:   "a session of the person's own, asked about an action the application does not register",
+			ctx:    sessionCtx("an unmasked unregistered-route person", nil),
+			action: "CreateWorkspace",
+			act:    "create a workspace",
+			person: "an unmasked unregistered-route person",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := RefuseActionUnderMask(tt.ctx, classes, "CreateTenant", "create a tenant")
+			action, act := tt.action, tt.act
+			if action == "" {
+				action, act = "CreateTenant", "create a tenant"
+			}
+			err := RefuseActionUnderMask(tt.ctx, classes, action, act)
 			if tt.wantSays == "" {
 				if err != nil {
 					t.Errorf("RefuseActionUnderMask() error = %v, want none: the session has no mask", err)

@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -454,11 +455,18 @@ func (a *admittedPermissions) HasGrants(ctx context.Context, scope accesstypes.S
 	return a.Reaches(ctx, domain)
 }
 
-// ActionClasses answers the classes an action carries within a permission scope, as
-// the generated collection does (GeneratedCollection.ActionClasses). The masked check
-// of an impersonated session asks it, since a mask may refuse a class of actions.
+// ActionClasses answers what the masked check of an impersonated session asks about an
+// action, as the generated collection does: the classes the action carries within a
+// permission scope (GeneratedCollection.ActionClasses), since a mask may refuse a class
+// of actions, and whether the application registers the action at all
+// (GeneratedCollection.HasPermission), since the classes of an action the application
+// does not register cannot be known.
 type ActionClasses interface {
+	// ActionClasses reports the classes the action carries within scope.
 	ActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource) []accesstypes.ActionClass
+	// HasPermission reports whether the application registers permission on res within
+	// scope.
+	HasPermission(scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) bool
 }
 
 // Masked returns perms attenuated by mask. A check is Denied before policy is
@@ -471,7 +479,13 @@ type ActionClasses interface {
 //
 // classes answers the classes each action carries: the application's generated
 // collection. A mask that refuses a class cannot be judged without them, so with nil
-// classes such a mask refuses every check: nothing is allowed on a guess.
+// classes such a mask refuses every check: nothing is allowed on a guess. For the same
+// reason such a mask refuses Execute on a name that is no action of the application
+// (one classes registers no Execute on, for the whole application or for a tenant):
+// the name carries no class anyone declared, so the check would otherwise let it
+// through whatever the mask refuses. The declaration of a kind holds a mask to the
+// application's actions by the same rule when the application starts
+// (session.NewImpersonations).
 func Masked(perms UserPermissions, mask accesstypes.PermissionMask, classes ActionClasses) UserPermissions {
 	if mask.IsZero() {
 		return perms
@@ -509,6 +523,12 @@ func newMaskedPermissions(perms UserPermissions, mask accesstypes.PermissionMask
 // is carried by the action whichever scope registers it, so the classes of both scopes
 // are asked: a check made in one scope of an action classed in the other is refused
 // with it, never let through for want of a class.
+//
+// Under a mask that refuses a class, Execute on a name the application registers no
+// action under is refused: its classes are not empty, they are unknown. A name spelled
+// wrong, an action checked by hand and never registered, and an action of a collection
+// other than the one the check was handed are each such a name, and each would
+// otherwise pass a mask written to refuse a whole class.
 func (m *maskedPermissions) refuses(perm accesstypes.Permission, res accesstypes.Resource) (why string, refused bool) {
 	if !m.refusesClasses {
 		return m.mask.Refuses(perm, res)
@@ -518,12 +538,27 @@ func (m *maskedPermissions) refuses(perm accesstypes.Permission, res accesstypes
 	}
 	base, _, _ := strings.Cut(string(res), ".")
 	action := accesstypes.Resource(base)
+	if perm == accesstypes.Execute && !m.registersAction(action) {
+		return fmt.Sprintf(
+			"the mask refuses a class of actions and %q is no action of the application, so the classes it carries cannot be known: "+
+				"register it by hand (@manualAddResource(Execute) on the constant, with the @class it carries) or correct the name",
+			string(action),
+		), true
+	}
 	classes := slices.Concat(
 		m.classes.ActionClasses(accesstypes.GlobalPermissionScope, action),
 		m.classes.ActionClasses(accesstypes.DomainPermissionScope, action),
 	)
 
 	return m.mask.Refuses(perm, res, classes...)
+}
+
+// registersAction reports whether the application registers Execute on action, for the
+// whole application or for a tenant: the rule the declaration of a kind holds a grant
+// and a mask's named action to (session.NewImpersonations).
+func (m *maskedPermissions) registersAction(action accesstypes.Resource) bool {
+	return m.classes.HasPermission(accesstypes.GlobalPermissionScope, accesstypes.Execute, action) ||
+		m.classes.HasPermission(accesstypes.DomainPermissionScope, accesstypes.Execute, action)
 }
 
 // Check answers Denied, without consulting policy, for every resource the mask
@@ -656,7 +691,12 @@ func (m *maskedPermissions) Reaches(ctx context.Context, domain accesstypes.Doma
 //
 // classes answers the classes the action carries: the application's generated
 // collection. As in Masked, a mask that refuses a class cannot be judged without them,
-// so with nil classes such a mask refuses the action.
+// so with nil classes such a mask refuses the action, and it refuses an action the
+// collection does not hold (a name it registers no Execute on): the action is to be
+// registered, by the generator or by hand (@manualAddResource(Execute) on its constant,
+// with the @class it carries), under the name the handler asks about. A name spelled
+// wrong would otherwise pass every mask that refuses by class, and nothing would say
+// so.
 //
 // It logs nothing and writes no sentence: a route that answers whether an act is
 // offered asks it, and the act itself asks RefuseActionUnderMask. It panics when no

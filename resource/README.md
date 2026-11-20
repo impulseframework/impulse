@@ -662,7 +662,20 @@ about it:
   (`ActionClasses`): the generated collection, `router.Collection()`, built once and
   held by the application, as the skeletons do. A mask that refuses a class, checked
   with no classes handed in (`nil`), refuses everything: the check cannot know which
-  actions carry the class, and it never guesses open.
+  actions carry the class, and it never guesses open. For the same reason such a mask
+  refuses Execute on a name that is no action of the application, one the collection
+  registers no Execute on for the whole application or for a tenant: a name spelled
+  wrong, an action checked by hand and never registered, or an action of a collection
+  other than the one handed in. Its classes are not none, they are unknown, and the
+  denial says so (`… "CreateWorkspace" is no action of the application, so the classes
+  it carries cannot be known: register it by hand (@manualAddResource(Execute) on the
+  constant, with the @class it carries) or correct the name`). It is the rule the
+  declaration of a kind holds its grant and its mask to when the application starts
+  (`session.NewImpersonations`), asked here of the names that arrive with a request. An
+  application's own route that asks the mask about an action no grant admits
+  (`resource.RefuseActionUnderMask`, `resource.MaskRefusesAction`, section 16) therefore
+  registers that action, by hand, under the name it asks about. A mask that refuses no
+  class leaves such a name to policy, as before.
 - **`HoldsAction(perms, scope)`** answers whether the request's person holds Execute on
   an action, granted outright, in one scope. It is the grant check the session
   package's declaration of impersonation asks
