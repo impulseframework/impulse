@@ -74,6 +74,8 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		"internal/crewresources/crew_group_roles.go",
 		"internal/crewresources/crew_group_users.go",
 		"internal/crewresources/crew_groups.go",
+		"internal/crewresources/crew_listed_group_roles.go",
+		"internal/crewresources/crew_listed_groups.go",
 		"internal/crewresources/crew_user_group_roles.go",
 	}
 	if diff := cmp.Diff(want, groupFiles(t, "pkg/identity")); diff != "" {
@@ -111,10 +113,10 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"// @rpc\n\t// @outlet(default)\n\tCreateCrewGroup struct {", "Domain      *string", "identity.Scope(m.Domain, false)",
 			"client.manager.CreateGroup(ctx, txn, scope, m.Name, m.Description)", "return &CreateCrewGroupResult{ID: id}, nil",
 		},
-		"crewidentity/describe_crew_group.go": {"// @answers(204)\ntype DescribeCrewGroup struct {\n\t// @target(CrewGroup)\n\tGroupID     impulse.UUID", "client.manager.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
-		"crewidentity/delete_crew_group.go":   {"type DeleteCrewGroup struct {\n\t// @target(CrewGroup)\n\tGroupID impulse.UUID\n}", "client.manager.DeleteGroup(ctx, txn, m.GroupID)"},
+		"crewidentity/describe_crew_group.go": {"// @answers(204)\ntype DescribeCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID     impulse.UUID", "client.manager.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
+		"crewidentity/delete_crew_group.go":   {"type DeleteCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID\n}", "client.manager.DeleteGroup(ctx, txn, m.GroupID)"},
 		"crewidentity/add_crew_group_member.go": {
-			"type AddCrewGroupMember struct {\n\t// @target(CrewGroup)\n\tGroupID impulse.UUID", "// @enumerate(CrewSessionUsers)\n\tUserID impulse.UUID",
+			"type AddCrewGroupMember struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID", "// @enumerate(CrewSessionUsers)\n\tUserID impulse.UUID",
 			// The served method names a person someone picked, so the account is read.
 			"client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AddGroupMemberFor(ctx, txn, m.GroupID, m.UserID, period)",
 		},
@@ -123,7 +125,7 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"client.manager.RemoveGroupMember(ctx, txn, m.GroupID, m.UserID)",
 		},
 		"crewidentity/give_crew_group_role.go": {
-			"type GiveCrewGroupRole struct {\n\t// @target(CrewGroup)\n\tGroupID impulse.UUID", "// @attribute(role)\n\tRole        string `validate:\"required\"`", "EveryDomain bool",
+			"type GiveCrewGroupRole struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID", "// @attribute(role)\n\tRole        string `validate:\"required\"`", "EveryDomain bool",
 			"client.manager.GiveGroupRoleFor(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role), period)",
 		},
 		// The whole application's method names no row: a role is held in a scope whose
@@ -236,6 +238,8 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 		"internal/crewresources/crew_group_roles.go",
 		"internal/crewresources/crew_group_users.go",
 		"internal/crewresources/crew_groups.go",
+		"internal/crewresources/crew_listed_group_roles.go",
+		"internal/crewresources/crew_listed_groups.go",
 		"internal/crewresources/crew_ship_group_roles.go",
 		"internal/crewresources/crew_ship_group_users.go",
 		"internal/crewresources/crew_ship_groups.go",
@@ -263,7 +267,7 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 		},
 		"internal/crewresources/crew_ship_user_group_roles.go": {
 			"CrewShipUserGroupRole struct {", "GlobalGroup bool", "EveryDomain bool",
-			"SELECT s.Id AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt\n  FROM CrewGroupRoles r\n  CROSS JOIN Ships s",
+			"SELECT s.Id AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.CreatedAt AS CreatedAt, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt\n  FROM CrewGroupRoles r\n  CROSS JOIN Ships s",
 			"WHERE t.Role != 'SuperAdministrator'\n  AND (g.Kind = 'global' OR (NOT t.EveryDomain AND g.Kind = 'domain' AND g.Axis = '' AND g.DomainId = t.DomainId))",
 		},
 		// Who a group puts in a tenant is one of the tenant's people: the members of its
@@ -398,7 +402,7 @@ func Test_prepareIdentity_grants_tenant(t *testing.T) {
 			"people := resource.ExecuteTarget{Resource: \"CrewShipUsers\", Label: \"CrewShipUser\", PKColumns: []string{\"Id\"}, View: crewresources.CrewShipUser{}}",
 			"return granted(gate.EnforceView(ctx, txn, people, userID))",
 			"caller.ExecuteGate(ctx, RemoveCrewShipRole{}.Method(), &RemoveCrewShipRole{UserID: userID, Role: string(role)})",
-			"held := resource.ExecuteTarget{Resource: \"CrewShipUserRoles\", Label: \"CrewShipUserRole\", PKColumns: []string{\"UserId\", \"Role\"}, View: nil}",
+			"held := resource.ExecuteTarget{Resource: \"CrewShipHeldRoles\", Label: \"CrewShipHeldRole\", PKColumns: []string{\"UserId\", \"Role\", \"GroupId\"}, View: nil}",
 			"return granted(gate.EnforceProposed(ctx, txn, held, map[string]any{\"role\": string(role), \"everyDomain\": false}))",
 			// The whole application's request is answered by its own methods still.
 			"caller.ExecuteGate(ctx, AssignCrewRole{}.Method(), &AssignCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",

@@ -527,3 +527,20 @@ a[mat-icon-button] {
 .data-col .cell-no {
   color: var(--mat-sys-on-surface-variant);
 }
+
+/* A list drawn a line each: every item on a line of its own, cut short like any cell. */
+.data-col .cell-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* An entry that says what a row shows in a method's place: readable, and plainly not a button. */
+.row-action.row-action-says {
+  opacity: 1;
+  color: var(--mat-sys-on-surface-variant);
+  white-space: normal;
+  height: auto;
+  line-height: 1.4;
+  padding-block: 8px;
+}

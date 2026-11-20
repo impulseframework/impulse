@@ -26,10 +26,19 @@ func TestSessionRoutesRefuseADryRunOrAWarning(t *testing.T) {
 	cadet := newBrowser(t, s, consoleAPI)
 	cadet.signIn(ctx, "cadet")
 	for _, header := range []string{resource.DryRunHeader, resource.WarningHeader} {
-		asks := map[string]string{header: "true"}
-		assertHeldBack(t, newBrowser(t, s, consoleAPI).doWith(ctx, http.MethodGet, consoleAPI+"/user/methods", nil, asks), header)
-		assertHeldBack(t, cadet.doWith(ctx, http.MethodPost, consoleAPI+"/user/look", []byte(`{"scheme":"light"}`), asks), header)
-		assertHeldBack(t, cadet.doWith(ctx, http.MethodGet, consoleAPI+"/user/tokens", nil, asks), header)
+		// asks sends one request as the browser with the header's value true and holds
+		// the answer to the refusal.
+		asks := func(b *browser, method, path string, body []byte) {
+			t.Helper()
+
+			resp := b.doWith(ctx, method, path, body, map[string]string{header: "true"})
+			defer resp.Body.Close()
+
+			assertHeldBack(t, resp, header)
+		}
+		asks(newBrowser(t, s, consoleAPI), http.MethodGet, consoleAPI+"/user/methods", nil)
+		asks(cadet, http.MethodPost, consoleAPI+"/user/look", []byte(`{"scheme":"light"}`))
+		asks(cadet, http.MethodGet, consoleAPI+"/user/tokens", nil)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.server.URL+"/droids/oauth/device/authorize", strings.NewReader(`{"client_id":"corral","outlet":"droids"}`))
 		if err != nil {
@@ -42,6 +51,9 @@ func TestSessionRoutesRefuseADryRunOrAWarning(t *testing.T) {
 			t.Fatalf("POST oauth/device/authorize under %s: %v", header, err)
 		}
 		assertHeldBack(t, resp, header)
+		if err := resp.Body.Close(); err != nil {
+			t.Fatalf("closing the answer of POST oauth/device/authorize under %s: %v", header, err)
+		}
 	}
 	if scheme, palette, present := lookOf(cadet.session(ctx)); present {
 		t.Errorf("after the refused requests the session read answers the look %s/%s, want none: the call was not run", scheme, palette)
@@ -49,11 +61,10 @@ func TestSessionRoutesRefuseADryRunOrAWarning(t *testing.T) {
 }
 
 // assertHeldBack fails unless the response is the refusal of a request that asked a
-// call with no dry run or no warning for one: 400, naming the header. It closes the
-// body.
+// call with no dry run or no warning for one: 400, naming the header. It reads the body;
+// the caller closes it, as the caller of the browser's doWith does.
 func assertHeldBack(t *testing.T, resp *http.Response, header string) {
 	t.Helper()
-	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

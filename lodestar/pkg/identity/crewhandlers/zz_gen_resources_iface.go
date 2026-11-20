@@ -12,9 +12,11 @@ import (
 type Resourcer interface {
 	resource.Resourcer
 	crewresources.CrewGroup | crewresources.CrewGroupMember | crewresources.CrewGroupRole |
-		crewresources.CrewGroupUser | crewresources.CrewRole | crewresources.CrewRoleGrant |
-		crewresources.CrewSectorGroup | crewresources.CrewSectorGroupRole |
-		crewresources.CrewSectorGroupUser | crewresources.CrewSectorIdentity |
+		crewresources.CrewGroupUser | crewresources.CrewHeldRole |
+		crewresources.CrewListedGroup | crewresources.CrewListedGroupRole |
+		crewresources.CrewRole | crewresources.CrewRoleGrant | crewresources.CrewSectorGroup |
+		crewresources.CrewSectorGroupRole | crewresources.CrewSectorGroupUser |
+		crewresources.CrewSectorHeldRole | crewresources.CrewSectorIdentity |
 		crewresources.CrewSectorInvitation | crewresources.CrewSectorUser |
 		crewresources.CrewSectorUserGroupRole | crewresources.CrewSectorUserRole |
 		crewresources.CrewSession | crewresources.CrewSessionAuthEvent |
@@ -22,8 +24,10 @@ type Resourcer interface {
 		crewresources.CrewSessionMailLink | crewresources.CrewSessionSignInAttempt |
 		crewresources.CrewSessionSignInMethod | crewresources.CrewSessionToken |
 		crewresources.CrewSessionTrustedDevice | crewresources.CrewSessionUser |
-		crewresources.CrewUserGroupRole | crewresources.CrewUserRole |
-		crewidentity.CrewInvitedSector | crewidentity.CrewSectorDirectoryRole |
-		crewidentity.CrewSectorRole | crewidentity.CrewSectorSignInWay |
-		crewidentity.CrewSignInMethod | crewidentity.CrewSignInWay
+		crewresources.CrewTakenRole | crewresources.CrewUserGroupRole |
+		crewresources.CrewUserRole | crewidentity.CrewInvitedSector |
+		crewidentity.CrewSectorDirectoryRole | crewidentity.CrewSectorRole |
+		crewidentity.CrewSectorSignInWay | crewidentity.CrewSignInMethod |
+		crewidentity.CrewSignInWay | crewidentity.CrewTakeLength |
+		crewidentity.CrewTakeableRole
 }

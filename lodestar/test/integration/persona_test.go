@@ -324,7 +324,7 @@ func TestPersonaCast_changed(t *testing.T) {
 	// An unchanged cast writes nothing: a role held for a period keeps the period, which
 	// a second write of the role would remove.
 	until := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
-	if err := manager.AssignUserRole(ctx, everySector, lookout, "Cadet", accesstypes.Period{End: until}); err != nil {
+	if err := manager.AssignUserRole(ctx, everySector, lookout, "Cadet", accesstypes.Period{End: until}, ""); err != nil {
 		t.Fatalf("AssignUserRole(lookout, Cadet) error = %v", err)
 	}
 	created, said = seed(entry("CrewCommon", "Cadet"))
@@ -343,7 +343,7 @@ func TestPersonaCast_changed(t *testing.T) {
 
 	// A role whose period has ended is not held: the seed gives it, with no period.
 	ended := accesstypes.Period{Start: time.Now().UTC().Add(-2 * time.Hour), End: time.Now().UTC().Add(-time.Hour)}
-	if err := manager.AssignUserRole(ctx, everySector, lookout, "Cadet", ended); err != nil {
+	if err := manager.AssignUserRole(ctx, everySector, lookout, "Cadet", ended, ""); err != nil {
 		t.Fatalf("AssignUserRole(lookout, Cadet, a period that has ended) error = %v", err)
 	}
 	created, said = seed(entry("CrewCommon", "Cadet"))

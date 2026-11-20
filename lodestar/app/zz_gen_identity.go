@@ -56,6 +56,22 @@ func (a *App) CrewGroupUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewGroupUser()
 }
 
+func (a *App) CrewHeldRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewHeldRoles()
+}
+
+func (a *App) CrewListedGroups() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedGroups()
+}
+
+func (a *App) CrewListedGroup() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedGroup()
+}
+
+func (a *App) CrewListedGroupRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedGroupRoles()
+}
+
 func (a *App) CrewRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewRoles()
 }
@@ -86,6 +102,10 @@ func (a *App) CrewSectorGroupUsers() http.HandlerFunc {
 
 func (a *App) CrewSectorGroupUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSectorGroupUser()
+}
+
+func (a *App) CrewSectorHeldRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSectorHeldRoles()
 }
 
 func (a *App) CrewSectorIdentities() http.HandlerFunc {
@@ -192,6 +212,10 @@ func (a *App) CrewSessionUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionUser()
 }
 
+func (a *App) CrewTakenRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewTakenRoles()
+}
+
 func (a *App) CrewUserGroupRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewUserGroupRoles()
 }
@@ -226,6 +250,14 @@ func (a *App) CrewSignInMethods() http.HandlerFunc {
 
 func (a *App) CrewSignInWays() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSignInWays()
+}
+
+func (a *App) CrewTakeLengths() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewTakeLengths()
+}
+
+func (a *App) CrewTakeableRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewTakeableRoles()
 }
 
 func (a *App) AddCrewGroupMember() http.HandlerFunc {
@@ -436,6 +468,10 @@ func (a *App) TakeCrewGroupRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).TakeCrewGroupRole()
 }
 
+func (a *App) TakeCrewRole() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).TakeCrewRole()
+}
+
 func (a *App) TakeCrewSectorGroupRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).TakeCrewSectorGroupRole()
 }
@@ -482,12 +518,20 @@ var _ = map[bool]struct{}{false: {}, members.TablePrefix == membersidentity.Tabl
 // would take every caller for a person of another auth.
 var _ = map[bool]struct{}{false: {}, members.Name == membersidentity.AuthName: {}}
 
+func (a *App) MembersHeldRoles() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersHeldRoles()
+}
+
 func (a *App) MembersRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersRoles()
 }
 
 func (a *App) MembersRoleGrants() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersRoleGrants()
+}
+
+func (a *App) MembersSectorHeldRoles() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSectorHeldRoles()
 }
 
 func (a *App) MembersSectorIdentities() http.HandlerFunc {

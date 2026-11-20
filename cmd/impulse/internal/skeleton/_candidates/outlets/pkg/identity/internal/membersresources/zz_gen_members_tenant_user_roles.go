@@ -34,6 +34,7 @@ type membersTenantUserRoleRead struct {
 	CreatedAt   time.Time    `json:"createdAt"`
 	StartsAt    *time.Time   `json:"startsAt"`
 	EndsAt      *time.Time   `json:"endsAt"`
+	Reason      *string      `json:"reason"`
 }
 
 var membersTenantUserRoleReadSets resource.SetCache[MembersTenantUserRole, membersTenantUserRoleRead]
@@ -162,6 +163,7 @@ func (c *MembersTenantUserRoleColumns) All() *MembersTenantUserRoleColumns {
 		"CreatedAt",
 		"StartsAt",
 		"EndsAt",
+		"Reason",
 	}
 
 	return c
@@ -211,6 +213,12 @@ func (c *MembersTenantUserRoleColumns) StartsAt() *MembersTenantUserRoleColumns 
 
 func (c *MembersTenantUserRoleColumns) EndsAt() *MembersTenantUserRoleColumns {
 	c.fields = append(c.fields, "EndsAt")
+
+	return c
+}
+
+func (c *MembersTenantUserRoleColumns) Reason() *MembersTenantUserRoleColumns {
+	c.fields = append(c.fields, "Reason")
 
 	return c
 }
@@ -343,6 +351,10 @@ func (c *membersTenantUserRoleSort) StartsAt() *MembersTenantUserRoleSort {
 
 func (c *membersTenantUserRoleSort) EndsAt() *MembersTenantUserRoleSort {
 	return c.addField("EndsAt")
+}
+
+func (c *membersTenantUserRoleSort) Reason() *MembersTenantUserRoleSort {
+	return c.addField("Reason")
 }
 
 type MembersTenantUserRoleSort struct {

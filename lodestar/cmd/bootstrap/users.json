@@ -531,7 +531,8 @@
             "Cadet",
             "SectorCrew"
           ],
-          "days": 30
+          "days": 30,
+          "reason": "Covering Anvil's deck while the hangar is refitted"
         }
       ]
     },

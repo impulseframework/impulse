@@ -117,13 +117,14 @@ func (w *identityWorld) createCrewUser(ctx context.Context, txn resource.ReadWri
 	return created.ID, nil
 }
 
-// assignCrewRole gives the account a role in the global scope, in the transaction,
-// through the identity client's AssignRole: the Go call the role methods are made of,
-// which looks nobody up and so serves an account the same transaction created. The
-// served method (crewidentity.AssignCrewRole) reads the account first, since its request
-// names a person, and a read sees no buffered write: it is for an account that exists
-// (TestGeneratedIdentityMembershipInTransaction holds both).
-func (w *identityWorld) assignCrewRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, role string) error {
+// assignHeadquarters gives the account the Headquarters role, the global role these
+// suites give, in the transaction, through the identity client's AssignRole: the Go call
+// the role methods are made of, which looks nobody up and so serves an account the same
+// transaction created. The served method (crewidentity.AssignCrewRole) reads the account
+// first, since its request names a person, and a read sees no buffered write: it is for
+// an account that exists (TestGeneratedIdentityMembershipInTransaction holds both).
+func (w *identityWorld) assignHeadquarters(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
+	const role = "Headquarters"
 	if err := w.app.CrewIdentity().AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), userOf(userID), accesstypes.Role(role)); err != nil {
 		return fmt.Errorf("crewidentity.Client.AssignRole(%s, %s): %w", userID, role, err)
 	}
@@ -511,7 +512,7 @@ func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
 			return err
 		}
 
-		return w.assignCrewRole(ctx, txn, erinID, "Headquarters")
+		return w.assignHeadquarters(ctx, txn, erinID)
 	}); err != nil {
 		t.Fatalf("one transaction with two users and a membership: %v", err)
 	}
@@ -633,7 +634,7 @@ func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
 		if ginaID, err = w.createCrewUser(ctx, txn, string(gina), "CrewCommon"); err != nil {
 			return err
 		}
-		if err := w.assignCrewRole(ctx, txn, ginaID, "Headquarters"); err != nil {
+		if err := w.assignHeadquarters(ctx, txn, ginaID); err != nil {
 			return err
 		}
 

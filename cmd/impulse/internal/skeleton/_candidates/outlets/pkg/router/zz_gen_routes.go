@@ -37,6 +37,7 @@ const (
 	MembersGroupID                    httpio.ParamType = "membersGroupID"
 	MembersGroupUserGroupID           httpio.ParamType = "membersGroupUserGroupID"
 	MembersGroupUserUserID            httpio.ParamType = "membersGroupUserUserID"
+	MembersListedGroupID              httpio.ParamType = "membersListedGroupID"
 	MembersSessionID                  httpio.ParamType = "membersSessionID"
 	MembersSessionIdentityID          httpio.ParamType = "membersSessionIdentityID"
 	MembersSessionMailLinkID          httpio.ParamType = "membersSessionMailLinkID"
@@ -66,6 +67,7 @@ const (
 	StaffGroupID                      httpio.ParamType = "staffGroupID"
 	StaffGroupUserGroupID             httpio.ParamType = "staffGroupUserGroupID"
 	StaffGroupUserUserID              httpio.ParamType = "staffGroupUserUserID"
+	StaffListedGroupID                httpio.ParamType = "staffListedGroupID"
 	StaffSessionID                    httpio.ParamType = "staffSessionID"
 	StaffSessionIdentityID            httpio.ParamType = "staffSessionIdentityID"
 	StaffSessionMailLinkID            httpio.ParamType = "staffSessionMailLinkID"
@@ -247,7 +249,14 @@ type GeneratedHandlers interface {
 	StaffGroupUsers() http.HandlerFunc
 	StaffGroupUser() http.HandlerFunc
 
+	StaffHeldRoles() http.HandlerFunc
+
 	StaffInvitedTenants() http.HandlerFunc
+
+	StaffListedGroups() http.HandlerFunc
+	StaffListedGroup() http.HandlerFunc
+
+	StaffListedGroupRoles() http.HandlerFunc
 
 	StaffRoles() http.HandlerFunc
 
@@ -279,6 +288,12 @@ type GeneratedHandlers interface {
 
 	StaffSignInWays() http.HandlerFunc
 
+	StaffTakeLengths() http.HandlerFunc
+
+	StaffTakeableRoles() http.HandlerFunc
+
+	StaffTakenRoles() http.HandlerFunc
+
 	StaffTenantDirectoryRoles() http.HandlerFunc
 
 	StaffTenantGroups() http.HandlerFunc
@@ -289,6 +304,8 @@ type GeneratedHandlers interface {
 
 	StaffTenantGroupUsers() http.HandlerFunc
 	StaffTenantGroupUser() http.HandlerFunc
+
+	StaffTenantHeldRoles() http.HandlerFunc
 
 	StaffTenantIdentities() http.HandlerFunc
 	StaffTenantIdentity() http.HandlerFunc
@@ -315,6 +332,8 @@ type GeneratedHandlers interface {
 	StaffUserRoles() http.HandlerFunc
 
 	TakeStaffGroupRole() http.HandlerFunc
+
+	TakeStaffRole() http.HandlerFunc
 
 	TakeStaffTenantGroupRole() http.HandlerFunc
 
@@ -526,9 +545,25 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-group-users/{staffGroupUserGroupID}/{staffGroupUserUserID}", staffGroupUserHandler)
 	bounded.Post("/console/api/staff-group-users/{staffGroupUserGroupID}/{staffGroupUserUserID}", staffGroupUserHandler)
 
+	staffHeldRolesHandler := h.StaffHeldRoles()
+	bounded.Get("/console/api/staff-held-roles", staffHeldRolesHandler)
+	bounded.Post("/console/api/staff-held-roles", staffHeldRolesHandler)
+
 	staffInvitedTenantsHandler := h.StaffInvitedTenants()
 	bounded.Get("/console/api/staff-invited-tenants", staffInvitedTenantsHandler)
 	bounded.Post("/console/api/staff-invited-tenants", staffInvitedTenantsHandler)
+
+	staffListedGroupsHandler := h.StaffListedGroups()
+	bounded.Get("/console/api/staff-listed-groups", staffListedGroupsHandler)
+	bounded.Post("/console/api/staff-listed-groups", staffListedGroupsHandler)
+
+	staffListedGroupHandler := h.StaffListedGroup()
+	bounded.Get("/console/api/staff-listed-groups/{staffListedGroupID}", staffListedGroupHandler)
+	bounded.Post("/console/api/staff-listed-groups/{staffListedGroupID}", staffListedGroupHandler)
+
+	staffListedGroupRolesHandler := h.StaffListedGroupRoles()
+	bounded.Get("/console/api/staff-listed-group-roles", staffListedGroupRolesHandler)
+	bounded.Post("/console/api/staff-listed-group-roles", staffListedGroupRolesHandler)
 
 	staffRolesHandler := h.StaffRoles()
 	bounded.Get("/console/api/staff-roles", staffRolesHandler)
@@ -602,6 +637,18 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-sign-in-ways", staffSignInWaysHandler)
 	bounded.Post("/console/api/staff-sign-in-ways", staffSignInWaysHandler)
 
+	staffTakeLengthsHandler := h.StaffTakeLengths()
+	bounded.Get("/console/api/staff-take-lengths", staffTakeLengthsHandler)
+	bounded.Post("/console/api/staff-take-lengths", staffTakeLengthsHandler)
+
+	staffTakeableRolesHandler := h.StaffTakeableRoles()
+	bounded.Get("/console/api/staff-takeable-roles", staffTakeableRolesHandler)
+	bounded.Post("/console/api/staff-takeable-roles", staffTakeableRolesHandler)
+
+	staffTakenRolesHandler := h.StaffTakenRoles()
+	bounded.Get("/console/api/staff-taken-roles", staffTakenRolesHandler)
+	bounded.Post("/console/api/staff-taken-roles", staffTakenRolesHandler)
+
 	staffTenantDirectoryRolesHandler := domainGuard(h.StaffTenantDirectoryRoles())
 	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-directory-roles", staffTenantDirectoryRolesHandler)
 	bounded.Post("/console/api/tenants/{tenantID}/staff-tenant-directory-roles", staffTenantDirectoryRolesHandler)
@@ -629,6 +676,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffTenantGroupUserHandler := domainGuard(h.StaffTenantGroupUser())
 	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-group-users/{staffTenantGroupUserGroupID}/{staffTenantGroupUserUserID}", staffTenantGroupUserHandler)
 	bounded.Post("/console/api/tenants/{tenantID}/staff-tenant-group-users/{staffTenantGroupUserGroupID}/{staffTenantGroupUserUserID}", staffTenantGroupUserHandler)
+
+	staffTenantHeldRolesHandler := domainGuard(h.StaffTenantHeldRoles())
+	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-held-roles", staffTenantHeldRolesHandler)
+	bounded.Post("/console/api/tenants/{tenantID}/staff-tenant-held-roles", staffTenantHeldRolesHandler)
 
 	staffTenantIdentitiesHandler := domainGuard(h.StaffTenantIdentities())
 	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-identities", staffTenantIdentitiesHandler)
@@ -691,6 +742,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Post("/console/api/staff-user-roles", staffUserRolesHandler)
 
 	asked.Post("/console/api/take-staff-group-role", h.TakeStaffGroupRole())
+
+	asked.Post("/console/api/take-staff-role", h.TakeStaffRole())
 
 	asked.Post("/console/api/tenants/{tenantID}/take-staff-tenant-group-role", domainGuard(h.TakeStaffTenantGroupRole()))
 
@@ -816,6 +869,13 @@ type GeneratedPortalHandlers interface {
 	MembersGroupUsers() http.HandlerFunc
 	MembersGroupUser() http.HandlerFunc
 
+	MembersHeldRoles() http.HandlerFunc
+
+	MembersListedGroups() http.HandlerFunc
+	MembersListedGroup() http.HandlerFunc
+
+	MembersListedGroupRoles() http.HandlerFunc
+
 	MembersRoles() http.HandlerFunc
 
 	MembersRoleGrants() http.HandlerFunc
@@ -842,6 +902,12 @@ type GeneratedPortalHandlers interface {
 	MembersSessionUsers() http.HandlerFunc
 	MembersSessionUser() http.HandlerFunc
 
+	MembersTakeLengths() http.HandlerFunc
+
+	MembersTakeableRoles() http.HandlerFunc
+
+	MembersTakenRoles() http.HandlerFunc
+
 	MembersTenantGroups() http.HandlerFunc
 	MembersTenantGroup() http.HandlerFunc
 
@@ -850,6 +916,8 @@ type GeneratedPortalHandlers interface {
 
 	MembersTenantGroupUsers() http.HandlerFunc
 	MembersTenantGroupUser() http.HandlerFunc
+
+	MembersTenantHeldRoles() http.HandlerFunc
 
 	MembersTenantIdentities() http.HandlerFunc
 	MembersTenantIdentity() http.HandlerFunc
@@ -902,6 +970,8 @@ type GeneratedPortalHandlers interface {
 	SetMembersUserName() http.HandlerFunc
 
 	TakeMembersGroupRole() http.HandlerFunc
+
+	TakeMembersRole() http.HandlerFunc
 
 	TakeMembersTenantGroupRole() http.HandlerFunc
 
@@ -1039,6 +1109,22 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-group-users/{membersGroupUserGroupID}/{membersGroupUserUserID}", membersGroupUserHandler)
 	bounded.Post("/portal/api/members-group-users/{membersGroupUserGroupID}/{membersGroupUserUserID}", membersGroupUserHandler)
 
+	membersHeldRolesHandler := h.MembersHeldRoles()
+	bounded.Get("/portal/api/members-held-roles", membersHeldRolesHandler)
+	bounded.Post("/portal/api/members-held-roles", membersHeldRolesHandler)
+
+	membersListedGroupsHandler := h.MembersListedGroups()
+	bounded.Get("/portal/api/members-listed-groups", membersListedGroupsHandler)
+	bounded.Post("/portal/api/members-listed-groups", membersListedGroupsHandler)
+
+	membersListedGroupHandler := h.MembersListedGroup()
+	bounded.Get("/portal/api/members-listed-groups/{membersListedGroupID}", membersListedGroupHandler)
+	bounded.Post("/portal/api/members-listed-groups/{membersListedGroupID}", membersListedGroupHandler)
+
+	membersListedGroupRolesHandler := h.MembersListedGroupRoles()
+	bounded.Get("/portal/api/members-listed-group-roles", membersListedGroupRolesHandler)
+	bounded.Post("/portal/api/members-listed-group-roles", membersListedGroupRolesHandler)
+
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/portal/api/members-roles", membersRolesHandler)
 	bounded.Post("/portal/api/members-roles", membersRolesHandler)
@@ -1103,6 +1189,18 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
 	bounded.Post("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
 
+	membersTakeLengthsHandler := h.MembersTakeLengths()
+	bounded.Get("/portal/api/members-take-lengths", membersTakeLengthsHandler)
+	bounded.Post("/portal/api/members-take-lengths", membersTakeLengthsHandler)
+
+	membersTakeableRolesHandler := h.MembersTakeableRoles()
+	bounded.Get("/portal/api/members-takeable-roles", membersTakeableRolesHandler)
+	bounded.Post("/portal/api/members-takeable-roles", membersTakeableRolesHandler)
+
+	membersTakenRolesHandler := h.MembersTakenRoles()
+	bounded.Get("/portal/api/members-taken-roles", membersTakenRolesHandler)
+	bounded.Post("/portal/api/members-taken-roles", membersTakenRolesHandler)
+
 	membersTenantGroupsHandler := domainGuard(h.MembersTenantGroups())
 	bounded.Get("/portal/api/tenants/{tenantID}/members-tenant-groups", membersTenantGroupsHandler)
 	bounded.Post("/portal/api/tenants/{tenantID}/members-tenant-groups", membersTenantGroupsHandler)
@@ -1126,6 +1224,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	membersTenantGroupUserHandler := domainGuard(h.MembersTenantGroupUser())
 	bounded.Get("/portal/api/tenants/{tenantID}/members-tenant-group-users/{membersTenantGroupUserGroupID}/{membersTenantGroupUserUserID}", membersTenantGroupUserHandler)
 	bounded.Post("/portal/api/tenants/{tenantID}/members-tenant-group-users/{membersTenantGroupUserGroupID}/{membersTenantGroupUserUserID}", membersTenantGroupUserHandler)
+
+	membersTenantHeldRolesHandler := domainGuard(h.MembersTenantHeldRoles())
+	bounded.Get("/portal/api/tenants/{tenantID}/members-tenant-held-roles", membersTenantHeldRolesHandler)
+	bounded.Post("/portal/api/tenants/{tenantID}/members-tenant-held-roles", membersTenantHeldRolesHandler)
 
 	membersTenantIdentitiesHandler := domainGuard(h.MembersTenantIdentities())
 	bounded.Get("/portal/api/tenants/{tenantID}/members-tenant-identities", membersTenantIdentitiesHandler)
@@ -1212,6 +1314,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	asked.Post("/portal/api/set-members-user-name", h.SetMembersUserName())
 
 	asked.Post("/portal/api/take-members-group-role", h.TakeMembersGroupRole())
+
+	asked.Post("/portal/api/take-members-role", h.TakeMembersRole())
 
 	asked.Post("/portal/api/tenants/{tenantID}/take-members-tenant-group-role", domainGuard(h.TakeMembersTenantGroupRole()))
 

@@ -34,6 +34,7 @@ type membersUserGroupRoleRead struct {
 	Axis      string       `json:"axis"      perm:"-"`
 	DomainID  string       `json:"domainId"  perm:"-"`
 	Role      string       `json:"role"      perm:"-"`
+	CreatedAt time.Time    `json:"createdAt"`
 	StartsAt  *time.Time   `json:"startsAt"`
 	EndsAt    *time.Time   `json:"endsAt"`
 }
@@ -212,6 +213,7 @@ func (c *MembersUserGroupRoleColumns) All() *MembersUserGroupRoleColumns {
 		"Axis",
 		"DomainID",
 		"Role",
+		"CreatedAt",
 		"StartsAt",
 		"EndsAt",
 	}
@@ -263,6 +265,12 @@ func (c *MembersUserGroupRoleColumns) DomainID() *MembersUserGroupRoleColumns {
 
 func (c *MembersUserGroupRoleColumns) Role() *MembersUserGroupRoleColumns {
 	c.fields = append(c.fields, "Role")
+
+	return c
+}
+
+func (c *MembersUserGroupRoleColumns) CreatedAt() *MembersUserGroupRoleColumns {
+	c.fields = append(c.fields, "CreatedAt")
 
 	return c
 }
@@ -415,6 +423,10 @@ func (c *membersUserGroupRoleSort) DomainID() *MembersUserGroupRoleSort {
 
 func (c *membersUserGroupRoleSort) Role() *MembersUserGroupRoleSort {
 	return c.addField("Role")
+}
+
+func (c *membersUserGroupRoleSort) CreatedAt() *MembersUserGroupRoleSort {
+	return c.addField("CreatedAt")
 }
 
 func (c *membersUserGroupRoleSort) StartsAt() *MembersUserGroupRoleSort {

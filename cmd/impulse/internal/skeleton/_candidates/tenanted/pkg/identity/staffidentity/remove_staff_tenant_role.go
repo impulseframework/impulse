@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -16,11 +17,14 @@ import (
 // one Tenant: the tenant the request is made under, and no other. The person's
 // next request is served without it.
 //
-// It is a tenant's method: it names a row of StaffTenantUserRole, the tenant's own list of
-// the roles held there, by the row's two key columns (the person's id and the role), so
-// a condition on its grant reads the row (role, everyDomain). A role the person holds in
+// It is a tenant's method: it names a row of StaffTenantHeldRole, the tenant's one
+// list of the roles held there, by the row's key columns (the person's id, the role, and
+// the group the role comes through, which is none for a role of the person's own), so a
+// condition on its grant reads the row (role, everyDomain). A role the person holds in
 // every tenant alone is a row of the list too and is not one tenant's to take away: it
-// is refused, whatever the role file says.
+// is refused, whatever the role file says. So is a role that comes to the person
+// through a group, whose row the list holds too: it is taken away from the group, or the
+// person is taken out of the group, on the group's page.
 //
 // A person who removes a role from themselves keeps an administrator role nobody else
 // would hold in the tenant (identity.WithAdministratorRoles names them). A person left
@@ -32,14 +36,23 @@ import (
 // @outlet(default)
 // @answers(204)
 type RemoveStaffTenantRole struct {
-	// @target(StaffTenantUserRole, key: UserID)
+	// @target(StaffTenantHeldRole, key: UserID)
 	UserID impulse.UUID
-	// @target(StaffTenantUserRole, key: Role)
+	// @target(StaffTenantHeldRole, key: Role)
 	Role string `validate:"required"`
+	// GroupID is the group the role comes through, as the row of the list names it:
+	// empty for a role of the person's own, the one kind this method takes away, and so
+	// left out of a request that takes one away.
+	//
+	// @target(StaffTenantHeldRole, key: GroupID)
+	GroupID string
 }
 
 // Execute buffers the removal into the caller's transaction.
 func (m *RemoveStaffTenantRole) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+	if m.GroupID != "" {
+		return httpio.NewBadRequestMessage("that role comes to the person through a group, so it is not taken away from the person: take the role away from the group, or take the person out of the group, on the group's page")
+	}
 	tenant, err := client.manager.Tenant(ctx)
 	if err != nil {
 		return errors.Wrap(err, "identity.Manager.Tenant()")

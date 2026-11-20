@@ -47,6 +47,8 @@ type groupStatements struct {
 	listRoles      string
 	listUserRoles  string
 	listRoleGroups string
+	countMembersIn string
+	listRolesIn    string
 	roleHeld       string
 	deleteEndedOf  string
 	readGroups     string
@@ -77,6 +79,12 @@ WHERE m.UserId = @user AND %s AND %s ORDER BY r.Kind, r.Axis, r.DomainId, r.Role
 		listRoleGroups: fmt.Sprintf(`SELECT g.Id, g.Kind, g.Axis, g.DomainId, g.Name, g.Description
 FROM %s@{FORCE_INDEX=%s} r JOIN %s g ON g.Id = r.GroupId
 WHERE r.Kind = @kind AND r.Axis = @axis AND r.DomainId = @domain AND r.Role = @role AND %s ORDER BY g.Name, g.Id`, n.groupRoles, n.groupRolesIndex, n.groups, counting("r.")),
+		countMembersIn: fmt.Sprintf(`SELECT m.GroupId, COUNT(*)
+FROM %s@{FORCE_INDEX=%s} g JOIN %s m ON m.GroupId = g.Id
+WHERE g.Kind = @kind AND g.Axis = @axis AND g.DomainId = @domain AND %s GROUP BY m.GroupId`, n.groups, n.groupsByName, n.groupMembers, standing("m.")),
+		listRolesIn: fmt.Sprintf(`SELECT r.GroupId, r.Kind, r.Axis, r.DomainId, r.Role, r.StartsAt, r.EndsAt
+FROM %s@{FORCE_INDEX=%s} g JOIN %s r ON r.GroupId = g.Id
+WHERE g.Kind = @kind AND g.Axis = @axis AND g.DomainId = @domain AND %s ORDER BY r.GroupId, r.Kind, r.Axis, r.DomainId, r.Role`, n.groups, n.groupsByName, n.groupRoles, standing("r.")),
 		roleHeld: fmt.Sprintf("SELECT 1 FROM %s@{FORCE_INDEX=%s} WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s LIMIT 1",
 			n.groupRoles, n.groupRolesIndex, standing("")),
 		deleteEndedOf: fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s", n.groupRoles, ended),
@@ -426,6 +434,70 @@ func (s *Store) ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "spanner.Client.Single().Query() group roles")
+	}
+
+	return roles, nil
+}
+
+// CountGroupMembersIn returns how many people each group kept in scope has: the
+// places in it that have not ended, the ones that count now and the ones that
+// have not begun, which are what stands in the way of the group's deletion. A
+// group with none is not in the answer.
+func (s *Store) CountGroupMembersIn(ctx context.Context, scope accesstypes.PolicyScope) (map[accesstypes.Group]int, error) {
+	kind, axis, domain, err := policy.GroupColumns(scope)
+	if err != nil {
+		return nil, errors.Wrap(err, "policy.GroupColumns()")
+	}
+	counts := make(map[accesstypes.Group]int)
+	stmt := spanner.Statement{SQL: s.groups.countMembersIn, Params: map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain}}
+	err = s.client.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var group string
+		var count int64
+		if err := row.Columns(&group, &count); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		counts[accesstypes.Group(group)] = int(count)
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.Client.Single().Query() group member counts")
+	}
+
+	return counts, nil
+}
+
+// ListGroupRolesIn returns the roles the groups kept in scope hold that have
+// not ended, each with its group and its period, sorted by group, then by
+// where the role is held, then by role.
+func (s *Store) ListGroupRolesIn(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.Membership, error) {
+	kind, axis, domain, err := policy.GroupColumns(scope)
+	if err != nil {
+		return nil, errors.Wrap(err, "policy.GroupColumns()")
+	}
+	roles := make([]policy.Membership, 0)
+	stmt := spanner.Statement{SQL: s.groups.listRolesIn, Params: map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain}}
+	err = s.client.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var group, kind, axis, domain, role string
+		var start, end spanner.NullTime
+		if err := row.Columns(&group, &kind, &axis, &domain, &role, &start, &end); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		held, err := policy.ScopeFromColumns(kind, axis, domain)
+		if err != nil {
+			return errors.Wrap(err, "policy.ScopeFromColumns()")
+		}
+		roles = append(roles, policy.Membership{
+			Scope:  held,
+			Member: policy.Subject{Kind: policy.SubjectGroup, Name: group},
+			Role:   accesstypes.Role(role),
+			Period: periodOf(start, end),
+		})
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.Client.Single().Query() group roles in a scope")
 	}
 
 	return roles, nil

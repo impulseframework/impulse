@@ -236,14 +236,21 @@ func (d *identitySourceData) RoleMethods() string {
 // GroupSet is the name of the subject set of a person's groups.
 func (d *identitySourceData) GroupSet() string { return d.groupSet }
 
-// SubjectGroup is the struct whose row a method names a group by: the groups table's
-// for the whole application, and the tenant's list of its own groups for a tenant.
+// SubjectGroup is the struct whose row a method names a group by: the list of the
+// groups a page shows, the whole application's (identity_holdings.go) or the tenant's
+// own. A method so names the row the page offers it on, and the server answers for that
+// row whether the caller may run it.
 func (d *identitySourceData) SubjectGroup() string {
 	if d.ForTenant {
 		return d.groupListName(listGroupsSuffix, true)
 	}
 
-	return d.Group()
+	return d.ListedGroup()
+}
+
+// TenantGroup is the struct of the groups kept in one tenant.
+func (d *identitySourceData) TenantGroup() string {
+	return d.groupListName(listGroupsSuffix, true)
 }
 
 // SubjectGroupUser is the list of the people of a group the file is written for: every

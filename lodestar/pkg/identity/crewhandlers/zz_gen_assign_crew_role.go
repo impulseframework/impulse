@@ -27,6 +27,7 @@ func (h *Handlers) AssignCrewRole() http.HandlerFunc {
 		EveryDomain bool         `json:"everyDomain"`
 		StartsAt    *time.Time   `json:"startsAt"`
 		EndsAt      *time.Time   `json:"endsAt"`
+		Reason      *string      `json:"reason"`
 	}
 
 	decoder := NewRPCDecoder[crewidentity.AssignCrewRole, request](h, accesstypes.Execute)

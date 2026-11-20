@@ -4463,6 +4463,9 @@ export const apiDescriptor = defineApiDescriptor({
       {{- if $a.TenantResource }}
       tenantResource: Resources.{{ $a.TenantResource }},
       {{- end }}
+      {{- if $a.RolesFrom }}
+      rolesFrom: '{{ $a.RolesFrom }}',
+      {{- end }}
       sides: [
 {{- range $side := $a.Sides }}
         {

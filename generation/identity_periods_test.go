@@ -52,12 +52,14 @@ func Test_prepareIdentity_periods(t *testing.T) {
 	}
 
 	const (
-		periodFields  = "StartsAt *time.Time\n\t// EndsAt is the first instant it no longer counts. Left out, it counts until it is\n\t// taken away.\n\tEndsAt *time.Time\n}"
-		requestPeriod = "period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)\n\tif err != nil {\n\t\treturn errors.Wrap(err, \"identity.RequestPeriod()\")\n\t}"
+		periodFields = "StartsAt *time.Time\n\t// EndsAt is the first instant it no longer counts. Left out, it counts until it is\n\t// taken away.\n\tEndsAt *time.Time\n}"
+		// A person's role carries the reason after its period (identity_holdings_test.go).
+		periodAndReasonFields = "StartsAt *time.Time\n\t// EndsAt is the first instant it no longer counts. Left out, it counts until it is\n\t// taken away.\n\tEndsAt *time.Time\n\t// Reason says why the role is given"
+		requestPeriod         = "period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)\n\tif err != nil {\n\t\treturn errors.Wrap(err, \"identity.RequestPeriod()\")\n\t}"
 	)
 	requireLines(t, map[string][]string{
 		"internal/crewresources/crew_user_roles.go": {
-			"CreatedAt time.Time  `spanner:\"CreatedAt\"`\n\t\tStartsAt  *time.Time `spanner:\"StartsAt\"`\n\t\tEndsAt    *time.Time `spanner:\"EndsAt\"`\n\t}",
+			"CreatedAt time.Time  `spanner:\"CreatedAt\"`\n\t\tStartsAt  *time.Time `spanner:\"StartsAt\"`\n\t\tEndsAt    *time.Time `spanner:\"EndsAt\"`\n\t\tReason    *string    `spanner:\"Reason\"`\n\t}",
 		},
 		"internal/crewresources/crew_group_members.go": {
 			// A place counts in a condition inside its period alone, as it does on a check.
@@ -68,7 +70,7 @@ func Test_prepareIdentity_periods(t *testing.T) {
 			"StartsAt  *time.Time   `spanner:\"StartsAt\"`\n\t\tEndsAt    *time.Time   `spanner:\"EndsAt\"`\n\t}",
 		},
 		"crewidentity/assign_crew_role.go": {
-			periodFields, requestPeriod, "client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period)",
+			periodAndReasonFields, requestPeriod, "client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period, identity.RequestReason(m.Reason))",
 			"The Super\n// Administrator role takes no period: there is always one.",
 		},
 		"crewidentity/add_crew_group_member.go": {periodFields, requestPeriod, "client.manager.AddGroupMemberFor(ctx, txn, m.GroupID, m.UserID, period)"},
@@ -80,7 +82,7 @@ func Test_prepareIdentity_periods(t *testing.T) {
 			"crewresources.NewCrewGroupRoleUpdatePatch(id, key.Kind, key.Axis, key.Domain, string(key.Role)).\n\t\tSetStartsAt(period.StartPtr()).\n\t\tSetEndsAt(period.EndPtr())",
 			// The sign-in's one read is of the person's own rows, by the index that leads with them.
 			"func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*identity.UserPeriods, error) {",
-			"AddColumns(crewresources.NewCrewUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt()).\n\t\tWhere(crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String()))",
+			"AddColumns(crewresources.NewCrewUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt().Reason()).\n\t\tWhere(crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String()))",
 			"AddColumns(crewresources.NewCrewGroupMemberColumns().GroupID().UserID().StartsAt().EndsAt()).\n\t\tWhere(crewresources.NewCrewGroupMemberQueryClause().UserID().Equal(userID.String()))",
 			"func (store) GroupPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (*identity.GroupPeriods, error) {",
 			// An ended row goes under the source that says nobody removed it.
@@ -140,7 +142,7 @@ func Test_prepareIdentity_periods_tenant(t *testing.T) {
 
 	const requestPeriod = "period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)"
 	requireLines(t, map[string][]string{
-		"crewidentity/assign_crew_ship_role.go":      {"\tStartsAt *time.Time\n", "\tEndsAt *time.Time\n}", requestPeriod, "tenant.AssignRoleFor(ctx, txn, m.UserID, accesstypes.Role(m.Role), period)"},
+		"crewidentity/assign_crew_ship_role.go":      {"\tStartsAt *time.Time\n", "\tEndsAt *time.Time\n\t// Reason says why the role is given", requestPeriod, "tenant.AssignRoleFor(ctx, txn, m.UserID, accesstypes.Role(m.Role), period, identity.RequestReason(m.Reason))"},
 		"crewidentity/add_crew_ship_group_member.go": {"\tStartsAt *time.Time\n", "\tEndsAt *time.Time\n}", requestPeriod, "tenant.AddGroupMemberFor(ctx, txn, m.GroupID, m.UserID, period)"},
 		"crewidentity/give_crew_ship_group_role.go":  {"\tStartsAt *time.Time\n", "\tEndsAt *time.Time\n}", requestPeriod, "tenant.GiveGroupRoleFor(ctx, txn, m.GroupID, accesstypes.Role(m.Role), period)"},
 		"internal/crewresources/crew_ship_users.go": {
@@ -154,8 +156,8 @@ func Test_prepareIdentity_periods_tenant(t *testing.T) {
 			"WHERE g.UserId = u.Id AND g.Kind = 'global'\n      AND " + standingSQL("g") + "\n  )",
 		},
 		"internal/crewresources/crew_ship_user_roles.go": {
-			"CreatedAt   time.Time  `spanner:\"CreatedAt\"`\n\t\tStartsAt    *time.Time `spanner:\"StartsAt\"`\n\t\tEndsAt      *time.Time `spanner:\"EndsAt\"`\n\t}",
-			"t.CreatedAt AS CreatedAt,\n  t.StartsAt AS StartsAt,\n  t.EndsAt AS EndsAt\nFROM (",
+			"CreatedAt   time.Time  `spanner:\"CreatedAt\"`\n\t\tStartsAt    *time.Time `spanner:\"StartsAt\"`\n\t\tEndsAt      *time.Time `spanner:\"EndsAt\"`\n\t\tReason      *string    `spanner:\"Reason\"`\n\t}",
+			"t.CreatedAt AS CreatedAt,\n  t.StartsAt AS StartsAt,\n  t.EndsAt AS EndsAt,\n  t.Reason AS Reason\nFROM (",
 			"WHERE m.Kind = 'every' AND m.Axis = ''\n    AND " + standingSQL("m") + "\n    AND NOT EXISTS (",
 			// A row of the tenant's own that has ended does not stand in front of the one
 			// held in every tenant.
@@ -165,7 +167,7 @@ func Test_prepareIdentity_periods_tenant(t *testing.T) {
 			"m.StartsAt AS StartsAt,\n  m.EndsAt AS EndsAt\nFROM CrewGroups g", "WHERE g.Kind = 'domain' AND g.Axis = ''\n  AND " + standingSQL("m") + "\n`",
 		},
 		"internal/crewresources/crew_ship_group_roles.go": {
-			"r.StartsAt AS StartsAt,\n  r.EndsAt AS EndsAt\nFROM CrewGroups g", "AND r.DomainId = g.DomainId\n  AND " + standingSQL("r") + "\n`",
+			"r.StartsAt AS StartsAt,\n  r.EndsAt AS EndsAt,\n", ") AS Losing\nFROM CrewGroups g", "AND r.DomainId = g.DomainId\n  AND " + standingSQL("r") + "\n`",
 		},
 		"internal/crewresources/crew_ship_user_group_roles.go": {
 			"COALESCE(GREATEST(t.StartsAt, m.StartsAt), t.StartsAt, m.StartsAt) AS StartsAt,\n  COALESCE(LEAST(t.EndsAt, m.EndsAt), t.EndsAt, m.EndsAt) AS EndsAt\nFROM (",
@@ -194,7 +196,7 @@ func Test_prepareIdentity_periods_absent(t *testing.T) {
 
 	requireLines(t, map[string][]string{
 		"crewidentity/store.go": {
-			"func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error {",
+			"func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period, reason string) error {",
 			"func (store) SetGroupRolePeriod(context.Context, resource.ReadWriteTransaction, *access.GroupRoleKey, accesstypes.Period) error {\n\treturn errNoGroups\n}",
 			"if len(places) != 0 {\n\t\treturn errNoGroups\n\t}",
 		},

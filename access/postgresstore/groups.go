@@ -43,6 +43,8 @@ type groupStatements struct {
 	listRoles      string
 	listUserRoles  string
 	listRoleGroups string
+	countMembersIn string
+	listRolesIn    string
 	roleHeld       string
 	deleteEndedOf  string
 	readGroups     string
@@ -80,6 +82,12 @@ where m."UserId" = $1 and %s and %s order by r."Kind", r."Axis", r."DomainId", r
 		listRoleGroups: fmt.Sprintf(`select g."Id", g."Kind", g."Axis", g."DomainId", g."Name", g."Description"
 from %s r join %s g on g."Id" = r."GroupId"
 where r."Kind" = $1 and r."Axis" = $2 and r."DomainId" = $3 and r."Role" = $4 and %s order by g."Name", g."Id"`, n.groupRoles, n.groups, counting("r.")),
+		countMembersIn: fmt.Sprintf(`select m."GroupId", count(*)
+from %s g join %s m on m."GroupId" = g."Id"
+where g."Kind" = $1 and g."Axis" = $2 and g."DomainId" = $3 and %s group by m."GroupId"`, n.groups, n.groupMembers, standing("m.")),
+		listRolesIn: fmt.Sprintf(`select r."GroupId", r."Kind", r."Axis", r."DomainId", r."Role", r."StartsAt", r."EndsAt"
+from %s g join %s r on r."GroupId" = g."Id"
+where g."Kind" = $1 and g."Axis" = $2 and g."DomainId" = $3 and %s order by r."GroupId", r."Kind", r."Axis", r."DomainId", r."Role"`, n.groups, n.groupRoles, standing("r.")),
 		roleHeld:      fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s)`, n.groupRoles, standing("")),
 		deleteEndedOf: fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s`, n.groupRoles, ended),
 		readGroups:    fmt.Sprintf(`select "Id", "Kind", "Axis", "DomainId" from %s`, n.groups),
@@ -416,6 +424,69 @@ func (s *Store) ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "pgx.CollectRows() group roles")
+	}
+
+	return roles, nil
+}
+
+// CountGroupMembersIn returns how many people each group kept in scope has: the
+// places in it that have not ended, the ones that count now and the ones that
+// have not begun, which are what stands in the way of the group's deletion. A
+// group with none is not in the answer.
+func (s *Store) CountGroupMembersIn(ctx context.Context, scope accesstypes.PolicyScope) (map[accesstypes.Group]int, error) {
+	kind, axis, domain, err := policy.GroupColumns(scope)
+	if err != nil {
+		return nil, errors.Wrap(err, "policy.GroupColumns()")
+	}
+	rows, err := s.pool.Query(ctx, s.groups.countMembersIn, kind, axis, domain)
+	if err != nil {
+		return nil, errors.Wrap(err, "pgxpool.Pool.Query() group member counts")
+	}
+	counts := make(map[accesstypes.Group]int)
+	var group accesstypes.Group
+	var count int
+	if _, err := pgx.ForEachRow(rows, []any{&group, &count}, func() error {
+		counts[group] = count
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "pgx.ForEachRow() group member counts")
+	}
+
+	return counts, nil
+}
+
+// ListGroupRolesIn returns the roles the groups kept in scope hold that have
+// not ended, each with its group and its period, sorted by group, then by
+// where the role is held, then by role.
+func (s *Store) ListGroupRolesIn(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.Membership, error) {
+	kind, axis, domain, err := policy.GroupColumns(scope)
+	if err != nil {
+		return nil, errors.Wrap(err, "policy.GroupColumns()")
+	}
+	rows, err := s.pool.Query(ctx, s.groups.listRolesIn, kind, axis, domain)
+	if err != nil {
+		return nil, errors.Wrap(err, "pgxpool.Pool.Query() group roles in a scope")
+	}
+	roles, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (policy.Membership, error) {
+		var group, kind, axis, domain string
+		var start, end *time.Time
+		var m policy.Membership
+		if err := row.Scan(&group, &kind, &axis, &domain, &m.Role, &start, &end); err != nil {
+			return policy.Membership{}, errors.Wrap(err, "pgx.CollectableRow.Scan()")
+		}
+		held, err := policy.ScopeFromColumns(kind, axis, domain)
+		if err != nil {
+			return policy.Membership{}, errors.Wrap(err, "policy.ScopeFromColumns()")
+		}
+		m.Scope = held
+		m.Member = policy.Subject{Kind: policy.SubjectGroup, Name: group}
+		m.Period = periodOf(start, end)
+
+		return m, nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "pgx.CollectRows() group roles in a scope")
 	}
 
 	return roles, nil

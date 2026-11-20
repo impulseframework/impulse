@@ -187,6 +187,37 @@ describe('ResourceViewComponent row methods', () => {
     expect(component.rowMethods().map((m) => [m.label, m.icon])).toEqual([['Disable', 'block']]);
   });
 
+  it("draws the page's words where a method would be, as an entry that runs nothing", async () => {
+    const presentations: MethodPresentation[] = [
+      {
+        method: 'DisableAccount' as Method,
+        label: 'Disable',
+        icon: 'block',
+        when: () => false,
+        otherwise: (r) => `${String(r['username'])} holds the last key: hand it over first`,
+      },
+      { method: 'EnableAccount' as Method, hidden: true },
+      { method: 'RenameAccount' as Method, label: 'Rename' },
+    ];
+    await create({ rowMethods: presentations });
+
+    expect(component.rowMethods().map((m) => [m.method, m.says])).toEqual([
+      ['DisableAccount', 'ada holds the last key: hand it over first'],
+      ['RenameAccount', undefined],
+    ]);
+    // The menu is drawn in an overlay once it is opened.
+    (element().querySelector('button.row-methods') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const entries = [...document.querySelectorAll<HTMLButtonElement>('button.row-method')];
+    expect(entries.map((entry) => entry.disabled)).toEqual([true, false]);
+    expect(entries[0].textContent).toContain('ada holds the last key: hand it over first');
+    expect(entries[0].textContent).not.toContain('Disable');
+    expect(entries[1].textContent).toContain('Rename');
+    // The words run nothing: a click opens no dialog.
+    entries[0].click();
+    expect(opened).toEqual([]);
+  });
+
   it("runs a method through the dialog with the row's key, says it ran, and reads the row again", async () => {
     await create({
       rowMethods: [{ method: 'DisableAccount' as Method, label: 'Disable', confirm: (r) => `Disable ${String(r['username'])}?` }],

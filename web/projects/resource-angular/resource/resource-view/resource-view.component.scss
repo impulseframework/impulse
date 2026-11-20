@@ -183,3 +183,13 @@ mat-expansion-panel-header {
 .base-container-bg {
   background-color: var(--app-background-color);
 }
+
+/* An entry of the Actions menu that says what the row shows in a method's place: readable, and plainly not a button. */
+.row-method.row-method-says {
+  opacity: 1;
+  color: var(--mat-sys-on-surface-variant);
+  white-space: normal;
+  height: auto;
+  line-height: 1.4;
+  padding-block: 8px;
+}

@@ -53,6 +53,22 @@ func (a *App) StaffGroupUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffGroupUser()
 }
 
+func (a *App) StaffHeldRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffHeldRoles()
+}
+
+func (a *App) StaffListedGroups() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedGroups()
+}
+
+func (a *App) StaffListedGroup() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedGroup()
+}
+
+func (a *App) StaffListedGroupRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedGroupRoles()
+}
+
 func (a *App) StaffRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffRoles()
 }
@@ -117,6 +133,10 @@ func (a *App) StaffSessionUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionUser()
 }
 
+func (a *App) StaffTakenRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffTakenRoles()
+}
+
 func (a *App) StaffTenantGroups() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffTenantGroups()
 }
@@ -139,6 +159,10 @@ func (a *App) StaffTenantGroupUsers() http.HandlerFunc {
 
 func (a *App) StaffTenantGroupUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffTenantGroupUser()
+}
+
+func (a *App) StaffTenantHeldRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffTenantHeldRoles()
 }
 
 func (a *App) StaffTenantIdentities() http.HandlerFunc {
@@ -203,6 +227,14 @@ func (a *App) StaffSignInMethods() http.HandlerFunc {
 
 func (a *App) StaffSignInWays() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSignInWays()
+}
+
+func (a *App) StaffTakeLengths() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffTakeLengths()
+}
+
+func (a *App) StaffTakeableRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffTakeableRoles()
 }
 
 func (a *App) StaffTenantDirectoryRoles() http.HandlerFunc {
@@ -419,6 +451,10 @@ func (a *App) SetStaffUserName() http.HandlerFunc {
 
 func (a *App) TakeStaffGroupRole() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).TakeStaffGroupRole()
+}
+
+func (a *App) TakeStaffRole() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).TakeStaffRole()
 }
 
 func (a *App) TakeStaffTenantGroupRole() http.HandlerFunc {

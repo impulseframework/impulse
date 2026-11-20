@@ -51,4 +51,14 @@
       [compoundResourceComponent]="compoundResourceComponent()">
     </impulse-resource-list>
   }
+
+  <!-- The lists the page names under its own: each a list of its own, with its own rows. -->
+  @for (under of below(); track $index) {
+    <impulse-resource-list-create
+      class="below"
+      [resourceConfig]="under"
+      [isRootList]="false"
+      [compoundResourceComponent]="compoundResourceComponent()">
+    </impulse-resource-list-create>
+  }
 </ng-template>
