@@ -102,6 +102,10 @@ type DomainBindingData struct {
 // tenancy binding is the filter, and a global resource's set reads every row.
 // A set of a tenant's resource carries none, and a subject value never does
 // (validateCollectionBindings).
+//
+// Offered marks a set the generator declares for an auth, the set of a
+// person's groups: nobody wrote it, so the role-file check does not flag it
+// when no role reads it (GeneratedCollection.SubjectSets).
 type SubjectBindingData struct {
 	Name       string
 	UserColumn string
@@ -111,6 +115,7 @@ type SubjectBindingData struct {
 	Who        []SubjectWhoData
 	Where      *SubjectWhereData
 	Domain     *DomainBindingData
+	Offered    bool
 }
 
 // SubjectWhoData is one test of a subject set's who: part. Column is the
@@ -254,6 +259,34 @@ func (g *GeneratedCollection) SubjectSetComparisonType(name string) (accesstypes
 	}
 
 	return anchor.Binding.Type, true
+}
+
+// SubjectSets lists the subject sets the application declares (@subjectSet) by
+// name, each with the names of the sets its who: part builds on (Column IN
+// subject.<set>). A set the generator declares for an auth (Offered) is left
+// out: the role-file check flags a listed set that no role reads
+// (access.UnreadSetWarning), and a set nobody wrote is no oversight.
+func (g *GeneratedCollection) SubjectSets() map[string][]string {
+	sets := make(map[string][]string)
+	for _, store := range g.bindings {
+		for _, bindings := range store {
+			for i := range bindings.SubjectSets {
+				set := &bindings.SubjectSets[i]
+				if set.Offered {
+					continue
+				}
+				var builds []string
+				for _, test := range set.Who {
+					if test.Set != "" {
+						builds = append(builds, test.Set)
+					}
+				}
+				sets[set.Name] = builds
+			}
+		}
+	}
+
+	return sets
 }
 
 // SubjectValueComparisonType resolves the comparison type of the column a

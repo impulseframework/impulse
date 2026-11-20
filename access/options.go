@@ -17,7 +17,10 @@ type clientOptions struct {
 	collection        PermissionCollection
 	roleFile          RoleFile
 	roleFileSet       bool
-	superMethods      []accesstypes.Resource
+	// otherRoleFiles are the role files of the application's other auths
+	// (WithDefaultRoles).
+	otherRoleFiles []RoleFile
+	superMethods   []accesstypes.Resource
 	// tenantAdministrators are the roles whose holders administer a tenant
 	// (WithTenantAdministratorRoles).
 	tenantAdministrators []accesstypes.Role
@@ -112,11 +115,17 @@ func WithPermissionCollection(c PermissionCollection) Option {
 // does not start. The shapes the file may carry but probably should not (see
 // Warning) do not fail it; Client.CheckPolicy returns them for the deploy's
 // migrate step to print. The collection must not be nil.
-func WithDefaultRoles(collection PermissionCollection, file RoleFile) Option {
+//
+// others are the role files of the application's other auths, for an
+// application with more than one. They are read for one thing: a subject set
+// one of them reads is read, so this auth's check does not flag it
+// (UnreadSetWarning). Their roles are no roles of this Client.
+func WithDefaultRoles(collection PermissionCollection, file RoleFile, others ...RoleFile) Option {
 	return func(o *clientOptions) {
 		o.collection = collection
 		o.roleFile = file
 		o.roleFileSet = true
+		o.otherRoleFiles = others
 	}
 }
 

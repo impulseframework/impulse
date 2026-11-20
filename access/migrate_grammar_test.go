@@ -89,6 +89,12 @@ func (grammarCollection) SubjectSetComparisonType(name string) (accesstypes.Attr
 	}
 }
 
+// SubjectSets declares none: the fixture's sets are a vocabulary for conditions, and
+// the tests of the unread-set warning declare their own (setsCollection).
+func (grammarCollection) SubjectSets() map[string][]string {
+	return nil
+}
+
 func (grammarCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
 	switch name {
 	case "approvalLimit":

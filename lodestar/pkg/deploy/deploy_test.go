@@ -40,7 +40,9 @@ var archivistFee = access.ConcealingKeyWarning{
 // through the validation the permission engine performs when the auth opens:
 // the grammar holds, every condition resolves against the generated
 // collection, and the warnings the deploy's role check would print are exactly
-// the ones pinned here. No role holds a conditional write on a row it can
+// the ones pinned here. Every subject set the application declares is read by a role of
+// one of the auths, so no set is flagged as unread: each auth's file is validated with
+// the other's beside it. No role holds a conditional write on a row it can
 // neither Read nor List, and no role may create a resource without a field every
 // create of it must be given. The archivist's Missions grants raise the concealing-key warning on
 // the fee filter key alone: her completed grant implies her closed-states
@@ -71,7 +73,21 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 				t.Fatalf("access.RoleFile.Parse() error = %v", err)
 			}
 
-			warnings, err := access.ValidateRoles(router.Collection(), roles)
+			// The role files of the other auths count beside this one: a subject set
+			// any auth's roles read is read.
+			var others []*access.RoleConfig
+			for _, other := range tests {
+				if other.name == tt.name {
+					continue
+				}
+				config, err := other.roles.Parse()
+				if err != nil {
+					t.Fatalf("access.RoleFile.Parse() error = %v: the %s roles", err, other.name)
+				}
+				others = append(others, config)
+			}
+
+			warnings, err := access.ValidateRoles(router.Collection(), roles, others...)
 			if err != nil {
 				t.Fatalf("access.ValidateRoles() error = %v", err)
 			}

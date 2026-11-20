@@ -800,9 +800,28 @@ func checkPolicy(ctx context.Context, client *access.Client) error {
 ```
 
 Every warning prints as one line. A consumer that wants the fields switches on
-the kind: `access.GrantWarning`, `access.RequiredFieldWarning` and
-`access.ConcealingKeyWarning` come from the role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
+the kind: `access.GrantWarning`, `access.RequiredFieldWarning`,
+`access.ConcealingKeyWarning` and `access.UnreadSetWarning` come from the role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
 `*access.OrphanedMembership` from the store.
+
+`access.UnreadSetWarning` names a subject set the application declares
+(`@subjectSet`) that no role reads. A set is read when a grant's condition
+names it (`hangarId IN subject.hangarsOpen`), or when a set that is read builds
+on it in its `who:` part (`GroupID IN subject.groups`). Nobody holds anything
+through an unread set, so the line says to write the grant that reads it. It is
+never a refusal: a set may be declared one change before its first grant, and
+the role-file test accepts the warning until then. The set of a person's groups
+that the generator declares for an auth is not flagged, since nobody wrote it.
+
+An application with more than one auth hands each auth the others' role files,
+because a set one auth's roles read is read:
+
+```go
+access.WithDefaultRoles(collection, staff.Roles(), members.Roles())
+warnings, err := access.ValidateRoles(collection, staffRoles, membersRoles)
+```
+
+The other files are read for the sets their grants name and for nothing else.
 
 ### Behavior
 

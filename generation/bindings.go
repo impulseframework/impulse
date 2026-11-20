@@ -124,6 +124,11 @@ type subjectBinding struct {
 	// false is a @subjectSet (IN membership, no cardinality claim).
 	Scalar bool
 
+	// Offered marks the set of a person's groups that the generator declares for
+	// an auth (the generated group members resource): nobody wrote it, so the
+	// role-file check does not flag it when no role reads it.
+	Offered bool
+
 	// Who is a @subjectSet's who: part: the tests that make a row the
 	// requester's, joined by OR, Anchor being the field of one of them. Nil
 	// when the annotation writes none: the one test is then Anchor equal to the
@@ -1268,6 +1273,7 @@ func collectionSubjectBinding(subject *subjectBinding) resource.SubjectBindingDa
 		Column:     fieldColumn(subject.ValueField),
 		Type:       resource.AttributeType(subject.Type),
 		Path:       collectionHops(subject.Path),
+		Offered:    subject.Offered,
 	}
 	for _, test := range subject.Who {
 		data.Who = append(data.Who, resource.SubjectWhoData{Column: fieldColumn(test.Field), Set: test.Set})

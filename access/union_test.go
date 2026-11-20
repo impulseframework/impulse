@@ -26,6 +26,7 @@ type stubCollection struct {
 	lists         []string
 	subjectSets   map[string]accesstypes.AttributeType
 	subjectValues map[string]accesstypes.AttributeType
+	declaredSets  map[string][]string
 }
 
 func (s *stubCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
@@ -76,6 +77,10 @@ func (s *stubCollection) SubjectSetComparisonType(name string) (accesstypes.Attr
 	typ, ok := s.subjectSets[name]
 
 	return typ, ok
+}
+
+func (s *stubCollection) SubjectSets() map[string][]string {
+	return s.declaredSets
 }
 
 func (s *stubCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
@@ -374,4 +379,21 @@ func Test_unionCollection_ListIsACopy(t *testing.T) {
 
 func (s *stubCollection) RequiredOnCreate(_ accesstypes.PermissionScope, res accesstypes.Resource) []accesstypes.Tag {
 	return s.required[res]
+}
+
+// TestUnionCollection_subjectSets pins that the union lists every collection's declared
+// subject sets, and joins what two collections say a shared set builds on.
+func TestUnionCollection_subjectSets(t *testing.T) {
+	t.Parallel()
+
+	first := &stubCollection{declaredSets: map[string][]string{"crews": nil, "docks": {"crews"}}}
+	second := &stubCollection{declaredSets: map[string][]string{"docks": {"watches"}, "watches": nil}}
+	union, err := UnionCollection(first, second)
+	if err != nil {
+		t.Fatalf("UnionCollection() error = %v", err)
+	}
+	want := map[string][]string{"crews": nil, "docks": {"crews", "watches"}, "watches": nil}
+	if got := union.SubjectSets(); !reflect.DeepEqual(got, want) {
+		t.Errorf("SubjectSets() = %v, want %v", got, want)
+	}
 }

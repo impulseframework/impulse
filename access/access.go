@@ -79,7 +79,15 @@ func New(store Store, opts ...Option) (*Client, error) {
 	if _, err := superAdministratorRole(options.collection, options.superMethods); err != nil {
 		return nil, errors.Wrap(err, "access.New()")
 	}
-	defaults, err := compileDefaultRoles(options.collection, config, options.superMethods)
+	others := make([]*RoleConfig, 0, len(options.otherRoleFiles))
+	for _, file := range options.otherRoleFiles {
+		other, err := file.Parse()
+		if err != nil {
+			return nil, errors.Wrap(err, "access.WithDefaultRoles(): the role file of another auth")
+		}
+		others = append(others, other)
+	}
+	defaults, err := compileDefaultRoles(options.collection, config, options.superMethods, others)
 	if err != nil {
 		if !options.roleFileSet {
 			return nil, errors.Wrap(err, "access.New()")
@@ -130,7 +138,7 @@ func (c *Client) Handlers(logHandler LogHandler) Handlers {
 // CheckPolicy reads the policy store once and reports everything a deploy
 // should hear about before the release takes traffic: the shapes the role
 // file carries that are legal and probably not what the author wanted
-// (GrantWarning, ConcealingKeyWarning), and what the store holds that this
+// (GrantWarning, RequiredFieldWarning, ConcealingKeyWarning, UnreadSetWarning), and what the store holds that this
 // release cannot use as written — a grant it would skip (*SkippedGrant), a
 // custom role a default of the same name shadows (*ShadowedRole), memberships
 // naming a role nothing defines (*OrphanedMembership). It writes nothing: the

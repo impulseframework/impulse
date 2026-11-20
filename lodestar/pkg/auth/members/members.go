@@ -137,6 +137,11 @@ type Settings struct {
 	// the resources, fields and conditions the release declares. The router package
 	// generates it and imports this one, so the configuration passes it in.
 	Collection access.PermissionCollection
+	// OtherRoles are the role files of the application's other auths. The role-file
+	// check counts a subject set as read when any auth's roles read it, so each auth is
+	// handed the others' files; the configuration passes them in, since the auths do not
+	// import each other.
+	OtherRoles []access.RoleFile
 	// ChangeSignal carries the engine's policy-change hints between the application's
 	// instances (auth.PolicySignal over the live service): the engine announces after
 	// every policy write it makes (the directory sync's at login) and rereads on every
@@ -283,7 +288,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// administrator of the members, the sync gives the role to a client it names for it
 	// and takes it from one it no longer names, and the bootstrap seeds none.
 	accessClient, err := access.New(store,
-		access.WithDefaultRoles(settings.Collection, Roles()),
+		access.WithDefaultRoles(settings.Collection, Roles(), settings.OtherRoles...),
 		access.WithChangeSignal(settings.ChangeSignal),
 		access.WithSuperAdministratorMethods(membersidentity.SuperAdministratorMethods()...),
 	)

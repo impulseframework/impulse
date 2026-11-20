@@ -24,9 +24,10 @@ type (
 	// The table is no tenant's, and a group is kept in one tenant or for the whole
 	// application, so the set says where a row's tenant is found (domain:
 	// GroupID.DomainID). In a request that has a tenant the set holds the groups kept in
-	// that tenant alone: a row of the tenant's that names another tenant's group, or a
-	// group kept for the whole application, gives nobody anything through it. In a
-	// request that has no tenant the set holds every group the caller is in.
+	// that tenant alone: a row of the tenant's that named another tenant's group, or a
+	// group kept for the whole application, would give nobody anything through it, and
+	// the library refuses to write one. In a request that has no tenant the set holds
+	// every group the caller is in.
 	//
 	// StartsAt and EndsAt are the place's period: the first instant it counts and the
 	// first it no longer does, each empty for none. Outside its period a place gives the

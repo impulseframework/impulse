@@ -143,3 +143,26 @@ func Test_resourceFileTemplate_groupColumns(t *testing.T) {
 		t.Errorf("Depot, which names no group, declares GroupColumns:\n%s", rendered["Depot"])
 	}
 }
+
+// TestNameGroupColumns_offered pins which subject sets the generator marks as its own:
+// the set of a person's groups an auth declares, and no set the application wrote.
+func TestNameGroupColumns_offered(t *testing.T) {
+	t.Parallel()
+
+	members := &resourceInfo{SubjectSets: []*subjectBinding{{Name: "staffGroups"}}}
+	passes := &resourceInfo{SubjectSets: []*subjectBinding{{Name: "depotsOpen"}, {Name: "groups"}}}
+	c := &client{identity: []*identityInstance{
+		{auth: "Staff", policy: access.Tables{Groups: "StaffGroups"}, groupSet: "staffGroups"},
+		{auth: "Guests"},
+	}}
+	c.nameGroupColumns([]*resourceInfo{members, passes})
+
+	if !members.SubjectSets[0].Offered {
+		t.Error("the auth's set of a person's groups is not marked as the generator's own")
+	}
+	for _, set := range passes.SubjectSets {
+		if set.Offered {
+			t.Errorf("the application's set %s is marked as the generator's own", set.Name)
+		}
+	}
+}

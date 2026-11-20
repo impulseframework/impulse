@@ -58,6 +58,11 @@ func (c *client) nameGroupColumns(resources []*resourceInfo) {
 		}
 	}
 	for _, res := range resources {
+		for _, set := range res.SubjectSets {
+			set.Offered = auths[set.Name] != nil
+		}
+	}
+	for _, res := range resources {
 		res.groupColumns = nil
 		if res.DomainBinding == nil || res.IsVirtual || len(auths) == 0 {
 			continue

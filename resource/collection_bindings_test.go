@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse/accesstypes"
 )
 
@@ -259,5 +260,39 @@ func TestNewGeneratedCollection_bindingValidation(t *testing.T) {
 				t.Errorf("NewGeneratedCollection() error = %q, want containing %q", err, tt.wantContain)
 			}
 		})
+	}
+}
+
+// TestGeneratedCollection_SubjectSets pins what the role-file check is told of the
+// application's subject sets: each set the application declares, with the sets its who:
+// part builds on, and no set the generator declares for an auth.
+func TestGeneratedCollection_SubjectSets(t *testing.T) {
+	t.Parallel()
+
+	data := CollectionData{Resources: []CollectionResource{
+		{
+			Name:  "CrewMembers",
+			Scope: accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{
+				{Name: "crews", UserColumn: "UserId", Column: "CrewId", Type: AttributeTypeString},
+				{Name: "groups", UserColumn: "UserId", Column: "GroupId", Type: AttributeTypeString, Offered: true},
+			},
+		},
+		{
+			Name:  "DockPasses",
+			Scope: accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{{
+				Name: "docks", UserColumn: "UserId", Column: "DockId", Type: AttributeTypeString,
+				Who: []SubjectWhoData{{Column: "UserId"}, {Column: "CrewId", Set: "crews"}, {Column: "GroupId", Set: "groups"}},
+			}},
+		},
+	}}
+	g, err := NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+	want := map[string][]string{"crews": nil, "docks": {"crews", "groups"}}
+	if diff := cmp.Diff(want, g.SubjectSets(), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("SubjectSets() mismatch (-want +got):\n%s", diff)
 	}
 }

@@ -201,6 +201,25 @@ func (u *unionCollection) SubjectSetComparisonType(name string) (accesstypes.Att
 	return "", false
 }
 
+// SubjectSets merges the collections' declared subject sets: the subject namespace is
+// application-wide, and a set two collections declare builds on what either says.
+func (u *unionCollection) SubjectSets() map[string][]string {
+	sets := make(map[string][]string)
+	for _, c := range u.collections {
+		for name, builds := range c.SubjectSets() {
+			merged := sets[name]
+			for _, built := range builds {
+				if !slices.Contains(merged, built) {
+					merged = append(merged, built)
+				}
+			}
+			sets[name] = merged
+		}
+	}
+
+	return sets
+}
+
 // SubjectValueComparisonType resolves a subject value's comparison type from
 // whichever collection declares it.
 func (u *unionCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
