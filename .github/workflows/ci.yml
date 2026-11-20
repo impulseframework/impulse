@@ -2,11 +2,11 @@ name: CI
 # A tree is tested once.
 #
 #  * A draft pull request runs the static checks on every push: the title, the release
-#    ledger, the generated-code check, govulncheck, Semgrep, golangci-lint, and the browser
-#    packages and applications. The jobs that run tests against the Spanner emulator (the
-#    module's race tests, Lodestar's Go jobs, the skeleton legs) wait until the pull request
-#    is ready for review; marking it ready starts them on its commit. A draft push takes no
-#    minute of the larger runner.
+#    ledger, the generated-code check, govulncheck, Semgrep, golangci-lint (the module's and
+#    Lodestar's), and the browser packages and applications. The jobs that run tests against
+#    the Spanner emulator (the module's race tests, Lodestar's test jobs, the skeleton legs)
+#    wait until the pull request is ready for review; marking it ready starts them on its
+#    commit. A draft push takes no minute of the larger runner.
 #  * The push a merge makes is a tree its pull request tested, since the branch rule requires
 #    an up-to-date pull request. The run stays for the caches: a pull request can read
 #    entries saved on its own branch and on its base, nothing else. So the Go jobs compile
@@ -42,7 +42,8 @@ jobs:
   golang-ci:
     # The framework is one Go module at the root, the one package of release-please-config.json,
     # which is the module the reusable workflow discovers. Lodestar (lodestar/) is a nested
-    # module the workflow does not see; the lodestar-go job below covers it.
+    # module the workflow does not see; the lodestar-go jobs below cover it, its lint among
+    # them (lodestar-go-lint, which installs the golangci-lint named here).
     # A called workflow gets no more than its caller grants: the scans upload their findings
     # to code scanning (security-events) and read the run they belong to (actions).
     # Not in a run for a release, which does the released skeleton legs alone.
@@ -123,6 +124,10 @@ jobs:
       # one (a push to master, for the caches), or 'skip' (nothing of theirs changed, or the
       # pull request is a draft).
       lodestar-go: ${{ steps.paths.outputs.lodestar-go }}
+      # 'true' where Lodestar's Go is linted: a Go file, a go.mod or go.sum, Lodestar or this
+      # workflow changed, on a draft as on a ready pull request, since the lint is a static
+      # check; and on a push to master, for the caches.
+      lodestar-lint: ${{ steps.paths.outputs.lodestar-lint }}
       # 'true' on a draft pull request: the jobs that run tests against the emulator wait.
       draft: ${{ steps.paths.outputs.draft }}
     steps:
@@ -143,7 +148,7 @@ jobs:
             # result, so every job runs; Lodestar's Go jobs compile for the caches and run
             # no test, since the pull request that merged tested this tree. The legs against
             # the released framework wait for a release.
-            printf 'web=true\nlodestar-web=true\nimpulse=true\npins=false\nlodestar-go=compile\ndraft=false\n' >> "$GITHUB_OUTPUT"; cat "$GITHUB_OUTPUT"; exit 0
+            printf 'web=true\nlodestar-web=true\nimpulse=true\npins=false\nlodestar-go=compile\nlodestar-lint=true\ndraft=false\n' >> "$GITHUB_OUTPUT"; cat "$GITHUB_OUTPUT"; exit 0
           fi
           if [ "$EVENT" != pull_request ]; then
             # A run for a release, started by the end of the npm publish workflow or by hand:
@@ -151,7 +156,7 @@ jobs:
             # not succeed left nothing new to render against.
             pins=true
             if [ "$EVENT" = workflow_run ] && [ "$PUBLISHED" != success ]; then pins=false; fi
-            printf 'web=false\nlodestar-web=false\nimpulse=false\npins=%s\nlodestar-go=skip\ndraft=false\n' "$pins" >> "$GITHUB_OUTPUT"; cat "$GITHUB_OUTPUT"; exit 0
+            printf 'web=false\nlodestar-web=false\nimpulse=false\npins=%s\nlodestar-go=skip\nlodestar-lint=false\ndraft=false\n' "$pins" >> "$GITHUB_OUTPUT"; cat "$GITHUB_OUTPUT"; exit 0
           fi
           draft=false
           if [ "$DRAFT" = true ]; then draft=true; fi
@@ -171,6 +176,7 @@ jobs:
             else
               echo "lodestar-go=skip"
             fi
+            echo "lodestar-lint=$(touches '(\.go$|(^|/)go\.(mod|sum)$|^lodestar/|^\.github/workflows/ci\.yml$)')"
             echo "draft=$draft"
           } >> "$GITHUB_OUTPUT"
           echo "changed files: $(wc -l < "$RUNNER_TEMP/changed-files")"; cat "$GITHUB_OUTPUT"
@@ -441,13 +447,93 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
+  lodestar-go-lint:
+    # Lodestar's Go is linted as the framework's is: the golangci-lint golang-ci installs,
+    # over the whole of Lodestar's module, once under each tag set golang-ci's lint uses. It
+    # runs from lodestar/, where the configuration it reads is Lodestar's own
+    # (lodestar/.golangci.yml). golang-ci's lint does not reach Lodestar, for the reason its
+    # tests do not (see lodestar-go-integration).
+    #
+    # The lint is a static check: it runs on a draft as on a ready pull request, on the
+    # standard runner, and on master's push, which saves the caches a pull request reads.
+    # Its two jobs start on every pull request and push, since a matrix job skipped whole
+    # reports one check under its unexpanded name, and skip every step on a pull request
+    # that touches neither Lodestar, Go nor this workflow. The lodestar-go job below reports
+    # what they came to under the required check's name.
+    name: lodestar go (golangci-lint${{ matrix.build-tag != '' && format(', {0}', matrix.build-tag) || '' }})
+    needs: changes
+    strategy:
+      fail-fast: false
+      matrix:
+        # The tag sets of golang-ci's build-tags above.
+        build-tag: ['', dev]
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    env:
+      # 'true' where the job does its work, and when the changes job could not say.
+      RUN: ${{ needs.changes.result != 'success' || needs.changes.outputs.lodestar-lint == 'true' }}
+      # The leg's name in its cache keys.
+      LEG: ${{ matrix.build-tag || 'untagged' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ env.RUN == 'true' }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: ${{ env.RUN == 'true' }}
+        with:
+          go-version-file: lodestar/go.mod
+          cache: false
+      - name: Install golangci-lint
+        if: ${{ env.RUN == 'true' }}
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          # golang-ci's golangci-lint-version above: one linter for the whole repository.
+          version: 'v2.14.0'
+          install-only: true
+          skip-cache: true
+      - name: Restore the Go and golangci-lint caches
+        # As golang-ci's lint does: the linter's analysis cache rides with the module cache
+        # and the build cache it depends on, in a lineage of the leg's own.
+        if: ${{ env.RUN == 'true' }}
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: lodestar-go-lint-${{ env.LEG }}-${{ runner.os }}-${{ hashFiles('lodestar/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            lodestar-go-lint-${{ env.LEG }}-${{ runner.os }}-${{ hashFiles('lodestar/go.sum') }}-
+            lodestar-go-lint-${{ env.LEG }}-${{ runner.os }}-
+      - name: golangci-lint over Lodestar's module
+        if: ${{ env.RUN == 'true' }}
+        working-directory: lodestar
+        env:
+          GOTOOLCHAIN: auto
+          BUILD_TAGS: ${{ matrix.build-tag != '' && format('--build-tags {0}', matrix.build-tag) || '' }}
+        run: |
+          # BUILD_TAGS is a flag or empty, split on purpose. The timeout is golang-ci's: a
+          # run that finds no cache takes longer on the standard runner than the default.
+          # shellcheck disable=SC2086
+          golangci-lint run --timeout 15m --verbose $BUILD_TAGS
+      - name: Save the Go and golangci-lint caches
+        # Always on master; on a pull request only when no entry for this go.sum was found.
+        # A lint that found something still saves what it analyzed; a canceled run saves nothing.
+        if: ${{ env.RUN == 'true' && !cancelled() && (github.event_name != 'pull_request' || !startsWith(steps.go-cache.outputs.cache-matched-key, format('lodestar-go-lint-{0}-{1}-{2}-', env.LEG, runner.os, hashFiles('lodestar/go.sum')))) }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
   lodestar-go:
     # The required check of Lodestar's Go jobs: it passes when each of them passed, skipped
     # its steps or was skipped (a pull request that touches nothing of theirs, or a
     # draft), and fails when any failed or was canceled. It runs whatever became of them, so a run
     # canceled by hand never reads as a pass.
     name: lodestar go
-    needs: [lodestar-go-integration, lodestar-go-rest]
+    needs: [lodestar-go-integration, lodestar-go-rest, lodestar-go-lint]
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
     runs-on: ubuntu-latest
     steps:
@@ -455,10 +541,12 @@ jobs:
         env:
           INTEGRATION: ${{ needs.lodestar-go-integration.result }}
           REST: ${{ needs.lodestar-go-rest.result }}
+          LINT: ${{ needs.lodestar-go-lint.result }}
         run: |
           echo "the integration suite, every part: $INTEGRATION"
           echo "build, vet, the other suites, impulse check: $REST"
-          for result in "$INTEGRATION" "$REST"; do
+          echo "golangci-lint, both tag sets: $LINT"
+          for result in "$INTEGRATION" "$REST" "$LINT"; do
             case "$result" in
               success | skipped) ;;
               *) exit 1 ;;
