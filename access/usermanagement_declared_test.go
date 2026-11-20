@@ -18,7 +18,7 @@ func declaredWhy(asked, reason string) string {
 }
 
 // TestUserManager_grantsHeldToTheCollection pins that a grant written to a custom role
-// is one the running release declares, on each of the four writes that add one. A
+// is one the running release declares, on each of the five writes that add one. A
 // permission, a resource or a field the collection does not list, and an action no role
 // is given, are refused as a bad request that says which and why, and nothing of the
 // call is written, the rows beside the refused one included. A name the collection
@@ -98,6 +98,28 @@ func TestUserManager_grantsHeldToTheCollection(t *testing.T) {
 				return manager.AddRoleGrant(ctx, tenant1Policy, tester, accesstypes.Execute, createWidgetShop, "")
 			},
 			wantRefused: "Execute on CreateWidgetShop cannot be given to a role: CreateWidgetShop is an action no role is given. Nothing asks for a grant of it, so the grant would do nothing",
+		},
+		{
+			name: "AddRolePermission: a permission the release does not have is refused for the whole of a scope too",
+			write: func(ctx context.Context, manager UserManager) error {
+				return manager.AddRolePermission(ctx, tenant1Policy, tester, "Frobnicate")
+			},
+			wantRefused: "Frobnicate cannot be given to a role: this release has no permission Frobnicate. A role is given a permission the application declares; check the permission's name",
+		},
+		{
+			name: "AddRolePermission: a permission the release has",
+			write: func(ctx context.Context, manager UserManager) error {
+				return manager.AddRolePermission(ctx, tenant1Policy, tester, accesstypes.Read)
+			},
+			want: []string{"Read ."},
+		},
+		{
+			name:         "AddRolePermission: a Client handed no collection checks no name",
+			noCollection: true,
+			write: func(ctx context.Context, manager UserManager) error {
+				return manager.AddRolePermission(ctx, tenant1Policy, tester, "Frobnicate")
+			},
+			want: []string{"Frobnicate ."},
 		},
 		{
 			name: "AddRoleGrants: one row the release does not declare refuses the call, and nothing is written",

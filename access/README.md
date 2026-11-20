@@ -250,8 +250,9 @@ for the removals and the additions together, so a reader never sees a role
 with neither its old grant nor its new one.
 
 With the same collection, the writes that give a custom role a grant
-(`AddRoleGrant`, `AddRoleGrants`, `AddRolePermissionResources` and the additions
-of `ChangeRoleGrants`) refuse a grant the release cannot use by its name: a
+(`AddRoleGrant`, `AddRoleGrants`, `AddRolePermissionResources`, the additions
+of `ChangeRoleGrants`, and `AddRolePermission` for a grant that names no
+resource) refuse a grant the release cannot use by its name: a
 permission the release does not have, a permission it does not declare on the
 resource or the field, and an action no role is given. The refusal is a bad
 request that says which and why (`List on Ledgers cannot be given to a role:

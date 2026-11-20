@@ -397,7 +397,8 @@ func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicySc
 }
 
 // AddRolePermission grants permission to role scope-wide: the permission is
-// held with no resource attachment.
+// held with no resource attachment. A permission the running release does not
+// have is refused (requireDeclaredPermission).
 func (u *userManager) AddRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -405,6 +406,9 @@ func (u *userManager) AddRolePermission(ctx context.Context, scope accesstypes.P
 	defer announce()
 
 	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+		return err
+	}
+	if err := u.requireDeclaredPermission(permission); err != nil {
 		return err
 	}
 
@@ -559,6 +563,27 @@ func (u *userManager) requireDeclared(rows []GrantRow) error {
 				row.Permission, row.Resource, plainText(err),
 			)
 		}
+	}
+
+	return nil
+}
+
+// requireDeclaredPermission is requireDeclared for a scope-wide grant, which
+// names a permission and nothing else: the permission is one the running
+// release has, which is one its permission collection lists. A role given a
+// permission no release has would show it in the role's editor and hold nothing
+// by it. A load of the policy checks no name on a stored scope-wide grant, so
+// this is where the name is held; a removal is held to nothing. A Client that
+// was handed no collection checks no name here either.
+func (u *userManager) requireDeclaredPermission(permission accesstypes.Permission) error {
+	if u.collection == nil {
+		return nil
+	}
+	if _, has := u.collection.List()[permission]; !has {
+		return httpio.NewBadRequestMessagef(
+			"%s cannot be given to a role: this release has no permission %s. A role is given a permission the application declares; check the permission's name",
+			permission, permission,
+		)
 	}
 
 	return nil
