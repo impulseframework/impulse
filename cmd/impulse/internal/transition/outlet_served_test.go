@@ -237,7 +237,10 @@ func TestOutletApplyIssuesAMachineOutletsTokens(t *testing.T) {
 	wantHolds(t, a, "test/integration/harness_test.go", "MailLoginURL: \"http://solo.test/login\", DevicePage: \"/device\"})")
 	wantHolds(t, a, "app/devices_outlet.go",
 		"import (\n\t\"example.com/acme/depot/pkg/router\"\n)\n",
-		"func (a *App) Devices() router.DevicesTokens {\n\tif a.Handlers == nil {\n\t\treturn nil\n\t}\n\n\treturn a.Handlers.DevicesTokens()\n}\n",
+		// The App embeds the auth's handlers, so the token check is the App's own method, as
+		// the base's reference writes it: a selector through the embedded field is what the
+		// application's own lint refuses.
+		"func (a *App) Devices() router.DevicesTokens {\n\tif a.Handlers == nil {\n\t\treturn nil\n\t}\n\n\treturn a.DevicesTokens()\n}\n",
 	)
 	wantHolds(t, a, "web/console/src/app/app.routes.ts",
 		"    canActivate: [LoginAuthenticationGuard],\n    children: [\n"+
@@ -258,6 +261,66 @@ func TestOutletApplyIssuesAMachineOutletsTokens(t *testing.T) {
 		}
 	}
 	wantGoAsGofmtWritesIt(t, a)
+}
+
+// TestOutletApplyReadsTheTokenCheckWhereTheAppHoldsIt pins the body of the method add
+// outlet declares on the App for a machine outlet, by how the App holds the auth's
+// handlers. Embedded, as the base's App holds them, their methods are the App's own and the
+// token check is read as one, which is what the base's reference writes and what the
+// application's lint passes: a selector through the embedded field is refused there. A
+// field with a name is read through the name, since nothing is promoted from it.
+func TestOutletApplyReadsTheTokenCheckWhereTheAppHoldsIt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// field is what the App's struct holds the handlers as, in place of the base's
+		// embedded field; empty leaves the base's.
+		field string
+		want  string
+	}{
+		{
+			name: "the App embeds the handlers",
+			want: "func (a *App) Devices() router.DevicesTokens {\n\tif a.Handlers == nil {\n\t\treturn nil\n\t}\n\n\treturn a.DevicesTokens()\n}\n",
+		},
+		{
+			name:  "the App holds them in a field with a name",
+			field: "staffAuth",
+			want:  "func (a *App) Devices() router.DevicesTokens {\n\tif a.staffAuth == nil {\n\t\treturn nil\n\t}\n\n\treturn a.staffAuth.DevicesTokens()\n}\n",
+		},
+		{
+			name:  "the App holds them in a field the author named Handlers",
+			field: "Handlers",
+			want:  "func (a *App) Devices() router.DevicesTokens {\n\tif a.Handlers == nil {\n\t\treturn nil\n\t}\n\n\treturn a.Handlers.DevicesTokens()\n}\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a := newBase(t, "staff")
+			if tt.field != "" {
+				src := read(t, a, "app/app.go")
+				held := strings.Replace(src, "\t*staff.Handlers\n", "\t"+tt.field+" *staff.Handlers\n", 1)
+				if held == src {
+					t.Fatal("the base's App does not embed *staff.Handlers, which the case renames")
+				}
+				held = strings.ReplaceAll(held, "a.Handlers = ", "a."+tt.field+" = ")
+				if err := os.WriteFile(a.Abs("app/app.go"), []byte(held), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				discovered, err := app.Discover(a.Root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				a = discovered
+			}
+
+			a, _ = applied(t, a, Outlet{Name: "devices", Prefix: "devices/api"})
+
+			wantHolds(t, a, "app/devices_outlet.go", tt.want)
+		})
+	}
 }
 
 // TestOutletApplyBothKinds pins a machine outlet added to an application whose console

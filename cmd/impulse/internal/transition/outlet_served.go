@@ -187,7 +187,7 @@ func (o Outlet) declareSessionMethods(a *app.App, site *app.Site, auth *app.Outl
 	if err != nil {
 		return err
 	}
-	holder, err := handlersField(e.rel, e.src, appType, auth.ImportPath)
+	holder, _, err := handlersField(e.rel, e.src, appType, auth.ImportPath)
 	if err != nil {
 		return err
 	}
@@ -389,15 +389,17 @@ func (o Outlet) answerDistInHarnesses(a *app.App, ch *Change) error {
 
 // handlersField names the field of the struct that holds an auth's handlers, a
 // *<auth>.Handlers: Handlers where the struct embeds them, as the base's App does, or the
-// field's own name. It is empty where the struct holds none.
-func handlersField(rel string, src []byte, structName, authPath string) (string, error) {
+// field's own name. It is empty where the struct holds none. embedded says the struct
+// embeds them, so their methods are the struct's own: a field the author named Handlers
+// holds them under the same name without that.
+func handlersField(rel string, src []byte, structName, authPath string) (name string, embedded bool, err error) {
 	local, err := app.ImportName(rel, src, authPath)
 	if err != nil || local == "" {
-		return "", err
+		return "", false, err
 	}
 	f, err := parser.ParseFile(token.NewFileSet(), rel, src, parser.SkipObjectResolution)
 	if err != nil {
-		return "", errors.Wrap(err, "parser.ParseFile()")
+		return "", false, errors.Wrap(err, "parser.ParseFile()")
 	}
 	var found string
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -421,9 +423,9 @@ func handlersField(rel string, src []byte, structName, authPath string) (string,
 			if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != local {
 				continue
 			}
-			found = "Handlers"
+			found, embedded = "Handlers", true
 			if len(field.Names) > 0 {
-				found = field.Names[0].Name
+				found, embedded = field.Names[0].Name, false
 			}
 
 			break
@@ -432,7 +434,7 @@ func handlersField(rel string, src []byte, structName, authPath string) (string,
 		return false
 	})
 
-	return found, nil
+	return found, embedded, nil
 }
 
 // parameterOfType names the parameter of the function that has the type, itself or
@@ -748,7 +750,7 @@ func (o Outlet) declareTokenCheck(a *app.App, site *app.Site, auth *app.OutletAu
 	if slices.Contains(methods, pascal) {
 		return nil
 	}
-	holder, err := handlersField(rel, src, appType, auth.ImportPath)
+	holder, embedded, err := handlersField(rel, src, appType, auth.ImportPath)
 	if err != nil {
 		return err
 	}
@@ -757,9 +759,16 @@ func (o Outlet) declareTokenCheck(a *app.App, site *app.Site, auth *app.OutletAu
 
 		return nil
 	}
+	// Handlers the App embeds give it the token check as a method of its own, which is how
+	// the base's reference reads it and what the application's lint asks for (a selector
+	// through the embedded field is refused); a field with a name is read through the name.
+	tokens := "a." + holder + "." + pascal + "Tokens()"
+	if embedded {
+		tokens = "a." + pascal + "Tokens()"
+	}
 	router, routerPath := routerQualifier(a, site.Generator, dir)
 	file := &appMethods{imports: routerPath}
-	file.declare(pascal+"()", fmt.Sprintf("\n// %[1]s returns the %[2]s outlet's token check (%[5]s%[1]sTokens): the machine outlet the\n// %[3]s auth registered under its %[1]sOutlet, whose check requires \"Authorization: Bearer\n// <token>\", answers a request without one with the challenge naming the outlet, and binds\n// the request to the person the token acts for, the way the session middleware binds a\n// browser request to its user, so the handlers behind it run the same fail-closed\n// permission checks. A person signed in through the %[3]s auth issues an application token\n// for the outlet, or approves a command-line client's device authorization; the token\n// holds that person's roles. There is no configured key: the application issues every\n// token.\nfunc (a *%[6]s) %[1]s() %[5]s%[1]sTokens {\n\tif a.%[4]s == nil {\n\t\treturn nil\n\t}\n\n\treturn a.%[4]s.%[1]sTokens()\n}\n", pascal, o.Name, o.Auth, holder, router, appType))
+	file.declare(pascal+"()", fmt.Sprintf("\n// %[1]s returns the %[2]s outlet's token check (%[5]s%[1]sTokens): the machine outlet the\n// %[3]s auth registered under its %[1]sOutlet, whose check requires \"Authorization: Bearer\n// <token>\", answers a request without one with the challenge naming the outlet, and binds\n// the request to the person the token acts for, the way the session middleware binds a\n// browser request to its user, so the handlers behind it run the same fail-closed\n// permission checks. A person signed in through the %[3]s auth issues an application token\n// for the outlet, or approves a command-line client's device authorization; the token\n// holds that person's roles. There is no configured key: the application issues every\n// token.\nfunc (a *%[6]s) %[1]s() %[5]s%[1]sTokens {\n\tif a.%[4]s == nil {\n\t\treturn nil\n\t}\n\n\treturn %[7]s\n}\n", pascal, o.Name, o.Auth, holder, router, appType, tokens))
 
 	return o.writeAppMethods(a, &sourceEdit{rel: rel, src: src}, file, ch)
 }
