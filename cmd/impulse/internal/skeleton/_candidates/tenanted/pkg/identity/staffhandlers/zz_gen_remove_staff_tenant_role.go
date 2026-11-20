@@ -21,8 +21,9 @@ import (
 
 func (h *Handlers) RemoveStaffTenantRole() http.HandlerFunc {
 	type request struct {
-		UserID impulse.UUID `json:"userId"`
-		Role   string       `json:"role"`
+		UserID  impulse.UUID `json:"userId"`
+		Role    string       `json:"role"`
+		GroupID string       `json:"groupId"`
 	}
 
 	decoder := NewTargetedRPCDecoder[staffidentity.RemoveStaffTenantRole, request](h, accesstypes.Execute)
@@ -73,14 +74,14 @@ func (h *Handlers) RemoveStaffTenantRole() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			// Declared target: a row of the StaffTenantUserRole view.
+			// Declared target: a row of the StaffTenantHeldRole view.
 			// A view's row is one row of its query, and its key names a row in
 			// each tenant that holds one, so the gate locates it by the key
 			// within the request's tenant and judges any row-referencing
 			// condition on the caller's Execute grant against it, in one SELECT
 			// over that query in this transaction. No row there is NotFound: a
 			// missing row and another tenant's row answer alike.
-			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "StaffTenantUserRoles", Label: "StaffTenantUserRole", PKColumns: []string{"UserId", "Role"}, View: staffresources.StaffTenantUserRole{}}, p.UserID, p.Role); err != nil {
+			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "StaffTenantHeldRoles", Label: "StaffTenantHeldRole", PKColumns: []string{"UserId", "Role", "GroupId"}, View: staffresources.StaffTenantHeldRole{}}, p.UserID, p.Role, p.GroupID); err != nil {
 				return err
 			}
 			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -226,7 +227,7 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	err := resource.NewSpannerClient(s.db.Client).ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		var err error
 		if result, err = (&crewidentity.InviteCrewUser{Email: "never@example.com", Roles: []string{"ClientBrowser"}}).Execute(ctx, txn, identityClient); err != nil {
-			return err
+			return fmt.Errorf("InviteCrewUser(never@example.com): %w", err)
 		}
 
 		return errors.New("the application's own write failed")
@@ -248,12 +249,14 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	// And one that commits: the answer is read once ExecuteFunc has returned.
 	err = resource.NewSpannerClient(s.db.Client).ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		var err error
-		result, err = (&crewidentity.InviteCrewUser{Email: "aboard@example.com", Roles: []string{"ClientBrowser"}}).Execute(ctx, txn, identityClient)
-		if err == nil && result.Sent {
+		if result, err = (&crewidentity.InviteCrewUser{Email: "aboard@example.com", Roles: []string{"ClientBrowser"}}).Execute(ctx, txn, identityClient); err != nil {
+			return fmt.Errorf("InviteCrewUser(aboard@example.com): %w", err)
+		}
+		if result.Sent {
 			t.Error("the answer says the message went before the transaction committed")
 		}
 
-		return err
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("an invitation in a transaction of the application's own: %v", err)

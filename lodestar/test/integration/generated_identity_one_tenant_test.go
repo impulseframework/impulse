@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -84,7 +85,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 	if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		created, err := (&crewidentity.CreateCrewUser{Username: odell, Email: &odellAddress, Roles: []string{"Pilot"}, Domain: &anvilSector}).Execute(ctx, txn, strict)
 		if err != nil {
-			return err
+			return fmt.Errorf("CreateCrewUser(%s): %w", odell, err)
 		}
 		odellID = created.ID
 
@@ -120,9 +121,11 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		// sector the second is asked for.
 		before := countRowsOf(ctx, t, s, "CrewSessionUsers", "Username", odell)
 		err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			_, err := (&crewidentity.CreateCrewUser{Username: odell, Roles: []string{"Pilot"}, Domain: &bastionSector}).Execute(ctx, txn, strict)
+			if _, err := (&crewidentity.CreateCrewUser{Username: odell, Roles: []string{"Pilot"}, Domain: &bastionSector}).Execute(ctx, txn, strict); err != nil {
+				return fmt.Errorf("CreateCrewUser(%s): %w", odell, err)
+			}
 
-			return err
+			return nil
 		})
 		if !httpio.HasConflict(err) {
 			t.Fatalf("an account in Bastion under the name of a person of Anvil: error = %v, want a Conflict", err)
@@ -142,18 +145,22 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		// accepts is held to the rule then.
 		piper, piperAddress := "piper-"+suffix, "piper-"+suffix+"@example.com"
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			_, err := (&crewidentity.CreateCrewUser{Username: piper, Email: &piperAddress, Roles: []string{"Pilot"}, Domain: &anvilSector}).Execute(ctx, txn, strict)
+			if _, err := (&crewidentity.CreateCrewUser{Username: piper, Email: &piperAddress, Roles: []string{"Pilot"}, Domain: &anvilSector}).Execute(ctx, txn, strict); err != nil {
+				return fmt.Errorf("CreateCrewUser(%s): %w", piper, err)
+			}
 
-			return err
+			return nil
 		}); err != nil {
 			t.Fatalf("creating a person in a sector: %v", err)
 		}
 		var invited *crewidentity.InviteCrewUserResult
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			var err error
-			invited, err = (&crewidentity.InviteCrewUser{Email: piperAddress, Roles: []string{"Pilot"}, Domain: &bastionSector}).Execute(ctx, txn, strict)
+			if invited, err = (&crewidentity.InviteCrewUser{Email: piperAddress, Roles: []string{"Pilot"}, Domain: &bastionSector}).Execute(ctx, txn, strict); err != nil {
+				return fmt.Errorf("InviteCrewUser(%s): %w", piperAddress, err)
+			}
 
-			return err
+			return nil
 		}); err != nil {
 			t.Fatalf("an invitation into Bastion for an address a person of Anvil holds unconfirmed: %v", err)
 		}
@@ -169,9 +176,11 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		}
 		linksBefore := countRowsOf(ctx, t, s, "CrewSessionMailLinks", "Email", odellAddress)
 		err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			_, err := (&crewidentity.InviteCrewUser{Email: odellAddress, Roles: []string{"Pilot"}, Domain: &bastionSector}).Execute(ctx, txn, strict)
+			if _, err := (&crewidentity.InviteCrewUser{Email: odellAddress, Roles: []string{"Pilot"}, Domain: &bastionSector}).Execute(ctx, txn, strict); err != nil {
+				return fmt.Errorf("InviteCrewUser(%s): %w", odellAddress, err)
+			}
 
-			return err
+			return nil
 		})
 		refused(t, "an invitation into Bastion for the address of a person of Anvil", err)
 		if !strings.Contains(httpio.Message(err), "an account already holds the address "+odellAddress) {
@@ -186,18 +195,22 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 
 		// The address is compared as the database compares one: its case does not hide the account.
 		err = run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			_, err := (&crewidentity.InviteCrewUser{Email: strings.ToUpper(odellAddress), Roles: []string{"Pilot"}, Domain: &bastionSector}).Execute(ctx, txn, strict)
+			if _, err := (&crewidentity.InviteCrewUser{Email: strings.ToUpper(odellAddress), Roles: []string{"Pilot"}, Domain: &bastionSector}).Execute(ctx, txn, strict); err != nil {
+				return fmt.Errorf("InviteCrewUser(%s): %w", strings.ToUpper(odellAddress), err)
+			}
 
-			return err
+			return nil
 		})
 		refused(t, "the same invitation with the address in upper case", err)
 
 		var sameSector *crewidentity.InviteCrewUserResult
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			var err error
-			sameSector, err = (&crewidentity.InviteCrewUser{Email: odellAddress, Roles: []string{"Dispatcher"}, Domain: &anvilSector}).Execute(ctx, txn, strict)
+			if sameSector, err = (&crewidentity.InviteCrewUser{Email: odellAddress, Roles: []string{"Dispatcher"}, Domain: &anvilSector}).Execute(ctx, txn, strict); err != nil {
+				return fmt.Errorf("InviteCrewUser(%s): %w", odellAddress, err)
+			}
 
-			return err
+			return nil
 		}); err != nil {
 			t.Fatalf("an invitation into the person's own sector: %v", err)
 		}
@@ -209,11 +222,13 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		stranger := "stranger-" + suffix + "@example.com"
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if _, err := (&crewidentity.InviteCrewUser{Email: odellAddress, Roles: []string{"ClientBrowser"}}).Execute(ctx, txn, strict); err != nil {
-				return err
+				return fmt.Errorf("InviteCrewUser(%s): %w", odellAddress, err)
 			}
-			_, err := (&crewidentity.InviteCrewUser{Email: stranger, Roles: []string{"Pilot"}, Domain: &bastionSector}).Execute(ctx, txn, strict)
+			if _, err := (&crewidentity.InviteCrewUser{Email: stranger, Roles: []string{"Pilot"}, Domain: &bastionSector}).Execute(ctx, txn, strict); err != nil {
+				return fmt.Errorf("InviteCrewUser(%s): %w", stranger, err)
+			}
 
-			return err
+			return nil
 		}); err != nil {
 			t.Fatalf("an invitation into the fleet for a person of a sector, and one into a sector for a stranger: %v", err)
 		}
@@ -264,7 +279,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			created, err := (&crewidentity.CreateCrewUser{Username: staff, Email: &staffAddress, Roles: []string{"ClientBrowser"}}).Execute(ctx, txn, strict)
 			if err != nil {
-				return err
+				return fmt.Errorf("CreateCrewUser(%s): %w", staff, err)
 			}
 			staffID = created.ID
 
@@ -280,9 +295,11 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 			}
 		}
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			_, err := (&crewidentity.InviteCrewUser{Email: staffAddress, Roles: []string{"Pilot"}, Domain: &cinderSector}).Execute(ctx, txn, strict)
+			if _, err := (&crewidentity.InviteCrewUser{Email: staffAddress, Roles: []string{"Pilot"}, Domain: &cinderSector}).Execute(ctx, txn, strict); err != nil {
+				return fmt.Errorf("InviteCrewUser(%s): %w", staffAddress, err)
+			}
 
-			return err
+			return nil
 		}); err != nil {
 			t.Fatalf("an invitation into a third sector for the address of a person who holds a role for the whole fleet: %v", err)
 		}
@@ -329,7 +346,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			created, err := (&crewidentity.CreateCrewUser{Username: pilot, Roles: []string{"Pilot"}, Domain: &anvilSector}).Execute(ctx, txn, strict)
 			if err != nil {
-				return err
+				return fmt.Errorf("CreateCrewUser(%s): %w", pilot, err)
 			}
 			pilotID = created.ID
 
@@ -339,7 +356,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		}
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if err := (&crewidentity.AssignCrewRole{UserID: pilotID, Role: "ClientBrowser"}).Execute(ctx, txn, strict); err != nil {
-				return err
+				return fmt.Errorf("AssignCrewRole(%s, ClientBrowser): %w", pilot, err)
 			}
 
 			return (&crewidentity.AssignCrewRole{UserID: pilotID, Role: "Pilot", EveryDomain: true}).Execute(ctx, txn, strict)
@@ -369,18 +386,18 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 				committed = committed[:0]
 				seated, err := strict.DirectorySeated().Seat(ctx, tx, newcomerID, newcomer, seat)
 				if err != nil {
-					return err
+					return fmt.Errorf("DirectorySeated().Seat(%s): %w", newcomer, err)
 				}
 				accepted, err := strict.InvitationAccepted()(ctx, tx, newcomerID, newcomer, inv)
 				if err != nil {
-					return err
+					return fmt.Errorf("InvitationAccepted()(%s): %w", newcomer, err)
 				}
 				committed = append(committed, seated, accepted)
 
 				return nil
 			})
 			if err != nil {
-				return err
+				return fmt.Errorf("spanner.Client.ReadWriteTransaction(): %w", err)
 			}
 			for _, f := range committed {
 				f(ctx)
@@ -404,9 +421,11 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 
 		// A later invitation into another sector is refused at its acceptance.
 		_, err = s.db.ReadWriteTransaction(ctx, func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
-			_, err := strict.InvitationAccepted()(ctx, tx, newcomerID, newcomer, invitation(bastion, "Pilot"))
+			if _, err := strict.InvitationAccepted()(ctx, tx, newcomerID, newcomer, invitation(bastion, "Pilot")); err != nil {
+				return fmt.Errorf("InvitationAccepted()(%s): %w", newcomer, err)
+			}
 
-			return err
+			return nil
 		})
 		refused(t, "Bastion's invitation accepted by a person who belongs to Anvil", err)
 		if held := crewHolds(t, s.db, newcomer); !slices.Equal(held, want) {

@@ -233,7 +233,14 @@
                         </button>
                         <mat-menu #rowActionsMenu="matMenu">
                           @for (action of actions; track action.id) {
-                            <button type="button" mat-menu-item class="row-action" (click)="action.run()">
+                            <!-- An entry that only says something is drawn grayed out and runs nothing. -->
+                            <button
+                              type="button"
+                              mat-menu-item
+                              class="row-action"
+                              [class.row-action-says]="action.disabled"
+                              [disabled]="action.disabled === true"
+                              (click)="action.run()">
                               @if (action.icon) {
                                 <mat-icon>{{ action.icon }}</mat-icon>
                               }
@@ -254,14 +261,17 @@
                         </a>
                       }
                     } @else if (col.buttonConfig.actionType === 'link' && col.buttonConfig.viewRoute) {
-                      <a
-                        mat-icon-button
-                        [routerLink]="'/' + col.buttonConfig.viewRoute + '/' + row[col.buttonConfig.keyField ?? 'id']"
-                        [attr.aria-label]="col.buttonConfig.label"
-                        [matTooltip]="col.buttonConfig.label || ''"
-                        [matTooltipPosition]="col.tooltipPosition || 'above'">
-                        <mat-icon>{{ col.buttonConfig.icon || 'arrow_forward' }}</mat-icon>
-                      </a>
+                      <!-- A row whose key field is empty opens nowhere, and draws no link. -->
+                      @if (linkKeyOf(row, col); as key) {
+                        <a
+                          mat-icon-button
+                          [routerLink]="'/' + col.buttonConfig.viewRoute + '/' + key"
+                          [attr.aria-label]="col.buttonConfig.label"
+                          [matTooltip]="col.buttonConfig.label || ''"
+                          [matTooltipPosition]="col.tooltipPosition || 'above'">
+                          <mat-icon>{{ col.buttonConfig.icon || 'arrow_forward' }}</mat-icon>
+                        </a>
+                      }
                     } @else {
                       <impulse-table-button
                         [config]="col.buttonConfig"
@@ -295,6 +305,11 @@
                       <mat-icon class="cell-yes" role="img" aria-hidden="false" aria-label="Yes">check</mat-icon>
                     } @else if (row[col.id] === false) {
                       <span class="cell-no" role="img" aria-label="No">–</span>
+                    } @else if (linesOf(row, col); as lines) {
+                      <!-- A list drawn a line each: every item on a line of its own. -->
+                      @for (line of lines; track $index) {
+                        <span class="cell-line">{{ line }}</span>
+                      }
                     } @else {
                       {{ row[col.id] }}
                     }

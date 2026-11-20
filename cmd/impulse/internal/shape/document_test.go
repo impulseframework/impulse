@@ -12,6 +12,7 @@ import (
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
+	"github.com/impulseframework/impulse/identity"
 )
 
 // documentFile is the framework's document of the sign-in shapes, from this package's
@@ -167,6 +168,27 @@ func TestDocumentNamesNoSourceLine(t *testing.T) {
 		if position := sourceLineRE.FindString(line); position != "" {
 			t.Errorf("%s:%d names a line of a source file (%s): say the file, and write N where the command prints the line", documentFile, i+1, position)
 		}
+	}
+}
+
+// TestDocumentNamesTheLengthsARoleIsTakenFor holds what the document says of the Break
+// glass page to the lengths of time the identity package offers a role for
+// (identity.TakeLengths): the document names each of them, shortest first, the way a
+// person says a list. A length added, renamed or removed fails here until the document
+// says the same.
+func TestDocumentNamesTheLengthsARoleIsTakenFor(t *testing.T) {
+	t.Parallel()
+
+	lengths := identity.TakeLengths()
+	named := make([]string, 0, len(lengths))
+	for _, length := range lengths {
+		named = append(named, string(length))
+	}
+	last := len(named) - 1
+	want := "how long: " + strings.Join(named[:last], ", ") + " or " + named[last] + "."
+	// The document's lines are wrapped: its words are read with one space between them.
+	if words := strings.Join(strings.Fields(readDocument(t)), " "); !strings.Contains(words, want) {
+		t.Errorf("%s does not say %q where it describes the Break glass page: those are the lengths a role is taken for (identity.TakeLengths)", documentFile, want)
 	}
 }
 

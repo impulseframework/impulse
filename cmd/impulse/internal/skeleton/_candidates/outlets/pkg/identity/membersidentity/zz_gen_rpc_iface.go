@@ -19,7 +19,7 @@ type Method interface {
 		RemoveMembersTenantRole | RenameMembersTenantUser | RenameMembersUser |
 		RevokeMembersSessionToken | RevokeMembersTenantUserTrustedDevices |
 		RevokeMembersUserTrustedDevices | SetMembersTenantUserEmail | SetMembersTenantUserName |
-		SetMembersUserEmail | SetMembersUserName | TakeMembersGroupRole |
+		SetMembersUserEmail | SetMembersUserName | TakeMembersGroupRole | TakeMembersRole |
 		TakeMembersTenantGroupRole | UnlinkMembersSessionIdentity |
 		UnlinkMembersTenantSessionIdentity | UnlockMembersSignIn | WithdrawMembersInvitation |
 		WithdrawMembersTenantInvitation

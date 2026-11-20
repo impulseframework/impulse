@@ -29,11 +29,11 @@ func TestGeneratedIdentityRoleGivenOnce(t *testing.T) {
 		if gina, err = w.createCrewUser(ctx, txn, username, "CrewCommon"); err != nil {
 			return err
 		}
-		if err := w.assignCrewRole(ctx, txn, gina, "Headquarters"); err != nil {
+		if err := w.assignHeadquarters(ctx, txn, gina); err != nil {
 			return err
 		}
 
-		return w.assignCrewRole(ctx, txn, gina, "Headquarters")
+		return w.assignHeadquarters(ctx, txn, gina)
 	}); err != nil {
 		t.Fatalf("a role given twice in one transaction: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestGeneratedIdentityRoleGivenOnce(t *testing.T) {
 
 	// Given again in a later transaction, the row is left as it is.
 	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		return w.assignCrewRole(ctx, txn, gina, "Headquarters")
+		return w.assignHeadquarters(ctx, txn, gina)
 	}); err != nil {
 		t.Fatalf("a role given to a person who holds it: %v", err)
 	}

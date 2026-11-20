@@ -25,6 +25,8 @@ func (h *Handlers) CrewSectorGroups() http.HandlerFunc {
 		Name        string       `json:"name"        index:"true"`
 		Description string       `json:"description"`
 		UpdatedAt   time.Time    `json:"updatedAt"`
+		People      int64        `json:"people"`
+		Roles       []string     `json:"roles"`
 	}
 
 	type response []map[string]any
@@ -87,6 +89,14 @@ func (h *Handlers) CrewSectorGroups() http.HandlerFunc {
 					if !row.Masked("updatedAt") {
 						rmap["updatedAt"] = rec.UpdatedAt
 					}
+				case "People":
+					if !row.Masked("people") {
+						rmap["people"] = rec.People
+					}
+				case "Roles":
+					if !row.Masked("roles") {
+						rmap["roles"] = rec.Roles
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -115,6 +125,8 @@ func (h *Handlers) CrewSectorGroup() http.HandlerFunc {
 		Name        string       `json:"name"`
 		Description string       `json:"description"`
 		UpdatedAt   time.Time    `json:"updatedAt"`
+		People      int64        `json:"people"`
+		Roles       []string     `json:"roles"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSectorGroup, response](h, accesstypes.Read)
@@ -164,6 +176,14 @@ func (h *Handlers) CrewSectorGroup() http.HandlerFunc {
 			case "UpdatedAt":
 				if !row.Masked("updatedAt") {
 					rmap["updatedAt"] = rec.UpdatedAt
+				}
+			case "People":
+				if !row.Masked("people") {
+					rmap["people"] = rec.People
+				}
+			case "Roles":
+				if !row.Masked("roles") {
+					rmap["roles"] = rec.Roles
 				}
 			}
 		}

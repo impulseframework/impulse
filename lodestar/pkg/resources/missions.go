@@ -126,8 +126,8 @@ type (
 		// @attribute(requiredCert)
 		RequiredCertID *string `spanner:"RequiredCertId"`
 		// @attribute(bookedBy)
-		BookedByUserID string `spanner:"BookedByUserId"     conditions:"output_only" default_create_fn:"currentUser"`
-		BookedByName   string `spanner:"BookedByName" conditions:"output_only" default_create_fn:"currentUserName"`
+		BookedByUserID string `spanner:"BookedByUserId" conditions:"output_only" default_create_fn:"currentUser"`
+		BookedByName   string `spanner:"BookedByName"   conditions:"output_only" default_create_fn:"currentUserName"`
 		// @attribute(assignedSquadron)
 		AssignedSquadronID impulse.NullUUID `spanner:"AssignedSquadronId"`
 		// @state(default: open)

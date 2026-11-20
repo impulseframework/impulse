@@ -2,6 +2,7 @@
 package integration
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -197,7 +198,7 @@ func TestHeadersAskNothingOfACallThatHasNeither(t *testing.T) {
 	if after := readRows(t, h, "quartermaster", expenses); !reflect.DeepEqual(after, expensesBefore) {
 		t.Errorf("the sector's expenses after the refused calls = %v, want them as seeded: %v", after, expensesBefore)
 	}
-	if _, after := doRequestAs(t, h, "governor", http.MethodGet, client, ""); string(after) != string(clientBefore) {
+	if _, after := doRequestAs(t, h, "governor", http.MethodGet, client, ""); !bytes.Equal(after, clientBefore) {
 		t.Errorf("the client after the refused calls = %s, want it as seeded: %s", after, clientBefore)
 	}
 }

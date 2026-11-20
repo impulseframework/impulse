@@ -726,6 +726,7 @@ CREATE TABLE CrewUserRoles (
   UserId STRING(320) NOT NULL,
   StartsAt TIMESTAMP,
   EndsAt TIMESTAMP,
+  Reason STRING(MAX),
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CrewUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -807,6 +808,7 @@ CREATE TABLE MembersUserRoles (
   UserId STRING(320) NOT NULL,
   StartsAt TIMESTAMP,
   EndsAt TIMESTAMP,
+  Reason STRING(MAX),
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);

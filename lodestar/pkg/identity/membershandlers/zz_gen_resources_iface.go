@@ -10,7 +10,8 @@ import (
 
 type Resourcer interface {
 	resource.Resourcer
-	membersresources.MembersRole | membersresources.MembersRoleGrant |
+	membersresources.MembersHeldRole | membersresources.MembersRole |
+		membersresources.MembersRoleGrant | membersresources.MembersSectorHeldRole |
 		membersresources.MembersSectorIdentity | membersresources.MembersSectorInvitation |
 		membersresources.MembersSectorUser | membersresources.MembersSectorUserRole |
 		membersresources.MembersSession | membersresources.MembersSessionAuthEvent |

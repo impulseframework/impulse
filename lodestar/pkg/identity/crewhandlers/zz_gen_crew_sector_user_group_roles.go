@@ -28,6 +28,7 @@ func (h *Handlers) CrewSectorUserGroupRoles() http.HandlerFunc {
 		Role        string       `json:"role"        index:"true" perm:"-"`
 		GlobalGroup bool         `json:"globalGroup" index:"true"`
 		EveryDomain bool         `json:"everyDomain" index:"true"`
+		CreatedAt   time.Time    `json:"createdAt"`
 		StartsAt    *time.Time   `json:"startsAt"`
 		EndsAt      *time.Time   `json:"endsAt"`
 	}
@@ -104,6 +105,10 @@ func (h *Handlers) CrewSectorUserGroupRoles() http.HandlerFunc {
 					if !row.Masked("everyDomain") {
 						rmap["everyDomain"] = rec.EveryDomain
 					}
+				case "CreatedAt":
+					if !row.Masked("createdAt") {
+						rmap["createdAt"] = rec.CreatedAt
+					}
 				case "StartsAt":
 					if !row.Masked("startsAt") {
 						rmap["startsAt"] = rec.StartsAt
@@ -143,6 +148,7 @@ func (h *Handlers) CrewSectorUserGroupRole() http.HandlerFunc {
 		Role        string       `json:"role"        index:"true" perm:"-"`
 		GlobalGroup bool         `json:"globalGroup"`
 		EveryDomain bool         `json:"everyDomain"`
+		CreatedAt   time.Time    `json:"createdAt"`
 		StartsAt    *time.Time   `json:"startsAt"`
 		EndsAt      *time.Time   `json:"endsAt"`
 	}
@@ -208,6 +214,10 @@ func (h *Handlers) CrewSectorUserGroupRole() http.HandlerFunc {
 			case "EveryDomain":
 				if !row.Masked("everyDomain") {
 					rmap["everyDomain"] = rec.EveryDomain
+				}
+			case "CreatedAt":
+				if !row.Masked("createdAt") {
+					rmap["createdAt"] = rec.CreatedAt
 				}
 			case "StartsAt":
 				if !row.Masked("startsAt") {

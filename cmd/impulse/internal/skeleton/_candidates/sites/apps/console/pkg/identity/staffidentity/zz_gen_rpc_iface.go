@@ -22,7 +22,7 @@ type Method interface {
 		SendStaffTenantUserPasswordResetLink | SendStaffUserPasswordResetLink |
 		SetStaffSelfServiceReset | SetStaffTemporaryPassword | SetStaffTenantTemporaryPassword |
 		SetStaffTenantUserEmail | SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName |
-		TakeStaffGroupRole | TakeStaffTenantGroupRole | UnlinkStaffSessionIdentity |
-		UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation |
-		WithdrawStaffInvitedTenant | WithdrawStaffTenantInvitation
+		TakeStaffGroupRole | TakeStaffRole | TakeStaffTenantGroupRole |
+		UnlinkStaffSessionIdentity | UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn |
+		WithdrawStaffInvitation | WithdrawStaffInvitedTenant | WithdrawStaffTenantInvitation
 }

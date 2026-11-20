@@ -32,11 +32,17 @@ func periodText(period accesstypes.Period) string {
 	return instant(period.Start) + ".." + instant(period.End)
 }
 
-func (f *fakeStore) SetMembershipPeriod(_ context.Context, _ resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error {
+// SetMembershipPeriod logs the period the membership is given, and the reason after it
+// where one is given: a write with no reason leaves the membership with none.
+func (f *fakeStore) SetMembershipPeriod(_ context.Context, _ resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period, reason string) error {
 	if err := f.fail("SetMembershipPeriod"); err != nil {
 		return err
 	}
-	f.writes = append(f.writes, "period of membership "+membershipText(key)+": "+periodText(period))
+	write := "period of membership " + membershipText(key) + ": " + periodText(period)
+	if reason != "" {
+		write += " because " + reason
+	}
+	f.writes = append(f.writes, write)
 
 	return nil
 }
@@ -63,10 +69,17 @@ func (f *fakeStore) UserPeriods(_ context.Context, _ resource.ReadOnlyTransactio
 	if err := f.fail("UserPeriods"); err != nil {
 		return nil, err
 	}
-	periods := &UserPeriods{Memberships: map[access.MembershipKey]accesstypes.Period{}, Places: map[access.GroupMemberKey]accesstypes.Period{}}
+	periods := &UserPeriods{
+		Memberships: map[access.MembershipKey]accesstypes.Period{},
+		Places:      map[access.GroupMemberKey]accesstypes.Period{},
+		Reasons:     map[access.MembershipKey]string{},
+	}
 	for key, held := range f.memberships {
 		if held && key.User == User(userID) {
 			periods.Memberships[key] = f.membershipPeriods[key]
+			if reason := f.membershipReasons[key]; reason != "" {
+				periods.Reasons[key] = reason
+			}
 		}
 	}
 	for key, in := range f.groupMembers {
@@ -206,7 +219,7 @@ func TestManager_AssignRoleFor(t *testing.T) {
 			m, engine := newManager(t, store, engineRoles)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.AssignRoleFor(ctx, txn, tt.scope, userID, tt.role, tt.period)
+				return m.AssignRoleFor(ctx, txn, tt.scope, userID, tt.role, tt.period, "")
 			})
 			if tt.wantErr != "" {
 				if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), tt.wantErr) {

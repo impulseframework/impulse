@@ -26,6 +26,7 @@ func (h *Handlers) AssignStaffTenantRole() http.HandlerFunc {
 		Role     string       `json:"role"`
 		StartsAt *time.Time   `json:"startsAt"`
 		EndsAt   *time.Time   `json:"endsAt"`
+		Reason   *string      `json:"reason"`
 	}
 
 	decoder := NewTargetedRPCDecoder[staffidentity.AssignStaffTenantRole, request](h, accesstypes.Execute)

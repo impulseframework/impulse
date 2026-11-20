@@ -27,6 +27,7 @@ func (h *Handlers) CrewSectorGroupRoles() http.HandlerFunc {
 		CreatedAt time.Time    `json:"createdAt"`
 		StartsAt  *time.Time   `json:"startsAt"`
 		EndsAt    *time.Time   `json:"endsAt"`
+		Losing    int64        `json:"losing"`
 	}
 
 	type response []map[string]any
@@ -97,6 +98,10 @@ func (h *Handlers) CrewSectorGroupRoles() http.HandlerFunc {
 					if !row.Masked("endsAt") {
 						rmap["endsAt"] = rec.EndsAt
 					}
+				case "Losing":
+					if !row.Masked("losing") {
+						rmap["losing"] = rec.Losing
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -127,6 +132,7 @@ func (h *Handlers) CrewSectorGroupRole() http.HandlerFunc {
 		CreatedAt time.Time    `json:"createdAt"`
 		StartsAt  *time.Time   `json:"startsAt"`
 		EndsAt    *time.Time   `json:"endsAt"`
+		Losing    int64        `json:"losing"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSectorGroupRole, response](h, accesstypes.Read)
@@ -185,6 +191,10 @@ func (h *Handlers) CrewSectorGroupRole() http.HandlerFunc {
 			case "EndsAt":
 				if !row.Masked("endsAt") {
 					rmap["endsAt"] = rec.EndsAt
+				}
+			case "Losing":
+				if !row.Masked("losing") {
+					rmap["losing"] = rec.Losing
 				}
 			}
 		}

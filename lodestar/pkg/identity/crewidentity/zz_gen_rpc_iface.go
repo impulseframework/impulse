@@ -22,7 +22,7 @@ type Method interface {
 		SendCrewSectorUserPasswordResetLink | SendCrewUserPasswordResetLink |
 		SetCrewSectorTemporaryPassword | SetCrewSectorUserEmail | SetCrewSectorUserName |
 		SetCrewSelfServiceReset | SetCrewTemporaryPassword | SetCrewUserEmail | SetCrewUserName |
-		TakeCrewGroupRole | TakeCrewSectorGroupRole | UnlinkCrewSectorSessionIdentity |
-		UnlinkCrewSessionIdentity | UnlockCrewSignIn | WithdrawCrewInvitation |
-		WithdrawCrewInvitedSector | WithdrawCrewSectorInvitation
+		TakeCrewGroupRole | TakeCrewRole | TakeCrewSectorGroupRole |
+		UnlinkCrewSectorSessionIdentity | UnlinkCrewSessionIdentity | UnlockCrewSignIn |
+		WithdrawCrewInvitation | WithdrawCrewInvitedSector | WithdrawCrewSectorInvitation
 }
