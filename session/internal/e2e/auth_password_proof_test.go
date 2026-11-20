@@ -14,8 +14,8 @@ import (
 
 // seamHeldSignInRestsOnItsPassword: a password sign-in held for the email code completes
 // only while the password it proved is still the person's. The code may be given until
-// the pending sign-in expires, and a change of the password, an operator's temporary
-// password or a removal in between leaves the old password nothing to complete: the
+// the pending sign-in expires, and a change of the password, a password set on another
+// proof or a removal in between leaves the old password nothing to complete: the
 // right code is then refused in the status and the body a wrong password gets, no
 // session starts, and the pending sign-in is spent. The password the person holds now
 // signs in, with a code of its own.
@@ -93,16 +93,15 @@ func seamHeldSignInRestsOnItsPassword[Tx any](ctx context.Context, t *testing.T,
 	renewed, code := held("pat@lakeside.edu", "a-new-password-1")
 	complete(renewed, code, pat)
 
-	// An operator's temporary password.
+	// A password set at the end of a flow that proved who the person is another way,
+	// as a reset link does.
 	waiting, code = held("sam@lakeside.edu", seedPassword)
-	if err := a.api.ResetSessionUserPassword(ctx, sam, "a-temporary-password-1"); err != nil {
-		t.Fatalf("ResetSessionUserPassword() error = %v", err)
+	if err := a.api.SetSessionUserPassword(ctx, sam, "a-set-password-1"); err != nil {
+		t.Fatalf("SetSessionUserPassword() error = %v", err)
 	}
-	refused("an operator's temporary password", waiting, code)
-	// The temporary password signs sam in, to a session held to its change.
-	renewed, code = held("sam@lakeside.edu", "a-temporary-password-1")
-	renewed.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": code})
-	renewed.expect(ctx, http.StatusForbidden, http.MethodGet, "/whoami", nil)
+	refused("a password set on another proof", waiting, code)
+	renewed, code = held("sam@lakeside.edu", "a-set-password-1")
+	complete(renewed, code, sam)
 
 	// A removal: the password signs nobody in any more, with whatever code.
 	waiting, code = held("kim@lakeside.edu", seedPassword)

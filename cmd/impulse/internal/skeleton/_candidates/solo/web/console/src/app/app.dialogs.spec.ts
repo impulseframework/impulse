@@ -31,9 +31,9 @@ import {
 // A person runs every generated method through a dialog the library draws from the
 // method's metadata. These specs hold the application's generated methods to dialogs a
 // person can complete, and the staff's Accounts page to bringing a person in with a role:
-// through the page's own Invite and Add an account dialogs, choosing the role from the
-// picker. The application has no tenants, so every role is held for the whole application:
-// neither dialog asks where, and each request says no tenant.
+// through the page's own Invite dialog, choosing the role from the picker. The application
+// has no tenants, so every role is held for the whole application: the dialog does not ask
+// where, and its request says no tenant.
 
 const metaOf = (method: Method): MethodMeta => methodMeta(method) as MethodMeta;
 
@@ -168,22 +168,5 @@ describe("the staff's Accounts page brings a person in with a role", () => {
     // Without tenants the roles are not narrowed by a place.
     expect(rolesAsked.length).toBeGreaterThan(0);
     expect(rolesAsked.every((url) => !url.includes('domain:eq') && !url.includes('everyDomain:eq'))).toBe(true);
-  });
-
-  it('adds an account with a role chosen from the roles the application offers', async () => {
-    open(Methods.CreateStaffUser);
-    await type(/^Username/, 'pat');
-    await type(/^Password/, 'harbor-temporary-1');
-    expect(dialogWords()).toContain('Username');
-    expect(dialogWords()).not.toMatch(/tenant|in every/i);
-    await chooseRole('Administrator');
-    await press('Add an account');
-
-    expect(sent('create-staff-user')).toMatchObject({
-      username: 'pat',
-      roles: ['Administrator'],
-      domain: null,
-      everyDomain: false,
-    });
   });
 });

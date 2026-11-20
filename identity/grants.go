@@ -56,8 +56,8 @@ type RoleGrants interface {
 	MayTake(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error)
 	// CouldGive reports whether the caller could give the role in the scope by hand, to
 	// somebody, with the method named: one of the methods a person gives a role with
-	// (the one that gives a person a role, the create and the invitation that start a
-	// person with one, the one that gives a group a role), by the name its grant is
+	// (the one that gives a person a role, the invitation that starts a person with
+	// one, the one that gives a group a role), by the name its grant is
 	// written under. The answer is that method's own and no other's: each has its own
 	// grant, and a role one of them takes from this caller another may refuse. It is the
 	// question of a list a role is picked from (Manager.GivableRoles,

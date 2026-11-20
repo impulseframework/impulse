@@ -4,7 +4,7 @@
 // Package membersidentity holds the methods that manage the people of the Members
 // auth: each an RPC method of the application, served on its routes behind an Execute
 // grant, and a Go call an application makes in a transaction of its own, so a person is
-// created and seated beside the application's own rows and committed with them.
+// given a role beside the application's own rows and committed with them.
 //
 // Every method's body is one call into the framework's identity package, where the
 // rules are; this package gives them the auth's own tables. The generator writes it

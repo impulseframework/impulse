@@ -28,9 +28,9 @@ type MethodList struct {
 	// sign-in waits for a confirmation or the application's MFA step.
 	Pending PendingRoutes
 	// ChangePassword is the path of the password method's ChangeUserPassword handler,
-	// which the page needs when a sign-in finds the user must change a password an
-	// operator set. It is required when the password method is listed, since every
-	// user an operator gives a password must change it, and refused when it is not.
+	// which the page needs when a sign-in finds the user must change their password.
+	// It is required when the password method is listed, since a user under the change
+	// mark changes the password there, and refused when it is not.
 	ChangePassword string
 	// RemovePassword is the path of the password method's RemoveUserPassword handler,
 	// where a signed-in person's account page removes their password once they sign in

@@ -296,7 +296,7 @@ func TestAuthMeaning(t *testing.T) {
 		{
 			name:  "a directory auth whose roles the application assigns names the grants the invitations need",
 			auth:  Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}}, Outlet: "portal"},
-			wants: []string{`generation.GoogleMethod("workspace"))`, "(`google.SignIn`), role membership the application's", "Every method of the partners auth starts invite only", "the generated management of the partners auth makes both (the `InvitePartnersUser` and `CreatePartnersUser` methods), so grant Execute on them to the role that invites in the role file"},
+			wants: []string{`generation.GoogleMethod("workspace"))`, "(`google.SignIn`), role membership the application's", "Every method of the partners auth starts invite only", "the generated management of the partners auth sends it (the `InvitePartnersUser` method), so grant Execute on it to the role that invites in the role file"},
 			never: []string{".InvitedUsers()", "signin.InvitedUsersOnly"},
 		},
 	}

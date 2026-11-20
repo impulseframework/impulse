@@ -478,11 +478,11 @@ func (m AuthMethod) Labeled(label string) AuthMethod {
 
 // SyncsRoles declares that the registration writes its users' roles from the
 // directory at every sign-in (the method's RoleSync): the Auth's generated management
-// lists the roles every person holds and has no method that gives or takes one, creates
-// an account or invites one, since a role given by hand would not survive the next
-// sign-in and a person is created holding a role. Such a registration stands alone on
-// its Auth (validateAuthMethods refuses another method beside it): the directory is
-// then the authority for everyone the Auth holds. Not for the password method.
+// lists the roles every person holds and has no method that gives or takes one or
+// invites a person, since a role given by hand would not survive the next sign-in and
+// an invitation gives a role. Such a registration stands alone on its Auth
+// (validateAuthMethods refuses another method beside it): the directory is then the
+// authority for everyone the Auth holds. Not for the password method.
 func (m AuthMethod) SyncsRoles() AuthMethod {
 	m.syncsRoles = true
 

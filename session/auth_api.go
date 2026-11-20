@@ -315,18 +315,11 @@ func continuedAuthEvents(ctx context.Context, userID impulse.UUID) []sessioninfo
 // SetSessionUserPassword sets a password the user chose, without the old one: the end
 // of a flow of the application's own that proved who they are (a reset link, an
 // enrollment). The password change mark is cleared, the user's sessions are
-// destroyed and the name's sign-in attempts are reset. A password an operator chose
-// is ResetSessionUserPassword.
+// destroyed and the name's sign-in attempts are reset. Nobody chooses a password for
+// someone else: a person who has lost theirs is mailed a reset link
+// (SendPasswordReset) and chooses the next one themselves.
 func (p *AuthAPI[S, U, Tx]) SetSessionUserPassword(ctx context.Context, userID impulse.UUID, password string) error {
-	return p.auth.replacePassword(ctx, userID, password, false)
-}
-
-// ResetSessionUserPassword sets a temporary password an operator chose: the user must
-// change it before anything else is served (SessionUser.PasswordChangeRequired; see
-// "Users and the forced password change" in the README), its sessions are destroyed
-// and the name's sign-in attempts are reset.
-func (p *AuthAPI[S, U, Tx]) ResetSessionUserPassword(ctx context.Context, userID impulse.UUID, temporary string) error {
-	return p.auth.replacePassword(ctx, userID, temporary, true)
+	return p.auth.replacePassword(ctx, userID, password)
 }
 
 // RemoveSessionUserPassword removes a user's password: from then on the user signs in
@@ -377,35 +370,12 @@ func (p *AuthAPI[S, U, Tx]) RemoveSessionUserPassword(ctx context.Context, userI
 	return nil
 }
 
-// HashPassword hashes a password with the password method's hasher and answers the
-// hash as the users table's PasswordHash column holds it. It is for a caller that
-// writes the column in a transaction of its own (the generated user management, which
-// sets a temporary password beside its other writes); the session library's own
-// writers (ResetSessionUserPassword, CreateSessionUser) hash for themselves. An empty
-// password is refused: no password is an absent hash, never the hash of nothing.
-func (p *AuthAPI[S, U, Tx]) HashPassword(password string) (string, error) {
-	if password == "" {
-		return "", httpio.NewBadRequestMessage("an empty password is not a password")
-	}
-	hash, err := p.auth.hashToSet(password)
-	if err != nil {
-		return "", err
-	}
-	text, err := hash.MarshalText()
-	if err != nil {
-		return "", errors.Wrap(err, "securehash.Hash.MarshalText()")
-	}
-
-	return string(text), nil
-}
-
-// replacePassword sets a new password for userID with its change mark (true for a
-// password an operator set, false for one the user chose), destroys the user's sessions
-// and resets the name's sign-in attempts. It follows no proof of the password it
-// replaces, so it overwrites whatever the user holds, on purpose: the caller is an
-// operator, or a flow that proved who the person is by other means, and its password is
-// to stand whatever was changed a moment before.
-func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUID, password string, changeRequired bool) error {
+// replacePassword sets a password the user chose for userID, clears the password change
+// mark, destroys the user's sessions and resets the name's sign-in attempts. It follows
+// no proof of the password it replaces, so it overwrites whatever the user holds, on
+// purpose: the caller is a flow that proved who the person is by other means, and its
+// password is to stand whatever was changed a moment before.
+func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUID, password string) error {
 	user, err := a.storage.User(ctx, userID)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
@@ -417,7 +387,7 @@ func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUI
 	// One store call writes the password and ends the user's sessions, in one
 	// transaction: no failure leaves the new password in place and a session alive, on
 	// the act meant to end them.
-	if err := a.storage.ReplaceUserPassword(ctx, userID, hash, changeRequired); err != nil {
+	if err := a.storage.ReplaceUserPassword(ctx, userID, hash, false); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.ReplaceUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)

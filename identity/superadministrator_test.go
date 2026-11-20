@@ -468,12 +468,6 @@ func TestManager_aSuperAdministratorsSignIn(t *testing.T) {
 		act  func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
 	}{
 		{
-			name: "a temporary password", says: "sets a super administrator's password",
-			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-				return m.SetTemporaryPassword(ctx, txn, userID, "first-day")
-			},
-		},
-		{
 			name: "the removal of the password", says: "removes a super administrator's password",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 				return m.RemovePassword(ctx, txn, userID)

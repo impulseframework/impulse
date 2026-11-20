@@ -929,8 +929,8 @@ func seamRulesOpenDefaultRole[Tx any](ctx context.Context, t *testing.T, be back
 		t.Errorf("the new account holds %q, want the method's default role Member", got)
 	}
 
-	// A person an administrator created an account for is linked to it, and holds what
-	// the administrator gave them: no default role.
+	// A person whose account was created ahead is linked to it, and holds what the
+	// account was given: no default role.
 	k := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, k, azureClaims(azureTenant, "oid-kim", "kim@lakeside.edu")), "/home", url.Values{})
 	if kv := signedInAs(ctx, t, k, "kim@lakeside.edu"); kv.UserID != kim.String() {
@@ -1068,8 +1068,8 @@ func seamRulesOpenSignUp[Tx any](ctx context.Context, t *testing.T, be backend[T
 
 // seamRulesVerifiedBesideUnconfirmed is the scenario "a verified Google sign-in for an
 // address another account holds unconfirmed". It records what happens today, which
-// nobody has chosen. An administrator made an account under a username of its own and
-// entered an address for it, which its person has not confirmed. Then the person who
+// nobody has chosen. An account was created ahead under a username of its own, with an
+// address entered for it, which its person has not confirmed. Then the person who
 // holds that address at Google signs in through a method open to sign-up. An address
 // held unconfirmed finds no account: whoever typed it may know the account's password,
 // so finding it would put a proven identity on an account somebody else can enter. The

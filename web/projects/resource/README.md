@@ -565,7 +565,8 @@ malformed request, a server fault, no response, throws as the client's requests 
 The Angular binding's `<impulse-login-methods>` renders all of this; a page over another framework
 does the same over these calls.
 
-A password an operator set (a first password, a reset) is temporary: the server refuses every
+A password that must be changed (one an operator set when the account was created, one an
+administrator required a new one of) is temporary: the server refuses every
 request of the signed-in person with 403 and the code `password_change_required` until they
 change it, answering only the session read (which carries `passwordChangeRequired: true`), the
 logout and the change. The methods list names the change path as `changePassword` when the
@@ -744,9 +745,9 @@ each with its `lists` (`users`, `roles`, `identities`, `signInWays`, `invitation
 `signInAttempts`, `invitedTenants`; `signInWays` is how one person signs in, the password and the identities
 that can sign them in as the server judges it, from which a page offers the removal of a
 password; `invitedTenants` is the invitations that make a tenant and still stand, on the whole
-application's side of the Auth whose people make the tenants) and its `methods` (`create`, `invite`, `withdrawInvitation`, `inviteTenant`,
+application's side of the Auth whose people make the tenants) and its `methods` (`invite`, `withdrawInvitation`, `inviteTenant`,
 `withdrawInvitedTenant`, `assignRole`,
-`removeRole`, `disable`, `enable`, `delete`, `rename`, `setName`, `setEmail`, `setTemporaryPassword`,
+`removeRole`, `disable`, `enable`, `delete`, `rename`, `setName`, `setEmail`, `sendPasswordResetLink`,
 `requirePasswordChange`, `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`,
 `removePassword`, `endSession`, `unlockSignIn`) by the names the generator gave them. Every key but `users` is
 optional: the block names what the outlet serves and nothing else. The lists and the methods

@@ -58,7 +58,7 @@ func Test_identityOn(t *testing.T) {
 				// A tenant's roles are the one list that says where each comes from, and the
 				// list of the roles people hold themselves is no part of the description.
 				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorHeldRoles", "CrewSectorInvitations", "CrewSectorSignInWays",
-				"DisableCrewUser", "EndCrewSession", "EndCrewUserSessions", "UnlockCrewSignIn", "UnlinkCrewSessionIdentity", "CreateCrewUser",
+				"DisableCrewUser", "EndCrewSession", "EndCrewUserSessions", "UnlockCrewSignIn", "UnlinkCrewSessionIdentity",
 				"RemoveCrewPassword", "OpenCrewSignUp", "MakeCrewInviteOnly",
 				// The way back in: the link an administrator sends from a person's row, on
 				// each side, and the switch for a person's own request, which is the whole
@@ -87,7 +87,7 @@ func Test_identityOn(t *testing.T) {
 							part("signInMethods", "CrewSignInMethods"),
 						},
 						Methods: []identityPart{
-							part("create", "CreateCrewUser"), part("disable", "DisableCrewUser"),
+							part("disable", "DisableCrewUser"),
 							part("sendPasswordResetLink", "SendCrewUserPasswordResetLink"), part("endUserSessions", "EndCrewUserSessions"),
 							part("unlinkIdentity", "UnlinkCrewSessionIdentity"), part("removePassword", "RemoveCrewPassword"),
 							part("endSession", "EndCrewSession"), part("unlockSignIn", "UnlockCrewSignIn"),

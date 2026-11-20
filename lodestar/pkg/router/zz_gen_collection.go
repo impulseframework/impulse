@@ -118,14 +118,6 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
-				Name:        "CreateCrewSectorUser",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Attributes: []resource.AttributeData{
-					{Name: "role", Column: "Roles", Type: "string", List: true},
-				},
-			},
-			{
 				Name:        "CrewSectorDirectoryRoles",
 				Scope:       accesstypes.DomainPermissionScope,
 				Computed:    true,
@@ -1058,12 +1050,6 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "CrewSectorUsers",
 			},
 			{
-				Name:        "SetCrewSectorTemporaryPassword",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Target:      "CrewSectorUsers",
-			},
-			{
 				Name:        "SetCrewSectorUserEmail",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -1362,14 +1348,6 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "CreateCrewGroup",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-			},
-			{
-				Name:        "CreateCrewUser",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Attributes: []resource.AttributeData{
-					{Name: "role", Column: "Roles", Type: "string", List: true},
-				},
 			},
 			{
 				Name:        "CrewGivableRoles",
@@ -2314,12 +2292,6 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetCrewSelfServiceReset",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-			},
-			{
-				Name:        "SetCrewTemporaryPassword",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Target:      "CrewSessionUsers",
 			},
 			{
 				Name:        "SetCrewUserEmail",

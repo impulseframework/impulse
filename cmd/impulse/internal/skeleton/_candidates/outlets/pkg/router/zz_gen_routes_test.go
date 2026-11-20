@@ -238,8 +238,6 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/assign-members-tenant-role", method: http.MethodPost},
 		{url: "/console/api/create-members-group", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/create-members-tenant-group", method: http.MethodPost},
-		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/create-members-tenant-user", method: http.MethodPost},
-		{url: "/console/api/create-members-user", method: http.MethodPost},
 		{url: "/console/api/delete-members-group", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-members-tenant-group", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-members-tenant-user", method: http.MethodPost},
@@ -408,8 +406,6 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/assign-staff-tenant-role", method: http.MethodPost},
 		{url: "/portal/api/create-staff-group", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/create-staff-tenant-group", method: http.MethodPost},
-		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/create-staff-tenant-user", method: http.MethodPost},
-		{url: "/portal/api/create-staff-user", method: http.MethodPost},
 		{url: "/portal/api/delete-staff-group", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-staff-tenant-group", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-staff-tenant-user", method: http.MethodPost},
@@ -446,8 +442,6 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/send-staff-tenant-user-password-reset-link", method: http.MethodPost},
 		{url: "/portal/api/send-staff-user-password-reset-link", method: http.MethodPost},
 		{url: "/portal/api/set-staff-self-service-reset", method: http.MethodPost},
-		{url: "/portal/api/set-staff-temporary-password", method: http.MethodPost},
-		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-email", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-name", method: http.MethodPost},
 		{url: "/portal/api/set-staff-user-email", method: http.MethodPost},
@@ -708,12 +702,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/assign-staff-tenant-role", method: http.MethodPost},
 		{url: "/devices/create-members-group", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/create-members-tenant-group", method: http.MethodPost},
-		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/create-members-tenant-user", method: http.MethodPost},
-		{url: "/devices/create-members-user", method: http.MethodPost},
 		{url: "/devices/create-staff-group", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/create-staff-tenant-group", method: http.MethodPost},
-		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/create-staff-tenant-user", method: http.MethodPost},
-		{url: "/devices/create-staff-user", method: http.MethodPost},
 		{url: "/devices/delete-members-group", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-members-tenant-group", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-members-tenant-user", method: http.MethodPost},
@@ -780,8 +770,6 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/set-members-user-email", method: http.MethodPost},
 		{url: "/devices/set-members-user-name", method: http.MethodPost},
 		{url: "/devices/set-staff-self-service-reset", method: http.MethodPost},
-		{url: "/devices/set-staff-temporary-password", method: http.MethodPost},
-		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-temporary-password", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-email", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-name", method: http.MethodPost},
 		{url: "/devices/set-staff-user-email", method: http.MethodPost},
@@ -2399,14 +2387,6 @@ func (s *generatedHandlersStub) CreateStaffTenantGroup() http.HandlerFunc {
 	return s.record("CreateStaffTenantGroup")
 }
 
-func (s *generatedHandlersStub) CreateStaffTenantUser() http.HandlerFunc {
-	return s.record("CreateStaffTenantUser")
-}
-
-func (s *generatedHandlersStub) CreateStaffUser() http.HandlerFunc {
-	return s.record("CreateStaffUser")
-}
-
 func (s *generatedHandlersStub) CreateTenant() http.HandlerFunc {
 	return s.record("CreateTenant")
 }
@@ -2597,14 +2577,6 @@ func (s *generatedHandlersStub) SetFeature() http.HandlerFunc {
 
 func (s *generatedHandlersStub) SetStaffSelfServiceReset() http.HandlerFunc {
 	return s.record("SetStaffSelfServiceReset")
-}
-
-func (s *generatedHandlersStub) SetStaffTemporaryPassword() http.HandlerFunc {
-	return s.record("SetStaffTemporaryPassword")
-}
-
-func (s *generatedHandlersStub) SetStaffTenantTemporaryPassword() http.HandlerFunc {
-	return s.record("SetStaffTenantTemporaryPassword")
 }
 
 func (s *generatedHandlersStub) SetStaffTenantUserEmail() http.HandlerFunc {
@@ -2925,14 +2897,6 @@ func (s *generatedHandlersStub) CreateMembersGroup() http.HandlerFunc {
 
 func (s *generatedHandlersStub) CreateMembersTenantGroup() http.HandlerFunc {
 	return s.record("CreateMembersTenantGroup")
-}
-
-func (s *generatedHandlersStub) CreateMembersTenantUser() http.HandlerFunc {
-	return s.record("CreateMembersTenantUser")
-}
-
-func (s *generatedHandlersStub) CreateMembersUser() http.HandlerFunc {
-	return s.record("CreateMembersUser")
 }
 
 func (s *generatedHandlersStub) DeleteMembersGroup() http.HandlerFunc {

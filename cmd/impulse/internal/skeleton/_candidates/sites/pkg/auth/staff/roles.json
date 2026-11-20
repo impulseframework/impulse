@@ -3,7 +3,7 @@
     "global": [
       {
         "name": "Administrator",
-        "description": "Manages the application's tenants and people: brings a tenant in by inviting the person who will administer it, creates accounts and invites people, gives and takes roles, keeps groups of people, and sets temporary passwords.",
+        "description": "Manages the application's tenants and people: brings a tenant in by inviting the person who will administer it, invites people, gives and takes roles, keeps groups of people, and mails password reset links.",
         "permissions": {
           "Create": [
             {
@@ -19,9 +19,6 @@
             }
           ],
           "Execute": [
-            {
-              "resource": "CreateStaffUser"
-            },
             {
               "resource": "DisableStaffUser"
             },
@@ -60,9 +57,6 @@
             },
             {
               "resource": "RenameStaffUser"
-            },
-            {
-              "resource": "SetStaffTemporaryPassword"
             },
             {
               "resource": "SendStaffUserPasswordResetLink"
@@ -571,9 +565,6 @@
           ],
           "Execute": [
             {
-              "resource": "CreateStaffTenantUser"
-            },
-            {
               "resource": "InviteStaffTenantUser"
             },
             {
@@ -609,10 +600,6 @@
             },
             {
               "resource": "SetStaffTenantUserName",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
-            },
-            {
-              "resource": "SetStaffTenantTemporaryPassword",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
             {

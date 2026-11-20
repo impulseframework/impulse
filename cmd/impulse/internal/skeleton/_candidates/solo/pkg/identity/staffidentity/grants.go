@@ -55,7 +55,7 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 // application's whose role field picks from the roles to give
 // (StaffGivableRoles), asked the same way, with the role and where it is held:
 //
-//	AssignStaffRole, CreateStaffUser, InviteStaffUser, GiveStaffGroupRole
+//	AssignStaffRole, InviteStaffUser, GiveStaffGroupRole
 //
 // A method that is none of them gives no role by hand where the request was made, and
 // is an error.
@@ -65,15 +65,13 @@ func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scop
 	switch method {
 	case AssignStaffRole{}.Method():
 		return couldGiveBy(ctx, caller, method, &AssignStaffRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})
-	case CreateStaffUser{}.Method():
-		return couldGiveBy(ctx, caller, method, &CreateStaffUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})
 	case InviteStaffUser{}.Method():
 		return couldGiveBy(ctx, caller, method, &InviteStaffUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})
 	case GiveStaffGroupRole{}.Method():
 		return couldGiveBy(ctx, caller, method, &GiveStaffGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})
 	}
 
-	return false, errors.Newf("%s is no method of the whole application that gives a role by hand: AssignStaffRole, CreateStaffUser, InviteStaffUser, GiveStaffGroupRole", method)
+	return false, errors.Newf("%s is no method of the whole application that gives a role by hand: AssignStaffRole, InviteStaffUser, GiveStaffGroupRole", method)
 }
 
 // couldGiveBy reports whether the method does not refuse the caller its request, which

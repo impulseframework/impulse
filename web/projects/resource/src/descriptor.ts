@@ -255,7 +255,7 @@ export interface IdentityLists {
   readonly roles?: string;
   /**
    * The list a role is picked from by the side's methods that give one (`assignRole`,
-   * `create`, `invite`, `giveGroupRole`): the roles the caller could give. Where the
+   * `invite`, `giveGroupRole`): the roles the caller could give. Where the
    * list carries a `method` field it answers for one method at a time, the one the
    * request's filter names (`method:eq:AssignCrewRole`), and a request that names none
    * is listed no role.
@@ -306,8 +306,8 @@ export interface IdentityLists {
 }
 
 /**
- * The methods of a side, each a method in `methods`, by what it does. `create` and
- * `invite` name no row. On a tenant's side `assignRole` runs against a person and
+ * The methods of a side, each a method in `methods`, by what it does. `invite` names
+ * no row. On a tenant's side `assignRole` runs against a person and
  * `removeRole` against a role held; on the whole application's side both take the
  * person's name, since a role may be held by a name that has no account.
  * `withdrawInvitation` runs against an invitation, `unlinkIdentity` against an identity,
@@ -324,7 +324,6 @@ export interface IdentityLists {
  * person: the caller takes a role themselves for a set time, with a reason.
  */
 export interface IdentityMethods {
-  readonly create?: string;
   readonly invite?: string;
   readonly withdrawInvitation?: string;
   readonly assignRole?: string;
@@ -335,7 +334,6 @@ export interface IdentityMethods {
   readonly rename?: string;
   readonly setName?: string;
   readonly setEmail?: string;
-  readonly setTemporaryPassword?: string;
   readonly sendPasswordResetLink?: string;
   readonly requirePasswordChange?: string;
   readonly endUserSessions?: string;

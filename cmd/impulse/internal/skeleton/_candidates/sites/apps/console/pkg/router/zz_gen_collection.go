@@ -51,14 +51,6 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
-				Name:        "CreateStaffTenantUser",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Attributes: []resource.AttributeData{
-					{Name: "role", Column: "Roles", Type: "string", List: true},
-				},
-			},
-			{
 				Name:        "DeleteStaffTenantGroup",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -169,12 +161,6 @@ func Collection() *resource.GeneratedCollection {
 			},
 			{
 				Name:        "SendStaffTenantUserPasswordResetLink",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Target:      "StaffTenantUsers",
-			},
-			{
-				Name:        "SetStaffTenantTemporaryPassword",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Target:      "StaffTenantUsers",
@@ -509,14 +495,6 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
-				Name:        "CreateStaffUser",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Attributes: []resource.AttributeData{
-					{Name: "role", Column: "Roles", Type: "string", List: true},
-				},
-			},
-			{
 				Name:        "DeleteStaffGroup",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -663,12 +641,6 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetStaffSelfServiceReset",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-			},
-			{
-				Name:        "SetStaffTemporaryPassword",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Target:      "StaffSessionUsers",
 			},
 			{
 				Name:        "SetStaffUserEmail",

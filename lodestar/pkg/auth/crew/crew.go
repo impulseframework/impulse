@@ -827,18 +827,17 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// The crew's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the
-	// session manager that signs them in, whose hasher makes the hash of a temporary
-	// password one of its methods sets. A membership one of its methods commits is
-	// announced by that engine, on this instance at the commit and on every other
-	// through the policy signal. The client knows the roles that administer a sector
-	// (identity.WithAdministratorRoles, the ones held in every sector), so a person who
-	// removes a role from themselves in a sector is judged by the rule on its last
-	// administrator: no sector is left without a marshal. The service as a whole is
-	// kept by the client's own rule on the last super administrator, whose role and
-	// account stay whoever asks. The store under it writes a
-	// membership as a create that leaves a row that is there alone (the generated create
-	// patch's OrSkip), so a role given twice is written once and keeps the time it was
-	// first given.
+	// session manager that signs them in, which makes the link an invitation mails. A
+	// membership one of its methods commits is announced by that engine, on this
+	// instance at the commit and on every other through the policy signal. The client
+	// knows the roles that administer a sector (identity.WithAdministratorRoles, the
+	// ones held in every sector), so a person who removes a role from themselves in a
+	// sector is judged by the rule on its last administrator: no sector is left without
+	// a marshal. The service as a whole is kept by the client's own rule on the last
+	// super administrator, whose role and account stay whoever asks. The store under it
+	// writes a membership as a create that leaves a row that is there alone (the
+	// generated create patch's OrSkip), so a role given twice is written once and keeps
+	// the time it was first given.
 	//
 	// The client makes the sectors too. Nobody charts a sector directly: Headquarters
 	// invites one person with the sector's details, which the client checks against the

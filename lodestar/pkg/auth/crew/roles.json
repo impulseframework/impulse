@@ -826,9 +826,6 @@
               "resource": "IssueBulletin"
             },
             {
-              "resource": "CreateCrewUser"
-            },
-            {
               "resource": "DisableCrewUser"
             },
             {
@@ -884,9 +881,6 @@
             },
             {
               "resource": "RenameCrewUser"
-            },
-            {
-              "resource": "SetCrewTemporaryPassword"
             },
             {
               "resource": "SendCrewUserPasswordResetLink"
@@ -2160,10 +2154,6 @@
               "resource": "SetSectorPilotClearance"
             },
             {
-              "resource": "CreateCrewSectorUser",
-              "condition": "new.role != 'SectorMarshal'"
-            },
-            {
               "resource": "InviteCrewSectorUser",
               "condition": "new.role != 'SectorMarshal'"
             },
@@ -2201,10 +2191,6 @@
             },
             {
               "resource": "SetCrewSectorUserName",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
-            },
-            {
-              "resource": "SetCrewSectorTemporaryPassword",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
             {

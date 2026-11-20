@@ -64,6 +64,110 @@ func Test_reservedRoleIn(t *testing.T) {
 	}
 }
 
+// Test_retiredGrantsIn pins the refusal of a role file that still lets a role run a method
+// the generated management no longer has: the direct create of an account and the
+// temporary password, in the application and in a tenant. The refusal names the role, the
+// method and what took its place, and a method the application declares under the name
+// itself is its own.
+func Test_retiredGrantsIn(t *testing.T) {
+	t.Parallel()
+
+	const auth = "example.com/beacon/pkg/auth/staff"
+	tenanted := &identityInstance{auth: "Staff", tenant: &identityTenant{name: "Site"}}
+	plain := &identityInstance{auth: "Staff"}
+	tests := []struct {
+		name string
+		inst *identityInstance
+		// roles is the role file's content; empty writes no file.
+		roles    string
+		declared map[string]bool
+		wantErrs []string
+	}{
+		{
+			name:  "a role file that invites and mails reset links",
+			inst:  tenanted,
+			roles: `{"roles": {"global": [{"name": "Administrator", "description": "Manages people.", "permissions": {"Execute": [{"resource": "InviteStaffUser"}, {"resource": "SendStaffUserPasswordResetLink"}]}}], "domain": [{"name": "SiteManager", "description": "Manages a site.", "permissions": {"Execute": [{"resource": "InviteStaffSiteUser"}]}}]}}`,
+		},
+		{
+			name:  "a global role that still creates accounts",
+			inst:  plain,
+			roles: `{"roles": {"global": [{"name": "Administrator", "description": "Manages people.", "permissions": {"Execute": [{"resource": "CreateStaffUser"}]}}]}}`,
+			wantErrs: []string{
+				"roles.json: the role Administrator is granted Execute on CreateStaffUser, and the generated management has no such method any more: an account is added by an invitation, and nobody creates one for someone else; grant InviteStaffUser to the role instead, or remove the grant",
+			},
+		},
+		{
+			name:  "a global role that still sets a temporary password, on one of its fields",
+			inst:  plain,
+			roles: `{"roles": {"global": [{"name": "Administrator", "description": "Manages people.", "permissions": {"Execute": [{"resource": "SetStaffTemporaryPassword", "fields": ["password"]}]}}]}}`,
+			wantErrs: []string{
+				"the role Administrator is granted Execute on SetStaffTemporaryPassword, and the generated management has no such method any more: a person chooses their own password through a reset link, and nobody sets one for someone else; grant SendStaffUserPasswordResetLink to the role instead, or remove the grant",
+			},
+		},
+		{
+			name:  "a tenant's role that still does both, every grant in one refusal",
+			inst:  tenanted,
+			roles: `{"roles": {"domain": [{"name": "SiteManager", "description": "Manages a site.", "permissions": {"Execute": [{"resource": "CreateStaffSiteUser"}, {"resource": "SetStaffSiteTemporaryPassword"}]}}]}}`,
+			wantErrs: []string{
+				"the role SiteManager is granted Execute on CreateStaffSiteUser, and the generated management has no such method any more: an account is added by an invitation, and nobody creates one for someone else; grant InviteStaffSiteUser to the role instead, or remove the grant",
+				"the role SiteManager is granted Execute on SetStaffSiteTemporaryPassword, and the generated management has no such method any more: a person chooses their own password through a reset link, and nobody sets one for someone else; grant SendStaffSiteUserPasswordResetLink to the role instead, or remove the grant",
+			},
+		},
+		{
+			name:     "a method the application declares under the name is its own",
+			inst:     plain,
+			roles:    `{"roles": {"global": [{"name": "Administrator", "description": "Manages people.", "permissions": {"Execute": [{"resource": "CreateStaffUser"}]}}]}}`,
+			declared: map[string]bool{"CreateStaffUser": true},
+		},
+		{
+			name:  "a tenant's name means nothing to an auth without tenants",
+			inst:  plain,
+			roles: `{"roles": {"global": [{"name": "Administrator", "description": "Manages people.", "permissions": {"Execute": [{"resource": "CreateStaffSiteUser"}]}}]}}`,
+		},
+		{
+			name: "no role file yet",
+			inst: tenanted,
+		},
+		{
+			name:  "a file that does not parse is the engine's to refuse",
+			inst:  tenanted,
+			roles: `{"roles": {"global": [`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			file := filepath.Join(t.TempDir(), identityRolesFile)
+			if tt.roles != "" {
+				if err := os.WriteFile(file, []byte(tt.roles), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			err := retiredGrantsIn(auth, file, tt.inst.retiredMethods(), tt.declared)
+			if len(tt.wantErrs) == 0 {
+				if err != nil {
+					t.Errorf("retiredGrantsIn() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil {
+				t.Fatalf("retiredGrantsIn() error = nil, want one containing %q", tt.wantErrs)
+			}
+			if !strings.Contains(err.Error(), auth) {
+				t.Errorf("retiredGrantsIn() error = %v, want one naming the auth %q", err, auth)
+			}
+			for _, want := range tt.wantErrs {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("retiredGrantsIn() error = %v, want one containing %q", err, want)
+				}
+			}
+		})
+	}
+}
+
 // Test_resourceGenerator_moduleDir pins where the generator looks for an auth package:
 // under the main module, by its import path, and nowhere for a package of another module.
 func Test_resourceGenerator_moduleDir(t *testing.T) {

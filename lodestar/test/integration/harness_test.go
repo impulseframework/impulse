@@ -331,14 +331,10 @@ func (l *invitationLog) take(email string) []session.InvitationRequest {
 var preparedInvitations = &invitationLog{byEmail: make(map[string][]session.InvitationRequest)}
 
 // noSessionAPI stands where a suite serves no session manager: the methods that need
-// one (a temporary password's hash) are driven on the served stack, which has the
-// real one. It still says which identities sign a person in, since the removal of a
-// password and the list of how a person signs in are judged by it.
+// one (an invitation's link) are driven on the served stack, which has the real one. It
+// still says which identities sign a person in, since the removal of a password and the
+// list of how a person signs in are judged by it.
 type noSessionAPI struct{}
-
-func (noSessionAPI) HashPassword(string) (string, error) {
-	return "", fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
-}
 
 // PrepareInvitation makes no link and fails, after it has kept what it was handed
 // (preparedInvitations): a request that reaches it passed every check before the link
@@ -799,16 +795,53 @@ func knownAs(t *testing.T, username accesstypes.User, id impulse.UUID) accesstyp
 func makeCrewAccount(ctx context.Context, t *testing.T, db *initiator.SpannerDB, username accesstypes.User) accesstypes.User {
 	t.Helper()
 
+	return writeCrewAccount(ctx, t, db, username, nil)
+}
+
+// makeCrewAccountAt is makeCrewAccount for a person with an address, held as the person
+// typed it at a registration: nobody has confirmed it.
+func makeCrewAccountAt(ctx context.Context, t *testing.T, db *initiator.SpannerDB, username accesstypes.User, email string) accesstypes.User {
+	t.Helper()
+
+	return writeCrewAccount(ctx, t, db, username, &email)
+}
+
+// writeCrewAccount writes the row of makeCrewAccount and makeCrewAccountAt, with the
+// address when there is one.
+func writeCrewAccount(ctx context.Context, t *testing.T, db *initiator.SpannerDB, username accesstypes.User, email *string) accesstypes.User {
+	t.Helper()
+
 	id, err := impulse.NewUUID()
 	if err != nil {
 		t.Fatalf("impulse.NewUUID: %v", err)
 	}
-	row := spanner.InsertMap("CrewSessionUsers", map[string]any{"Id": id.String(), "Username": string(username), "CreatedAt": spanner.CommitTimestamp})
-	if _, err := db.Apply(ctx, []*spanner.Mutation{row}); err != nil {
+	columns := map[string]any{"Id": id.String(), "Username": string(username), "CreatedAt": spanner.CommitTimestamp}
+	if email != nil {
+		columns["Email"] = *email
+	}
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessionUsers", columns)}); err != nil {
 		t.Fatalf("writing %s's crew account: %v", username, err)
 	}
 
 	return knownAs(t, username, id)
+}
+
+// seedCrewAccount makes an account of the crew's on the served stack through the session
+// library's API, as the bootstrap makes the cast's: with no password and no role, for a
+// person who has not signed in, and with the address given when there is one, which
+// nobody has confirmed. Nobody creates an account for someone else through the
+// application, where a person comes in by an invitation; a suite that needs an account
+// nobody has signed in to makes one here, and gives it its roles through the generated
+// methods. It answers the account's id.
+func (s *served) seedCrewAccount(ctx context.Context, t *testing.T, username string, email *string) impulse.UUID {
+	t.Helper()
+
+	id, err := s.crew.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: username, Email: email})
+	if err != nil {
+		t.Fatalf("CreateSessionUser(%s) error = %v", username, err)
+	}
+
+	return id
 }
 
 // decodeRows decodes a list response body into rows.

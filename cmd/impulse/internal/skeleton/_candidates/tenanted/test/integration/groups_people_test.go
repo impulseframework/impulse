@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"encoding/json"
 	"maps"
 	"net/http"
 	"slices"
@@ -35,20 +34,12 @@ func TestGroups_aTenantPutsItsOwnPeopleInItsGroups(t *testing.T) {
 	}
 	night := createdGroup(t, body)
 
-	// Sol is created in south by the application's administrator, and is none of north's.
-	status, body = tenantPost(ctx, admin, south, "create-staff-tenant-user", map[string]any{
-		"username": "sol", "name": "Sol of south", "email": "sol@example.com", "password": "first-day-pass", "roles": []string{"TenantAdministrator"},
-	})
-	if status != http.StatusOK {
-		t.Fatalf("creating sol in south: status %d: %s", status, body)
+	// Sol has an account, and the application's administrator gives it a role in south:
+	// sol is none of north's.
+	sol := staffAccount(ctx, t, s, "sol", "Sol of south")
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+sol+`","role":"TenantAdministrator","domain":"`+south+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving sol a role in south: status %d: %s", status, body)
 	}
-	var created struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(body, &created); err != nil || created.ID == "" {
-		t.Fatalf("creating sol answered %s (%v), want the new account's id", body, err)
-	}
-	sol := created.ID
 	if _, listed := tenantRows(ctx, t, admin, north, "staff-tenant-users")[sol]; listed {
 		t.Fatal("sol is one of north's people before anything is given, and the case needs an account from outside the tenant")
 	}
@@ -83,7 +74,7 @@ func TestGroups_aTenantPutsItsOwnPeopleInItsGroups(t *testing.T) {
 		t.Error("north's group leaves out sol, whom the application's administrator put there")
 	}
 	if row := tenantRows(ctx, t, admin, north, "staff-tenant-users")[sol]; row["username"] != "sol" {
-		t.Errorf("sol among north's people = %v, want the account south created", row)
+		t.Errorf("sol among north's people = %v, want the account that holds a role in south", row)
 	}
 
 	// A person north has is put in its group by north's administrator.

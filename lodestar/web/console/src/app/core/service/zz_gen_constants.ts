@@ -125,8 +125,6 @@ export const Methods = {
   CompleteMission: 'CompleteMission' as Method,
   CreateCrewGroup: 'CreateCrewGroup' as Method,
   CreateCrewSectorGroup: 'CreateCrewSectorGroup' as Method,
-  CreateCrewSectorUser: 'CreateCrewSectorUser' as Method,
-  CreateCrewUser: 'CreateCrewUser' as Method,
   DeleteCrewGroup: 'DeleteCrewGroup' as Method,
   DeleteCrewSectorGroup: 'DeleteCrewSectorGroup' as Method,
   DeleteCrewSectorUser: 'DeleteCrewSectorUser' as Method,
@@ -188,11 +186,9 @@ export const Methods = {
   ScrapShip: 'ScrapShip' as Method,
   SendCrewSectorUserPasswordResetLink: 'SendCrewSectorUserPasswordResetLink' as Method,
   SendCrewUserPasswordResetLink: 'SendCrewUserPasswordResetLink' as Method,
-  SetCrewSectorTemporaryPassword: 'SetCrewSectorTemporaryPassword' as Method,
   SetCrewSectorUserEmail: 'SetCrewSectorUserEmail' as Method,
   SetCrewSectorUserName: 'SetCrewSectorUserName' as Method,
   SetCrewSelfServiceReset: 'SetCrewSelfServiceReset' as Method,
-  SetCrewTemporaryPassword: 'SetCrewTemporaryPassword' as Method,
   SetCrewUserEmail: 'SetCrewUserEmail' as Method,
   SetCrewUserName: 'SetCrewUserName' as Method,
   SetMembersSectorUserEmail: 'SetMembersSectorUserEmail' as Method,
@@ -2341,28 +2337,6 @@ export namespace CreateCrewSectorGroup {
   };
 }
 
-export namespace CreateCrewSectorUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    password: 'password' as FieldName,
-    roles: 'roles' as FieldName,
-  };
-}
-
-export namespace CreateCrewUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    password: 'password' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
-    roles: 'roles' as FieldName,
-  };
-}
-
 export namespace DeleteCrewGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
@@ -2766,13 +2740,6 @@ export namespace SendCrewUserPasswordResetLink {
   };
 }
 
-export namespace SetCrewSectorTemporaryPassword {
-  export const fieldName = {
-    userId: 'userId' as FieldName,
-    password: 'password' as FieldName,
-  };
-}
-
 export namespace SetCrewSectorUserEmail {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -2790,13 +2757,6 @@ export namespace SetCrewSectorUserName {
 export namespace SetCrewSelfServiceReset {
   export const fieldName = {
     on: 'on' as FieldName,
-  };
-}
-
-export namespace SetCrewTemporaryPassword {
-  export const fieldName = {
-    userId: 'userId' as FieldName,
-    password: 'password' as FieldName,
   };
 }
 

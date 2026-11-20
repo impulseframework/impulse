@@ -28,25 +28,6 @@ var _ identity.Store = store{}
 // types, and holds no rule.
 type store struct{}
 
-func (store) InsertUser(ctx context.Context, txn resource.ReadWriteTransaction, user *identity.NewUser) (impulse.UUID, error) {
-	patch, err := crewresources.NewCrewSessionUserCreatePatch()
-	if err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "crewresources.NewCrewSessionUserCreatePatch()")
-	}
-	patch.SetUsername(user.Username).SetDisabled(false).SetPasswordChangeRequired(false).SetCreatedAt(spanner.CommitTimestamp)
-	if user.Name != nil {
-		patch.SetName(user.Name)
-	}
-	if user.Email != nil {
-		patch.SetEmail(user.Email)
-	}
-	if err := patch.Buffer(ctx, txn); err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "crewresources.CrewSessionUserCreatePatch.Buffer()")
-	}
-
-	return patch.ID(), nil
-}
-
 func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, change *identity.UserChange) error {
 	patch := crewresources.NewCrewSessionUserUpdatePatch(id)
 	if change.Username != nil {
@@ -99,9 +80,10 @@ func (store) RenameSession(ctx context.Context, txn resource.ReadWriteTransactio
 	return nil
 }
 
-// passwordWrite names the user row a password is written on. It is the one write that
+// passwordWrite names the user row a password is taken off. It is the one write that
 // goes past the declarations: the password hash is no field of any of them, so no read
-// returns it and nothing but SetPassword and RemovePassword writes it.
+// returns it and nothing here but RemovePassword writes it. A person chooses their own
+// password, in the session library's storage.
 type passwordWrite struct {
 	id impulse.UUID
 }
@@ -116,15 +98,6 @@ func (w passwordWrite) PrimaryKey() resource.KeySet {
 
 func (passwordWrite) Resource() accesstypes.Resource {
 	return "CrewSessionUsers"
-}
-
-func (store) SetPassword(_ context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error {
-	row := map[string]any{"Id": id, "PasswordHash": hash, "PasswordChangeRequired": changeRequired}
-	if err := txn.BufferMap(passwordWrite{id: id}, row); err != nil {
-		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
-	}
-
-	return nil
 }
 
 func (store) RemovePassword(_ context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {

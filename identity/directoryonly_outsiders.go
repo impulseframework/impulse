@@ -34,8 +34,8 @@ import (
 // gains nothing. A caller the tenant does not admit is refused:
 //
 //   - giving or taking one of the tenant's administrator roles in the tenant, to a
-//     person (AssignRoleFor, RemoveRole, CreateUser, which starts a person with roles)
-//     or to a group of the tenant's own (GiveGroupRoleFor, TakeGroupRole);
+//     person (AssignRoleFor, RemoveRole) or to a group of the tenant's own
+//     (GiveGroupRoleFor, TakeGroupRole);
 //   - putting a person in, or taking one out of, a group of the tenant's own that
 //     holds such a role there (AddGroupMemberFor, RemoveGroupMember);
 //   - an invitation that carries such a role there (Invite);

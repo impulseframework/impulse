@@ -1,4 +1,4 @@
-// Package identity holds the rules of managing the people of one auth: creating a
+// Package identity holds the rules of managing the people of one auth: inviting a
 // person, disabling one and ending their sessions, seating one in a role. An
 // application does not call it directly. The code generator writes, for every auth an
 // application declares, the resources over the auth's own tables and the methods that
@@ -16,8 +16,8 @@
 // Manager.WithdrawTenantInvitation withdraws one.
 //
 // Every rule runs inside the caller's transaction (resource.ReadWriteTransaction): a
-// generated handler's, or one an application opened to create a person beside its own
-// rows and commit them together. Nothing here commits, and nothing reads a row a sibling
+// generated handler's, or one an application opened to write its own rows beside the
+// change and commit them together. Nothing here commits, and nothing reads a row a sibling
 // call buffered in the same transaction, which Spanner applies only at the commit: a
 // rule takes what it needs from its caller.
 //
@@ -47,14 +47,8 @@ import (
 // and patches. An implementation holds no rule: it maps the values it is given onto the
 // auth's columns and answers what it read.
 type Store interface {
-	// InsertUser buffers a new user and answers the id the row is created under.
-	InsertUser(ctx context.Context, txn resource.ReadWriteTransaction, user *NewUser) (impulse.UUID, error)
 	// UpdateUser buffers a change to a user: every field of change that is set.
 	UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, change *UserChange) error
-	// SetPassword buffers a user's password hash, as the session library's hasher
-	// rendered it, and whether the person must change the password before anything
-	// else is served. An auth with no password method has no such write.
-	SetPassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error
 	// RemovePassword buffers the removal of a user's password, and with it the mark that
 	// the person must change it. An auth with no password method has no such write.
 	RemovePassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
@@ -207,12 +201,9 @@ type Store interface {
 
 // SessionAPI is what the rules take from the session library's Auth, the one that signs
 // the auth's people in: the API of the application's own Auth satisfies it
-// (session.Auth.API). The password method's hasher is the Auth's, so a password written
-// here is one the sign-in can check.
+// (session.Auth.API). No rule here writes a password: a person chooses their own, from
+// an invitation or a reset link, in the session library's storage.
 type SessionAPI interface {
-	// HashPassword hashes a password as the users table holds one; an empty password
-	// is refused.
-	HashPassword(password string) (string, error)
 	// PrepareInvitation checks and makes an invitation without storing or mailing it:
 	// the row to store, and the step that mails its link once the row is committed.
 	// The token, the message and the sender stay in the session library.
@@ -285,17 +276,6 @@ type HeldImpersonation struct {
 	// ActsAsRole marks a record whose session acts as a role: such a session carries
 	// the actor's own username, where one that views as a user carries that user's.
 	ActsAsRole bool
-}
-
-// NewUser is a user row as InsertUser writes it.
-type NewUser struct {
-	Username string
-	// Name is the person's name as people read it, nil for none. It is written as
-	// given: the manager has held it to the rule of a name (sessioninfo.CleanName).
-	Name *string
-	// Email is the address the person is reached at, nil for none. It is written
-	// unverified.
-	Email *string
 }
 
 // UserChange is a change to a user row: a nil field is left as it is. The address is

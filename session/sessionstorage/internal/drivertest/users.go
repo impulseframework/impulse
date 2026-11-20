@@ -76,9 +76,9 @@ func testUserAccounts(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 }
 
-// testPasswordReplaced pins ReplaceUserPassword, the write of an operator's reset and
-// of a password set at the end of a flow of the application's own: the hash and the
-// mark land, cleared for a password the user chose and set for one an operator reset,
+// testPasswordReplaced pins ReplaceUserPassword, the write of a password set at the end
+// of a flow that proved who the person is by other means: the hash and the mark land,
+// cleared for a password the user chose and set for one that must be changed,
 // whatever the row held, and every session of the user ends in the same transaction,
 // no other user's; an unknown user is NotFound; and a replacement whose ending of the
 // sessions fails writes no password, so no failure leaves the new password in place and
@@ -119,16 +119,16 @@ func testPasswordReplaced(ctx context.Context, t *testing.T, h *AuthHarness) {
 			assertSessionEnded(ctx, t, in.Driver, "the user's second session, after the replacement", second, true)
 			assertSessionEnded(ctx, t, in.Driver, "another user's session, after the replacement", others, false)
 
-			// An operator resets it: the mark is set again with the temporary hash, and a
-			// session started since ends.
+			// It is replaced under the mark: the mark is set again with the temporary hash,
+			// and a session started since ends.
 			later := start(pat)
 			if err := in.Driver.ReplaceUserPassword(ctx, pat.ID, temporary, true); err != nil {
 				t.Fatalf("ReplaceUserPassword() error = %v", err)
 			}
-			if reset := mustUser(ctx, t, in.Driver, pat.ID); !reset.PasswordChangeRequired || !sameHash(reset.PasswordHash, temporary) {
-				t.Errorf("User() after the reset = %+v, want the temporary hash and the mark", reset)
+			if marked := mustUser(ctx, t, in.Driver, pat.ID); !marked.PasswordChangeRequired || !sameHash(marked.PasswordHash, temporary) {
+				t.Errorf("User() after the replacement under the mark = %+v, want the temporary hash and the mark", marked)
 			}
-			assertSessionEnded(ctx, t, in.Driver, "the user's session, after the reset", later, true)
+			assertSessionEnded(ctx, t, in.Driver, "the user's session, after the replacement under the mark", later, true)
 
 			// An unknown user is told so, and nobody's session ends for it.
 			if err := in.Driver.ReplaceUserPassword(ctx, impulse.Must(impulse.NewUUID()), chosen, false); !httpio.HasNotFound(err) {

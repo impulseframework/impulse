@@ -917,13 +917,14 @@ func (s *SessionStorageDriver) holdsProvenPasswordIn(ctx context.Context, tx *sp
 }
 
 // ReplaceUserPassword sets a user's password hash and whether the user must change the
-// password before anything else is served (true for a password an operator set, false
-// for one the user chose), and expires every session of the user, in one transaction:
-// the password is replaced and the sessions ended together, or neither is. It follows
-// no proof of the password it replaces and overwrites whatever the row holds. A sign-in
-// that inserts a session on proof of the password being replaced reads the same row in
-// its own transaction, so of the two Spanner runs one after the other: the session is
-// there to be ended, or the sign-in finds the new password and inserts none.
+// password before anything else is served (false for a password the user chose, which
+// is what the session library writes), and expires every session of the user, in one
+// transaction: the password is replaced and the sessions ended together, or neither
+// is. It follows no proof of the password it replaces and overwrites whatever the row
+// holds. A sign-in that inserts a session on proof of the password being replaced reads
+// the same row in its own transaction, so of the two Spanner runs one after the other:
+// the session is there to be ended, or the sign-in finds the new password and inserts
+// none.
 func (s *SessionStorageDriver) ReplaceUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

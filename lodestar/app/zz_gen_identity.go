@@ -288,14 +288,6 @@ func (a *App) CreateCrewSectorGroup() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CreateCrewSectorGroup()
 }
 
-func (a *App) CreateCrewSectorUser() http.HandlerFunc {
-	return crewhandlers.New(a, liveDerivations).CreateCrewSectorUser()
-}
-
-func (a *App) CreateCrewUser() http.HandlerFunc {
-	return crewhandlers.New(a, liveDerivations).CreateCrewUser()
-}
-
 func (a *App) DeleteCrewGroup() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).DeleteCrewGroup()
 }
@@ -440,10 +432,6 @@ func (a *App) SendCrewUserPasswordResetLink() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SendCrewUserPasswordResetLink()
 }
 
-func (a *App) SetCrewSectorTemporaryPassword() http.HandlerFunc {
-	return crewhandlers.New(a, liveDerivations).SetCrewSectorTemporaryPassword()
-}
-
 func (a *App) SetCrewSectorUserEmail() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SetCrewSectorUserEmail()
 }
@@ -454,10 +442,6 @@ func (a *App) SetCrewSectorUserName() http.HandlerFunc {
 
 func (a *App) SetCrewSelfServiceReset() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SetCrewSelfServiceReset()
-}
-
-func (a *App) SetCrewTemporaryPassword() http.HandlerFunc {
-	return crewhandlers.New(a, liveDerivations).SetCrewTemporaryPassword()
 }
 
 func (a *App) SetCrewUserEmail() http.HandlerFunc {

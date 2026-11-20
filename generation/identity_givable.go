@@ -6,8 +6,8 @@ import (
 )
 
 // The roles a person is given by hand from the whole application's management. The
-// dialogs of the methods that give one (Assign<Auth>Role, Create<Auth>User,
-// Invite<Auth>User and Give<Auth>GroupRole) ask where the role is to be held first,
+// dialogs of the methods that give one (Assign<Auth>Role, Invite<Auth>User and
+// Give<Auth>GroupRole) ask where the role is to be held first,
 // then offer the roles that exist there that the caller could give with the dialog's
 // own method: the list <Auth>GivableRoles, which their role fields pick from, asked
 // for one method at a time. A tenant's own methods pick from the roles of their tenant
@@ -48,18 +48,15 @@ type globalGiving struct {
 
 // globalGivings are the methods of the whole application whose role field picks from
 // the roles to give, each where the instance writes it: the one that gives a person a
-// role, the create and the invitation that start a person with one, and the one that
-// gives a group a role. The list offers, for each, the roles that method takes from the
-// caller (the generated CouldGive), so it reads the same conditions the methods are
-// written by and names none the instance does not hold.
+// role, the invitation that starts a person with one, and the one that gives a group a
+// role. The list offers, for each, the roles that method takes from the caller (the
+// generated CouldGive), so it reads the same conditions the methods are written by and
+// names none the instance does not hold.
 func (i *identityInstance) globalGivings() []globalGiving {
 	if i.rolesSynced || !i.has(identityMemberships) {
 		return nil
 	}
 	givings := []globalGiving{{Method: "Assign" + i.auth + "Role", Fields: "Role: string(role), Domain: domain, EveryDomain: everyDomain"}}
-	if i.createsUsers() && i.has(identityUsers) {
-		givings = append(givings, globalGiving{Method: "Create" + i.auth + "User", Fields: "Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain"})
-	}
 	if i.has(identityMailLinks) {
 		givings = append(givings, globalGiving{Method: "Invite" + i.auth + "User", Fields: "Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain"})
 	}

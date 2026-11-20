@@ -22,12 +22,12 @@ import (
 type laterWrite struct {
 	name string
 	// write makes the write for a user whose row holds held. replacement is the hash a
-	// change or a temporary password writes; a removal writes none.
+	// change or a replacement writes; a removal writes none.
 	write func(ctx context.Context, d AuthDriver, userID impulse.UUID, held, replacement *securehash.Hash) error
 }
 
 // laterWrites are the three ways a password stops being the one a sign-in proved: the
-// person changes it, an operator sets a temporary one, and it is removed.
+// person changes it, it is replaced under the change mark, and it is removed.
 func laterWrites() []laterWrite {
 	return []laterWrite{
 		{
@@ -37,7 +37,7 @@ func laterWrites() []laterWrite {
 			},
 		},
 		{
-			name: "a temporary password an operator sets",
+			name: "a replacement under the change mark",
 			write: func(ctx context.Context, d AuthDriver, userID impulse.UUID, _, replacement *securehash.Hash) error {
 				return d.ReplaceUserPassword(ctx, userID, replacement, true)
 			},
@@ -97,7 +97,7 @@ func assertPasswordChanged(t *testing.T, what string, err error) {
 
 // testProvenSignIn pins the session a sign-in inserts on the strength of a password
 // proof: it is inserted while the user still holds the password that was proved, and
-// once that password was changed, reset or removed (the write committing after the
+// once that password was changed, replaced or removed (the write committing after the
 // sign-in compared the password and before it inserts) the sign-in ends with
 // ErrPasswordChanged in the transaction that would have inserted, before the policy is
 // asked, with nothing written. A sign-in no password proved is held to nothing, and
@@ -155,8 +155,8 @@ func testProvenSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 // testProvenPendingSignIn pins the pending sign-in a password started: its row keeps
 // the proof of that password, is inserted only while the user still holds it, and the
 // completion, which signs in on the proof the row carries, is refused once the password
-// was changed, reset or removed while the sign-in waited. A pending sign-in no password
-// proved carries none and is untouched by the same writes.
+// was changed, replaced or removed while the sign-in waited. A pending sign-in no
+// password proved carries none and is untouched by the same writes.
 func testProvenPendingSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	hashes := passwordHashes(t, "original", "replacement")
@@ -242,7 +242,7 @@ func testProvenPendingSignIn(ctx context.Context, t *testing.T, h *AuthHarness) 
 
 // testProvenLinkConfirmed pins the link a password confirmation makes: it is made while
 // the user still holds the password that confirmed it, and once that password was
-// changed, reset or removed the link's transaction ends with ErrPasswordChanged and
+// changed, replaced or removed the link's transaction ends with ErrPasswordChanged and
 // links nothing.
 func testProvenLinkConfirmed(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
@@ -287,7 +287,7 @@ func testProvenSignInRacesPasswordWrite(ctx context.Context, t *testing.T, h *Au
 	hashes := passwordHashes(t, "original", "replacement")
 	original, replacement := hashes[0], hashes[1]
 
-	// The person's own change and an operator's temporary password each write the
+	// The person's own change and a replacement under the change mark each write the
 	// password and end the sessions in one transaction.
 	writes := laterWrites()[:2]
 	const rounds = 6

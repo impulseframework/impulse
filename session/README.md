@@ -253,8 +253,8 @@ DML what a later rule must read.
   their password confirmed it.
 
   **A first link on a name alone needs something to vouch for it.** An account created
-  ahead with no password, which has never signed in (an administrator's create that
-  gave none), has neither a password to confirm a link with nor a link to compare a
+  ahead with no password, which has never signed in (one the application created
+  with none), has neither a password to confirm a link with nor a link to compare a
   new one to: nothing but its name ties it to whoever signs in next under that name,
   and a directory asserts the names it likes (an organization's own OpenID Connect
   provider is held to no domain). The link hands whoever the directory signs in
@@ -323,8 +323,7 @@ DML what a later rule must read.
   is linked on proof instead: a user who holds, verified, the address the method
   verified for the identity is the person, and is linked on a connection they already
   sign in through, as before; a user with a password confirms the link with it, as
-  above, so an administrator who gives the person a temporary password lets them
-  confirm it at their next sign-in; a registration's own rule that answers
+  above; a registration's own rule that answers
   `signin.Link` links on its own evidence, as before; and the application may link an
   identity itself (the store's `LinkIdentity`). A directory that issues a person a new
   subject under the same name (their directory account deleted and made again) is
@@ -1234,8 +1233,8 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   with the token's kind as its connection, and `sessioninfo.TokenFromCtx(ctx)` names
   the token. See "Machine outlets and bearer tokens".
 - **User management is by ID**: `ChangeSessionUserPassword`, `SetSessionUserPassword`,
-  `ResetSessionUserPassword`, `DeactivateSessionUser` and `DeleteSessionUser` destroy
-  the user's sessions by `UserId`; `DeleteSessionUser` deletes its identity links with
+  `DeactivateSessionUser` and `DeleteSessionUser` destroy the user's sessions by
+  `UserId`; `DeleteSessionUser` deletes its identity links with
   it; `UnlinkIdentity` refuses the last identity that can sign in a user with no
   password, and `RemoveSessionUserPassword` the password of a user no identity can sign
   in. See
@@ -1286,18 +1285,15 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `ChangeSessionUserUsername(ctx, id, username)` | Renames the user and its live sessions. |
 | `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Writes the new password over the one that was proved and no other (Conflict, `sessionstorage.ErrPasswordChanged`, when the password changed meanwhile: nothing is written and no session ends), clears the mark and destroys the sessions in the same transaction (`AuthStore.ChangeUserPassword`: the password changed and the sessions ended, or neither), then continues in a new one. The new session is the continuation of the one that made the change: it records that session's auth events, how it was established and the factors it holds, read from the session and never from the request, so a person who signed in through a directory still holds the directory's session and one who entered with a password and the mailed code keeps the code. Where there is none to continue (a call outside a session of the user, a request a bearer token authenticated, or a session that views the application as them) it records the password the change proved, alone. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
 | `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`: the password replaced and the sessions ended, or neither). |
-| `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`), so no failure leaves the temporary password in place and a session alive, on the act meant to end them. |
-| `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). A password shorter than eight characters is refused, as on every path that sets one. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
 
 One rule holds a password's shape on every path that sets one: it is at least eight
 characters, counted as characters and not as bytes, and a shorter one is 400 saying so.
 A sign-up, the account an invitation's
 acceptance makes, a first password, a person's own change, a password set by a flow of
-the application's own, an operator's temporary password, an account created with one
-and the hash `HashPassword` hands the generated user management all hash the password
-through the one function that asks the rule first, so no path sets a password another
-would refuse. The hash a sign-in upgrades is of a password the person already holds,
+the application's own (a reset link among them) and an account created with one all
+hash the password through the one function that asks the rule first, so no path sets a
+password another would refuse. The hash a sign-in upgrades is of a password the person already holds,
 and is not asked.
 | `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking the last link that can sign in a user with no password is refused (Conflict, `sessionstorage.ErrLastSignInMethod`): another link must be one a sign-in is still possible through (`SignsInThrough`), whatever links that sign nobody in remain. A user who holds a password may lose every link. |
 | `SignInMeans(ctx, id)` | What the user signs in with (`SignInMeans`): whether they hold a password, never its hash, and the sign-in methods the login page offers that an identity linked to them signs in through, each by the registration's name and the label its button carries, in the page's order. A link answers the registrations that can still sign the person in through it: of the link's method, offered on the login page, and taking the link's connection, so of two listed Entra registrations a link names the one whose tenants hold its tenant; a method that cannot tell one connection from another answers every registration of it. A link of a method the page no longer offers, or from a tenant or a Workspace no registration takes any more, names nothing, and is no means of sign-in to the removal either. For an administrator's page; the caller guards who may ask about whom. `Auth.SignInMeans()` is the person's own read over HTTP, answered in the words of the methods list that names its path. `SignsInThrough(method, connection)` is the judgment itself, for one link. |
@@ -1325,9 +1321,10 @@ not hold, and gives nothing to a user of another id who holds the persona's logi
 administrator is not seeded: no account is made ahead of the person, who is invited (see
 "The first administrator's invitation").
 
-**The forced password change.** A password an operator set, at creation
-(`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before
-anything else is served. While the mark is set, `ValidateSession` (and
+**The forced password change.** A password an operator set at creation
+(`PasswordChangeRequired`) is temporary, and an administrator may require a new one of
+any person who holds a password (the generated user management's method, which sets
+the same mark): the user changes it before anything else is served. While the mark is set, `ValidateSession` (and
 `AuthAPI.ValidateSession`) refuses every request with 403 and `{"message", "code":
 "password_change_required"}`; the session read answers, with `"passwordChangeRequired":
 true`, and the logout and the password change go through, since they validate the
@@ -1336,8 +1333,8 @@ wiring above. A login page that reads the mark from the session read posts the c
 to the methods list's `changePassword` path before it opens the application. The change
 clears the mark and goes on in a new session that carries the auth events of the one
 that made it (`ChangeSessionUserPassword`, below); an
-impersonated session is the actor's and is not held to the user's mark. Every user an
-operator creates with a password carries the mark; the password a user chose through
+impersonated session is the actor's and is not held to the user's mark. A user an
+operator creates with a password under `PasswordChangeRequired` carries the mark; the password a user chose through
 `ChangeSessionUserPassword` or `SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
 mark without a password is refused.
 
@@ -1382,9 +1379,9 @@ handler, routed beside the change and named to the page as the methods list's
 `removePassword`. A wrong password answers 400, and a person no link can sign in is
 told what to do first: sign in through their directory, which links it. The handler
 validates the session itself and holds it to what every own-account route but the
-change holds it to: a person whose operator-set password must change is refused (403,
-`password_change_required`), since the removal would clear the mark with the temporary
-password and no change would have been made. It refuses an impersonated session.
+change holds it to: a person whose password must change is refused (403,
+`password_change_required`), since the removal would clear the mark with the password
+and no change would have been made. It refuses an impersonated session.
 Either way the removal takes the
 password and the mark with it, clears the count of failed sign-ins kept under the
 user's name, and ends no session: the sessions the user holds stand, the ones the
@@ -1413,7 +1410,7 @@ the hash upgrade at a sign-in (a matching password stored under an older algorit
 older parameters is hashed again, unless `AutoUpgradeHashes(false)`), the person's own
 change and the person's own removal. Each reads the user, compares the password and
 then writes, and another write can commit in between: the person changes the password
-in another window, or an operator resets or removes it. So each hands the store the
+in another window, sets a new one through a reset link, or an operator removes it. So each hands the store the
 hash it compared against (`UpgradeUserPasswordHash`, `ChangeUserPassword`,
 `RemoveProvenUserPassword`), and the store writes only while the row still holds that
 hash: on PostgreSQL the write's `WHERE` names it, or the removal compares it under the
@@ -1430,7 +1427,7 @@ reset on proof of the password it replaced.
 **What a password proves is inserted only while the person still holds that
 password.** A sign-in compares the password and inserts later: the session, or the
 pending sign-in the login is held as while a second step waits, up to the pending
-sign-in's ten minutes. A change, an operator's temporary password or a removal can
+sign-in's ten minutes. A change, a password set through a reset link or a removal can
 commit in between, and it ends the person's sessions before the sign-in's own is there
 to be ended. So the sign-in carries a proof of the password it compared against
 (`sessionstorage.PasswordProof`: the SHA-256 of the stored hash, never the hash), and
@@ -1455,17 +1452,16 @@ factor, a session the application starts) carries no proof and is held to none. 
 pending sign-ins table made before the proof takes the column from the auth set's
 `SessionPasswordProofs` migration.
 
-An operator's writes follow no proof and overwrite on purpose:
-`ResetSessionUserPassword`, `SetSessionUserPassword` and `RemoveSessionUserPassword`
-write whatever the row holds (the store's `ReplaceUserPassword` and
-`RemoveUserPassword`), and so do the generated user management's temporary password
-and removal, which write the column in the caller's transaction. The operator is not
-claiming to know the password being replaced, so there is nothing to compare, and
-their password is to stand whatever the person did a moment before. A reset ends the
-person's sessions as their own change does, in the transaction that writes the
-password: the store's `ReplaceUserPassword` writes the hash and the mark and expires
-every session of the user together, or does neither, so a failure between the two
-cannot leave the new password in place with the old sessions alive.
+The writes that follow no proof overwrite on purpose: `SetSessionUserPassword` and
+`RemoveSessionUserPassword` write whatever the row holds (the store's
+`ReplaceUserPassword` and `RemoveUserPassword`), and so does the generated user
+management's removal, which writes the column in the caller's transaction. Neither
+claims to know the password being replaced, so there is nothing to compare: the
+password a person chose at a reset link is to stand whatever was done a moment before.
+A password set this way ends the person's sessions as their own change does, in the
+transaction that writes it: the store's `ReplaceUserPassword` writes the hash and the
+mark and expires every session of the user together, or does neither, so a failure
+between the two cannot leave the new password in place with the old sessions alive.
 
 ### A person's first password
 
@@ -2130,7 +2126,7 @@ a name at the limit answers 429 with `too_many_attempts` and the wait before any
 is hashed, so a session of the person guesses their password no faster than the login
 lets a stranger. A matching password resets the
 name, as do an MFA completion (`CompletePending`) and a password change of any kind
-(`ChangeSessionUserPassword`, `SetSessionUserPassword`, `ResetSessionUserPassword`).
+(`ChangeSessionUserPassword`, `SetSessionUserPassword`).
 Nothing locks a user an operator must unlock: the lock passes on its own, and a
 password change lifts it. An operator who will not wait clears it: the name's row
 deleted from the sign-in attempts table (the key is `SignInAttemptName(username)`), as

@@ -227,7 +227,7 @@ func TestPortalOutlet_theFirstAdministratorIsInvited(t *testing.T) {
 		t.Errorf("%d message(s) mailed in all, want the first release's one", sent)
 	}
 
-	// An account an administrator created ahead under a name, with a role for the whole
+	// An account created ahead under a name, as a seed makes one, with a role for the whole
 	// application and no password, is nobody's invitation. The directory presents the
 	// name and nothing vouches for the account, so the sign-in is refused as a stranger's
 	// is and links nothing.

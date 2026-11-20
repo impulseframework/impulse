@@ -185,10 +185,6 @@ func (a *App) CreateStaffGroup() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).CreateStaffGroup()
 }
 
-func (a *App) CreateStaffUser() http.HandlerFunc {
-	return staffhandlers.New(a, liveDerivations).CreateStaffUser()
-}
-
 func (a *App) DeleteStaffGroup() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).DeleteStaffGroup()
 }
@@ -267,10 +263,6 @@ func (a *App) SendStaffUserPasswordResetLink() http.HandlerFunc {
 
 func (a *App) SetStaffSelfServiceReset() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).SetStaffSelfServiceReset()
-}
-
-func (a *App) SetStaffTemporaryPassword() http.HandlerFunc {
-	return staffhandlers.New(a, liveDerivations).SetStaffTemporaryPassword()
 }
 
 func (a *App) SetStaffUserEmail() http.HandlerFunc {

@@ -26,7 +26,6 @@ package integration
 // application.
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -42,7 +41,6 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
-	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
 	"github.com/impulseframework/impulse/resource"
 	"google.golang.org/grpc/codes"
 )
@@ -148,24 +146,11 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "EndCrewSectorUserSessions", "heldElsewhere = false AND heldGlobally = false")
 
 	// mara is a Marshal of Anvil with an account, for the rule on a person's own account.
-	anvilSector := anvil
-	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		created, err := (&crewidentity.CreateCrewUser{Username: "mara", Roles: []string{"SectorMarshal"}, Domain: &anvilSector}).Execute(ctx, txn, w.app.CrewIdentity())
-		if err != nil {
-			return fmt.Errorf("CreateCrewUser(mara): %w", err)
-		}
-		w.ids["mara"] = created.ID.String()
-		knownAs(t, "mara", created.ID)
-
-		return nil
-	}); err != nil {
-		t.Fatalf("seating mara: %v", err)
-	}
+	w.seat(ctx, t, "mara", "SectorMarshal", anvil)
 
 	accountMethods := []string{
 		"DeleteCrewSectorUser", "DisableCrewSectorUser", "EnableCrewSectorUser", "EndCrewSectorUserSessions", "RenameCrewSectorUser",
-		"RequireCrewSectorPasswordChange", "RevokeCrewSectorUserTrustedDevices", "SetCrewSectorTemporaryPassword", "SetCrewSectorUserEmail",
-		"SetCrewSectorUserName",
+		"RequireCrewSectorPasswordChange", "RevokeCrewSectorUserTrustedDevices", "SetCrewSectorUserEmail", "SetCrewSectorUserName",
 	}
 	// The row's Execute answer: the account methods on a person the sector holds alone,
 	// none of them on a person who holds a role outside it, and the method that gives a
@@ -353,10 +338,10 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 }
 
 // TestGeneratedIdentitySectorRoleMethods holds the methods a sector gives and takes
-// roles through, and the one it creates a person with: a role is held in the request's
-// sector and no other, the Marshal hands out and takes away every role but the Marshal's
-// own, a role held in every sector is not the sector's to take, and the last role a
-// person holds anywhere takes the account with it.
+// roles through: a role is held in the request's sector and no other, the Marshal hands
+// out and takes away every role but the Marshal's own, a role held in every sector is
+// not the sector's to take, and the last role a person holds anywhere takes the account
+// with it.
 func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -364,22 +349,11 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 
 	// The Execute grants this suite proves, pinned to the roles file (conditions-proven).
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "AssignCrewSectorRole", "new.role != 'SectorMarshal'")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "CreateCrewSectorUser", "new.role != 'SectorMarshal'")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RemoveCrewSectorRole", "role != 'SectorMarshal' AND everyDomain = false")
 
-	anvilSector := anvil
-	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		created, err := (&crewidentity.CreateCrewUser{Username: "mara", Roles: []string{"SectorMarshal"}, Domain: &anvilSector}).Execute(ctx, txn, w.app.CrewIdentity())
-		if err != nil {
-			return fmt.Errorf("CreateCrewUser(mara): %w", err)
-		}
-		w.ids["mara"] = created.ID.String()
-		knownAs(t, "mara", created.ID)
-
-		return nil
-	}); err != nil {
-		t.Fatalf("seating mara: %v", err)
-	}
+	// mara is a Marshal of Anvil with an account, whose role the Marshal neither gives
+	// nor takes.
+	w.seat(ctx, t, "mara", "SectorMarshal", anvil)
 
 	post := func(user accesstypes.User, sector, method, body string) (int, []byte) {
 		return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(sector, method), body)
@@ -510,48 +484,6 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 		if !crewAccountExists(t, w.db, w.ids["fay"]) {
 			t.Error("fay's account is gone though fay holds a role for the whole application")
 		}
-	})
-
-	t.Run("a person is created holding a role in the request's sector", func(t *testing.T) {
-		status, body := post("marshal", anvil, "create-crew-sector-user", `{"username":"gus","email":"Gus <gus@example.com>","roles":["Cadet","Pilot"]}`)
-		assertStatus(t, status, http.StatusOK, body)
-		id := cell[string](t, decodeRow(t, body), "id")
-		if got, want := crewHolds(t, w.db, "gus"), []string{"domain/" + anvil + " Cadet", "domain/" + anvil + " Pilot"}; !slices.Equal(got, want) {
-			t.Errorf("gus holds %v, want %v", got, want)
-		}
-		if got := readColumn[spanner.NullString](ctx, t, w.db, "CrewSessionUsers", spanner.Key{id}, "Email"); got.StringVal != "gus@example.com" {
-			t.Errorf("gus's address = %v, want it written bare", got)
-		}
-		// The new person is a row of Anvil's list and of no other sector's.
-		if rows := sectorList(t, w.h, "marshal", anvil, sectorPeoplePath); rows[id] == nil {
-			t.Errorf("gus is missing from Anvil's people: %v", rows)
-		}
-		if rows := sectorList(t, w.h, "governor", bastion, sectorPeoplePath); rows[id] != nil {
-			t.Errorf("gus is among Bastion's people: %v", rows[id])
-		}
-	})
-	t.Run("a create is held to the roles the Marshal hands out", func(t *testing.T) {
-		for name, tt := range map[string]struct {
-			body string
-			want int
-		}{
-			"with the Marshal's own role":                {body: `{"username":"hal","roles":["SectorMarshal"]}`, want: http.StatusForbidden},
-			"with the Marshal's role among others":       {body: `{"username":"hal","roles":["Cadet","SectorMarshal"]}`, want: http.StatusForbidden},
-			"with no role":                               {body: `{"username":"hal"}`, want: http.StatusForbidden},
-			"with an empty list of roles":                {body: `{"username":"hal","roles":[]}`, want: http.StatusForbidden},
-			"with a role of the whole application":       {body: `{"username":"hal","roles":["CrewCommon"]}`, want: http.StatusNotFound},
-			"under a name another sector's person holds": {body: `{"username":"di","roles":["Cadet"]}`, want: http.StatusConflict},
-		} {
-			status, body := post("marshal", anvil, "create-crew-sector-user", tt.body)
-			if status != tt.want {
-				t.Errorf("a create %s: status %d, want %d: %s", name, status, tt.want, body)
-			}
-		}
-		if got := crewHolds(t, w.db, "hal"); len(got) != 0 {
-			t.Errorf("a refused create left hal holding %v", got)
-		}
-		status, body := post("cadet", anvil, "create-crew-sector-user", `{"username":"hal","roles":["Cadet"]}`)
-		assertStatus(t, status, http.StatusForbidden, body)
 	})
 }
 
@@ -928,10 +860,10 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 // picked from offers the roles the caller could give, by the grants of the methods that
 // give one and by nothing the list's own grant says. The world runs over the crew's
 // role file with the condition taken off the Marshal's List grant on the list, so
-// nothing but the methods' grants keeps the Marshal's own role out (each of the four
+// nothing but the methods' grants keeps the Marshal's own role out (each of the three
 // carries new.role != 'SectorMarshal'): the list leaves it out still, the list of names
 // alone and the count with it, holds every other role of the sector, and the method
-// refuses the role the list left out, whichever of the four methods the list is asked
+// refuses the role the list left out, whichever of the three methods the list is asked
 // for. A page offers what the caller may do, and the role file says the limit once for
 // each method.
 func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
@@ -941,7 +873,6 @@ func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
 	// The grants this suite proves: what each method that picks from the list says of
 	// the role, pinned to the roles file (conditions-proven).
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "AssignCrewSectorRole", "new.role != 'SectorMarshal'")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "CreateCrewSectorUser", "new.role != 'SectorMarshal'")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "InviteCrewSectorUser", "new.role != 'SectorMarshal'")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "GiveCrewSectorGroupRole", "new.role != 'SectorMarshal'")
 	w := buildIdentityWorldOver(t, false, withoutCondition(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorRoles"))
@@ -963,7 +894,7 @@ func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
 	}
 
 	for _, user := range []accesstypes.User{"marshal", "governor"} {
-		for _, method := range []string{"AssignCrewSectorRole", "CreateCrewSectorUser", "InviteCrewSectorUser", "GiveCrewSectorGroupRole"} {
+		for _, method := range []string{"AssignCrewSectorRole", "InviteCrewSectorUser", "GiveCrewSectorGroupRole"} {
 			byMethod := "filter=method:eq:" + method
 			rec := doRequestRecordedAs(t, w.h, user, http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all&count=true&"+byMethod), "")
 			assertStatus(t, rec.Code, http.StatusOK, rec.Body.Bytes())
@@ -1010,7 +941,7 @@ func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
 func TestGeneratedIdentitySectorRolesAreEachMethodsOwn(t *testing.T) {
 	t.Parallel()
 
-	const assign, create, invite, giveGroup = "AssignCrewSectorRole", "CreateCrewSectorUser", "InviteCrewSectorUser", "GiveCrewSectorGroupRole"
+	const assign, invite, giveGroup = "AssignCrewSectorRole", "InviteCrewSectorUser", "GiveCrewSectorGroupRole"
 	roles := withoutCondition(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorRoles")
 	roles = withoutCondition(t, roles, "SectorMarshal", "Execute", invite)
 	w := buildIdentityWorldOver(t, false, roles)
@@ -1035,7 +966,7 @@ func TestGeneratedIdentitySectorRolesAreEachMethodsOwn(t *testing.T) {
 	if listed := list(t, invite); !slices.Contains(listed, "SectorMarshal") || !slices.Contains(listed, "Cadet") {
 		t.Errorf("the invitation's list = %v, want SectorMarshal, which its grant takes from the Marshal, and Cadet among them", listed)
 	}
-	for _, method := range []string{assign, create, giveGroup} {
+	for _, method := range []string{assign, giveGroup} {
 		listed := list(t, method)
 		if slices.Contains(listed, "SectorMarshal") {
 			t.Errorf("the list of %s = %v, want no SectorMarshal: its own grant refuses the role, whatever the invitation's takes", method, listed)
@@ -1051,7 +982,7 @@ func TestGeneratedIdentitySectorRolesAreEachMethodsOwn(t *testing.T) {
 		t.Errorf("a request that names no method is listed %d roles, want none: %s", len(rows), body)
 	}
 
-	const methods = "AssignCrewSectorRole, CreateCrewSectorUser, InviteCrewSectorUser, GiveCrewSectorGroupRole"
+	const methods = "AssignCrewSectorRole, InviteCrewSectorUser, GiveCrewSectorGroupRole"
 	for _, filter := range []string{
 		"method:eq:AssignCrewRole",
 		"method:ne:" + assign,

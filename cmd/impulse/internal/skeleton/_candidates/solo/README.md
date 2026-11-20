@@ -33,8 +33,8 @@ what they hold.
   generator (`GenerateIdentity`) as code of this application; the generator owns the
   tree whole. It carries the lists (`StaffSessionUsers`, `StaffUserRoles`,
   `StaffSessionMailLinks`, `StaffSessions` and the rest) and the methods
-  (`CreateStaffUser`, `InviteStaffUser`, `AssignStaffRole`, `SetStaffTemporaryPassword`
-  and the rest), served like every other resource and method and granted in the role
+  (`InviteStaffUser`, `AssignStaffRole`, `SendStaffUserPasswordResetLink` and the
+  rest), served like every other resource and method and granted in the role
   file. The auth builds the client the handlers act through when it opens (`staff.New`,
   answered by `staff.Auth.Identity`) with the roles that count as an administrator's
   (`staff.AdministratorRoles`), so an administrator cannot give the role up while nobody

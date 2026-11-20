@@ -453,8 +453,6 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/complete-mission", method: http.MethodPost},
 		{url: "/droids/create-crew-group", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/create-crew-sector-group", method: http.MethodPost},
-		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/create-crew-sector-user", method: http.MethodPost},
-		{url: "/droids/create-crew-user", method: http.MethodPost},
 		{url: "/droids/delete-crew-group", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/delete-crew-sector-group", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/delete-crew-sector-user", method: http.MethodPost},
@@ -515,11 +513,9 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/scrap-ship", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/send-crew-sector-user-password-reset-link", method: http.MethodPost},
 		{url: "/droids/send-crew-user-password-reset-link", method: http.MethodPost},
-		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-temporary-password", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-email", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-name", method: http.MethodPost},
 		{url: "/droids/set-crew-self-service-reset", method: http.MethodPost},
-		{url: "/droids/set-crew-temporary-password", method: http.MethodPost},
 		{url: "/droids/set-crew-user-email", method: http.MethodPost},
 		{url: "/droids/set-crew-user-name", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-members-sector-user-email", method: http.MethodPost},
@@ -785,8 +781,6 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/complete-mission", method: http.MethodPost},
 		{url: "/portal/api/create-crew-group", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/create-crew-sector-group", method: http.MethodPost},
-		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/create-crew-sector-user", method: http.MethodPost},
-		{url: "/portal/api/create-crew-user", method: http.MethodPost},
 		{url: "/portal/api/delete-crew-group", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/delete-crew-sector-group", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/delete-crew-sector-user", method: http.MethodPost},
@@ -836,11 +830,9 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/scrap-ship", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/send-crew-sector-user-password-reset-link", method: http.MethodPost},
 		{url: "/portal/api/send-crew-user-password-reset-link", method: http.MethodPost},
-		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-email", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-name", method: http.MethodPost},
 		{url: "/portal/api/set-crew-self-service-reset", method: http.MethodPost},
-		{url: "/portal/api/set-crew-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/set-crew-user-email", method: http.MethodPost},
 		{url: "/portal/api/set-crew-user-name", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-sector-pilot-clearance", method: http.MethodPost},
@@ -3298,14 +3290,6 @@ func (s *generatedHandlersStub) CreateCrewSectorGroup() http.HandlerFunc {
 	return s.record("CreateCrewSectorGroup")
 }
 
-func (s *generatedHandlersStub) CreateCrewSectorUser() http.HandlerFunc {
-	return s.record("CreateCrewSectorUser")
-}
-
-func (s *generatedHandlersStub) CreateCrewUser() http.HandlerFunc {
-	return s.record("CreateCrewUser")
-}
-
 func (s *generatedHandlersStub) CreateSector() http.HandlerFunc {
 	return s.record("CreateSector")
 }
@@ -4098,10 +4082,6 @@ func (s *generatedHandlersStub) ServiceLedgers() http.HandlerFunc {
 	return s.record("ServiceLedgers")
 }
 
-func (s *generatedHandlersStub) SetCrewSectorTemporaryPassword() http.HandlerFunc {
-	return s.record("SetCrewSectorTemporaryPassword")
-}
-
 func (s *generatedHandlersStub) SetCrewSectorUserEmail() http.HandlerFunc {
 	return s.record("SetCrewSectorUserEmail")
 }
@@ -4112,10 +4092,6 @@ func (s *generatedHandlersStub) SetCrewSectorUserName() http.HandlerFunc {
 
 func (s *generatedHandlersStub) SetCrewSelfServiceReset() http.HandlerFunc {
 	return s.record("SetCrewSelfServiceReset")
-}
-
-func (s *generatedHandlersStub) SetCrewTemporaryPassword() http.HandlerFunc {
-	return s.record("SetCrewTemporaryPassword")
 }
 
 func (s *generatedHandlersStub) SetCrewUserEmail() http.HandlerFunc {

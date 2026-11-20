@@ -102,44 +102,6 @@ export interface CreateMembersTenantGroupResult {
   id: string;
 }
 
-export interface CreateMembersTenantUserConfig {
-  username: string | FieldPointer;
-  name?: string | FieldPointer;
-  email?: string | FieldPointer;
-  roles: string[] | FieldPointer;
-}
-export interface CreateMembersTenantUser {
-  username: string;
-  name?: string;
-  email?: string;
-  roles: string[];
-}
-/** The result CreateMembersTenantUser answers with. */
-export interface CreateMembersTenantUserResult {
-  id: string;
-}
-
-export interface CreateMembersUserConfig {
-  username: string | FieldPointer;
-  name?: string | FieldPointer;
-  email?: string | FieldPointer;
-  domain?: string | FieldPointer;
-  everyDomain: boolean | FieldPointer;
-  roles: string[] | FieldPointer;
-}
-export interface CreateMembersUser {
-  username: string;
-  name?: string;
-  email?: string;
-  domain?: string;
-  everyDomain: boolean;
-  roles: string[];
-}
-/** The result CreateMembersUser answers with. */
-export interface CreateMembersUserResult {
-  id: string;
-}
-
 export interface DeleteMembersGroupConfig {
   groupId: string | FieldPointer;
 }
@@ -726,30 +688,6 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'name', displayType: 'string', required: true },
       { fieldName: 'description', displayType: 'string', required: true },
-    ],
-  },
-  [Methods.CreateMembersTenantUser]: {
-    route: 'create-members-tenant-user',
-    answers: true,
-    dryRun: true,
-    fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
-      { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.MembersTenantRoles, attribute: 'role' },
-    ],
-  },
-  [Methods.CreateMembersUser]: {
-    route: 'create-members-user',
-    answers: true,
-    dryRun: true,
-    fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
-      { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'domain', displayType: 'string', optional: true },
-      { fieldName: 'everyDomain', displayType: 'boolean' },
-      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.MembersGivableRoles, attribute: 'role' },
     ],
   },
   [Methods.DeleteMembersGroup]: {

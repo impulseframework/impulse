@@ -57,29 +57,6 @@ export interface CreateStaffGroupResult {
   id: string;
 }
 
-export interface CreateStaffUserConfig {
-  username: string | FieldPointer;
-  name?: string | FieldPointer;
-  email?: string | FieldPointer;
-  password: string | FieldPointer;
-  domain?: string | FieldPointer;
-  everyDomain: boolean | FieldPointer;
-  roles: string[] | FieldPointer;
-}
-export interface CreateStaffUser {
-  username: string;
-  name?: string;
-  email?: string;
-  password: string;
-  domain?: string;
-  everyDomain: boolean;
-  roles: string[];
-}
-/** The result CreateStaffUser answers with. */
-export interface CreateStaffUserResult {
-  id: string;
-}
-
 export interface DeleteStaffGroupConfig {
   groupId: string | FieldPointer;
 }
@@ -298,17 +275,6 @@ export interface SetStaffSelfServiceReset {
 /** The statuses SetStaffSelfServiceReset declares; the method chooses one per response. */
 export type SetStaffSelfServiceResetStatus = 204;
 
-export interface SetStaffTemporaryPasswordConfig {
-  userId: string | FieldPointer;
-  password: string | FieldPointer;
-}
-export interface SetStaffTemporaryPassword {
-  userId: string;
-  password: string;
-}
-/** The statuses SetStaffTemporaryPassword declares; the method chooses one per response. */
-export type SetStaffTemporaryPasswordStatus = 204;
-
 export interface SetStaffUserEmailConfig {
   userId: string | FieldPointer;
   email: string | FieldPointer;
@@ -517,20 +483,6 @@ const methodMap: MethodMap = {
       { fieldName: 'domain', displayType: 'string', optional: true },
     ],
   },
-  [Methods.CreateStaffUser]: {
-    route: 'create-staff-user',
-    answers: true,
-    dryRun: true,
-    fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
-      { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'password', displayType: 'string', required: true, secret: true },
-      { fieldName: 'domain', displayType: 'string', optional: true },
-      { fieldName: 'everyDomain', displayType: 'boolean' },
-      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.StaffGivableRoles, attribute: 'role' },
-    ],
-  },
   [Methods.DeleteStaffGroup]: {
     route: 'delete-staff-group',
     target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
@@ -721,16 +673,6 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'on', displayType: 'boolean' },
-    ],
-  },
-  [Methods.SetStaffTemporaryPassword]: {
-    route: 'set-staff-temporary-password',
-    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
-    dryRun: true,
-    fields: [
-      { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'password', displayType: 'string', required: true, secret: true },
     ],
   },
   [Methods.SetStaffUserEmail]: {

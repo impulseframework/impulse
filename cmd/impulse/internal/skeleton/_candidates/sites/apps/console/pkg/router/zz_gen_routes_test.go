@@ -1006,14 +1006,6 @@ func (s *generatedHandlersStub) CreateStaffTenantGroup() http.HandlerFunc {
 	return s.record("CreateStaffTenantGroup")
 }
 
-func (s *generatedHandlersStub) CreateStaffTenantUser() http.HandlerFunc {
-	return s.record("CreateStaffTenantUser")
-}
-
-func (s *generatedHandlersStub) CreateStaffUser() http.HandlerFunc {
-	return s.record("CreateStaffUser")
-}
-
 func (s *generatedHandlersStub) CreateTenant() http.HandlerFunc {
 	return s.record("CreateTenant")
 }
@@ -1204,14 +1196,6 @@ func (s *generatedHandlersStub) SetFeature() http.HandlerFunc {
 
 func (s *generatedHandlersStub) SetStaffSelfServiceReset() http.HandlerFunc {
 	return s.record("SetStaffSelfServiceReset")
-}
-
-func (s *generatedHandlersStub) SetStaffTemporaryPassword() http.HandlerFunc {
-	return s.record("SetStaffTemporaryPassword")
-}
-
-func (s *generatedHandlersStub) SetStaffTenantTemporaryPassword() http.HandlerFunc {
-	return s.record("SetStaffTenantTemporaryPassword")
 }
 
 func (s *generatedHandlersStub) SetStaffTenantUserEmail() http.HandlerFunc {

@@ -19,7 +19,7 @@ import (
 // give there with that method. The dialogs of the methods that give a role ask where
 // first, then pick the role from this list, each for itself:
 //
-//	AssignCrewRole, CreateCrewUser, InviteCrewUser, GiveCrewGroupRole
+//	AssignCrewRole, InviteCrewUser, GiveCrewGroupRole
 //
 // A role file says which roles a person hands out on the grant of each of those
 // methods, and a condition there reads the role (new.role != 'Administrator'). The
@@ -80,7 +80,6 @@ func ListCrewGivableRole(ctx context.Context, qSet *resource.QuerySet[CrewGivabl
 	return func(yield func(*CrewGivableRole, error) bool) {
 		method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{
 			AssignCrewRole{}.Method(),
-			CreateCrewUser{}.Method(),
 			InviteCrewUser{}.Method(),
 			GiveCrewGroupRole{}.Method(),
 		}, qSet.Filter().Take("Method"))

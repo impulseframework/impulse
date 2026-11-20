@@ -413,25 +413,18 @@ func TestAuth_AttemptLimit_Resets(t *testing.T) {
 			},
 		},
 		{
-			name: "a password the user set through a flow of the application's own, and a temporary one an operator reset, reset the name",
+			name: "a password the user set through a flow of the application's own resets the name",
 			run: func(t *testing.T, f *authFixture) {
-				f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(pat(), nil).Times(3)
+				f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(pat(), nil).Times(2)
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.login("pat", "wrong", "10.0.0.1", "tok")
-				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(2)
-				f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any()).Return(nil).Times(2)
+				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil)
+				f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil)
 				if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen well"); err != nil {
 					t.Fatalf("SetSessionUserPassword() error = %v", err)
 				}
-				if f.attemptsRecord("pat") != nil {
-					t.Error("the name's attempts survived the set password, want them cleared")
-				}
-				f.login("pat", "wrong", "10.0.0.1", "tok")
-				if err := f.auth.API().ResetSessionUserPassword(context.Background(), userID, "temporary"); err != nil {
-					t.Fatalf("ResetSessionUserPassword() error = %v", err)
-				}
-				if _, _, clears := f.counts(); clears != 2 || f.attemptsRecord("pat") != nil {
-					t.Errorf("clears = %d, record = %v; want one clear per password change and no record", clears, f.attemptsRecord("pat"))
+				if _, _, clears := f.counts(); clears != 1 || f.attemptsRecord("pat") != nil {
+					t.Errorf("clears = %d, record = %v; want one clear for the password set and no record", clears, f.attemptsRecord("pat"))
 				}
 			},
 		},
@@ -942,32 +935,5 @@ func TestSignInAttemptName(t *testing.T) {
 				t.Errorf("SignInAttemptName(%q) = %q, the limiter keys it %q", tt.username, got, limiter)
 			}
 		})
-	}
-}
-
-// TestAuthAPI_HashPassword pins the hash a caller writes in a transaction of its own:
-// the text the users table's column holds, made by the password method's hasher, which
-// the sign-in then compares the password against; an empty password is refused.
-func TestAuthAPI_HashPassword(t *testing.T) {
-	t.Parallel()
-
-	f := newAuthFixture(t, gomock.NewController(t))
-	text, err := f.auth.API().HashPassword("correct horse")
-	if err != nil {
-		t.Fatalf("HashPassword() error = %v", err)
-	}
-	var hash securehash.Hash
-	if err := hash.UnmarshalText([]byte(text)); err != nil {
-		t.Fatalf("the hash does not read back as the column's text: %v", err)
-	}
-	hasher := securehash.New(securehash.Argon2())
-	if _, err := hasher.Compare(&hash, "correct horse"); err != nil {
-		t.Errorf("the hash does not match its password: %v", err)
-	}
-	if _, err := hasher.Compare(&hash, "wrong"); err == nil {
-		t.Error("the hash matches another password")
-	}
-	if _, err := f.auth.API().HashPassword(""); !httpio.HasBadRequest(err) {
-		t.Errorf("HashPassword(\"\") error = %v, want a bad request", err)
 	}
 }

@@ -48,7 +48,7 @@ const meta: Record<string, MethodMeta> = {
       { fieldName: 'role', displayType: 'string', required: true },
     ],
   },
-  CreateCrewSectorUser: { route: 'create', fields: [{ fieldName: 'username', displayType: 'string', required: true }] },
+  InviteCrewSectorUser: { route: 'invite', fields: [{ fieldName: 'email', displayType: 'string', required: true }] },
   // The whole application's methods on roles name no target row: they take the person's name.
   AssignCrewRole: {
     route: 'assign-role',
@@ -291,7 +291,7 @@ describe('targetBody', () => {
   });
 
   it('takes nothing from the row for a method that names none', () => {
-    expect(targetBody('CreateCrewSectorUser', meta['CreateCrewSectorUser'], { id: 'u-1' })).toEqual({});
+    expect(targetBody('InviteCrewSectorUser', meta['InviteCrewSectorUser'], { id: 'u-1' })).toEqual({});
   });
 
   it('refuses a row that lacks a key field, naming the field', () => {
@@ -307,7 +307,7 @@ describe('askedFields', () => {
     expect(askedFields(meta['AssignCrewSectorRole']).map((f) => f.fieldName)).toEqual(['role']);
     // Both fields of a compound key are the row's.
     expect(askedFields(meta['RemoveCrewSectorRole'])).toEqual([]);
-    expect(askedFields(meta['CreateCrewSectorUser']).map((f) => f.fieldName)).toEqual(['username']);
+    expect(askedFields(meta['InviteCrewSectorUser']).map((f) => f.fieldName)).toEqual(['email']);
   });
 });
 
@@ -408,7 +408,7 @@ describe('filledMethods and filledBody', () => {
     // A method that names a target row is the server's to answer for, row by row, fill or no fill.
     { method: 'DisableCrewSectorUser' as Method, fill: () => ({}) },
     // A method the page names without a fill is no row method.
-    { method: 'CreateCrewSectorUser' as Method, label: 'Add a person' },
+    { method: 'InviteCrewSectorUser' as Method, label: 'Invite' },
   ];
   const all = (): boolean => true;
 
@@ -477,7 +477,7 @@ describe('filledMethods and filledBody', () => {
     const remove = offered('RemoveCrewRole', metaOf('RemoveCrewRole'), presentations);
     expect(filledBody(remove, held)).toEqual({ username: 'ada', role: 'Cadet', domain: 'anvil' });
     expect(filledBody(remove, { ...held, kind: 'global', domain: '' })).toEqual({ username: 'ada', role: 'Cadet' });
-    expect(filledBody(offered('CreateCrewSectorUser', metaOf('CreateCrewSectorUser'), presentations), held)).toEqual(
+    expect(filledBody(offered('InviteCrewSectorUser', metaOf('InviteCrewSectorUser'), presentations), held)).toEqual(
       {},
     );
     expect(filledBody(remove, undefined)).toEqual({});

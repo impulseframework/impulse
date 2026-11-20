@@ -117,14 +117,14 @@ type AuthStore[Tx any] interface {
 	// Users lists every user, by username.
 	Users(ctx context.Context) ([]*SessionUser, error)
 	// ReplaceUserPassword sets a user's password hash and whether the user must change
-	// the password before anything else is served (SessionUser.PasswordChangeRequired:
-	// true for a password an operator set, false for one the user chose), and expires
+	// the password before anything else is served (SessionUser.PasswordChangeRequired;
+	// the session library writes false, for a password the user chose), and expires
 	// every session of the user, as DestroyUserSessions does, in one transaction: the
 	// password is replaced and the sessions ended together, or neither is, so no
 	// failure leaves the new password in place and a session alive. It follows no proof
-	// of the password it replaces and overwrites whatever the row holds: it is an
-	// operator's write, or the end of a flow that proved who the person is by other
-	// means. A user's own change is ChangeUserPassword.
+	// of the password it replaces and overwrites whatever the row holds: it is the end
+	// of a flow that proved who the person is by other means. A user's own change is
+	// ChangeUserPassword.
 	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
 	// ChangeUserPassword replaces the password a user proved with one the user chose,
 	// clears the password change mark and expires every session of the user, as
@@ -132,8 +132,8 @@ type AuthStore[Tx any] interface {
 	// sessions ended together, or neither is. proven is the hash the caller compared the
 	// user's old password against, and the write lands only while the row still holds
 	// it: a password changed, reset or removed since the caller read it stands as it is
-	// (ErrPasswordChanged), with no session ended, so a temporary password an operator
-	// set meanwhile is not overwritten on proof of the password it replaced. A write with
+	// (ErrPasswordChanged), with no session ended, so a password a reset link set
+	// meanwhile is not overwritten on proof of the password it replaced. A write with
 	// no proven hash writes nothing, and one with no new hash is refused.
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// SetFirstUserPassword gives a user who holds no password the one they chose, with

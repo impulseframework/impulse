@@ -168,9 +168,8 @@ Values recognized in a `conditions` tag:
   `resource.Secret` (a plain `string` or `[]byte` would be stored as it was typed; the
   refusal names the type to give it), and on a column that is not `BYTES` with room for
   the 42 bytes sealing adds. A method's request field takes the same word, unchanged: text
-  or bytes, no picker, and the method's dialog draws the same masked input (the generated
-  temporary-password methods declare theirs so). That value is never stored, so it is
-  never sealed, and a request field typed `resource.Secret` is refused.
+  or bytes, no picker, and the method's dialog draws the same masked input. That value is
+  never stored, so it is never sealed, and a request field typed `resource.Secret` is refused.
   Example:
   [Ship.TransponderKey](../lodestar/pkg/resources/ships.go).
 - `output_only` — the server owns the value: returned to clients but never accepted from
@@ -3416,10 +3415,10 @@ declares as code of the application: a resource declaration over each table the 
 keeps, and the methods that change them. The lists are read through the application's
 permission surface like any resource, each method is a route behind an Execute grant, and
 the same method is a Go call the application makes in a transaction of its own, so a
-person is created and seated beside the application's own rows and committed with them.
+person is given a role beside the application's own rows and committed with them.
 The option requires `GenerateRoutes` and `GenerateHandlers`, and a program that declares
 at least one `Auth`. It is the user management of the whole application: accounts, roles,
-temporary passwords, the second factor's reset, lockouts and invitations. In an
+password reset links, the second factor's reset, lockouts and invitations. In an
 application with a tenant record it is also one tenant's management of the people who
 hold a role in it: the tenant's lists (its people, the roles held there, its invitations)
 and the methods the tenant changes them through, both below; and, for the Auth a tenant
@@ -3495,13 +3494,11 @@ GET  <prefix>/sectors/{sectorID}/crew-sector-groups, …/{id}             List, 
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-users, …/{id}        List, Read on CrewSectorGroupUsers
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-roles, …/{id}        List, Read on CrewSectorGroupRoles
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-group-roles, …/{id}   List, Read on CrewSectorUserGroupRoles
-POST <prefix>/create-crew-user                {"username","name","email","password","roles","domain","everyDomain"} → {"id"}   Execute on CreateCrewUser
 POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewSessionUsers
 POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewSessionUsers
 POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewSessionUsers
 POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewSessionUsers
 POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewSessionUsers
-POST <prefix>/set-crew-temporary-password     {"userId","password"}            Execute on SetCrewTemporaryPassword, targeting CrewSessionUsers
 POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewSessionUsers
 POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
 POST <prefix>/invite-crew-user                {"email","name","domain","everyDomain","roles"} → {"id","sent"}   Execute on InviteCrewUser
@@ -3530,7 +3527,6 @@ POST <prefix>/take-crew-group-role            {"groupId","role","domain","everyD
 POST <prefix>/open-crew-sign-up               {"name"}                         Execute on OpenCrewSignUp (declares a warning; {"name","defaultRole"} without tenants)
 POST <prefix>/make-crew-invite-only           {"name"}                         Execute on MakeCrewInviteOnly
 POST <prefix>/set-crew-self-service-reset     {"on"}                           Execute on SetCrewSelfServiceReset
-POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
 POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role","startsAt","endsAt","reason"}   Execute on AssignCrewSectorRole, targeting CrewSectorUsers
@@ -3545,7 +3541,7 @@ POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","u
 POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/take-crew-sector-group-role       {"groupId","role"}   Execute on TakeCrewSectorGroupRole, targeting CrewSectorGroupRoles
 POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,
-     set-crew-sector-temporary-password, send-crew-sector-user-password-reset-link, require-crew-sector-password-change,
+     send-crew-sector-user-password-reset-link, require-crew-sector-password-change,
      revoke-crew-sector-user-trusted-devices, end-crew-sector-user-sessions
                                               the whole application's bodies and answers    Execute on each, targeting CrewSectorUsers
 ```
@@ -3557,13 +3553,12 @@ a tenant record). Every resource over a table is global, none has a write route,
 carries a password hash or a token hash: no declaration has such a field. A method that
 targets a resource is listed in that resource's rows' Execute answer
 (`capabilities=Execute`), so a page draws its buttons from the row. The Auth's shape
-decides which methods exist: the two role methods, the two invitation methods, the
-create, and the list and the two methods of the sign-in methods ("Who may sign up",
-below) are left out for an Auth whose roles a directory writes (`SyncsRoles`), where the
-directory admits its own members and the first sign-in creates the row, the two password
-methods (and the create's `password`), the method that mails a reset link and the one
-that says whether a person may ask for one themselves for an Auth with no password
-method, as are the
+decides which methods exist: the two role methods, the two invitation methods, and the
+list and the two methods of the sign-in methods ("Who may sign up", below) are left out
+for an Auth whose roles a directory writes (`SyncsRoles`), where the directory admits its
+own members and the first sign-in creates the row, the method that requires a new
+password, the method that mails a reset link and the one that says whether a person may
+ask for one themselves for an Auth with no password method, as are the
 method that removes a person's password and the list of how a person signs in, which are
 also written only where the schema holds the identities table (the rule they keep reads a
 person's identity links), the rename and
@@ -3689,9 +3684,8 @@ query selects it. It serves a list and no read, under the domain pair, and the r
 grants it like any resource.
 
 The role field of each method a person gives a role with in a tenant names the list
-(`@enumerate`): `AssignCrewSectorRole`, the create and the invitation that start a person
-with a role (`CreateCrewSectorUser`, `InviteCrewSectorUser`), and
-`GiveCrewSectorGroupRole`. A page draws the field as a picker, and a dialog offers what
+(`@enumerate`): `AssignCrewSectorRole`, the invitation that starts a person with a role
+(`InviteCrewSectorUser`), and `GiveCrewSectorGroupRole`. A page draws the field as a picker, and a dialog offers what
 its own method takes from the caller, so the list is asked for one method at a time and
 holds the roles the caller could give with it and no other. A role file says which
 roles a person hands out once, on each method's Execute grant, where a condition reads
@@ -3753,8 +3747,7 @@ place, as the dialogs always do. In an application without tenants the list hold
 whole application's roles and has neither field of a place.
 
 The role fields that name it (`@enumerate`) are those of `AssignCrewRole`,
-`CreateCrewUser`, `InviteCrewUser` and `GiveCrewGroupRole`, each written where the Auth
-has the method. Each request asks where the role is held first (`domain`, then
+`InviteCrewUser` and `GiveCrewGroupRole`, each written where the Auth has the method. Each request asks where the role is held first (`domain`, then
 `everyDomain`, before the role), so a dialog drawn from the metadata asks where, then
 offers the roles that exist there. As for a tenant, the list is asked for one method at
 a time, named beside the place (`filter=method:eq:InviteCrewUser,domain:eq:<id>`): a
@@ -3787,8 +3780,8 @@ tenant's roles, and is named as the whole application's method with the tenant r
 name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
 
 - The tenant is the one the request was made under. No body carries a tenant, so no
-  request names another: the create and the invitation have no `domain`, and a role is
-  given and taken in that tenant alone. A tenant's method acts for a request, so one run
+  request names another: the invitation has no `domain`, and a role is given and taken
+  in that tenant alone. A tenant's method acts for a request, so one run
   in a transaction of the application's own, outside any request, is an error: there the
   application runs the whole application's method and names the tenant.
 - A method that names something names a row of one of the tenant's lists (`@target` on
@@ -3807,8 +3800,8 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   whatever the role file says.
 - The rules are the whole application's, in the same code: nobody disables or deletes
   their own account, the tenant's last administrator keeps the role, a rename moves the
-  roles, the last role a person holds anywhere takes the account with it, a create and an
-  invitation give at least one role. A refusal that speaks of a tenant says the
+  roles, the last role a person holds anywhere takes the account with it, an
+  invitation gives at least one role. A refusal that speaks of a tenant says the
   application's word for one, the tenant record's label or its name in words ("you are
   the last administrator of this sector"): the generated client hands it to the rules
   (`identity.WithTenantWord`).
@@ -3825,7 +3818,7 @@ gives no Marshal's role:
 "Execute": [
   { "resource": "DisableCrewSectorUser", "condition": "heldElsewhere = false AND heldGlobally = false" },
   { "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" },
-  { "resource": "CreateCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
+  { "resource": "InviteCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "RemoveCrewSectorRole", "condition": "role != 'SectorMarshal' AND everyDomain = false" },
   { "resource": "WithdrawCrewSectorInvitation", "condition": "pending = true AND role != 'SectorMarshal'" }
 ]
@@ -3833,7 +3826,7 @@ gives no Marshal's role:
 
 A grant with no condition on an account method lets a tenant's administrator rename,
 disable or delete a person another tenant also holds: the account is one row for the
-whole application. `roles` is a list, judged role by role, and a create or an invitation
+whole application. `roles` is a list, judged role by role, and an invitation
 with no role is refused by a grant that reads `new.role`, since no value never permits.
 The roles of an invitation's row are a list too, judged the same way: an invitation the
 whole application's administrator sent in the Marshal's role, alone or among others, is
@@ -4176,15 +4169,12 @@ every policy store's schema holds it).
 **The rules** are the `identity` package's, written once over a `Store` the generated
 `crewidentity` package implements with the Auth's own typed queries and patches:
 
-- A new user holds at least one role (400 without one) and, where the create carries
-  one, a temporary password: required where the password is the Auth's one way in,
-  optional beside another registration, whose people may sign in through it instead. A username or an address another user holds is refused at the
-  commit.
-- A temporary password, given at the create or set on an account, is hashed by the
-  session library and marks the account: the person chooses a password of their own
-  before anything else is served. Set on an account, it also ends every session the
-  person holds and clears the count of failed sign-ins under their name, so a person
-  locked out signs in with it at once.
+- A person is added by an invitation, which gives at least one role (400 without one).
+  Nobody creates an account for someone else: the account is made when the person
+  accepts, with a password they choose there or through a directory.
+- Nobody chooses a password for someone else. A person who has lost theirs is mailed a
+  reset link and chooses the next one themselves, and a person required to change
+  theirs chooses another before anything else is served (both below).
 - A rename takes with it what is held under the old name: the person's sessions, the
   sessions they hold as someone else with their impersonation records, and every role
   membership. A name another user holds is refused (409).
@@ -4461,7 +4451,7 @@ An invitation into a tenant gives its roles in that tenant; one into the applica
 gives each role where the role is held, the global scope or every tenant; one that makes
 a tenant makes it there, in the same transaction, and gives the person the roles that
 administer it ("The invitation that makes a tenant", below). The sender says where the
-roles go as the create does: `domain` for one tenant, `everyDomain` for every tenant, or
+roles go: `domain` for one tenant, `everyDomain` for every tenant, or
 neither. An invitation that says every tenant is held to it when it is sent: each role
 is one that exists in every tenant, a role of the whole application alone is refused
 (400), and so is a custom role whose name a role of the whole application carries too,
@@ -4495,35 +4485,25 @@ application runs it wherever it holds a transaction, beside its own writes:
 ```go
 err := resourceClient.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 	sector := anvil.String() // the tenant's id
-	created, err := (&crewidentity.CreateCrewUser{Username: "ada", Roles: []string{"Dispatcher"}, Domain: &sector}).Execute(ctx, txn, a.CrewIdentity())
-	if err != nil {
-		return err
-	}
-	// A further role for the person just created, by the client's own call: it looks
-	// nobody up, and the new user is not readable until the commit.
-	if err := a.CrewIdentity().AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), identity.User(created.ID), "CrewCommon"); err != nil {
+	posting := &crewidentity.AssignCrewRole{UserID: ada, Role: "Dispatcher", Domain: &sector}
+	if err := posting.Execute(ctx, txn, a.CrewIdentity()); err != nil {
 		return err
 	}
 
-	return recordHire(ctx, txn, created.ID) // the application's own rows, in the same commit
+	return recordPosting(ctx, txn, ada) // the application's own rows, in the same commit
 })
 ```
 
-The served method that gives a role (`AssignCrewRole`) names a person a request gave it,
-so it reads the user first and answers 404 for an id no user holds; run in the transaction
-that creates the user it would not find it, which is why the example gives the further
-role through the client.
-
-A person is created holding a role: `Roles` names at least one, all held in one place
-(the global scope, the one tenant `Domain` names, or every tenant with `EveryDomain`),
-and the memberships are written in the transaction that writes the user. A create
-without a role is refused, since an account that holds no role anywhere is not kept. A
-role held somewhere else is one more `AssignCrewRole` beside it, as above.
+The method that gives a role (`AssignCrewRole`) names a person who has an account
+already: it reads the user first and answers 404 for an id no user holds. A role is held
+in one place (the global scope, the one tenant `Domain` names, or every tenant with
+`EveryDomain`), and a role held somewhere else is one more `AssignCrewRole` beside it. A
+person new to the application is invited (`InviteCrewUser`), and holds the invitation's
+roles once they accept.
 
 Nothing is written until the commit, so a method does not read what an earlier method of
-the same transaction buffered: a role is given to a person who has an account already
-(a person new to the application is created holding their roles), and one identity link
-is removed per user per transaction.
+the same transaction buffered: a role is given to a person who has an account already,
+and one identity link is removed per user per transaction.
 
 **Limits.** It runs on Spanner. A rule reads the rows as committed: a method does not see
 what an earlier method of the same transaction buffered, so the rule on a person's last
@@ -4533,8 +4513,7 @@ committed too: who is in it and what it holds, so a person put in a group and a 
 given to the group in one transaction of the application's are each judged without the
 other. Every generated route runs one method, which
 names one person, in a transaction of its own, so no request puts two in one; the limit
-is for an application that runs the methods in a transaction it opens itself. A temporary password is the one the session library has today: the
-operator chooses it and passes it on.
+is for an application that runs the methods in a transaction it opens itself.
 
 **The rules on who is asking.** Who may run a method is the role file's to say. Four
 rules of the user management are the methods' own, whatever the role file grants, and
@@ -4565,7 +4544,7 @@ own, outside any request, has no caller and is the application's act):
   which makes one who can sign in. A caller who came
   through another Auth (`Manages`) holds no role of this one. Only a holder changes how
   another signs in, since each such act is a way to become the person or to shut them
-  out: setting a holder's temporary password, removing their password, requiring them to
+  out: sending a holder a password reset link, removing their password, requiring them to
   change it, renaming them, setting their email address (where the code of their second
   factor is mailed) and unlinking one of their sign-in identities each take a caller who
   holds the role, whatever the role file grants; a holder acts on themselves and on
@@ -4610,8 +4589,8 @@ own, outside any request, has no caller and is the application's act):
   role there is changed by one of its administrators, or by a super administrator". The
   account of a person who holds such a role there, of their own or through a group kept
   in that tenant, in an assignment that has not ended, is held to the same judgment,
-  since each act on it is a way to become the person or to shut them out: a temporary
-  password, a required change of password, a removed password, a new sign-in name, an
+  since each act on it is a way to become the person or to shut them out: a required
+  change of password, a removed password, a new sign-in name, an
   address set, an identity unlinked, the account disabled, enabled or deleted are
   refused with a sentence that says the same of the account. A person who administers
   more than one tenant is changed by a caller every one of them admits, and the refusal
@@ -4713,9 +4692,9 @@ methods: for each Auth whose management the outlet serves, the Auth's name and l
 the tenant record's name where the application has one, and a side for each scope
 (`global`, the whole application's; `domain`, a tenant's) that names the lists by what
 each holds (`users`, `roles`, `rolesToGive` (the list a role is picked from by the methods that give one), `identities`, `signInWays`, `invitations`, and for the whole application
-`sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`create`, `invite`,
+`sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`invite`,
 `withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
-`rename`, `setEmail`, `setTemporaryPassword`, `sendPasswordResetLink`, `requirePasswordChange`,
+`rename`, `setEmail`, `sendPasswordResetLink`, `requirePasswordChange`,
 `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, `removePassword`, and for
 the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `setSelfServiceReset`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application
 (`CrewSectorUsers`, `DisableCrewSectorUser`); the keys do not. A side names only
@@ -4757,9 +4736,9 @@ holds a sector's lists (each sector's rows, a person of two sectors in each, the
 facts, and the grants that carry a condition on one),
 `generated_identity_tenant_methods_test.go` a sector's methods (each account method
 allowed on a person the sector holds alone, refused on one it shares and not found for
-another sector's; the roles given and taken; the create; the identities and the unlink) with
+another sector's; the roles given and taken; the identities and the unlink) with
 `generated_identity_tenant_invitation_test.go` for the ones that need the session manager
-(the invitation, its withdrawal, the temporary password),
+(the invitation, its withdrawal, the required password change),
 `generated_identity_remove_password_test.go` holds the removal of a person's password at a
 sector and the list of how a person signs in beside it (the password and the identities
 that count, an identity of a retired sign-in left out, the sector's people alone), and

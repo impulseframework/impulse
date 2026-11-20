@@ -76,7 +76,7 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 // For a request made under a tenant, the method is one of the tenant's whose role
 // field picks from the tenant's roles, asked with the role and nothing else:
 //
-//	AssignMembersTenantRole, CreateMembersTenantUser, InviteMembersTenantUser, GiveMembersTenantGroupRole
+//	AssignMembersTenantRole, InviteMembersTenantUser, GiveMembersTenantGroupRole
 //
 // The answer is yes where the method does not refuse the caller the role: its grant
 // admits the role, or what is left of the grant's condition reads the row the method
@@ -86,7 +86,7 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 // application's whose role field picks from the roles to give
 // (MembersGivableRoles), asked the same way, with the role and where it is held:
 //
-//	AssignMembersRole, CreateMembersUser, InviteMembersUser, GiveMembersGroupRole
+//	AssignMembersRole, InviteMembersUser, GiveMembersGroupRole
 //
 // A method that is none of them gives no role by hand where the request was made, and
 // is an error.
@@ -100,30 +100,26 @@ func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scop
 		switch method {
 		case AssignMembersTenantRole{}.Method():
 			return couldGiveBy(ctx, caller, method, &AssignMembersTenantRole{Role: string(role)})
-		case CreateMembersTenantUser{}.Method():
-			return couldGiveBy(ctx, caller, method, &CreateMembersTenantUser{Roles: []string{string(role)}})
 		case InviteMembersTenantUser{}.Method():
 			return couldGiveBy(ctx, caller, method, &InviteMembersTenantUser{Roles: []string{string(role)}})
 		case GiveMembersTenantGroupRole{}.Method():
 			return couldGiveBy(ctx, caller, method, &GiveMembersTenantGroupRole{Role: string(role)})
 		}
 
-		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: AssignMembersTenantRole, CreateMembersTenantUser, InviteMembersTenantUser, GiveMembersTenantGroupRole", method)
+		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: AssignMembersTenantRole, InviteMembersTenantUser, GiveMembersTenantGroupRole", method)
 	}
 
 	domain, everyDomain := scopeFields(scope)
 	switch method {
 	case AssignMembersRole{}.Method():
 		return couldGiveBy(ctx, caller, method, &AssignMembersRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})
-	case CreateMembersUser{}.Method():
-		return couldGiveBy(ctx, caller, method, &CreateMembersUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})
 	case InviteMembersUser{}.Method():
 		return couldGiveBy(ctx, caller, method, &InviteMembersUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})
 	case GiveMembersGroupRole{}.Method():
 		return couldGiveBy(ctx, caller, method, &GiveMembersGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})
 	}
 
-	return false, errors.Newf("%s is no method of the whole application that gives a role by hand: AssignMembersRole, CreateMembersUser, InviteMembersUser, GiveMembersGroupRole", method)
+	return false, errors.Newf("%s is no method of the whole application that gives a role by hand: AssignMembersRole, InviteMembersUser, GiveMembersGroupRole", method)
 }
 
 // couldGiveBy reports whether the method does not refuse the caller its request, which

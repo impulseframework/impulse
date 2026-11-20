@@ -750,7 +750,7 @@ func (a *Auth[S, U, Tx]) changeUserPasswordHandler() http.HandlerFunc {
 // signed-in user removes their own password, proving it first as a change does. It
 // validates the session itself, and holds it to what every own-account route but the
 // change holds it to: a user who must change their password is refused
-// (password_change_required, Forbidden), since removing a temporary password would
+// (password_change_required, Forbidden), since removing a password under the mark would
 // clear the mark with it and leave the session standing with no change made. It is
 // refused in an impersonated session. The password is checked under the attempt
 // limiter, for the request's client, as the change checks the old one. The removal is
@@ -794,7 +794,7 @@ func (a *Auth[S, U, Tx]) removeUserPasswordHandler() http.HandlerFunc {
 // the one userID holds (BadRequest otherwise, as a change answers a wrong old password),
 // checked under the attempt limiter for client (provePassword).
 // The store is handed the hash the password matched and removes the password only while
-// the user still holds it, so a password an operator set meanwhile is not removed on
+// the user still holds it, so a password written meanwhile is not removed on
 // proof of the one it replaced (a Conflict that says to try again). The removal does
 // what AuthAPI.RemoveSessionUserPassword does, under the same judgment of the links
 // that count as a means of sign-in (signsInThrough), and its refusal of the last means

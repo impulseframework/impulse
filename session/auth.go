@@ -791,7 +791,7 @@ type DirectorySeatedHook[Tx any] struct {
 // an invitation), with no account created. A person who has an account is no stranger.
 // One with a password confirms the link with it, and the default seat is given with the
 // link when they hold no role in the tenant. One with no password who has never signed
-// in (an account an administrator created ahead) is tied to the sign-in by nothing but
+// in (an account the application created ahead) is tied to the sign-in by nothing but
 // the name the directory asserts, so the identity is linked only when the directory is
 // that of the one tenant the person belongs to, holding a role there and nothing
 // anywhere else (hook.OnlyIn), or the sign-in carries the person's own invitation; any

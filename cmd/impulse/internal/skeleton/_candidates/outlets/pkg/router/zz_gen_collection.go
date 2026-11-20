@@ -65,25 +65,9 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
-				Name:        "CreateMembersTenantUser",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Attributes: []resource.AttributeData{
-					{Name: "role", Column: "Roles", Type: "string", List: true},
-				},
-			},
-			{
 				Name:        "CreateStaffTenantGroup",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-			},
-			{
-				Name:        "CreateStaffTenantUser",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Attributes: []resource.AttributeData{
-					{Name: "role", Column: "Roles", Type: "string", List: true},
-				},
 			},
 			{
 				Name:        "DeleteMembersTenantGroup",
@@ -537,12 +521,6 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "MembersTenantUsers",
 			},
 			{
-				Name:        "SetStaffTenantTemporaryPassword",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Target:      "StaffTenantUsers",
-			},
-			{
 				Name:        "SetStaffTenantUserEmail",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -904,25 +882,9 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
-				Name:        "CreateMembersUser",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Attributes: []resource.AttributeData{
-					{Name: "role", Column: "Roles", Type: "string", List: true},
-				},
-			},
-			{
 				Name:        "CreateStaffGroup",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-			},
-			{
-				Name:        "CreateStaffUser",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Attributes: []resource.AttributeData{
-					{Name: "role", Column: "Roles", Type: "string", List: true},
-				},
 			},
 			{
 				Name:        "DeleteMembersGroup",
@@ -1575,12 +1537,6 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetStaffSelfServiceReset",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
-			},
-			{
-				Name:        "SetStaffTemporaryPassword",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-				Target:      "StaffSessionUsers",
 			},
 			{
 				Name:        "SetStaffUserEmail",

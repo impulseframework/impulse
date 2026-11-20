@@ -261,128 +261,6 @@ func TestManager_DeleteUser(t *testing.T) {
 	}
 }
 
-// TestManager_SetTemporaryPassword pins the temporary password: the session library's
-// hash written with the mark that the person must change it, their sessions ended, and
-// the count of failed sign-ins kept under their name cleared, the name keyed as the
-// limiter keys it; an empty password and a user that does not exist are refused.
-func TestManager_SetTemporaryPassword(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		username   string
-		password   string
-		wantErr    func(error) bool
-		wantWrites []string
-	}{
-		{
-			name:     "the password is set, the sessions end and the name's count is cleared",
-			username: "Dana", password: "first-day",
-			wantWrites: []string{
-				"end session " + sessionA.String(),
-				"set password " + userID.String() + " hash(first-day) changeRequired=true",
-				"clear attempts dana",
-			},
-		},
-		{name: "an empty password is refused", username: "dana", wantErr: httpio.HasBadRequest},
-		{name: "a user that does not exist is not found", password: "first-day", wantErr: httpio.HasNotFound},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			store := &fakeStore{sessions: map[impulse.UUID][]impulse.UUID{userID: {sessionA}}}
-			if tt.username != "" {
-				store.usernames = map[impulse.UUID]string{userID: tt.username}
-			}
-			m, _ := newManager(t, store, nil)
-
-			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.SetTemporaryPassword(ctx, txn, userID, tt.password)
-			})
-			if tt.wantErr != nil {
-				if err == nil || !tt.wantErr(err) {
-					t.Fatalf("SetTemporaryPassword() error = %v, want the refusal", err)
-				}
-			} else if err != nil {
-				t.Fatalf("SetTemporaryPassword() error = %v", err)
-			}
-			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
-				t.Errorf("buffered writes (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// TestManager_CreateUser_password pins the password at a create: a temporary password
-// is written with the mark beside the row; none is a person who signs in another way;
-// where the password is the only way in one is required; an empty one is never a
-// password.
-func TestManager_CreateUser_password(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		password   *string
-		required   bool
-		wantErr    func(error) bool
-		wantWrites []string
-	}{
-		{
-			name:     "a temporary password is written beside the row, to be changed",
-			password: ptr("first-day"),
-			wantWrites: []string{
-				"insert user dana <none>",
-				"set password " + createdID.String() + " hash(first-day) changeRequired=true",
-				"insert membership global/ " + createdID.String() + " Steward",
-			},
-		},
-		{
-			name:       "no password is a person who signs in another way",
-			wantWrites: []string{"insert user dana <none>", "insert membership global/ " + createdID.String() + " Steward"},
-		},
-		{name: "an empty password is refused", password: ptr(""), wantErr: httpio.HasBadRequest},
-		{name: "where the password is the only way in, none is refused", required: true, wantErr: httpio.HasBadRequest},
-		{name: "where the password is the only way in, an empty one is refused", required: true, password: ptr(""), wantErr: httpio.HasBadRequest},
-		{
-			name:     "where the password is the only way in, one is written",
-			required: true, password: ptr("first-day"),
-			wantWrites: []string{
-				"insert user dana <none>",
-				"set password " + createdID.String() + " hash(first-day) changeRequired=true",
-				"insert membership global/ " + createdID.String() + " Steward",
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			store := &fakeStore{nextID: createdID}
-			m, _ := newManager(t, store, engineRoles)
-
-			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				_, err := m.CreateUser(ctx, txn, &NewAccount{
-					Username: "dana", Scope: globalScope, Roles: []accesstypes.Role{"Steward"},
-					Password: tt.password, PasswordRequired: tt.required,
-				})
-
-				return err
-			})
-			if tt.wantErr != nil {
-				if err == nil || !tt.wantErr(err) {
-					t.Fatalf("CreateUser() error = %v, want the refusal", err)
-				}
-			} else if err != nil {
-				t.Fatalf("CreateUser() error = %v", err)
-			}
-			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
-				t.Errorf("buffered writes (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
 // TestManager_RevokeTrustedDevices pins the second factor's reset: every browser the
 // person asked to be remembered that is not revoked yet is revoked, and nothing else is
 // touched.
@@ -579,9 +457,6 @@ func TestManager_passwordWritesEndResetLinks(t *testing.T) {
 	t.Parallel()
 
 	acts := map[string]func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error{
-		"an administrator sets a temporary password": func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-			return m.SetTemporaryPassword(ctx, txn, userID, "a temporary one")
-		},
 		"an administrator removes the password of a person who signs in through a directory": func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 			return m.RemovePassword(ctx, txn, userID)
 		},

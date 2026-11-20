@@ -65,8 +65,6 @@ type GeneratedHandlers interface {
 
 	CreateStaffGroup() http.HandlerFunc
 
-	CreateStaffUser() http.HandlerFunc
-
 	DeleteStaffGroup() http.HandlerFunc
 
 	DeleteStaffUser() http.HandlerFunc
@@ -114,8 +112,6 @@ type GeneratedHandlers interface {
 	SetFeature() http.HandlerFunc
 
 	SetStaffSelfServiceReset() http.HandlerFunc
-
-	SetStaffTemporaryPassword() http.HandlerFunc
 
 	SetStaffUserEmail() http.HandlerFunc
 
@@ -225,8 +221,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/api/create-staff-group", h.CreateStaffGroup())
 
-	asked.Post("/api/create-staff-user", h.CreateStaffUser())
-
 	asked.Post("/api/delete-staff-group", h.DeleteStaffGroup())
 
 	asked.Post("/api/delete-staff-user", h.DeleteStaffUser())
@@ -280,8 +274,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.With(resource.BodyLimit(BodyLimit)).Post("/api/set-feature", h.SetFeature())
 
 	asked.Post("/api/set-staff-self-service-reset", h.SetStaffSelfServiceReset())
-
-	asked.Post("/api/set-staff-temporary-password", h.SetStaffTemporaryPassword())
 
 	asked.Post("/api/set-staff-user-email", h.SetStaffUserEmail())
 

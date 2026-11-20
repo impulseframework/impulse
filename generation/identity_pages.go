@@ -145,7 +145,6 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 	subject := i.subject(tenant)
 	parts := []identityPart{
-		{"create", "Create" + subject + "User"},
 		{"invite", "Invite" + subject + "User"},
 		{"withdrawInvitation", "Withdraw" + subject + "Invitation"},
 		{"assignRole", "Assign" + subject + "Role"},
@@ -156,7 +155,6 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 		{"rename", "Rename" + subject + "User"},
 		{"setName", "Set" + subject + "UserName"},
 		{"setEmail", "Set" + subject + "UserEmail"},
-		{"setTemporaryPassword", "Set" + subject + "TemporaryPassword"},
 		{"sendPasswordResetLink", "Send" + subject + "UserPasswordResetLink"},
 		{"requirePasswordChange", "Require" + subject + "PasswordChange"},
 		{"endUserSessions", "End" + subject + "UserSessions"},

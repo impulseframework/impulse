@@ -161,10 +161,10 @@ func TestAuthAPI_ChangeSessionUserPassword_nothingToContinue(t *testing.T) {
 
 // TestAuth_passwordRule_everyPath pins the one rule for a password's shape on every path
 // that sets one: a password shorter than eight characters is refused a person's own
-// change, on the route and through the API, a password set for them and one reset, an
-// account created with one, the hash the generated user management asks for, and a
-// sign-up; nothing is written (the mock refuses a write it was not told of). A person's
-// first password is held to it in TestAuth_FirstPassword.
+// change, on the route and through the API, a password set for them at the end of a
+// flow of the application's own, an account created with one, and a sign-up; nothing is
+// written (the mock refuses a write it was not told of). A person's first password is
+// held to it in TestAuth_FirstPassword.
 func TestAuth_passwordRule_everyPath(t *testing.T) {
 	t.Parallel()
 
@@ -207,23 +207,11 @@ func TestAuth_passwordRule_everyPath(t *testing.T) {
 		old(t, f, 1)
 		refused(t, f.auth.API().SetSessionUserPassword(context.Background(), userID, short))
 	})
-	t.Run("a password an operator resets", func(t *testing.T) {
-		t.Parallel()
-		f := newAuthFixture(t, gomock.NewController(t))
-		old(t, f, 1)
-		refused(t, f.auth.API().ResetSessionUserPassword(context.Background(), userID, short))
-	})
 	t.Run("an account created with a password", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
 		password := short
 		_, err := f.auth.API().CreateSessionUser(context.Background(), &CreateUserRequest{Username: "pat", Password: &password})
-		refused(t, err)
-	})
-	t.Run("the hash the generated user management asks for, of a temporary password", func(t *testing.T) {
-		t.Parallel()
-		f := newAuthFixture(t, gomock.NewController(t))
-		_, err := f.auth.API().HashPassword(short)
 		refused(t, err)
 	})
 	t.Run("a sign-up and the acceptance of an invitation", func(t *testing.T) {
@@ -235,17 +223,17 @@ func TestAuth_passwordRule_everyPath(t *testing.T) {
 	t.Run("eight characters are a password on each", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
-		if _, err := f.auth.API().HashPassword("eight888"); err != nil {
-			t.Errorf("HashPassword() of eight characters: error = %v, want a hash", err)
+		if _, err := f.auth.hashToSet("eight888"); err != nil {
+			t.Errorf("hashToSet() of eight characters: error = %v, want a hash", err)
 		}
 	})
 	t.Run("the length is counted in characters: seven that take two bytes each are refused, eight are a password", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
-		_, err := f.auth.API().HashPassword(strings.Repeat("é", 7))
+		_, err := f.auth.hashToSet(strings.Repeat("é", 7))
 		refused(t, err)
-		if _, err := f.auth.API().HashPassword(strings.Repeat("é", 8)); err != nil {
-			t.Errorf("HashPassword() of eight characters of two bytes each: error = %v, want a hash", err)
+		if _, err := f.auth.hashToSet(strings.Repeat("é", 8)); err != nil {
+			t.Errorf("hashToSet() of eight characters of two bytes each: error = %v, want a hash", err)
 		}
 	})
 }

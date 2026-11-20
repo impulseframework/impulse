@@ -46,9 +46,10 @@ type InsertSession struct {
 }
 
 // SessionUser is a person authorized to access the application. PasswordChangeRequired
-// marks a user whose password an operator set (a new user's first password, a reset):
-// the user changes it before anything else. CreatedAt is the database's time at the
-// insert and LastSignInAt its time at the user's latest sign-in, nil before the first.
+// marks a user who must change their password (a new user's first password an operator
+// set, a change an administrator required): the user changes it before anything else.
+// CreatedAt is the database's time at the insert and LastSignInAt its time at the
+// user's latest sign-in, nil before the first.
 // Email is the user's email address, nil for none, and EmailVerifiedAt the database's
 // time at which the person proved they read it, nil while it is unverified; both are
 // nil on a store without the auth schema. An unverified address is trusted for

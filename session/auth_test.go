@@ -3159,11 +3159,11 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		}
 	})
 
-	t.Run("resetting the password marks the user and ends its sessions in the store's one write; setting one the user chose clears the mark", func(t *testing.T) {
+	t.Run("setting a password the user chose clears the mark and ends the user's sessions in the store's one write", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
-		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).Times(2)
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
 		// The store writes the password and ends the sessions in one transaction
 		// (ReplaceUserPassword). The mock refuses a call it was not told of: the sessions
 		// are not ended by a second call, which a failure could come before.
@@ -3181,31 +3181,25 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 				return nil
 			}
 		}
-		gomock.InOrder(
-			f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), true).DoAndReturn(replaced("temporary")),
-			f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), false).DoAndReturn(replaced("chosen well")),
-		)
-		if err := f.auth.API().ResetSessionUserPassword(context.Background(), userID, "temporary"); err != nil {
-			t.Errorf("ResetSessionUserPassword() error = %v", err)
-		}
+		f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), false).DoAndReturn(replaced("chosen well"))
 		if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen well"); err != nil {
 			t.Errorf("SetSessionUserPassword() error = %v", err)
 		}
-		if _, _, clears := f.counts(); clears != 2 {
-			t.Errorf("the name's sign-in attempts were cleared %d times, want once per password", clears)
+		if _, _, clears := f.counts(); clears != 1 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want once for the password", clears)
 		}
 	})
 
-	t.Run("a reset the store could not make resets nothing: the failure is the caller's, and the name's attempts stay", func(t *testing.T) {
+	t.Run("a password the store could not set changes nothing: the failure is the caller's, and the name's attempts stay", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
 		failed := errors.New("the sessions could not be ended")
 		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
-		f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), true).Return(failed)
+		f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(failed)
 
-		if err := f.auth.API().ResetSessionUserPassword(context.Background(), userID, "temporary"); !errors.Is(err, failed) {
-			t.Errorf("ResetSessionUserPassword() error = %v, want the store's failure", err)
+		if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen well"); !errors.Is(err, failed) {
+			t.Errorf("SetSessionUserPassword() error = %v, want the store's failure", err)
 		}
 		if _, _, clears := f.counts(); clears != 0 {
 			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was written", clears)

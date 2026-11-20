@@ -33,7 +33,7 @@ import {
 // A person runs every generated method through a dialog the library draws from the
 // method's metadata. These specs hold Lodestar's generated methods to dialogs a person can
 // complete, and the crew's Accounts page to bringing a person in with a role: through the
-// page's own Invite and Add an account dialogs, choosing the role from the picker.
+// page's own Invite dialog, choosing the role from the picker.
 
 const metaOf = (method: Method): MethodMeta => methodMeta(method) as MethodMeta;
 
@@ -81,7 +81,7 @@ describe("the crew's Accounts page brings a person in with a role", () => {
   beforeEach(async () => {
     rolesAsked = [];
     const roles = pickedFrom(Methods.InviteCrewUser, 'roles');
-    const sectors = pickedFrom(Methods.CreateCrewUser, 'domain');
+    const sectors = pickedFrom(Methods.InviteCrewUser, 'domain');
     // The server answers the roles of the place the request names, as the generated list
     // does: Anvil's for its id, every sector's for everyDomain true, and the whole
     // application's otherwise.
@@ -192,8 +192,8 @@ describe("the crew's Accounts page brings a person in with a role", () => {
     await choose(/^Roles/, 'Archivist');
     await press('Invite');
 
-    // The invitation asks where as Add an account does. Once the switch is on, the
-    // picker lists the roles of every sector, and the request says every sector.
+    // Once the switch is on, the picker lists the roles of every sector, and the request
+    // says every sector.
     expect(sent('invite-crew-user')).toEqual({
       email: 'pat@lakeside.example',
       roles: ['Archivist'],
@@ -202,40 +202,29 @@ describe("the crew's Accounts page brings a person in with a role", () => {
     expect(rolesAsked.some((url) => url.includes('everyDomain:eq:true'))).toBe(true);
   });
 
-  it('adds an account with a role chosen from the roles held for the whole application', async () => {
-    open(Methods.CreateCrewUser);
-    await type(/^Username/, 'pat');
-    await choose(/^Roles/, 'Headquarters');
-    await press('Add an account');
-
-    expect(sent('create-crew-user')).toMatchObject({ username: 'pat', roles: ['Headquarters'] });
-    expect(sent('create-crew-user')).not.toHaveProperty('domain');
-    expect(rolesAsked.some((url) => url.includes('everyDomain:eq:false'))).toBe(true);
-  });
-
-  it('adds an account in one sector with a role of that sector, the role chosen before the sector dropped', async () => {
-    open(Methods.CreateCrewUser);
-    await type(/^Username/, 'pat');
+  it('invites a person into one sector with a role of that sector, the role chosen before the sector dropped', async () => {
+    open(Methods.InviteCrewUser);
+    await type(/^Email/, 'pat@lakeside.example');
     await choose(/^Roles/, 'Headquarters');
     await choose(/^Sector/, 'Anvil');
     await choose(/^Roles/, 'Cadet');
-    await press('Add an account');
+    await press('Invite');
 
     // Headquarters was chosen among the whole application's roles; once Anvil is chosen
     // the picker lists Anvil's, and the choice made elsewhere is gone from the request.
-    expect(sent('create-crew-user')).toMatchObject({ username: 'pat', domain: anvil, roles: ['Cadet'] });
+    expect(sent('invite-crew-user')).toMatchObject({ email: 'pat@lakeside.example', domain: anvil, roles: ['Cadet'] });
     expect(rolesAsked.some((url) => url.includes(`domain:eq:${anvil}`))).toBe(true);
   });
 
   it('sends no role chosen for another place: a role chosen before the sector is not sent once the sector is chosen', async () => {
-    open(Methods.CreateCrewUser);
-    await type(/^Username/, 'pat');
+    open(Methods.InviteCrewUser);
+    await type(/^Email/, 'pat@lakeside.example');
     await choose(/^Roles/, 'Headquarters');
     await choose(/^Sector/, 'Anvil');
-    await press('Add an account');
+    await press('Invite');
 
-    // Headquarters is no role of Anvil's: the account is not made in Anvil holding it.
-    expect(sent('create-crew-user')).toMatchObject({ username: 'pat', domain: anvil });
-    expect(JSON.stringify(sent('create-crew-user'))).not.toContain('Headquarters');
+    // Headquarters is no role of Anvil's: nobody is invited into Anvil to hold it.
+    expect(sent('invite-crew-user')).toMatchObject({ email: 'pat@lakeside.example', domain: anvil });
+    expect(JSON.stringify(sent('invite-crew-user'))).not.toContain('Headquarters');
   });
 });

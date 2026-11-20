@@ -70,8 +70,8 @@ const (
 
 // TestManager_directoryOnly_administratorsRole pins that who holds a tenant's
 // administrator role in the tenant is changed only by a caller the tenant admits: every
-// act that gives the role or takes it away, to a person, through a new account, by an
-// invitation, to a group, or by a place in a group that holds it, is refused a caller
+// act that gives the role or takes it away, to a person, by an invitation, to a group,
+// or by a place in a group that holds it, is refused a caller
 // whose session does not enter the tenant, in a sentence that says who does it. A
 // caller the tenant admits makes the change, the application acts outside any request,
 // and neither another role of the tenant nor the role held in every tenant is judged.
@@ -90,9 +90,6 @@ func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 		act   func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, scope accesstypes.PolicyScope, role accesstypes.Role) error
 		// tenantOnly marks an act that names one tenant and no other scope.
 		tenantOnly bool
-		// buffersFirst marks an act that buffers a row before its roles are judged: the
-		// refusal fails the transaction, so nothing of it is committed.
-		buffersFirst bool
 	}{
 		{
 			name: "giving a person the role",
@@ -110,15 +107,6 @@ func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 			},
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 				return m.RemoveRole(ctx, txn, scope, userID, role)
-			},
-		},
-		{
-			name: "a new account that starts with the role", buffersFirst: true,
-			setup: func(store *fakeStore) { store.nextID = createdID },
-			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, scope accesstypes.PolicyScope, role accesstypes.Role) error {
-				_, err := m.CreateUser(ctx, txn, &NewAccount{Username: "hale", Scope: scope, Roles: []accesstypes.Role{role}})
-
-				return err
 			},
 		},
 		{
@@ -205,7 +193,7 @@ func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 				if !httpio.HasForbidden(err) || httpio.Message(err) != roleKeptFromOutsiders {
 					t.Fatalf("error = %v, want the refusal reading %q", err, roleKeptFromOutsiders)
 				}
-				if len(store.writes) != 0 && !act.buffersFirst {
+				if len(store.writes) != 0 {
 					t.Errorf("buffered writes = %v, want none", store.writes)
 				}
 			})
@@ -310,9 +298,6 @@ func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 		name string
 		act  func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
 	}{
-		{name: "a temporary password", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-			return m.SetTemporaryPassword(ctx, txn, userID, "first-day")
-		}},
 		{name: "the removal of the password", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 			return m.RemovePassword(ctx, txn, userID)
 		}},

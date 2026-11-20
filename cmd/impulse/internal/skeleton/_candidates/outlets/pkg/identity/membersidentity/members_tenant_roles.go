@@ -24,7 +24,7 @@ import (
 // method. A role file says which roles a person hands out on the grant of each method
 // that gives one, whose role field picks from this list, each for itself:
 //
-//	AssignMembersTenantRole, CreateMembersTenantUser, InviteMembersTenantUser, GiveMembersTenantGroupRole
+//	AssignMembersTenantRole, InviteMembersTenantUser, GiveMembersTenantGroupRole
 //
 // A condition there reads the role (new.role != 'TenantAdmin'). The list is asked for
 // one method at a time, by a filter that names it
@@ -73,7 +73,6 @@ func ListMembersTenantRole(ctx context.Context, qSet *resource.QuerySet[MembersT
 		}
 		method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{
 			AssignMembersTenantRole{}.Method(),
-			CreateMembersTenantUser{}.Method(),
 			InviteMembersTenantUser{}.Method(),
 			GiveMembersTenantGroupRole{}.Method(),
 		}, qSet.Filter().Take("Method"))

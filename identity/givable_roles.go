@@ -15,8 +15,8 @@ import (
 
 // GivableRoles lists the roles a person picks from to give one by hand from the whole
 // application's management with one method (method: the one that gives a person a
-// role, the create or the invitation that starts a person with one, or the one that
-// gives a group a role, by the name its grant is written under), where the role is to
+// role, the invitation that starts a person with one, or the one that gives a group a
+// role, by the name its grant is written under), where the role is to
 // be held (scope: the whole application, one tenant or every tenant), as the method's
 // dialog offers them. They are the roles that exist there that the request's caller
 // could give there with that method (RoleGrants.CouldGive), and no other: a dialog

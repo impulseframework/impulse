@@ -608,7 +608,7 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID i
 
 // destroyUserSessionsIn expires every live session of a user inside txn, as
 // DestroyUserSessions does in a transaction of its own: a user's own change of
-// password and an operator's replacement of it end the user's sessions in the
+// password and a replacement of it on another proof end the user's sessions in the
 // transaction that writes the password (ChangeUserPassword, ReplaceUserPassword).
 func (s *SessionStorageDriver) destroyUserSessionsIn(ctx context.Context, txn *spanner.ReadWriteTransaction, userID impulse.UUID) error {
 	// The local-actor records name the actor by username.

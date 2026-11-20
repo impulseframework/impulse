@@ -334,7 +334,7 @@ func identityTreeFiles(t *testing.T, tree string) []string {
 // declarations over the tables the schema holds, the client, the store and the methods,
 // and the handlers' base, every file under the generation header; an auth whose
 // directory writes its roles carries no method that assigns or removes one and none
-// that creates a person, who would be created holding a role; the two packages the run
+// that invites a person, who would be invited to hold a role; the two packages the run
 // must load are added to the load, and the handlers' to the outputs.
 func Test_prepareIdentity(t *testing.T) {
 	// The generator writes relative to where the program runs, and the working directory
@@ -351,7 +351,6 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewhandlers/handlers.go",
 		"crewidentity/assign_crew_role.go",
 		"crewidentity/client.go",
-		"crewidentity/create_crew_user.go",
 		"crewidentity/crew_givable_roles.go",
 		"crewidentity/crew_sign_in_methods.go",
 		"crewidentity/crew_sign_in_ways.go",
@@ -376,7 +375,6 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/revoke_crew_user_trusted_devices.go",
 		"crewidentity/send_crew_user_password_reset_link.go",
 		"crewidentity/set_crew_self_service_reset.go",
-		"crewidentity/set_crew_temporary_password.go",
 		"crewidentity/set_crew_user_email.go",
 		"crewidentity/set_crew_user_name.go",
 		"crewidentity/store.go",
@@ -470,15 +468,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/store.go":                         {"func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {", "AddColumns(crewresources.NewCrewSessionIdentityColumns().ID().Method().Connection()).", "identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection}", "func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {", "AddColumns(crewresources.NewCrewSessionUserColumns().Disabled()).", `row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}`, "crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
 		"internal/crewresources/crew_role_grants.go":    {`ResourceName string    ` + "`spanner:\"Resource\"`", "// @suppress(readHandler)"},
 		"internal/crewresources/crew_session_tokens.go": {"CrewSessionToken struct {", "RevokedAt     *time.Time"},
-		"crewidentity/create_crew_user.go": {
-			// Where the roles are given is asked before the roles, which are picked from the
-			// roles that exist there that the caller could give.
-			"Domain      *string\n\t\tEveryDomain bool\n\t\t// Roles are the roles the person is given, picked from the roles that exist where",
-			"// @attribute(role)\n\t\t// @enumerate(CrewGivableRoles)\n\t\tRoles []string\n\t}",
-			"client.manager.CreateUser(ctx, txn, account)",
-		},
-		"crewidentity/set_crew_temporary_password.go": {"// @target(CrewSessionUser)", "client.manager.SetTemporaryPassword(ctx, txn, m.UserID, m.Password)"},
-		"crewidentity/remove_crew_password.go":        {"// @rpc\n// @outlet(default)\n// @answers(204)\ntype RemoveCrewPassword struct {\n\t// @target(CrewSessionUser)\n\tUserID impulse.UUID\n}", "client.manager.RemovePassword(ctx, txn, m.UserID)"},
+		"crewidentity/remove_crew_password.go":          {"// @rpc\n// @outlet(default)\n// @answers(204)\ntype RemoveCrewPassword struct {\n\t// @target(CrewSessionUser)\n\tUserID impulse.UUID\n}", "client.manager.RemovePassword(ctx, txn, m.UserID)"},
 		// How a person signs in: a computed list of one person's ways, the password and
 		// the identities that count, read through the identity package's judgment and
 		// named by the words the generator program declares for the auth's sign-ins.
@@ -495,8 +485,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_session_trusted_devices.go": {"CrewSessionTrustedDevice struct {", "RevokedAt  *time.Time", "// @suppress(patchHandler)"},
 		"crewidentity/unlock_crew_sign_in.go":                    {"// @target(CrewSessionSignInAttempt)", "client.manager.UnlockSignIn(ctx, txn, m.Name)"},
 		"crewidentity/invite_crew_user.go": {
-			// The invitation says where its roles go as the create does: one tenant, every
-			// tenant, or neither.
+			// The invitation says where its roles go: one tenant, every tenant, or neither.
 			"Domain      *string\n\t\tEveryDomain bool\n\t\t// Roles are the roles the person is given, picked from the roles that exist where",
 			"// @attribute(role)\n\t\t// @enumerate(CrewGivableRoles)\n\t\tRoles []string\n\t}",
 			"invitation := &identity.Invitation{Email: m.Email, Name: m.Name, Domain: m.Domain, EveryDomain: m.EveryDomain}",
@@ -691,8 +680,8 @@ func Test_prepareIdentity_removePassword(t *testing.T) {
 	}
 
 	// Without the identities table there is no identity to unlink and no person a
-	// password could be removed from: neither method is written, and the temporary
-	// password, which needs no identity, still is.
+	// password could be removed from: neither method is written, and the password
+	// change an administrator requires, which needs no identity, still is.
 	r = identityFixtureGenerator(t, slices.Concat(crewIdentityTables, membersIdentityTables)...)
 	r.extraOutlets[1].auth = &outletAuth{importPath: membersAuthPath, methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}}
 	if err := r.prepareIdentity(); err != nil {
@@ -702,7 +691,7 @@ func Test_prepareIdentity_removePassword(t *testing.T) {
 		"crewidentity/unlink_crew_session_identity.go": false,
 		"crewidentity/remove_crew_password.go":         false,
 		"crewidentity/crew_sign_in_ways.go":            false,
-		"crewidentity/set_crew_temporary_password.go":  true,
+		"crewidentity/require_crew_password_change.go": true,
 	} {
 		if got := written(file); got != want {
 			t.Errorf("%s written without the identities table = %t, want %t", file, got, want)
@@ -986,7 +975,6 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 
 	methods := []string{
 		"crewidentity/assign_crew_ship_role.go",
-		"crewidentity/create_crew_ship_user.go",
 		"crewidentity/crew_ship_roles.go",
 		"crewidentity/crew_ship_sign_in_ways.go",
 		"crewidentity/delete_crew_ship_user.go",
@@ -1000,7 +988,6 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/require_crew_ship_password_change.go",
 		"crewidentity/revoke_crew_ship_user_trusted_devices.go",
 		"crewidentity/send_crew_ship_user_password_reset_link.go",
-		"crewidentity/set_crew_ship_temporary_password.go",
 		"crewidentity/set_crew_ship_user_email.go",
 		"crewidentity/set_crew_ship_user_name.go",
 		"crewidentity/unlink_crew_ship_session_identity.go",
@@ -1032,7 +1019,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 			generationHeader, "// @rpc\n// @permissionScope(domain)\n// @outlet(default)\n// @answers(204)", "type DisableCrewShipUser struct {", "// @target(CrewShipUser)",
 			"// It is a tenant's method: served under the address of one Ship, it names a", guard, "client.manager.DisableUser(ctx, txn, m.UserID)",
 		},
-		"crewidentity/set_crew_ship_temporary_password.go": {"type SetCrewShipTemporaryPassword struct {", "// @target(CrewShipUser)", guard},
+		"crewidentity/require_crew_ship_password_change.go": {"type RequireCrewShipPasswordChange struct {", "// @target(CrewShipUser)", guard},
 		"crewidentity/set_crew_ship_user_email.go": {
 			"SetCrewShipUserEmail struct {", "// @target(CrewShipUser)", guard, "client.manager.SetEmail(ctx, txn, m.UserID, m.Email, func(sent bool, reason string) {",
 		},
@@ -1060,9 +1047,9 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 			"domain, ok := qSet.Scope().Domain()", "client.manager.RolesToGive(ctx, method, domain)",
 			// The list offers the roles the caller could give with one method, the one the
 			// request's filter names among those that pick from it, and none unnamed.
-			"role field picks from this list, each for itself:\n//\n//\tAssignCrewShipRole, CreateCrewShipUser, InviteCrewShipUser\n//\n// A condition there reads the role",
+			"role field picks from this list, each for itself:\n//\n//\tAssignCrewShipRole, InviteCrewShipUser\n//\n// A condition there reads the role",
 			"Method string `spanner:\"Method\" allow_filter:\"true\"`\n}",
-			"method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{\n\t\t\tAssignCrewShipRole{}.Method(),\n\t\t\tCreateCrewShipUser{}.Method(),\n\t\t\tInviteCrewShipUser{}.Method(),\n\t\t}, qSet.Filter().Take(\"Method\"))",
+			"method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{\n\t\t\tAssignCrewShipRole{}.Method(),\n\t\t\tInviteCrewShipUser{}.Method(),\n\t\t}, qSet.Filter().Take(\"Method\"))",
 			"\t\tif !named {\n\t\t\treturn\n\t\t}\n\t\troles, err := client.manager.RolesToGive(ctx, method, domain)",
 			"&CrewShipRole{Name: string(role.Name), Description: role.Description, Method: string(method)}",
 		},
@@ -1095,9 +1082,6 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 			"type RemoveCrewShipRole struct {", "// @target(CrewShipHeldRole, key: UserID)\n\tUserID impulse.UUID", "// @target(CrewShipHeldRole, key: Role)\n\tRole string",
 			"tenant.RemoveRole(ctx, txn, m.UserID, accesstypes.Role(m.Role))",
 		},
-		"crewidentity/create_crew_ship_user.go": {
-			"CreateCrewShipUser struct {", "// @permissionScope(domain)", "// @attribute(role)\n\t\t// @enumerate(CrewShipRoles)\n\t\tRoles []string", "tenant.CreateUser(ctx, txn, account)",
-		},
 		"crewidentity/invite_crew_ship_user.go": {
 			"InviteCrewShipUser struct {", "// @attribute(role)\n\t\t// @enumerate(CrewShipRoles)\n\t\tRoles []string", "tenant.Invite(ctx, txn, invitation, func(sent bool) { result.Sent = sent })",
 		},
@@ -1120,7 +1104,6 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 	// Test_identitySourceData_TenantPicker.)
 	for file, picks := range map[string]bool{
 		"crewidentity/assign_crew_role.go": true,
-		"crewidentity/create_crew_user.go": true,
 		"crewidentity/invite_crew_user.go": true,
 	} {
 		content, err := os.ReadFile(filepath.Join("pkg", "identity", file))
@@ -1135,7 +1118,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		}
 	}
 
-	// A tenant's request names no tenant: the methods that create and invite carry no
+	// A tenant's request names no tenant: the method that invites carries no
 	// field for one, and no method of a tenant's reads where a role is held from its
 	// request.
 	for _, file := range methods {
@@ -1197,7 +1180,7 @@ func Test_refuseIdentityNamesTaken(t *testing.T) {
 	t.Parallel()
 
 	inst := &identityInstance{importPath: crewAuthPath}
-	if err := refuseIdentityNamesTaken(nil, func(m *rpcMethodInfo) *identityInstance { return m.identity }, map[string]string{"CreateCrewUser": "pkg/rpc"}); err != nil {
+	if err := refuseIdentityNamesTaken(nil, func(m *rpcMethodInfo) *identityInstance { return m.identity }, map[string]string{"DisableCrewUser": "pkg/rpc"}); err != nil {
 		t.Errorf("refuseIdentityNamesTaken() with nothing generated error = %v", err)
 	}
 
@@ -1229,34 +1212,6 @@ func Test_generatedSetMethods(t *testing.T) {
 	}
 	if diff := cmp.Diff(declared, generatedSetMethods()); diff != "" {
 		t.Errorf("the methods the template declares against generatedSetMethods() (-template +refused):\n%s", diff)
-	}
-}
-
-// Test_identityInstance_createsUsers pins which auths create their people by hand: a
-// password method or a registration that admits invited users alone, and never one
-// whose directory writes the roles, since a person is created holding a role.
-func Test_identityInstance_createsUsers(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		inst identityInstance
-		want bool
-	}{
-		{name: "a password method", inst: identityInstance{password: true}, want: true},
-		{name: "a registration for invited users alone", inst: identityInstance{invited: true}, want: true},
-		{name: "a directory that admits its own members", inst: identityInstance{}, want: false},
-		{name: "a directory that writes the roles", inst: identityInstance{rolesSynced: true}, want: false},
-		{name: "invited users whose roles a directory writes", inst: identityInstance{invited: true, rolesSynced: true}, want: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := tt.inst.createsUsers(); got != tt.want {
-				t.Errorf("createsUsers() = %t, want %t", got, tt.want)
-			}
-		})
 	}
 }
 

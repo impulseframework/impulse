@@ -51,7 +51,6 @@ export const Methods = {
   AddStaffGroupMember: 'AddStaffGroupMember' as Method,
   AssignStaffRole: 'AssignStaffRole' as Method,
   CreateStaffGroup: 'CreateStaffGroup' as Method,
-  CreateStaffUser: 'CreateStaffUser' as Method,
   DeleteStaffGroup: 'DeleteStaffGroup' as Method,
   DeleteStaffUser: 'DeleteStaffUser' as Method,
   DescribeStaffGroup: 'DescribeStaffGroup' as Method,
@@ -72,7 +71,6 @@ export const Methods = {
   RevokeStaffUserTrustedDevices: 'RevokeStaffUserTrustedDevices' as Method,
   SendStaffUserPasswordResetLink: 'SendStaffUserPasswordResetLink' as Method,
   SetStaffSelfServiceReset: 'SetStaffSelfServiceReset' as Method,
-  SetStaffTemporaryPassword: 'SetStaffTemporaryPassword' as Method,
   SetStaffUserEmail: 'SetStaffUserEmail' as Method,
   SetStaffUserName: 'SetStaffUserName' as Method,
   TakeStaffGroupRole: 'TakeStaffGroupRole' as Method,
@@ -697,18 +695,6 @@ export namespace CreateStaffGroup {
   };
 }
 
-export namespace CreateStaffUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    password: 'password' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
-    roles: 'roles' as FieldName,
-  };
-}
-
 export namespace DeleteStaffGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
@@ -842,13 +828,6 @@ export namespace SendStaffUserPasswordResetLink {
 export namespace SetStaffSelfServiceReset {
   export const fieldName = {
     on: 'on' as FieldName,
-  };
-}
-
-export namespace SetStaffTemporaryPassword {
-  export const fieldName = {
-    userId: 'userId' as FieldName,
-    password: 'password' as FieldName,
   };
 }
 

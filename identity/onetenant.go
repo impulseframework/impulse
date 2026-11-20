@@ -16,15 +16,14 @@ import (
 // One tenant per person.
 //
 // In an application whose tenants own their people, a person belongs to one tenant: the
-// tenant that created or invited them manages the account, which it could not do for a
-// person another tenant holds too. The application says so with WithOneTenantPerPerson,
-// and every way a person comes to hold a role in a tenant is then held to it. All of
-// them write their membership through AssignRole: a role given by hand, an invitation
+// tenant that invited them manages the account, which it could not do for a person
+// another tenant holds too. The application says so with WithOneTenantPerPerson, and
+// every way a person comes to hold a role in a tenant is then held to it. All of them
+// write their membership through AssignRole: a role given by hand, an invitation
 // accepted, and a directory's default role. A role is held by an account, never by a
-// name, so an account that is created holds nothing, and a rename moves nothing. An
-// invitation is refused when it is sent too (Invite), where an account another tenant
-// holds has confirmed the address, so the sender is told and the invited person is not
-// left with a link they cannot accept.
+// name, so a rename moves nothing. An invitation is refused when it is sent too
+// (Invite), where an account another tenant holds has confirmed the address, so the
+// sender is told and the invited person is not left with a link they cannot accept.
 //
 // The application's own people are outside the rule: a person who holds a role for the
 // whole application or in every tenant is no tenant's to manage, whatever else they

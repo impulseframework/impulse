@@ -30,8 +30,7 @@ import (
 //
 // It is a tenant's method: it names a row of CrewSectorUser, the tenant's own list of
 // the auth's people, so the role goes to a person who holds one in the tenant already.
-// A person new to the tenant is created in it or invited to it, holding a role from the
-// start.
+// A person new to the tenant is invited to it, holding a role from the start.
 //
 // @rpc
 // @permissionScope(domain)

@@ -493,8 +493,8 @@ Administrator role, so the first person in can invite the others and open a meth
 
 `--shape invite-only`, taken by `impulse add auth` and `impulse add method`.
 
-- **Gets an account**: only people an administrator invites, or creates an account for.
-  Everyone else is turned away, and nothing is written for them.
+- **Gets an account**: only people an administrator invites. Everyone else is turned
+  away, and nothing is written for them.
 - **Starts with**: the roles the administrator gives with the invitation.
 - **Managed by**: the application's administrators.
 
@@ -863,11 +863,11 @@ administrator has opened the method to sign-up, they get an account that holds n
 tenant, and can create a tenant of their own, as
 [Who can create a tenant](#who-can-create-a-tenant) describes.
 
-A person an administrator created an account for is not such a person. Their sign-in
-under the account's sign-in name is joined to the account, through any of the auth's
-methods. An account that has a password asks for it first. An account that has none, and
-has never signed in, is joined to the first sign-in under its name, as in an application
-without tenants.
+A person who has an account already is not such a person. Their sign-in under the
+account's sign-in name is joined to the account, through any of the auth's methods. An
+account that has a password asks for it first. An account that has none, and has never
+signed in, is joined to the first sign-in under its name, as in an application without
+tenants.
 
 The rest of this section, and the next, describe an application whose tenants can have
 directories.
@@ -949,14 +949,14 @@ a tenant's administrator can do this much:
 
 | A tenant's administrator can | For whom |
 | --- | --- |
-| Invite a person, create an account in the tenant | Anyone. Where a person belongs to one tenant, anyone who is in no other tenant. |
-| Give a role in the tenant | A person who already holds a role in the tenant. A person new to the tenant is invited or has an account created there, with a role from the start. |
+| Invite a person | Anyone. Where a person belongs to one tenant, anyone who is in no other tenant. |
+| Give a role in the tenant | A person who already holds a role in the tenant. A person new to the tenant is invited, with a role from the start. |
 | Take away a role held in the tenant | Anyone in the tenant. A role a person holds in every tenant is not one tenant's to take. |
 | Withdraw an invitation | An invitation of the tenant that still stands |
 | See the name a person signs in with and their name, whether the account is disabled, and when it was created and last signed in | Everyone in the tenant |
 | See a person's email address, and whether they must choose a new password | A person who holds no role in another tenant or in every tenant (`heldElsewhere = false`) |
 | Send a password reset link | Everyone in the tenant who has a password and a confirmed email address |
-| Disable and enable the account, delete it, rename it, set its name, ask for a change of its email address (which takes effect once the new address confirms), set a temporary password, require a new password, sign the person out everywhere, forget the browsers they trusted, unlink a sign-in identity, remove the password | A person the tenant holds alone (`heldElsewhere = false AND heldGlobally = false`) |
+| Disable and enable the account, delete it, rename it, set its name, ask for a change of its email address (which takes effect once the new address confirms), require a new password, sign the person out everywhere, forget the browsers they trusted, unlink a sign-in identity, remove the password | A person the tenant holds alone (`heldElsewhere = false AND heldGlobally = false`) |
 
 A browser a person trusted is one they asked the application to remember, after they
 entered the code the application mails at a sign-in that asks for a second step.
@@ -1033,9 +1033,9 @@ the rule, and manage any account from the whole application's side.
 `--shape tenant-owned-users-invite-only`, taken by `impulse new` and
 `impulse add tenancy`.
 
-- **Gets an account**: only people the tenant's administrator invites, or creates an
-  account for. A person belongs to one tenant, so an invitation from a second tenant is
-  refused, when it is sent or when it is accepted.
+- **Gets an account**: only people the tenant's administrator invites. A person belongs
+  to one tenant, so an invitation from a second tenant is refused, when it is sent or
+  when it is accepted.
 - **Starts with**: the roles the tenant's administrator gives with the invitation.
 - **Managed by**: the tenant's administrator.
 

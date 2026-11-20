@@ -606,12 +606,12 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// The auth's identity client ({{.IdentityDir}}, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the session
-	// manager that signs them in, whose hasher makes the hash of a temporary password one
-	// of its methods sets.{{if .Foothold}} The client knows the roles that count as a
-	// tenant's administrator's (identity.WithAdministratorRoles, the ones held in every
-	// tenant), so a person who removes a role from themselves in a tenant is judged by
-	// the rule on the tenant's last administrator. The application's last administrator
-	// is its last super administrator, kept by the client's own rule.{{end}}
+	// manager that signs them in, which makes the link an invitation mails.{{if .Foothold}}
+	// The client knows the roles that count as a tenant's administrator's
+	// (identity.WithAdministratorRoles, the ones held in every tenant), so a person who
+	// removes a role from themselves in a tenant is judged by the rule on the tenant's
+	// last administrator. The application's last administrator is its last super
+	// administrator, kept by the client's own rule.{{end}}
 {{- if .MakesTenants}}
 	//
 	// The client makes the tenants too. Nobody creates a {{.TenantPolicy.Record}} directly: staff invite

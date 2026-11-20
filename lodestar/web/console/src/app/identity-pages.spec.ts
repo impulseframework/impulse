@@ -93,7 +93,7 @@ describe("the library's pages over an auth's generated management", () => {
     expect(members?.rolesFrom).toBe('Company directory');
   });
 
-  it("offer nothing on the members' pages that gives or takes a role, adds an account or invites one: a directory writes the members' roles", () => {
+  it("offer nothing on the members' pages that gives or takes a role or invites a person: a directory writes the members' roles", () => {
     // The generator describes no such method for an auth whose roles a directory writes
     // at every sign-in, and the pages present what the description names and no more.
     const pages = identityPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' });
@@ -338,7 +338,7 @@ describe("the library's pages over an auth's generated management", () => {
       const picked = listed['rolesToGive'] as Resource;
       expect(fieldNames(picked)).toContain('method');
 
-      const giving = [named['assignRole'], named['create'], named['invite'], named['giveGroupRole']] as string[];
+      const giving = [named['assignRole'], named['invite'], named['giveGroupRole']] as string[];
       const presented = lists(identityPages(apiDescriptor, resourceMeta, { auth: 'Crew', scope }))
         .flatMap((list) => [...((list.rowMethods || []) as MethodPresentation[]), ...(list.listMethods ?? [])])
         .filter((presentation) => giving.includes(presentation.method));
@@ -358,12 +358,12 @@ describe("the library's pages over an auth's generated management", () => {
     }
   });
 
-  it("ask where on the crew's invitation as on the account added: one sector, or every sector by the switch", () => {
-    // The whole service's Invite takes every place its server accepts, the ones Add an
-    // account takes: the generated method carries the sector and the switch, the page
-    // words both, and the roles its picker lists follow the switch.
+  it("ask where on the crew's invitation: one sector, or every sector by the switch", () => {
+    // The whole service's Invite takes every place its server accepts: the generated
+    // method carries the sector and the switch, the page words both, and the roles its
+    // picker lists follow the switch.
     const [accounts] = identityPages(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
-    for (const method of [Methods.InviteCrewUser, Methods.CreateCrewUser] as Method[]) {
+    for (const method of [Methods.InviteCrewUser] as Method[]) {
       const takes = methodMeta(method).fields.map((field) => field.fieldName);
       expect(takes, method).toEqual(expect.arrayContaining(['domain', 'everyDomain']));
       const offer = (accounts?.parentConfig as ListViewConfig).listMethods?.find(

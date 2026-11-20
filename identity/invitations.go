@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -145,6 +146,19 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 	}
 
 	return row.ID, nil
+}
+
+// distinctRoles returns the roles a request names, each once, in the order given: a
+// role named twice is one membership, and two inserts of it would fail the commit.
+func distinctRoles(roles []accesstypes.Role) []accesstypes.Role {
+	distinct := make([]accesstypes.Role, 0, len(roles))
+	for _, role := range roles {
+		if !slices.Contains(distinct, role) {
+			distinct = append(distinct, role)
+		}
+	}
+
+	return distinct
 }
 
 // refuseUninvitable refuses a role the invitation cannot give where it says, in the

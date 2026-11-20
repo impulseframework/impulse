@@ -119,7 +119,7 @@ func testSecondIdentityByName(_ context.Context, t *testing.T, h *AuthHarness) {
 		ctx := t.Context()
 		in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: InviteOnly})
 
-		// An account an administrator created ahead, with no password: its first
+		// An account created ahead, with no password: its first
 		// sign-in links it on the name, as before.
 		const name = "pat.lee@lakeside.edu"
 		pat := createUser(ctx, t, in.Driver, name)

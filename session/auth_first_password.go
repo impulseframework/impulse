@@ -29,9 +29,9 @@ import (
 // still the one the account holds confirmed. It is as strong as that address is, which
 // a signed-in person replaces with a link mailed to the new one (Email()). It is the
 // only way to a first password a person has; an account that holds
-// a password changes it with the old one (PasswordMethod.ChangeUserPassword), and an
-// administrator's reset is AuthAPI.ResetSessionUserPassword. See "A person's first
-// password" in the README.
+// a password changes it with the old one (PasswordMethod.ChangeUserPassword), and one
+// who has lost theirs follows a reset link (AuthAPI.SendPasswordReset). See "A person's
+// first password" in the README.
 
 // firstPasswordAttempts bounds the wrong codes entered for an account's first password:
 // five within fifteen minutes end the code that stands and hold the account's first

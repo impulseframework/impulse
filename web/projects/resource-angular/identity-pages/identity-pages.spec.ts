@@ -149,7 +149,6 @@ const crew: IdentityDescriptor = {
         signInMethods: 'CrewSignInMethods',
       },
       methods: {
-        create: 'CreateCrewUser',
         invite: 'InviteCrewUser',
         withdrawInvitation: 'WithdrawCrewInvitation',
         assignRole: 'AssignCrewRole',
@@ -160,7 +159,6 @@ const crew: IdentityDescriptor = {
         rename: 'RenameCrewUser',
         setName: 'SetCrewUserName',
         setEmail: 'SetCrewUserEmail',
-        setTemporaryPassword: 'SetCrewTemporaryPassword',
         sendPasswordResetLink: 'SendCrewUserPasswordResetLink',
         requirePasswordChange: 'RequireCrewPasswordChange',
         endUserSessions: 'EndCrewUserSessions',
@@ -183,7 +181,6 @@ const crew: IdentityDescriptor = {
         invitations: 'CrewSectorInvitations',
       },
       methods: {
-        create: 'CreateCrewSectorUser',
         invite: 'InviteCrewSectorUser',
         withdrawInvitation: 'WithdrawCrewSectorInvitation',
         assignRole: 'AssignCrewSectorRole',
@@ -197,7 +194,7 @@ const crew: IdentityDescriptor = {
     },
   ],
 };
-// A directory writes this Auth's roles and admits its people: nobody is created, invited or given a role by hand.
+// A directory writes this Auth's roles and admits its people: nobody is invited or given a role by hand.
 const members: IdentityDescriptor = {
   auth: 'Members',
   label: 'Members',
@@ -461,7 +458,6 @@ describe("identityPages, the whole application's side", () => {
       ['SetCrewUserName', 'Change the name'],
       ['RenameCrewUser', 'Change the username'],
       ['SetCrewUserEmail', 'Change the email address'],
-      ['SetCrewTemporaryPassword', 'Set a temporary password'],
       ['SendCrewUserPasswordResetLink', 'Send a password reset link'],
       ['RequireCrewPasswordChange', 'Require a new password'],
       ['EndCrewUserSessions', 'Sign out everywhere'],
@@ -470,10 +466,8 @@ describe("identityPages, the whole application's side", () => {
       ['EnableCrewUser', 'Enable'],
       ['DeleteCrewUser', 'Delete'],
     ]);
-    expect(methodsOf(list(people).listMethods)).toEqual([
-      ['CreateCrewUser', 'Add an account'],
-      ['InviteCrewUser', 'Invite'],
-    ]);
+    // An account is added by an invitation, and by nothing else on the page.
+    expect(methodsOf(list(people).listMethods)).toEqual([['InviteCrewUser', 'Invite']]);
   });
 
   it('says whether the message of a method that mails a person went, in the words the server gives when it did not', () => {
@@ -526,18 +520,16 @@ describe("identityPages, the whole application's side", () => {
       startsAt: 'From',
       endsAt: 'Until',
     });
-    expect(presentation(list(people).listMethods, 'CreateCrewUser').labels).toEqual({
+    expect(presentation(list(people).listMethods, 'InviteCrewUser').labels).toEqual({
       domain: 'Sector',
       everyDomain: 'In every sector',
     });
   });
 
   it("asks where a role is to be held and offers the roles the dialog's own method could give there: each dialog that gives one names its method and the place in its role picker's filter", () => {
-    const create = narrowed(presentation(list(people).listMethods, 'CreateCrewUser'), 'roles');
     const invite = narrowed(presentation(list(people).listMethods, 'InviteCrewUser'), 'roles');
     const give = narrowed(presentation(list(people).rowMethods, 'AssignCrewRole'), 'role');
     for (const [where, method] of [
-      [create, 'CreateCrewUser'],
       [invite, 'InviteCrewUser'],
       [give, 'AssignCrewRole'],
     ] as const) {
@@ -553,8 +545,7 @@ describe("identityPages, the whole application's side", () => {
     }
     // A sector's key is quoted where the filter would read it as more than one value.
     expect(invite({ domain: 'anvil, east' })).toBe('method:eq:InviteCrewUser,domain:eq:"anvil, east"');
-    // With sectors, each of these dialogs asks where: the page fills no place.
-    expect(presentation(list(people).listMethods, 'CreateCrewUser').fill).toBeUndefined();
+    // With sectors, the dialog asks where: the page fills no place.
     expect(presentation(list(people).listMethods, 'InviteCrewUser').fill).toBeUndefined();
   });
 
@@ -564,7 +555,7 @@ describe("identityPages, the whole application's side", () => {
       resource === 'CrewGivableRoles' ? fields('name', 'description', 'domain', 'everyDomain') : resourceMeta(resource);
     const [unnamed] = identityPages({ ...descriptor }, plain, { auth: 'Crew', scope: 'global' });
     expect(
-      narrowed(presentation(list(unnamed).listMethods, 'CreateCrewUser'), 'roles')({ domain: '', everyDomain: true }),
+      narrowed(presentation(list(unnamed).listMethods, 'InviteCrewUser'), 'roles')({ domain: '', everyDomain: true }),
     ).toBe('everyDomain:eq:true');
     // A side whose description names no list of the roles to give is asked the same way.
     const [wholeApplication, tenant] = crew.sides;
@@ -582,7 +573,7 @@ describe("identityPages, the whole application's side", () => {
         {
           scope: 'global',
           lists: { users: 'CrewSessionUsers', roles: 'CrewUserRoles', rolesToGive: 'CrewSectorRoles' },
-          methods: { create: 'CreateOfficeUser', invite: 'InviteOfficeUser', assignRole: 'AssignOfficeRole' },
+          methods: { invite: 'InviteOfficeUser', assignRole: 'AssignOfficeRole' },
         },
       ],
     };
@@ -590,9 +581,6 @@ describe("identityPages, the whole application's side", () => {
       auth: 'Office',
       scope: 'global',
     });
-    expect(narrowed(presentation(list(solo).listMethods, 'CreateOfficeUser'), 'roles')({})).toBe(
-      'method:eq:CreateOfficeUser',
-    );
     expect(narrowed(presentation(list(solo).listMethods, 'InviteOfficeUser'), 'roles')({})).toBe(
       'method:eq:InviteOfficeUser',
     );
@@ -777,10 +765,7 @@ describe("identityPages, a tenant's side", () => {
       ['EnableCrewSectorUser', 'Enable'],
       ['DeleteCrewSectorUser', 'Delete'],
     ]);
-    expect(methodsOf(list(people).listMethods)).toEqual([
-      ['CreateCrewSectorUser', 'Add a person'],
-      ['InviteCrewSectorUser', 'Invite'],
-    ]);
+    expect(methodsOf(list(people).listMethods)).toEqual([['InviteCrewSectorUser', 'Invite']]);
   });
 
   it("leaves a tenant's methods to their target rows: nothing is filled", () => {
@@ -810,7 +795,6 @@ describe("identityPages, a tenant's side", () => {
 
   it("offers each of a tenant's dialogs the roles its own method could give: the picker names the method and no place", () => {
     const asks: [MethodPresentation, string][] = [
-      [presentation(list(people).listMethods, 'CreateCrewSectorUser'), 'roles'],
       [presentation(list(people).listMethods, 'InviteCrewSectorUser'), 'roles'],
       [presentation(list(invitations).listMethods, 'InviteCrewSectorUser'), 'roles'],
       [presentation(list(people).rowMethods, 'AssignCrewSectorRole'), 'role'],
@@ -1687,9 +1671,6 @@ describe('identityPages, what the notice says once a method has run', () => {
     }
     const words = (side: MethodPresentation[], method: string): string | undefined =>
       presentation(side, method).successMessage;
-    // An addition is an account for the whole application and a person for a tenant.
-    expect(words(global, 'CreateCrewUser')).toBe('The account was added.');
-    expect(words(domain, 'CreateCrewSectorUser')).toBe('The person was added.');
     expect(words(global, 'AssignCrewRole')).toBe('The role was given.');
     expect(words(global, 'RemoveCrewRole')).toBe('The role was taken away.');
     expect(words(global, 'GiveCrewGroupRole')).toBe('The role was given to the group.');
@@ -1760,7 +1741,6 @@ describe('identityPages, an application without tenants', () => {
           rolesThroughGroups: 'OfficeUserGroupRoles',
         },
         methods: {
-          create: 'CreateOfficeUser',
           invite: 'InviteOfficeUser',
           withdrawInvitation: 'WithdrawOfficeInvitation',
           assignRole: 'AssignOfficeRole',
@@ -1784,7 +1764,6 @@ describe('identityPages, an application without tenants', () => {
   const nowhere = { domain: null, everyDomain: false };
 
   it('asks no dialog where: each method that gives a role or keeps a group is filled with no place, by the fields it has', () => {
-    expect(presentation(list(accounts).listMethods, 'CreateOfficeUser').fill?.({})).toEqual(nowhere);
     expect(presentation(list(accounts).listMethods, 'InviteOfficeUser').fill?.({})).toEqual(nowhere);
     // The id of the person's account is filled beside it, as with tenants.
     expect(presentation(list(accounts).rowMethods, 'AssignOfficeRole').fill?.({ id: 'u-1' })).toEqual({
@@ -1853,7 +1832,7 @@ describe('identityPages, an application without tenants', () => {
         ]),
       ]),
     ].filter((words): words is string => typeof words === 'string');
-    expect(drawn).toContain('Add an account');
+    expect(drawn).toContain('Invite');
     expect(drawn.filter((words) => /tenant|whole application/i.test(words))).toEqual([]);
   });
 });

@@ -225,7 +225,7 @@ function saidRoute(said: SaidPage): Route {
 /** A column or a row page field: the row's field and the words above it. */
 type Named = [field: string, words: string];
 
-/** What a method of a side is: its name in the description's list of the side's methods (`create`, `invite`). */
+/** What a method of a side is: its name in the description's list of the side's methods (`invite`, `assignRole`). */
 type MethodKind = keyof IdentitySideDescriptor['methods'];
 
 class SideBuilder {
@@ -233,7 +233,7 @@ class SideBuilder {
   /** The tenant record in words, lowercase ("sector", "cost center"); "tenant" where the description names none. */
   private readonly tenantWord: string;
   private readonly base: string;
-  /** What each of the side's methods is, by the name the server gave it (`CreateCrewUser` is `create`). */
+  /** What each of the side's methods is, by the name the server gave it (`InviteCrewUser` is `invite`). */
   private readonly kinds: ReadonlyMap<string, MethodKind>;
   /** What the notice says once a method has run, by what the method is (doneWords). */
   private readonly done: Partial<Record<MethodKind, string>>;
@@ -253,7 +253,7 @@ class SideBuilder {
         .filter((entry): entry is [MethodKind, string] => entry[1] !== undefined)
         .map(([kind, name]) => [name, kind]),
     );
-    this.done = doneWords(this.tenant);
+    this.done = doneWords;
   }
 
   /**
@@ -263,7 +263,7 @@ class SideBuilder {
    */
   people(): RootConfig {
     const { lists, methods } = this.side;
-    const password = methods.setTemporaryPassword !== undefined || methods.requirePasswordChange !== undefined;
+    const password = methods.requirePasswordChange !== undefined;
     const fields: Named[] = [
       ['username', 'Username'],
       ['name', 'Name'],
@@ -299,15 +299,6 @@ class SideBuilder {
         listColumns: this.columns(users, fields),
         rowMethods: this.onPerson(),
         listMethods: this.present([
-          [
-            methods.create,
-            {
-              label: this.tenant ? 'Add a person' : 'Add an account',
-              icon: 'person_add',
-              labels: this.where(),
-              ...this.rolesWhere('roles', methods.create),
-            },
-          ],
           [
             methods.invite,
             { label: 'Invite', icon: 'send', labels: this.where(), ...this.rolesWhere('roles', methods.invite) },
@@ -1364,7 +1355,6 @@ class SideBuilder {
           ),
         },
       ],
-      [methods.setTemporaryPassword, { label: 'Set a temporary password', icon: 'password' }],
       [
         methods.sendPasswordResetLink,
         {
@@ -1739,40 +1729,34 @@ const invitations: readonly MethodKind[] = ['invite', 'inviteTenant'];
 
 /**
  * What the notice says once a method has run, by what the method is: what happened, as a
- * person would say it, in place of the method's label and "done". A tenant's pages list
- * people and the whole application's list accounts, so the two say an addition their own
- * way. A method that is not here says its own: the ones that mail a person read their
- * answer, and the Sign-in page's and a withdrawn tenant invitation's carry their words
- * where they are offered.
+ * person would say it, in place of the method's label and "done". A method that is not
+ * here says its own: the ones that mail a person read their answer, and the Sign-in
+ * page's and a withdrawn tenant invitation's carry their words where they are offered.
  */
-function doneWords(tenant: boolean): Partial<Record<MethodKind, string>> {
-  return {
-    create: tenant ? 'The person was added.' : 'The account was added.',
-    withdrawInvitation: 'The invitation is withdrawn.',
-    assignRole: 'The role was given.',
-    removeRole: 'The role was taken away.',
-    disable: 'The account is disabled.',
-    enable: 'The account is enabled.',
-    delete: 'The account was deleted.',
-    rename: 'The username was changed.',
-    setName: 'The name was changed.',
-    setTemporaryPassword: 'The temporary password is set. The person is asked for a new one when they sign in with it.',
-    requirePasswordChange: 'The person is asked for a new password.',
-    endUserSessions: 'The person is signed out everywhere.',
-    revokeTrustedDevices: 'The trusted devices are forgotten.',
-    unlinkIdentity: 'The sign-in identity is unlinked.',
-    removePassword: 'The password is removed.',
-    endSession: 'The session is ended.',
-    unlockSignIn: 'The name is unlocked.',
-    createGroup: 'The group was added.',
-    describeGroup: 'The description was changed.',
-    deleteGroup: 'The group was deleted.',
-    addGroupMember: 'The person was added to the group.',
-    removeGroupMember: 'The person was removed from the group.',
-    giveGroupRole: 'The role was given to the group.',
-    takeGroupRole: 'The role was taken away from the group.',
-  };
-}
+const doneWords: Partial<Record<MethodKind, string>> = {
+  withdrawInvitation: 'The invitation is withdrawn.',
+  assignRole: 'The role was given.',
+  removeRole: 'The role was taken away.',
+  disable: 'The account is disabled.',
+  enable: 'The account is enabled.',
+  delete: 'The account was deleted.',
+  rename: 'The username was changed.',
+  setName: 'The name was changed.',
+  requirePasswordChange: 'The person is asked for a new password.',
+  endUserSessions: 'The person is signed out everywhere.',
+  revokeTrustedDevices: 'The trusted devices are forgotten.',
+  unlinkIdentity: 'The sign-in identity is unlinked.',
+  removePassword: 'The password is removed.',
+  endSession: 'The session is ended.',
+  unlockSignIn: 'The name is unlocked.',
+  createGroup: 'The group was added.',
+  describeGroup: 'The description was changed.',
+  deleteGroup: 'The group was deleted.',
+  addGroupMember: 'The person was added to the group.',
+  removeGroupMember: 'The person was removed from the group.',
+  giveGroupRole: 'The role was given to the group.',
+  takeGroupRole: 'The role was taken away from the group.',
+};
 
 /**
  * The request fields that say where, on the whole application's methods that give a role
@@ -1782,7 +1766,6 @@ function doneWords(tenant: boolean): Partial<Record<MethodKind, string>> {
  * other: a request is sent as filled.
  */
 const noPlace: Partial<Record<MethodKind, Record<string, unknown>>> = {
-  create: { domain: null, everyDomain: false },
   invite: { domain: null, everyDomain: false },
   assignRole: { domain: null, everyDomain: false },
   giveGroupRole: { domain: null, everyDomain: false },

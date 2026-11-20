@@ -163,20 +163,20 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 
 // testProvenPasswordWriteAfterAnotherWrite holds each write that follows a proof to the
 // hash that was proved. The user is read, as the caller reads it to compare the
-// password; then another write of the password commits: a change, a temporary password
-// an operator sets, a removal; then the write is made on proof of the hash that was
+// password; then another write of the password commits: a change, a replacement under
+// the change mark, a removal; then the write is made on proof of the hash that was
 // read. It writes nothing and answers ErrPasswordChanged (a Conflict), and the row
 // holds what the other write left, hash and change mark: an upgrade does not put the
-// old password back, and a change or a removal does not undo an operator's reset on
-// proof of the password it replaced.
+// old password back, and a change or a removal does not undo a replacement on proof of
+// the password it replaced.
 func testProvenPasswordWriteAfterAnotherWrite(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	hashes := passwordHashes(t, "original", "other", "replacement")
 	original, other, replacement := hashes[0], hashes[1], hashes[2]
 
 	// Each write between leaves a hash and a mark the write under test would not: the
-	// users start under the mark, which a change and a removal clear and a temporary
-	// password sets again.
+	// users start under the mark, which a change and a removal clear and a replacement
+	// under the mark sets again.
 	between := []struct {
 		name string
 		// commit makes the other write and answers the hash and the mark it leaves.
@@ -189,7 +189,7 @@ func testProvenPasswordWriteAfterAnotherWrite(ctx context.Context, t *testing.T,
 			},
 		},
 		{
-			name: "a temporary password",
+			name: "a replacement under the mark",
 			commit: func(userID impulse.UUID, _ *securehash.Hash) (*securehash.Hash, bool, error) {
 				return other, true, in.Driver.ReplaceUserPassword(ctx, userID, other, true)
 			},
@@ -226,46 +226,46 @@ func testProvenPasswordWriteAfterAnotherWrite(ctx context.Context, t *testing.T,
 	}
 }
 
-// testProvenPasswordWriteRacesReset asks a temporary password an operator sets and a
-// write that follows a proof of the password it replaces at once. Whichever order they
-// commit in, the operator's password stands with its change mark: the write on proof
-// lands first and is overwritten, or finds another hash and writes nothing
-// (ErrPasswordChanged). The comparison and the write are one statement on PostgreSQL
+// testProvenPasswordWriteRacesReplacement asks a replacement of the password under the
+// change mark and a write that follows a proof of the password it replaces at once.
+// Whichever order they commit in, the replacement stands with its change mark: the
+// write on proof lands first and is overwritten, or finds another hash and writes
+// nothing (ErrPasswordChanged). The comparison and the write are one statement on PostgreSQL
 // and one transaction on Spanner, so nothing commits between them. Several users are
 // raced for each write, since one race may fall the right way by chance.
-func testProvenPasswordWriteRacesReset(ctx context.Context, t *testing.T, h *AuthHarness) {
+func testProvenPasswordWriteRacesReplacement(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
-	hashes := passwordHashes(t, "original", "temporary", "replacement")
-	original, temporary, replacement := hashes[0], hashes[1], hashes[2]
+	hashes := passwordHashes(t, "original", "replaced", "proven")
+	original, replaced, proven := hashes[0], hashes[1], hashes[2]
 
 	const rounds = 8
 	for i, w := range provenWrites() {
 		for round := range rounds {
-			user := linkedPasswordUser(ctx, t, in.Driver, fmt.Sprintf("reset-race-%d-%d", i, round), original, false)
+			user := linkedPasswordUser(ctx, t, in.Driver, fmt.Sprintf("replace-race-%d-%d", i, round), original, false)
 			read := mustUser(ctx, t, in.Driver, user.ID).PasswordHash
 
 			var (
-				wg       sync.WaitGroup
-				resetErr error
-				writeErr error
+				wg         sync.WaitGroup
+				replaceErr error
+				writeErr   error
 			)
 			wg.Go(func() {
-				resetErr = in.Driver.ReplaceUserPassword(ctx, user.ID, temporary, true)
+				replaceErr = in.Driver.ReplaceUserPassword(ctx, user.ID, replaced, true)
 			})
 			wg.Go(func() {
-				writeErr = w.write(ctx, in.Driver, user.ID, read, replacement)
+				writeErr = w.write(ctx, in.Driver, user.ID, read, proven)
 			})
 			wg.Wait()
 
-			if resetErr != nil {
-				t.Fatalf("round %d: ReplaceUserPassword() error = %v, want the operator's password set whatever else is asked", round, resetErr)
+			if replaceErr != nil {
+				t.Fatalf("round %d: ReplaceUserPassword() error = %v, want the password set whatever else is asked", round, replaceErr)
 			}
 			if writeErr != nil && !errors.Is(writeErr, dbtype.ErrPasswordChanged) {
 				t.Fatalf("round %d: %s error = %v, want it to go through or find the password changed", round, w.name, writeErr)
 			}
-			if got := mustUser(ctx, t, in.Driver, user.ID); !sameHash(got.PasswordHash, temporary) || !got.PasswordChangeRequired {
-				t.Errorf("round %d: after a temporary password and %s asked at once (its error = %v), the user holds the replacement = %t, no hash = %t, the change mark = %t; want the temporary password and its mark",
-					round, w.name, writeErr, sameHash(got.PasswordHash, replacement), got.PasswordHash == nil, got.PasswordChangeRequired)
+			if got := mustUser(ctx, t, in.Driver, user.ID); !sameHash(got.PasswordHash, replaced) || !got.PasswordChangeRequired {
+				t.Errorf("round %d: after a replacement and %s asked at once (its error = %v), the user holds the password written on proof = %t, no hash = %t, the change mark = %t; want the replacement and its mark",
+					round, w.name, writeErr, sameHash(got.PasswordHash, proven), got.PasswordHash == nil, got.PasswordChangeRequired)
 			}
 		}
 	}

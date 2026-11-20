@@ -349,11 +349,10 @@ func Test_prepareIdentity_grants(t *testing.T) {
 			// takes from the caller is listed for it, and for no other method.
 			"func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {\n\tcaller := resource.CallerFrom(ctx)\n\tdomain, everyDomain := scopeFields(scope)\n\tswitch method {",
 			"\tcase AssignCrewRole{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &AssignCrewRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})\n" +
-				"\tcase CreateCrewUser{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &CreateCrewUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})\n" +
 				"\tcase InviteCrewUser{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &InviteCrewUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})\n" +
 				"\tcase GiveCrewGroupRole{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &GiveCrewGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})\n\t}",
 			// A method that picks no role from the list is no answer.
-			"return false, errors.Newf(\"%s is no method of the whole application that gives a role by hand: AssignCrewRole, CreateCrewUser, InviteCrewUser, GiveCrewGroupRole\", method)",
+			"return false, errors.Newf(\"%s is no method of the whole application that gives a role by hand: AssignCrewRole, InviteCrewUser, GiveCrewGroupRole\", method)",
 			// One method is asked: its refusal is the answer, and a grant that admits the
 			// role, or leaves a row to decide, is a yes.
 			"func couldGiveBy(ctx context.Context, caller *resource.Caller, method accesstypes.Resource, request any) (bool, error) {\n\tgate, err := caller.ExecuteGate(ctx, method, request)\n\tif err != nil {\n\t\treturn granted(err)\n\t}\n\tmay, settled := gate.Settled()\n\n\treturn may || !settled, nil\n}",
@@ -427,10 +426,9 @@ func Test_prepareIdentity_grants_tenant(t *testing.T) {
 			// of the whole application is no method of a tenant.
 			"func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {",
 			"\t\tswitch method {\n\t\tcase AssignCrewShipRole{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &AssignCrewShipRole{Role: string(role)})\n" +
-				"\t\tcase CreateCrewShipUser{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &CreateCrewShipUser{Roles: []string{string(role)}})\n" +
 				"\t\tcase InviteCrewShipUser{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &InviteCrewShipUser{Roles: []string{string(role)}})\n" +
 				"\t\tcase GiveCrewShipGroupRole{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &GiveCrewShipGroupRole{Role: string(role)})\n\t\t}\n\n" +
-				"\t\treturn false, errors.Newf(\"%s is no method of a tenant that gives a role by hand: AssignCrewShipRole, CreateCrewShipUser, InviteCrewShipUser, GiveCrewShipGroupRole\", method)\n\t}",
+				"\t\treturn false, errors.Newf(\"%s is no method of a tenant that gives a role by hand: AssignCrewShipRole, InviteCrewShipUser, GiveCrewShipGroupRole\", method)\n\t}",
 			"gate, err := caller.ExecuteGate(ctx, method, request)\n\tif err != nil {\n\t\treturn granted(err)\n\t}",
 		},
 		"crewidentity/store.go": {

@@ -125,8 +125,6 @@ type fakeStore struct {
 	// fakeGroupTables are the groups of people, their members and the roles they hold
 	// (groups_test.go).
 	fakeGroupTables
-	// nextID is the id InsertUser answers.
-	nextID impulse.UUID
 	// failOn names a call that fails.
 	failOn string
 
@@ -143,23 +141,6 @@ func (f *fakeStore) fail(call string) error {
 	}
 
 	return nil
-}
-
-func (f *fakeStore) InsertUser(_ context.Context, _ resource.ReadWriteTransaction, user *NewUser) (impulse.UUID, error) {
-	if err := f.fail("InsertUser"); err != nil {
-		return impulse.NilUUID, err
-	}
-	email := "<none>"
-	if user.Email != nil {
-		email = *user.Email
-	}
-	line := "insert user " + user.Username + " " + email
-	if user.Name != nil {
-		line += " name=" + *user.Name
-	}
-	f.writes = append(f.writes, line)
-
-	return f.nextID, nil
 }
 
 func (f *fakeStore) UpdateUser(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, change *UserChange) error {
@@ -386,15 +367,6 @@ func (f *fakeStore) RenameSession(_ context.Context, _ resource.ReadWriteTransac
 		return err
 	}
 	f.writes = append(f.writes, "rename session "+id.String()+" "+username)
-
-	return nil
-}
-
-func (f *fakeStore) SetPassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error {
-	if err := f.fail("SetPassword"); err != nil {
-		return err
-	}
-	f.writes = append(f.writes, "set password "+id.String()+" "+hash+" changeRequired="+boolText(changeRequired))
 
 	return nil
 }
@@ -801,14 +773,6 @@ func (s fakeSessions) SignsInThrough(method sessioninfo.AuthMethod, connection s
 	}
 
 	return []string{string(method)}
-}
-
-func (fakeSessions) HashPassword(password string) (string, error) {
-	if password == "" {
-		return "", httpio.NewBadRequestMessage("an empty password is not a password")
-	}
-
-	return "hash(" + password + ")", nil
 }
 
 func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.InvitationRequest) (session.PreparedInvitation, error) {

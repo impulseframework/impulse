@@ -1617,7 +1617,7 @@ func holdsAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impul
 }
 
 // firstLink decides the standard rule's link to a user who has no password and no link:
-// an account that exists ahead of its first sign-in (an administrator's create that gave
+// an account that exists ahead of its first sign-in (one the application created with
 // no password, a seed's), which nothing but its name ties to the person signing in. A
 // custom rule's link rests on the rule's own evidence and does not come here, and a
 // registration that declares its provider's names the application's own

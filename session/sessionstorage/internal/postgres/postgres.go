@@ -908,10 +908,11 @@ func errPasswordChanged() error {
 }
 
 // ReplaceUserPassword sets a user's password hash and whether the user must change the
-// password before anything else is served (true for a password an operator set, false
-// for one the user chose), and expires every session of the user, in one transaction:
-// the password is replaced and the sessions ended together, or neither is. It follows
-// no proof of the password it replaces and overwrites whatever the row holds. The
+// password before anything else is served (false for a password the user chose, which
+// is what the session library writes), and expires every session of the user, in one
+// transaction: the password is replaced and the sessions ended together, or neither
+// is. It follows no proof of the password it replaces and overwrites whatever the row
+// holds. The
 // password is written first: the write waits for a sign-in that is inserting a session
 // on proof of the password being replaced (the flow shares the user row's lock while it
 // decides), so the expiry that follows finds that session and ends it.

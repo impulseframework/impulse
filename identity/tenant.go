@@ -22,7 +22,7 @@ import (
 //     value of the request, so no request names another tenant;
 //   - a role is given and taken in the tenant alone, and a role a person holds in every
 //     tenant is not one tenant's to take;
-//   - a person is created, and an address invited, into the tenant.
+//   - an address is invited into the tenant.
 //
 // A method that names a person names a row of the tenant's own list, which the generated
 // frame locates within the tenant before the method runs: a person who holds no role in
@@ -142,16 +142,6 @@ func (t *Tenant) RemoveRole(ctx context.Context, txn resource.ReadWriteTransacti
 	}
 
 	return nil
-}
-
-// CreateUser buffers a new user who holds the roles in the tenant (see
-// Manager.CreateUser). The roles are held in the tenant whatever scope the account
-// names.
-func (t *Tenant) CreateUser(ctx context.Context, txn resource.ReadWriteTransaction, account *NewAccount) (impulse.UUID, error) {
-	inTenant := *account
-	inTenant.Scope = t.scope()
-
-	return t.manager.CreateUser(ctx, txn, &inTenant)
 }
 
 // Invite buffers an invitation into the tenant and has its link mailed once the

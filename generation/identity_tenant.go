@@ -77,10 +77,10 @@ type tenantGiving struct {
 
 // tenantGivings are the methods of one tenant whose role field picks from the tenant's
 // roles, each where the instance writes it: the one that gives a person a role, the
-// create and the invitation that start a person with one, and the one that gives a
-// group a role. The list a role is picked from offers, for each, the roles that method
-// takes from the caller (the generated CouldGive), so it reads the same sources the
-// methods are written from and names none the instance does not hold.
+// invitation that starts a person with one, and the one that gives a group a role. The
+// list a role is picked from offers, for each, the roles that method takes from the
+// caller (the generated CouldGive), so it reads the same sources the methods are
+// written from and names none the instance does not hold.
 func (i *identityInstance) tenantGivings() []tenantGiving {
 	if i.tenant == nil {
 		return nil
@@ -90,7 +90,6 @@ func (i *identityInstance) tenantGivings() []tenantGiving {
 	var givings []tenantGiving
 	for _, giving := range []tenantGiving{
 		{Method: "Assign" + subject + "Role", Fields: "Role: string(role)"},
-		{Method: "Create" + subject + "User", Fields: "Roles: []string{string(role)}"},
 		{Method: "Invite" + subject + "User", Fields: "Roles: []string{string(role)}"},
 		{Method: "Give" + subject + "GroupRole", Fields: "Role: string(role)"},
 	} {
@@ -202,7 +201,6 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 		if i.password {
 			files = append(files,
 				method("Require"+subject+"PasswordChange", identityRequirePasswordChangeTemplate, identityUsers),
-				method("Set"+subject+"TemporaryPassword", identitySetTemporaryPasswordTemplate, identityUsers),
 				method("Send"+subject+"UserPasswordResetLink", identitySendPasswordResetLinkTemplate, identityUsers, identityMailLinks),
 			)
 		}
@@ -211,9 +209,6 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 				method("Rename"+subject+"User", identityRenameUserTemplate, identityUsers),
 				method("Set"+subject+"UserEmail", identitySetUserEmailTemplate, identityUsers),
 			)
-		}
-		if i.createsUsers() {
-			files = append(files, method("Create"+subject+"User", identityTenantCreateUserTemplate, identityUsers, identityMemberships))
 		}
 		if !i.rolesSynced {
 			files = append(files, method("Assign"+subject+"Role", identityTenantAssignRoleTemplate, identityMemberships))

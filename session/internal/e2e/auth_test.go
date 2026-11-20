@@ -835,7 +835,7 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamDisabledAndImpersonation[Tx],
 		},
 		{
-			name: "a user with a temporary password reaches the session read, the logout and the password change, and nothing else, until the change",
+			name: "a user who must change their password reaches the session read, the logout and the password change, and nothing else, until the change",
 			run:  seamForcedPasswordChange[Tx],
 		},
 		{
@@ -844,7 +844,7 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, lockForCases)},
 		},
 		{
-			name: "a password sign-in held for the email code completes only while the password it proved is the person's: after their own change, an operator's temporary password or a removal the right code is refused as a wrong password is",
+			name: "a password sign-in held for the email code completes only while the password it proved is the person's: after their own change, a password set on another proof or a removal the right code is refused as a wrong password is",
 			run:  seamHeldSignInRestsOnItsPassword[Tx],
 		},
 		{
@@ -924,11 +924,11 @@ func seamMethodsList[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], 
 	}
 }
 
-// seamForcedPasswordChange: an operator creates pat with a temporary password. Signed
-// in, pat reaches the session read, which reports the mark, the password change and
-// the logout, and nothing else: a protected route answers 403 with
+// seamForcedPasswordChange: an operator creates pat with a password under the change
+// mark. Signed in, pat reaches the session read, which reports the mark, the password
+// change and the logout, and nothing else: a protected route answers 403 with
 // password_change_required. The change clears the mark and continues in a new session
-// that opens the application; an operator's reset marks pat again and ends the session.
+// that opens the application.
 func seamForcedPasswordChange[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
 	t.Helper()
 
@@ -986,20 +986,6 @@ func seamForcedPasswordChange[Tx any](ctx context.Context, t *testing.T, a *auth
 	}
 	if user, err := a.api.User(ctx, pat); err != nil || user.PasswordChangeRequired || user.LastSignInAt == nil {
 		t.Errorf("User() after the change = %+v, %v; want no mark and a last sign-in", user, err)
-	}
-
-	// An operator's reset marks pat again and ends the session; the temporary password
-	// signs in under the mark.
-	if err := a.api.ResetSessionUserPassword(ctx, pat, "temporary-2"); err != nil {
-		t.Fatalf("ResetSessionUserPassword() error = %v", err)
-	}
-	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
-	b.prime(ctx)
-	if status, _ := b.passwordLogin(ctx, "temporary-2"); status != http.StatusOK {
-		t.Fatalf("password login with the reset password = %d, want 200", status)
-	}
-	if _, required := b.passwordChangeRequired(ctx); !required {
-		t.Error("GET /authenticated after the reset reports no passwordChangeRequired")
 	}
 }
 

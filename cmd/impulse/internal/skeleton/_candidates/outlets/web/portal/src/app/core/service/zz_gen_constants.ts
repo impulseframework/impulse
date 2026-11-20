@@ -62,8 +62,6 @@ export const Methods = {
   AssignMembersTenantRole: 'AssignMembersTenantRole' as Method,
   CreateMembersGroup: 'CreateMembersGroup' as Method,
   CreateMembersTenantGroup: 'CreateMembersTenantGroup' as Method,
-  CreateMembersTenantUser: 'CreateMembersTenantUser' as Method,
-  CreateMembersUser: 'CreateMembersUser' as Method,
   DeleteMembersGroup: 'DeleteMembersGroup' as Method,
   DeleteMembersTenantGroup: 'DeleteMembersTenantGroup' as Method,
   DeleteMembersTenantUser: 'DeleteMembersTenantUser' as Method,
@@ -970,26 +968,6 @@ export namespace CreateMembersTenantGroup {
   export const fieldName = {
     name: 'name' as FieldName,
     description: 'description' as FieldName,
-  };
-}
-
-export namespace CreateMembersTenantUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    roles: 'roles' as FieldName,
-  };
-}
-
-export namespace CreateMembersUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
-    roles: 'roles' as FieldName,
   };
 }
 

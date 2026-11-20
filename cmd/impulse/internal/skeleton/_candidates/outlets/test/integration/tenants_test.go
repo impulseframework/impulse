@@ -45,23 +45,16 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	founderID := staffAccountID(ctx, t, admin, "founder")
 	eastSegment := consoleAPI + "/tenants/" + east + "/announcements"
 
-	// The staff auth: the member, north's administrator, is given a role in East; a
-	// person is created in East who holds a role nowhere else; and an invitation into
-	// East stands.
+	// The staff auth: the member, north's administrator, is given a role in East; so is
+	// a person who holds a role nowhere else; and an invitation into East stands.
 	if status, body := admin.do(ctx, http.MethodPost, consoleAPI+"/assign-staff-role", []byte(`{"userId":"`+s.memberID+`","role":"TenantAdministrator","domain":"`+east+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("giving the member a role in East: status %d: %s", status, body)
 	}
-	status, body := tenantPost(ctx, admin, east, "create-staff-tenant-user", map[string]any{"username": "easterner", "password": "a-temporary-password", "roles": []string{"TenantAdministrator"}})
-	if status != http.StatusOK {
-		t.Fatalf("creating a person in East: status %d: %s", status, body)
+	easterner := staffAccount(ctx, t, s, "easterner", "Easterner")
+	if status, body := admin.do(ctx, http.MethodPost, consoleAPI+"/assign-staff-role", []byte(`{"userId":"`+easterner+`","role":"TenantAdministrator","domain":"`+east+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving a person with no other role one in East: status %d: %s", status, body)
 	}
-	var easterner struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(body, &easterner); err != nil || easterner.ID == "" {
-		t.Fatalf("creating a person in East answered %s (%v), want the new account's id", body, err)
-	}
-	status, body = tenantPost(ctx, admin, east, "invite-staff-tenant-user", map[string]any{"email": "invited@example.com", "roles": []string{"TenantAdministrator"}})
+	status, body := tenantPost(ctx, admin, east, "invite-staff-tenant-user", map[string]any{"email": "invited@example.com", "roles": []string{"TenantAdministrator"}})
 	if status != http.StatusOK {
 		t.Fatalf("inviting into East: status %d: %s", status, body)
 	}
@@ -75,7 +68,7 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 		t.Fatalf("the member's tenant list once given a role in East names it %q, want East", name)
 	}
 	if !accountExists(ctx, t, s, staffUsers, "easterner") {
-		t.Fatal("the person created in East has no account")
+		t.Fatal("the person of East alone has no account")
 	}
 
 	// The members auth: the portal's client, north's member, is given a role in East, and
@@ -102,8 +95,8 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	}
 	// Each permission store holds a role in East for those who were given one there,
 	// under the id of the person's account, which is how it names anyone: the member's,
-	// the founder's (the acceptance seated them) and the created person's in the staff
-	// auth's, the client's and the member's in the members auth's.
+	// the founder's (the acceptance seated them) and the person's of East alone in the
+	// staff auth's, the client's and the member's in the members auth's.
 	type holder struct {
 		name string
 		user accesstypes.User
@@ -119,7 +112,7 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 			seated: []holder{
 				{"the member", accesstypes.User(s.memberID)},
 				{"the founder", accesstypes.User(founderID)},
-				{"the person created there", accesstypes.User(easterner.ID)},
+				{"the person of East alone", accesstypes.User(easterner)},
 			},
 		},
 		{
@@ -168,8 +161,8 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	}
 
 	// Neither permission store holds a role in the deleted tenant: not the member's, the
-	// founder's or the created person's in the staff auth's, not the client's or the
-	// member's in the members auth's.
+	// founder's or the person's of East alone in the staff auth's, not the client's or
+	// the member's in the members auth's.
 	for _, store := range stores {
 		for _, h := range store.seated {
 			if roles := rolesHeld(ctx, t, store.engine, h.user, scope); len(roles) != 0 {

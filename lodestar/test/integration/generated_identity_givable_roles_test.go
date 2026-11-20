@@ -8,7 +8,6 @@ package integration
 // method takes.
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,16 +16,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
-	"github.com/impulseframework/impulse/resource"
 )
 
 // TestGeneratedIdentityGivableRoles holds the list the whole application's dialogs pick
 // a role from. The world runs over the crew's role file with limits put on the
-// Headquarters role's grants of the four methods that give one: none of them gives
+// Headquarters role's grants of the three methods that give one: none of them gives
 // Adjutant, and only the invitation gives Surveyor. The list is asked for one method at
 // a time, by a filter that names it. A person who holds Headquarters and is no super
 // administrator is then offered, by each method and for the whole application, every
@@ -53,27 +50,19 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	ctx := t.Context()
 
 	const notGiven, invitedOnly = "Adjutant", "Surveyor"
-	// The four methods whose role field picks from the list, as a request names them.
-	const assign, create, invite, giveGroup = "AssignCrewRole", "CreateCrewUser", "InviteCrewUser", "GiveCrewGroupRole"
+	// The three methods whose role field picks from the list, as a request names them.
+	const assign, invite, giveGroup = "AssignCrewRole", "InviteCrewUser", "GiveCrewGroupRole"
 	limit := fmt.Sprintf("new.role != '%s' AND new.role != '%s'", notGiven, invitedOnly)
 	roles := crew.Roles()
-	for _, method := range []string{assign, create, giveGroup} {
+	for _, method := range []string{assign, giveGroup} {
 		roles = withCondition(t, roles, "Headquarters", "Execute", method, limit)
 	}
 	roles = withCondition(t, roles, "Headquarters", "Execute", invite, fmt.Sprintf("new.role != '%s'", notGiven))
 	w := buildIdentityWorldOver(t, true, roles)
 
 	// A person who holds Headquarters, and the Super Administrator role nowhere.
-	var deskID impulse.UUID
-	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		var err error
-		deskID, err = w.createCrewUser(ctx, txn, "hqdesk", "Headquarters", "CrewCommon")
-
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	desk := knownAs(t, "hqdesk", deskID)
+	deskID := w.seedCrewUser(ctx, t, "hqdesk", "Headquarters", "CrewCommon")
+	desk := userOf(deskID)
 
 	const rolesPath = consoleAPI + "/crew-givable-roles?limit=all"
 	type place struct {
@@ -138,7 +127,7 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	})
 
 	// The role one method alone takes is offered by that method's dialog and by no
-	// other's: each list is its own method's grant, and never the widest of the four.
+	// other's: each list is its own method's grant, and never the widest of the three.
 	t.Run("a role the invitation alone gives is in the invitation's list and in no other method's", func(t *testing.T) {
 		t.Parallel()
 		invited := list(t, desk, invite, "")
@@ -150,7 +139,7 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 		if slices.Contains(invited[whole], notGiven) {
 			t.Errorf("the roles the invitation offers for the whole application = %v, want no %s: its grant refuses the role", invited[whole], notGiven)
 		}
-		for _, method := range []string{assign, create, giveGroup} {
+		for _, method := range []string{assign, giveGroup} {
 			held := list(t, desk, method, "")
 			if slices.Contains(held[whole], invitedOnly) {
 				t.Errorf("%s offers %v for the whole application, want no %s: its own grant refuses the role, whatever the invitation's takes", method, held[whole], invitedOnly)
@@ -189,7 +178,7 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 
 	t.Run("a filter that names a method any other way is refused, with the names to send", func(t *testing.T) {
 		t.Parallel()
-		const methods = "AssignCrewRole, CreateCrewUser, InviteCrewUser, GiveCrewGroupRole"
+		const methods = "AssignCrewRole, InviteCrewUser, GiveCrewGroupRole"
 		for _, filter := range []string{
 			// A method that picks no role from the list: one that gives none, and a
 			// sector's own, whose list is the sector's.
@@ -228,7 +217,7 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	t.Run("a filter on everyDomain narrows the list to one of the two places, as the dialog asks it", func(t *testing.T) {
 		t.Parallel()
 		// The invitation's dialog asks "In every sector" as the others do.
-		for _, method := range []string{assign, create, invite, giveGroup} {
+		for _, method := range []string{assign, invite, giveGroup} {
 			if held := list(t, desk, method, "everyDomain:eq:false"); len(held) != 1 || !slices.Contains(held[whole], "Headquarters") {
 				t.Errorf("%s, everyDomain false lists %v, want the whole application's roles alone", method, held)
 			}

@@ -387,12 +387,12 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// The auth's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the session
-	// manager that signs them in, whose hasher makes the hash of a temporary password one
-	// of its methods sets. The client knows the roles that count as a
-	// tenant's administrator's (identity.WithAdministratorRoles, the ones held in every
-	// tenant), so a person who removes a role from themselves in a tenant is judged by
-	// the rule on the tenant's last administrator. The application's last administrator
-	// is its last super administrator, kept by the client's own rule.
+	// manager that signs them in, which makes the link an invitation mails.
+	// The client knows the roles that count as a tenant's administrator's
+	// (identity.WithAdministratorRoles, the ones held in every tenant), so a person who
+	// removes a role from themselves in a tenant is judged by the rule on the tenant's
+	// last administrator. The application's last administrator is its last super
+	// administrator, kept by the client's own rule.
 	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(tenantAdministrators))
 	if err != nil {
 		return nil, errors.Wrap(err, "staffidentity.NewClient()")

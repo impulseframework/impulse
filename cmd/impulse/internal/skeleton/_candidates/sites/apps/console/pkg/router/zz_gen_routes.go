@@ -102,10 +102,6 @@ type GeneratedHandlers interface {
 
 	CreateStaffTenantGroup() http.HandlerFunc
 
-	CreateStaffTenantUser() http.HandlerFunc
-
-	CreateStaffUser() http.HandlerFunc
-
 	CreateTenant() http.HandlerFunc
 
 	CreateTenantOffered() http.HandlerFunc
@@ -195,10 +191,6 @@ type GeneratedHandlers interface {
 	SetFeature() http.HandlerFunc
 
 	SetStaffSelfServiceReset() http.HandlerFunc
-
-	SetStaffTemporaryPassword() http.HandlerFunc
-
-	SetStaffTenantTemporaryPassword() http.HandlerFunc
 
 	SetStaffTenantUserEmail() http.HandlerFunc
 
@@ -376,10 +368,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/api/tenants/{tenantID}/create-staff-tenant-group", domainGuard(h.CreateStaffTenantGroup()))
 
-	asked.Post("/api/tenants/{tenantID}/create-staff-tenant-user", domainGuard(h.CreateStaffTenantUser()))
-
-	asked.Post("/api/create-staff-user", h.CreateStaffUser())
-
 	bounded.Post("/api/create-tenant", h.CreateTenant())
 
 	bounded.Get("/api/create-tenant", h.CreateTenantOffered())
@@ -479,10 +467,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.With(resource.BodyLimit(BodyLimit)).Post("/api/set-feature", h.SetFeature())
 
 	asked.Post("/api/set-staff-self-service-reset", h.SetStaffSelfServiceReset())
-
-	asked.Post("/api/set-staff-temporary-password", h.SetStaffTemporaryPassword())
-
-	asked.Post("/api/tenants/{tenantID}/set-staff-tenant-temporary-password", domainGuard(h.SetStaffTenantTemporaryPassword()))
 
 	asked.Post("/api/tenants/{tenantID}/set-staff-tenant-user-email", domainGuard(h.SetStaffTenantUserEmail()))
 

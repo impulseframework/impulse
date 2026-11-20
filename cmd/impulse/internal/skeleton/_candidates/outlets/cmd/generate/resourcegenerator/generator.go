@@ -20,10 +20,10 @@ func newGenerator(ctx context.Context) (generation.Generator, error) {
 		// The management of each auth's people is generated into pkg/identity, a tree the
 		// generator owns: for each auth, resources over its own tables (its accounts, their
 		// sessions and sign-in identities, the mailed links, the role memberships) and the
-		// methods that change them (create a user, give and take a role, invite an address,
-		// set a temporary password), served on the outlet the auth signs in to (the staff's
-		// on the console, the members' on the portal) behind the auth's role file's grants,
-		// and callable in a transaction of the application's own. The application has a
+		// methods that change them (invite an address, give and take a role, mail a password
+		// reset link), served on the outlet the auth signs in to (the staff's on the
+		// console, the members' on the portal) behind the auth's role file's grants, and
+		// callable in a transaction of the application's own. The application has a
 		// tenant record, so each auth also gets the lists a tenant keeps of its people,
 		// served under the tenant's address (the tenant's people, the roles held there, its
 		// invitations and its people's sign-in identities), the methods a tenant changes

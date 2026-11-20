@@ -69,8 +69,6 @@ export const Methods = {
   AssignStaffTenantRole: 'AssignStaffTenantRole' as Method,
   CreateStaffGroup: 'CreateStaffGroup' as Method,
   CreateStaffTenantGroup: 'CreateStaffTenantGroup' as Method,
-  CreateStaffTenantUser: 'CreateStaffTenantUser' as Method,
-  CreateStaffUser: 'CreateStaffUser' as Method,
   DeleteStaffGroup: 'DeleteStaffGroup' as Method,
   DeleteStaffTenantGroup: 'DeleteStaffTenantGroup' as Method,
   DeleteStaffTenantUser: 'DeleteStaffTenantUser' as Method,
@@ -107,8 +105,6 @@ export const Methods = {
   SendStaffTenantUserPasswordResetLink: 'SendStaffTenantUserPasswordResetLink' as Method,
   SendStaffUserPasswordResetLink: 'SendStaffUserPasswordResetLink' as Method,
   SetStaffSelfServiceReset: 'SetStaffSelfServiceReset' as Method,
-  SetStaffTemporaryPassword: 'SetStaffTemporaryPassword' as Method,
-  SetStaffTenantTemporaryPassword: 'SetStaffTenantTemporaryPassword' as Method,
   SetStaffTenantUserEmail: 'SetStaffTenantUserEmail' as Method,
   SetStaffTenantUserName: 'SetStaffTenantUserName' as Method,
   SetStaffUserEmail: 'SetStaffUserEmail' as Method,
@@ -1130,28 +1126,6 @@ export namespace CreateStaffTenantGroup {
   };
 }
 
-export namespace CreateStaffTenantUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    password: 'password' as FieldName,
-    roles: 'roles' as FieldName,
-  };
-}
-
-export namespace CreateStaffUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    password: 'password' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
-    roles: 'roles' as FieldName,
-  };
-}
-
 export namespace DeleteStaffGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
@@ -1394,20 +1368,6 @@ export namespace SendStaffUserPasswordResetLink {
 export namespace SetStaffSelfServiceReset {
   export const fieldName = {
     on: 'on' as FieldName,
-  };
-}
-
-export namespace SetStaffTemporaryPassword {
-  export const fieldName = {
-    userId: 'userId' as FieldName,
-    password: 'password' as FieldName,
-  };
-}
-
-export namespace SetStaffTenantTemporaryPassword {
-  export const fieldName = {
-    userId: 'userId' as FieldName,
-    password: 'password' as FieldName,
   };
 }
 

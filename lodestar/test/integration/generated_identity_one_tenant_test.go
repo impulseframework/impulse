@@ -79,19 +79,13 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 	anvilSector, bastionSector := anvil, bastion
 	suffix := identitySuffix()
 
-	// odell is a person of Anvil, with an address an administrator typed.
+	// odell is a person of Anvil, with an address nobody has confirmed.
 	odell, odellAddress := "odell-"+suffix, "odell-"+suffix+"@example.com"
-	var odellID impulse.UUID
+	odellID := s.seedCrewAccount(ctx, t, odell, &odellAddress)
 	if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		created, err := (&crewidentity.CreateCrewUser{Username: odell, Email: &odellAddress, Roles: []string{"Pilot"}, Domain: &anvilSector}).Execute(ctx, txn, strict)
-		if err != nil {
-			return fmt.Errorf("CreateCrewUser(%s): %w", odell, err)
-		}
-		odellID = created.ID
-
-		return nil
+		return (&crewidentity.AssignCrewRole{UserID: odellID, Role: "Pilot", Domain: &anvilSector}).Execute(ctx, txn, strict)
 	}); err != nil {
-		t.Fatalf("creating a person in a sector: %v", err)
+		t.Fatalf("a first role in a sector: %v", err)
 	}
 	inAnvil := []string{"domain/" + anvil + " Pilot"}
 
@@ -115,43 +109,16 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		}
 	})
 
-	t.Run("an account in another sector under a name an account holds is refused as a taken name, and nothing is written or moved", func(t *testing.T) {
-		// A role is held by an account and never by a name, so a second account under the
-		// name would hold nothing of the first's: the name is simply taken, in whatever
-		// sector the second is asked for.
-		before := countRowsOf(ctx, t, s, "CrewSessionUsers", "Username", odell)
-		err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			if _, err := (&crewidentity.CreateCrewUser{Username: odell, Roles: []string{"Pilot"}, Domain: &bastionSector}).Execute(ctx, txn, strict); err != nil {
-				return fmt.Errorf("CreateCrewUser(%s): %w", odell, err)
-			}
-
-			return nil
-		})
-		if !httpio.HasConflict(err) {
-			t.Fatalf("an account in Bastion under the name of a person of Anvil: error = %v, want a Conflict", err)
-		}
-		if after := countRowsOf(ctx, t, s, "CrewSessionUsers", "Username", odell); after != before {
-			t.Errorf("the refused create left %d account(s) under the name, want %d", after, before)
-		}
-		if held := crewHolds(t, s.db, odell); !slices.Equal(held, inAnvil) {
-			t.Errorf("after the refused create the person holds %v, want %v", held, inAnvil)
-		}
-	})
-
 	t.Run("an address nobody confirmed holds nothing against an invitation, which another sector sends", func(t *testing.T) {
-		// piper is a person of Anvil whose address an administrator typed and nobody
-		// confirmed: it says nothing of who reads its mail, so Anvil cannot keep Bastion
-		// from inviting an address by writing it on one of its own accounts. Whoever
-		// accepts is held to the rule then.
+		// piper is a person of Anvil whose address nobody confirmed: it says nothing of
+		// who reads its mail, so an account of Anvil's that carries an address cannot keep
+		// Bastion from inviting it. Whoever accepts is held to the rule then.
 		piper, piperAddress := "piper-"+suffix, "piper-"+suffix+"@example.com"
+		piperID := s.seedCrewAccount(ctx, t, piper, &piperAddress)
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			if _, err := (&crewidentity.CreateCrewUser{Username: piper, Email: &piperAddress, Roles: []string{"Pilot"}, Domain: &anvilSector}).Execute(ctx, txn, strict); err != nil {
-				return fmt.Errorf("CreateCrewUser(%s): %w", piper, err)
-			}
-
-			return nil
+			return (&crewidentity.AssignCrewRole{UserID: piperID, Role: "Pilot", Domain: &anvilSector}).Execute(ctx, txn, strict)
 		}); err != nil {
-			t.Fatalf("creating a person in a sector: %v", err)
+			t.Fatalf("a first role in a sector: %v", err)
 		}
 		var invited *crewidentity.InviteCrewUserResult
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
@@ -275,17 +242,11 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		// and then in another is given, and so is an invitation into a third.
 		staff, staffAddress := "staff-"+suffix, "staff-"+suffix+"@example.com"
 		cinderSector := cinder
-		var staffID, pilotID impulse.UUID
+		staffID := s.seedCrewAccount(ctx, t, staff, &staffAddress)
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			created, err := (&crewidentity.CreateCrewUser{Username: staff, Email: &staffAddress, Roles: []string{"ClientBrowser"}}).Execute(ctx, txn, strict)
-			if err != nil {
-				return fmt.Errorf("CreateCrewUser(%s): %w", staff, err)
-			}
-			staffID = created.ID
-
-			return nil
+			return (&crewidentity.AssignCrewRole{UserID: staffID, Role: "ClientBrowser"}).Execute(ctx, txn, strict)
 		}); err != nil {
-			t.Fatalf("creating a person of the crew's own: %v", err)
+			t.Fatalf("a role for the whole fleet for a person of the crew's own: %v", err)
 		}
 		for _, sector := range []*string{&bastionSector, &anvilSector} {
 			if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
@@ -343,16 +304,11 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 
 		// A role for the whole fleet, and one in every sector, are given to a person of a sector.
 		pilot := "pilot-" + suffix
+		pilotID := s.seedCrewAccount(ctx, t, pilot, nil)
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			created, err := (&crewidentity.CreateCrewUser{Username: pilot, Roles: []string{"Pilot"}, Domain: &anvilSector}).Execute(ctx, txn, strict)
-			if err != nil {
-				return fmt.Errorf("CreateCrewUser(%s): %w", pilot, err)
-			}
-			pilotID = created.ID
-
-			return nil
+			return (&crewidentity.AssignCrewRole{UserID: pilotID, Role: "Pilot", Domain: &anvilSector}).Execute(ctx, txn, strict)
 		}); err != nil {
-			t.Fatalf("creating a person of Anvil: %v", err)
+			t.Fatalf("a first role in Anvil: %v", err)
 		}
 		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if err := (&crewidentity.AssignCrewRole{UserID: pilotID, Role: "ClientBrowser"}).Execute(ctx, txn, strict); err != nil {

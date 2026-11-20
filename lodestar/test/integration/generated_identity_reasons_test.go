@@ -18,7 +18,6 @@ package integration
 // reason.
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -32,7 +31,6 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
-	"github.com/impulseframework/impulse/resource"
 )
 
 // The lists of the Break glass page, as the generated routes name them: the roles held
@@ -361,21 +359,11 @@ func TestGeneratedIdentityTakeRoleNeedsTheGiving(t *testing.T) {
 			w := buildIdentityWorldOver(t, false, tt.roles)
 			ctx := t.Context()
 
-			var hana string
-			if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				id, err := w.createCrewUser(ctx, txn, "hana", "Headquarters")
-				if err != nil {
-					return err
-				}
-				hana = id.String()
-				knownAs(t, "hana", id)
+			// The request is made as the account's id: both cases run at once under one
+			// test, and each has a hana of its own.
+			hana := w.seedCrewUser(ctx, t, "hana", "Headquarters").String()
 
-				return nil
-			}); err != nil {
-				t.Fatalf("seating hana: %v", err)
-			}
-
-			status, body := doRequestAs(t, w.h, "hana", http.MethodPost, consoleAPI+"/take-crew-role",
+			status, body := doRequestAs(t, w.h, accesstypes.User(hana), http.MethodPost, consoleAPI+"/take-crew-role",
 				fmt.Sprintf(`{"domain":%q,"role":"Engineer","length":"1 hour","reason":"Covering the hangar desk"}`, anvil))
 			assertStatus(t, status, tt.want, body)
 			_, _, held := engineerAtAnvil(t, w.db, hana)

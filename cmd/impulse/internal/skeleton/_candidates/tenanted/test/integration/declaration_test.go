@@ -737,7 +737,7 @@ func firstPasswordCode(ctx context.Context, t *testing.T, b *browser) string {
 }
 
 // createAccount creates an account under the name the directory presents, holding no
-// password and no role: a person an administrator created ahead of their first sign-in.
+// password and no role: a person whose account was made ahead of their first sign-in.
 // Nothing but the name ties such an account to a sign-in, so it is linked only through
 // the directory of the one tenant it belongs to, or with its own invitation.
 func createAccount(ctx context.Context, t *testing.T, s *served, username string) {

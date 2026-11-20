@@ -608,11 +608,11 @@ const minPasswordLength = 8
 // shorter than eight characters, counted as characters and not as the bytes that
 // encode them. Every path that sets a password is held to it, since
 // each hashes the password through hashToSet: a sign-up and an invitation's acceptance,
-// a person's first password, their own change, a password set or reset for them, an
-// account created with one, and the hash the generated user management asks for
-// (AuthAPI.HashPassword). A path that judges the password before other work calls it
-// first as well, so a refused password costs nothing. The rules beyond the length are
-// the application's, on its page.
+// a person's first password, their own change, the password a reset link ends in, one
+// set at the end of a flow of the application's own, and an account created with one.
+// A path that judges the password before other work calls it first as well, so a
+// refused password costs nothing. The rules beyond the length are the application's,
+// on its page.
 func acceptedPassword(password string) error {
 	if utf8.RuneCountInString(password) < minPasswordLength {
 		return httpio.NewBadRequestMessagef("the password is at least %d characters", minPasswordLength)

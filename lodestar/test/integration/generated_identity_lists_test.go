@@ -17,8 +17,8 @@ package integration
 //
 // The seed's crew are personas with no account in this world: each holds its roles by
 // the id users.json gives it, and no row of the users table carries that id, so no list
-// of people shows a persona. The test creates its own people with the generated methods,
-// each holding what its name says:
+// of people shows a persona. The test writes its own people, each an account that is
+// there already and holds what its name says:
 //
 //	ada   Cadet at Anvil, and nowhere else
 //	bo    Pilot at Anvil and at Bastion
@@ -41,7 +41,6 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
-	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -83,26 +82,22 @@ func newTenantListsWorld(t *testing.T) *tenantListsWorld {
 		{name: "eve", email: "eve@example.com", first: hold{role: "Pilot", domain: &anvilSector}, more: []hold{{role: "Pilot", everyDomain: true}}},
 		{name: "fay", email: "fay@example.com", first: hold{role: "Cadet", domain: &anvilSector}, more: []hold{{role: "CrewCommon"}}},
 	}
-	// One transaction, as an application seats its people beside its own rows: a person
-	// is created holding a role, and the other roles are given to the account the create
-	// made, by its id, through the identity client's AssignRole, which serves an account
-	// of its own transaction. The harness is told whose account each is, so a request
-	// made as the person runs as it.
+	// Each person has an account already, with an address nobody has confirmed, as one
+	// who registered has: the harness is told whose account each is, so a request made
+	// as the person runs as it. The roles are given in one transaction, as an application
+	// seats its people beside its own rows, by the account's id through the identity
+	// client's AssignRole.
+	for _, p := range people {
+		w.ids[p.name] = string(makeCrewAccountAt(ctx, t, w.db, accesstypes.User(p.name), p.email))
+	}
 	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		for _, p := range people {
-			email := p.email
-			created, err := (&crewidentity.CreateCrewUser{Username: p.name, Email: &email, Roles: []string{p.first.role}, Domain: p.first.domain, EveryDomain: p.first.everyDomain}).Execute(ctx, txn, w.app.CrewIdentity())
-			if err != nil {
-				return fmt.Errorf("CreateCrewUser(%s): %w", p.name, err)
-			}
-			w.ids[p.name] = created.ID.String()
-			knownAs(t, accesstypes.User(p.name), created.ID)
-			for _, h := range p.more {
+			for _, h := range append([]hold{p.first}, p.more...) {
 				scope, err := identity.Scope(h.domain, h.everyDomain)
 				if err != nil {
 					return fmt.Errorf("identity.Scope(%s, %s): %w", p.name, h.role, err)
 				}
-				if err := w.app.CrewIdentity().AssignRole(ctx, txn, scope, userOf(created.ID), accesstypes.Role(h.role)); err != nil {
+				if err := w.app.CrewIdentity().AssignRole(ctx, txn, scope, accesstypes.User(w.ids[p.name]), accesstypes.Role(h.role)); err != nil {
 					return fmt.Errorf("crewidentity.Client.AssignRole(%s, %s): %w", p.name, h.role, err)
 				}
 			}
@@ -114,6 +109,31 @@ func newTenantListsWorld(t *testing.T) *tenantListsWorld {
 	}
 
 	return w
+}
+
+// seat writes one more account, under the name and with no address, gives it the role
+// in the sector, and answers the account's id. The harness knows the name as the
+// account, so a request made as the name runs as it.
+func (w *tenantListsWorld) seat(ctx context.Context, t *testing.T, name, role, sector string) string {
+	t.Helper()
+
+	id := string(makeCrewAccount(ctx, t, w.db, accesstypes.User(name)))
+	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		scope, err := identity.Scope(&sector, false)
+		if err != nil {
+			return fmt.Errorf("identity.Scope(%s): %w", sector, err)
+		}
+		if err := w.app.CrewIdentity().AssignRole(ctx, txn, scope, accesstypes.User(id), accesstypes.Role(role)); err != nil {
+			return fmt.Errorf("crewidentity.Client.AssignRole(%s, %s): %w", name, role, err)
+		}
+
+		return nil
+	}); err != nil {
+		t.Fatalf("seating %s: %v", name, err)
+	}
+	w.ids[name] = id
+
+	return id
 }
 
 // sectorList lists one of a sector's lists as the user, by the rows' id.

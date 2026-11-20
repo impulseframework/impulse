@@ -133,10 +133,6 @@ type GeneratedHandlers interface {
 
 	CreateStaffTenantGroup() http.HandlerFunc
 
-	CreateStaffTenantUser() http.HandlerFunc
-
-	CreateStaffUser() http.HandlerFunc
-
 	CreateTenant() http.HandlerFunc
 
 	CreateTenantOffered() http.HandlerFunc
@@ -226,10 +222,6 @@ type GeneratedHandlers interface {
 	SetFeature() http.HandlerFunc
 
 	SetStaffSelfServiceReset() http.HandlerFunc
-
-	SetStaffTemporaryPassword() http.HandlerFunc
-
-	SetStaffTenantTemporaryPassword() http.HandlerFunc
 
 	SetStaffTenantUserEmail() http.HandlerFunc
 
@@ -407,10 +399,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/console/api/tenants/{tenantID}/create-staff-tenant-group", domainGuard(h.CreateStaffTenantGroup()))
 
-	asked.Post("/console/api/tenants/{tenantID}/create-staff-tenant-user", domainGuard(h.CreateStaffTenantUser()))
-
-	asked.Post("/console/api/create-staff-user", h.CreateStaffUser())
-
 	bounded.Post("/console/api/create-tenant", h.CreateTenant())
 
 	bounded.Get("/console/api/create-tenant", h.CreateTenantOffered())
@@ -510,10 +498,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.With(resource.BodyLimit(BodyLimit)).Post("/console/api/set-feature", h.SetFeature())
 
 	asked.Post("/console/api/set-staff-self-service-reset", h.SetStaffSelfServiceReset())
-
-	asked.Post("/console/api/set-staff-temporary-password", h.SetStaffTemporaryPassword())
-
-	asked.Post("/console/api/tenants/{tenantID}/set-staff-tenant-temporary-password", domainGuard(h.SetStaffTenantTemporaryPassword()))
 
 	asked.Post("/console/api/tenants/{tenantID}/set-staff-tenant-user-email", domainGuard(h.SetStaffTenantUserEmail()))
 
@@ -821,10 +805,6 @@ type GeneratedPortalHandlers interface {
 
 	CreateMembersTenantGroup() http.HandlerFunc
 
-	CreateMembersTenantUser() http.HandlerFunc
-
-	CreateMembersUser() http.HandlerFunc
-
 	DeleteMembersGroup() http.HandlerFunc
 
 	DeleteMembersTenantGroup() http.HandlerFunc
@@ -1042,10 +1022,6 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	asked.Post("/portal/api/create-members-group", h.CreateMembersGroup())
 
 	asked.Post("/portal/api/tenants/{tenantID}/create-members-tenant-group", domainGuard(h.CreateMembersTenantGroup()))
-
-	asked.Post("/portal/api/tenants/{tenantID}/create-members-tenant-user", domainGuard(h.CreateMembersTenantUser()))
-
-	asked.Post("/portal/api/create-members-user", h.CreateMembersUser())
 
 	asked.Post("/portal/api/delete-members-group", h.DeleteMembersGroup())
 
