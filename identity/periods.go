@@ -35,7 +35,13 @@ import (
 //     nothing runs on a schedule;
 //   - nobody lengthens their own holding: the caller's own role, their own place in a
 //     group and a role of a group they are in are given a longer period by someone else
-//     who may (refuseLongerForOneself).
+//     who may (refuseLongerForOneself). A role taken for a set time is the one exception
+//     (TakeRole): taking it again gives it the new time, and nothing is refused.
+//
+// A person's role carries the reason it was given for beside its period, one line of
+// plain text (access.ValidateReason). The two are given together and replaced together:
+// a role given again carries the reason of the new request, none where the request gave
+// none, and nothing edits a reason by itself (reasons.go).
 //
 // The rules that refuse read the present from the wall clock. The removal of what has
 // ended reads it from the database's clock, the one the lists and the sign-in rule read:
@@ -50,15 +56,17 @@ const EndedByItself = "the assignment ended by itself"
 // which the generated package of the auth implements over its own typed queries and
 // patches. An implementation holds no rule: it reads and writes the two instants.
 type PeriodStore interface {
-	// SetMembershipPeriod buffers the period on a membership row, committed or written
-	// earlier in this transaction.
-	SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error
+	// SetMembershipPeriod buffers the period and the reason on a membership row,
+	// committed or written earlier in this transaction: both columns of the period and
+	// the reason are written, an empty reason as none.
+	SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period, reason string) error
 	// SetGroupMemberPeriod buffers the period on the row of a person's place in a group.
 	SetGroupMemberPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupMemberKey, period accesstypes.Period) error
 	// SetGroupRolePeriod buffers the period on the row of a group's role.
 	SetGroupRolePeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupRoleKey, period accesstypes.Period) error
 	// UserPeriods reads every assignment of a person's own, each with its period: their
-	// memberships, wherever each is held, and their places in groups. It reads through
+	// memberships, wherever each is held, each with its reason too, and their places in
+	// groups. It reads through
 	// any transaction, a read of its own among them, so a sign-in with nothing to clear
 	// opens no transaction.
 	UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*UserPeriods, error)
@@ -77,10 +85,12 @@ type PeriodStore interface {
 }
 
 // UserPeriods is the periods of a person's own assignments: an assignment with no
-// period is there with the zero Period.
+// period is there with the zero Period. Reasons holds the reason of each membership
+// given with one; a membership with none is absent from it.
 type UserPeriods struct {
 	Memberships map[access.MembershipKey]accesstypes.Period
 	Places      map[access.GroupMemberKey]accesstypes.Period
+	Reasons     map[access.MembershipKey]string
 }
 
 // sortEnded puts the assignments a removal names in a stable order of writes.
@@ -122,9 +132,9 @@ func refuseEnded(period accesstypes.Period, what string) error {
 	return nil
 }
 
-// AssignRoleFor is Tenant.AssignRole with the period the role is held for (see
-// Manager.AssignRoleFor).
-func (t *Tenant) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
+// AssignRoleFor is Tenant.AssignRole with the period the role is held for and the reason
+// it is given for (see Manager.AssignRoleFor).
+func (t *Tenant) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period, reason string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -132,7 +142,7 @@ func (t *Tenant) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransa
 		return err
 	}
 
-	return t.manager.AssignRoleFor(ctx, txn, t.scope(), userID, role, period)
+	return t.manager.AssignRoleFor(ctx, txn, t.scope(), userID, role, period, reason)
 }
 
 // AddGroupMemberFor buffers a person's place in a group of the tenant, for the period
@@ -164,12 +174,13 @@ func (t *Tenant) GiveGroupRoleFor(ctx context.Context, txn resource.ReadWriteTra
 	return t.manager.GiveGroupRoleFor(ctx, txn, groupID, t.scope(), role, period)
 }
 
-// AssignRole is AssignRoleFor with no period: the membership stands until it is removed,
-// and one the person held for a period loses the period.
+// AssignRole is AssignRoleFor with no period and no reason: the membership stands until
+// it is removed, and one the person held for a period loses the period and the reason it
+// was given for.
 func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
 	var none accesstypes.Period
 
-	return m.AssignRoleFor(ctx, txn, scope, userID, role, none)
+	return m.AssignRoleFor(ctx, txn, scope, userID, role, none, "")
 }
 
 // AddGroupMember is AddGroupMemberFor with no period: the person is in the group until
@@ -188,29 +199,31 @@ func (m *Manager) GiveGroupRole(ctx context.Context, txn resource.ReadWriteTrans
 	return m.GiveGroupRoleFor(ctx, txn, groupID, scope, role, none)
 }
 
-// settleMembershipPeriod gives a membership the period: the row was written by the
-// caller (inserted) or is there already, with the period it had. It reports whether the
-// period changed. A membership given again with the period it has is left exactly as it
-// is. own says the membership is the request's caller's own, who gives it no longer a
-// period than it has (refuseLongerForOneself).
+// settleMembershipPeriod gives a membership the period and the reason: the row was
+// written by the caller (inserted) or is there already, with the period and the reason
+// it had. It reports whether either changed. A membership given again with the period
+// and the reason it has is left exactly as it is. own says the membership is the
+// request's caller's own, who gives it no longer a period than it has
+// (refuseLongerForOneself).
 func (m *Manager) settleMembershipPeriod(
-	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, key *access.MembershipKey, period accesstypes.Period, inserted, own bool,
+	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, key *access.MembershipKey, given *given, inserted, own bool,
 ) (bool, error) {
 	var had accesstypes.Period
+	var why string
 	if !inserted {
 		periods, err := m.store.UserPeriods(ctx, txn, userID)
 		if err != nil {
 			return false, errors.Wrap(err, "identity.Store.UserPeriods()")
 		}
-		had = periods.Memberships[*key]
-		if err := refuseLongerForOneself(own, had, period, "your own role"); err != nil {
+		had, why = periods.Memberships[*key], periods.Reasons[*key]
+		if err := refuseLongerForOneself(own, had, given.period, "your own role"); err != nil {
 			return false, err
 		}
 	}
-	if had.Equal(period) {
+	if had.Equal(given.period) && why == given.reason {
 		return false, nil
 	}
-	if err := m.store.SetMembershipPeriod(ctx, txn, key, period); err != nil {
+	if err := m.store.SetMembershipPeriod(ctx, txn, key, given.period, given.reason); err != nil {
 		return false, errors.Wrap(err, "identity.Store.SetMembershipPeriod()")
 	}
 

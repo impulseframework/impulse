@@ -33,6 +33,7 @@ type membersTenantGroupRoleRead struct {
 	CreatedAt time.Time    `json:"createdAt"`
 	StartsAt  *time.Time   `json:"startsAt"`
 	EndsAt    *time.Time   `json:"endsAt"`
+	Losing    int64        `json:"losing"`
 }
 
 var membersTenantGroupRoleReadSets resource.SetCache[MembersTenantGroupRole, membersTenantGroupRoleRead]
@@ -160,6 +161,7 @@ func (c *MembersTenantGroupRoleColumns) All() *MembersTenantGroupRoleColumns {
 		"CreatedAt",
 		"StartsAt",
 		"EndsAt",
+		"Losing",
 	}
 
 	return c
@@ -203,6 +205,12 @@ func (c *MembersTenantGroupRoleColumns) StartsAt() *MembersTenantGroupRoleColumn
 
 func (c *MembersTenantGroupRoleColumns) EndsAt() *MembersTenantGroupRoleColumns {
 	c.fields = append(c.fields, "EndsAt")
+
+	return c
+}
+
+func (c *MembersTenantGroupRoleColumns) Losing() *MembersTenantGroupRoleColumns {
+	c.fields = append(c.fields, "Losing")
 
 	return c
 }
@@ -327,6 +335,10 @@ func (c *membersTenantGroupRoleSort) StartsAt() *MembersTenantGroupRoleSort {
 
 func (c *membersTenantGroupRoleSort) EndsAt() *MembersTenantGroupRoleSort {
 	return c.addField("EndsAt")
+}
+
+func (c *membersTenantGroupRoleSort) Losing() *MembersTenantGroupRoleSort {
+	return c.addField("Losing")
 }
 
 type MembersTenantGroupRoleSort struct {

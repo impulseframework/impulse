@@ -28,6 +28,7 @@ func (h *Handlers) MembersSectorUserRoles() http.HandlerFunc {
 		CreatedAt   time.Time    `json:"createdAt"`
 		StartsAt    *time.Time   `json:"startsAt"`
 		EndsAt      *time.Time   `json:"endsAt"`
+		Reason      *string      `json:"reason"`
 	}
 
 	type response []map[string]any
@@ -102,6 +103,10 @@ func (h *Handlers) MembersSectorUserRoles() http.HandlerFunc {
 					if !row.Masked("endsAt") {
 						rmap["endsAt"] = rec.EndsAt
 					}
+				case "Reason":
+					if !row.Masked("reason") {
+						rmap["reason"] = rec.Reason
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -133,6 +138,7 @@ func (h *Handlers) MembersSectorUserRole() http.HandlerFunc {
 		CreatedAt   time.Time    `json:"createdAt"`
 		StartsAt    *time.Time   `json:"startsAt"`
 		EndsAt      *time.Time   `json:"endsAt"`
+		Reason      *string      `json:"reason"`
 	}
 
 	decoder := NewQueryDecoder[membersresources.MembersSectorUserRole, response](h, accesstypes.Read)
@@ -195,6 +201,10 @@ func (h *Handlers) MembersSectorUserRole() http.HandlerFunc {
 			case "EndsAt":
 				if !row.Masked("endsAt") {
 					rmap["endsAt"] = rec.EndsAt
+				}
+			case "Reason":
+				if !row.Masked("reason") {
+					rmap["reason"] = rec.Reason
 				}
 			}
 		}

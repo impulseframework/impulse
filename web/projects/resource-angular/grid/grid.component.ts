@@ -1142,6 +1142,25 @@ export class AppGridComponent {
     return ((row as Record<string, unknown>)[rowActionsKey] as RowAction[] | undefined) ?? [];
   }
 
+  /**
+   * The key a link column opens a row by: the row's value in the column's key field, and
+   * nothing where the row holds none, so a row that names no row of the page it would
+   * open draws no link.
+   */
+  linkKeyOf(row: RecordData, col: ColumnConfig): string | undefined {
+    const key = row[col.buttonConfig?.keyField ?? 'id'];
+    return key === undefined || key === null || key === '' ? undefined : String(key);
+  }
+
+  /**
+   * The lines of a cell whose column draws its list a line each (`lines`): the list's
+   * items, and nothing for a column that draws one line or a row whose list is empty.
+   */
+  linesOf(row: RecordData, col: ColumnConfig): string[] | undefined {
+    const value = (row as Record<string, unknown>)[col.id];
+    return col.lines && Array.isArray(value) && value.length > 0 ? (value as string[]) : undefined;
+  }
+
   widthFor(col: ColumnConfig): number | null {
     const defaultWidth = col.buttonConfig ? ACTION_COLUMN_WIDTH : null;
     return this.columnWidths()[col.id] ?? col.width ?? defaultWidth;

@@ -27,6 +27,7 @@ func (h *Handlers) AssignMembersRole() http.HandlerFunc {
 		EveryDomain bool         `json:"everyDomain"`
 		StartsAt    *time.Time   `json:"startsAt"`
 		EndsAt      *time.Time   `json:"endsAt"`
+		Reason      *string      `json:"reason"`
 	}
 
 	decoder := NewRPCDecoder[membersidentity.AssignMembersRole, request](h, accesstypes.Execute)

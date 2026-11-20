@@ -240,7 +240,9 @@ export class ResourceViewComponent implements OnInit {
    * The generated methods the row offers: those that run against a row of the page's
    * resource (`@target` naming it) and that the row's own Execute answer lists, less the
    * ones the page hides. The server judged each for this row and this caller, so the
-   * page offers what the caller may run here and nothing else. None while the row is
+   * page offers what the caller may run here and nothing else. A method the page's
+   * predicate keeps off the row is an entry all the same where the page says what the
+   * row shows in its place (`says`): the menu draws those words, which run nothing. None while the row is
    * not on hand, while the page creates a row, and where the page switches them off
    * (`rowMethods: false`).
    */

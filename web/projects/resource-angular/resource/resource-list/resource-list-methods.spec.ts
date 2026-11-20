@@ -332,6 +332,39 @@ describe('ResourceListComponent row methods', () => {
     ]);
   });
 
+  it("hands the table the page's words in a method's place as an entry that runs nothing", async () => {
+    await create({
+      primaryResource: people,
+      rowMethods: [
+        {
+          method: 'DisablePerson' as Method,
+          label: 'Disable',
+          when: (row) => row['username'] !== 'ada',
+          otherwise: (row) => `${String(row['username'])} holds the last key: hand it over first`,
+        },
+        { method: 'EnablePerson' as Method, hidden: true },
+        { method: 'RenamePerson' as Method, label: 'Rename' },
+      ],
+    });
+
+    // The words are an entry the table grays out; the method beside it is one it runs.
+    expect(actionsOf(0).map((a) => [a.id, a.label, a.disabled])).toEqual([
+      ['DisablePerson', 'ada holds the last key: hand it over first', true],
+      ['RenamePerson', 'Rename', undefined],
+    ]);
+    actionsOf(0)[0].run();
+    expect(opened).toEqual([]);
+    // Drawn: the row's menu holds the words as an entry nobody can choose.
+    element().querySelector<HTMLButtonElement>('tr.impulse-row button.row-actions')?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const entries = Array.from(document.querySelectorAll<HTMLButtonElement>('button.row-action'));
+    expect(entries.map((entry) => [entry.textContent?.trim(), entry.disabled])).toEqual([
+      ['ada holds the last key: hand it over first', true],
+      ['Rename', false],
+    ]);
+  });
+
   it('asks the server nothing and draws no menu where the page switches the row methods off', async () => {
     await create({ primaryResource: people, rowMethods: false });
 

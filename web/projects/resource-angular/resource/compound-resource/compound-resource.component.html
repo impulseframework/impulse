@@ -5,7 +5,7 @@
        what the page holds. -->
   @if (!viewDrawsTitle()) {
     <div class="header-container">
-      <div class="title" [class.title-without-back]="title()">
+      <div class="title" [class.title-without-back]="titled()">
         @if (title() !== '') {
           <h1 [class.impulse-section]="!isRootConfig()">{{ title() }}</h1>
         }
@@ -14,7 +14,7 @@
   }
 
   @if (hasElements() || configs().length > 0) {
-    <div class="resource-container" [class.empty-elements]="!hasElements() && title() === ''">
+    <div class="resource-container" [class.empty-elements]="!hasElements() && !titled()">
       @let primaryConfigRef = primaryConfig();
       @if (primaryConfigRef.type === 'View' || primaryConfigRef.type === 'ListView') {
         <!-- The page's own row: the view shares this page's store (it provides none), so the

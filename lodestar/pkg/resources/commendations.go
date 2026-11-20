@@ -34,8 +34,8 @@ type (
 		ID              impulse.UUID `spanner:"Id"`
 		PilotID         impulse.UUID `spanner:"PilotId"`
 		Citation        string       `spanner:"Citation"`
-		AwardedByUserID string       `spanner:"AwardedByUserId"     conditions:"output_only" default_create_fn:"currentUser"`
-		AwardedByName   string       `spanner:"AwardedByName" conditions:"output_only" default_create_fn:"currentUserName"`
-		AwardedAt       time.Time    `spanner:"AwardedAt"     conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
+		AwardedByUserID string       `spanner:"AwardedByUserId" conditions:"output_only" default_create_fn:"currentUser"`
+		AwardedByName   string       `spanner:"AwardedByName"   conditions:"output_only" default_create_fn:"currentUserName"`
+		AwardedAt       time.Time    `spanner:"AwardedAt"       conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
 	}
 )

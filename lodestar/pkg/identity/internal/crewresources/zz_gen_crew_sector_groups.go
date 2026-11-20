@@ -31,6 +31,8 @@ type crewSectorGroupRead struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description"`
 	UpdatedAt   time.Time    `json:"updatedAt"`
+	People      int64        `json:"people"`
+	Roles       []string     `json:"roles"`
 }
 
 var crewSectorGroupReadSets resource.SetCache[CrewSectorGroup, crewSectorGroupRead]
@@ -144,6 +146,8 @@ func (c *CrewSectorGroupColumns) All() *CrewSectorGroupColumns {
 		"Name",
 		"Description",
 		"UpdatedAt",
+		"People",
+		"Roles",
 	}
 
 	return c
@@ -175,6 +179,18 @@ func (c *CrewSectorGroupColumns) Description() *CrewSectorGroupColumns {
 
 func (c *CrewSectorGroupColumns) UpdatedAt() *CrewSectorGroupColumns {
 	c.fields = append(c.fields, "UpdatedAt")
+
+	return c
+}
+
+func (c *CrewSectorGroupColumns) People() *CrewSectorGroupColumns {
+	c.fields = append(c.fields, "People")
+
+	return c
+}
+
+func (c *CrewSectorGroupColumns) Roles() *CrewSectorGroupColumns {
+	c.fields = append(c.fields, "Roles")
 
 	return c
 }
@@ -287,6 +303,14 @@ func (c *crewSectorGroupSort) Description() *CrewSectorGroupSort {
 
 func (c *crewSectorGroupSort) UpdatedAt() *CrewSectorGroupSort {
 	return c.addField("UpdatedAt")
+}
+
+func (c *crewSectorGroupSort) People() *CrewSectorGroupSort {
+	return c.addField("People")
+}
+
+func (c *crewSectorGroupSort) Roles() *CrewSectorGroupSort {
+	return c.addField("Roles")
 }
 
 type CrewSectorGroupSort struct {

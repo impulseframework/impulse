@@ -18,7 +18,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type DescribeCrewGroup struct {
-	// @target(CrewGroup)
+	// @target(CrewListedGroup)
 	GroupID     impulse.UUID
 	Description string `validate:"required"`
 }

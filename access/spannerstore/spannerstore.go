@@ -53,6 +53,7 @@ const (
 	colCondition   = "Condition"
 	colStartsAt    = "StartsAt"
 	colEndsAt      = "EndsAt"
+	colReason      = "Reason"
 	colCreatedAt   = "CreatedAt"
 	colUpdatedAt   = "UpdatedAt"
 
@@ -138,6 +139,7 @@ type Store struct {
 	sqlListRoles           string
 	sqlListUserRoles       string
 	sqlListUserMemberships string
+	sqlListUserAssignments string
 	sqlListRoleUsers       string
 	sqlListRoleGrants      string
 	sqlReadRoles           string
@@ -167,6 +169,7 @@ func New(client *spanner.Client, opts ...Option) (*Store, error) {
 		sqlListRoles:           fmt.Sprintf("SELECT Role, Description FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain ORDER BY Role", names.roles),
 		sqlListUserRoles:       fmt.Sprintf("SELECT Role FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND UserId = @user AND %s ORDER BY Role", names.userRoles, counting("")),
 		sqlListUserMemberships: fmt.Sprintf("SELECT Kind, Axis, DomainId, Role, StartsAt, EndsAt FROM %s@{FORCE_INDEX=%s} WHERE UserId = @user AND %s ORDER BY Kind, Axis, DomainId, Role", names.userRoles, names.userIndex, counting("")),
+		sqlListUserAssignments: fmt.Sprintf("SELECT Kind, Axis, DomainId, Role, StartsAt, EndsAt, Reason FROM %s@{FORCE_INDEX=%s} WHERE UserId = @user AND %s ORDER BY Kind, Axis, DomainId, Role", names.userRoles, names.userIndex, standing("")),
 		sqlListRoleUsers:       fmt.Sprintf("SELECT UserId FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s ORDER BY UserId", names.userRoles, counting("")),
 		sqlListRoleGrants:      fmt.Sprintf("SELECT Permission, Resource, Field, Condition FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role ORDER BY Permission, Resource, Field, Condition", names.roleGrants),
 		sqlReadRoles:           fmt.Sprintf("SELECT Kind, Axis, DomainId, Role FROM %s", names.roles),
@@ -244,6 +247,7 @@ func (s *Store) DDL() []string {
   UserId STRING(320) NOT NULL,
   StartsAt TIMESTAMP,
   EndsAt TIMESTAMP,
+  Reason STRING(MAX),
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   %s,
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId)`, n.userRoles, kindCheck(n.userRoles)),
@@ -356,14 +360,26 @@ func (s *Store) insertIgnoreExists(ctx context.Context, m *spanner.Mutation, wra
 	return nil
 }
 
-// assign writes one assignment row with its period: the row is inserted where
-// its key is free, and where it is taken the period is replaced and the rest
-// of the row, its CreatedAt among it, left as it was. keyColumns and key name
-// the row; the read and the write share one transaction, so two assignments
-// of one key settle on one period.
-func (s *Store) assign(ctx context.Context, table string, keyColumns []string, key spanner.Key, period accesstypes.Period, wrap string) error {
+// given is one column an assignment is given beside its period, with the value
+// it is given: a membership's reason.
+type given struct {
+	column string
+	value  any
+}
+
+// assign writes one assignment row with its period and what else it is given
+// with: the row is inserted where its key is free, and where it is taken the
+// period and the columns given with it are replaced and the rest of the row,
+// its CreatedAt among it, left as it was. keyColumns and key name the row; the
+// read and the write share one transaction, so two assignments of one key
+// settle on one period.
+func (s *Store) assign(ctx context.Context, table string, keyColumns []string, key spanner.Key, period accesstypes.Period, wrap string, with ...given) error {
 	values := append(slices.Clone([]any(key)), period.StartPtr(), period.EndPtr())
 	columns := append(slices.Clone(keyColumns), colStartsAt, colEndsAt)
+	for _, g := range with {
+		columns = append(columns, g.column)
+		values = append(values, g.value)
+	}
 	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		var m *spanner.Mutation
 		switch _, err := txn.ReadRow(ctx, table, key, keyColumns[:1]); {
@@ -388,17 +404,19 @@ func (s *Store) assign(ctx context.Context, table string, keyColumns []string, k
 	return nil
 }
 
-// InsertUserRole gives one user-role membership its period: the membership is
-// added where the user does not hold the role, and given the new period where
-// they do. The role is named by name alone: no role row is required, since the
-// release's default roles have none.
-func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+// InsertUserRole gives one user-role membership its period and its reason: the
+// membership is added where the user does not hold the role, and given the new
+// period and the new reason where they do, an empty reason as none. The role
+// is named by name alone: no role row is required, since the release's default
+// roles have none.
+func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 
 	return s.assign(ctx, s.names.userRoles,
 		[]string{colKind, colAxis, colDomain, colRole, colUser},
 		spanner.Key{kind, axis, domain, string(role), string(user)},
-		period, "spanner.Client.ReadWriteTransaction() assign user role")
+		period, "spanner.Client.ReadWriteTransaction() assign user role",
+		given{column: colReason, value: spanner.NullString{StringVal: reason, Valid: reason != ""}})
 }
 
 // DeleteUserRole removes one user-role membership; removing an absent
@@ -458,6 +476,42 @@ func (s *Store) ListUserMemberships(ctx context.Context, user accesstypes.User) 
 	}
 
 	return memberships, nil
+}
+
+// ListUserAssignments returns every membership of the user's own that has not
+// ended, wherever it is held, each with its period and its reason, read through
+// the user index and sorted by scope then role.
+func (s *Store) ListUserAssignments(ctx context.Context, user accesstypes.User) ([]policy.Assignment, error) {
+	stmt := spanner.Statement{SQL: s.sqlListUserAssignments, Params: map[string]any{paramUser: string(user)}}
+	assignments := make([]policy.Assignment, 0)
+	err := s.client.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var kind, axis, domain, role string
+		var start, end spanner.NullTime
+		var reason spanner.NullString
+		if err := row.Columns(&kind, &axis, &domain, &role, &start, &end, &reason); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		scope, err := policy.ScopeFromColumns(kind, axis, domain)
+		if err != nil {
+			return errors.Wrap(err, "policy.ScopeFromColumns()")
+		}
+		assignments = append(assignments, policy.Assignment{
+			Membership: policy.Membership{
+				Scope:  scope,
+				Member: policy.Subject{Kind: policy.SubjectUser, Name: string(user)},
+				Role:   accesstypes.Role(role),
+				Period: periodOf(start, end),
+			},
+			Reason: reason.StringVal,
+		})
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.Client.Single().Query() user assignments")
+	}
+
+	return assignments, nil
 }
 
 // ListRoleUsers returns the people who hold the role in scope now, sorted.

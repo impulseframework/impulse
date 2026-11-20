@@ -947,6 +947,121 @@ describe("a row's buttons", () => {
   });
 });
 
+// A list drawn a line each, a link that opens nowhere, and an entry of a row's menu that
+// only says something: what a page of groups and of a person's roles asks of the table.
+describe('what a row says of a list, a missing key and a method it does not offer', () => {
+  let fixture: ComponentFixture<AppGridComponent>;
+  let element: HTMLElement;
+
+  const draw = async (rows: RecordData[], columns: unknown[]): Promise<void> => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', rows);
+    fixture.componentRef.setInput('columnDefs', columns);
+    fixture.detectChanges();
+    element = fixture.nativeElement as HTMLElement;
+  };
+  const cellsOf = (row: number): HTMLElement[] =>
+    Array.from(
+      element.querySelectorAll<HTMLElement>('tr.impulse-row')[row].querySelectorAll<HTMLElement>('td.data-col'),
+    );
+
+  it('draws a list a line each where its column says so, and one line of text otherwise', async () => {
+    await draw(
+      [
+        { name: 'Night shift', roles: ['Reader', 'Warden in every sector'], tags: ['a', 'b'] },
+        { name: 'Empty', roles: [], tags: [] },
+      ],
+      [{ id: 'name' }, { id: 'roles', lines: true }, { id: 'tags' }],
+    );
+    const lines = Array.from(cellsOf(0)[1].querySelectorAll<HTMLElement>('.cell-line')).map((line) =>
+      line.textContent?.trim(),
+    );
+    expect(lines).toEqual(['Reader', 'Warden in every sector']);
+    // A column that does not ask for lines draws its value as one text.
+    expect(cellsOf(0)[2].querySelector('.cell-line')).toBeNull();
+    // An empty list draws no line.
+    expect(cellsOf(1)[1].querySelector('.cell-line')).toBeNull();
+    expect(cellsOf(1)[1].textContent?.trim()).toBe('');
+  });
+
+  it('draws no link to a row whose key field is empty: the row opens nowhere', async () => {
+    await draw(
+      [
+        { role: 'Reader', groupId: 'g-1' },
+        { role: 'Warden', groupId: '' },
+        { role: 'Scribe', groupId: null },
+      ],
+      [
+        { id: 'role' },
+        {
+          id: 'view',
+          hideHeader: true,
+          buttonConfig: {
+            label: 'View',
+            icon: 'arrow_forward',
+            viewRoute: 'groups',
+            keyField: 'groupId',
+            actionType: 'link',
+          },
+        },
+      ],
+    );
+    const links = [0, 1, 2].map((row) => cellsOf(row)[1].querySelector('a')?.getAttribute('href') ?? null);
+    expect(links).toEqual(['/groups/g-1', null, null]);
+    // The key the column opens a row by is nothing for such a row, and for one that
+    // carries no such field: never an empty text, which is a key to whoever reads it.
+    const view = fixture.componentInstance.columnDefs()[1];
+    const keys = [...fixture.componentInstance.rowData(), { role: 'Clerk' } as RecordData].map((row) =>
+      fixture.componentInstance.linkKeyOf(row, view),
+    );
+    expect(keys).toEqual(['g-1', undefined, undefined, undefined]);
+  });
+
+  it("draws an entry that only says something grayed out in the row's menu, and runs nothing from it", async () => {
+    const ran: string[] = [];
+    await draw(
+      [
+        {
+          name: 'Night shift',
+          'actions:menu': [
+            { id: 'Describe', label: 'Change the description', run: (): void => void ran.push('describe') },
+            {
+              id: 'Delete',
+              label: '3 people and 2 roles: empty it first',
+              run: (): void => void ran.push('delete'),
+              disabled: true,
+            },
+          ],
+        } as unknown as RecordData,
+      ],
+      [
+        { id: 'name' },
+        {
+          id: 'actions:menu',
+          hideHeader: true,
+          buttonConfig: { label: 'Actions', icon: 'more_vert', actionType: 'menu' },
+        },
+      ],
+    );
+    byRole(element, 'button', 'Actions')?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const entries = Array.from(document.querySelectorAll<HTMLButtonElement>('button.row-action'));
+    expect(entries.map((entry) => [entry.textContent?.trim(), entry.disabled])).toEqual([
+      ['Change the description', false],
+      ['3 people and 2 roles: empty it first', true],
+    ]);
+    expect(entries[1].classList.contains('row-action-says')).toBe(true);
+    entries[1].click();
+    entries[0].click();
+    expect(ran).toEqual(['describe']);
+  });
+});
+
 // A column keeps a readable width: the table is never narrower than its columns at the
 // narrowest each is drawn, so a frame too narrow for them scrolls sideways, the frame and
 // never the page, and the first column is then held at the left edge with the select and

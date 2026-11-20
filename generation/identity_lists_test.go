@@ -327,10 +327,10 @@ func Test_identityInstance_lists(t *testing.T) {
 		want   []string
 	}{
 		{name: "no tenant record", tables: []identityTable{identityUsers, identityMemberships, identityMailLinks}},
-		{name: "every table", tenant: ship, tables: []identityTable{identityUsers, identityMemberships, identityMailLinks}, want: []string{"CrewShipUser", "CrewShipUserRole", "CrewShipInvitation"}},
-		{name: "no mail links", tenant: ship, tables: []identityTable{identityUsers, identityMemberships}, want: []string{"CrewShipUser", "CrewShipUserRole"}},
+		{name: "every table", tenant: ship, tables: []identityTable{identityUsers, identityMemberships, identityMailLinks}, want: []string{"CrewShipUser", "CrewShipUserRole", "CrewShipHeldRole", "CrewShipInvitation"}},
+		{name: "no mail links", tenant: ship, tables: []identityTable{identityUsers, identityMemberships}, want: []string{"CrewShipUser", "CrewShipUserRole", "CrewShipHeldRole"}},
 		{name: "no memberships: nobody holds a role in a tenant", tenant: ship, tables: []identityTable{identityUsers, identityMailLinks}, want: []string{"CrewShipInvitation"}},
-		{name: "identity links: the identities of the tenant's people", tenant: ship, tables: []identityTable{identityUsers, identityMemberships, identityIdentities}, want: []string{"CrewShipUser", "CrewShipUserRole", "CrewShipIdentity"}},
+		{name: "identity links: the identities of the tenant's people", tenant: ship, tables: []identityTable{identityUsers, identityMemberships, identityIdentities}, want: []string{"CrewShipUser", "CrewShipUserRole", "CrewShipHeldRole", "CrewShipIdentity"}},
 		{name: "identity links and no memberships: no people to list the identities of", tenant: ship, tables: []identityTable{identityUsers, identityIdentities}},
 	}
 	for _, tt := range tests {

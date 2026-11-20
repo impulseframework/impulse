@@ -111,7 +111,7 @@ func TestSignInPeriods_endedRolesGoAtTheNextSignIn(t *testing.T) {
 	// role is taken away: the sector is one she holds nothing in, so it is concealed.
 	over := accesstypes.Period{Start: time.Now().UTC().Add(-2 * time.Hour), End: time.Now().UTC().Add(-time.Hour)}
 	for _, role := range []accesstypes.Role{"Cadet", "SectorCrew"} {
-		if err := manager.AssignUserRole(ctx, accesstypes.DomainPolicyScope(anvil), relief, role, over); err != nil {
+		if err := manager.AssignUserRole(ctx, accesstypes.DomainPolicyScope(anvil), relief, role, over, ""); err != nil {
 			t.Fatalf("access.UserManager.AssignUserRole(%s) error = %v", role, err)
 		}
 	}
@@ -158,7 +158,7 @@ func TestSignInPeriods_endedRolesGoAtTheNextSignIn(t *testing.T) {
 	// person who holds no sector, so she signs in; the sign-in clears the last rows she
 	// had, and her account stays.
 	for _, role := range []accesstypes.Role{"CrewCommon", "ClientBrowser"} {
-		if err := manager.AssignUserRole(ctx, accesstypes.GlobalPolicyScope(), relief, role, over); err != nil {
+		if err := manager.AssignUserRole(ctx, accesstypes.GlobalPolicyScope(), relief, role, over, ""); err != nil {
 			t.Fatalf("access.UserManager.AssignUserRole(%s) error = %v", role, err)
 		}
 	}
