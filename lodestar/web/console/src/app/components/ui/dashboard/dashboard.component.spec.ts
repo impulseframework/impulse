@@ -155,7 +155,9 @@ describe('DashboardComponent', () => {
     expect(card?.querySelector('mat-card-subtitle')?.textContent).toContain('The permission digest as a badge');
 
     const rows = Array.from(card?.querySelectorAll('table.permissions tbody tr') ?? []);
-    const missions = rows.find((row) => row.querySelector('td.resource-name')?.textContent?.trim().startsWith('Missions'));
+    const missions = rows.find((row) =>
+      row.querySelector('td.resource-name')?.textContent?.trim().startsWith('Missions'),
+    );
     const ships = rows.find((row) => row.querySelector('td.resource-name')?.textContent?.trim().startsWith('Ships'));
     // A sector's resource says where it is held; the columns are List, Read, Create, Update, Delete.
     expect(missions?.querySelector('td.resource-name .scope')?.textContent).toBe('domain');

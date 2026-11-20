@@ -81,7 +81,10 @@ describe('DashboardComponent', () => {
     expect(card?.querySelector('mat-card-title')?.textContent).toBe('Your permissions');
     expect(element.querySelectorAll('table')).toHaveLength(1);
     const rows = Array.from(card?.querySelectorAll('table.permissions tbody tr') ?? []);
-    expect(rows.map((row) => row.querySelector('td.resource-name')?.textContent?.trim())).toEqual(['Beacons', 'Harbors']);
+    expect(rows.map((row) => row.querySelector('td.resource-name')?.textContent?.trim())).toEqual([
+      'Beacons',
+      'Harbors',
+    ]);
     // The columns are List, Read, Create, Update, Delete, Execute; each cell says its answer in words.
     expect(Array.from(rows[0]?.querySelectorAll('td.held .pill') ?? []).map((pill) => pill.textContent)).toEqual([
       'granted',
