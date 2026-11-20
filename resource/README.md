@@ -3172,7 +3172,11 @@ has no `create`), and there are two ways a tenant is made, neither a declaration
   (`{"offered": true}`, the generated client's `Create<Record>Offered`), by the four
   facts the creation refuses on: the session's mask does not refuse the creation, the
   caller is not the real person behind a session that acts as a role (both under "The
-  first administrator", below), the caller holds no tenant, and a method is open. A page
+  first administrator", below), the caller holds no tenant, and a method is open. Whether
+  the caller holds a tenant is read from every tenant they hold a grant in
+  (`resource.HeldDomains`), and not from the tenants the session lists: a tenant that a
+  session's mask leaves nothing of, or that is closed to the way the session signed in,
+  is still the person's, so neither opens the way to a second one. A page
   reads it before it offers the creation, so nobody is shown a
   dialog the server would refuse; the skeletons' home page shows its create-your-tenant
   card only while the answer is yes.
@@ -3217,7 +3221,11 @@ the class access. ..."), the denial is logged as the mask's, in the line the mas
 check writes for a denial of its own, and the route's `GET` answers that none is
 offered (`resource.MaskRefusesAction`). A session that acts as a person with no mask
 makes the tenant, and the person acted as is its administrator: to let someone act as
-a person with no mask is to give them what the person holds. The name is for masks
+a person with no mask is to give them what the person holds. One tenant per person holds
+in such a session as in the person's own, whatever its mask shows: a mask that keeps the
+creation and leaves nothing of the person's grants in their tenant takes the tenant off
+the session's list and not off the person, and the route counts the person's
+(`resource.HeldDomains`). The name is for masks
 alone: a role's grant of it admits nobody and its absence refuses nobody, and a
 registration made by hand under the name is refused at generation.
 

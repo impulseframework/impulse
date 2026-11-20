@@ -465,7 +465,9 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		// The creator becomes the administrator, so the real person behind a session that
 		// acts as someone else is refused in the route's own words, by the one rule.
 		"if creator, ok := identity.UserID(userPermissions.User()); ok {\n\t\t\tif err := identity.RefuseImpersonatorAsSubject(ctx, creator, \"create a station of your own\"); err != nil {\n\t\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t\t}\n\t\t}",
-		"held, err := userPermissions.Domains(ctx)",
+		// One tenant per person is judged by every tenant the person holds, read around
+		// the session's mask, in the POST.
+		"held, err := resource.HeldDomains(ctx, userPermissions)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage(",
 		`httpio.NewForbiddenMessage("the session already holds a station; a person creates one station and becomes its administrator")`,
 		// Whether sign-up is open is read in the transaction that writes the row, and a
 		// person is refused in plain words while no sign-in method is open.
@@ -493,7 +495,8 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"Offered bool `json:\"offered\"`",
 		"if _, refused := resource.MaskRefusesAction(ctx, collection, \"CreateStation\"); refused {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
 		"if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
-		"if len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
+		// And in the GET, which offers what the POST would serve.
+		"held, err := resource.HeldDomains(ctx, userPermissions)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
 		"open, err := identityClient.AnySignInMethodOpen(ctx, a.ResourceClient())",
 		"return httpio.NewEncoder(w).Ok(offer{Offered: open})",
 	}, []string{
@@ -503,6 +506,9 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"DeletePatch", "SeatFirstAdministrator", "UserSurface",
 		// The person names no key: none is read off the request, and none is a string.
 		"req.ID", "NewStationCreatePatch(req", "ID string",
+		// Neither handler counts the person's tenants by the session's own list, which a
+		// mask shortens.
+		"userPermissions.Domains(ctx)",
 	})
 
 	// The request carries the columns the wire may write and no key; the answer

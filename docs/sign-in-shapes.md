@@ -832,7 +832,10 @@ administrator. This works while an administrator has a sign-in method open to si
 the auth's Sign-in page. In an application with tenants, opening a method names no default
 role: a person who signs up holds no tenant, and the application offers to let them
 create one. A person who already has a tenant creates no second one this way, in any
-shape. A session that acts as someone else creates one only where its mask allows, as
+shape. Every tenant the person is in counts, also one the session cannot enter: a tenant
+that is directory only when the person signed in another way, and a tenant that the mask
+hides from a session that acts as the person. A session that acts as someone else
+creates one only where its mask allows, as
 [Acting as someone else](#acting-as-someone-else) describes.
 
 Whether its tenants are made by invitation, by sign-up or both does not change an

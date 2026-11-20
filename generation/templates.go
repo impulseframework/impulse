@@ -2014,8 +2014,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 		}
-		// One {{ .RecordLower }} per person: a session holding a grant in any {{ .RecordLower }} is refused.
-		held, err := userPermissions.Domains(ctx)
+		// One {{ .RecordLower }} per person: a person holding a grant in any {{ .RecordLower }} is refused. Every
+		// {{ .RecordLower }} they hold counts, read around the session's mask and its admission: a
+		// session that acts as a person under a mask that hides the person's {{ .RecordLower }}
+		// creates no second one.
+		held, err := resource.HeldDomains(ctx, userPermissions)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -2143,8 +2146,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .OfferedHandlerFunc }}() h
 		if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {
 			return httpio.NewEncoder(w).Ok(offer{Offered: false})
 		}
-		// One {{ .RecordLower }} per person: a session holding a grant in any {{ .RecordLower }} is offered none.
-		held, err := userPermissions.Domains(ctx)
+		// One {{ .RecordLower }} per person: a person holding a grant in any {{ .RecordLower }} is offered none,
+		// by every {{ .RecordLower }} they hold, as the POST judges it.
+		held, err := resource.HeldDomains(ctx, userPermissions)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
