@@ -266,7 +266,7 @@ export class ResourceViewComponent implements OnInit {
   /**
    * Runs a method against the page's row through its dialog. Once it has run the page
    * says so and reads the row and its child lists again; a row the method removed takes
-   * the page back to where it was opened from (see the constructor).
+   * the page away, as any read that finds the row gone does (see the constructor).
    */
   runMethod(method: OfferedMethod): void {
     openMethodDialog(this.dialog, method, this.store.viewData()).subscribe((result) => {
@@ -284,23 +284,33 @@ export class ResourceViewComponent implements OnInit {
     });
   }
 
-  /** The row as the page last read it: what the page has left of a row that is gone. */
-  private lastRow: RecordData = {};
+  /**
+   * The row while it is on hand, as the page last read it: what the page has left of a
+   * row that is gone. Nothing until a row is read, nothing again while another key or
+   * another tenant is read from the start, and nothing once the page has left for it.
+   */
+  private rowOnHand: RecordData | undefined;
 
   /**
-   * The row is gone after a method ran: the page says the row left, and a row page
-   * leaves. The page of a row route goes to the list the row was of, whether it was
-   * opened from the list or from a link with no page before it, and takes its own place
-   * in the history, so Back never returns to a row that is not there. The list then says
-   * what the config has to say of a row that left it (`rowGone`). Any other row page
-   * goes back to where it was opened from, as it does after its own Delete.
+   * The row that was on hand is gone: the page says the row left, and a row page leaves.
+   * The page of a row route goes to the list the row was of, whether it was opened from
+   * the list or from a link with no page before it, and takes its own place in the
+   * history, so Back never returns to a row that is not there. The list then says what
+   * the config has to say of a row that left it (`rowGone`). Any other row page goes back
+   * to where it was opened from, as it does after its own Delete. The page leaves once
+   * for a row, however many reads find it gone: with no row on hand this does nothing.
    */
   private leaveGoneRow(): void {
+    const row = this.rowOnHand;
+    if (row === undefined) {
+      return;
+    }
+    this.rowOnHand = undefined;
     this.deleted.emit(true);
     if (!this.compoundResourceView() || this.navAfterDelete() === false) {
       return;
     }
-    const said = this.config().rowGone?.(this.lastRow);
+    const said = this.config().rowGone?.(row);
     if (said) {
       this.notifications.addGlobalNotification({ message: said, type: AlertType.INFO, duration: 8000, link: '' });
     }
@@ -674,34 +684,32 @@ export class ResourceViewComponent implements OnInit {
       }
     });
 
-    // The row is kept as it was last read, for what the list says of a row that left it.
-    effect(() => {
-      if (this.store.rowPresent()) {
-        this.lastRow = this.store.viewData();
-      }
-    });
-
-    // After a method ran against the row or under it the row is read again. When that
-    // read answers that the row is no longer there (the method deleted it, or took away
-    // what made it a row of this list), the page leaves; any other answer stays.
-    let settled = this.store.rowChanges();
+    // The row is kept as it was last read while it is on hand. A row that was on hand and
+    // is read again, and answers that it is no longer there, takes the page away,
+    // whichever read finds it: the one that follows a method of the page or of one of its
+    // child lists, the one after a save, or the live session's, which reads the row again
+    // at once after a write this tab made (before a child list has said its method ran,
+    // and the row's children leave the page with the row) and after other people's
+    // changes. So the leave waits for no count of methods. A row that was never on hand
+    // (the page opened at its address, another key, another tenant) is read from the
+    // start: the page stays and says in its own words that the record is not here. Any
+    // other failure of a read stays too, and says what failed.
     effect(() => {
       const status = this.store.viewStatus();
-      const changes = this.store.rowChanges();
-      if (changes === settled) {
-        return;
-      }
-      if (status === 'resolved') {
-        settled = changes;
-        return;
-      }
-      if (status === 'error') {
-        settled = changes;
-        const error = untracked(() => this.store.viewError());
-        if (error instanceof ApiError && error.status === 404) {
-          untracked(() => this.leaveGoneRow());
+      const present = this.store.rowPresent();
+      untracked(() => {
+        if (present) {
+          this.rowOnHand = this.store.viewData();
+          return;
         }
-      }
+        if (status === 'error') {
+          const error = this.store.viewError();
+          if (error instanceof ApiError && error.status === 404) {
+            this.leaveGoneRow();
+          }
+        }
+        this.rowOnHand = undefined;
+      });
     });
   }
 

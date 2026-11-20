@@ -31,7 +31,8 @@ import { ResourceViewComponent } from './resource-view.component';
 // methods the answer lists: what the caller may run on this row, and nothing else. A
 // method runs through the method dialog; once it has run the page reads the row again,
 // and a row the method removed takes the page to the list the row was of, or back to
-// where it was opened from where the page is no row route's own.
+// where it was opened from where the page is no row route's own. The page leaves the
+// same way whichever read finds a row that was on hand gone, and once.
 
 /** What the routes of these tests draw: nothing, since no outlet is on the page. */
 @Component({ template: '' })
@@ -336,6 +337,71 @@ describe('ResourceViewComponent row methods', () => {
 
     expect(router.url).toBe('/accounts');
     expect(notices).toHaveLength(1);
+  });
+
+  it('leaves when a read no method of the page asked for finds the row gone: the live session reads the row again after a method of a child list, before the list has said that it ran', async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} no longer holds a role here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+
+    // What the live session does for a write this tab made: the row is read again at once.
+    // The child list that ran the method leaves the page with the row, before it can say
+    // that a method ran: the count of methods never moves.
+    row = undefined;
+    component.store.reloadViewData();
+    await settle(() => router.url === '/accounts');
+
+    expect(component.store.rowChanges()).toBe(0);
+    expect(router.url).toBe('/accounts');
+    expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
+    expect(wentBack).toBe(0);
+    expect(gone).toEqual([true]);
+    expect(notices).toEqual(['ada no longer holds a role here.']);
+  });
+
+  it('leaves once for a row, however many reads find it gone', async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} no longer holds a role here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+
+    row = undefined;
+    component.store.reloadViewData();
+    await settle(() => router.url === '/accounts');
+    // A list under the row says its method ran after all, and the row is read once more.
+    component.store.rowChanged();
+    await settle(() => asked().length === 3 && component.store.viewStatus() === 'error');
+
+    expect(asked()).toHaveLength(3);
+    expect(gone).toEqual([true]);
+    expect(notices).toEqual(['ada no longer holds a role here.']);
+    expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
+  });
+
+  it('stays when the page is handed the key of a row that is not there, though another row was on hand before', async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} no longer holds a role here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+
+    // No row answers this key: the read starts over, and what it finds is no row that left.
+    fixture.componentRef.setInput('uuid', 'a-2');
+    fixture.detectChanges();
+    await settle(() => asked().length === 2 && component.store.viewStatus() === 'error');
+
+    expect(component.store.viewStatus()).toBe('error');
+    expect(router.url).toBe('/accounts/a-1');
+    expect(wentBack).toBe(0);
+    expect(gone).toEqual([]);
+    expect(notices).toEqual([]);
+    expect(element().textContent).toContain('This record is not here.');
   });
 
   it('stays on a row that could not be read before any method ran', async () => {
