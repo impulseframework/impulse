@@ -571,16 +571,18 @@ func (d *DirectoryStart) inviteNobody(a *app.App, pkg *app.AuthPackage, ch *Chan
 	return true, nil
 }
 
-// noteFirstAdministrator says what still speaks of the auth's first administrator once
-// the deployment invites nobody, and which tests go with it: the cases the start wrote
-// into the migrate command's test where it derived that test, and the tests the change
-// lists as left otherwise.
+// noteFirstAdministrator says that what invites a first administrator stays once the
+// deployment invites nobody, and why: impulse add auth hands the first administrator of
+// an auth it adds on to be wired as the application's is written, and writes none of it,
+// so what was taken out here could not be written back. It names the tests that go with
+// it: the cases the start wrote into the migrate command's test where it derived that
+// test, and the tests the change lists as left otherwise.
 func (d *DirectoryStart) noteFirstAdministrator(ch *Change, derived bool) {
-	tests := "with the tests that prove them, which the change names among what is left"
+	tests := "the tests that name the " + d.Auth + " auth's first administrator are among what the change leaves"
 	if derived {
-		tests = "with the cases of " + migrateTest + " that prove the refusal"
+		tests = "the cases of " + migrateTest + " prove that it refuses every name"
 	}
-	ch.skipf("%s, pkg/config and the environment template still speak of the %s auth's first administrator (InviteAdministrators and ReinviteAdministrator, the migrate command's -reinvite-administrator, %s): they invite nobody now; say so in their comments or take them out, %s", deployFile, d.Auth, authpkg.AdministratorVariable(d.Auth), tests)
+	ch.didf("%s, pkg/config and the environment template: what invites a first administrator was kept as it is (InviteAdministrators and ReinviteAdministrator, the migrate command's -reinvite-administrator, %s). It invites nobody while AdministratorAuths names no auth, and %s. Leave it in: impulse add auth hands the first administrator of an auth it adds on to be wired as this is written, and writes none of it back", deployFile, authpkg.AdministratorVariable(d.Auth), tests)
 }
 
 // generatedHandlers lists the generated handler files of an auth's management, by name,
@@ -820,7 +822,7 @@ func (d *DirectoryStart) meaning(set string) string {
 	if d.syncsRoles() {
 		items = append(items,
 			"Define the roles in the role file and assign them in the directory: nothing is seeded for people who sign in this way, and the development person holds what `APP_ROLES` lists.",
-			"Take the first administrator out of what still speaks of one (the deployment package's comments, the migrate command's `-reinvite-administrator`, the data level's address setting and the environment template's variable), or say there that nobody is invited.",
+			"Leave what invites a first administrator where it is (the deployment package's `InviteAdministrators` and `ReinviteAdministrator`, the migrate command's `-reinvite-administrator`, the data level's address setting and the environment template's variable). It invites nobody while `AdministratorAuths` names no auth, so a release mails no invitation, whatever address the variable names. It stays because `impulse add auth` does not write it: an auth added later that invites a first administrator is wired into it as it stands.",
 		)
 	} else if d.persona() {
 		items = append(items,

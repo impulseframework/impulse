@@ -356,7 +356,12 @@ directory, `google` (a Google Workspace) or `azure` (a Microsoft Entra tenant), 
 `:<registration>` to name the registration, and `--organization` names its one
 organization, a Workspace by its domain or an Entra tenant by its tenant id; each is
 asked for when it is not given, and refused as missing where nobody is at the terminal.
-No first administrator is invited and nothing in the application gives a role. A
+No first administrator is invited and nothing in the application gives a role. What
+invites one stays in the application all the same (the deployment package's
+`InviteAdministrators` and `ReinviteAdministrator`, the migrate command's
+`-reinvite-administrator`, the `APP_<AUTH>_ADMINISTRATOR` setting): it invites nobody
+while `AdministratorAuths` names no auth, and `impulse add auth` does not write it, so
+an auth added later that invites a first administrator is wired into it. A
 development run signs in the person `APP_USERNAME` names with the roles `APP_ROLES`
 names, both in the environment template, through the simulated directory. The shape has
 no tenants, so it is refused beside `--tenancy` and the tenants' flags, and `--method`

@@ -162,8 +162,14 @@ func TestDirectoryStart_Apply_directoryRolesSuites(t *testing.T) {
 		if got := skippedLine(ch, integrationHarness+" and "+migrateTest+": the google registration validates"); len(got) != 0 {
 			t.Errorf("the change hands on the settings of a method, and the tests it wrote already give them: %q", got)
 		}
-		if got := skippedLine(ch, deployFile+", pkg/config and the environment template still speak of the staff auth's first administrator", "with the cases of "+migrateTest+" that prove the refusal"); len(got) != 1 {
-			t.Errorf("the change does not say once which tests go with what still speaks of a first administrator: %q", ch.Skipped)
+		if got := linesWith(ch.Did, deployFile+", pkg/config and the environment template: what invites a first administrator was kept as it is", []string{"APP_STAFF_ADMINISTRATOR", "the cases of " + migrateTest + " prove that it refuses every name", "impulse add auth hands the first administrator of an auth it adds on to be wired as this is written, and writes none of it back"}); len(got) != 1 {
+			t.Errorf("the change does not say once that what invites a first administrator was kept, why, and which tests go with it: %q", ch.Did)
+		}
+		if got := skippedLine(ch, deployFile+", pkg/config"); len(got) != 0 {
+			t.Errorf("the change hands what invites a first administrator on to the author, and it is kept: %q", got)
+		}
+		if got := start.MeaningIn(a); !strings.Contains(got, "Leave what invites a first administrator where it is") || strings.Contains(got, "Take the first administrator out") {
+			t.Error("the start's account of what is left does not say that what invites a first administrator stays")
 		}
 		if got := start.MeaningIn(a); !strings.Contains(got, "1. Read the tests the start wrote.") {
 			t.Error("the start's account of what is left does not say the tests were written")
@@ -299,8 +305,8 @@ func TestDirectoryStart_Apply_suitesNotWritten(t *testing.T) {
 		// wantSkipped a line it says of what the author gives the tests.
 		wantLeft    map[string]string
 		wantSkipped string
-		// wantTests is what the change says of the tests that go with what still speaks
-		// of a first administrator.
+		// wantTests is what the change says of the tests that go with what invites a
+		// first administrator, which it keeps.
 		wantTests string
 	}{
 		{
@@ -336,7 +342,7 @@ func TestDirectoryStart_Apply_suitesNotWritten(t *testing.T) {
 				"test/integration/first_administrator_test.go": "nobody is invited to this auth, whose directory gives every role, so remove it",
 			},
 			wantSkipped: integrationHarness + " and " + migrateTest + ": the google registration validates its organization slot and its role groups' prefix",
-			wantTests:   "with the tests that prove them, which the change names among what is left",
+			wantTests:   "the tests that name the staff auth's first administrator are among what the change leaves",
 		},
 	}
 	for _, tt := range tests {
@@ -376,8 +382,8 @@ func TestDirectoryStart_Apply_suitesNotWritten(t *testing.T) {
 			if tt.wantSkipped != "" && len(skippedLine(ch, tt.wantSkipped)) != 1 {
 				t.Errorf("the change does not say once %q: %q", tt.wantSkipped, ch.Skipped)
 			}
-			if tt.wantTests != "" && len(skippedLine(ch, deployFile+", pkg/config", tt.wantTests)) != 1 {
-				t.Errorf("the change does not say once %q of what still speaks of a first administrator: %q", tt.wantTests, ch.Skipped)
+			if tt.wantTests != "" && len(linesWith(ch.Did, deployFile+", pkg/config", []string{tt.wantTests})) != 1 {
+				t.Errorf("the change does not say once %q of what invites a first administrator: %q", tt.wantTests, ch.Did)
 			}
 			if got := start.MeaningIn(a); !strings.Contains(got, "1. Bring the tests to the sign-in the auth has.") || strings.Contains(got, "Read the tests the start wrote") {
 				t.Error("the start's account of what is left does not hand the tests on, and it wrote none")
