@@ -2729,8 +2729,6 @@ describe('LoginMethodsComponent shows the directory buttons that could admit the
     methods: [password, google, fleetGoogle],
     invitation: { ...invitationRoutes, standing: { ...standing, methods } },
   });
-  const noteOf = (page: Page): string | null =>
-    page.element.querySelector('.impulse-login-invitation-note')?.textContent?.trim() ?? null;
 
   it('shows only the registrations the standing invitation names, the account staying', async () => {
     const page = await pageOver(server({ methods: listNaming(['google-one']) }));
