@@ -1280,7 +1280,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`: the password replaced and the sessions ended, or neither). |
 | `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`), so no failure leaves the temporary password in place and a session alive, on the act meant to end them. |
 | `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). A password shorter than eight characters is refused, as on every path that sets one. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
-| `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. The first three read the session off the context they are called with: in a session that acts as someone else each refuses the account of the person who started the session (403, "you are acting as someone else, so you cannot disable your own account: …"), so a route an application wrote that calls one is held to the rule the generated user management has. In a session of the person's own, the caller guards against the person disabling or deleting themselves. |
+| `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. The first three read the session off the context they are called with: in a session that acts as someone else each refuses the account of the person who started the session (403, "you are acting as someone else, so you cannot disable your own account: …"), so a route an application wrote that calls one is held to the rule the generated user management has. The store's own `DeactivateUser`, `ActivateUser` and `DeleteUser` beneath them are the bare writes and are not held to it: they are handed no session to read, so a route calls the session API's three, never the store's. In a session of the person's own, the caller guards against the person disabling or deleting themselves. |
 
 One rule holds a password's shape on every path that sets one: it is at least eight
 characters, counted as characters and not as bytes, and a shorter one is 400 saying so.
@@ -3308,6 +3308,14 @@ The seal is the library's API and no more. These are outside it:
   What it changes in the request reaches no row the library writes; what it can do to
   the session and its record is a write of its own on those tables in that transaction,
   which is the limit above.
+- **The connection the application hands the store.** The store writes through the
+  connection it was made with, and that connection is the application's. For PostgreSQL
+  it is any value that answers the store's `postgres.Queryer`: a pool, or a type of the
+  application's own that wraps one, which is handed every statement the library sends,
+  with its arguments, and could send another. For Spanner it is the client the
+  application dialed, and the gRPC interceptors it was dialed with are handed every
+  request and could change it. Both see and could rewrite what the library writes. It is
+  the tables again, one step before the database.
 - **What a store that wraps the library's still carries.** It answers for ordinary
   sessions, as said above: what it adds to one is the application's, and a session the
   library's own store does not hold is its to answer whole, under the id that was asked
@@ -3324,9 +3332,10 @@ The seal is the library's API and no more. These are outside it:
   a variable of the library by its symbol's name, the sealed write among them, and the
   linker accepts it. `impulse check` refuses the directive (`framework-linkname`): a
   `//go:linkname` that names a package of the library in any Go file under the
-  application's root, a test file, a generated file and a vendored file included. It
-  refuses nothing else of this kind: `unsafe` reaches the memory of a value a program
-  holds with no directive at all.
+  application's root, a test file, a generated file and a vendored file included, and
+  a file in a directory the tree reaches through a symbolic link. It refuses nothing
+  else of this kind: `unsafe` reaches the memory of a value a program holds with no
+  directive at all.
 - **A module under the library's import path.** The go command opens an internal
   directory to every package whose import path is under the directory's parent, and it
   goes by the path, not by where the code is kept. A module whose path is under the
@@ -3335,19 +3344,28 @@ The seal is the library's API and no more. These are outside it:
   the internal package and make the write themselves. `impulse check` refuses it
   (`framework-modules`): a module path under the library's that is not one of the
   library's own modules, as the application's own module path, a requirement or a
-  replace in `go.mod`, and as a used directory's module or a replace in a `go.work` at
-  the application's root.
+  replace in `go.mod`, as a used directory's module or a replace in a `go.work` at the
+  application's root, and as a requirement or a replace in the `go.mod` of each
+  directory that `go.work` uses, since in a workspace the go command applies the
+  replaces of every module it uses.
 - **A copy of the library the application changed.** An application that builds against
   a copy of the library with a change of its own in it, through a `replace` of the
   library's module or a vendor directory edited by hand, builds another library, and
   nothing this one refuses holds there. `impulse check` warns of the replace (`pins`);
   nothing compares a vendor directory with the release.
 
-The two checks read the application's own tree as it stands: its Go files, its `go.mod`
-and a `go.work` at its root. They do not read the code of the modules the application
-requires, or a build told to read another module file (`go build -modfile`). An
-application that must rule those out reads its dependencies and its build's commands in
-its own review.
+The two checks read the application's own tree as it stands: its Go files, its `go.mod`,
+a `go.work` at its root and the `go.mod` of each directory that `go.work` uses. They do
+not read the code of the modules the application requires, or a build told to read
+another module file (`go build -modfile`). They do not read a workspace file that is
+not at the application's root either: the go command takes a `go.work` from any
+directory above the one it runs in, and the file the `GOWORK` variable names, and
+either can use a directory whose module path is under the library's. An application
+that must rule those out reads its dependencies, its build's commands and the
+environment they run in, in its own review.
+
+The application's principal resolver (`WithPrincipalResolver`) is not on this list: it
+is never asked about a session that acts as someone else ("Choosing the principal").
 
 **No option opens the session.** The session the library builds inside `NewAuth`,
 `NewPreauth` and the other constructors is the one thing that starts that write, so
@@ -3592,7 +3610,11 @@ session ends, or enable their own account again after it was disabled. Disabling
 enabling and deleting the real person's own account are refused the same way, in one
 sentence form and with one log line, and the session API's own three switches
 (`DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`) ask the rule
-themselves of the session they are called in, for a route an application wrote. The rule covers a record that decides what a person may do as well: the
+themselves of the session they are called in, for a route an application wrote. That
+is where the rule lives. The store's own three beneath them (`DeactivateUser`,
+`ActivateUser`, `DeleteUser`) are bare writes that read no session and ask nothing, so
+a route an application wrote that calls the store's method makes the switch unasked:
+it calls the session API's. The rule covers a record that decides what a person may do as well: the
 generated write of a record the policy reads as a subject value or a subject set (a
 clearance, a place in a team) refuses the real person a row that names them, asked
 before the write and after it, so they neither raise their own clearance nor move
@@ -3760,10 +3782,12 @@ around it.
 By default a session's principal is its user, or the impersonation record's principal,
 and for almost every application that is the end of the story: put role membership in
 the permission store, check with `ForUser`, and a role change is enforced on the user's
-next request. `WithPrincipalResolver` exists for the narrow case where a session's
-subject genuinely is not a user. The resolver runs inside session validation, with the
-session, its custom data and its impersonation record in the context, and returns the
-principal `PrincipalFromCtx` reports for the request.
+next request. `WithPrincipalResolver` exists for the narrow case where an ordinary
+session's subject genuinely is not a user. The resolver runs inside the validation of
+an ordinary session, with the session and its custom data in the context, and returns
+the principal `PrincipalFromCtx` reports for the request. A session that acts as
+someone else never asks it: whom such a session acts as is what its kind declares and
+its record names, and no code of the application's decides it.
 
 **The resolver chooses *which subject*, never *which grants*.** Grants always come from
 the permission store at check time. The moment a resolver reads role membership from
@@ -3818,9 +3842,13 @@ auth, err := session.NewPreauth[APIKeySession](storage, cookieKey,
 
 - The choice is made per request at validation and never stored; nothing changes in the
   schema and no impersonation record is written.
-- The resolver runs for ordinary sessions and for user-principal impersonations — an
-  impersonated user's session acts as that user's session would. A role-principal
-  impersonation already names its subject and skips the resolver.
+- The resolver runs for ordinary sessions alone. A session that acts as someone else,
+  as a person or as a role, skips it, and `PrincipalFromCtx` answers the principal its
+  record names. So a session that acts as a person whose own sessions the resolver
+  gives another subject acts as the person: under the grants the permission store
+  holds for their account, not under the subject the resolver would have chosen. An
+  application that wants a session to act as that subject declares a kind that acts
+  as the role.
 - Returning the zero `Principal` keeps the default. An error fails the request as a
   server error, not an unauthorized one: the session is valid; the application could not
   decide what it acts as.

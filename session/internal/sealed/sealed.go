@@ -29,6 +29,12 @@
 //     transaction: what it changes in the request reaches no row the library writes,
 //     and what it can do to the session and its record is a write of its own on those
 //     tables.
+//   - The connection the application hands the store is the application's, and what
+//     the library writes passes through it. A postgres.Queryer that wraps the
+//     connection is handed every statement the library sends, with its arguments, and
+//     could send another; the gRPC interceptors a Spanner client was dialed with are
+//     handed every request and could change it. It is the tables again, one step
+//     before the database.
 //   - A store that wraps the library's still answers for an ordinary session (its
 //     Session is asked for every session the library's own read does not find
 //     impersonated; it may not answer an impersonated one, and its answer is held to
@@ -43,19 +49,30 @@
 //     the type checker here as anywhere. The plainest form is a go:linkname directive,
 //     which links to a function or a variable of this package by its symbol's name, and
 //     the linker accepts it. impulse check refuses the directive in an application's
-//     tree (the check framework-linkname) and nothing else of this kind: unsafe reaches
-//     the memory of a value a program holds with no directive.
+//     tree, in a directory reached through a symbolic link too (the check
+//     framework-linkname), and nothing else of this kind: unsafe reaches the memory of
+//     a value a program holds with no directive.
 //   - A module whose path is under the library's import path is, to the go command,
 //     inside the library's directory, wherever a replace or a workspace finds its code,
 //     and its packages may import this one. impulse check refuses such a module in an
-//     application's go.mod and in a go.work at its root (the check framework-modules).
+//     application's go.mod, in a go.work at its root, and in the go.mod of each
+//     directory that go.work uses, whose replaces the go command applies to the whole
+//     build (the check framework-modules).
 //   - An application that builds against a copy of the library it changed, through a
 //     replace of the library's module or a vendor directory edited by hand, builds
 //     another library. impulse check warns of the replace (the check pins).
 //
-// The two checks read the application's own tree: its Go files, its go.mod and a
-// go.work at its root. The code of the modules it requires, and a build told to read
-// another module file, are read by neither.
+// The two checks read the application's own tree: its Go files, its go.mod, a go.work
+// at its root and the go.mod of each directory that go.work uses. Read by neither are
+// the code of the modules it requires, a build told to read another module file (go
+// build -modfile), and a workspace file that is not at the application's root: a
+// go.work in a directory above it, which the go command finds by itself, and the file
+// the GOWORK variable names. Either can use a directory whose module path is under the
+// library's.
+//
+// The application's principal resolver (session.WithPrincipalResolver) is not on this
+// list because it is never asked about an impersonated session: whom one acts as is
+// what its kind declares and its record names.
 //
 // The seal is on the library's API, for code the type checker reads.
 package sealed

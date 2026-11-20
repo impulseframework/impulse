@@ -520,7 +520,14 @@ Where an application offers it, these things hold in every shape.
   end a session that acts as someone pass through the wrapper. The application owns its tables, so SQL of its
   own can write any row, and the library does not see that. This includes the
   function an application registers to fill in its own session data, which the library
-  calls with the request inside the transaction that writes the session.
+  calls with the request inside the transaction that writes the session. It includes
+  the connection to the database too, which the application hands the library: a
+  wrapper around a PostgreSQL connection, or an interceptor on a Spanner client, sees
+  what the library writes and could change it on the way.
+- Whom a session that acts as someone acts as is decided by the kind and by nothing
+  else. An application can register a function that chooses whom an ordinary session
+  is checked as (a service that acts as a role, for example). That function is never
+  asked about a session that acts as someone.
 
 ## Without tenants
 

@@ -116,14 +116,23 @@ func TestBaseSession_ValidateSession_SpanEvidence(t *testing.T) {
 			},
 		},
 		{
-			name:         "a resolver that changes the subject adds the principal attributes",
+			name:     "a resolver that changes the subject of an ordinary request adds the principal attributes",
+			resolver: func(context.Context) (accesstypes.Principal, error) { return accesstypes.RolePrincipal("Editor"), nil },
+			want: func(impulse.UUID) map[string]string {
+				return map[string]string{
+					attrEndUserID:                 "bob@partner.org",
+					sessioninfo.AttrPrincipalKind: "Role",
+					sessioninfo.AttrPrincipal:     "Editor",
+				}
+			},
+		},
+		{
+			name:         "an impersonated request never asks the resolver, and carries no principal attributes of its choosing",
 			impersonated: true,
 			resolver:     func(context.Context) (accesstypes.Principal, error) { return accesstypes.RolePrincipal("Editor"), nil },
 			want: func(id impulse.UUID) map[string]string {
 				m := impersonationAttrs(id)
 				m[attrEndUserID] = "bob@partner.org"
-				m[sessioninfo.AttrPrincipalKind] = "Role"
-				m[sessioninfo.AttrPrincipal] = "Editor"
 
 				return m
 			},

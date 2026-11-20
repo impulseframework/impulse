@@ -31,9 +31,10 @@ type SessionInfo struct {
 //
 // Principal is the authorization subject a configured principal resolver chose for
 // this request (session.WithPrincipalResolver), set at validation and never stored. It
-// is the zero Principal when no resolver is configured or the resolver kept the
-// default, in which case PrincipalFromCtx derives the subject from the impersonation
-// record or the session's own user.
+// is the zero Principal when no resolver is configured, when the resolver kept the
+// default, and for every session that acts as someone else, which the resolver is never
+// asked about: PrincipalFromCtx then derives the subject from the impersonation record
+// or the session's own user.
 type SessionData struct {
 	*SessionInfo
 	CustomData    any

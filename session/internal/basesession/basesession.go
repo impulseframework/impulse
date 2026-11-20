@@ -39,8 +39,8 @@ type BaseSession struct {
 	ImpersonationAudit func(ctx context.Context, event sessioninfo.ImpersonationEvent) error
 	// PrincipalResolver, when set, chooses the request's authorization subject at
 	// validation (see session.WithPrincipalResolver). It runs with the validated
-	// session in ctx for ordinary sessions and user-principal impersonations; a
-	// role-principal impersonation already names its subject and skips it.
+	// session in ctx for ordinary sessions alone: a session that acts as someone else
+	// acts as whom its record names, and the resolver is not asked.
 	PrincipalResolver func(ctx context.Context) (accesstypes.Principal, error)
 	Handle            LogHandler
 	Storage           sessionstorage.BaseStore
@@ -356,14 +356,16 @@ func (s *BaseSession) Establish(ctx context.Context, evidence trace.Span, sessDa
 
 // resolvePrincipal runs the configured PrincipalResolver for the validated session in
 // ctx and records its choice on sessData.Principal when it differs from the default
-// subject. A role-principal impersonation is skipped: the record already names the
-// subject. A resolver error is a server error, never an unauthorized one — the session
-// is valid; the application could not decide what it acts as.
+// subject. A session that acts as someone else is never asked about: whom it acts as is
+// its declaration's and its record's, and the resolver is the application's code, which
+// decides nothing of such a session. A resolver error is a server error, never an
+// unauthorized one — the session is valid; the application could not decide what it acts
+// as.
 func (s *BaseSession) resolvePrincipal(ctx context.Context, sessData *sessioninfo.SessionData) error {
 	if s.PrincipalResolver == nil {
 		return nil
 	}
-	if imp := sessData.Impersonation; imp != nil && imp.Principal.IsRole() {
+	if sessData.Impersonation != nil {
 		return nil
 	}
 

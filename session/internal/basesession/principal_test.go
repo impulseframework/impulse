@@ -76,14 +76,15 @@ func TestBaseSession_ValidateSessionAPI_PrincipalResolver(t *testing.T) {
 			wantStored:    true,
 		},
 		{
-			name:          "a user-principal impersonation runs the resolver too",
-			session:       impersonated(accesstypes.UserPrincipal("bob")),
-			resolver:      fromCustomData,
-			wantPrincipal: editor,
-			wantStored:    true,
+			name:    "a session that acts as a person skips the resolver",
+			session: impersonated(accesstypes.UserPrincipal("bob")),
+			resolver: func(context.Context) (accesstypes.Principal, error) {
+				return accesstypes.Principal{}, errors.New("must not run")
+			},
+			wantPrincipal: accesstypes.UserPrincipal("bob"),
 		},
 		{
-			name:    "a role-principal impersonation skips the resolver",
+			name:    "a session that acts as a role skips the resolver",
 			session: impersonated(accesstypes.RolePrincipal("PartnerViewer")),
 			resolver: func(context.Context) (accesstypes.Principal, error) {
 				return accesstypes.Principal{}, errors.New("must not run")
@@ -141,6 +142,63 @@ func TestBaseSession_ValidateSessionAPI_PrincipalResolver(t *testing.T) {
 			}
 			if stored := tt.session.Principal != (accesstypes.Principal{}); stored != tt.wantStored {
 				t.Errorf("SessionData.Principal recorded = %v, want %v", stored, tt.wantStored)
+			}
+		})
+	}
+}
+
+// TestBaseSession_ValidateSessionAPI_noResolverDecidesAnImpersonatedSession holds whom
+// a session that acts as someone else acts as to its record. The resolver here would
+// answer another principal for every session, as one that reads a live lookup may, and
+// it is never asked: not for a session that acts as a person, and not for one that acts
+// as a role. The resolver is the application's code, and no code of the application's
+// decides such a session.
+func TestBaseSession_ValidateSessionAPI_noResolverDecidesAnImpersonatedSession(t *testing.T) {
+	t.Parallel()
+
+	sessionID := impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))
+
+	tests := []struct {
+		name      string
+		principal accesstypes.Principal
+	}{
+		{name: "a session that acts as a person acts as that person", principal: accesstypes.UserPrincipal("bob")},
+		{name: "a session that acts as a role acts as that role", principal: accesstypes.RolePrincipal("PartnerViewer")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			storage := mockstore.NewBaseStore(gomock.NewController(t))
+			session := &sessioninfo.SessionData{
+				SessionInfo:   &sessioninfo.SessionInfo{ID: sessionID, Username: "bob", UpdatedAt: time.Now()},
+				Impersonation: &sessioninfo.Impersonation{SessionID: sessionID, Actor: "alice", Principal: tt.principal, ExpiresAt: time.Now().Add(time.Hour)},
+			}
+			storage.EXPECT().Session(gomock.Any(), sessionID).Return(session, nil)
+
+			asked := 0
+			s := &BaseSession{
+				SessionTimeout: time.Minute,
+				Storage:        storage,
+				PrincipalResolver: func(context.Context) (accesstypes.Principal, error) {
+					asked++
+
+					return accesstypes.UserPrincipal("carol"), nil
+				},
+			}
+
+			ctx, err := s.ValidateSessionAPI(context.WithValue(context.Background(), sessioninfo.CTXSessionID, sessionID))
+			if err != nil {
+				t.Fatalf("ValidateSessionAPI() error = %v", err)
+			}
+			if asked != 0 {
+				t.Errorf("the resolver was asked %d time(s) about a session that acts as someone else, want never", asked)
+			}
+			if got := sessioninfo.PrincipalFromCtx(ctx); got != tt.principal {
+				t.Errorf("PrincipalFromCtx() = %v, want the record's %v", got, tt.principal)
+			}
+			if got := session.Principal; got != (accesstypes.Principal{}) {
+				t.Errorf("SessionData.Principal = %v, want nothing recorded", got)
 			}
 		})
 	}

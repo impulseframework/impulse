@@ -8,14 +8,13 @@ import (
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 )
 
-// PrincipalResolver chooses the authorization subject of a validated request. It runs
-// inside session validation with the session in ctx — sessioninfo.FromCtx, the custom
-// session data (sessioninfo.CustomDataFromCtx) and the impersonation record are all
+// PrincipalResolver chooses the authorization subject of a validated request of an
+// ordinary session. It runs inside session validation with the session in ctx —
+// sessioninfo.FromCtx and the custom session data (sessioninfo.CustomDataFromCtx) are
 // available — and returns the principal the request evaluates permissions against.
-// Returning the zero Principal keeps the default (the impersonation record's principal,
-// or the session user's own). An error fails the request as a server error, not an
-// unauthorized one: the session is valid; the application could not decide what it acts
-// as.
+// Returning the zero Principal keeps the default (the session user's own). An error
+// fails the request as a server error, not an unauthorized one: the session is valid;
+// the application could not decide what it acts as.
 //
 // A resolver chooses which subject, never which grants: grants come from the permission
 // store at check time. A resolver must therefore derive the subject from something live
@@ -35,11 +34,14 @@ type PrincipalResolver = func(ctx context.Context) (accesstypes.Principal, error
 // impersonation record: evidenced, capped, revocable). See the README, "Choosing the
 // principal".
 //
-// The resolver runs for ordinary sessions and for user-principal impersonations (so an
-// impersonated user's session acts as that user would); a role-principal impersonation
-// already names its subject and skips it. When the resolver changes the principal the
-// choice is stamped on the request's log entry and trace span as principal.kind and
-// principal (sessioninfo.AttrPrincipalKind, sessioninfo.AttrPrincipal).
+// The resolver runs for ordinary sessions alone. A session that acts as someone else,
+// as a person or as a role, never asks it: whom such a session acts as is what its kind
+// declares and its record names, and no code of the application's decides it. A
+// session that acts as a person whose own sessions the resolver would give another
+// subject therefore acts as the person, not as that subject. When the resolver changes
+// the principal the choice is stamped on the request's log entry and trace span as
+// principal.kind and principal (sessioninfo.AttrPrincipalKind,
+// sessioninfo.AttrPrincipal).
 func WithPrincipalResolver(resolve PrincipalResolver) BaseSessionOption {
 	return sessioncore.NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.PrincipalResolver = resolve
