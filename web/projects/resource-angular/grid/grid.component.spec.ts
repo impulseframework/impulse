@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, effect } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import { ColumnConfig, iconCellKey, RecordData } from '@impulseframework/resource-angular/types';
@@ -2256,6 +2256,33 @@ describe('a list and the width of its frame', () => {
         expect(widths()[3]).toBe(`${changedBy + 10}px`);
       });
 
+      it("reads an icon's box and the longest line of a list drawn a line each as they are laid out too", async () => {
+        scale = 0.8;
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', [
+          {
+            name: 'Ada',
+            standing: 'Cleared',
+            [iconCellKey('standing')]: 'verified_user',
+            roles: ['Reader', 'Deck warden'],
+          },
+        ]);
+        fixture.componentRef.setInput('columnDefs', [
+          { id: 'name' },
+          { id: 'standing', header: 'Is', iconConfig: { icons: { Cleared: 'verified_user' } } },
+          { id: 'roles', lines: true },
+          { id: 'more' },
+        ]);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        await settle(fixture);
+        frameIs(100);
+
+        // An icon's box is 24 and "Deck warden" eleven characters, each drawn at eight tenths of that.
+        expect(asDrawn(24)).toBeLessThan(20);
+        expect(widths().slice(1, 3)).toEqual([`${24 + aroundCell + spare}px`, `${cellOf(11)}px`]);
+      });
+
       describe('drawn at no size at all', () => {
         const view = document.defaultView as Window;
         const own = ['requestAnimationFrame', 'cancelAnimationFrame'].map((name): [string, unknown] => {
@@ -2545,6 +2572,34 @@ describe('a list and the width of its frame', () => {
             delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
           }
         }
+      });
+
+      it('works out no width again after a read that found nothing new, so the list is not drawn again for it', async () => {
+        const list = await plain();
+        frameIs(phone);
+        // Counts each time the width the first column is drawn at is worked out.
+        let workedOut = 0;
+        const watch = TestBed.runInInjectionContext(() =>
+          effect(() => {
+            list.drawnWidthFor(columns[0]);
+            workedOut++;
+          }),
+        );
+        TestBed.tick();
+        expect(workedOut).toBe(1);
+        const first = reads;
+
+        // Another page of values the list has shown: read, and nothing found that the columns did not have.
+        await hand('rowData', [rows[1], rows[0]]);
+        TestBed.tick();
+        expect(reads).toBeGreaterThan(first);
+        expect(workedOut).toBe(1);
+
+        // A longer value: its column needs more, and the widths are worked out again.
+        await hand('rowData', [longer]);
+        TestBed.tick();
+        expect(workedOut).toBe(2);
+        watch.destroy();
       });
 
       it("reads a value once for each column it is shown in, no value of a column already at the library's width, and no column with a width of its own", async () => {
