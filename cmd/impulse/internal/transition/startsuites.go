@@ -243,6 +243,70 @@ func (d *DirectoryStart) writeLoginPageSpec(a *app.App, ch *Change, spec []byte,
 	return nil
 }
 
+// menuSpec is the test of the browser application's menu file. The base's names the
+// pages its routes carry and the System menu alone places, which are the pages the
+// library builds for the auth.
+const menuSpec = "web/console/src/" + appMenusSpecFile
+
+// absentPage is a page the base's routes carry and a start's do not, with what the page
+// is for and why the start has none.
+type absentPage struct{ label, why string }
+
+// directoryRolesAbsentPages are the pages of the base that an application whose
+// directory gives every role has no route for. The library builds each page of an auth
+// over a list the generated API description names, and the generator names neither of
+// these lists for such an auth, so its routes carry neither page.
+var directoryRolesAbsentPages = []absentPage{
+	{"Sign-in", "where an administrator opens a sign-in method to sign-up or makes it invite only, and the directory decides who signs in"},
+	{"Break glass", "where a person takes a role for a set time, and the directory gives every role"},
+}
+
+// editMenuSpec takes the pages a Directory roles start's routes do not carry out of the
+// menu file's test, where the test names each on a line of its own as the base's does.
+// The test pins the pages the routes carry and no menu places, and it runs in the
+// application's browser tests, so the base's list would fail there as the application
+// was made. A test that names such a page some other way is left as it is, and the
+// change lists it among what is left to the author. A test that names none of them, and
+// an application with no such test, are left without a word.
+func (d *DirectoryStart) editMenuSpec(a *app.App, ch *Change) error {
+	if !d.syncsRoles() {
+		return nil
+	}
+	data, mode, err := readFile(a, menuSpec)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	text := string(data)
+	var gone []string
+	for _, page := range directoryRolesAbsentPages {
+		quoted := "'" + page.label + "'"
+		if !strings.Contains(text, quoted) {
+			continue
+		}
+		line := regexp.MustCompile(`(?m)^[ \t]*` + regexp.QuoteMeta(quoted) + `,\n`)
+		edited := line.ReplaceAllString(text, "")
+		if strings.Contains(edited, quoted) {
+			ch.Left = append(ch.Left, fmt.Sprintf("%s names the %s page, which the application's routes do not carry (%s): take the page out of the ones the test expects", menuSpec, page.label, page.why))
+
+			continue
+		}
+		text = edited
+		gone = append(gone, fmt.Sprintf("%s (%s)", page.label, page.why))
+	}
+	if len(gone) == 0 {
+		return nil
+	}
+	if err := os.WriteFile(a.Abs(menuSpec), []byte(text), mode); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+	ch.didf("%s: the pages the menu file's test expects of the routes lose the ones the %s auth has no route for: %s", menuSpec, d.Auth, strings.Join(gone, "; "))
+
+	return nil
+}
+
 // methodLabel is the words the login page shows for a method of a start: the label the
 // generator gives a method of its kind.
 func methodLabel(m *authpkg.Method) string {

@@ -184,6 +184,7 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 	// test in it is the start's own: it passes go vet and its tests.
 	vetsAsMade(t, made)
 	testsAsMade(t, made)
+	menuSpecsNameRoutedPages(t, made)
 	for _, method := range methods {
 		said.Reset()
 		add := newAddMethod()
@@ -347,6 +348,80 @@ func testsAsMade(t *testing.T, made *authoredApplication) {
 
 	if out, err := made.run(t, "go", "test", "-tags", "skipAuth", "-count=1", "./..."); err != nil {
 		t.Errorf("go test -tags skipAuth ./...: %v: an application passes its own tests as impulse new made it\n%s", err, out)
+	}
+}
+
+// listedPages are the pages the library builds for an auth in the whole application,
+// each with the list of the generated API description it is built over (the library's
+// identity pages): the routes carry the page where the description names the list, and
+// nowhere else.
+var listedPages = map[string]string{
+	"Accounts":        "users",
+	"Mailed links":    "invitations",
+	"Sessions":        "sessions",
+	"Failed sign-ins": "signInAttempts",
+	"Sign-in":         "signInMethods",
+	"Break glass":     "takenRoles",
+}
+
+// The lists a generated API description names for an auth's side of the whole
+// application, and each list's key among them.
+var (
+	globalListsRE = regexp.MustCompile(`scope: 'global',\s*lists: \{([^}]*)\}`)
+	listKeyRE     = regexp.MustCompile(`(\w+): Resources\.`)
+)
+
+// menuSpecsNameRoutedPages holds an application impulse new just made to tests of its
+// menu files that expect no page the routes do not carry. A menu file's test pins the
+// pages the routes carry and no menu places, and it runs in the application's browser
+// tests, which this test does not run; the routes carry the pages the library builds
+// from the generated API description beside the test. So a page the test names whose
+// list the description does not name is a page the start left in the test of an
+// application that has none, and the application fails its own browser tests as made.
+func menuSpecsNameRoutedPages(t *testing.T, made *authoredApplication) {
+	t.Helper()
+
+	specs := 0
+	err := filepath.WalkDir(made.dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return errors.Wrap(err, "filepath.WalkDir()")
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" || d.Name() == "node_modules" {
+				return fs.SkipDir
+			}
+
+			return nil
+		}
+		if d.Name() != "app.menus.spec.ts" {
+			return nil
+		}
+		specs++
+		rel, err := filepath.Rel(made.dir, p)
+		if err != nil {
+			return errors.Wrap(err, "filepath.Rel()")
+		}
+		spec := made.read(t, rel)
+		description := made.read(t, filepath.Join(filepath.Dir(rel), "core", "service", "zz_gen_api.ts"))
+		described := map[string]bool{}
+		for _, side := range globalListsRE.FindAllStringSubmatch(description, -1) {
+			for _, key := range listKeyRE.FindAllStringSubmatch(side[1], -1) {
+				described[key[1]] = true
+			}
+		}
+		for page, list := range listedPages {
+			if strings.Contains(spec, "'"+page+"'") && !described[list] {
+				t.Errorf("%s expects the %s page of the routes, and the generated API description beside it names no %s list for the library to build the page over: the application fails its own browser tests as impulse new made it", rel, page, list)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if specs == 0 {
+		t.Error("the application has no test of a menu file (app.menus.spec.ts), and the base it was made from has one")
 	}
 }
 

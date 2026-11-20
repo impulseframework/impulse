@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
@@ -451,6 +453,130 @@ func TestDirectoryStart_Apply_loginPageSpec(t *testing.T) {
 		}
 		if !exists(a, simulatedSignIn) {
 			t.Errorf("%s was not written, and the application's Go tests are the base's", simulatedSignIn)
+		}
+	})
+}
+
+// menuSpecPages reads the pages a menu file's test expects the routes to carry outside
+// the System menu, as the base's test lists them: each on a line of its own.
+func menuSpecPages(t *testing.T, spec string) []string {
+	t.Helper()
+
+	list := regexp.MustCompile(`(?s)unplacedPages\(routes, withoutSystem\)\.map\(\(page\) => page\.label\)\)\.toEqual\(\[\n(.*?)\n\s*\]\);`).FindStringSubmatch(spec)
+	if list == nil {
+		t.Fatalf("the menu file's test does not list the pages the System menu alone places:\n%s", spec)
+	}
+	var pages []string
+	for _, line := range strings.Split(list[1], "\n") {
+		pages = append(pages, strings.Trim(strings.TrimSpace(line), "',"))
+	}
+
+	return pages
+}
+
+// TestDirectoryStart_Apply_menuSpec holds a Directory roles start to a test of the menu
+// file that names the pages its routes carry. The base's names the Sign-in and Break
+// glass pages, which the library builds over lists the generator describes for an auth
+// that gives its own roles: an auth whose directory gives every role has neither, so
+// the base's test fails in the application's browser tests as the application was made.
+func TestDirectoryStart_Apply_menuSpec(t *testing.T) {
+	t.Parallel()
+
+	base, err := baseRendering(menuSpec, "example.com/acme/depot", "staff")
+	if err != nil {
+		t.Fatalf("baseRendering() error = %v", err)
+	}
+	basePages := menuSpecPages(t, string(base))
+	for _, page := range directoryRolesAbsentPages {
+		if !slices.Contains(basePages, page.label) {
+			t.Fatalf("the base's %s does not name the %s page (%q): the start takes out a page the base no longer has", menuSpec, page.label, basePages)
+		}
+	}
+	wantPages := slices.DeleteFunc(slices.Clone(basePages), func(page string) bool {
+		return page == "Sign-in" || page == "Break glass"
+	})
+
+	tests := []struct {
+		name  string
+		start DirectoryStart
+	}{
+		{name: "through Google", start: directoryRolesStart(app.MethodGoogle, "fleet.example")},
+		{name: "through Microsoft", start: directoryRolesStart(app.MethodAzure, "3f2504e0-4f89-11d3-9a0c-0305e82c3301")},
+	}
+	for _, tt := range tests {
+		t.Run("Directory roles "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, ch := started(t, &tt.start)
+			spec := read(t, a, menuSpec)
+			if diff := cmp.Diff(wantPages, menuSpecPages(t, spec)); diff != "" {
+				t.Errorf("the pages %s expects of the routes mismatch (-want +got):\n%s", menuSpec, diff)
+			}
+			// Nothing else of the test changed: the two lines are all the start took out.
+			if want := strings.NewReplacer("      'Sign-in',\n", "", "      'Break glass',\n", "").Replace(string(base)); spec != want {
+				t.Errorf("%s is not the base's less the two pages (-want +got):\n%s", menuSpec, cmp.Diff(want, spec))
+			}
+			if got := linesWith(ch.Did, menuSpec+": the pages the menu file's test expects of the routes lose the ones the staff auth has no route for: ", []string{"Sign-in (", "; Break glass ("}); len(got) != 1 {
+				t.Errorf("the change does not say once that the menu file's test lost the two pages: %q", ch.Did)
+			}
+			if got := leftLine(ch, menuSpec+" "); len(got) != 0 {
+				t.Errorf("the change leaves the menu file's test to the author, and the start brought it to the routes: %q", got)
+			}
+		})
+	}
+
+	t.Run("a start whose application gives the roles keeps both pages", func(t *testing.T) {
+		t.Parallel()
+
+		start := byDirectoryStart("members")
+		a, ch := started(t, &start, "set_members_temporary_password")
+		base, err := baseRendering(menuSpec, "example.com/acme/depot", start.Auth)
+		if err != nil {
+			t.Fatalf("baseRendering() error = %v", err)
+		}
+		if got := read(t, a, menuSpec); got != string(base) {
+			t.Errorf("%s was changed, and the auth's routes carry every page the base's do (-want +got):\n%s", menuSpec, cmp.Diff(string(base), got))
+		}
+		if got := linesWith(ch.Did, menuSpec+": ", nil); len(got) != 0 {
+			t.Errorf("the change says it changed the menu file's test: %q", got)
+		}
+	})
+
+	t.Run("a test that names a page some other way is left as it is, and named with what to do", func(t *testing.T) {
+		t.Parallel()
+
+		start := directoryRolesStart(app.MethodGoogle, "fleet.example")
+		own := "it('names the pages', () => {\n  expect(pages()).toEqual(['Accounts', 'Sign-in', 'Feature flags']);\n});\n"
+		a, ch := startedOver(t, &start, func(a *app.App) {
+			if err := os.WriteFile(a.Abs(menuSpec), []byte(own), 0o644); err != nil {
+				t.Fatalf("os.WriteFile() error = %v", err)
+			}
+		})
+		if got := read(t, a, menuSpec); got != own {
+			t.Errorf("%s was changed, and it does not list the pages as the base's does:\n%s", menuSpec, got)
+		}
+		if got := leftLine(ch, menuSpec+" names the Sign-in page, which the application's routes do not carry", "take the page out of the ones the test expects"); len(got) != 1 {
+			t.Errorf("the change does not leave the author the page the test still names: %q", ch.Left)
+		}
+		if got := leftLine(ch, menuSpec+" names the Break glass page"); len(got) != 0 {
+			t.Errorf("the change names a page the test does not: %q", got)
+		}
+		if got := linesWith(ch.Did, menuSpec+": ", nil); len(got) != 0 {
+			t.Errorf("the change says it changed the menu file's test: %q", got)
+		}
+	})
+
+	t.Run("an application with no such test is left without a word", func(t *testing.T) {
+		t.Parallel()
+
+		start := directoryRolesStart(app.MethodGoogle, "fleet.example")
+		_, ch := startedOver(t, &start, func(a *app.App) {
+			if err := os.Remove(a.Abs(menuSpec)); err != nil {
+				t.Fatalf("os.Remove() error = %v", err)
+			}
+		})
+		if got := append(linesWith(ch.Did, menuSpec, nil), leftLine(ch, menuSpec)...); len(got) != 0 {
+			t.Errorf("the change speaks of a menu file's test the application does not have: %q", got)
 		}
 	})
 }
