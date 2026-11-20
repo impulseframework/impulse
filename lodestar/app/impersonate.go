@@ -42,13 +42,17 @@ const (
 //     remove a password, send a reset link, unlink a sign-in identity, or change a
 //     username or an address, and the actions classed access (router.ClassAccess), so
 //     it cannot give or remove a role, change a group or what it holds, invite anyone,
-//     or make, disable, enable or delete an account, nor rate a pilot, the one action of
-//     Lodestar's own that carries the class. The constants are the generated
-//     collection's, so the mask names classes the application's actions carry, or this
-//     file does not compile. The mask also names the writes of the records that decide
-//     what a person may do (standingRecords), so the session keeps the promise the
-//     StandIn role makes: it does what the person may do, except change how they sign
-//     in or who may do what.
+//     make, disable, enable or delete an account, change who may sign in (a sign-in
+//     method opened or made invite only, a sector opened to its directory, a sector's
+//     directory-only switch, the reset link at the sign-in page), or create a sector
+//     of the person's own (CreateSector, the action of the generated create-sector
+//     route, which no grant admits and the mask alone refuses), nor rate a pilot, the
+//     one action of Lodestar's own that carries the class. The constants are the
+//     generated collection's, so the mask names classes the application's actions
+//     carry, or this file does not compile. The mask also names the writes of the
+//     records that decide what a person may do (standingRecords), so the session keeps
+//     the promise the StandIn role makes: it does what the person may do, except
+//     change how they sign in or who may do what.
 //   - role: Execute on AssumeRole. The session holds what the role holds; the kind says
 //     in so many words that it is unmasked.
 //
@@ -61,6 +65,12 @@ const (
 // person does not raise their own clearance by the registry's ordinary write either.
 // The class access refuses what that rule cannot see, a role that reaches them through
 // a group or a colleague.
+//
+// A row that reaches a person without naming them is beside that: a hangar pass given
+// to a squadron the real person is in, or their own squadron moved to another wing.
+// Under a mask that refuses nothing, the role kind's, a session writes such a row: it
+// is a stated limit of the rule, and an application closes it through its mask, as
+// the act kind does here with standingRecords.
 //
 // Demonstrates: impersonation.grant-mask, impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, @class.
 func impersonationKinds() []session.ImpersonationKind {

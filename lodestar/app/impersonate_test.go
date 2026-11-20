@@ -45,9 +45,12 @@ var credentialActions = []accesstypes.Resource{
 // role, make and delete a group, put a person in one and take them out, give a group a
 // role and take it, send and withdraw an invitation, the one that makes a sector among
 // them, make, disable, enable and delete an account, and open a sign-in method to
-// sign-up or make it invite only, for the whole application and for a sector; and the
-// two methods the generator writes for the sector record's directory, which open it to
-// the directory's people with a role and make it invite only again; and the one action
+// sign-up or make it invite only, for the whole application and for a sector; the
+// setting that lets people ask for a reset link at the sign-in page; the four methods
+// the generator writes for the sector record's directory, which open it to the
+// directory's people with a role and make it invite only again, and which make the
+// sector sign in with its directory alone and end that; CreateSector, the action of the
+// generated route by which a person creates a sector of their own; and the one action
 // of Lodestar's own that does, SetSectorPilotClearance, which rates a pilot. The
 // generated collection classes each access, which the kind that acts as a person
 // refuses beside credential. When the generated set gains, loses or renames such a
@@ -61,6 +64,7 @@ var accessActions = []accesstypes.Resource{
 	"CreateCrewSectorGroup",
 	"CreateCrewSectorUser",
 	"CreateCrewUser",
+	"CreateSector",
 	"DeleteCrewGroup",
 	"DeleteCrewSectorGroup",
 	"DeleteCrewSectorUser",
@@ -75,12 +79,14 @@ var accessActions = []accesstypes.Resource{
 	"EnableCrewUser",
 	"EnableMembersSectorUser",
 	"EnableMembersUser",
+	"EndSectorDirectoryOnly",
 	"GiveCrewGroupRole",
 	"GiveCrewSectorGroupRole",
 	"InviteCrewSector",
 	"InviteCrewSectorUser",
 	"InviteCrewUser",
 	"MakeCrewInviteOnly",
+	"MakeSectorDirectoryOnly",
 	"MakeSectorInviteOnly",
 	"OpenCrewSignUp",
 	"OpenSectorToDirectory",
@@ -88,6 +94,7 @@ var accessActions = []accesstypes.Resource{
 	"RemoveCrewRole",
 	"RemoveCrewSectorGroupMember",
 	"RemoveCrewSectorRole",
+	"SetCrewSelfServiceReset",
 	"SetSectorPilotClearance",
 	"TakeCrewGroupRole",
 	"TakeCrewSectorGroupRole",

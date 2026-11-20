@@ -487,6 +487,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "EndSectorDirectoryOnly",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "ExpenseManifests",
@@ -614,6 +615,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "MakeSectorDirectoryOnly",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "MakeSectorInviteOnly",
@@ -1363,6 +1365,12 @@ func Collection() *resource.GeneratedCollection {
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Roles", Type: "string", List: true},
 				},
+			},
+			{
+				Name:        "CreateSector",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "CrewGroupMembers",
@@ -2181,6 +2189,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetCrewSelfServiceReset",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "SetCrewTemporaryPassword",

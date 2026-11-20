@@ -1094,7 +1094,7 @@ out by hand does not compile:
 | Kind | Grant | Role | The widest mask |
 | --- | --- | --- | --- |
 | `view`: view as a person | Execute on `ViewAsUser` | `CommandStaff` (the governor, the marshal) | Reading only |
-| `act`: act as a person | Execute on `ActAsUser` | `StandIn` (the governor) | Everything except the actions classed `credential`, the actions classed `access` and the writes of the records that decide what a person may do: the session cannot set, require or remove a password, send a reset link, unlink a sign-in identity, or change a username or an address; it cannot give or remove a role, change a group or what it holds, invite anyone, make, disable, enable or delete an account, or rate a pilot (`SetSectorPilotClearance`, which Lodestar classes `access`); and it cannot add, change or remove a pilot's registry row, a certification, a client's contact, a place in a squadron or a hangar pass, or change a squadron, whose row says which wing its members are in |
+| `act`: act as a person | Execute on `ActAsUser` | `StandIn` (the governor) | Everything except the actions classed `credential`, the actions classed `access` and the writes of the records that decide what a person may do: the session cannot set, require or remove a password, send a reset link, unlink a sign-in identity, or change a username or an address; it cannot give or remove a role, change a group or what it holds, invite anyone, make, disable, enable or delete an account, change who may sign in (a sign-in method opened or made invite only, a sector opened to its directory, a sector's directory-only switch, the crew's reset link at the sign-in page), create a sector of the person's own (`CreateSector`), or rate a pilot (`SetSectorPilotClearance`, which Lodestar classes `access`); and it cannot add, change or remove a pilot's registry row, a certification, a client's contact, a place in a squadron or a hangar pass, or change a squadron, whose row says which wing its members are in |
 | `role`: act as a role | Execute on `AssumeRole` | `CommandStaff` | Everything the role holds |
 
 A request may ask for less than its kind gives: permission kinds to keep
@@ -1148,6 +1148,29 @@ in or who may do what. `SetSectorPilotClearance` carries the class `access` for 
 same reason, so the kind refuses the action as it refuses the record's write. A mask
 names a record's permission and not one plain field of it, so the squadron's name and
 callsigns are refused with its wing.
+
+Creating a sector is among what the kind refuses. The generated `create-sector` route
+takes no grant, so in a session that acts as a person it would make the person acted
+as a new sector's marshal, with no permission checked for a mask to deny. The route
+carries an action's name for that, `CreateSector`, classed `access`, and asks the
+session's mask before anything else: the stand-in who acts as the pioneer is refused
+("you are acting as someone else, and this session cannot create a sector: the mask
+refuses the class access. ...") with nothing written and the denial logged as the
+mask's, and the route's `GET` answers that none is offered. The `role` kind is refused
+the same route by the rule and not by a mask, since it has none: the marshal behind a
+session that acts as a role would become the sector's marshal herself ("you are acting
+as someone else, so you cannot create a sector of your own"). An application that
+declares a kind of acting as a person with no mask allows the creation, and the person
+acted as is the sector's marshal: that is what no mask means.
+
+What the rule cannot see stays open to a session whose mask refuses nothing, and that
+is a stated limit of the rule, not something it promises. The marshal who acts as the
+`Headquarters` role is refused a role, a pass or a place in a squadron given to her own
+account. She is not refused a hangar pass given to a squadron she is in, or her own
+squadron moved to another wing: each reaches her through a row that does not name her,
+as a role given to a group she is in does. An application closes this through its
+mask, as the `act` kind does: the kind that is not to change anyone's standing says
+so, by the class and by the records it names.
 
 | Login | Who | What their view proves |
 | --- | --- | --- |

@@ -284,6 +284,13 @@ func (a *App) PatchResources() http.HandlerFunc {
 					// whatever the session's mask keeps: the rule is asked about the person
 					// the row names before the write and the person it names after it. The
 					// caller's grants answer first.
+					//
+					// The rule sees the rows that name a person. A row that reaches them
+					// without naming them (one that names a set they are in, or the row a
+					// value of theirs is read through) is its stated limit, beside a role
+					// given to a group they are in: a session whose mask refuses nothing
+					// writes it, and an application closes that through its mask, which
+					// refuses the record's writes by name (accesstypes.RefuseWrites).
 					subjectKey := resource.KeySet{}
 					if op.Type != resource.OperationCreate {
 						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
@@ -366,6 +373,13 @@ func (a *App) PatchResources() http.HandlerFunc {
 					// whatever the session's mask keeps: the rule is asked about the person
 					// the row names before the write and the person it names after it. The
 					// caller's grants answer first.
+					//
+					// The rule sees the rows that name a person. A row that reaches them
+					// without naming them (one that names a set they are in, or the row a
+					// value of theirs is read through) is its stated limit, beside a role
+					// given to a group they are in: a session whose mask refuses nothing
+					// writes it, and an application closes that through its mask, which
+					// refuses the record's writes by name (accesstypes.RefuseWrites).
 					subjectKey := resource.KeySet{}
 					if op.Type != resource.OperationCreate {
 						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
@@ -434,6 +448,13 @@ func (a *App) PatchResources() http.HandlerFunc {
 					// whatever the session's mask keeps: the rule is asked about the person
 					// the row names before the write and the person it names after it. The
 					// caller's grants answer first.
+					//
+					// The rule sees the rows that name a person. A row that reaches them
+					// without naming them (one that names a set they are in, or the row a
+					// value of theirs is read through) is its stated limit, beside a role
+					// given to a group they are in: a session whose mask refuses nothing
+					// writes it, and an application closes that through its mask, which
+					// refuses the record's writes by name (accesstypes.RefuseWrites).
 					subjectKey := resource.KeySet{}
 					subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id1"))
 					subjectKey = subjectKey.Add("CertificationID", httpio.Param[string](req, "id2"))
@@ -656,6 +677,13 @@ func (a *App) PatchResources() http.HandlerFunc {
 						// whatever the session's mask keeps: the rule is asked about the person
 						// the row names before the write and the person it names after it. The
 						// caller's grants answer first.
+						//
+						// The rule sees the rows that name a person. A row that reaches them
+						// without naming them (one that names a set they are in, or the row a
+						// value of theirs is read through) is its stated limit, beside a role
+						// given to a group they are in: a session whose mask refuses nothing
+						// writes it, and an application closes that through its mask, which
+						// refuses the record's writes by name (accesstypes.RefuseWrites).
 						subjectKey := resource.KeySet{}
 						if op.Type != resource.OperationCreate {
 							subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
@@ -1066,6 +1094,13 @@ func (a *App) PatchResources() http.HandlerFunc {
 						// whatever the session's mask keeps: the rule is asked about the person
 						// the row names before the write and the person it names after it. The
 						// caller's grants answer first.
+						//
+						// The rule sees the rows that name a person. A row that reaches them
+						// without naming them (one that names a set they are in, or the row a
+						// value of theirs is read through) is its stated limit, beside a role
+						// given to a group they are in: a session whose mask refuses nothing
+						// writes it, and an application closes that through its mask, which
+						// refuses the record's writes by name (accesstypes.RefuseWrites).
 						subjectKey := resource.KeySet{}
 						subjectKey = subjectKey.Add("SquadronID", httpio.Param[impulse.UUID](req, "id1"))
 						subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id2"))
