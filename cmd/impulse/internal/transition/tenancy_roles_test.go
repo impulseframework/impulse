@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -128,6 +129,24 @@ func recordGrants(role *roleEntry) rolePermissions {
 	return kept
 }
 
+// unconditional are the grants among them that hold under no condition, and held the
+// ones that hold under one, each as the change names it.
+func unconditional(permissions rolePermissions) (free rolePermissions, held []string) {
+	free = rolePermissions{}
+	for _, permission := range permissions {
+		for _, grant := range permission.Grants {
+			if grant.Condition != "" {
+				held = append(held, permission.Permission+" on "+string(grant.Resource)+" under "+strconv.Quote(grant.Condition))
+
+				continue
+			}
+			free.add(permission.Permission, grant)
+		}
+	}
+
+	return free, held
+}
+
 // TestTenancy_Apply_writesTheAdministratorRole pins that an application is given the
 // role a tenant's administrator holds as it gains tenants: an application with tenants
 // builds no router until one is named, so one left to the author is an application that
@@ -153,8 +172,12 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		if role == nil {
 			t.Fatalf("%s has no domain role TenantAdministrator; the change skipped %q", roles, ch.Skipped)
 		}
-		if diff := cmp.Diff(recordGrants(roleNamed(reference.Roles.Domain, "TenantAdministrator")), role.Permissions); diff != "" {
-			t.Errorf("the role's grants are not the reference's on its tenants (-reference +written):\n%s", diff)
+		free, held := unconditional(recordGrants(roleNamed(reference.Roles.Domain, "TenantAdministrator")))
+		if diff := cmp.Diff(free, role.Permissions); diff != "" {
+			t.Errorf("the role's grants are not the reference's on its tenants that hold under no condition (-reference +written):\n%s", diff)
+		}
+		if len(held) == 0 {
+			t.Fatal("the reference's role holds no grant under a condition, so this proves nothing of them")
 		}
 		if want := "Runs one tenant: manages its people, their groups and the roles they hold there, and declares the directory they sign in through."; role.Description != want {
 			t.Errorf("the role's description = %q, want %q", role.Description, want)
@@ -200,12 +223,19 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 				t.Errorf("the change does not say once %q with %q: %q", prefix, texts, ch.Did)
 			}
 		}
-		if got := skippedLine(ch, roles); len(got) != 0 {
-			t.Errorf("the change leaves a step of the role file to the author: %q", got)
+		// A grant under a condition is the author's, with the test that proves it: impulse
+		// check refuses a conditional grant no test proves, so one written here is an
+		// application that fails its own check as it was made.
+		left := skippedLine(ch, roles+": "+strconv.Itoa(len(held))+" grant(s) the tenanted skeleton's TenantAdministrator holds under a condition were not written into TenantAdministrator", append([]string{"conditions-proven", "test/integration/tenant_people_test.go"}, held...)...)
+		if len(left) != 1 || len(skippedLine(ch, roles)) != 1 {
+			t.Errorf("the change does not say once, and as the one step of the role file left, which %d grant(s) under a condition are the author's to add: %q", len(held), ch.Skipped)
 		}
 		meaning := Tenancy{Table: "Tenants"}.MeaningIn(a)
 		if !strings.Contains(meaning, "The roles are written.") || strings.Contains(meaning, "is left to write") {
 			t.Error("the brief does not say the roles are written, or still says the served tests wait for one")
+		}
+		if !strings.Contains(meaning, "holds under no condition") || !strings.Contains(meaning, "each with the test that proves it") {
+			t.Error("the brief does not say the role carries no grant under a condition, and that those are the author's to add with their proof")
 		}
 	})
 
@@ -230,8 +260,9 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, want := grantCount(role), grantCount(&roleEntry{Permissions: recordGrants(roleNamed(reference.Roles.Domain, "TenantAdministrator"))}); got != want {
-			t.Errorf("the role carries %d grant(s), want each of the reference's %d in this application's names: %q", got, want, ch.Did)
+		free, held := unconditional(recordGrants(roleNamed(reference.Roles.Domain, "TenantAdministrator")))
+		if got, want := grantCount(role), grantCount(&roleEntry{Permissions: free}); got != want {
+			t.Errorf("the role carries %d grant(s), want each of the reference's %d under no condition in this application's names: %q", got, want, ch.Did)
 		}
 		if got := unserved(t, a, file); len(got) != 0 {
 			t.Errorf("the role file grants what the application does not serve: %q", got)
@@ -257,12 +288,17 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		if got := fields("List", "CrewSectorIdentities"); !slices.Contains(got, "tenant") {
 			t.Errorf("List on CrewSectorIdentities names the fields %q, want the identity's tenant among them", got)
 		}
-		conditions := map[string]string{}
-		for _, grant := range role.Permissions.grants("Execute") {
-			conditions[string(grant.Resource)] = grant.Condition
+		// A grant the reference holds under a condition is never written without it: it is
+		// left out, and named in this application's names with the condition to hold it to.
+		for _, permission := range role.Permissions {
+			for _, grant := range permission.Grants {
+				if grant.Condition != "" || string(grant.Resource) == "DisableCrewSectorUser" {
+					t.Errorf("the role carries %s on %s (condition %q), and no test of the application proves a condition", permission.Permission, grant.Resource, grant.Condition)
+				}
+			}
 		}
-		if got, want := conditions["DisableCrewSectorUser"], "heldElsewhere = false AND heldGlobally = false"; got != want {
-			t.Errorf("Execute on DisableCrewSectorUser is held to %q, want the reference's condition %q", got, want)
+		if got := skippedLine(ch, roles+": "+strconv.Itoa(len(held))+" grant(s) ", "were not written into SectorAdministrator", `Execute on DisableCrewSectorUser under "heldElsewhere = false AND heldGlobally = false"`, `List on CrewSectorSignInWays under "password = false OR heldElsewhere = false"`, "a sector's administrator does none of them"); len(got) != 1 {
+			t.Errorf("the change does not say once which grants under a condition are left, in this application's names: %q", ch.Skipped)
 		}
 		administrator := roleNamed(file.Roles.Global, "Administrator")
 		for permission, resource := range map[string]string{"Create": "Sectors", "Execute": "InviteCrewSector", "List": "CrewInvitedSectors"} {

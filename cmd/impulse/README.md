@@ -379,9 +379,9 @@ release invites nobody; with `--shape tenant-owned-users-by-directory` the two h
 the first administrator's invitation is proven accepted through Google. The new
 application passes `go vet` with and without the tag as it is made. The browser
 application's login page spec is still the author's, and the brief names it. In a start
-with tenants the two served suites wait, as the application itself does, for the hand
-step every start with tenants leaves: the role a tenant's administrator holds, without
-which the application's router is not built; the change and the brief say so first.
+with tenants the two served suites run as the application was made, since the command
+writes the role a tenant's administrator holds, without which the application's router
+is not built (`impulse add tenancy`, below, says which grants it carries).
 
 ```sh
 impulse new ./harbor --module example.com/harbor --auth staff --tenancy --outlet portal=portal/api --agent
@@ -1247,9 +1247,16 @@ resource the application does not serve. The command then writes the role a tena
 administrator holds, since an application with tenants builds no router until one is
 named: `<Record>Administrator` (`TenantAdministrator` over `Tenants`), a domain role in the
 role file of the auth whose people make tenants, with the grants the tenanted skeleton's
-`TenantAdministrator` holds on what the application serves (a tenant's people, their
-groups and the roles they hold there, and the tenant's directory where it can have one),
-each held to the skeleton's condition. The auth's `AdministratorRoles()` and
+`TenantAdministrator` holds under no condition on what the application serves (a tenant's
+people, their groups and the roles they hold there, and the tenant's directory where it
+can have one). The grants the skeleton holds under a condition, which are the methods
+that change a person and the lists that show more of one, each kept from a person
+another tenant also holds, are not written: `impulse check` holds every conditional
+grant to a test that proves it over seeded rows (`conditions-proven`), and the command
+writes no such test, so a line under what it could not make names each grant with its
+condition, to add with its proof as the tenanted skeleton's
+`test/integration/tenant_people_test.go` proves them. Until then a tenant's
+administrator does none of them. The auth's `AdministratorRoles()` and
 `FirstAdministratorRoles()` (`foothold.go`) name it as held in every tenant, the
 deployment package's test of the first administrator's roles holds it to the role file,
 and the application's own administrator role gains the grants a tenant is made with: the

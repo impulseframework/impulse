@@ -30,10 +30,12 @@ import (
 //
 // The role is the tenanted reference application's (TenancyReferenceCandidate), in the
 // application's own names and cut to what the application serves: the reference's role
-// is the one the framework's own suites prove, each method that changes a person held to
-// the condition that keeps a tenant's administrator from changing a person another
-// tenant also holds, and a grant written from the collection alone would carry none of
-// them.
+// is the one the framework's own suites prove. It is written with the reference's grants
+// that hold under no condition. The reference holds each method that changes a person to
+// a condition, which keeps a tenant's administrator from changing a person another tenant
+// also holds; impulse check holds every conditional grant to a test that proves it over
+// seeded rows (conditions-proven), and the command writes no such test, so those grants
+// are named as what is left and never written without their conditions.
 
 // footholdFile is the file of an auth's package that names its administrators' roles.
 const footholdFile = "foothold.go"
@@ -126,14 +128,17 @@ func (tn Tenancy) writeRoles(a *app.App, ch *Change) error {
 		return nil
 	}
 	if roleNamed(file.Roles.Domain, role) == nil {
-		entry, left := tn.tenantAdministrator(reference, served, seat.Name)
+		entry, left, conditional := tn.tenantAdministrator(reference, served, seat.Name)
 		if len(entry.Permissions) == 0 {
 			ch.skipf("%s: the role a %s's administrator holds was not written, since the application's permission collection (%s) names none of the %s auth's management of one %s: %s", rel, tn.oneLower(), strings.Join(served.Files, ", "), seat.Name, tn.oneLower(), tn.roleHandStep(seat.Name))
 
 			return nil
 		}
 		file.Roles.Domain = append(file.Roles.Domain, entry)
-		ch.didf("%s: the role %s, a domain role, which a %s's administrator holds: the grants of the tenanted skeleton's %s on what this application serves, %d in all, on the %s auth's people in one %s, their groups and the roles they hold there%s%s", rel, role, tn.oneLower(), referenceTenantAdministrator, grantCount(entry), seat.Name, tn.oneLower(), tn.directoryWords(), leftOutWords(left))
+		ch.didf("%s: the role %s, a domain role, which a %s's administrator holds: the grants of the tenanted skeleton's %s that hold under no condition, on what this application serves, %d in all, on the %s auth's people in one %s, their groups and the roles they hold there%s%s", rel, role, tn.oneLower(), referenceTenantAdministrator, grantCount(entry), seat.Name, tn.oneLower(), tn.directoryWords(), leftOutWords(left))
+		if len(conditional) > 0 {
+			ch.skipf("%s: %d grant(s) the tenanted skeleton's %s holds under a condition were not written into %s: impulse check holds every conditional grant to a test that proves it over seeded rows (conditions-proven), and the command writes no such test. They are %s. Add each with its condition and its proof, as the tenanted skeleton's test/integration/tenant_people_test.go proves them; until then a %s's administrator does none of them, and the application's own administrator does them through the %s auth's methods of the whole application", rel, len(conditional), referenceTenantAdministrator, role, strings.Join(conditional, "; "), tn.oneLower(), seat.Name)
+		}
 	} else {
 		ch.didf("%s: the domain role %s was there already and is left as it is", rel, role)
 	}
@@ -211,12 +216,14 @@ func referenceRoles() (*roleFile, error) {
 
 // tenantAdministrator is the role a tenant's administrator holds in this application:
 // the reference's, in the application's names, with the grants on what the application
-// serves in a tenant. left names the reference's grants that were left out.
-func (tn Tenancy) tenantAdministrator(reference *roleFile, served *app.Served, auth string) (entry *roleEntry, left []string) {
+// serves in a tenant that hold under no condition. left names the reference's grants on
+// what the application does not serve, and conditional the ones the application serves
+// that the reference holds under a condition: neither is in the role.
+func (tn Tenancy) tenantAdministrator(reference *roleFile, served *app.Served, auth string) (entry *roleEntry, left, conditional []string) {
 	entry = &roleEntry{Name: tn.AdministratorRole(), Description: tn.administratorDescription(), Permissions: rolePermissions{}}
 	source := roleNamed(reference.Roles.Domain, referenceTenantAdministrator)
 	if source == nil {
-		return entry, nil
+		return entry, nil, nil
 	}
 	for i := range source.Permissions {
 		permission := source.Permissions[i].Permission
@@ -230,11 +237,16 @@ func (tn Tenancy) tenantAdministrator(reference *roleFile, served *app.Served, a
 
 				continue
 			}
+			if cut.Condition != "" {
+				conditional = append(conditional, fmt.Sprintf("%s on %s under %q", permission, cut.Resource, cut.Condition))
+
+				continue
+			}
 			entry.Permissions.add(permission, cut)
 		}
 	}
 
-	return entry, left
+	return entry, left, conditional
 }
 
 // administratorDescription says what the role a tenant's administrator holds is for.
