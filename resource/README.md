@@ -4634,7 +4634,10 @@ own, outside any request, has no caller and is the application's act):
 
 - Nobody disables or deletes their own account, which is the account of the real person
   behind the session: a person who views as someone else is refused their own account,
-  which they could not get back. They are refused the account they view as too ("you
+  which they could not get back. In a session that acts as someone else that refusal is
+  the next rule's, in its sentence and with its log line, so disabling, enabling and
+  deleting the real person's own account are refused the same way there. They are
+  refused the account they view as too ("you
   cannot disable the account you are viewing as"): a session that views as a person
   does no more than that person may, and nobody disables or deletes themselves.
 - In a session that acts as someone else, nobody is the subject of what they do. It is
@@ -4643,8 +4646,9 @@ own, outside any request, has no caller and is the application's act):
   what the administrator may do, and an act on their own account would leave them
   holding it afterward. The real person behind the session is refused a role given to
   them or taken from them, a place in a group, a password set, required anew or
-  removed, a reset link, an address, a name, a rename, an enable, the end of their own
-  sessions, their remembered browsers, a sign-in identity and a token of theirs, the
+  removed, a reset link, an address, a name, a rename, a disable, an enable, a delete,
+  the end of their own sessions, their remembered browsers, a sign-in identity and a
+  token of theirs, the
   unlock of the counts kept for their account, and an invitation to the address their
   account has confirmed. The refusal says so: "you are acting as someone else, so you
   cannot give yourself a role: while you act as another person, nothing you do is done

@@ -303,9 +303,9 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 // and deleting an account carry no class, so the mask of the kind, which refuses the
 // classes credential and access, keeps them: the marshal, acting as the governor,
 // disables, enables and deletes a cadet's account as the governor would. On her own
-// account each of the three is refused, by the rule that nobody is the subject of what
-// they do in such a session and in the rule's words, never by the mask, and her account
-// is as it was.
+// account each of the three is refused the same way, by the rule that nobody is the
+// subject of what they do in such a session and in that rule's one sentence form, never
+// by the mask, and her account is as it was.
 //
 // Demonstrates: impersonation.never-the-subject, impersonation.act-as-user, impersonation.mask, @class.
 func TestImpersonation_accountSwitchesNeverTheirOwn(t *testing.T) {
@@ -359,16 +359,17 @@ func TestImpersonation_accountSwitchesNeverTheirOwn(t *testing.T) {
 		}
 	}
 
-	// On her own account each is refused, in the rule's words. Nobody disables or
-	// deletes themselves in any session, which is the rule's first reach; the enable is
-	// refused for the person who acts as someone else.
+	// On her own account each is refused by the one rule, in one sentence form: in a
+	// session that acts as someone else nobody is the subject of what they do. Without
+	// that rule the disable and the delete would answer the plain refusal of a session
+	// of her own, and the enable would go through.
 	own := []struct {
 		route string
 		says  string
 	}{
-		{route: "disable-crew-user", says: "you cannot disable your own account"},
+		{route: "disable-crew-user", says: actingAsSomeoneElse + "disable your own account:"},
 		{route: "enable-crew-user", says: actingAsSomeoneElse + "enable your own account:"},
-		{route: "delete-crew-user", says: "you cannot delete your own account"},
+		{route: "delete-crew-user", says: actingAsSomeoneElse + "delete your own account:"},
 	}
 	for _, act := range own {
 		status, answer := acting.do(ctx, http.MethodPost, crewMethod(act.route), fmt.Appendf(nil, `{"userId":%q}`, marshal))

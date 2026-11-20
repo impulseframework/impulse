@@ -105,7 +105,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 // transaction has committed. Nobody
 // deletes themselves: the person acting, the real person behind the session, is refused
 // their own account, and a session that views as someone else the account it views as
-// (refuseOwnAccount). A super
+// (refuseOwnAccount). In a session that acts as someone else the refusal of the real
+// person's own account is the one DisableUser and EnableUser give there, in the same
+// sentence form and with the same log line. A super
 // administrator's account is deleted by a super administrator alone, and the last one
 // who can sign in by nobody (requireSuperAdministrator, refuseLastSuperAdministrator).
 //

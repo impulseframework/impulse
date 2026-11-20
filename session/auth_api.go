@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
@@ -427,9 +428,40 @@ func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUI
 	return nil
 }
 
-// DeactivateSessionUser disables a user and destroys its sessions. The caller must
+// refuseImpersonatorsOwnAccount refuses a switch of an account, disabling, enabling or
+// deleting it, on the account of the real person behind a session that acts as someone
+// else: in such a session nobody is the subject of what they do. A person who acts as
+// an administrator would otherwise enable their own account again, or remove it, with
+// what the administrator may do. The session is read off the call's context, where
+// ValidateSession put it, so a route an application wrote that calls one of the three
+// is held to the rule with no line of its own. A call that carries no session, a job
+// of the application's own, is nobody's act on themselves and goes through, and so does
+// a session started by a person of another application, who has no account here. act
+// says what was asked, as the end of "you cannot". The sentence and the log line are
+// the ones the generated user management answers with (identity.RefuseImpersonatorAsSubject).
+func refuseImpersonatorsOwnAccount(ctx context.Context, userID impulse.UUID, act string) error {
+	sess, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !ok || sess == nil || sess.Impersonation == nil {
+		return nil
+	}
+	if actor := sess.Impersonation.ActorID; !actor.Valid || actor.UUID != userID {
+		return nil
+	}
+	logger.FromCtx(ctx).Infof(
+		"session: the person who started this impersonated session (%s) asked to %s: refused, since nobody is the subject of what they do while they act as someone else", userID, act,
+	)
+
+	return httpio.NewForbiddenMessagef("you are acting as someone else, so you cannot %s: while you act as another person, nothing you do is done to your own account. Stop acting as them first", act)
+}
+
+// DeactivateSessionUser disables a user and destroys its sessions. In a session that
+// acts as someone else it refuses the account of the person who started the session
+// (refuseImpersonatorsOwnAccount). In a session of the person's own, the caller must
 // guard against self-deactivation.
 func (p *AuthAPI[S, U, Tx]) DeactivateSessionUser(ctx context.Context, userID impulse.UUID) error {
+	if err := refuseImpersonatorsOwnAccount(ctx, userID, "disable your own account"); err != nil {
+		return err
+	}
 	if err := p.auth.storage.DeactivateUser(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DeactivateUser()")
 	}
@@ -440,8 +472,12 @@ func (p *AuthAPI[S, U, Tx]) DeactivateSessionUser(ctx context.Context, userID im
 	return nil
 }
 
-// ActivateSessionUser enables a user.
+// ActivateSessionUser enables a user. In a session that acts as someone else it refuses
+// the account of the person who started the session (refuseImpersonatorsOwnAccount).
 func (p *AuthAPI[S, U, Tx]) ActivateSessionUser(ctx context.Context, userID impulse.UUID) error {
+	if err := refuseImpersonatorsOwnAccount(ctx, userID, "enable your own account"); err != nil {
+		return err
+	}
 	if err := p.auth.storage.ActivateUser(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.ActivateUser()")
 	}
@@ -451,8 +487,13 @@ func (p *AuthAPI[S, U, Tx]) ActivateSessionUser(ctx context.Context, userID impu
 
 // DeleteSessionUser deletes a user with its identity links and sessions. The
 // sessions are destroyed first, by UserId, so a failed delete leaves no live session
-// behind. The caller must guard against self-deletion.
+// behind. In a session that acts as someone else it refuses the account of the person
+// who started the session (refuseImpersonatorsOwnAccount). In a session of the person's
+// own, the caller must guard against self-deletion.
 func (p *AuthAPI[S, U, Tx]) DeleteSessionUser(ctx context.Context, userID impulse.UUID) error {
+	if err := refuseImpersonatorsOwnAccount(ctx, userID, "delete your own account"); err != nil {
+		return err
+	}
 	if _, err := p.auth.storage.User(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}

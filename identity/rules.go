@@ -32,8 +32,11 @@ import (
 // session changes nothing of their own account, a role, a place in a group, a password,
 // an address, a name, a session, a token, whatever the session's mask keeps
 // (refuseImpersonatorAsSubject, which an application's own action asks as
-// RefuseImpersonatorAsSubject). A person who acts as an administrator would otherwise
-// give themselves what the administrator may give and keep it after the session ends.
+// RefuseImpersonatorAsSubject). There the second reach answers for the first as well:
+// disabling, enabling and deleting the real person's own account are refused in one
+// sentence form and logged with one line. A person who acts as an administrator would
+// otherwise give themselves what the administrator may give and keep it after the
+// session ends.
 // Every method of the Manager that changes something of a person asks the rule, of the
 // person's id or of the key the method reaches them by (a session, a name in the
 // sign-in attempts table, an invitation's address), which a test that lists the
@@ -87,15 +90,22 @@ func (m *Manager) actorIs(ctx context.Context, userID impulse.UUID) bool {
 
 // refuseOwnAccount refuses an act on the account of the person acting: nobody disables or
 // deletes themselves, since the one who did could not undo it. The person acting is the
-// real person behind the session (actorIs), so "your own account" is the account of
-// whoever is at the keyboard in every case: a person who views as someone else is refused
-// their own account, which they could not get back. They are refused the account they
-// view as too, and told so (callerIs): a session that views as a person does no more
-// than that person may, and nobody disables or deletes themselves. act names what was
-// asked ("disable", "delete"). It is the rule refuseImpersonatorAsSubject widens, in the
-// form that holds in every session, and it ends in that rule, which reads the session
-// where no generated route stamped a caller: a method that calls this one needs no other.
+// real person behind the session, so "your own account" is the account of whoever is at
+// the keyboard in every case. act names what was asked ("disable", "delete").
+//
+// In a session that acts as someone else the rule that answers is the one that refuses
+// the enabling of the real person's own account there, in its sentence and with its log
+// line (refuseImpersonatorAsSubject): the three switches of an account refuse the person
+// who impersonates the same way. It is asked first, and reads the session where no
+// generated route stamped a caller, so a method that calls this one needs no other. In a
+// session of the person's own the refusal is the plain one (actorIs). A person who views
+// as someone else is refused the account they view as too, and told so (callerIs): a
+// session that views as a person does no more than that person may, and nobody disables
+// or deletes themselves.
 func (m *Manager) refuseOwnAccount(ctx context.Context, userID impulse.UUID, act string) error {
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, act+" your own account"); err != nil {
+		return err
+	}
 	if m.actorIs(ctx, userID) {
 		return httpio.NewForbiddenMessagef("you cannot %s your own account", act)
 	}
@@ -103,7 +113,7 @@ func (m *Manager) refuseOwnAccount(ctx context.Context, userID impulse.UUID, act
 		return httpio.NewForbiddenMessagef("you cannot %s the account you are viewing as", act)
 	}
 
-	return m.refuseImpersonatorAsSubject(ctx, userID, act+" your own account")
+	return nil
 }
 
 // impersonatorOf is the real person behind a request that runs in a session established

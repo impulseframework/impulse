@@ -1280,7 +1280,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`: the password replaced and the sessions ended, or neither). |
 | `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`), so no failure leaves the temporary password in place and a session alive, on the act meant to end them. |
 | `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). A password shorter than eight characters is refused, as on every path that sets one. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
-| `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
+| `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. The first three read the session off the context they are called with: in a session that acts as someone else each refuses the account of the person who started the session (403, "you are acting as someone else, so you cannot disable your own account: …"), so a route an application wrote that calls one is held to the rule the generated user management has. In a session of the person's own, the caller guards against the person disabling or deleting themselves. |
 
 One rule holds a password's shape on every path that sets one: it is at least eight
 characters, counted as characters and not as bytes, and a shorter one is 400 saying so.
@@ -3555,7 +3555,11 @@ do: the generated user management refuses every change to the account of the per
 started the session, whatever the mask keeps and whether or not the kind was declared,
 since the rule reads the session's record alone (the actor it names). A person who acts
 as an administrator would otherwise give their own account a role and keep it after the
-session ends, or enable their own account again after it was disabled. The rule covers a record that decides what a person may do as well: the
+session ends, or enable their own account again after it was disabled. Disabling,
+enabling and deleting the real person's own account are refused the same way, in one
+sentence form and with one log line, and the session API's own three switches
+(`DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`) ask the rule
+themselves of the session they are called in, for a route an application wrote. The rule covers a record that decides what a person may do as well: the
 generated write of a record the policy reads as a subject value or a subject set (a
 clearance, a place in a team) refuses the real person a row that names them, asked
 before the write and after it, so they neither raise their own clearance nor move

@@ -1,10 +1,14 @@
 package identity
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
@@ -97,8 +101,10 @@ func TestManager_DisableUser_ownAccount(t *testing.T) {
 
 // TestManager_ownAccount_judgesThePersonActing pins whose account "your own" is to the
 // rule that nobody disables or deletes themselves: the account of the real person behind
-// the session. A person who views as someone else is refused their own account, which
-// they could not get back, where the session's grants are the other person's; they are
+// the session. A person in a session of their own is refused their own account in the
+// plain sentence. A person who views as someone else is refused their own account, which
+// they could not get back, where the session's grants are the other person's, in the
+// sentence of the rule for whoever acts as someone else; they are
 // refused the account they view as too, and told that it is the one they view as, since
 // a view does no more than the person viewed as may; a view started by a person of
 // another application, who has no account here, is refused the account it views as and
@@ -108,9 +114,13 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 
 	reader := access.NewMembershipKey(globalScope, dana, "Reader")
 	acts := []struct {
-		name       string
-		act        func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+		name string
+		act  func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+		// wantOwn is the refusal in a session of the person's own, wantActing the one in
+		// a session that acts as someone else, and wantViewed the one for the account
+		// viewed as.
 		wantOwn    string
+		wantActing string
 		wantViewed string
 		wantWrites []string
 	}{
@@ -120,6 +130,7 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 				return m.DisableUser(ctx, txn, userID)
 			},
 			wantOwn:    "you cannot disable your own account",
+			wantActing: actingAsSomeoneElse + "disable your own account:",
 			wantViewed: "you cannot disable the account you are viewing as",
 			wantWrites: []string{"update user " + userID.String() + " disabled=true"},
 		},
@@ -129,14 +140,17 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 				return m.DeleteUser(ctx, txn, userID)
 			},
 			wantOwn:    "you cannot delete your own account",
+			wantActing: actingAsSomeoneElse + "delete your own account:",
 			wantViewed: "you cannot delete the account you are viewing as",
 			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&reader)},
 		},
 	}
-	// Each session acts on dana's account. own and viewed say which refusal it meets.
+	// Each session acts on dana's account. own, acting and viewed say which refusal it
+	// meets.
 	const (
 		through = iota
 		own
+		acting
 		viewed
 	)
 	sessions := []struct {
@@ -145,11 +159,18 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 		want int
 	}{
 		{
+			name: "dana, in a session of her own, acts on her own account",
+			ctx: func(ctx context.Context) context.Context {
+				return asCallerThrough(ctx, managedAuth, dana)
+			},
+			want: own,
+		},
+		{
 			name: "dana, viewing as erin, acts on her own account",
 			ctx: func(ctx context.Context) context.Context {
 				return viewedBy(asCallerThrough(ctx, managedAuth, erin), userID)
 			},
-			want: own,
+			want: acting,
 		},
 		{
 			name: "erin, viewing as dana, acts on the account she views as",
@@ -197,10 +218,7 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 					return act.act(session.ctx(ctx), txn, m)
 				})
 				if session.want != through {
-					wantSays := act.wantOwn
-					if session.want == viewed {
-						wantSays = act.wantViewed
-					}
+					wantSays := map[int]string{own: act.wantOwn, acting: act.wantActing, viewed: act.wantViewed}[session.want]
 					if err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), wantSays) {
 						t.Fatalf("error = %v, want the refusal %q", err, wantSays)
 					}
@@ -217,6 +235,97 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 					t.Errorf("buffered writes (-want +got):\n%s", diff)
 				}
 			})
+		}
+	}
+}
+
+// switchLog is the output of the standard logger while a test reads it, written to by
+// every test of the package that logs.
+type switchLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+// Write appends to the log.
+func (l *switchLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	n, err := l.buf.Write(p)
+	if err != nil {
+		return n, errors.Wrap(err, "bytes.Buffer.Write()")
+	}
+
+	return n, nil
+}
+
+// String is the log so far.
+func (l *switchLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.buf.String()
+}
+
+// TestManager_accountSwitches_refuseTheImpersonatorAlike pins the three switches of an
+// account, disabling, enabling and deleting, in a session that acts as someone else:
+// each refuses the account of the real person behind the session by the one rule, in
+// one sentence form and with one log line, and buffers nothing. The person acting is an
+// account no other test names, so the lines the test finds in the standard logger's
+// output, which is the process's, are its own.
+func TestManager_accountSwitches_refuseTheImpersonatorAlike(t *testing.T) {
+	t.Parallel()
+
+	var output switchLog
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	sal := mustUUID("0190b000-0000-7000-8000-0000000005a1")
+	switches := []struct {
+		name string
+		act  func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+	}{
+		{
+			name: "disable",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.DisableUser(ctx, txn, sal)
+			},
+		},
+		{
+			name: "enable",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.EnableUser(ctx, txn, sal)
+			},
+		},
+		{
+			name: "delete",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.DeleteUser(ctx, txn, sal)
+			},
+		},
+	}
+	for _, tt := range switches {
+		store := impersonatorStore()
+		store.usernames[sal] = "sal"
+		store.disabled[sal] = tt.name == "enable"
+		m, _ := impersonatorManager(t, store)
+
+		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			return tt.act(viewedBy(asErin(ctx, managedAuth, false), sal), txn, m)
+		})
+		wantSays := "you are acting as someone else, so you cannot " + tt.name + " your own account: " +
+			"while you act as another person, nothing you do is done to your own account. Stop acting as them first"
+		if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != wantSays {
+			t.Errorf("%s her own account while she acts as erin: error = %v, want the refusal %q", tt.name, err, wantSays)
+		}
+		if len(store.writes) != 0 {
+			t.Errorf("%s her own account while she acts as erin: buffered writes = %v, want none", tt.name, store.writes)
+		}
+		wantLine := "identity: the person who started this impersonated session (" + sal.String() + ") asked to " + tt.name +
+			" your own account: refused, since nobody is the subject of what they do while they act as someone else"
+		if got := strings.Count(output.String(), wantLine); got != 1 {
+			t.Errorf("%s her own account while she acts as erin: the log holds the line %q %d times, want once:\n%s", tt.name, wantLine, got, output.String())
 		}
 	}
 }
