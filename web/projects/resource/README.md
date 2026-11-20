@@ -665,10 +665,9 @@ the screen names the tenant by its name or not at all; `expiresAt`;
 `signUp`, whether an account with a password may be created here; `usernameIsEmail`;
 `methods`, the registration names of the listed directory methods through which the
 invitation can be accepted for the address (those that could admit it, and for an account with
-no password that already signs in through a directory, the ones it signs in through alone),
-absent when the server did not say; and `accountExists` and `hasPassword`, whether
-an account already holds the address and signs in with a password, absent when the server did
-not say; and, for an invitation that makes a tenant, `newTenant` and `directoryOnly`, whether
+no password that already signs in through a directory, the ones it signs in through alone);
+and `accountExists` and `hasPassword`, whether an account already holds the address and signs
+in with a password; and, for an invitation that makes a tenant, `newTenant` and `directoryOnly`, whether
 that tenant is entered through its directory only, both absent for any other invitation), and the browser now carries it, so the sign-in that follows accepts it and the
 server's hook seats the person: a directory sign-in, or a password sign-in by an account
 that holds an address, only as the invited address (another address is refused with

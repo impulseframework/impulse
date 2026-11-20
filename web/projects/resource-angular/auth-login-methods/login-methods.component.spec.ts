@@ -116,6 +116,10 @@ const mailingList: LoginMethods = {
   email: emailRoutes,
   signUp: signUpRoutes,
 };
+/**
+ * What opening an invitation answers for a person nobody holds an account for, whom the
+ * Google registration could admit.
+ */
 const invited = {
   email: 'ensign@fleet.example',
   tenantId: '5d1c8e2a-7b3f-4a9e-b6d0-2c4f8a1e9b37',
@@ -123,7 +127,12 @@ const invited = {
   expiresAt: '2026-10-30T12:00:00Z',
   signUp: true,
   usernameIsEmail: false,
+  methods: ['google'],
+  accountExists: false,
+  hasPassword: false,
 };
+/** The same invitation for a person whose account holds the address and signs in with a password. */
+const invitedHolder = { ...invited, accountExists: true, hasPassword: true };
 const dead = { status: 404, body: { message: 'That link has expired or was already used. Ask for a new one' } };
 const waiting = {
   reason: 'confirmation',
@@ -1700,11 +1709,9 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(page.transport.requests[2].body).toEqual({ token: 'tok-1' });
     expect(page.component.invitation()).toEqual(invited);
     expect(titleOf(page)).toBe("You're invited to Anvil");
-    // An older server did not say what holds the address: every path is offered, as before.
-    expect(noteOf(page)).toBe(
-      'The invitation is for ensign@fleet.example. Sign in to accept it, or create an account with a password.',
-    );
-    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example.');
+    // No account holds the address: the password form stays behind its button.
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
     // The invitation names the account: the button continues as it, and no "Use a different account" is offered.
     expect(buttonsOf(page)).toEqual(['Continue with Google as ensign@fleet.example']);
     expect(page.element.querySelector('.impulse-login-different-account')).toBeNull();
@@ -1715,23 +1722,31 @@ describe('LoginMethodsComponent opens an invitation', () => {
   });
 
   it('offers the account last, under the password form and the redirect buttons, where the open sign-up stands without an invitation', async () => {
-    const invited = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' });
-    expect(orderOf(invited)).toEqual([
+    const stranger = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' });
+    expect(orderOf(stranger)).toEqual([
+      'impulse-login-redirect',
+      'impulse-login-create-account',
+      'impulse-login-existing-account',
+    ]);
+    // The password form, once the person says they have an account, stands over both.
+    stranger.component.signInWithExistingAccount();
+    await stranger.settle();
+    expect(orderOf(stranger)).toEqual([
       'impulse-login-submit',
       'impulse-login-redirect',
       'impulse-login-create-account',
     ]);
     TestBed.resetTestingModule();
     const signedIn = await pageOver(
-      server({ methods: mailingList, arrivesSignedIn: true, sessionEmail: 'ensign@fleet.example' }),
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: invitedHolder },
+        arrivesSignedIn: true,
+        sessionEmail: 'ensign@fleet.example',
+      }),
       { invitation: 'tok-1' },
     );
-    expect(orderOf(signedIn)).toEqual([
-      'impulse-login-accept',
-      'impulse-login-submit',
-      'impulse-login-redirect',
-      'impulse-login-create-account',
-    ]);
+    expect(orderOf(signedIn)).toEqual(['impulse-login-accept', 'impulse-login-submit', 'impulse-login-redirect']);
     TestBed.resetTestingModule();
     const open = await pageOver(server({ methods: mailingList }));
     expect(orderOf(open)).toEqual([
@@ -1760,7 +1775,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
       { invitation: 'tok-1' },
     );
     expect(titleOf(page)).toBe("You're invited");
-    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example. Sign in to accept it.');
+    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example.');
     expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
   });
 
@@ -2119,7 +2134,6 @@ describe('LoginMethodsComponent opens an invitation', () => {
     );
     expect(page.component.invitation()).toEqual({ ...invited, methods: [], accountExists: false, hasPassword: false });
     expect(page.component.invitationPaths()).toEqual({
-      known: true,
       redirects: [],
       password: false,
       create: true,
@@ -2158,7 +2172,6 @@ describe('LoginMethodsComponent opens an invitation', () => {
     await page.settle();
     expect(page.component.account()).toBeUndefined();
     expect(page.component.invitationPaths()).toEqual({
-      known: true,
       redirects: [],
       password: true,
       create: true,
@@ -2431,7 +2444,6 @@ describe('LoginMethodsComponent opens an invitation that makes a tenant', () => 
     expect(titleOf(holder)).toBe("You're invited to set up Dawn");
     expect(noteOf(holder)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
     expect(holder.component.invitationPaths()).toEqual({
-      known: true,
       redirects: [google],
       password: false,
       create: false,
@@ -2455,18 +2467,23 @@ describe('LoginMethodsComponent opens an invitation that makes a tenant', () => 
     expect(stranger.element.querySelector('input[name="username"]')).toBeNull();
     expect(buttonsOf(stranger)).toEqual([]);
     TestBed.resetTestingModule();
-    // An older answer that says nothing of the account offers every path for any other
-    // invitation, and here the directory alone.
-    const unknown = await pageOver(
-      server({ methods: mailingList, invitationOpen: { status: 200, body: { ...closed, signUp: true } } }),
+    // An answer that names the sign-up for such an invitation still offers no account with a password.
+    const signUpNamed = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: {
+          status: 200,
+          body: { ...closed, signUp: true, methods: ['google'], accountExists: false, hasPassword: false },
+        },
+      }),
       { invitation: 'tok-1' },
     );
-    expect(unknown.element.querySelector('input[name="username"]')).toBeNull();
-    expect(unknown.element.querySelector('.impulse-login-create-account')).toBeNull();
-    unknown.component.openAccountForm();
-    await unknown.settle();
-    expect(unknown.component.account()).toBeUndefined();
-    expect(noteOf(unknown)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
+    expect(signUpNamed.element.querySelector('input[name="username"]')).toBeNull();
+    expect(signUpNamed.element.querySelector('.impulse-login-create-account')).toBeNull();
+    signUpNamed.component.openAccountForm();
+    await signUpNamed.settle();
+    expect(signUpNamed.component.account()).toBeUndefined();
+    expect(noteOf(signUpNamed)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
   });
 
   it('found carried by the browser after a refused sign-in, stands again with the refusal under it and still offers no password', async () => {
@@ -2579,6 +2596,9 @@ describe('LoginMethodsComponent finds the invitation the browser carries', () =>
     tenantName: invited.tenantName,
     expiresAt: invited.expiresAt,
     usernameIsEmail: false,
+    methods: invited.methods,
+    accountExists: false,
+    hasPassword: false,
   };
   /** The list of a server whose browser carries the invitation. */
   const carryingList: LoginMethods = { ...mailingList, invitation: { ...invitationRoutes, standing } };
@@ -2589,13 +2609,15 @@ describe('LoginMethodsComponent finds the invitation the browser carries', () =>
     const page = await pageOver(server({ methods: carryingList }), { code: 'not_workspace_member' });
     expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', 'GET /console/api/user/session']);
     expect(page.component.invitation()).toEqual(invited);
-    expect(noteOf(page)).toBe(
-      'The invitation is for ensign@fleet.example. Sign in to accept it, or create an account with a password.',
-    );
-    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example.');
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
     // The button continues as the invited account; after the refusal it also asks the provider for its chooser.
     expect(buttonsOf(page)).toEqual(['Continue with Google as ensign@fleet.example']);
-    expect(orderOf(page)).toEqual(['impulse-login-submit', 'impulse-login-redirect', 'impulse-login-create-account']);
+    expect(orderOf(page)).toEqual([
+      'impulse-login-redirect',
+      'impulse-login-create-account',
+      'impulse-login-existing-account',
+    ]);
     expect(page.element.querySelector('.impulse-login-sign-up')).toBeNull();
     expect(page.element.querySelector('.impulse-login-accept')).toBeNull();
     expect(messageOf(page)).toBe(DEFAULT_LOGIN_MESSAGES['not_workspace_member']);
@@ -2609,14 +2631,18 @@ describe('LoginMethodsComponent finds the invitation the browser carries', () =>
       server({
         methods: {
           ...mailingList,
-          invitation: { open: invitationRoutes.open, accept: invitationRoutes.accept, standing },
+          invitation: {
+            open: invitationRoutes.open,
+            accept: invitationRoutes.accept,
+            standing: { ...standing, accountExists: true, hasPassword: true },
+          },
         },
         arrivesSignedIn: true,
         sessionEmail: invited.email,
       }),
     );
-    expect(page.component.invitation()).toEqual({ ...invited, signUp: false });
-    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example. Sign in to accept it.');
+    expect(page.component.invitation()).toEqual({ ...invitedHolder, signUp: false });
+    expect(noteOf(page)).toBe('The invitation is for ensign@fleet.example.');
     expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
     expect(page.element.querySelector('.impulse-login-accept')?.textContent?.trim()).toBe('Accept as overseer');
     // The session found standing is offered the acceptance, not Continue and Sign out.
@@ -2693,44 +2719,36 @@ describe('LoginMethodsComponent shows the directory buttons that could admit the
     tenantName: invited.tenantName,
     expiresAt: invited.expiresAt,
     usernameIsEmail: false,
+    methods: invited.methods,
+    accountExists: false,
+    hasPassword: false,
   };
   /** The list of a server with two Google registrations, whose browser carries the invitation, named as `methods` says. */
-  const listNaming = (methods?: readonly string[]): LoginMethods => ({
+  const listNaming = (methods: readonly string[]): LoginMethods => ({
     ...mailingList,
     methods: [password, google, fleetGoogle],
-    invitation: {
-      ...invitationRoutes,
-      standing: methods === undefined ? standing : { ...standing, methods },
-    },
+    invitation: { ...invitationRoutes, standing: { ...standing, methods } },
   });
   const noteOf = (page: Page): string | null =>
     page.element.querySelector('.impulse-login-invitation-note')?.textContent?.trim() ?? null;
 
-  it('shows only the registrations the standing invitation names, the password form and the account staying', async () => {
+  it('shows only the registrations the standing invitation names, the account staying', async () => {
     const page = await pageOver(server({ methods: listNaming(['google-one']) }));
     expect(page.component.invitation()).toEqual({ ...invited, methods: ['google-one'] });
     expect(buttonsOf(page)).toEqual(['Continue with Fleet Google as ensign@fleet.example']);
-    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
-    expect(orderOf(page)).toEqual(['impulse-login-submit', 'impulse-login-redirect', 'impulse-login-create-account']);
+    expect(orderOf(page)).toEqual([
+      'impulse-login-redirect',
+      'impulse-login-create-account',
+      'impulse-login-existing-account',
+    ]);
   });
 
-  it('shows no redirect button when the invitation names none, the note and the account still there', async () => {
+  it('shows no redirect button when the invitation names none: the account form opens by itself', async () => {
     const page = await pageOver(server({ methods: listNaming([]) }));
     expect(buttonsOf(page)).toEqual([]);
-    expect(noteOf(page)).toBe(
-      'The invitation is for ensign@fleet.example. Sign in to accept it, or create an account with a password.',
-    );
-    expect(page.element.querySelector('.impulse-login-create-account')).not.toBeNull();
-    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
-  });
-
-  it('shows every redirect button when the invitation does not say, as an older server answers', async () => {
-    const page = await pageOver(server({ methods: listNaming() }));
-    expect(page.component.invitation()).toEqual(invited);
-    expect(buttonsOf(page)).toEqual([
-      'Continue with Google as ensign@fleet.example',
-      'Continue with Fleet Google as ensign@fleet.example',
-    ]);
+    expect(page.component.account()).toEqual({ source: 'invitation', email: invited.email, usernameIsEmail: false });
+    expect(page.element.querySelector('input[name="accountUsername"]')).not.toBeNull();
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
   });
 
   it('narrows the buttons the same way for an invitation opened from its token', async () => {
@@ -3480,7 +3498,7 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
   });
 
   it('with #invitation=, nothing renders until the invitation and the session are read, then the note and the form show', async () => {
-    const held = holdingSession(server({ methods: mailingList }));
+    const held = holdingSession(server({ methods: mailingList, invitationOpen: { status: 200, body: invitedHolder } }));
     const page = await mount(held.transport, { invitation: 'tok-1' });
     await arrivedAt(held, page);
     expect(page.element.querySelector('.impulse-login-invitation-note')).toBeNull();
@@ -3492,7 +3510,14 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
   });
 
   it('with #invitation=, a person found signed in is offered the acceptance once the reads answer, with no form shown before', async () => {
-    const held = holdingSession(server({ methods: mailingList, arrivesSignedIn: true, sessionEmail: invited.email }));
+    const held = holdingSession(
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: invitedHolder },
+        arrivesSignedIn: true,
+        sessionEmail: invited.email,
+      }),
+    );
     const page = await mount(held.transport, { invitation: 'tok-1' });
     const forms = formsAdded(page);
     await arrivedAt(held, page);

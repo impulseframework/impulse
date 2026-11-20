@@ -188,10 +188,7 @@ export interface Landing {
  * too. Where people choose their username
  * and no account holds the invited address, an account may hold no address yet, so the
  * card also offers "Sign in with an account you already have", which shows the password
- * form (`existing`). Under an older server that does not say what
- * holds the address every path is offered, the account form behind the same button, which
- * comes last, under the password form and the redirect
- * buttons, where the open "Create an account" step stands when no invitation does. The
+ * form (`existing`). The
  * browser keeps carrying the invitation when a redirect method refuses the sign-in and
  * brings it back here with `?code=` and no token; the methods list then names the
  * invitation under `invitation.standing`, and the screen stands again, with the refusal's
@@ -214,9 +211,9 @@ export interface Landing {
  * render the sentence held for `unreachable` and a Try again button in the list's place,
  * never the status; Try again runs the arrival again, the card held back meanwhile.
  *
- * A session the sign-in establishes may carry `passwordChangeRequired`: an operator set
- * the password, and the server serves nothing but the password change until the person
- * sets one of their own. The component then renders the change form in the list's place,
+ * A session the sign-in establishes may carry `passwordChangeRequired`: the person must
+ * change their password, and the server serves nothing but the password change until
+ * they set a new one. The component then renders the change form in the list's place,
  * with the sentence the application holds for `password_change_required` over it, posts
  * the old and the new password through the client to the change path the methods list
  * names, checks the session again and emits `signedIn` with the page recorded at the
@@ -306,14 +303,14 @@ export class LoginMethodsComponent implements OnInit {
   /** The redirect methods, one button each, in the server's order. */
   redirectMethods = computed(() => this.methods().filter((method) => method.kind === 'redirect'));
   /**
-   * The redirect methods offered on screen: while an invitation stands that names the
-   * registrations able to admit the invited address (`methods`), those alone, in the
-   * server's order, and none when it names none; every redirect method otherwise.
+   * The redirect methods offered on screen: while an invitation stands, the registrations
+   * it names as able to admit the invited address (`methods`) alone, in the server's
+   * order, and none when it names none; every redirect method while none stands.
    */
   offeredRedirectMethods = computed(() => {
-    const admitting = this.invitation()?.methods;
+    const invited = this.invitation();
     const redirects = this.redirectMethods();
-    return admitting ? redirects.filter((method) => admitting.includes(method.name)) : redirects;
+    return invited ? redirects.filter((method) => invited.methods.includes(method.name)) : redirects;
   });
   /**
    * What the card offers for the invitation it carries, from what the server said of the
@@ -326,8 +323,7 @@ export class LoginMethodsComponent implements OnInit {
    * invited address: the password form is then offered behind a button while no account
    * holds the address (`existing`), and shown once the person asks for it, or at once to a
    * person found signed in as an account with no address (`signedInUnproven`).
-   * `known` is false under an older server that did not say whether an account exists:
-   * every path is then offered, as before. An invitation that makes a tenant entered
+   * An invitation that makes a tenant entered
    * through its directory only (`directoryOnly`) is accepted through an organization's
    * directory alone, so neither the password form nor the account form is offered, whatever
    * holds the address: the server refuses both. Undefined while no invitation stands.
@@ -338,19 +334,16 @@ export class LoginMethodsComponent implements OnInit {
       return undefined;
     }
     const redirects = this.offeredRedirectMethods();
-    const known = invited.accountExists !== undefined;
     const passwordListed = this.passwordMethod() !== undefined;
     if (invited.directoryOnly === true) {
-      return { known, redirects, password: false, create: false, existing: false };
+      return { redirects, password: false, create: false, existing: false };
     }
-    const holder = !known || invited.hasPassword === true;
     const addressless = this.signedInUnproven() === 'none';
-    const existing = passwordListed && known && !invited.accountExists && !invited.usernameIsEmail;
+    const existing = passwordListed && !invited.accountExists && !invited.usernameIsEmail;
     return {
-      known,
       redirects,
-      password: passwordListed && (holder || addressless || (existing && this.signingInExisting())),
-      create: invited.signUp && (!known || !invited.accountExists),
+      password: passwordListed && (invited.hasPassword || addressless || (existing && this.signingInExisting())),
+      create: invited.signUp && !invited.accountExists,
       existing: existing && !addressless && !this.signingInExisting(),
     };
   });
@@ -559,22 +552,15 @@ export class LoginMethodsComponent implements OnInit {
   }
 
   /**
-   * The sentence under the heading: the address the invitation is for, and, under an older
-   * server that did not say what holds the address, what accepts it. An invitation that is
-   * accepted through an organization's directory alone says so, since the page offers no
+   * The sentence under the heading: the address the invitation is for. An invitation that
+   * is accepted through an organization's directory alone says so, since the page offers no
    * password for it.
    */
   invitationNote(invitation: OpenedInvitation): string {
     if (invitation.directoryOnly === true) {
       return `The invitation is for ${invitation.email}. ${ORGANIZATION_ACCOUNT_ACCEPTS}`;
     }
-    if (invitation.accountExists !== undefined) {
-      return `The invitation is for ${invitation.email}.`;
-    }
-    const accepts = invitation.signUp
-      ? 'Sign in to accept it, or create an account with a password.'
-      : 'Sign in to accept it.';
-    return `The invitation is for ${invitation.email}. ${accepts}`;
+    return `The invitation is for ${invitation.email}.`;
   }
 
   /** The sentence over the account form: what the person chooses, and the address the account holds. */
@@ -1033,7 +1019,7 @@ export class LoginMethodsComponent implements OnInit {
     });
   }
 
-  /** Leaves the password as the operator set it: ends the session and shows the list again. */
+  /** Leaves the password as it is: ends the session and shows the list again. */
   cancelChange(): Promise<void> {
     if (this.busy() || !this.changing()) {
       return Promise.resolve();
@@ -1234,10 +1220,9 @@ export class LoginMethodsComponent implements OnInit {
       expiresAt: result.expiresAt,
       signUp: result.signUp,
       usernameIsEmail: result.usernameIsEmail,
-      ...(result.methods === undefined ? {} : { methods: result.methods }),
-      ...(result.accountExists === undefined
-        ? {}
-        : { accountExists: result.accountExists, hasPassword: result.hasPassword === true }),
+      methods: result.methods,
+      accountExists: result.accountExists,
+      hasPassword: result.hasPassword,
     });
   }
 
@@ -1262,10 +1247,9 @@ export class LoginMethodsComponent implements OnInit {
       expiresAt: standing.expiresAt,
       signUp: block.signUp !== undefined && standing.directoryOnly !== true,
       usernameIsEmail: standing.usernameIsEmail,
-      ...(standing.methods === undefined ? {} : { methods: standing.methods }),
-      ...(standing.accountExists === undefined
-        ? {}
-        : { accountExists: standing.accountExists, hasPassword: standing.hasPassword === true }),
+      methods: standing.methods,
+      accountExists: standing.accountExists,
+      hasPassword: standing.hasPassword,
     };
   }
 
@@ -1283,7 +1267,7 @@ export class LoginMethodsComponent implements OnInit {
     this.signedInEmail.set(session?.email ?? undefined);
     this.signedInVerified.set(session?.emailVerified === true);
     const paths = this.invitationPaths();
-    if (!session?.username && paths?.known && paths.create && paths.redirects.length === 0) {
+    if (!session?.username && paths?.create && paths.redirects.length === 0) {
       this.openAccountForm(true);
     }
   }

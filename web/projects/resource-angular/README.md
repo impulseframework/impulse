@@ -483,8 +483,7 @@ only where that address is confirmed, and otherwise answers with a sentence that
 again from the invitation's link, which the screen shows. Signed in as an account that holds no
 address yet, they are told to sign in again, over the password form: the code mailed to the invited
 address makes it theirs. Signed in as an account that holds another address, they are told whose
-the invitation is and how to accept it, and the server refuses that acceptance too. Under an older server that does not say whether an account holds the
-address, every path is offered as before, the account form behind the same button, last. The
+the invitation is and how to accept it, and the server refuses that acceptance too. The
 browser keeps carrying the invitation when a redirect method refuses the
 sign-in and returns to the login page with `?code=` and no token; the methods list then names it
 (`invitation.standing`), and the component shows the screen again, with the refusal's sentence under

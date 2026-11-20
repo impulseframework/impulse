@@ -94,12 +94,12 @@ export interface StandingInvitation {
   readonly expiresAt: string;
   /** An account created from the invitation has the address as its username; the person chooses one otherwise. */
   readonly usernameIsEmail: boolean;
-  /** The registration names of the listed directory methods that could admit the address, as `OpenedInvitation.methods`; absent when the server did not say. */
-  readonly methods?: readonly string[];
-  /** An account already holds the invited address; absent when the server did not say (an older server). */
-  readonly accountExists?: boolean;
-  /** That account signs in with a password; absent when the server did not say. */
-  readonly hasPassword?: boolean;
+  /** The registration names of the listed directory methods that could admit the address, as `OpenedInvitation.methods`. */
+  readonly methods: readonly string[];
+  /** An account already holds the invited address. */
+  readonly accountExists: boolean;
+  /** That account signs in with a password. */
+  readonly hasPassword: boolean;
 }
 
 /**
@@ -153,8 +153,8 @@ export interface LoginMethods {
   readonly pending?: PendingRoutes;
   /**
    * The path of the password method's change: where a signed-in person posts
-   * `{ oldPassword, newPassword }`, including one whose operator-set password must change
-   * before anything else is served. Absent on a server with no password method.
+   * `{ oldPassword, newPassword }`, including one who must change their password before
+   * anything else is served. Absent on a server with no password method.
    */
   readonly changePassword?: string;
   /**
@@ -253,17 +253,16 @@ export interface OpenedInvitation {
    * The registration names of the listed directory methods that could admit the address,
    * each a listed method's `name`, so a page shows those buttons alone while the invitation
    * stands; the password method is never among them, `signUp` being its word. Possibly
-   * empty; absent when the server did not say.
+   * empty.
    */
-  readonly methods?: readonly string[];
+  readonly methods: readonly string[];
   /**
    * An account already holds the invited address, and whether it signs in with a password:
    * the page offers that account's password form, and offers to create an account only
-   * where none holds the address. Absent when the server did not say (an older server),
-   * where the page offers every path.
+   * where none holds the address.
    */
-  readonly accountExists?: boolean;
-  readonly hasPassword?: boolean;
+  readonly accountExists: boolean;
+  readonly hasPassword: boolean;
 }
 
 /**
@@ -561,7 +560,7 @@ const verifyRefusals: readonly number[] = [400, 404, 409];
 
 /**
  * The refusal code the server answers, with a 403, on every request of a session whose
- * operator-set password must change: everything but the password change, the session
+ * person must change their password: everything but the password change, the session
  * read and the logout. A framework over the client treats such a refusal as it treats a
  * 401, returning the browser to the login page, where the change form is served.
  */
@@ -937,8 +936,8 @@ export class AuthClient {
   /**
    * Changes the signed-in person's password: reads the methods list again, then posts the
    * old and the new password to the change path the refreshed list names. The route is
-   * the one a person whose operator-set password must change reaches before anything else
-   * is served, so a login page that finds `passwordChangeRequired` on the session read
+   * the one a person who must change their password reaches before anything else is
+   * served, so a login page that finds `passwordChangeRequired` on the session read
    * posts here, then checks the session again. The result is `changed`, or the server's
    * refusal with its words (the old password did not match, the new one is the old one;
    * or 429 with `too_many_attempts` and the wait, `retryAfter`, once the wrong old
@@ -1159,7 +1158,6 @@ export class AuthClient {
       return refusalOf(response);
     }
     const body = response.body ?? {};
-    const methods = methodNamesOf(body.methods);
     return {
       outcome: 'opened',
       email: stringOf(body.email),
@@ -1169,7 +1167,7 @@ export class AuthClient {
       expiresAt: stringOf(body.expiresAt),
       signUp: body.signUp === true,
       usernameIsEmail: body.usernameIsEmail === true,
-      ...(methods === undefined ? {} : { methods }),
+      methods: methodNamesOf(body.methods),
       ...accountFactsOf(body),
     };
   }
@@ -1664,7 +1662,6 @@ function standingOf(value: Partial<StandingInvitation> | null | undefined): Stan
   if (!value || typeof value !== 'object') {
     return undefined;
   }
-  const methods = methodNamesOf(value.methods);
   return {
     email: stringOf(value.email),
     tenantId: stringOf(value.tenantId),
@@ -1672,7 +1669,7 @@ function standingOf(value: Partial<StandingInvitation> | null | undefined): Stan
     ...newTenantOf(value),
     expiresAt: stringOf(value.expiresAt),
     usernameIsEmail: value.usernameIsEmail === true,
-    ...(methods === undefined ? {} : { methods }),
+    methods: methodNamesOf(value.methods),
     ...accountFactsOf(value),
   };
 }
@@ -1693,25 +1690,22 @@ function newTenantOf(value: { newTenant?: unknown; directoryOnly?: unknown }): {
 }
 
 /**
- * The account facts an invitation answer carries, when it carries them: whether an account
- * holds the invited address and whether it signs in with a password. Both are read only
- * when the server said whether an account exists; an older server says nothing, and the
- * facts stay absent.
+ * The account facts an invitation answer carries: whether an account holds the invited
+ * address and whether it signs in with a password. A fact left out reads as false, and
+ * the password is read only beside an account.
  */
 function accountFactsOf(value: { accountExists?: unknown; hasPassword?: unknown }): {
-  accountExists?: boolean;
-  hasPassword?: boolean;
+  accountExists: boolean;
+  hasPassword: boolean;
 } {
-  if (typeof value.accountExists !== 'boolean') {
-    return {};
-  }
-  return { accountExists: value.accountExists, hasPassword: value.hasPassword === true };
+  const accountExists = value.accountExists === true;
+  return { accountExists, hasPassword: accountExists && value.hasPassword === true };
 }
 
-/** The registration names an invitation answer lists, strings only; undefined where it lists none, or what it lists is not a list. */
-function methodNamesOf(value: unknown): readonly string[] | undefined {
+/** The registration names an invitation answer lists, strings only; none where what it lists is not a list. */
+function methodNamesOf(value: unknown): readonly string[] {
   if (!Array.isArray(value)) {
-    return undefined;
+    return [];
   }
   return value.filter((name): name is string => typeof name === 'string');
 }

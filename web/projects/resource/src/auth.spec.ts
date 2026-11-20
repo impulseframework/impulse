@@ -88,6 +88,7 @@ const mailingList: LoginMethods = {
   email: emailRoutes,
   signUp: signUpRoutes,
 };
+/** What opening an invitation answers for a person nobody holds an account for, whom no directory could admit. */
 const opened = {
   email: 'ensign@fleet.example',
   tenantId: '5d1c8e2a-7b3f-4a9e-b6d0-2c4f8a1e9b37',
@@ -95,6 +96,9 @@ const opened = {
   expiresAt: '2026-10-30T12:00:00Z',
   signUp: true,
   usernameIsEmail: true,
+  methods: [],
+  accountExists: false,
+  hasPassword: false,
 };
 const dead = { status: 404, body: { message: 'That link has expired or was already used. Ask for a new one' } };
 /** The list of a server whose people reset their own password and confirm an address an administrator set. */
@@ -1346,6 +1350,9 @@ describe('the mailed links in the list', () => {
       tenantName: 'Anvil',
       expiresAt: '2026-10-30T12:00:00Z',
       usernameIsEmail: true,
+      methods: ['google'],
+      accountExists: true,
+      hasPassword: false,
     };
     const carrying = authOver(
       server({ methods: { ...mailingList, invitation: { ...invitationRoutes, standing } } }),
@@ -1362,6 +1369,9 @@ describe('the mailed links in the list', () => {
       tenantName: '',
       expiresAt: '',
       usernameIsEmail: false,
+      methods: [],
+      accountExists: false,
+      hasPassword: false,
     });
     const none = authOver(
       server({ methods: { ...mailingList, invitation: { ...invitationRoutes, standing: null } } }),
@@ -1369,7 +1379,7 @@ describe('the mailed links in the list', () => {
     expect(await none.methods()).toEqual(mailingList);
   });
 
-  it('keeps what the standing block says of the invited account, and nothing where the server did not say', async () => {
+  it('keeps what the standing block says of the invited account, and reads a fact it does not say as false', async () => {
     const plain = {
       email: 'ensign@fleet.example',
       tenantId: '5d1c8e2a-7b3f-4a9e-b6d0-2c4f8a1e9b37',
@@ -1391,7 +1401,12 @@ describe('the mailed links in the list', () => {
         },
       }),
     ).auth;
-    expect((await unsaid.methods()).invitation?.standing).toEqual(plain);
+    // The password is read only beside an account.
+    expect((await unsaid.methods()).invitation?.standing).toEqual({
+      ...plain,
+      accountExists: false,
+      hasPassword: false,
+    });
   });
 
   it('keeps the registration names the standing invitation says could admit the address, strings only, and none where it names none', async () => {
@@ -1401,6 +1416,8 @@ describe('the mailed links in the list', () => {
       tenantName: '',
       expiresAt: 'soon',
       usernameIsEmail: false,
+      accountExists: false,
+      hasPassword: false,
     };
     const named = authOver(
       server({
@@ -1419,9 +1436,7 @@ describe('the mailed links in the list', () => {
         },
       }),
     ).auth;
-    const kept = (await unnamed.methods()).invitation?.standing;
-    expect(kept).toEqual(standing);
-    expect(Object.keys(kept ?? {})).not.toContain('methods');
+    expect((await unnamed.methods()).invitation?.standing).toEqual({ ...standing, methods: [] });
   });
 
   it('keeps what the standing block says of the tenant the invitation makes, and nothing for any other invitation', async () => {
@@ -1431,6 +1446,9 @@ describe('the mailed links in the list', () => {
       tenantName: 'Dawn',
       expiresAt: '2026-10-30T12:00:00Z',
       usernameIsEmail: true,
+      methods: ['google'],
+      accountExists: false,
+      hasPassword: false,
     };
     const making = authOver(
       server({
@@ -1472,7 +1490,7 @@ describe('the mailed links in the list', () => {
 });
 
 describe('an invitation', () => {
-  it('carries what the server says of the invited account, and nothing where an older server says nothing', async () => {
+  it('carries what the server says of the invited account, and reads a fact it does not say as false', async () => {
     const known = authOver(
       server({
         methods: mailingList,
@@ -1495,10 +1513,28 @@ describe('an invitation', () => {
       accountExists: false,
       hasPassword: false,
     });
-    const older = authOver(
-      server({ methods: mailingList, invitationOpen: { status: 200, body: { ...opened, hasPassword: true } } }),
+    const unsaid = authOver(
+      server({
+        methods: mailingList,
+        invitationOpen: {
+          status: 200,
+          body: { email: opened.email, expiresAt: opened.expiresAt, hasPassword: true },
+        },
+      }),
     ).auth;
-    expect(await older.openInvitation('tok-1')).toEqual({ outcome: 'opened', ...opened });
+    // The password is read only beside an account.
+    expect(await unsaid.openInvitation('tok-1')).toEqual({
+      outcome: 'opened',
+      email: opened.email,
+      tenantId: '',
+      tenantName: '',
+      expiresAt: opened.expiresAt,
+      signUp: false,
+      usernameIsEmail: false,
+      methods: [],
+      accountExists: false,
+      hasPassword: false,
+    });
   });
 
   it('is opened after the list is read again, posting the token, and described as the server answers', async () => {
@@ -1524,6 +1560,9 @@ describe('an invitation', () => {
       expiresAt: 'soon',
       signUp: false,
       usernameIsEmail: false,
+      methods: [],
+      accountExists: false,
+      hasPassword: false,
     });
   });
 
@@ -1579,9 +1618,7 @@ describe('an invitation', () => {
     const unnamed = authOver(
       server({ methods: mailingList, invitationOpen: { status: 200, body: { ...opened, methods: 'google-one' } } }),
     ).auth;
-    const result = await unnamed.openInvitation('tok-1');
-    expect(result).toEqual({ outcome: 'opened', ...opened });
-    expect(Object.keys(result)).not.toContain('methods');
+    expect(await unnamed.openInvitation('tok-1')).toEqual({ outcome: 'opened', ...opened, methods: [] });
   });
 
   it("resolves a dead link as the server's 404 refusal, through no error hook", async () => {
