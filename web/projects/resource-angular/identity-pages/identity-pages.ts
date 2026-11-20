@@ -1662,7 +1662,6 @@ const periodColumns: Named[] = [
   ['endsAt', 'Until'],
 ];
 
-/** The words for the two times of a method that gives something for a period. */
 /**
  * Reads the answer of a method that mails a person (`{ sent, reason }`): `sent` once the
  * message went, and where it did not, the server's sentence for why, drawn as a failure.
@@ -1679,6 +1678,7 @@ function mailed(sent: string): (answer: unknown) => { message: string; failed?: 
   };
 }
 
+/** The words for the two times of a method that gives something for a period. */
 const periodWords: Record<string, string> = { startsAt: 'From', endsAt: 'Until' };
 
 /**
