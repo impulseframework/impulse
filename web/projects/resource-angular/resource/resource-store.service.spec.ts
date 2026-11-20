@@ -208,6 +208,39 @@ describe('ResourceStore key lookup', () => {
     await settle(() => ref.status() === 'resolved');
     expect(script.requests.map((r) => r.url)).toEqual([url]);
   });
+
+  it('keeps a refusal by all that was asked: the same keys of another tenant, for other columns, by another key or of another source are each asked, and each once', async () => {
+    // Nothing is scripted, so the server refuses every read: an answer in the 400s.
+    const script = scripted({});
+    const domain = signal<Domain | undefined>('anvil' as Domain);
+    const store = storeOver(script, domain);
+    const route = signal('sectors/{sectorID}/hangars');
+    const keyField = signal('id');
+    const keys = signal(['h1']);
+    const columns = signal(['id', 'name']);
+    const ref = store.resourceListByKeys(route, keyField, keys, columns);
+    /** How many reads the server has been sent once the reader has taken a change and ended in a refusal. */
+    const askedAfter = async (change: () => void): Promise<number> => {
+      change();
+      await settle(() => false, 5);
+      expect(ref.status()).toBe('error');
+      return script.requests.length;
+    };
+
+    expect(await askedAfter(() => undefined)).toBe(1);
+    // The same keys handed again: the refusal is the answer, and nothing is asked.
+    expect(await askedAfter(() => keys.set(['h1']))).toBe(1);
+    // Another tenant may answer where the first refused: it is asked. Back in the first, nothing is.
+    expect(await askedAfter(() => domain.set('bastion' as Domain))).toBe(2);
+    expect(await askedAfter(() => domain.set('anvil' as Domain))).toBe(2);
+    // Other columns, another key and another source, each in its turn.
+    expect(await askedAfter(() => columns.set(['id']))).toBe(3);
+    expect(await askedAfter(() => columns.set(['id', 'name']))).toBe(3);
+    expect(await askedAfter(() => keyField.set('name'))).toBe(4);
+    expect(await askedAfter(() => keyField.set('id'))).toBe(4);
+    expect(await askedAfter(() => route.set('berths'))).toBe(5);
+    expect(await askedAfter(() => route.set('sectors/{sectorID}/hangars'))).toBe(5);
+  });
 });
 
 describe('ResourceStore paged reader', () => {
