@@ -77,22 +77,12 @@ func (h *Handlers) GiveStaffGroupRole() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			// Declared target: locate the row within the tenancy predicate
-			// before the body runs.
-			row, err := staffresources.NewStaffGroupQuery().
-				AddColumns(staffresources.NewStaffGroupColumns().ID()).
-				SetID(p.GroupID).
-				Read(ctx, txn)
-			if err != nil {
-				return errors.Wrap(err, "staffresources.StaffGroupQuery.Read()")
-			}
-			if row == nil {
-				return httpio.NewNotFoundMessagef("StaffGroup %s does not exist", p.GroupID)
-			}
-
-			// A row-referencing condition on the caller's Execute grant
-			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "StaffGroups", Label: "StaffGroup", PKColumns: []string{"Id"}}, p.GroupID); err != nil {
+			// Declared target: a row of the StaffListedGroup view.
+			// A view's row is one row of its query, so the gate locates it by
+			// the key and judges any row-referencing condition on the caller's
+			// Execute grant against it, in one SELECT over that query in this
+			// transaction. No row there is NotFound.
+			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "StaffListedGroups", Label: "StaffListedGroup", PKColumns: []string{"Id"}, View: staffresources.StaffListedGroup{}}, p.GroupID); err != nil {
 				return err
 			}
 			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {

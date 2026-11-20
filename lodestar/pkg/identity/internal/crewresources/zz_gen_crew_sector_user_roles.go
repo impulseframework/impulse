@@ -34,6 +34,7 @@ type crewSectorUserRoleRead struct {
 	CreatedAt   time.Time    `json:"createdAt"`
 	StartsAt    *time.Time   `json:"startsAt"`
 	EndsAt      *time.Time   `json:"endsAt"`
+	Reason      *string      `json:"reason"`
 }
 
 var crewSectorUserRoleReadSets resource.SetCache[CrewSectorUserRole, crewSectorUserRoleRead]
@@ -162,6 +163,7 @@ func (c *CrewSectorUserRoleColumns) All() *CrewSectorUserRoleColumns {
 		"CreatedAt",
 		"StartsAt",
 		"EndsAt",
+		"Reason",
 	}
 
 	return c
@@ -211,6 +213,12 @@ func (c *CrewSectorUserRoleColumns) StartsAt() *CrewSectorUserRoleColumns {
 
 func (c *CrewSectorUserRoleColumns) EndsAt() *CrewSectorUserRoleColumns {
 	c.fields = append(c.fields, "EndsAt")
+
+	return c
+}
+
+func (c *CrewSectorUserRoleColumns) Reason() *CrewSectorUserRoleColumns {
+	c.fields = append(c.fields, "Reason")
 
 	return c
 }
@@ -343,6 +351,10 @@ func (c *crewSectorUserRoleSort) StartsAt() *CrewSectorUserRoleSort {
 
 func (c *crewSectorUserRoleSort) EndsAt() *CrewSectorUserRoleSort {
 	return c.addField("EndsAt")
+}
+
+func (c *crewSectorUserRoleSort) Reason() *CrewSectorUserRoleSort {
+	return c.addField("Reason")
 }
 
 type CrewSectorUserRoleSort struct {

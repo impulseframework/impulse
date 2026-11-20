@@ -43,8 +43,8 @@ type (
 		// @attribute(inspectedAt)
 		InspectedAt *time.Time `spanner:"InspectedAt" conditions:"output_only"`
 		// @attribute(openedBy)
-		OpenedByUserID string  `spanner:"OpenedByUserId"     conditions:"output_only" default_create_fn:"currentUser"`
-		OpenedByName   string  `spanner:"OpenedByName" conditions:"output_only" default_create_fn:"currentUserName"`
+		OpenedByUserID string  `spanner:"OpenedByUserId" conditions:"output_only" default_create_fn:"currentUser"`
+		OpenedByName   string  `spanner:"OpenedByName"   conditions:"output_only" default_create_fn:"currentUserName"`
 		Notes          *string `spanner:"Notes"`
 	}
 )

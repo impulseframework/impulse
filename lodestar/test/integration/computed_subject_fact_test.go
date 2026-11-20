@@ -14,6 +14,7 @@ package integration
 // language suite pins for the Flight Lead's missions.
 
 import (
+	"bytes"
 	"net/http"
 	"slices"
 	"strconv"
@@ -111,7 +112,7 @@ func TestComputedSubjectFact(t *testing.T) {
 		// absent row gets, which the refused row's answer has to equal.
 		absentStatus, absent := doRequestAs(t, h, "lead", http.MethodGet, sectorPath(anvil, manifests+"/"+missionBeaconID), "")
 		status, body = doRequestAs(t, h, "lead", http.MethodGet, sectorPath(anvil, manifests+"/"+missionHaulerID), "")
-		if status != absentStatus || string(body) != string(absent) {
+		if status != absentStatus || !bytes.Equal(body, absent) {
 			t.Errorf("the Flight Lead reads the hauler manifest as %d %q, want the answer an absent row gets: %d %q", status, body, absentStatus, absent)
 		}
 		if strings.Contains(string(body), missionHaulerID) {

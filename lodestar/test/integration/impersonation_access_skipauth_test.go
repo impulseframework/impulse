@@ -68,6 +68,8 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 	switch act {
 	case "AssignRole", "RemoveRole":
 		return fmt.Appendf(nil, `{"userId":%q,"role":"Cadet"}`, userID)
+	case "TakeRole":
+		return fmt.Appendf(nil, `{"domain":%q,"role":"Cadet","length":"1 hour","reason":"taken under a mask"}`, anvil)
 	case "CreateGroup":
 		return []byte(`{"name":"Made under a mask","description":"A group nobody should have made"}`)
 	case "DeleteGroup":
@@ -99,14 +101,14 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 // person in a session of his own. The actions are the generated collection's own list
 // of the class, so one added to it is asked here without this suite naming it; the ones
 // the library marks are looked for by name, an invitation that carries roles, a role
-// given to a group, a tenant's starting role for its directory, the two settings that
-// say who may sign in (a sector's directory-only switch, turned on and off, and the
-// reset link at the sign-in page) and the creation of a sector of one's own among them,
-// and so is the application's own, which rates a pilot. The marshal, given the grant to
-// act as a person, starts three sessions as the governor, and each is refused every
-// one: a session whose mask keeps no Execute, a read-only view, and a session that acts
-// as the governor, whose mask keeps every kind and refuses the class, which the log
-// names.
+// taken for a set time, a role given to a group, a tenant's starting role for its
+// directory, the two settings that say who may sign in (a sector's directory-only
+// switch, turned on and off, and the reset link at the sign-in page) and the creation
+// of a sector of one's own among them, and so is the application's own, which rates a
+// pilot. The marshal, given the grant to act as a person, starts three sessions as the
+// governor, and each is refused every one: a session whose mask keeps no Execute, a
+// read-only view, and a session that acts as the governor, whose mask keeps every kind
+// and refuses the class, which the log names.
 //
 // The test runs on its own, never in parallel: the console exporter writes through the
 // standard logger, which the test redirects to read each denial.
@@ -118,7 +120,7 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 
 	access := router.Collection().ActionsOfClass(accesstypes.ClassAccess)
 	for _, want := range []accesstypes.Resource{
-		"AssignCrewRole", "RemoveCrewRole", "AssignCrewSectorRole", "RemoveCrewSectorRole",
+		"AssignCrewRole", "RemoveCrewRole", "AssignCrewSectorRole", "RemoveCrewSectorRole", "TakeCrewRole",
 		"AddCrewGroupMember", "RemoveCrewGroupMember", "GiveCrewGroupRole", "TakeCrewGroupRole", "GiveCrewSectorGroupRole",
 		"CreateCrewGroup", "DeleteCrewGroup", "InviteCrewUser", "InviteCrewSectorUser", "InviteCrewSector",
 		"CreateCrewUser", "OpenCrewSignUp", "MakeCrewInviteOnly", "OpenSectorToDirectory", "MakeSectorInviteOnly",

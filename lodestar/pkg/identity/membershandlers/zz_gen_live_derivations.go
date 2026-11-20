@@ -21,6 +21,17 @@ import (
 // publish, and hand that one to the handlers of this package too.
 var LiveDerivations = &live.Derivations{
 	Resources: []live.DerivedResource{
+		// MembersHeldRoles: the tables its query reads.
+		{Resource: membersresources.MembersHeldRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
+			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+		}},
+		// MembersSectorHeldRoles: the tables its query reads.
+		{Resource: membersresources.MembersSectorHeldRole{}.Resource(), Tables: []live.SourceTable{
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
+			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.Sector{}.Resource(), Global: true},
+		}},
 		// MembersSectorIdentities: the tables its query reads.
 		{Resource: membersresources.MembersSectorIdentity{}.Resource(), Tables: []live.SourceTable{
 			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},

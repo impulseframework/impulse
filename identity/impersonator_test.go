@@ -197,7 +197,7 @@ var impersonatorActs = []struct {
 	{
 		name: "AssignRoleFor", says: "give yourself a role",
 		act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, who *person) error {
-			return m.AssignRoleFor(ctx, txn, alphaScope, who.id, "Writer", accesstypes.Period{End: time.Now().Add(time.Hour)})
+			return m.AssignRoleFor(ctx, txn, alphaScope, who.id, "Writer", accesstypes.Period{End: time.Now().Add(time.Hour)}, "")
 		},
 	},
 	{
@@ -252,7 +252,7 @@ var impersonatorActs = []struct {
 		name: "Tenant.AssignRoleFor", says: "give yourself a role", tenant: true,
 		act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, who *person) error {
 			return runInTenant(ctx, m, func(tenant *Tenant) error {
-				return tenant.AssignRoleFor(ctx, txn, who.id, "Writer", accesstypes.Period{End: time.Now().Add(time.Hour)})
+				return tenant.AssignRoleFor(ctx, txn, who.id, "Writer", accesstypes.Period{End: time.Now().Add(time.Hour)}, "")
 			})
 		},
 	},

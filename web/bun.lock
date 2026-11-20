@@ -48,14 +48,14 @@
     },
     "projects/resource": {
       "name": "@impulseframework/resource",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "tslib": "^2.3.0",
       },
     },
     "projects/resource-angular": {
       "name": "@impulseframework/resource-angular",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "date-fns": "^4.1.0",
         "date-fns-tz": "^3.2.0",
@@ -65,7 +65,7 @@
         "@angular/common": "^22.0.0",
         "@angular/core": "^22.0.0",
         "@angular/service-worker": "^22.0.0",
-        "@impulseframework/resource": "0.4.0",
+        "@impulseframework/resource": "0.5.0",
       },
       "optionalPeers": [
         "@angular/service-worker",
@@ -73,12 +73,12 @@
     },
     "projects/resource-firestore": {
       "name": "@impulseframework/resource-firestore",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "tslib": "^2.3.0",
       },
       "peerDependencies": {
-        "@impulseframework/resource": "0.4.0",
+        "@impulseframework/resource": "0.5.0",
         "firebase": "^13.0.0",
       },
     },

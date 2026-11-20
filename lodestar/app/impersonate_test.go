@@ -42,7 +42,7 @@ var credentialActions = []accesstypes.Resource{
 
 // accessActions are the actions of the console and the portal that give or take away
 // what someone may do, by name: the generated identity methods that give and remove a
-// role, make and delete a group, put a person in one and take them out, give a group a
+// role, take one for a set time, make and delete a group, put a person in one and take them out, give a group a
 // role and take it, send and withdraw an invitation, the one that makes a sector among
 // them, make an account, and open a sign-in method to
 // sign-up or make it invite only, for the whole application and for a sector; the
@@ -86,6 +86,7 @@ var accessActions = []accesstypes.Resource{
 	"SetCrewSelfServiceReset",
 	"SetSectorPilotClearance",
 	"TakeCrewGroupRole",
+	"TakeCrewRole",
 	"TakeCrewSectorGroupRole",
 	"WithdrawCrewInvitation",
 	"WithdrawCrewInvitedSector",

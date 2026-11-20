@@ -3467,7 +3467,8 @@ names two classes and marks its own actions with them. `accesstypes.ClassCredent
 (a temporary password set, a new password required, a password removed, a reset link
 sent, a sign-in identity unlinked, a username or an address changed).
 `accesstypes.ClassAccess`, `access`, is on every one that gives or takes away what
-someone may do (a role given or removed, a person put in a group or taken out, a role
+someone may do (a role given or removed, a role a person takes themselves for a set
+time, a person put in a group or taken out, a role
 given to a group or taken from it, a group made or deleted, an invitation sent or
 withdrawn, an account made, which is made with the roles its person holds, and what a
 sign-in method or a tenant's directory gives everyone who arrives through it), and on the

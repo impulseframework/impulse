@@ -30,8 +30,8 @@ import (
 const identityCredentialClass = "\n// @" + classKeyword + "(" + string(accesstypes.ClassCredential) + ")"
 
 // identityAccessClass is the @class line of the generated identity methods that give or
-// take away what someone may do: a role given or removed, a person put in a group or
-// taken out of one, a role given to a group or taken from it, a group made or deleted,
+// take away what someone may do: a role given or removed, a role a person takes
+// themselves for a set time, a person put in a group or taken out of one, a role given to a group or taken from it, a group made or deleted,
 // an invitation sent or withdrawn, an account made (it is made with the roles its
 // person holds), a sign-in method opened to sign-up or made invite only, and the
 // setting that lets people ask at the sign-in page for a link that resets their own

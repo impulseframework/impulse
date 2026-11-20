@@ -21,7 +21,7 @@ import (
 // @answers(204)
 // @class(access)
 type DeleteMembersGroup struct {
-	// @target(MembersGroup)
+	// @target(MembersListedGroup)
 	GroupID impulse.UUID
 }
 

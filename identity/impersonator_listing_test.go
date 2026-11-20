@@ -95,6 +95,9 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.CreateUser": {
 		none: "it makes an account that did not exist, which is nobody's yet; an account made for another address of the real person's is a road the rule cannot see",
 	},
+	"Manager.TakeRole": {
+		none: "it names no person: the role goes to the request's caller, and a session that acts as someone else takes nothing, for the person acted as or for the person behind it (taker)",
+	},
 	"Tenant.CreateUser":                {none: "it is Manager.CreateUser for one tenant"},
 	"Manager.CreateGroup":              {none: ofAGroup},
 	"Manager.DescribeGroup":            {none: ofAGroup},
@@ -128,6 +131,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.CallerPassword":                  {none: reads},
 	"Manager.DirectoryRoles":                  {none: reads},
 	"Manager.RolesToGive":                     {none: reads},
+	"Manager.RolesToTake":                     {none: reads},
 	"Manager.DirectoryName":                   {none: reads},
 	"Manager.CheckInvitedTenant":              {none: reads},
 	"Manager.InvitedTenants":                  {none: reads},

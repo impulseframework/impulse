@@ -996,6 +996,25 @@ Some rules hold whatever the role file says. Among them:
 - The administrators of a tenant that is directory only are changed only by someone that
   tenant admits, or by a Super Administrator.
 
+A person who may give themselves a role in a tenant can also take that role for a set
+time, on the Break glass page of the whole application's side, but only when they also
+hold the grant of that page. It is for an emergency, such as a tenant whose only
+administrator can no longer sign in. The person picks the tenant, a role that exists in
+every tenant, and how long: 1 hour, 4 hours, 8 hours or 1 day. They say why in one line.
+The role goes to that person and nobody else, and ends by itself when the time is over.
+The reason is kept with the role and shown wherever the person's roles are listed. With
+the skeletons' role file, the tenant's administrator reads it beside the role and can
+take the role away before its time is over. Taking a role this way gives nobody a power
+they did not have: beside the grant of the page, the person needs whatever giving
+themselves that role in that tenant needs, which a Super Administrator always has. The
+skeletons grant the page to the `Administrator` role and to no role held in a tenant: a
+tenant's administrator may give themselves a role in their own tenant, and still takes
+none for a set time. In an application without tenants the page is the same without the
+choice of tenant, and the role is one held for the whole application. The Super
+Administrator role is never taken for a set time. An auth whose directory gives the
+roles ([shape 3](#3-directory-roles)) has no Break glass page: nobody gives a role
+inside the application there.
+
 A person changes their own account on the Your account page: their name, their password,
 the browser they asked to be remembered, and their email address, which changes once they
 follow a link mailed to the new one. The switcher next to the application's name lists

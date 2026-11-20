@@ -146,12 +146,28 @@ linters:
           - paralleltest
           - tparallel
         path: cmd/generate/(generate|warnings|audit)_test\.go
-      # These suites' cases share seeded rows and run in a declared order: a write in
-      # one case is what the next case reads.
+      # Each test named here runs its cases one after another, because its cases work on
+      # the same rows: one case reads a row that another case writes, or the test itself
+      # reads or writes those rows between its cases or after them. A case that called
+      # t.Parallel would wait until the test's function returned and then run beside the
+      # others, in no order. The rule goes by the test's name, which both linters'
+      # messages carry, so every other test of the package is held to t.Parallel in each
+      # of its cases. A new test whose cases need their order is added here by name, one
+      # file's tests to a line.
       - linters:
           - paralleltest
           - tparallel
-        path: test/integration/(language|tenancy|impersonation_ops|rows_of)_test\.go
+        path: test/integration/
+        text: "\\b(TestGeneratedIdentityOneTenantPerPerson|\
+          TestGeneratedIdentitySectorRemovePassword|\
+          TestGeneratedIdentitySectorAccountMethods|TestGeneratedIdentitySectorRoleMethods|TestGeneratedIdentitySectorIdentities|\
+          TestImpersonationOperator|\
+          TestConditionLanguageWrites|\
+          TestMethodRequestFieldsNoTarget|TestMethodRequestFieldsList|TestMethodRequestFieldsTarget|\
+          TestRowsOfWrites|\
+          TestSectorPilotsMethod|\
+          TestWriteTenancy)\
+          ('s subtests should call t\\.Parallel| missing the call to method parallel in )"
       # The request log suite redirects the standard logger, which the console exporter
       # writes through, to read each request's decision, so nothing else may write
       # through it meanwhile.
@@ -163,12 +179,12 @@ linters:
           - paralleltest
         path: test/integration/impersonation_(mask|access)_skipauth_test\.go
         text: TestImpersonationMask_(credential|access)Methods
-      # Lodestar is committed in the resource module's own repository, so it builds
-      # against the local source rather than a published version that cannot exist yet.
+      # Lodestar is committed in the framework's own repository, so it builds against
+      # the local source rather than a published version that cannot exist yet.
       - linters:
           - gomoddirectives
         path: go\.mod
-        text: ccc/(resource|impulse)
+        text: 'local replacement are not allowed: github\.com/impulseframework/impulse$'
     paths:
       - third_party$
       - builtin$

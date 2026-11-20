@@ -451,3 +451,45 @@ func Test_typescriptGenerator_excludeManualRegistrations(t *testing.T) {
 		})
 	}
 }
+
+// Test_typescriptGenerator_resolveParsedEnumerations pins that a target resolves a
+// field-scope @enumerate against the resources it parsed itself, not against what the
+// target before it left on the client the two share: the earlier target narrowed the
+// client's set to its own outlet's members, and a field of this outlet that names a
+// resource of this outlet alone must still find it.
+func Test_typescriptGenerator_resolveParsedEnumerations(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadCollectionFixture(t))
+	gadgets := genlang.Arg("Gadgets")
+	widget := fixtureResource(t, structs, "Widget", func(res *resourceInfo) {
+		res.OutletNames = []string{"portal"}
+		res.Fields[1].enumerateArg = &gadgets
+	})
+	gadget := fixtureResource(t, structs, "Gadget", func(res *resourceInfo) { res.OutletNames = []string{"portal"} })
+	parsed := []*resourceInfo{gadget, widget}
+
+	// The client as the target before this one left it: the default outlet's members,
+	// neither of the two above.
+	g := &typescriptGenerator{outletName: "portal", client: &client{resources: nil}}
+
+	if err := g.resolveParsedEnumerations(parsed, nil); err != nil {
+		t.Fatalf("resolveParsedEnumerations() error = %v, want the declaration resolved against this target's own resources", err)
+	}
+	if got := widget.Fields[1]; !got.IsEnumerated || got.EnumeratedResource() != "Gadgets" {
+		t.Errorf("IsEnumerated = %v, EnumeratedResource() = %q, want the field to list Gadgets", got.IsEnumerated, got.EnumeratedResource())
+	}
+	if diff := cmp.Diff([]string{"Gadget", "Widget"}, resourceNames(g.resources)); diff != "" {
+		t.Errorf("the client's resources after resolving mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// resourceNames is the name of each resource, in order.
+func resourceNames(resources []*resourceInfo) []string {
+	names := make([]string, 0, len(resources))
+	for _, res := range resources {
+		names = append(names, res.Name())
+	}
+
+	return names
+}

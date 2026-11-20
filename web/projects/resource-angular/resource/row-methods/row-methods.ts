@@ -29,6 +29,12 @@ export interface OfferedMethod {
   icon?: string;
   /** The page's own presentation of the method, when its configuration names it. */
   presentation?: MethodPresentation;
+  /**
+   * What the row says in the method's place, where the page's predicate keeps the method
+   * off the row and says why (MethodPresentation.otherwise): the entry is those words and
+   * runs nothing.
+   */
+  says?: string;
 }
 
 /**
@@ -88,11 +94,26 @@ function presents(presentation: MethodPresentation, row: RecordData): boolean {
 }
 
 /**
+ * What a presentation says on a row its predicate keeps its method off: the words the
+ * page gives in the method's place (`otherwise`). Nothing where the page hides the
+ * method, where the predicate does not say no, and where the page gives no words.
+ */
+function saidInstead(presentation: MethodPresentation, row: RecordData): string | undefined {
+  if (presentation.hidden || presentation.when?.(row) !== false) {
+    return undefined;
+  }
+  return presentation.otherwise?.(row) || undefined;
+}
+
+/**
  * The methods one row offers: of the methods that target the listed resource, those the
  * row's capability answer lists, less the ones the page hides and the ones whose row
  * predicate says no. A method the page names more than once is offered once for each
- * presentation that holds for the row. A row read without its capability answer offers
- * none: nothing is known about what the caller may run on it.
+ * presentation that holds for the row. A presentation whose predicate keeps the method
+ * off the row is an entry all the same where the page says what the row shows in its
+ * place (`otherwise`): the words, marked as said (`says`), which run nothing. A row read
+ * without its capability answer offers none and says nothing: nothing is known about what
+ * the caller may run on it.
  */
 export function rowMethods(
   row: RecordData,
@@ -115,8 +136,14 @@ export function rowMethods(
       continue;
     }
     for (const presentation of named) {
+      const entry = offeredAs(method, metaOf(method), presentation);
       if (presents(presentation, row)) {
-        methods.push(offeredAs(method, metaOf(method), presentation));
+        methods.push(entry);
+        continue;
+      }
+      const says = saidInstead(presentation, row);
+      if (says) {
+        methods.push({ ...entry, says });
       }
     }
   }
@@ -129,7 +156,9 @@ export function rowMethods(
  * digest's answer; the server gives none for a row the method does not name), less the
  * ones the page hides and the ones whose row predicate says no. Each presentation is
  * offered as itself, so a method named twice is offered under each one's own words and
- * filled as each one fills it.
+ * filled as each one fills it. As for a method that names its row (rowMethods), a
+ * presentation whose predicate keeps the method off the row is an entry of words where
+ * the page says what the row shows in its place (`otherwise`).
  */
 export function filledMethods(
   row: RecordData,
@@ -140,11 +169,17 @@ export function filledMethods(
   const methods: OfferedMethod[] = [];
   for (const presentation of presentations ?? []) {
     const meta = metaOf(presentation.method);
-    if (!presentation.fill || !meta || meta.target || !presents(presentation, row)) {
+    if (!presentation.fill || !meta || meta.target || !granted(presentation.method)) {
       continue;
     }
-    if (granted(presentation.method)) {
-      methods.push(offeredAs(presentation.method, meta, presentation));
+    const entry = offeredAs(presentation.method, meta, presentation);
+    if (presents(presentation, row)) {
+      methods.push(entry);
+      continue;
+    }
+    const says = saidInstead(presentation, row);
+    if (says) {
+      methods.push({ ...entry, says });
     }
   }
   return methods;

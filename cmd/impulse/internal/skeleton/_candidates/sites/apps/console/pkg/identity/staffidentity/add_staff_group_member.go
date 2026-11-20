@@ -35,7 +35,7 @@ import (
 // @answers(204)
 // @class(access)
 type AddStaffGroupMember struct {
-	// @target(StaffGroup)
+	// @target(StaffListedGroup)
 	GroupID impulse.UUID
 	// UserID is the person, picked from the people the caller may list.
 	//

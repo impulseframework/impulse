@@ -239,7 +239,7 @@ func crewRolesOf(t *testing.T, w *identityWorld, username string) []string {
 	if err := iter.Do(func(row *spanner.Row) error {
 		var role string
 		if err := row.Column(0, &role); err != nil {
-			return err
+			return fmt.Errorf("spanner.Row.Column(): %w", err)
 		}
 		roles = append(roles, role)
 
@@ -431,6 +431,8 @@ func TestMethodRequestFieldsDigest(t *testing.T) {
 	}
 	for _, tt := range probes {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			status, body := doRequestAs(t, w.h, tt.user, http.MethodGet, tt.target, "")
 			assertStatus(t, status, http.StatusOK, body)
 			var digest map[string]map[string]string

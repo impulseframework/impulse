@@ -34,6 +34,7 @@ type crewUserGroupRoleRead struct {
 	Axis      string       `json:"axis"      perm:"-"`
 	DomainID  string       `json:"domainId"  perm:"-"`
 	Role      string       `json:"role"      perm:"-"`
+	CreatedAt time.Time    `json:"createdAt"`
 	StartsAt  *time.Time   `json:"startsAt"`
 	EndsAt    *time.Time   `json:"endsAt"`
 }
@@ -212,6 +213,7 @@ func (c *CrewUserGroupRoleColumns) All() *CrewUserGroupRoleColumns {
 		"Axis",
 		"DomainID",
 		"Role",
+		"CreatedAt",
 		"StartsAt",
 		"EndsAt",
 	}
@@ -263,6 +265,12 @@ func (c *CrewUserGroupRoleColumns) DomainID() *CrewUserGroupRoleColumns {
 
 func (c *CrewUserGroupRoleColumns) Role() *CrewUserGroupRoleColumns {
 	c.fields = append(c.fields, "Role")
+
+	return c
+}
+
+func (c *CrewUserGroupRoleColumns) CreatedAt() *CrewUserGroupRoleColumns {
+	c.fields = append(c.fields, "CreatedAt")
 
 	return c
 }
@@ -415,6 +423,10 @@ func (c *crewUserGroupRoleSort) DomainID() *CrewUserGroupRoleSort {
 
 func (c *crewUserGroupRoleSort) Role() *CrewUserGroupRoleSort {
 	return c.addField("Role")
+}
+
+func (c *crewUserGroupRoleSort) CreatedAt() *CrewUserGroupRoleSort {
+	return c.addField("CreatedAt")
 }
 
 func (c *crewUserGroupRoleSort) StartsAt() *CrewUserGroupRoleSort {

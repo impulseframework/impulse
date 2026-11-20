@@ -57,6 +57,12 @@ var identityMethodActs = map[string]accesstypes.ActionClass{
 	"GiveGroupRole":     changesAccess,
 	"TakeGroupRole":     changesAccess,
 
+	// A role a person takes themselves for a set time (the Break glass page) is a role
+	// given, to the caller. The method refuses every session that acts as someone else
+	// by itself (identity.Manager.TakeRole), and carries the class beside that, so a
+	// mask that refuses the class names every act that gives a role.
+	"TakeRole": changesAccess,
+
 	// Who is let in, and with what: an invitation carries the roles its person will
 	// hold, or makes them the administrator of a new tenant, and its withdrawal takes
 	// that away; a sign-in method opened to sign-up gives a role to everyone who signs
@@ -239,6 +245,7 @@ var wantAccessMethods = map[string][]string{
 	"RemoveGroupMember":     {"RemoveCrewGroupMember", "RemoveCrewShipGroupMember", "RemoveMembersGroupMember", "RemoveMembersShipGroupMember"},
 	"GiveGroupRole":         {"GiveCrewGroupRole", "GiveCrewShipGroupRole", "GiveMembersGroupRole", "GiveMembersShipGroupRole"},
 	"TakeGroupRole":         {"TakeCrewGroupRole", "TakeCrewShipGroupRole", "TakeMembersGroupRole", "TakeMembersShipGroupRole"},
+	"TakeRole":              {"TakeCrewRole", "TakeMembersRole"},
 	"InviteUser":            {"InviteCrewShipUser", "InviteCrewUser"},
 	"WithdrawInvitation":    {"WithdrawCrewInvitation", "WithdrawCrewShipInvitation"},
 	"InviteTenant":          {"InviteCrewShip"},
