@@ -147,10 +147,15 @@ export class ResourceViewComponent implements OnInit {
   /**
    * What a view that could not load says in place of its form: the server's own
    * message when the read was refused or failed. A refusal must never render as an
-   * empty record.
+   * empty record. A row that is not there is said in the page's own words: what the
+   * server answers for it describes the search that found nothing, which is nobody's to
+   * read on a page.
    */
   viewErrorMessage = computed<string | undefined>(() => {
     const error = this.store.viewError();
+    if (error instanceof ApiError && error.status === 404) {
+      return 'This record is not here. It may have been removed, or it may no longer be yours to see.';
+    }
     if (error instanceof ApiError && error.status === 403) {
       return `This record is not available to you: ${error.message}`;
     }
@@ -279,15 +284,31 @@ export class ResourceViewComponent implements OnInit {
     });
   }
 
+  /** The row as the page last read it: what the page has left of a row that is gone. */
+  private lastRow: RecordData = {};
+
   /**
-   * The row is gone after a method ran: the page says the row left, and a row page goes
-   * back to where it was opened from, as it does after its own Delete.
+   * The row is gone after a method ran: the page says the row left, and a row page
+   * leaves. The page of a row route goes to the list the row was of, whether it was
+   * opened from the list or from a link with no page before it, and takes its own place
+   * in the history, so Back never returns to a row that is not there. The list then says
+   * what the config has to say of a row that left it (`rowGone`). Any other row page
+   * goes back to where it was opened from, as it does after its own Delete.
    */
   private leaveGoneRow(): void {
     this.deleted.emit(true);
-    if (this.compoundResourceView() && this.navAfterDelete() !== false) {
-      this.location.back();
+    if (!this.compoundResourceView() || this.navAfterDelete() === false) {
+      return;
     }
+    const said = this.config().rowGone?.(this.lastRow);
+    if (said) {
+      this.notifications.addGlobalNotification({ message: said, type: AlertType.INFO, duration: 8000, link: '' });
+    }
+    if (this.activatedRoute.snapshot.paramMap.has('uuid')) {
+      void this.router.navigate(['..'], { relativeTo: this.activatedRoute, replaceUrl: true });
+      return;
+    }
+    this.location.back();
   }
 
   inlineRpcConfigs = computed(() => {
@@ -650,6 +671,13 @@ export class ResourceViewComponent implements OnInit {
       this.store.liveChoice.set(this.config().live);
       if (!create) {
         this.store.buildStoreViewData();
+      }
+    });
+
+    // The row is kept as it was last read, for what the list says of a row that left it.
+    effect(() => {
+      if (this.store.rowPresent()) {
+        this.lastRow = this.store.viewData();
       }
     });
 
