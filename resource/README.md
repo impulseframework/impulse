@@ -4586,11 +4586,14 @@ own, outside any request, has no caller and is the application's act):
   a record's rows it sees the ones that name the person, and not a row that reaches
   them without naming them: a row that names a set they are in (a pass given to their
   team), the row a dotted `value:` is read through (the team's own row, which says
-  which division the team is in), and a row the database removes with its parent. A
-  mask says those: a kind of impersonation that is not to change who may do what
-  refuses the writes of each such record by name
-  (`accesstypes.RefuseWrites(record)`), which refuses them for every person and not
-  the real one alone. The
+  which division the team is in), and a row the database removes with its parent.
+  These are the rule's stated limits, the rows that reach a person without naming them
+  beside the role given to a group they are in: a session whose mask refuses nothing
+  does each of them, since to let someone act as a person with no mask is to give them
+  what the person holds. An application closes them through its mask: a kind of
+  impersonation that is not to change who may do what refuses the class `access`, and
+  the writes of each such record by name (`accesstypes.RefuseWrites(record)`), which
+  refuses them for every person and not the real one alone. The
   unlock knows the person's counts by their username, their account and the address
   they confirmed; a count kept under an address the account holds unconfirmed (the mail
   of a first password, or of an address change asked for) is cleared like anyone's. A

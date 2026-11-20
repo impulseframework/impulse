@@ -3471,7 +3471,12 @@ someone else's row onto themselves. An application's own action that names a per
 asks the same rule (`identity.RefuseImpersonatorAsSubject`; the resource package's "User
 management", "The rules on who is asking"). The class `access` is for what that rule
 cannot see: a role that reaches the person through a group they are in, through another
-account or through a colleague. An application that lets people act as a person and
+account or through a colleague. A row of the application's own that reaches the person
+without naming them is beside it: a pass given to a team they are in, or their own team
+moved to another division. These are the rule's stated limits. A session whose mask
+refuses nothing does each of them, since to let someone act as a person with no mask is
+to give them what the person holds, and an application closes them through its mask.
+An application that lets people act as a person and
 does not mean them to change who may do what refuses both classes, as the declaration
 above does, and refuses by name the writes of its own records that decide what a person
 may do (`accesstypes.RefuseWrites(record)`): the rule holds the real person alone, and

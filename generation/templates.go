@@ -921,11 +921,23 @@ const (
 	// from the decoded fields and the key. It sits ahead of the three arms so that none
 	// of them can be reached around it. A create under a generated id has no key in its
 	// path, and no stored row. The splice reads the resource as its dot.
+	//
+	// The generated comment states the rule's limit where a reader of the handler meets
+	// the rule: a row that reaches a person without naming them is written by a session
+	// whose mask refuses nothing, as a role given to a group they are in is, and an
+	// application closes that through its mask.
 	subjectGuarded = `// The policy reads this record's rows as what a person may do, so nobody
 					// writes the row that names them while they act as someone else,
 					// whatever the session's mask keeps: the rule is asked about the person
 					// the row names before the write and the person it names after it. The
 					// caller's grants answer first.
+					//
+					// The rule sees the rows that name a person. A row that reaches them
+					// without naming them (one that names a set they are in, or the row a
+					// value of theirs is read through) is its stated limit, beside a role
+					// given to a group they are in: a session whose mask refuses nothing
+					// writes it, and an application closes that through its mask, which
+					// refuses the record's writes by name (accesstypes.RefuseWrites).
 					subjectKey := resource.KeySet{}
 					{{- if .PrimaryKeyIsGeneratedUUID }}
 					if op.Type != resource.OperationCreate {

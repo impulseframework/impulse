@@ -173,12 +173,18 @@ func (m *Manager) refuseImpersonatorAsSubject(ctx context.Context, userID impuls
 //	}
 //
 // What it cannot see is whatever reaches the person by another road: a role given to a
-// group they are in, an invitation to an address they hold and never confirmed on the
-// account, an act on a colleague who returns the favor. The unlock knows the account by
+// group they are in, a row of the application's that reaches them without naming them
+// (a pass given to a team they are in, or their own team moved to another division;
+// RefuseImpersonatorAsRowSubject says which), an invitation to an address they hold and
+// never confirmed on the account, an act on a colleague who returns the favor. These
+// are stated limits: a session whose mask refuses nothing does each of them, and an
+// application closes them through its mask. The unlock knows the account by
 // its username, its id and the address it confirmed, so a count the library keeps under
 // an address the account holds unconfirmed (the mail of a first password or of an
 // address change asked for) is cleared like anyone's. A mask that refuses the class
-// of the actions that change who may do what (accesstypes.ClassAccess) refuses those.
+// of the actions that change who may do what (accesstypes.ClassAccess) refuses the
+// library's share of those, and one that refuses a record's writes by name
+// (accesstypes.RefuseWrites) refuses the application's.
 func RefuseImpersonatorAsSubject(ctx context.Context, subject impulse.UUID, act string) error {
 	if !ImpersonatorIs(ctx, subject) {
 		return nil

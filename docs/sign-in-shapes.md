@@ -471,6 +471,13 @@ Where an application offers it, these things hold in every shape.
   as a role cannot create a tenant, since they would become its administrator themselves.
   The same holds for a row of the application's own that names them and decides what
   they may do. They stop acting as the other person first.
+- That rule sees what names the person, and no more. It does not see a role given to a
+  group they are in. In the same way, it does not see a row of the application's own that
+  reaches them without naming them: a pass given to a team they are in, or their own team
+  moved to another division. A session whose mask refuses nothing can do each of these.
+  This is a stated limit of the rule. An application closes it through the mask of the
+  kind: a kind that is not to change what anyone may do refuses that class of actions,
+  and the writes of each such record by name.
 - A session that acts as someone is started through the kinds the application named, and
   in no other way. The application's own code cannot write one into the session store
   around them.

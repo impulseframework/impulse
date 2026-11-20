@@ -46,9 +46,12 @@ import (
 // What it cannot see is a row that reaches the person without naming them: a row that
 // names a set the person is in (a pass given to their team), the row another record's
 // value is read through (the team's own row, which says which division the team is
-// in), and a row the database removes with its parent. They are the limits
-// RefuseImpersonatorAsSubject names for a group, and a mask that refuses the record's
-// writes by name (accesstypes.RefuseWrites) refuses them.
+// in), and a row the database removes with its parent. They are a stated limit of the
+// rule, beside the one RefuseImpersonatorAsSubject names for a role given to a group
+// the person is in: a session whose mask refuses nothing writes such a row, and the
+// rule does not look for the person in the set or behind the value. An application
+// closes that through its mask: a kind of impersonation that refuses the record's
+// writes by name (accesstypes.RefuseWrites) refuses them, for every person.
 func RefuseImpersonatorAsRowSubject[Resource resource.Resourcer](
 	ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet,
 	patchSet *resource.PatchSet[Resource], record string, userFields ...accesstypes.Field,

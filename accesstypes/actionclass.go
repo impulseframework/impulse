@@ -37,7 +37,11 @@ const ClassCredential ActionClass = "credential"
 // impersonates never changes their own account, whatever the mask keeps
 // (identity.RefuseImpersonatorAsSubject). The class refuses what that rule cannot
 // see: a role given to a group the person is in, to another account of theirs, or
-// to a colleague.
+// to a colleague. A row of the application's own that reaches the person without
+// naming them (a pass given to a team they are in) is beside those, and is no
+// action of the library's for the class to mark: a mask refuses the record's writes
+// by name (RefuseWrites). Under a mask that refuses nothing, each of these is a
+// stated limit of the rule.
 const ClassAccess ActionClass = "access"
 
 // actionClassName is what a class may be named: a lowercase letter, then
