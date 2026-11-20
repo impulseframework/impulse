@@ -6,21 +6,59 @@ import {
   RecordData,
   rootConfig,
 } from '@impulseframework/resource-angular/types';
+import { format, isValid, parseISO } from 'date-fns';
 
 const record = CrewSessionImpersonations.fieldName;
 
-/** Whether a session held as someone else is still open: its record has no end yet. */
-export function stillOpen(row: RecordData): boolean {
-  return !row[record.endedAt];
+/** A moment a record carries, as it travels (text) or as a caller holds it (a date); nothing where it carries none. */
+function moment(value: unknown): Date | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const at = value instanceof Date ? value : parseISO(String(value));
+  return isValid(at) ? at : undefined;
+}
+
+/** Whether the time a session must end by has passed, by the reader's clock as the page was read. */
+function timeRanOut(row: RecordData): boolean {
+  const end = moment(row[record.expiresAt]);
+  return !!end && end.getTime() <= Date.now();
 }
 
 /**
- * Who a session is held as, where no account answers by name: the role's name for a
- * session held as a role, and the id the record keeps for a person whose account the
- * caller may not list or which is gone.
+ * Whether a session held as someone else is still open: its record has no end yet, and
+ * the time it must end by has not passed. The record of a session nobody used after its
+ * time ran out never gets an end (the end is written when the session's next request is
+ * refused), and nothing is left of it to revoke.
+ */
+export function stillOpen(row: RecordData): boolean {
+  return !row[record.endedAt] && !timeRanOut(row);
+}
+
+/**
+ * What the Ended column says: when the session ended; "Still open" while it has no end
+ * and its time has not passed; and "Time ran out" for a session whose time passed with no
+ * end written, so no row reads as open after the time it had to end by.
+ */
+export function ended(row: RecordData): string {
+  const at = moment(row[record.endedAt]);
+  if (at) {
+    return format(at, dayAndMinuteFormat);
+  }
+  return timeRanOut(row) ? 'Time ran out' : 'Still open';
+}
+
+/**
+ * Who a session is held as, where no account answers by name: the role in words that
+ * say it is a role ("the Dispatcher role") for a session held as a role, and the id the
+ * record keeps for a person whose account the caller may not list or which is gone.
  */
 export function heldAs(row: RecordData): string {
-  return String(row[record.principalRole] || row[record.principalUserId] || '');
+  const role = row[record.principalRole];
+  if (role) {
+    return `the ${String(role)} role`;
+  }
+  return String(row[record.principalUserId] || '');
 }
 
 /** What Revoke asks before it ends a session, naming who holds it. */
@@ -32,13 +70,20 @@ export function revokeQuestion(row: RecordData): string {
 // drawn by the library's list over the crew auth's generated impersonation records,
 // newest first as the resource orders them. Each row says who established the session,
 // as whom (the person's username, read from the accounts by the id the record keeps, or
-// the role's name), why, when it began, when its two-hour cap ends it, and when and why
-// it ended; a session that has not ended reads "Still open". A row's menu offers Revoke
+// "the Dispatcher role" for a role), why, when it began, when its two-hour cap ends it,
+// and when and why it ended; a session that has not ended reads "Still open", and one
+// whose cap passed with no end written reads "Time ran out". A row's menu offers Revoke
 // while the session is open and the server's Execute answer for the row lists the
 // generated method that ends it: the revoked console's next request is refused and its
 // banner explains. The page shows under List on the records and the menu under Execute
-// on the method, both the role file's to give; the list is live, so a session minted or
-// ended elsewhere shows without asking again.
+// on the method, both the role file's to give (the command staff hold them, so the
+// marshal keeps the desk as the governor does).
+//
+// The list is live, and a revoke from a desk reaches every desk that is open, since the
+// generated method publishes the record it wrote. A session started elsewhere, and one
+// its holder ends, are written by the session library's own store, which tells the
+// change feed nothing: those show when the desk is next read (opened again, sorted,
+// filtered, or after a revoke).
 //
 // Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.max-duration, list.row-methods.
 export const crewSessionImpersonationsConfig = rootConfig({
@@ -72,12 +117,8 @@ export const crewSessionImpersonationsConfig = rootConfig({
       { id: record.reason, header: 'Reason' },
       { id: record.startedAt, header: 'Started', formatType: dayAndMinuteFormat },
       { id: record.expiresAt, header: 'Must end by', formatType: dayAndMinuteFormat },
-      {
-        id: record.endedAt,
-        header: 'Ended',
-        formatType: dayAndMinuteFormat,
-        emptyDataValue: 'Still open',
-      },
+      // The end as the record has it, and words where it has none: see ended.
+      { id: record.endedAt, header: 'Ended', valueGetter: ended },
       { id: record.endReason, header: 'How it ended' },
     ],
     rowMethods: [

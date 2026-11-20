@@ -13,7 +13,9 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   dayAndMinuteFormat,
+  ListViewConfig,
   METHOD_META,
+  RecordData,
   RESOURCE_META,
   RowAction,
   rowActionsKey,
@@ -25,11 +27,15 @@ import { crewSessionImpersonationsConfig, heldAs, revokeQuestion, stillOpen } fr
 
 // The watch desk is the library's list over the crew auth's impersonation records. The
 // server as the spec plays it answers Headquarters: a session the Marshal holds as the
-// Cadet, a session the Governor holds as a role, and a session ended yesterday as an
-// account that is gone. The page names who each session is held as (the account's
-// username, the role's name, or the id the record keeps), says "Still open" where a
-// session has not ended, offers Revoke on the open ones alone, asks before it ends one,
-// and draws no way into a row.
+// Cadet, a session the Governor holds as a role, a session whose time ran out with no
+// end written, and a session ended yesterday as an account that is gone. The page names
+// who each session is held as (the account's username, the role in words that say it is
+// a role, or the id the record keeps), says "Still open" where a session has not ended
+// and "Time ran out" where its time passed with no end, offers Revoke on the open ones
+// alone, asks before it ends one, and draws no way into a row.
+
+/** The moment the desk is read at: both open sessions are inside their two hours. */
+const read = new Date('2026-10-02T14:30:00Z');
 
 const cadet = 'b0000000-0000-4000-8000-000000000001';
 const gone = 'b0000000-0000-4000-8000-00000000dead';
@@ -54,6 +60,17 @@ const sessions = [
     reason: 'checking the call log',
     startedAt: '2026-10-02T13:00:00Z',
     expiresAt: '2026-10-02T15:00:00Z',
+    zzCapabilities: { Execute: [ends] },
+  },
+  {
+    // Nobody used this session after its two hours, so no end was ever written.
+    sessionId: 's-4',
+    actorUsername: 'marshal',
+    principalKind: 'User',
+    principalUserId: cadet,
+    reason: 'left open over the morning',
+    startedAt: '2026-10-02T10:00:00Z',
+    expiresAt: '2026-10-02T12:00:00Z',
     zzCapabilities: { Execute: [ends] },
   },
   {
@@ -107,6 +124,15 @@ describe('the watch desk', () => {
 
   const deskPath = `${environment.apiUrl}/crew-session-impersonations`;
   const accountsPath = `${environment.apiUrl}/crew-session-users`;
+
+  // The reader's clock is held at one moment: the desk says what is open by it.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(read);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   /** Waits until the page and the accounts it names have both been read, and draws them. */
   const settle = async (): Promise<void> => {
@@ -177,7 +203,7 @@ describe('the watch desk', () => {
   it('draws who holds each session, as whom, why, since when, until when, and when and how it ended', async () => {
     await create(sessions);
 
-    expect(element().querySelector('h1.title')?.textContent?.trim()).toBe('Watch desk (3)');
+    expect(element().querySelector('h1.title')?.textContent?.trim()).toBe('Watch desk (4)');
     expect(Array.from(element().querySelectorAll('th .col-header')).map((h) => h.textContent?.trim())).toEqual([
       'Established by',
       'As',
@@ -198,14 +224,24 @@ describe('the watch desk', () => {
         'Still open',
         '',
       ],
-      // A role, by its name.
+      // A role, in words that say it is one.
       [
         'governor',
-        'Dispatcher',
+        'the Dispatcher role',
         'checking the call log',
         at('2026-10-02T13:00:00Z'),
         at('2026-10-02T15:00:00Z'),
         'Still open',
+        '',
+      ],
+      // A session whose time passed with no end written is not open.
+      [
+        'marshal',
+        'cadet',
+        'left open over the morning',
+        at('2026-10-02T10:00:00Z'),
+        at('2026-10-02T12:00:00Z'),
+        'Time ran out',
         '',
       ],
       // An account that is gone, by the id the record keeps.
@@ -226,16 +262,17 @@ describe('the watch desk', () => {
     expect(transport.requests.some((request) => request.url.startsWith(`${accountsPath}?`))).toBe(true);
   });
 
-  it('offers Revoke on the sessions still open and on no ended one, and draws no way into a row', async () => {
+  it('offers Revoke on the sessions still open, on none that ended or ran out of time, and draws no way into a row', async () => {
     await create(sessions);
 
     expect(actionsOf(0).map((action) => [action.id, action.label, action.icon])).toEqual([[ends, 'Revoke', 'block']]);
     expect(actionsOf(1).map((action) => action.label)).toEqual(['Revoke']);
     expect(actionsOf(2)).toEqual([]);
+    expect(actionsOf(3)).toEqual([]);
     const rows = Array.from(element().querySelectorAll('tr.impulse-row'));
-    expect(rows.map((row) => row.querySelectorAll('button.row-actions').length)).toEqual([1, 1, 0]);
+    expect(rows.map((row) => row.querySelectorAll('button.row-actions').length)).toEqual([1, 1, 0, 0]);
     // A record has no page of its own: the only thing a row offers is its menu.
-    expect(rows.map((row) => row.querySelectorAll('a').length)).toEqual([0, 0, 0]);
+    expect(rows.map((row) => row.querySelectorAll('a').length)).toEqual([0, 0, 0, 0]);
     expect(element().querySelector('.create-button')).toBeNull();
   });
 
@@ -269,14 +306,42 @@ describe('the watch desk', () => {
 });
 
 describe("the watch desk's words", () => {
-  it('takes a session as open until its record has an end', () => {
-    expect(stillOpen({ sessionId: 's-1' })).toBe(true);
-    expect(stillOpen({ sessionId: 's-1', endedAt: null })).toBe(true);
-    expect(stillOpen({ sessionId: 's-1', endedAt: '2026-10-01T09:20:00Z' })).toBe(false);
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(read);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it("says who a session is held as: the role's name, else the id the record keeps", () => {
-    expect(heldAs({ principalKind: 'Role', principalRole: 'Dispatcher' })).toBe('Dispatcher');
+  it('takes a session as open until its record has an end or its time has passed', () => {
+    expect(stillOpen({ sessionId: 's-1' })).toBe(true);
+    expect(stillOpen({ sessionId: 's-1', endedAt: null })).toBe(true);
+    expect(stillOpen({ sessionId: 's-1', expiresAt: '2026-10-02T16:05:00Z' })).toBe(true);
+    expect(stillOpen({ sessionId: 's-1', endedAt: '2026-10-01T09:20:00Z' })).toBe(false);
+    // Past the time it had to end by, with no end written: nothing is left to revoke.
+    expect(stillOpen({ sessionId: 's-1', expiresAt: '2026-10-02T12:00:00Z' })).toBe(false);
+    expect(stillOpen({ sessionId: 's-1', expiresAt: read.toISOString() })).toBe(false);
+  });
+
+  /** What the desk's Ended column says of a record: the config's own rule for the column. */
+  const ended = (row: RecordData): string | undefined =>
+    (crewSessionImpersonationsConfig.parentConfig as ListViewConfig).listColumns
+      .find((column) => column.id === 'endedAt')
+      ?.valueGetter?.(row);
+
+  it('says when a session ended, that it is still open, or that its time ran out', () => {
+    const at = format(new Date('2026-10-01T09:20:00Z'), dayAndMinuteFormat);
+    expect(ended({ endedAt: '2026-10-01T09:20:00Z', expiresAt: '2026-10-01T11:00:00Z' })).toBe(at);
+    expect(ended({ endedAt: new Date('2026-10-01T09:20:00Z') })).toBe(at);
+    expect(ended({ expiresAt: '2026-10-02T16:05:00Z' })).toBe('Still open');
+    expect(ended({ expiresAt: new Date('2026-10-02T16:05:00Z') })).toBe('Still open');
+    expect(ended({})).toBe('Still open');
+    expect(ended({ expiresAt: '2026-10-02T12:00:00Z' })).toBe('Time ran out');
+  });
+
+  it('says who a session is held as: the role in words that say it is a role, else the id the record keeps', () => {
+    expect(heldAs({ principalKind: 'Role', principalRole: 'Dispatcher' })).toBe('the Dispatcher role');
     expect(heldAs({ principalKind: 'User', principalUserId: cadet })).toBe(cadet);
     expect(heldAs({})).toBe('');
   });
