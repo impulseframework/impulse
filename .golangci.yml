@@ -207,6 +207,7 @@ linters:
       - .WithMessagef(
       - .Cause(
       - .RetryableError(
+      - sessioninfo.ImpersonatorRefusal(
       - sessioninfo.NewLoginRefusal(
       - sessioninfo.NewTooManyAttemptsRefusal(
       - sessioninfo.NewTooManyAttemptsRefusalSaying(

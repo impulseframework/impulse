@@ -89,8 +89,8 @@ func (c frameworkModules) Run(_ context.Context, env *Env) Result {
 
 // refuses reports whether a module path is under the framework's and is not one of the
 // framework's own modules.
-func (frameworkModules) refuses(path string) bool {
-	return framework.Under(path) && !slices.Contains(framework.OwnModules, path)
+func (frameworkModules) refuses(modulePath string) bool {
+	return framework.Under(modulePath) && !slices.Contains(framework.OwnModules, modulePath)
 }
 
 // ownPath refuses the application's own module path when it is under the framework's.
