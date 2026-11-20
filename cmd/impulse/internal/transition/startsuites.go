@@ -26,23 +26,38 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
-// suiteFiles are the tests a start with no password sign-in writes in the place of the
-// base's, one tree for each start: each file is the base's test of the same name, signing
-// in through the simulated directory where the base's posts a password, and proving what
-// the base's proves. They are written as the base candidate's files are, against its
-// module path and its placeholder auth, and rendered the same way. What a file takes from
-// the start is written between double square brackets, since a Go file has braces of its
-// own in pairs.
+// suiteFiles are the tests the command writes in the place of the base's, in trees: each
+// file is the base's test of the same name, proving what the base's proves in the
+// application the command made of it. A start with no password sign-in signs in through
+// the simulated directory where the base's posts a password, and an application with
+// tenants builds what its tenants need. They are written as the base candidate's files
+// are, against its module path and its placeholder auth, and rendered the same way. What
+// a file takes from the application is written between double square brackets, since a
+// Go file has braces of its own in pairs.
 //
 //go:embed all:suites
 var suiteFiles embed.FS
 
-// The trees of suiteFiles: the start whose one directory gives the roles, and the start
-// whose people sign in through their tenant's own directory.
+// The sets of tests the command writes: for the start whose one directory gives the
+// roles, for the start whose people sign in through their tenant's own directory, and
+// for an application with a password sign-in that gains tenants.
 const (
-	directoryRolesSuites = "directoryroles"
-	byDirectorySuites    = "bydirectory"
+	directoryRolesSuites  = "directoryroles"
+	byDirectorySuites     = "bydirectory"
+	passwordTenantsSuites = "tenants"
 )
+
+// tenantedSuites is the tree of what every application with tenants takes, whatever its
+// sign-in: the authorization suite's harness and the test that holds each role file's
+// grants to the engine, neither of which signs anybody in.
+const tenantedSuites = "tenanted"
+
+// suiteTrees are the trees of suiteFiles a set is rendered from.
+var suiteTrees = map[string][]string{
+	directoryRolesSuites:  {directoryRolesSuites},
+	byDirectorySuites:     {tenantedSuites, byDirectorySuites},
+	passwordTenantsSuites: {tenantedSuites, passwordTenantsSuites},
+}
 
 // The base's tests a start reads, writes again or takes out by name.
 const (
@@ -64,11 +79,13 @@ type suiteData struct {
 	Method, Field, Upper string
 	// Google reports that method a Google one; it is a Microsoft one otherwise.
 	Google bool
-	// Record is the tenant record of a start with tenants, OneTenant whether a person
-	// belongs to one tenant, and North the id the development seed gives its first tenant.
-	Record    string
-	OneTenant bool
-	North     string
+	// Record is the tenant record of an application with tenants, OneTenant whether a
+	// person belongs to one tenant, Directories whether a tenant can have a directory of
+	// its own, and North the id the development seed gives its first tenant.
+	Record      string
+	OneTenant   bool
+	Directories bool
+	North       string
 }
 
 // removedSuite is a test of the base that a start takes out, with the reason.
@@ -102,7 +119,7 @@ func (d *DirectoryStart) suiteSet() (set string, data *suiteData, removed []remo
 
 		return directoryRolesSuites, &suiteData{Method: m.Name, Field: m.Pascal(), Upper: m.Upper(), Google: m.Kind == app.MethodGoogle}, directoryRolesRemoved
 	case d.persona() && d.Tenants != nil && !d.Tenants.NoDirectories:
-		return byDirectorySuites, &suiteData{Record: d.Tenants.Record(), OneTenant: d.Tenants.OneTenantPerPerson, North: devTenantNorth}, byDirectoryRemoved
+		return byDirectorySuites, &suiteData{Record: d.Tenants.Record(), OneTenant: d.Tenants.OneTenantPerPerson, Directories: true, North: devTenantNorth}, byDirectoryRemoved
 	}
 
 	return "", nil, nil
@@ -177,50 +194,97 @@ func (d *DirectoryStart) writeSuites(a *app.App, ch *Change) (map[string]bool, e
 	return settled, nil
 }
 
-// renderSuites renders one tree of suiteFiles for an application: each file by its path
-// in the application. A file is rendered as the base candidate's are: the candidate's
-// module path gives way to the application's and the placeholder auth to the first
-// auth's name, and the result is formatted.
+// renderSuites renders a set of suiteFiles for an application, each of the set's trees:
+// each file by its path in the application. A file is rendered as the base candidate's
+// are: the candidate's module path gives way to the application's and the placeholder
+// auth to the first auth's name, and the result is formatted.
 func renderSuites(set string, data *suiteData, module, auth string) (map[string][]byte, error) {
 	candidate, err := baseModulePath()
 	if err != nil {
 		return nil, err
 	}
-	root := path.Join("suites", set)
 	files := map[string][]byte{}
-	err = fs.WalkDir(suiteFiles, root, func(p string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return errors.Wrapf(err, "fs.WalkDir(): %s", p)
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		rel := strings.TrimSuffix(strings.TrimPrefix(p, root+"/"), ".tmpl")
-		tmpl, err := template.New(rel).Delims("[[", "]]").ParseFS(suiteFiles, p)
-		if err != nil {
-			return errors.Wrapf(err, "template.ParseFS(): %s", p)
-		}
-		var b bytes.Buffer
-		if err := tmpl.ExecuteTemplate(&b, path.Base(p), data); err != nil {
-			return errors.Wrapf(err, "template.Execute(): %s", p)
-		}
-		text := strings.ReplaceAll(b.String(), candidate, module)
-		if auth != skeleton.PlaceholderAuth {
-			text = names.Rename(text, skeleton.PlaceholderAuth, auth)
-		}
-		out, err := format.Source([]byte(text))
-		if err != nil {
-			return errors.Wrapf(err, "format.Source(): %s", rel)
-		}
-		files[rel] = out
+	for _, tree := range suiteTrees[set] {
+		root := path.Join("suites", tree)
+		err = fs.WalkDir(suiteFiles, root, func(p string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return errors.Wrapf(err, "fs.WalkDir(): %s", p)
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			rel := strings.TrimSuffix(strings.TrimPrefix(p, root+"/"), ".tmpl")
+			tmpl, err := template.New(rel).Delims("[[", "]]").ParseFS(suiteFiles, p)
+			if err != nil {
+				return errors.Wrapf(err, "template.ParseFS(): %s", p)
+			}
+			var b bytes.Buffer
+			if err := tmpl.ExecuteTemplate(&b, path.Base(p), data); err != nil {
+				return errors.Wrapf(err, "template.Execute(): %s", p)
+			}
+			out, err := renderedAs(b.String(), candidate, module, auth)
+			if err != nil {
+				return errors.Wrapf(err, "format.Source(): %s", rel)
+			}
+			files[rel] = out
 
-		return nil
-	})
-	if err != nil {
-		return nil, errors.Wrapf(err, "fs.WalkDir(): %s", root)
+			return nil
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "fs.WalkDir(): %s", root)
+		}
 	}
 
 	return files, nil
+}
+
+// renderedAs is a Go file written against the base candidate's module path and its
+// placeholder auth, as impulse new renders it for an application: the module path the
+// application's, the auth its first auth's name, and the result formatted.
+func renderedAs(text, candidate, module, auth string) ([]byte, error) {
+	text = strings.ReplaceAll(text, candidate, module)
+	if auth != skeleton.PlaceholderAuth {
+		text = names.Rename(text, skeleton.PlaceholderAuth, auth)
+	}
+	out, err := format.Source([]byte(text))
+	if err != nil {
+		return nil, errors.Wrap(err, "format.Source()")
+	}
+
+	return out, nil
+}
+
+// baseRendering is a test of the base candidate as impulse new renders it for an
+// application of that module path whose first auth has that name: what the file holds
+// until somebody changes it. A test names the application nowhere else, so the name the
+// application was given does not change it.
+func baseRendering(rel, module, auth string) ([]byte, error) {
+	candidate, err := baseModulePath()
+	if err != nil {
+		return nil, err
+	}
+	base, err := skeleton.FS(skeleton.Base)
+	if err != nil {
+		return nil, err
+	}
+	src, err := fs.ReadFile(base, rel)
+	if err != nil {
+		return nil, errors.Wrapf(err, "fs.ReadFile(): %s", rel)
+	}
+
+	return renderedAs(string(src), candidate, module, auth)
+}
+
+// asTheBaseRenders reports whether a test of the application is the base's still, byte
+// for byte: one the command may write again or take out without losing anybody's work.
+func asTheBaseRenders(a *app.App, rel, auth string) bool {
+	held, err := os.ReadFile(a.Abs(rel))
+	if err != nil {
+		return false
+	}
+	rendered, err := baseRendering(rel, modulePath(a), auth)
+
+	return err == nil && bytes.Equal(held, rendered)
 }
 
 // baseModulePath is the module path the base candidate's files import their own packages

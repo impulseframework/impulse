@@ -397,10 +397,15 @@ without an invitation, is each tenant's choice, made while the application runs.
 given beside --shape that contradicts it is refused, naming both, and impulse audit
 reads the shape back from the code (its sign-in section).
 
+The tests the skeleton started with are brought up to an application with tenants where
+they are the skeleton's still (the two harnesses written again, the two tests of sign-up
+taken out, the password reset test opening sign-up with no role), so the application
+passes go vet and its own tests as the command leaves it.
+
 Which resources become tenant-scoped and how their rows are assigned, the bootstrap
-order, the harnesses, the tests, the tenant segment in the browser's routes, and the
-tenant menus in its menu file are handed to the agent with the failing checks as the
-obligations.`,
+order, the tests of what the tenants add, the harnesses where they were no longer the
+skeleton's, the tenant segment in the browser's routes, and the tenant menus in its menu
+file are handed to the agent with the failing checks as the obligations.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			step, start, err := tenancyAsked(cmd)

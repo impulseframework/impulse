@@ -398,7 +398,12 @@ application passes `go vet` with and without the tag as it is made. The browser
 application's login page spec is still the author's, and the brief names it. In a start
 with tenants the two served suites run as the application was made, since the command
 writes the role a tenant's administrator holds, without which the application's router
-is not built (`impulse add tenancy`, below, says which grants it carries).
+is not built (`impulse add tenancy`, below, says which grants it carries). A start with
+tenants that keeps the password sign-in (`--tenancy`, or one of the other three shapes
+with tenants) has its tests brought up to its tenants as well: the two harnesses are
+written again, the base's two tests of sign-up are taken out and its test of a password
+reset opens sign-up with no role (`impulse add tenancy`, below), so it too passes `go
+vet` and its own tests as it is made.
 
 ```sh
 impulse new ./harbor --module example.com/harbor --auth staff --tenancy --outlet portal=portal/api --agent
@@ -1254,8 +1259,17 @@ without tenants is brought up where it still reads as the skeleton rendered it: 
 README's opening says the application has tenancy, in the record's names, and the brief
 says the rest of it is the application's to write; the comment over `UserPermissions`
 in `app/app.go` says what the function does once it is handed the roster and the
-declarations. The suites the base carried and a tenanted application does not are each
-named in the brief with what becomes of them (`sign_up_test.go` and
+declarations. The tests the base started with are brought up to an application with
+tenants where they are the base's still: the two harnesses (`test/authz`,
+`test/integration`) are written again to build the roster, the generated maker and what
+each tenant declares, the test of the role files holds a tenant's role in a tenant of
+the development seed, `sign_up_test.go` and `sign_up_role_test.go` are taken out (the
+integration harness keeps what the other tests shared with them), and
+`password_reset_test.go` opens sign-up with no role, since an application with tenants
+refuses a request that names one. So the application passes `go vet` and its own tests
+as it was made. Where a harness or a test of sign-up is no longer the base's, none of
+them is written over, and the suites the base carried and a tenanted application does
+not are each named in the brief with what becomes of them (`sign_up_test.go` and
 `sign_up_role_test.go` are removed, `first_administrator_test.go` follows the harness).
 Each auth's role file loses the grants on what the regeneration stopped serving: an
 application with tenants lists no roles for a person who signs up, so the base's grant on
@@ -1283,7 +1297,8 @@ application that names a role held in every tenant already keeps its own, and wh
 command cannot write the role (a foothold or a role file that is not as the skeleton
 writes it) a line under what it could not make says why and gives the step. Which
 resources become tenant-scoped and how their rows are assigned, the bootstrap order, the
-harnesses, the tests, routes edited since the skeleton rendered them, the dashboard's
+harnesses where they were not the base's, the tests an application with tenants adds,
+routes edited since the skeleton rendered them, the dashboard's
 tenant and the directories the development seed declares are the agent's, and
 `tenancy-wired` holds it to them.
 

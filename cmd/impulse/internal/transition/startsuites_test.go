@@ -522,9 +522,11 @@ func Test_renderSuites(t *testing.T) {
 		{set: directoryRolesSuites, data: &suiteData{Method: "google", Field: "Google", Upper: "GOOGLE", Google: true}, want: directoryRolesWritten},
 		{set: directoryRolesSuites, data: &suiteData{Method: "azure", Field: "Azure", Upper: "AZURE"}, want: directoryRolesWritten},
 		{set: byDirectorySuites, data: &suiteData{Record: "Tenant", OneTenant: true, North: devTenantNorth}, want: byDirectoryWritten},
+		{set: passwordTenantsSuites, data: &suiteData{Record: "Tenant", Directories: true, North: devTenantNorth}, want: passwordTenantsWritten},
+		{set: passwordTenantsSuites, data: &suiteData{Record: "ServiceArea", OneTenant: true, North: devTenantNorth}, want: passwordTenantsWritten},
 	}
 	for _, tt := range tests {
-		t.Run(tt.set+" "+tt.data.Method, func(t *testing.T) {
+		t.Run(tt.set+" "+tt.data.Method+tt.data.Record, func(t *testing.T) {
 			t.Parallel()
 
 			files, err := renderSuites(tt.set, tt.data, "example.com/acme/depot", "crew")

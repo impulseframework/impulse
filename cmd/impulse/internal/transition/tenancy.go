@@ -203,7 +203,11 @@ func (tn Tenancy) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Ch
 	if err := tn.writeBrowser(a, site, ch); err != nil {
 		return nil, err
 	}
-	tn.noteBaseSuites(a, ch)
+	settled, err := tn.writeSuites(a, ch)
+	if err != nil {
+		return nil, err
+	}
+	tn.noteBaseSuites(a, ch, settled)
 	if err := tn.retellReadme(a, ch); err != nil {
 		return nil, err
 	}
@@ -290,11 +294,12 @@ var baseSuites = []struct{ file, fate string }{
 const integrationSuite = "test/integration"
 
 // noteBaseSuites records, for each of the base's integration tests the application
-// still carries, what becomes of it in a tenanted application (baseSuites).
-func (tn Tenancy) noteBaseSuites(a *app.App, ch *Change) {
+// still carries and the command did not settle, what becomes of it in a tenanted
+// application (baseSuites).
+func (tn Tenancy) noteBaseSuites(a *app.App, ch *Change, settled map[string]bool) {
 	for _, suite := range baseSuites {
 		rel := path.Join(integrationSuite, suite.file)
-		if _, err := os.Stat(a.Abs(rel)); err != nil {
+		if _, err := os.Stat(a.Abs(rel)); err != nil || settled[rel] {
 			continue
 		}
 		ch.skipf("%s %s", rel, suite.fate)
@@ -1336,10 +1341,10 @@ func singular(table string) string {
 // have one, and what its absence means where no tenant has.
 func (tn Tenancy) testsItem() string {
 	if tn.NoDirectories {
-		return "Integration tests: the administrator lists both tenants and reads a tenant's digest; the member lists one and gets not-found in the other and in an unknown tenant; the tenant list is global; the record's own create (an `add` on its collection) answers 400 with the sentence saying how a tenant is made, whoever asks; a tenant made by an invitation (the generated `Invite<Auth><Record>` sent by an administrator, the mailed link followed, the first sign-in) exists under an id the acceptance generated, with the invitation's details, is readable at once, without a restart, and names that person its administrator; the invitation is refused a sender without the Create grant on the record and a name a tenant holds, is in the list of the invitations that stand until it is accepted or withdrawn, and its link is dead once withdrawn; a deleted tenant takes the roles held in it, its standing invitations, and its rows with it, in one request; where the auth has a sign-in method through an organization's directory, an invited person accepts through it and is seated, a person of the same organization with no invitation is refused as a stranger while the method is invite only, with no account made, and no route of the API sets a tenant's directory. The tenanted skeleton's `invited_tenant_test.go` files are the pattern. The suites the application had before were written for an application without tenants: the lines above, under what the change could not make, say what becomes of `sign_up_test.go`, `sign_up_role_test.go` and `first_administrator_test.go` where the application carries them, and every other suite follows the harness as it changes."
+		return "Integration tests: the administrator lists both tenants and reads a tenant's digest; the member lists one and gets not-found in the other and in an unknown tenant; the tenant list is global; the record's own create (an `add` on its collection) answers 400 with the sentence saying how a tenant is made, whoever asks; a tenant made by an invitation (the generated `Invite<Auth><Record>` sent by an administrator, the mailed link followed, the first sign-in) exists under an id the acceptance generated, with the invitation's details, is readable at once, without a restart, and names that person its administrator; the invitation is refused a sender without the Create grant on the record and a name a tenant holds, is in the list of the invitations that stand until it is accepted or withdrawn, and its link is dead once withdrawn; a deleted tenant takes the roles held in it, its standing invitations, and its rows with it, in one request; where the auth has a sign-in method through an organization's directory, an invited person accepts through it and is seated, a person of the same organization with no invitation is refused as a stranger while the method is invite only, with no account made, and no route of the API sets a tenant's directory. The tenanted skeleton's `invited_tenant_test.go` files are the pattern. The suites the application had before were written for an application without tenants. Where they were the base's still, the change brought them up to an application with tenants, and its lines say which it wrote again, took out and changed, so they pass as the application was made; where one was not, the lines above, under what the change could not make, say what becomes of `sign_up_test.go`, `sign_up_role_test.go` and `first_administrator_test.go` where the application carries them, and every other suite follows the harness as it changes."
 	}
 
-	return "Integration tests: the administrator lists both tenants and reads a tenant's digest; the member lists one and gets not-found in the other and in an unknown tenant; the tenant list is global; the record's own create (an `add` on its collection) answers 400 with the sentence saying how a tenant is made, whoever asks; a tenant made by an invitation (the generated `Invite<Auth><Record>` sent by an administrator, the mailed link followed, the first sign-in) exists under an id the acceptance generated, with the invitation's details and no directory when the person signed up with a password, is readable at once, without a restart, and names that person its administrator; the invitation is refused a sender without the Create grant on the record and a name a tenant holds, is in the list of the invitations that stand until it is accepted or withdrawn, and its link is dead once withdrawn; a deleted tenant takes the roles held in it, its standing invitations, its directory and its rows with it, in one request, whether it is directory only or not, and its directory is then free for another tenant. The tenanted skeleton's `invited_tenant_test.go` files are the pattern. The suites the application had before were written for an application without tenants: the lines above, under what the change could not make, say what becomes of `sign_up_test.go`, `sign_up_role_test.go` and `first_administrator_test.go` where the application carries them, and every other suite follows the harness as it changes."
+	return "Integration tests: the administrator lists both tenants and reads a tenant's digest; the member lists one and gets not-found in the other and in an unknown tenant; the tenant list is global; the record's own create (an `add` on its collection) answers 400 with the sentence saying how a tenant is made, whoever asks; a tenant made by an invitation (the generated `Invite<Auth><Record>` sent by an administrator, the mailed link followed, the first sign-in) exists under an id the acceptance generated, with the invitation's details and no directory when the person signed up with a password, is readable at once, without a restart, and names that person its administrator; the invitation is refused a sender without the Create grant on the record and a name a tenant holds, is in the list of the invitations that stand until it is accepted or withdrawn, and its link is dead once withdrawn; a deleted tenant takes the roles held in it, its standing invitations, its directory and its rows with it, in one request, whether it is directory only or not, and its directory is then free for another tenant. The tenanted skeleton's `invited_tenant_test.go` files are the pattern. The suites the application had before were written for an application without tenants. Where they were the base's still, the change brought them up to an application with tenants, and its lines say which it wrote again, took out and changed, so they pass as the application was made; where one was not, the lines above, under what the change could not make, say what becomes of `sign_up_test.go`, `sign_up_role_test.go` and `first_administrator_test.go` where the application carries them, and every other suite follows the harness as it changes."
 }
 
 // declarationItem is the brief's item for what a tenant declares about who may enter
@@ -1453,12 +1458,14 @@ func hasPassword(a *app.App) bool {
 	return read == 0
 }
 
-// The application's two test harnesses, which tenancy hands on to the author unless
-// they build the roster already.
+// The application's two test harnesses, which tenancy writes again where they are the
+// base's still, and hands on to the author where they are neither the base's nor
+// building the roster already.
 var tenancyHarnesses = []string{"test/authz/harness_test.go", integrationSuite + "/harness_test.go"}
 
 // harnessesBuilt reports whether both of the application's test harnesses build the
-// tenant roster already, as the ones a start of impulse new writes for its tenants do.
+// tenant roster already, as the ones a start of impulse new writes for its tenants do,
+// and the ones this change writes in the place of the base's.
 func (tn Tenancy) harnessesBuilt(a *app.App) bool {
 	if a == nil {
 		return false
