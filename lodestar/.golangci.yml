@@ -151,7 +151,7 @@ linters:
       - linters:
           - paralleltest
           - tparallel
-        path: test/integration/(language|tenancy|impersonation_ops|rows_of|generated_identity_remove_password|generated_identity_tenant_methods|method_request_fields|sector_pilots)_test\.go
+        path: test/integration/(language|tenancy|impersonation_ops|rows_of|generated_identity_one_tenant|generated_identity_remove_password|generated_identity_tenant_methods|method_request_fields|sector_pilots)_test\.go
       # The request log suite redirects the standard logger, which the console exporter
       # writes through, to read each request's decision, so nothing else may write
       # through it meanwhile.
