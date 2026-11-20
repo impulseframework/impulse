@@ -122,6 +122,18 @@ export class CompoundResourceComponent implements OnInit {
   });
 
   /**
+   * How the page reads its heading off its row: the config's rowTitle on the route's own
+   * page, and undefined on every other page, which is headed by the config's title.
+   */
+  rowTitle = computed(() => {
+    const config = this.primaryConfig();
+    if (this.isArrayChild() || !this.isRootConfig() || (config.type !== 'ListView' && config.type !== 'View')) {
+      return undefined;
+    }
+    return config.rowTitle;
+  });
+
+  /**
    * What the page is headed by: the row's own name where the config says how to read it
    * off the row (rowTitle), and nothing until the row has been read, since a heading that
    * changed under the reader would be a guess; the config's title otherwise.
@@ -134,8 +146,9 @@ export class CompoundResourceComponent implements OnInit {
     if (config.type === 'Component') {
       return '';
     }
-    if ((config.type === 'ListView' || config.type === 'View') && config.rowTitle && this.isRootConfig()) {
-      return this.store.rowPresent() ? config.rowTitle(this.store.viewData()) : '';
+    const rowTitle = this.rowTitle();
+    if (rowTitle) {
+      return this.store.rowPresent() ? rowTitle(this.store.viewData()) : '';
     }
     return config.title;
   });
@@ -149,10 +162,17 @@ export class CompoundResourceComponent implements OnInit {
    * its buttons: wherever the page has such a view and the view is not folded into a
    * panel, which has a title of its own. The page draws the title itself everywhere else
    * (a page of lists alone, a page whose first part is a component of the application's).
+   *
+   * Who draws the title is settled by the config alone, never by whether the row has been
+   * read. A page headed by its row's name has no title until the row is there, and the
+   * view's row waits for it: were the page to take the title's place meanwhile, it would
+   * draw a header, and leave room above the row for it, that both go away once the row
+   * arrives, and a page draws nothing that it then takes away.
    */
   viewDrawsTitle = computed(() => {
     const config = this.primaryConfig();
-    if (this.title() === '' || !(this.hasElements() || this.configs().length > 0)) {
+    const titled = this.rowTitle() !== undefined || this.title() !== '';
+    if (!titled || !(this.hasElements() || this.configs().length > 0)) {
       return false;
     }
     return (config.type === 'View' || config.type === 'ListView') && !viewUsesExpansionPanel(config, true);
