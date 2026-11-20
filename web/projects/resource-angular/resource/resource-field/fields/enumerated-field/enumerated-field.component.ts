@@ -201,7 +201,9 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   });
 
   /** The fields the box over the source searches for this caller: the source's, less the denied, a branch judged on its child. */
-  sourceSearchFields = computed(() => searchedFields(this.sourceMeta(), this.sourceListable(), this.listableOf));
+  sourceSearchFields = computed(() =>
+    searchedFields(this.sourceMeta(), this.sourceListable(), this.listableOf, this.resourceMeta),
+  );
 
   /**
    * Whether the source's request must travel in the body: the config asked for it, the

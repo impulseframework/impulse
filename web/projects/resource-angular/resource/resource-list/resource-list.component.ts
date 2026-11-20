@@ -503,10 +503,11 @@ export class ResourceListComponent implements OnInit {
   /**
    * The fields the search box searches for this caller: the listed resource's search
    * fields less those the digest denies for List, a branch judged by the child field's
-   * grant on the child resource. The resource decides the set, never the page; a page
-   * that should search fewer fields lists a view projecting fewer.
+   * grant on the child resource, a key field searched by whoever lists its resource. The
+   * resource decides the set, never the page; a page that should search fewer fields
+   * lists a view projecting fewer.
    */
-  searchFields = computed(() => searchedFields(this.meta(), this.listableFields(), this.listableOf));
+  searchFields = computed(() => searchedFields(this.meta(), this.listableFields(), this.listableOf, this.resourceMeta));
 
   /** Whether the box reaches a PII field, its own or a branch's: the request then travels in the body. */
   searchPII = computed(() => searchReachesPII(this.meta(), this.searchFields()));
@@ -532,7 +533,7 @@ export class ResourceListComponent implements OnInit {
   /** What the box says under itself: the search fields the caller's role leaves out, if any. */
   searchHint = computed(() =>
     searchDeniedHint(
-      deniedSearchFields(this.meta(), this.listableFields(), this.listableOf).map((field) =>
+      deniedSearchFields(this.meta(), this.listableFields(), this.listableOf, this.resourceMeta).map((field) =>
         searchFieldLabel(field, this.columnHeaders()),
       ),
     ),
