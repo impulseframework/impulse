@@ -61,6 +61,12 @@ import { ResourceStore } from '../resource-store.service';
 import { patchFromForm } from '@impulseframework/resource-angular/resource-client';
 import { maxLengthValidator, metadataTypeCoercion, unchangedFieldWarning } from '../resources-helpers';
 
+/** What a row view says in place of its form where the person may not see the record: the server refused the read as not permitted. */
+export const RECORD_NOT_PERMITTED = 'You do not have permission to see this record.';
+
+/** What a row view says in place of its form where the read of the record failed. */
+export const RECORD_NOT_LOADED = 'This record could not be loaded.';
+
 /**
  * Whether a row view is drawn inside an expansion panel, under the panel's own title: a
  * view that folds away, or one that is not the row of a page. A view that is not drawn so
@@ -145,19 +151,19 @@ export class ResourceViewComponent implements OnInit {
 
   showCreateForm = model(false);
   /**
-   * What a view that could not load says in place of its form: the server's own
-   * message when the read was refused or failed. A refusal must never render as an
-   * empty record.
+   * What a view that could not load says in place of its form, in the page's own words:
+   * one sentence where the person may not see the record (the server refused the read as
+   * not permitted, its 403), another where the read failed. What the server said is never
+   * part of it: its message names ids, a permission and a resource, or a database, and
+   * whoever looks into it finds it in the browser's console, where the view writes it. A
+   * refusal must never render as an empty record.
    */
   viewErrorMessage = computed<string | undefined>(() => {
-    const error = this.store.viewError();
-    if (error instanceof ApiError && error.status === 403) {
-      return `This record is not available to you: ${error.message}`;
+    const error: unknown = this.store.viewError();
+    if (error === undefined || error === null) {
+      return undefined;
     }
-    if (error) {
-      return `This record could not be loaded: ${error instanceof Error ? error.message : String(error)}`;
-    }
-    return undefined;
+    return error instanceof ApiError && error.status === 403 ? RECORD_NOT_PERMITTED : RECORD_NOT_LOADED;
   });
 
   createConfig = computed(() => {
@@ -617,6 +623,17 @@ export class ResourceViewComponent implements OnInit {
   });
 
   constructor() {
+    // What the server said of a read it refused, or how the read failed, is for whoever
+    // looks into it: it is written to the console, once for each answer (the view's error
+    // is the one thing read here), with the resource it belongs to. The page says it in
+    // its own words (viewErrorMessage).
+    effect(() => {
+      const error: unknown = this.store.viewError();
+      if (error !== undefined && error !== null) {
+        console.error(`${untracked(this.config).primaryResource}: the record could not be loaded:`, error);
+      }
+    });
+
     effect(() => {
       console.debug('USAGE | New FormGroup subscription for: ', this.config().title);
 
