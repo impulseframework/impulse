@@ -4664,8 +4664,13 @@ own, outside any request, has no caller and is the application's act):
   behind the session: a person who views as someone else is refused their own account,
   which they could not get back. In a session that acts as someone else that refusal is
   the next rule's, in its sentence and with its log line, so disabling, enabling and
-  deleting the real person's own account are refused the same way there. They are
-  refused the account they view as too ("you
+  deleting the real person's own account are refused the same way there. The rule is
+  asked by these methods and, beneath them, by the session API's three switches
+  (`DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`), which every
+  generated route goes through. The session store's own `DeactivateUser`,
+  `ActivateUser` and `DeleteUser` are the bare writes and are not held to it, so a
+  route an application wrote calls the Manager or the session API, never the store.
+  They are refused the account they view as too ("you
   cannot disable the account you are viewing as"): a session that views as a person
   does no more than that person may, and nobody disables or deletes themselves.
 - In a session that acts as someone else, nobody is the subject of what they do. It is
@@ -4793,10 +4798,13 @@ own, outside any request, has no caller and is the application's act):
   mask refuses the record's create
   (`accesstypes.RefusePermission(accesstypes.Create, record)`), or the function that
   stamps the column answers nobody, a value that is no account's id, in a session that
-  acts as a role (`sessioninfo.PrincipalFromCtx(ctx).Role()` says it is one), so that
-  no grant that compares the column to the requester holds for the row. Where people
-  can write such a column, the application closes it by refusing the record's writes
-  under the mask.
+  acts as a role, so that no grant that compares the column to the requester holds for
+  the row. The session's record says it is one
+  (`imp, ok := sessioninfo.ImpersonationFromCtx(ctx); ok && imp.Principal.IsRole()`);
+  the request's principal does not, since a session of a person's own that the
+  application's principal resolver gave a role is a role to `PrincipalFromCtx` too, and
+  its `User()` is the row's true author. Where people can write such a column, the
+  application closes it by refusing the record's writes under the mask.
 
   The unlock knows the person's counts by their username, their account and the address
   they confirmed; a count kept under an address the account holds unconfirmed (the mail

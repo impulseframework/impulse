@@ -322,8 +322,8 @@ func TestManager_accountSwitches_refuseTheImpersonatorAlike(t *testing.T) {
 		if len(store.writes) != 0 {
 			t.Errorf("%s her own account while she acts as erin: buffered writes = %v, want none", tt.name, store.writes)
 		}
-		wantLine := "identity: the person who started this impersonated session (" + sal.String() + ") asked to " + tt.name +
-			" your own account: refused, since nobody is the subject of what they do while they act as someone else"
+		wantLine := "impersonation: the person who started this impersonated session (" + sal.String() + ") asked to " + tt.name +
+			" their own account: refused, since nobody is the subject of what they do while they act as someone else"
 		if got := strings.Count(output.String(), wantLine); got != 1 {
 			t.Errorf("%s her own account while she acts as erin: the log holds the line %q %d times, want once:\n%s", tt.name, wantLine, got, output.String())
 		}

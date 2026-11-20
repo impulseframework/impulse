@@ -141,8 +141,8 @@ func TestAuthAPI_accountSwitches_refuseTheImpersonatorsOwnAccount(t *testing.T) 
 		if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != wantSays {
 			t.Errorf("%s the account of the person who started the session: error = %v, want the refusal %q, and the store asked nothing", tt.name, err, wantSays)
 		}
-		wantLine := "session: the person who started this impersonated session (" + pat.String() + ") asked to " + tt.name +
-			" your own account: refused, since nobody is the subject of what they do while they act as someone else"
+		wantLine := "impersonation: the person who started this impersonated session (" + pat.String() + ") asked to " + tt.name +
+			" their own account: refused, since nobody is the subject of what they do while they act as someone else"
 		if got := strings.Count(output.String(), wantLine); got != 1 {
 			t.Errorf("%s the account of the person who started the session: the log holds the line %q %d times, want once:\n%s", tt.name, wantLine, got, output.String())
 		}

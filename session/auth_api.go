@@ -434,11 +434,16 @@ func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUI
 // an administrator would otherwise enable their own account again, or remove it, with
 // what the administrator may do. The session is read off the call's context, where
 // ValidateSession put it, so a route an application wrote that calls one of the three
-// is held to the rule with no line of its own. A call that carries no session, a job
-// of the application's own, is nobody's act on themselves and goes through, and so does
-// a session started by a person of another application, who has no account here. act
-// says what was asked, as the end of "you cannot". The sentence and the log line are
-// the ones the generated user management answers with (identity.RefuseImpersonatorAsSubject).
+// is held to the rule with no line of its own. The rule lives here, in the session
+// API's three, which every generated route calls. The store's own three beneath them
+// (sessionstorage's DeactivateUser, ActivateUser and DeleteUser) are the bare writes
+// and are not held to it: they are handed no session to read, so a route that calls
+// the store's method in place of the session API's makes the switch unasked. A call
+// that carries no session, a job of the application's own, is nobody's act on
+// themselves and goes through, and so does a session started by a person of another
+// application, who has no account here. act says what was asked, as the end of "you
+// cannot". The sentence and the log line are the ones the generated user management
+// answers with (sessioninfo.ImpersonatorRefusal).
 func refuseImpersonatorsOwnAccount(ctx context.Context, userID impulse.UUID, act string) error {
 	sess, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
 	if !ok || sess == nil || sess.Impersonation == nil {
@@ -447,11 +452,10 @@ func refuseImpersonatorsOwnAccount(ctx context.Context, userID impulse.UUID, act
 	if actor := sess.Impersonation.ActorID; !actor.Valid || actor.UUID != userID {
 		return nil
 	}
-	logger.FromCtx(ctx).Infof(
-		"session: the person who started this impersonated session (%s) asked to %s: refused, since nobody is the subject of what they do while they act as someone else", userID, act,
-	)
+	line, refusal := sessioninfo.ImpersonatorRefusal(userID, act)
+	logger.FromCtx(ctx).Info(line)
 
-	return httpio.NewForbiddenMessagef("you are acting as someone else, so you cannot %s: while you act as another person, nothing you do is done to your own account. Stop acting as them first", act)
+	return refusal
 }
 
 // DeactivateSessionUser disables a user and destroys its sessions. In a session that

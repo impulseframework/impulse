@@ -145,15 +145,21 @@ type UserStore interface {
 	// (ErrPasswordChanged), so an upgrade never puts an old password back. A write with
 	// no proven hash writes nothing, and one with no new hash is refused.
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
-	// ActivateUser activates a user
+	// ActivateUser activates a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (ActivateSessionUser).
 	ActivateUser(ctx context.Context, id impulse.UUID) error
 	// CreateUser creates a new user. customData is nil or *U for the configured custom
 	// user data struct type; when non-nil it is written atomically with the user insert
 	// and requires a custom user data configuration on the storage.
 	CreateUser(ctx context.Context, user *InsertSessionUser, customData any) (*SessionUser, error)
-	// DeactivateUser deactivates a user
+	// DeactivateUser deactivates a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (DeactivateSessionUser).
 	DeactivateUser(ctx context.Context, id impulse.UUID) error
-	// DeleteUser deletes a user
+	// DeleteUser deletes a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (DeleteSessionUser).
 	DeleteUser(ctx context.Context, id impulse.UUID) error
 	// CustomUserData returns the custom user data row for the given user ID as *U for
 	// the configured struct type. A user with no custom data row yields a zero-value *U.
@@ -354,15 +360,21 @@ type db interface {
 	// SetFirstUserPassword writes hash and clears the password change mark while the row holds no password hash, and leaves
 	// the user's sessions as they are.
 	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
-	// ActivateUser activates a user
+	// ActivateUser activates a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (ActivateSessionUser).
 	ActivateUser(ctx context.Context, id impulse.UUID) error
 	// CreateUser creates a new user; non-nil customData (*U) is written atomically with the user insert.
 	CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error)
 	// Users lists every user, by username.
 	Users(ctx context.Context) ([]*dbtype.SessionUser, error)
-	// DeactivateUser deactivates a user
+	// DeactivateUser deactivates a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (DeactivateSessionUser).
 	DeactivateUser(ctx context.Context, id impulse.UUID) error
-	// DeleteUser deletes a user
+	// DeleteUser deletes a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (DeleteSessionUser).
 	DeleteUser(ctx context.Context, id impulse.UUID) error
 	// DestroyAllUserSessions destroys all sessions for a given user
 	DestroyAllUserSessions(ctx context.Context, username string) error

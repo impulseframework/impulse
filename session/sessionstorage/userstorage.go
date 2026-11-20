@@ -120,7 +120,9 @@ func (s *userStorage) UpgradeUserPasswordHash(ctx context.Context, id impulse.UU
 	return nil
 }
 
-// DeactivateUser deactivates a user
+// DeactivateUser deactivates a user. It is the bare write: the rule that a person who
+// acts as someone else does not switch their own account is the session API's
+// (DeactivateSessionUser), which a route calls in place of this.
 func (s *userStorage) DeactivateUser(ctx context.Context, id impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -132,7 +134,9 @@ func (s *userStorage) DeactivateUser(ctx context.Context, id impulse.UUID) error
 	return nil
 }
 
-// DeleteUser deletes a user
+// DeleteUser deletes a user. It is the bare write: the rule that a person who acts as
+// someone else does not switch their own account is the session API's
+// (DeleteSessionUser), which a route calls in place of this.
 func (s *userStorage) DeleteUser(ctx context.Context, id impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -144,7 +148,9 @@ func (s *userStorage) DeleteUser(ctx context.Context, id impulse.UUID) error {
 	return nil
 }
 
-// ActivateUser activates a user
+// ActivateUser activates a user. It is the bare write: the rule that a person who acts
+// as someone else does not switch their own account is the session API's
+// (ActivateSessionUser), which a route calls in place of this.
 func (s *userStorage) ActivateUser(ctx context.Context, id impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

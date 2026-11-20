@@ -150,8 +150,8 @@ type recordWrite struct {
 // pilots, and as the Sector Marshal, who keeps the squadrons and the hangar passes. A
 // write of a record that decides what the cadet may do is refused, with the sentence
 // that says they are acting as someone else: a higher clearance and fee limit on their
-// own Pilot row (the sequence the review of the mask gave), that row handed to someone
-// else or removed, a certification, a place in a squadron and a hangar pass of their
+// own Pilot row (what a person who acts as an administrator would otherwise keep after
+// the session ends), that row handed to someone else or removed, a certification, a place in a squadron and a hangar pass of their
 // own, and a batch that carries one such write. The yeoman, who has no Pilot row, is
 // refused a veteran's row moved onto their account and a row made for it. Nothing in the
 // database changes. The same write for another person goes through, and once the session
@@ -282,8 +282,8 @@ func TestImpersonation_ownRecordUnderARole(t *testing.T) {
 // person, and that the kind keeps the promise its role makes: a stand-in does what the
 // person may do, except change how they sign in or who may do what. The cadet and the
 // yeoman, given the grant to act as a person, act as the governor, who holds
-// headquarters and is the marshal of every sector. The sequence the review of the mask
-// gave and its variants are each refused, and nothing in the database changes: a higher
+// headquarters and is the marshal of every sector. Each write that would raise the real
+// person's own standing is refused, and nothing in the database changes: a higher
 // clearance and fee limit on the cadet's own Pilot row, that row handed on or removed, a
 // certification, a place in a squadron and a hangar pass of their own, a veteran's row
 // moved onto the yeoman's account and a row made for it. The kind's mask names the
@@ -314,7 +314,7 @@ func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
 		hangarPassPath = "hangar-passes"
 	)
 	refused := []recordWrite{
-		// The review's sequence and its variants: the real person's own standing.
+		// The real person's own standing, raised, handed on or removed.
 		{name: "a higher clearance and fee limit on their own Pilot row", by: asGovernor, ops: []string{recordOp("patch", ownPilot, `{"clearance":5,"feeLimit":999999}`)}},
 		{name: "their own Pilot row handed to someone else", by: asGovernor, ops: []string{recordOp("patch", ownPilot, fmt.Sprintf(`{"userId":%q}`, yeoman))}},
 		{name: "their own Pilot row removed", by: asGovernor, ops: []string{recordOp("remove", ownPilot, "")}},

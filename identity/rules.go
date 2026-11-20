@@ -224,13 +224,14 @@ func ImpersonatorIs(ctx context.Context, subject impulse.UUID) bool {
 
 // impersonatorRefused is the refusal of RefuseImpersonatorAsSubject and of the rules
 // that reach the person by another key, logged as what it is: the real person behind an
-// impersonated session asked for something whose subject is themselves.
+// impersonated session asked for something whose subject is themselves. The sentence
+// and the line are the ones the session API's own three account switches give
+// (sessioninfo.ImpersonatorRefusal).
 func impersonatorRefused(ctx context.Context, actor impulse.UUID, act string) error {
-	logger.FromCtx(ctx).Infof(
-		"identity: the person who started this impersonated session (%s) asked to %s: refused, since nobody is the subject of what they do while they act as someone else", actor, act,
-	)
+	line, refusal := sessioninfo.ImpersonatorRefusal(actor, act)
+	logger.FromCtx(ctx).Info(line)
 
-	return httpio.NewForbiddenMessagef("you are acting as someone else, so you cannot %s: while you act as another person, nothing you do is done to your own account. Stop acting as them first", act)
+	return refusal
 }
 
 // refuseImpersonatorsSession is refuseImpersonatorAsSubject for a session named by its

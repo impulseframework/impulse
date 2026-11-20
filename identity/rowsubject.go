@@ -86,9 +86,15 @@ import (
 // roles might not have let them make the row. An application that does not want that
 // refuses the record's create in the mask of the role kind
 // (accesstypes.RefusePermission(accesstypes.Create, record)), or stamps the column with
-// nobody, a value that is no account's id, in a session that acts as a role
-// (sessioninfo.PrincipalFromCtx(ctx).Role() says it is one). Where people can write
-// such a column, the application refuses the record's writes under the mask.
+// nobody, a value that is no account's id, in a session that acts as a role. The
+// session's record says it is one:
+//
+//	imp, ok := sessioninfo.ImpersonationFromCtx(ctx); ok && imp.Principal.IsRole()
+//
+// The request's principal does not: a session of a person's own that the application's
+// principal resolver gave a role is a role to PrincipalFromCtx too, and its User() is
+// the row's true author. Where people can write such a column, the application refuses
+// the record's writes under the mask.
 func RefuseImpersonatorAsRowSubject[Resource resource.Resourcer](
 	ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet,
 	patchSet *resource.PatchSet[Resource], record string, userFields ...accesstypes.Field,
