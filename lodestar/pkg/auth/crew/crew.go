@@ -697,9 +697,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	}
 
 	// One Auth session that every method establishes, which mails as the fleet
-	// (session.WithMail): the invitations the auth's generated management sends, the
+	// (session.MailSettings): the invitations the auth's generated management sends, the
 	// verification of an address a person adds, and the sign-up links, each leading to
-	// the console's login page with its token in the query.
+	// the console's login page with its token in the address's fragment.
 	//
 	// The Auth is built knowing who holds the Super Administrator role
 	// (session.SuperAdministratorsBy, an argument no Auth is built without): a holder
@@ -713,6 +713,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		sessionStore,
 		settings.CookieKey,
 		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
+		session.MailSettings{Sender: settings.Mail.Sender, Application: Application, LoginURL: settings.Mail.LoginURL},
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
@@ -725,7 +726,6 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithFactorCodesTableName(factorCodesTable),
 		session.WithTrustedDevicesTableName(trustedDevicesTable),
 		session.WithTrustedDeviceCookieName(TrustedDeviceCookie),
-		session.WithMail(settings.Mail.Sender, session.MailSettings{Application: Application, LoginURL: settings.Mail.LoginURL}),
 		session.WithCookieName(Name),
 		session.WithXSRFCookieName(XSRFCookie),
 		session.WithSessionTimeout(settings.SessionTimeout),

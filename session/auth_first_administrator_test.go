@@ -86,7 +86,7 @@ func newUnhookedFirstAdministratorFixture(t *testing.T, sender mail.Sender) *fir
 	}
 	f := &firstAdministratorFixture{recorder: recorder}
 	f.roles = &roleHolders{fixture: f}
-	f.authFixture = newAuthFixtureWith(t, ctrl, nil, WithMail(sender, testMail))
+	f.authFixture = newAuthFixtureOf(t, ctrl, sender, true, nil)
 	f.links = expectMailLinks(f.authFixture)
 	f.store.EXPECT().User(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id impulse.UUID) (*sessionstorage.SessionUser, error) {
 		f.mu.Lock()

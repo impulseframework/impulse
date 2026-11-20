@@ -57,7 +57,7 @@ func newTenantInvitationApp[Tx any](ctx context.Context, t *testing.T, be backen
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
-		session.WithMail(recorder, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login"}))
+		session.MailSettings{Sender: recorder, Application: "Lakeside", LoginURL: "https://app.example/login"})
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}

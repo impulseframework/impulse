@@ -165,8 +165,8 @@ func rulesAppOver[Tx any](t *testing.T, be backend[Tx], shape *rulesShape, db ap
 
 	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
-		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook),
-		session.WithMail(recorder, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login"}))
+		session.MailSettings{Sender: recorder, Application: "Lakeside", LoginURL: "https://app.example/login"},
+		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}

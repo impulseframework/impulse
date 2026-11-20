@@ -92,12 +92,9 @@ func (h *FirstPasswordHandlers) Set() http.HandlerFunc {
 	return h.set
 }
 
-// FirstPassword returns the handlers of a person's first password. It panics on an
-// Auth without mail, as a wiring mistake. On an Auth with no password method the
-// handlers refuse every request: there is no password to choose.
+// FirstPassword returns the handlers of a person's first password. On an Auth with no
+// password method the handlers refuse every request: there is no password to choose.
 func (a *Auth[S, U, Tx]) FirstPassword() *FirstPasswordHandlers {
-	a.requireMail("FirstPassword()")
-
 	return &FirstPasswordHandlers{
 		sendCode: a.serving(a.firstPasswordSendCode()),
 		set:      a.serving(a.firstPasswordSet()),
@@ -262,10 +259,7 @@ func (a *Auth[S, U, Tx]) endFirstPasswordCodes(ctx context.Context, codes []*ses
 // the account holds confirmed, and records it in place of the code that stood. The
 // address's mail is limited as a link's is.
 func (a *Auth[S, U, Tx]) sendFirstPasswordCode(ctx context.Context, userID impulse.UUID) (*firstPasswordCodeAnswer, error) {
-	m, err := a.mailOf()
-	if err != nil {
-		return nil, err
-	}
+	m := a.settings.mail
 	user, err := a.firstPasswordUser(ctx, userID)
 	if err != nil {
 		return nil, err

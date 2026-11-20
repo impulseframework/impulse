@@ -813,7 +813,7 @@ func (fakeSessions) HashPassword(password string) (string, error) {
 
 func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.InvitationRequest) (session.PreparedInvitation, error) {
 	if s.mail == nil {
-		return nil, errors.New("the Auth sends no mail: pass WithMail to NewAuth")
+		return nil, errors.New("the fake was given no mailbox, so it prepares no invitation")
 	}
 	if !strings.Contains(req.Email, "@") {
 		return nil, httpio.NewBadRequestMessage("the address is not an email address")

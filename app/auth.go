@@ -96,8 +96,7 @@ const (
 	// the issuer of its tokens (Tokens in the generator program).
 	DefaultTokensTable      = "SessionTokens"
 	DefaultDeviceCodesTable = "SessionDeviceCodes"
-	// The sign-in codes and trusted devices tables, the second factor's, read when the
-	// Auth sends mail, since the code is mailed.
+	// The sign-in codes and trusted devices tables, the second factor's.
 	DefaultFactorCodesTable    = "SessionFactorCodes"
 	DefaultTrustedDevicesTable = "SessionTrustedDevices"
 	// DefaultImpersonationTable is the session library's impersonation table name.
@@ -756,7 +755,7 @@ func (r *checkReader) follow(id *ast.Ident, steps int) bool {
 }
 
 // readAuthArg applies one constructor argument to the construction: a session option
-// naming a table or cookie, the mail option, or a storage constructed with
+// naming a table or cookie, or a storage constructed with
 // impersonation, auth events, or custom data tables. body is the enclosing function's
 // body, where a name is defined: an argument given by a name the function assigned
 // reads as the value it was assigned, so a storage built on its own line is read as
@@ -767,11 +766,6 @@ func readAuthArg(auth *Auth, arg ast.Expr, pkg, storage string, consts map[strin
 	}
 	call, ok := arg.(*ast.CallExpr)
 	if !ok {
-		return
-	}
-	if name, ok := qualifiedName(call.Fun, pkg); ok && name == "WithMail" {
-		auth.Mail = true
-
 		return
 	}
 	if name, ok := qualifiedName(call.Fun, pkg); ok && len(call.Args) == 1 {

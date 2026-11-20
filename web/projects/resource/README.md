@@ -488,7 +488,7 @@ shape of the session library's login routes.
 `workos`), its `kind` (`password`, a form the page posts; `redirect`, a navigation that sends
 the browser to the identity provider), its `label` and its `path`; and `pending`, the pending
 sign-in's status, confirmation and cancel paths, with the sign-in code's send, verification and
-enrollment paths on a server that sends mail. The answer is kept in `api.auth.snapshot`, a
+enrollment paths. The answer is kept in `api.auth.snapshot`, a
 `Store` a framework mirrors into its own reactivity, so a page re-renders whenever the list is
 read again. A listed method of a kind the client does not drive is left out and announced once
 through the warn hook.
@@ -551,7 +551,7 @@ a wrong code refused with `invalid_code` and the code standing with one fewer at
 entered while none stands (none sent; the one sent expired, was used or took its last attempt)
 with `code_expired`. With `rememberDevice` the server remembers the browser, and this person's
 next sign-ins from it skip the code for as long as the server keeps a remembered browser. A
-server whose pending routes name none of the three sends no mail, and they throw saying so.
+server whose pending routes name none of the three does not route them, and they throw saying so.
 
 A refusal the server answers on a step (401, 403 or 429; 404 or 409 on a confirmation or the
 code; 400 on an address given for the code) resolves as `refused` with the server's code and
@@ -675,7 +675,7 @@ directory sign-in, or a password sign-in by an account that holds an address, on
 invited address (another address is refused with `invitation_address`, the invitation still
 standing; an account with no address accepts by the link). A directory sign-in that asserts
 no address, or one its method did not verify (the invited one or another), is held for the
-sign-in code where the server sends mail, which it mails to the invited address: the
+sign-in code, which the server mails to the invited address: the
 pending step's `emailCode` names it masked and never asks for one (`enrollEmail` is false), and
 `verifyCode` accepts the invitation. `signInUrl(method, returnUrl, {
 loginHint })` names the account the provider should take, which a login page sets to the
@@ -699,7 +699,7 @@ an address (400), a mailbox sent five links within fifteen minutes and using non
 address and `usernameIsEmail` for the form; `completeSignUp(token, { password, username? })`
 creates the account with the address verified and signs the person in.
 
-A password reset (`#reset=<token>`), where the server has a password method and sends mail:
+A password reset (`#reset=<token>`), where the server has a password method:
 the list's `passwordReset` names `open` and `complete`, and `request` only while the
 application lets people reset their own password, which an administrator turns on and off in
 the running application. A page offers "Forgot your password?" only while `request` is

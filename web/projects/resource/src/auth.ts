@@ -45,7 +45,7 @@ export interface LoginMethod {
 
 /**
  * The paths of the pending sign-in's handlers: its status, the password confirmation, the
- * cancel, and the sign-in code's three, present on a server that sends mail: `sendCode`,
+ * cancel, and the sign-in code's three, present on a server that routes them: `sendCode`,
  * where the page has the code mailed; `verifyCode`, where it posts the code entered; and
  * `enrollEmail`, where a person whose account holds no email address gives one for the code.
  */
@@ -206,13 +206,13 @@ export interface LoginMethods {
   readonly usernameIsEmail?: boolean;
   /** The invitation routes, and the invitation the browser carries; absent on a server that serves no invitations. */
   readonly invitation?: InvitationRoutes;
-  /** The email address routes; absent on a server that sends no mail. */
+  /** The email address routes; absent on a server that does not route them. */
   readonly email?: EmailRoutes;
   /** The sign-up routes; absent on a server whose password method does not offer sign-up, or that has none. */
   readonly signUp?: SignUpRoutes;
   /**
-   * The password reset routes; absent on a server with no password method, or that sends
-   * no mail. A page offers "Forgot your password?" only while `request` is among them.
+   * The password reset routes; absent on a server with no password method. A page offers
+   * "Forgot your password?" only while `request` is among them.
    */
   readonly passwordReset?: PasswordResetRoutes;
 }
@@ -882,7 +882,7 @@ export class AuthClient {
    * standing: reads the methods list again, then posts to the send route. The result is
    * `sent`, with the masked address and when the code stops being accepted, or the
    * server's refusal (see EmailCodeResult). A server whose pending routes name no send
-   * route sends no mail, and the call throws saying so.
+   * route does not route the code's handlers, and the call throws saying so.
    */
   async sendCode(): Promise<EmailCodeResult> {
     const routes = await this.codeRoutes();
@@ -1410,7 +1410,7 @@ export class AuthClient {
   private async emailRoutes(): Promise<EmailRoutes> {
     const list = await this.methods();
     if (!list.email) {
-      throw new Error('this server names no email address routes in its methods list: it sends no mail');
+      throw new Error('this server names no email address routes in its methods list: its router does not serve them');
     }
     return list.email;
   }
@@ -1420,7 +1420,7 @@ export class AuthClient {
     const list = await this.methods();
     if (!list.passwordReset) {
       throw new Error(
-        'this server names no password reset routes in its methods list: it has no password method, or sends no mail',
+        'this server names no password reset routes in its methods list: it has no password method, or its router does not serve them',
       );
     }
     return list.passwordReset;
@@ -1455,7 +1455,7 @@ export class AuthClient {
     const routes = await this.pendingRoutes(true);
     if (!routes.sendCode || !routes.verifyCode || !routes.enrollEmail) {
       throw new Error(
-        'this server names no sign-in code routes in its methods list: it sends no mail, and no sign-in of its waits on the code',
+        'this server names no sign-in code routes in its methods list: its router does not serve them, and no sign-in of its waits on the code',
       );
     }
     return { ...routes, sendCode: routes.sendCode, verifyCode: routes.verifyCode, enrollEmail: routes.enrollEmail };

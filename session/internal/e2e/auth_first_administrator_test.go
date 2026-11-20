@@ -86,7 +86,7 @@ func newFirstAdministratorApp[Tx any](ctx context.Context, t *testing.T, be back
 		sender = recorder
 	}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
-		session.WithMail(sender, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login", InvitationTimeout: shape.stands}))
+		session.MailSettings{Sender: sender, Application: "Lakeside", LoginURL: "https://app.example/login", InvitationTimeout: shape.stands})
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}

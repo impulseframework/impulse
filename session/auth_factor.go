@@ -256,10 +256,7 @@ func hashEmailCode(pendingID impulse.UUID, code string) []byte {
 func (a *Auth[S, U, Tx]) sendEmailCode(
 	ctx context.Context, p *pendingState, email string, limit func(ctx context.Context, email string) error,
 ) (*emailCodeAnswer, error) {
-	m, err := a.mailOf()
-	if err != nil {
-		return nil, err
-	}
+	m := a.settings.mail
 	if err := limit(ctx, email); err != nil {
 		return nil, err
 	}
@@ -312,10 +309,7 @@ func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*
 // wait of an invitation's acceptance takes no address: its code goes to the invited one
 // (invitedCodeAddress), whatever is typed.
 func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email string) (*emailCodeAnswer, error) {
-	m, err := a.mailOf()
-	if err != nil {
-		return nil, err
-	}
+	m := a.settings.mail
 	if !p.UserID.Valid {
 		return nil, httpio.NewConflictMessage("the code that accepts an invitation goes to the invited address: no address is given for it")
 	}
@@ -777,14 +771,11 @@ func (a *Auth[S, U, Tx]) pendingVerifyCode() http.HandlerFunc {
 // masked address and when the code stops being accepted. The pending identity must
 // wait for MFA and the policy accept the email code (Conflict otherwise), and the user
 // must hold an address (Conflict: EnrollEmail takes one). It reads the pending
-// identity StartSession found, and needs mail (WithMail).
+// identity StartSession found.
 func (p *AuthAPI[S, U, Tx]) SendEmailCode(ctx context.Context) (codeEmail string, expiresAt time.Time, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if _, err := p.auth.mailOf(); err != nil {
-		return "", time.Time{}, err
-	}
 	pending, err := p.auth.mfaWait(ctx)
 	if err != nil {
 		return "", time.Time{}, err
@@ -805,9 +796,6 @@ func (p *AuthAPI[S, U, Tx]) EnrollEmail(ctx context.Context, email string) error
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if _, err := p.auth.mailOf(); err != nil {
-		return err
-	}
 	pending, err := p.auth.mfaWait(ctx)
 	if err != nil {
 		return err
@@ -858,10 +846,8 @@ func (p *AuthAPI[S, U, Tx]) ResetFactors(ctx context.Context, userID impulse.UUI
 	if err := p.auth.storage.RevokeTrustedDevices(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeTrustedDevices()")
 	}
-	if p.auth.settings.mail != nil {
-		if err := p.NoticeFactorReset(ctx, userID); err != nil {
-			logger.FromCtx(ctx).Error(errors.Wrap(err, "the notice that a person's second factor was reset was not sent"))
-		}
+	if err := p.NoticeFactorReset(ctx, userID); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "the notice that a person's second factor was reset was not sent"))
 	}
 
 	return nil
@@ -873,15 +859,12 @@ func (p *AuthAPI[S, U, Tx]) ResetFactors(ctx context.Context, userID impulse.UUI
 // committed; ResetFactors sends it itself. An account with no confirmed address is told
 // nothing: a notice goes to a confirmed address alone. The notice is sent on an
 // administrator's reset and on nothing else: a person who forgets a browser themselves
-// is not written to. It needs mail (WithMail).
+// is not written to.
 func (p *AuthAPI[S, U, Tx]) NoticeFactorReset(ctx context.Context, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	m, err := p.auth.mailOf()
-	if err != nil {
-		return err
-	}
+	m := p.auth.settings.mail
 	user, err := p.auth.storage.User(ctx, userID)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
@@ -900,15 +883,12 @@ func (p *AuthAPI[S, U, Tx]) NoticeFactorReset(ctx context.Context, userID impuls
 // the notice then says); tenant is the tenant's key, named in the message as the Auth's
 // tenant names do (SetTenantNames). The caller sends it once the removal has committed,
 // and only for an administrator's act: a role that ends by itself and a person who
-// leaves by themselves are not written to. It needs mail (WithMail).
+// leaves by themselves are not written to.
 func (p *AuthAPI[S, U, Tx]) NoticeRemovedFromTenant(ctx context.Context, to, tenant string, accountDeleted bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	m, err := p.auth.mailOf()
-	if err != nil {
-		return err
-	}
+	m := p.auth.settings.mail
 	bare, err := address(to)
 	if err != nil {
 		return err

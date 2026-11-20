@@ -57,7 +57,7 @@ func TestAuthAPI_DirectoryName(t *testing.T) {
 			store := mock_sessionstorage.NewMockAuthStore[mockTx](gomock.NewController(t))
 			store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 			store.EXPECT().SetUsernameIsEmail(gomock.Any()).AnyTimes()
-			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
+			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())
 			if err != nil {
 				t.Fatalf("NewAuth() error = %v", err)
 			}

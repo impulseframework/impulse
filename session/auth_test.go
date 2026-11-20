@@ -29,6 +29,7 @@ import (
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
 	"github.com/impulseframework/impulse/session/internal/workos"
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/mock/mock_azure"
 	"github.com/impulseframework/impulse/session/mock/mock_google"
 	"github.com/impulseframework/impulse/session/mock/mock_signin"
@@ -152,7 +153,7 @@ func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption
 func newAuthFixtureWith(t *testing.T, ctrl *gomock.Controller, passwordOptions []PasswordOption, options ...AuthOption) *authFixture {
 	t.Helper()
 
-	return newAuthFixtureOf(t, ctrl, true, passwordOptions, options...)
+	return newAuthFixtureOf(t, ctrl, &mail.Recorder{}, true, passwordOptions, options...).withNoMailLinks()
 }
 
 // newAuthFixtureWithoutPassword is the fixture with no password method registered: the
@@ -160,10 +161,14 @@ func newAuthFixtureWith(t *testing.T, ctrl *gomock.Controller, passwordOptions [
 func newAuthFixtureWithoutPassword(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
 	t.Helper()
 
-	return newAuthFixtureOf(t, ctrl, false, nil, options...)
+	return newAuthFixtureOf(t, ctrl, &mail.Recorder{}, false, nil, options...).withNoMailLinks()
 }
 
-func newAuthFixtureOf(t *testing.T, ctrl *gomock.Controller, withPassword bool, passwordOptions []PasswordOption, options ...AuthOption) *authFixture {
+// newAuthFixtureOf builds the fixture whose Auth sends its mail through sender: a
+// recorder nobody reads, for a test that is not about what is mailed.
+func newAuthFixtureOf(
+	t *testing.T, ctrl *gomock.Controller, sender mail.Sender, withPassword bool, passwordOptions []PasswordOption, options ...AuthOption,
+) *authFixture {
 	t.Helper()
 
 	f := &authFixture{
@@ -189,7 +194,7 @@ func newAuthFixtureOf(t *testing.T, ctrl *gomock.Controller, withPassword bool, 
 
 		return signin.Allow(), nil
 	}
-	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, NoSuperAdministrators(), append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
+	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, NoSuperAdministrators(), mailThrough(sender), append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -199,6 +204,15 @@ func newAuthFixtureOf(t *testing.T, ctrl *gomock.Controller, withPassword bool, 
 		f.password = PasswordSignIn(a, passwordOptions...)
 		a.methods.attempts.SetClock(f.now)
 	}
+
+	return f
+}
+
+// withNoMailLinks answers the store's standing mail links with none: the fixture of a
+// test that is not about mail has no link to withdraw when a password is written. A
+// test about mail keeps its links in expectMailLinks.
+func (f *authFixture) withNoMailLinks() *authFixture {
+	f.store.EXPECT().LiveMailLinks(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	return f
 }
@@ -572,7 +586,7 @@ func TestNewAuth(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, NoSuperAdministrators(), tt.options...)
+			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, NoSuperAdministrators(), quietMail(), tt.options...)
 			switch {
 			case tt.wantErrHas != "":
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrHas) {
@@ -591,7 +605,7 @@ func TestNewAuth(t *testing.T) {
 func newBareAuth(t *testing.T, ctrl *gomock.Controller) *Auth[NoCustomData, NoCustomData, mockTx] {
 	t.Helper()
 
-	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators())
+	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators(), quietMail())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -2557,7 +2571,7 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	store := newAuthStoreMock(ctrl)
-	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
+	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}

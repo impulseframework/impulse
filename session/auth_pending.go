@@ -577,7 +577,7 @@ func (a *Auth[S, U, Tx]) pendingStatus() http.HandlerFunc {
 		// Factors are the methods the sign-in policy accepts for the MFA step.
 		Factors []sessioninfo.AuthMethod `json:"factors,omitempty"`
 		// EmailCode is the state of the library's email code, for an MFA wait that
-		// may take it on an Auth that sends mail.
+		// may take it.
 		EmailCode *emailCodeAnswer `json:"emailCode,omitempty"`
 	}
 
@@ -590,7 +590,7 @@ func (a *Auth[S, U, Tx]) pendingStatus() http.HandlerFunc {
 			return writeSignInError(ctx, w, err)
 		}
 		answer := response{Reason: p.Step, Email: p.Identity.Email, ExpiresAt: p.ExpiresAt, ReturnURL: internalcookie.SanitizeReturnURL(p.ReturnURL), Factors: p.Factors}
-		if p.Step == sessioninfo.PendingMFA && offersEmailCode(p.Factors) && a.settings.mail != nil {
+		if p.Step == sessioninfo.PendingMFA && offersEmailCode(p.Factors) {
 			if answer.EmailCode, err = a.emailCodeState(ctx, p); err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}

@@ -26,6 +26,7 @@ import (
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
 	"github.com/impulseframework/impulse/session/internal/oidctest"
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -171,7 +172,9 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 	entraIDP := oidctest.NewFakeEntra(t, "entra-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 
+	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
+		session.MailSettings{Sender: recorder, Application: "Lakeside", LoginURL: "https://app.example/login"},
 		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
@@ -211,7 +214,7 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 	t.Cleanup(server.Close)
 
 	return &tenantApp[Tx]{
-		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h},
+		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder},
 		entra:   entraIDP, google: googleIDP, roles: roles,
 	}
 }
@@ -232,12 +235,15 @@ func (a *tenantApp[Tx]) grant(ctx context.Context, t *testing.T, username string
 	a.roles.grant(accesstypes.User(id.String()), scope, roles...)
 }
 
-// entraSignIn runs an Entra round trip with claims in b and returns where the callback
-// sent the browser.
+// entraSignIn runs an Entra round trip with claims in b and returns where the completed
+// sign-in sent the browser. Entra does not vouch for an address, so a person the policy
+// lets through whose account holds no confirmed one is held for a mailed code first: the
+// helper answers it with the address in claims, as the person would. A sign-in the
+// policy refuses is not held, and is returned as the callback answered it.
 func (a *tenantApp[Tx]) entraSignIn(ctx context.Context, b *browser, claims map[string]any) *url.URL {
 	b.t.Helper()
 
-	return b.oidcSignIn(ctx, a.entra, "/entra", claims)
+	return a.throughAddressHold(ctx, b, b.oidcSignIn(ctx, a.entra, "/entra", claims), claims)
 }
 
 // googleSignIn runs a Google round trip with claims in b and returns where the
@@ -416,8 +422,8 @@ func seamTenantAdmitted[Tx any](ctx context.Context, t *testing.T, be backend[Tx
 	assertRedirect(t, a.entraSignIn(ctx, b, azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
 	v := signedInAs(ctx, t, b, "pat@lakeside.edu")
 	// The fake Entra asserts mfa in every token: the session records the evidence
-	// after the sign-in's own event.
-	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant)
+	// after the sign-in's own event, and then the code that confirmed Pat's address.
+	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant, "email-code")
 
 	a.assertPasswordSignIn(ctx, t, "kim@lakeside.edu", http.StatusOK, "")
 }

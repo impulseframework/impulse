@@ -269,8 +269,7 @@ to an account somebody can already sign in to. Where the invited address belongs
 account with a password, the person confirms with the password, and where that account
 has no confirmed address yet they are asked for the code once more after it. Where it belongs to an
 account that signs in through a provider, a different Microsoft account is refused, and
-the person accepts by signing in the way they do. Where the auth sends no mail there is no
-code, and an invited person whose sign-in carries no address is refused. (A person who is
+the person accepts by signing in the way they do. (A person who is
 not accepting an invitation and signs in with Microsoft confirms their address with a
 mailed code the first time, as described under [In every shape](#in-every-shape).)
 
@@ -396,7 +395,9 @@ Every command and flag is described in [cmd/impulse/README.md](../cmd/impulse/RE
 
 ## In every shape
 
-These things hold for all eight shapes, wherever the auth sends mail.
+These things hold for all eight shapes. Every application sends mail: an auth is not built
+without a sender, and an application that could send none could not invite a person,
+confirm an address or send a code.
 
 ### The email address on an account
 

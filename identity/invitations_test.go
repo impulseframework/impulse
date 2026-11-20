@@ -229,7 +229,7 @@ func TestManager_Invite(t *testing.T) {
 		}
 	})
 
-	t.Run("an auth that sends no mail refuses the invitation", func(t *testing.T) {
+	t.Run("an invitation the session library does not prepare writes nothing", func(t *testing.T) {
 		t.Parallel()
 
 		store := &fakeStore{}

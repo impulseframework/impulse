@@ -614,8 +614,8 @@ type SignInRules[Tx any] struct {
 	Proven PasswordProof
 	// ConfirmAddress says a sign-in through a directory that does not vouch for the
 	// person's address is held for the mailed code that confirms one, while the account
-	// holds no confirmed address. The Auth sets it where it sends mail, for a
-	// registration that is not the deployment's own provider of seeded accounts.
+	// holds no confirmed address. The Auth sets it for every registration but the
+	// deployment's own provider of seeded accounts.
 	ConfirmAddress bool
 }
 

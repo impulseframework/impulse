@@ -602,7 +602,7 @@ func (req *InvitationRequest) newTenant() (*sessioninfo.NewTenant, error) {
 // refused with a message naming its domain, and nothing is stored or mailed, so the
 // sender learns now what the invitee would learn at the sign-in. The invitation is
 // returned as stored; a message that could not be sent is an error and the invitation
-// is withdrawn. It needs mail (WithMail).
+// is withdrawn.
 func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) (*sessioninfo.Invitation, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -654,13 +654,10 @@ func invitedName(name string) (string, error) {
 }
 
 // invitee applies the checks an invitation's address is held to before anything is
-// stored or mailed: the Auth sends mail, the address is one, and a sign-in method the
-// login page offers could admit it. It answers the mail settings and the address bare.
+// stored or mailed: the address is one, and a sign-in method the login page offers
+// could admit it. It answers the mail settings and the address bare.
 func (a *Auth[S, U, Tx]) invitee(to string) (*mailSettings, string, error) {
-	m, err := a.mailOf()
-	if err != nil {
-		return nil, "", err
-	}
+	m := a.settings.mail
 	email, err := address(to)
 	if err != nil {
 		return nil, "", err
@@ -772,8 +769,8 @@ func (p *preparedInvitation) Send(ctx context.Context) error {
 }
 
 // PrepareInvitation checks and makes an invitation to req.Email without storing or
-// mailing it: the checks Invite makes (the Auth sends mail, the address is one, and a
-// sign-in method the login page offers could admit it), the token and its hash, and
+// mailing it: the checks Invite makes (the address is one, and a sign-in method the
+// login page offers could admit it), the token and its hash, and
 // the time the link stands for (MailSettings.InvitationTimeout). The caller stores the
 // row (PreparedInvitation.Row) in a transaction of its own and, once that has
 // committed, mails the link (PreparedInvitation.Send). Invite is the two in the Auth's

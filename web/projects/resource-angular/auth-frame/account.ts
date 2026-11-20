@@ -6,7 +6,7 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 /**
  * Account answers which sections the person's account page holds, from what the person's
  * sign-in offers: their name where the server serves its change, the email address where
- * the server sends mail, the password change where the person's auth has the password
+ * the server serves its routes, the password change where the person's auth has the password
  * method, the removal of the password where the server serves it, a first password where
  * the person has none and the server serves one, and forgetting this browser where it is
  * remembered for them. A page with none of them is not offered in the person's menu.
@@ -47,7 +47,7 @@ export class Account {
       this.methods.hasValue() &&
       this.methods.value().changeName !== undefined,
   );
-  /** The server sends mail: the person adds or changes their address. */
+  /** The server serves the email routes: the person adds or changes their address. */
   readonly email = computed(() => this.methods.hasValue() && this.methods.value().email !== undefined);
   /**
    * The person's auth has the password method, and the person holds a password as far

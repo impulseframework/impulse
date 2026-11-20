@@ -33,7 +33,7 @@ data: `Auth[SessionData, UserData, Tx]` (`Tx` is the storage's transaction type,
 inferred from the store) and `Preauth[SessionData]` (Preauth has no user record, so no
 user-data axis). An application that uses neither axis instantiates with
 the `NoCustomData` sentinel:
-`session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, superAdministrators)`.
+`session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, superAdministrators, mail)`.
 
 ## Schema
 
@@ -202,10 +202,8 @@ DML what a later rule must read.
   application gives. A sign-in through a method that synchronizes roles is not held by
   it: there the directory is the authority, on who is a super administrator as on every
   role, and the application's own policy is asked of that person as of anyone (see
-  "Role synchronization"). Such an Auth must send mail
-  (`WithMail`): `NewAuth` refuses one that sends none, since the code could not be sent
-  and a holder would never sign in. It refuses the argument's zero value and a nil check
-  too, each saying what to pass. An application with no permission engine, and so no
+  "Role synchronization"). `NewAuth` refuses the argument's zero value and a nil check,
+  each saying what to pass. An application with no permission engine, and so no
   role of any kind, passes `session.NoSuperAdministrators()`, and its Auth holds nobody
   to the rule. The auth packages `impulse` writes pass the first, and `impulse check`
   (`super-administrators`) fails an auth package with a role file that passes the
@@ -423,7 +421,11 @@ store := sessionstorage.NewSpannerAuth(client, sessionstorage.WithAuthEvents(eve
 // holder signs in with a second factor whatever the policy asks of anyone else.
 superAdministrators := session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(userManager)))
 
-auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, superAdministrators,
+// How the Auth sends mail: every Auth does, so the settings are an argument (see
+// "Sending mail").
+mail := session.MailSettings{Sender: sender, Application: "Harbor", LoginURL: "https://harbor.example.com/login"}
+
+auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, superAdministrators, mail,
     session.WithCookieName("partner_auth"),
     session.WithIdentityLinked(notifyLinked), // called after every identity link
     session.WithPendingHook(onPending),       // called when a sign-in becomes pending
@@ -847,10 +849,7 @@ r.Group(func(r chi.Router) {
 
 The invitation, email and sign-up handlers are described under "Invitations", "Users
 and their email address" and "Sign-up" below, the sign-in code's under "The second
-factor", and the first password's under "A person's first password"; the groups that
-send mail (`Email()`, `SignUp()`, `FirstPassword()`, the pending handlers
-`SendCode()`, `VerifyCode()` and `EnrollEmail()`) panic at wiring on an `Auth` without
-`WithMail`.
+factor", and the first password's under "A person's first password".
 The machine outlet, the token page and the device flow are described under "Machine
 outlets and bearer tokens" below.
 
@@ -1011,8 +1010,8 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
 - `pending` is the login page's routing marker. The page reads the pending identity from
   `Pending().Status()`: `200 {"reason", "email", "expiresAt", "returnUrl"[, "factors"][, "emailCode"]}`, `404` when
   there is none, `401 {"code": "pending_expired"}` once it has expired or been used.
-  `emailCode` is the sign-in code's state, present for an MFA wait that may take it on
-  an `Auth` that sends mail (see "The second factor").
+  `emailCode` is the sign-in code's state, present for an MFA wait that may take it
+  (see "The second factor").
 - **Confirmation** (`reason` `confirmation`): the page asks for the existing user's
   password and posts `{"password"}` to `Pending().ConfirmWithPassword()`: `200
   {"mfaIsRequired": false}` (linked, the hook called, signed in; go to `returnUrl`),
@@ -1622,10 +1621,8 @@ How an address gets onto a user:
   whatever the sign-in policy says about a second factor (`PendingMFA`, the email code
   its one factor). The person gives the address where the account has none
   (`Pending().EnrollEmail()`), and the code confirms it; their next sign-in is not held
-  for it. An Auth that sends no mail holds nobody: nothing is ever mailed there, no
-  code, no link and no notice, so there is no unconfirmed address that could be mailed
-  to, and no code that could confirm one. A registration of seeded users holds nobody
-  either.
+  for it. A registration of seeded users holds nobody: the deployment wrote those
+  accounts itself.
 - **Google writes its own**: a Google sign-in writes the address Google verified
   onto the user, verified at the time of the sign-in, when the user holds no verified
   address yet and no other user holds it (any method that asserts
@@ -1814,7 +1811,7 @@ read the mailbox, and the account takes the address.
   did not verify (the one a Microsoft Entra sign-in then carries, which is whatever the
   directory's administrator wrote, and anybody can run a directory), has nothing to
   hold to the invited one, whether the address it asserts is the invited one or
-  another, so where the Auth sends mail the sign-in waits for a code instead
+  another, so the sign-in waits for a code instead
   (`pending=mfa`, the one factor `email-code`): the code is mailed to the invited
   address, masked on the page, with no address asked for (`Pending().EnrollEmail()`
   answers 409 there), and the invitation is accepted in the transaction of the sign-in
@@ -1833,8 +1830,8 @@ read the mailbox, and the account takes the address.
   not take the invited one. The code is the proof of that invitation's acceptance and of
   nothing else: entered once the invitation was used, withdrawn or ran out, it signs
   nobody in and writes nothing (`invitation_expired`), though the method would have
-  admitted the person without an invitation. Without mail, and through a registration
-  whose accounts the deployment seeds itself, no code is given: the address the identity
+  admitted the person without an invitation. Through a registration whose accounts
+  the deployment seeds itself, no code is given: the address the identity
   asserts is compared with the invited one, verified or not, and a sign-in that asserts
   none is refused. The
   acceptance by hand of a person signed in
@@ -2053,7 +2050,7 @@ the person in, answering as the password login does. `Start` answers `{}` whatev
 address's state: an address an account already holds is pointed at that account by
 mail, and the screen says nothing.
 
-Every application with the password method and mail (`WithMail`) routes the three
+Every application with the password method routes the three
 handlers; nothing in code offers or withholds sign-up. While the method is invite only,
 which it is until an administrator opens it, the handlers answer 404 and `Methods`
 leaves the block out of its answer, so the login page offers nothing. `Complete` makes
@@ -2391,8 +2388,9 @@ What the Workspace side needs, once per organization:
    generating a new app password and pinning the new version; nothing in the application
    changes.
 
-The `Auth` is given the sender with `WithMail`, with the application's name and the
-absolute URL of its login page, where every mailed link leads
+Every `Auth` sends mail, so `NewAuth` takes how as an argument (`MailSettings`): the
+sender, the application's name and the absolute URL of its login page, where every
+mailed link leads
 (`#invitation=<token>`, `#verify=<token>`, `#signUp=<token>`, `#reset=<token>`,
 `#address=<token>`). The token is in the URL's fragment, which a browser sends to no
 server: it is in no request line, so no request log, proxy or `Referer` header holds it.
@@ -2404,7 +2402,7 @@ one).
 
 ```go
 auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, superAdministrators,
-	session.WithMail(sender, session.MailSettings{Application: "Harbor", LoginURL: "https://harbor.example.com/login"}))
+	session.MailSettings{Sender: sender, Application: "Harbor", LoginURL: "https://harbor.example.com/login"})
 ```
 
 In development `mail.Log{}` stands in for a driver: it writes each message to the log,
@@ -3003,7 +3001,7 @@ if err != nil { /* non-struct T, no persistable fields, invalid identifier, rese
 
 store := sessionstorage.NewPostgresAuth(pool, sessionstorage.WithAuthEvents(events)).
     WithCustomSessionData(sessionData)
-auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, superAdministrators)
+auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, superAdministrators, mail)
 ```
 
 With a `nil` resolver, name both types: `NewCustomSessionData[MyData, pgx.Tx]("SessionCustomData", nil)`;
@@ -3194,7 +3192,7 @@ userData, err := sessionstorage.NewCustomUserData[UserData]("UserCustomData")
 store := sessionstorage.NewPostgresAuth(pool, sessionstorage.WithAuthEvents(events)).
     WithCustomSessionData(sessionData).
     WithCustomUserData(userData)
-auth, err := session.NewAuth[MyData, UserData](store, cookieKey, superAdministrators)
+auth, err := session.NewAuth[MyData, UserData](store, cookieKey, superAdministrators, mail)
 
 // Create: initial data lands atomically with the user insert (at most one value —
 // it is the complete row). Omit it for a plain insert (reads yield zero-value U).
@@ -3260,7 +3258,7 @@ auth, err := session.NewAuth[MyData, session.NoCustomData](
         sessionstorage.WithAuthEvents(events),
         sessionstorage.WithImpersonation(imp)).
         WithCustomSessionData(sessionData),
-    cookieKey, superAdministrators,
+    cookieKey, superAdministrators, mail,
     session.WithImpersonationTimeout(time.Hour),        // hard cap; default one hour
     session.WithImpersonationAudit(func(ctx context.Context, e sessioninfo.ImpersonationEvent) error {
         return auditTrail.Record(ctx, e)                 // Started, Ended, IdentityOperationBlocked

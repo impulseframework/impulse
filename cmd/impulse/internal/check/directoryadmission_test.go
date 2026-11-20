@@ -82,7 +82,7 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, collection ac
 	if err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))))
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))), settings.Mail)
 	if err != nil {
 		return nil, err
 	}

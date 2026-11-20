@@ -147,7 +147,7 @@ func assertInvitationStands(ctx context.Context, t *testing.T, what string, on *
 
 // testInvitationByCode runs the acceptance of an invitation through a directory that
 // asserts no address, as Microsoft Entra ID does unless its registration is set up to
-// send one, on an Auth that sends mail. Such a sign-in has no address to compare with
+// send one. Such a sign-in has no address to compare with
 // the invited one, so the acceptance rests on the code the library mails to the invited
 // address: until the sign-in carries that proof (Invitation.AddressProven) it waits,
 // naming no user, and nothing is made, linked, consumed or granted. The sign-in that
@@ -414,8 +414,8 @@ func testInvitationByCodeNotTheInvited(ctx context.Context, t *testing.T, h *Aut
 // time the sign-in runs, it is refused and nothing is made, linked or confirmed, though
 // the person would be admitted without any invitation.
 //
-// An Auth that sends no mail has no code to mail: such a sign-in is refused there, as
-// one whose address is not the invited one.
+// A registration whose accounts the deployment seeds mails no code: such a sign-in is
+// refused there, as one whose address is not the invited one.
 func testInvitationByCodeAlone(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newAcceptances()
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, ConfirmAddress: true, Accept: rec.hook})
@@ -445,9 +445,9 @@ func testInvitationByCodeAlone(ctx context.Context, t *testing.T, h *AuthHarness
 	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired)
 	assertEmail(t, "the linked account whose invitation was dead", mustUser(ctx, t, in.Driver, wes.ID), nil, false)
 
-	// An Auth that sends no mail has no code to rest the acceptance on: the sign-in is
-	// refused as one whose address is not the invited one, whatever the request says of
-	// a proof, and nothing is written.
+	// A registration whose accounts the deployment seeds has no code to rest the
+	// acceptance on: the sign-in is refused as one whose address is not the invited one,
+	// whatever the request says of a proof, and nothing is written.
 	silent := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Accept: rec.hook})
 	una := noAddress("oid-una", "una@corp.example")
 	unaLink := insertInvitation(ctx, t, silent.Driver, "una@north.example", "", []string{"Admin"}, tokenHash(10))
@@ -455,7 +455,7 @@ func testInvitationByCodeAlone(ctx context.Context, t *testing.T, h *AuthHarness
 		req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: una, Invitation: invitationOf(unaLink)}
 		req.Invitation.AddressProven = proven
 		assertRefused(t, signInRequest(ctx, silent, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
-		assertInvitationStands(ctx, t, "the invitation on an Auth that sends no mail", silent, unaLink, req.Invitation)
+		assertInvitationStands(ctx, t, "the invitation through a registration that mails no code", silent, unaLink, req.Invitation)
 		assertNoUser(ctx, t, silent.Driver, una.SignInName)
 	}
 }

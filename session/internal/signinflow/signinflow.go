@@ -194,8 +194,8 @@ type Rules[Tx any] struct {
 	Proven dbtype.PasswordProof
 	// ConfirmAddress says a sign-in through a directory that does not vouch for the
 	// person's address is held for the code that confirms one, while the account holds
-	// no confirmed address (addressHold). It is set by an Auth that sends mail, for a
-	// registration that is not the deployment's own provider of seeded accounts.
+	// no confirmed address (addressHold). The Auth sets it for every registration but
+	// the deployment's own provider of seeded accounts.
 	ConfirmAddress bool
 }
 
@@ -224,12 +224,12 @@ type Rules[Tx any] struct {
 // (invitation_address), the invitation left standing for the invited account. A
 // password account that holds no address accepts by the link, since the link is what
 // the person proved, and takes the address. An external identity that asserts no
-// address, or one its method did not verify, has none to compare: where the Auth sends
-// mail (rules.ConfirmAddress) its acceptance rests on the code the library mails to the
-// invited address, so the sign-in waits, naming no user and writing nothing, until it
-// carries that proof (Invitation.AddressProven; see acceptsByCode, resolveIn), and
-// where it sends none the address the identity asserts is compared, and a sign-in that
-// asserts none is refused as one for another address is. The invitation is told how the
+// address, or one its method did not verify, has none to compare: its acceptance rests
+// on the code the library mails to the invited address (rules.ConfirmAddress), so the
+// sign-in waits, naming no user and writing nothing, until it carries that proof
+// (Invitation.AddressProven; see acceptsByCode, resolveIn). A registration of accounts
+// the deployment seeds is mailed no code: the address its identity asserts is compared,
+// and a sign-in that asserts none is refused as one for another address is. The invitation is told how the
 // person signed in (Invitation.SignInMethod, SignInConnection: the identity's), which
 // the acceptor reads, and an invitation that makes a tenant entered through its
 // directory only
@@ -338,11 +338,10 @@ func SignIn[Tx any](
 // A sign-in through a directory that asserts no address, or asserts one its method did
 // not verify, has none to compare: whoever runs a directory writes the address it sends,
 // so the unverified one is nobody's proof, whether it is the invited address or another.
-// Where the Auth sends mail (confirm), such an acceptance is not refused here: the
-// resolution holds it to the code mailed to the invited address (acceptsByCode), which
-// is the proof that the person reads that mailbox. Where no code is mailed, a
-// registration whose accounts the deployment seeds, the address its own provider
-// asserts is compared.
+// Such an acceptance is not refused here (confirm): the resolution holds it to the code
+// mailed to the invited address (acceptsByCode), which is the proof that the person
+// reads that mailbox. For a registration whose accounts the deployment seeds, no code is
+// mailed and the address its own provider asserts is compared.
 func invitedAddressRefusal(req *sessioninfo.NewSessionRequest, confirm bool) error {
 	if req.Invitation == nil || acceptsByCode(req, confirm) {
 		return nil
@@ -352,8 +351,8 @@ func invitedAddressRefusal(req *sessioninfo.NewSessionRequest, confirm bool) err
 }
 
 // acceptsByCode reports whether the sign-in carries an invitation its identity cannot
-// answer for by an address of its own, on an Auth that sends mail (confirm): an external
-// identity that asserts none (Microsoft Entra ID sends none unless the registration is
+// answer for by an address of its own, through a registration whose addresses are
+// confirmed by the mailed code (confirm): an external identity that asserts none (Microsoft Entra ID sends none unless the registration is
 // set up to), or asserts one its method did not verify (Identity.EmailVerified: the
 // address Microsoft Entra ID sends is whatever the directory's administrator wrote, and
 // anybody can run a directory). Such an acceptance rests on the code the library mails
@@ -1070,8 +1069,8 @@ func resolveIn[Tx any](
 // resolveLinked resolves an identity that is linked to a user, link: the user is named
 // on the request and the link's LastUsedAt is touched. An invitation the sign-in carries
 // is consumed for the user, live reporting that it was, once its acceptance is decided
-// where it rests on the code mailed to the invited address (linkedAcceptsByCode, on an
-// Auth that sends mail, confirm), and not for a disabled user, who is refused once the
+// where it rests on the code mailed to the invited address (linkedAcceptsByCode, under
+// confirm), and not for a disabled user, who is refused once the
 // sign-in is decided. tenant is the link's tenant key.
 func resolveLinked[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, link *dbtype.SessionIdentity, confirm bool,

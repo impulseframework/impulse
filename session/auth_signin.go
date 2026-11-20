@@ -152,10 +152,10 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 			Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn,
 			TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
 			// A person who comes through a directory that does not vouch for their address
-			// confirms one by the mailed code before their first session, where the Auth
-			// can mail it; the accounts a deployment seeds for its own provider are given
-			// their address where they are seeded.
-			ConfirmAddress: a.settings.mail != nil && method != "" && !seeded,
+			// confirms one by the mailed code before their first session; the accounts a
+			// deployment seeds for its own provider are given their address where they are
+			// seeded.
+			ConfirmAddress: method != "" && !seeded,
 		})
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")

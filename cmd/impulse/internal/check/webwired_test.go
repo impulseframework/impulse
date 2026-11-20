@@ -111,8 +111,8 @@ type Auth struct {
 	session *session.Auth[session.NoCustomData, session.NoCustomData, *cloudspanner.ReadWriteTransaction]
 }
 
-func New(ctx context.Context, db *cloudspanner.Client, key string) (*Auth, error) {
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.NoSuperAdministrators(),
+func New(ctx context.Context, db *cloudspanner.Client, key string, mail session.MailSettings) (*Auth, error) {
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.NoSuperAdministrators(), mail,
 		session.WithSessionTableName(TablePrefix+"Sessions")` + option + `)
 	if err != nil {
 		return nil, err

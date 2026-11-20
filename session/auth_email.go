@@ -70,11 +70,8 @@ func (h *EmailHandlers) Confirm() http.HandlerFunc {
 	return h.confirm
 }
 
-// Email returns the email address handlers. It panics on an Auth without mail, as a
-// wiring mistake.
+// Email returns the email address handlers.
 func (a *Auth[S, U, Tx]) Email() *EmailHandlers {
-	a.requireMail("Email()")
-
 	return &EmailHandlers{
 		add:     a.serving(a.emailAdd()),
 		verify:  a.serving(a.emailVerify()),
@@ -147,10 +144,7 @@ func (a *Auth[S, U, Tx]) noticeAddressChanged(ctx context.Context, old *string, 
 	if !holdsAddress(old, wasConfirmed) || strings.EqualFold(*old, replacement) {
 		return
 	}
-	m, err := a.mailOf()
-	if err != nil {
-		return
-	}
+	m := a.settings.mail
 	if err := a.send(ctx, m.addressChangedMessage(*old, replacement)); err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "the notice that an account's email address changed was not sent"))
 	}
@@ -192,10 +186,7 @@ func (a *Auth[S, U, Tx]) emailAdd() http.HandlerFunc {
 // that another account holds it; an address the user already holds verified gets
 // nothing.
 func (a *Auth[S, U, Tx]) sendVerification(ctx context.Context, user *sessioninfo.UserInfo, email string) error {
-	m, err := a.mailOf()
-	if err != nil {
-		return err
-	}
+	m := a.settings.mail
 	bare, err := address(email)
 	if err != nil {
 		return err
@@ -334,16 +325,13 @@ func (a *Auth[S, U, Tx]) emailHint(ctx context.Context, user *sessioninfo.UserIn
 // that is no address is a BadRequest, and an address sent five links and codes within
 // fifteen minutes and using none is refused with a *sessioninfo.LoginRefusal carrying
 // RefusedTooManyEmails and the wait. Who may ask for whom is the caller's to decide
-// before it calls. It needs mail (WithMail).
+// before it calls.
 func (p *AuthAPI[S, U, Tx]) RequestAddressChange(ctx context.Context, userID impulse.UUID, email string, by AskedBy) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	a := p.auth
-	m, err := a.mailOf()
-	if err != nil {
-		return err
-	}
+	m := a.settings.mail
 	bare, err := address(email)
 	if err != nil {
 		return err

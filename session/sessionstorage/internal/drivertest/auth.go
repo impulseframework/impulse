@@ -155,7 +155,8 @@ type AuthConfig struct {
 	Impersonation bool
 	// ConfirmAddress has the instance's SignIn hold a person who comes through a
 	// directory that does not vouch for their address until a code confirms one, as an
-	// Auth that sends mail does (signinflow.Rules.ConfirmAddress).
+	// Auth does for every registration but the deployment's own provider of seeded
+	// accounts (signinflow.Rules.ConfirmAddress).
 	ConfirmAddress bool
 	// Accounts is what the library's standard rule finds chosen for the instance's
 	// sign-in method (MethodName), applied when Resolve is nil or answers
@@ -522,7 +523,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "an invitation accepted through a directory that asserts no address waits for the code mailed to the invited address, naming no user and writing nothing, and is accepted in the transaction of the sign-in that carries it", run: testInvitationByCode},
 		{name: "the code mailed to an invited address finds the account that holds it, confirmed or not, and is no way in to one somebody signs in to: with a password it waits for the password, a second identity is refused, and an account nobody signs in to yet takes its first identity", run: testInvitationByCodeAddressHeld},
 		{name: "the code mailed to an invited address makes no other account the one invited while another holds the address, linked or found under the directory's name, with a password or without, nor one under another name where the usernames are the addresses", run: testInvitationByCodeNotTheInvited},
-		{name: "the code mailed to an invited address proves that invitation's acceptance and nothing else: with the invitation dead nothing is made, linked or confirmed, and an Auth that sends no mail has no code to accept on", run: testInvitationByCodeAlone},
+		{name: "the code mailed to an invited address proves that invitation's acceptance and nothing else: with the invitation dead nothing is made, linked or confirmed, and a registration that mails no code has none to accept on", run: testInvitationByCodeAlone},
 		{name: "an invitation accepted through a directory that asserts an address it did not verify waits for the code as one that asserts none: the claim makes no account, spends no invitation and makes no linked account the one invited", run: testInvitationUnverifiedAddress},
 		{name: "a driver whose sign-in methods table is not there says so: an error naming the table, never a method read as invite only", run: testSignInMethodsMissingTable},
 		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person an administrator created is linked and given nothing", run: testOpenMethodDefaultRole},

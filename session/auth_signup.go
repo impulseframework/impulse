@@ -56,13 +56,10 @@ func (h *SignUpHandlers) Open() http.HandlerFunc { return h.open }
 // beside the password login, behind ValidateXSRFToken.
 func (h *SignUpHandlers) Complete() http.HandlerFunc { return h.complete }
 
-// SignUp returns the sign-up handlers. It panics on an Auth without mail, as a wiring
-// mistake. Every application with the password method and mail routes them: whether
-// sign-up is offered is an administrator's choice in the running application, read as
-// each request arrives.
+// SignUp returns the sign-up handlers. Every application with the password method
+// routes them: whether sign-up is offered is an administrator's choice in the running
+// application, read as each request arrives.
 func (a *Auth[S, U, Tx]) SignUp() *SignUpHandlers {
-	a.requireMail("SignUp()")
-
 	return &SignUpHandlers{
 		start:    a.serving(a.signUpStart()),
 		open:     a.serving(a.signUpOpen()),
@@ -139,10 +136,7 @@ func (a *Auth[S, U, Tx]) signUpStart() http.HandlerFunc {
 // startSignUp mails email its sign-up link, or the notice that an account already
 // holds it.
 func (a *Auth[S, U, Tx]) startSignUp(ctx context.Context, email string) error {
-	m, err := a.mailOf()
-	if err != nil {
-		return err
-	}
+	m := a.settings.mail
 	bare, err := address(email)
 	if err != nil {
 		return err

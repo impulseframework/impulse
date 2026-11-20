@@ -844,7 +844,7 @@ func TestPasswordSignIn_AttemptLimitRefused(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators())
+			a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators(), quietMail())
 			if err != nil {
 				t.Fatal(err)
 			}

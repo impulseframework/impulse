@@ -207,8 +207,7 @@ type authApp[Tx any] struct {
 	hooks  *hooks[Tx]
 	// mail keeps what the Auth sent, for the scenarios that read a code out of it.
 	mail *mail.Recorder
-	// verified writes an address as a person's confirmed one, the store's own write, on
-	// an app that sends mail.
+	// verified writes an address as a person's confirmed one, the store's own write.
 	verified func(ctx context.Context, userID impulse.UUID, email string) error
 }
 
@@ -237,6 +236,22 @@ func (a *authApp[Tx]) confirmAddress(ctx context.Context, b *browser, held *url.
 	a.answerAddressCode(ctx, b, address)
 
 	return &url.URL{Path: returnURL}
+}
+
+// throughAddressHold answers the hold a directory's sign-in met, when to, where the
+// callback sent the browser, is the login page's step for the code that confirms the
+// person's address: the person answers the code mailed to the address in claims. It
+// returns where the completed sign-in sent the browser, and to itself when the sign-in
+// was not held, which is a refusal or a person whose address is confirmed already.
+func (a *authApp[Tx]) throughAddressHold(ctx context.Context, b *browser, to *url.URL, claims map[string]any) *url.URL {
+	b.t.Helper()
+
+	if to.Path != "/login" || to.Query().Get("pending") != "mfa" {
+		return to
+	}
+	address, _ := claims["email"].(string)
+
+	return a.confirmAddress(ctx, b, to, address)
 }
 
 // answerAddressCode has the person held in b give address where their account holds
@@ -295,7 +310,11 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 		// follows carries it.
 		r.Post("/invitation", auth.Invitation().Open())
 		r.Post("/invitation/accept", auth.Invitation().Accept())
-		routesWithMail(r, auth)
+		// The pending handlers that send mail: the library's second factor, and the
+		// code that confirms a person's address.
+		r.Post("/pending/code/send", auth.Pending().SendCode())
+		r.Post("/pending/code/verify", auth.Pending().VerifyCode())
+		r.Post("/pending/email", auth.Pending().EnrollEmail())
 		// The application's MFA step: here it accepts anything, which is what the
 		// scenarios need; a real one checks a code first.
 		r.Post("/mfa", func(w http.ResponseWriter, r *http.Request) {
@@ -372,20 +391,6 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 	})
 }
 
-// routesWithMail mounts the pending handlers that send mail, the library's second
-// factor, on an Auth given mail; an Auth without mail offers none of them.
-func routesWithMail[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserData, Tx]) {
-	defer func() {
-		// The handlers panic at wiring on an Auth without mail, as the README says;
-		// such an Auth mounts none of them.
-		_ = recover()
-	}()
-	sendCode := auth.Pending().SendCode()
-	r.Post("/pending/code/send", sendCode)
-	r.Post("/pending/code/verify", auth.Pending().VerifyCode())
-	r.Post("/pending/email", auth.Pending().EnrollEmail())
-}
-
 // sessionView is GET /whoami's answer: the validated session as the application sees
 // it.
 type sessionView struct {
@@ -421,8 +426,8 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 	db, store := be.newStore(ctx, t)
 	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
-		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook),
-		session.WithMail(recorder, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login"}))
+		session.MailSettings{Sender: recorder, Application: "Lakeside", LoginURL: "https://app.example/login"},
+		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}

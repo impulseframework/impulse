@@ -34,9 +34,16 @@ import (
 // the link to themselves. The library writes to the mail.Sender interface and knows
 // nothing of the mail system behind it; see "Sending mail" in the README.
 
-// MailSettings is how the Auth sends mail: through sender, as the application, with
-// links to its login page.
+// MailSettings is how the Auth sends mail: through Sender, as the application, with
+// links to its login page. NewAuth takes it as an argument, since every Auth sends
+// mail: its invitations (AuthAPI.Invite, Invitation()), the add-address step (Email()),
+// sign-up (SignUp()), password resets and the codes of its sign-ins all go by mail.
+// NewAuth refuses a nil sender, an empty application name and a login URL that is not
+// an absolute http or https URL.
 type MailSettings struct {
+	// Sender delivers the messages: mail/workspace is the Google Workspace relay, and
+	// mail.Log writes them to the log in development.
+	Sender mail.Sender
 	// Application is the application's name as the messages say it ("Harbor").
 	Application string
 	// LoginURL is the absolute URL of the application's login page
@@ -94,27 +101,17 @@ type mailSettings struct {
 	settings MailSettings
 }
 
-// WithMail gives the Auth the means to send mail: sender delivers the messages
-// (mail/workspace is the Google Workspace relay), and settings say as whom and where
-// the links lead. It is needed by invitations (AuthAPI.Invite, Invitation()), the
-// add-address step (Email()) and sign-up (SignUp(), while an administrator has the
-// password method open to it); an Auth without it offers none of them. NewAuth refuses a nil sender, an
-// empty application name and a login URL that is not an absolute http or https URL.
-func WithMail(sender mail.Sender, settings MailSettings) AuthOption {
-	return authOption{apply: func(s *authSettings) { s.mail = &mailSettings{sender: sender, settings: settings} }}
-}
-
 // validate refuses settings the Auth cannot send with and fills the defaults.
 func (m *mailSettings) validate() error {
 	if m.sender == nil {
-		return errors.New("WithMail: the sender is nil: pass a mail.Sender, such as workspace.New")
+		return errors.New("MailSettings: the sender is nil: every Auth sends mail, so set Sender to a mail.Sender, such as workspace.New")
 	}
 	if strings.TrimSpace(m.settings.Application) == "" {
-		return errors.New("WithMail: the application name is empty: the messages name the application")
+		return errors.New("MailSettings: the application name is empty: the messages name the application")
 	}
 	u, err := url.Parse(m.settings.LoginURL)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.Fragment != "" {
-		return errors.Newf("WithMail: the login URL %q is not an absolute http or https URL without a fragment: the mailed links lead to the login page", m.settings.LoginURL)
+		return errors.Newf("MailSettings: the login URL %q is not an absolute http or https URL without a fragment: the mailed links lead to the login page", m.settings.LoginURL)
 	}
 	if m.settings.InvitationTimeout <= 0 {
 		m.settings.InvitationTimeout = defaultInvitationTimeout
@@ -487,34 +484,13 @@ Nobody from %s will ask you for it. Don't share it.
 	}
 }
 
-// mailOf returns the Auth's mail settings, or an error for an Auth without mail.
-func (a *Auth[S, U, Tx]) mailOf() (*mailSettings, error) {
-	if a.settings.mail == nil {
-		return nil, errors.New("the Auth sends no mail: pass WithMail to NewAuth")
-	}
-
-	return a.settings.mail, nil
-}
-
-// requireMail is mailOf for the handler groups that need mail: a wiring mistake
-// panics, as a misregistered method does.
-func (a *Auth[S, U, Tx]) requireMail(group string) {
-	if a.settings.mail == nil {
-		panic(fmt.Sprintf("session: %s needs mail, which this Auth does not send: pass WithMail to NewAuth", group))
-	}
-}
-
 // send delivers msg through the configured sender. A failure is reported to the person
 // as the message not having been sent, never with the mail system's words.
 func (a *Auth[S, U, Tx]) send(ctx context.Context, msg mail.Message) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	m, err := a.mailOf()
-	if err != nil {
-		return err
-	}
-	if err := m.sender.Send(ctx, msg); err != nil {
+	if err := a.settings.mail.sender.Send(ctx, msg); err != nil {
 		return httpio.NewInternalServerErrorMessageWithError(errors.Wrap(err, "mail.Sender.Send()"), "the message could not be sent")
 	}
 

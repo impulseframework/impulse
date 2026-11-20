@@ -24,7 +24,7 @@ import (
 )
 
 func register(client any, key string, settings *Settings) {
-	authSession, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators())
+	authSession, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), settings.Mail)
 ` + statements + `
 }
 ` + strings.Join(decls, "\n")
@@ -512,7 +512,7 @@ func TestReadSuperAdministrators(t *testing.T) {
 		return
 	}
 `
-		construct = `	_, _ = session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, %s, session.WithCookieName("members"))
+		construct = `	_, _ = session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, %s, settings.Mail, session.WithCookieName("members"))
 `
 		scaffolded = `session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))`
 	)
