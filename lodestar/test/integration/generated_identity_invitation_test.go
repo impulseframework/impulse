@@ -45,8 +45,9 @@ func inviteCrew(ctx context.Context, t *testing.T, b *browser, body string) invi
 // written in the method's transaction and its message goes once that has committed,
 // the answer says whether it went, an invitation whose message could not be sent is
 // withdrawn, an invitation gives a role, the person who follows the link holds it, an
-// invitation into every sector is held to the sectors' roles, and a withdrawal holds to
-// invitations.
+// invitation that names neither a sector nor every sector is held to the whole
+// application's roles and says what to choose for a sector's, an invitation into every
+// sector is held to the sectors' roles, and a withdrawal holds to invitations.
 //
 // Demonstrates: auth.generated-identity.
 func TestGeneratedIdentityInvitations(t *testing.T) {
@@ -79,6 +80,17 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	} {
 		if status, respBody := hq.do(ctx, http.MethodPost, consoleAPI+"/invite-crew-user", []byte(body)); status != http.StatusBadRequest {
 			t.Errorf("an invitation %s: status %d, want 400: %s", name, status, respBody)
+		}
+	}
+	// A sector's role in an invitation that names neither a sector nor every sector:
+	// the invitation is into the whole application, where no such role exists, and
+	// the refusal says what to choose. Were it sent, its acceptance would give the
+	// role in every sector, which the sender never said.
+	const noSector = `is a role held in a sector, and this invitation names none. Choose the sector it is for, or every sector`
+	for _, roles := range []string{`["SectorMarshal"]`, `["ClientBrowser","Pilot"]`} {
+		status, respBody := hq.do(ctx, http.MethodPost, consoleAPI+"/invite-crew-user", []byte(`{"email":"ensign@example.com","roles":`+roles+`}`))
+		if status != http.StatusBadRequest || !strings.Contains(string(respBody), noSector) {
+			t.Errorf("an invitation of %s with no sector named: status %d, want 400 that says to choose the sector or every sector: %s", roles, status, respBody)
 		}
 	}
 	for _, message := range s.mail.Messages() {

@@ -1698,8 +1698,10 @@ class SideBuilder {
  * The filter the list of the roles to give is asked with for where a role is to be held,
  * from the dialog's values: one tenant's roles where a tenant is chosen; where none is,
  * the roles held in every tenant or for the whole application, as "In every tenant"
- * says. The request then says the same place, so a role of a tenant's kind is given in
- * every tenant only by a person who ticked that.
+ * says. The request then says the same place, and the server holds it to that place: a
+ * request that names neither a tenant nor every tenant gives roles of the whole
+ * application alone, so a role of a tenant's kind is given in every tenant only by a
+ * person who ticked that.
  */
 function heldWhere(values: RecordData): string {
   const domain = values['domain'];

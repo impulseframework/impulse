@@ -53,10 +53,12 @@ import (
 // InvitationAccepted answers the session library's hook for an accepted invitation
 // (session.Auth.SetInvitationAccepted): the roles the invitation carries are buffered
 // as memberships of the person in the transaction that consumes the invitation. An
-// invitation into a tenant gives its roles in that tenant; one into the application
+// invitation into a tenant gives its roles in that tenant; one that stores no tenant
 // gives each role where that role is held, the global scope for a role of the global
-// kind and every tenant for one of the domain kind, as Invite checked when it wrote the
-// invitation. A role that can no longer be given (the role file changed since) fails
+// kind and every tenant for one of the domain kind. Invite held its roles to one of
+// the two when it wrote the invitation: the whole application's where the sender named
+// neither a tenant nor every tenant, the tenants' where the sender said every tenant.
+// A role that can no longer be given (the role file changed since) fails
 // the transaction: the invitation stands, and a person the sign-in would have created
 // is not created. An invitation that makes a tenant carries no role: its acceptance
 // makes the tenant and seats the person as its first administrator
@@ -151,11 +153,14 @@ func (m *Manager) giveInvitedRoles(ctx context.Context, txn resource.ReadWriteTr
 }
 
 // giveInvitedRole buffers one role of an invitation: in the invitation's tenant, or,
-// for an invitation into the application, in the global scope for a role that exists
-// there and in every tenant otherwise. The membership write answers NotFound for a
-// role that does not exist where it is asked for, with nothing written, which is how
-// the kind is told. A role the person holds there already is left as it stands
-// (giveUnlessHeld).
+// for an invitation that stores no tenant, in the global scope for a role that exists
+// there and in every tenant otherwise. The stored invitation does not tell one into
+// the whole application from one into every tenant, so the role's kind does: Invite
+// held each role to the place the sender named, a role of the whole application for
+// the one and a role of the tenants with no global namesake for the other. The
+// membership write answers NotFound for a role that does not exist where it is asked
+// for, with nothing written, which is how the kind is told. A role the person holds
+// there already is left as it stands (giveUnlessHeld).
 func (m *Manager) giveInvitedRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation, role accesstypes.Role) error {
 	if inv.TenantID != "" {
 		if err := m.giveUnlessHeld(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(inv.TenantID)), userID, role); err != nil {

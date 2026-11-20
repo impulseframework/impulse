@@ -4447,17 +4447,18 @@ authSession.SetSignUpSeated(identityClient.SignedUp())
 authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 ```
 
-An invitation into a tenant gives its roles in that tenant; one into the application
-gives each role where the role is held, the global scope or every tenant; one that makes
-a tenant makes it there, in the same transaction, and gives the person the roles that
-administer it ("The invitation that makes a tenant", below). The sender says where the
-roles go: `domain` for one tenant, `everyDomain` for every tenant, or
-neither. An invitation that says every tenant is held to it when it is sent: each role
-is one that exists in every tenant, a role of the whole application alone is refused
-(400), and so is a custom role whose name a role of the whole application carries too,
-since an invitation keeps its roles by name and the acceptance would give the whole
-application's. One that says neither is sent as before, each role given where it is
-held. A role that can
+An invitation into a tenant gives its roles in that tenant; one into every tenant gives
+them in every tenant; one into the whole application gives them in the global scope; one
+that makes a tenant makes it there, in the same transaction, and gives the person the
+roles that administer it ("The invitation that makes a tenant", below). The sender says
+where the roles go: `domain` for one tenant, `everyDomain` for every tenant, or
+neither, which is the whole application. An invitation is held to its place when it is
+sent. One that says every tenant takes roles that exist in every tenant: a role of the
+whole application alone is refused (400), and so is a custom role whose name a role of
+the whole application carries too, since an invitation keeps its roles by name and the
+acceptance would give the whole application's. One that says neither takes roles of the
+whole application alone: a role that exists only in the tenants is refused (400), in
+words that say to choose the tenant it is for, or every tenant. A role that can
 no longer be given (the role file changed since the invitation was sent) fails the
 transaction: the invitation stands and no account is created. The permission engine is
 told once the transaction has committed, before the sign-in policy decides. The client

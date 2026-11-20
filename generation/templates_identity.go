@@ -2198,10 +2198,10 @@ type (
 	// the roles. An invitation gives at least one role: into a tenant (Domain), where
 	// every role is held there; into every tenant (EveryDomain), where every role is
 	// one of the domain kind and none carries the name of a role of the global scope;
-	// or with neither, into the application, where a role of the global scope is held
-	// there and a role of the domain kind in every tenant. Name is the name the sender
-	// gives the person: whoever accepts the invitation takes it where their account
-	// holds none.
+	// or with neither, into the whole application, where every role is one of the
+	// global scope: a role that exists only in the tenants is refused there, with what
+	// to choose. Name is the name the sender gives the person: whoever accepts the
+	// invitation takes it where their account holds none.
 	//
 	// The invitation is written in the transaction, beside whatever else it writes,
 	// and its message is sent once the transaction has committed, since a message

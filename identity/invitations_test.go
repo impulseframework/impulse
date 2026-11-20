@@ -69,9 +69,9 @@ func TestManager_Invite(t *testing.T) {
 	}{
 		{
 			name:       "an invitation into the application: the row is written, and the message goes once it is committed",
-			inv:        Invitation{Email: "  pat@example.com ", Roles: []accesstypes.Role{"Steward", "Reader", "Steward"}},
+			inv:        Invitation{Email: "  pat@example.com ", Roles: []accesstypes.Role{"Steward", "Steward"}},
 			caller:     dana,
-			wantWrites: []string{row("pat@example.com", "", "Steward,Reader", userID.String())},
+			wantWrites: []string{row("pat@example.com", "", "Steward", userID.String())},
 			wantMailed: []string{"pat@example.com"},
 			wantSent:   ptr(true),
 		},
@@ -161,6 +161,17 @@ func TestManager_Invite(t *testing.T) {
 			wantErr: httpio.HasBadRequest,
 		},
 		{
+			// The form that names neither a tenant nor every tenant means the whole
+			// application, as it does where a role is given by hand: a role that exists
+			// only in the tenants is not given by it, and the refusal says what to choose.
+			name: "a role of the tenants is refused where the invitation names neither a tenant nor every tenant",
+			inv:  Invitation{Email: "pat@example.com", Roles: []accesstypes.Role{"Steward", "Reader"}},
+			wantErr: func(err error) bool {
+				return httpio.HasBadRequest(err) &&
+					strings.Contains(httpio.Message(err), `"Reader" is a role held in a tenant, and this invitation names none. Choose the tenant it is for, or every tenant`)
+			},
+		},
+		{
 			name:    "a global role is no role of a tenant",
 			inv:     Invitation{Email: "pat@example.com", Domain: ptr("alpha"), Roles: []accesstypes.Role{"Steward"}},
 			wantErr: httpio.HasBadRequest,
@@ -188,7 +199,7 @@ func TestManager_Invite(t *testing.T) {
 			},
 		},
 		{
-			name:       "the same role is given as today where the invitation does not say every tenant: the global one",
+			name:       "a role whose name both kinds carry is the global one where the invitation names neither a tenant nor every tenant",
 			inv:        Invitation{Email: "pat@example.com", Roles: []accesstypes.Role{"Reader"}},
 			custom:     map[access.RoleKey]bool{globalReader: true},
 			wantWrites: []string{row("pat@example.com", "", "Reader", "<nobody>")},
