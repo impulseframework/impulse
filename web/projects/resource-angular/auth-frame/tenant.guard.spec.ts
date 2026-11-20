@@ -1,3 +1,4 @@
+import { Location } from '@angular/common';
 import { Component, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { RedirectCommand, Router, Routes } from '@angular/router';
@@ -7,6 +8,7 @@ import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 import { firstValueFrom } from 'rxjs';
 import { provideFrameTesting, SpecServer, specTransport } from './frame-testing';
+import { TenantRefusedComponent } from './tenant-refused.component';
 import { tenantGuard } from './tenant.guard';
 import { refusedSegment, TenantService } from './tenant.service';
 
@@ -21,16 +23,16 @@ import { refusedSegment, TenantService } from './tenant.service';
 // The guard reads what the session holds in the tenant before it opens the tenant, so a
 // page under the segment knows its permissions the first time it draws: it is not drawn
 // while the tenant's digest is on its way, and a page open in another tenant keeps that
-// tenant until the new tenant's digest is in.
+// tenant until the new tenant's digest is in. A digest that could not be read opens
+// nothing: the refusal page says the page could not be loaded and offers to try again, the
+// tenant is not entered, and the page that was asked for is not drawn as a page of a
+// person who holds nothing.
 
 @Component({ template: 'the page' })
 class PageComponent {
   /** What the page could say of the tenant's users when it was made, before it drew anything. */
   readonly knewAtFirst = inject(TenantService).state('List' as Permission, 'Users' as Resource);
 }
-
-@Component({ template: 'refused' })
-class RefusedComponent {}
 
 @Component({ template: 'elsewhere' })
 class ElsewhereComponent {}
@@ -47,7 +49,7 @@ const testRoutes: Routes = [
     canActivate: [(): RedirectCommand => new RedirectCommand(inject(Router).parseUrl('/tenants/acme/page'))],
     children: [],
   },
-  { path: `${tenantPath}/${refusedSegment}`, component: RefusedComponent },
+  { path: `${tenantPath}/${refusedSegment}`, component: TenantRefusedComponent },
   {
     path: tenantPath,
     canActivate: [tenantGuard],
@@ -179,7 +181,7 @@ describe('tenantGuard', () => {
         activated = await harness.navigateByUrl(url);
       }
 
-      const components = { page: PageComponent, refused: RefusedComponent, elsewhere: ElsewhereComponent };
+      const components = { page: PageComponent, refused: TenantRefusedComponent, elsewhere: ElsewhereComponent };
       expect(activated).toBeInstanceOf(components[tt.want]);
       expect(tenants.current()).toBe(tt.wantTenant);
       expect(entered.mock.calls.map(([tenant]) => tenant)).toEqual(tt.wantEntered);
@@ -211,10 +213,10 @@ describe('tenantGuard', () => {
 
     /**
      * Configures the app over the server, with the session's tenant list landed. The read
-     * of one tenant's digest is answered only when the spec lets it go, or answered as the
-     * response given.
+     * of one tenant's digest is answered only when the spec lets it go, or, with `answer`,
+     * as that says each time it is asked: a response, or nothing for the server's own.
      */
-    const appHolding = async (tenant: string, answer?: TransportResponse): Promise<() => void> => {
+    const appHolding = async (tenant: string, answer?: () => TransportResponse | undefined): Promise<() => void> => {
       const played = specTransport(server);
       let release = (): void => undefined;
       const held = new Promise<void>((resolve) => {
@@ -223,7 +225,7 @@ describe('tenantGuard', () => {
       transport = scriptedTransport(async (request) => {
         if (request.url.endsWith(`/permission-digest?domain=${tenant}`)) {
           if (answer) {
-            return answer;
+            return answer() ?? played(request);
           }
           await held;
         }
@@ -275,18 +277,75 @@ describe('tenantGuard', () => {
       expect(tenants.state('List' as Permission, 'Users' as Resource)).toBe('conditional');
     });
 
-    it('opens the page holding nothing where the digest cannot be read, and does not ask again', async () => {
-      await appHolding('acme', { status: 500, body: { message: 'the digest is not to be had' } });
-      const tenants = TestBed.inject(TenantService);
-      const harness = await RouterTestingHarness.create();
+    describe('where the digest cannot be read', () => {
+      /** What the refusal page shows, as a person reads it. */
+      const shown = (harness: RouterTestingHarness): string =>
+        ((harness.routeNativeElement as HTMLElement).textContent ?? '').replace(/\s+/g, ' ').trim();
 
-      const page = await harness.navigateByUrl('/tenants/acme/page');
+      const tryAgain = async (harness: RouterTestingHarness): Promise<void> => {
+        (harness.routeNativeElement as HTMLElement).querySelector<HTMLButtonElement>('button.try-again')!.click();
+        await settle(harness);
+      };
 
-      expect(page).toBeInstanceOf(PageComponent);
-      expect((page as PageComponent).knewAtFirst).toBeUndefined();
-      expect(tenants.current()).toBe('acme');
-      await settle(harness);
-      expect(digestReads('acme')).toBe(1);
+      it('says the page could not be loaded, with a way to try again, and nothing else', async () => {
+        await appHolding('acme', () => ({ status: 500, body: { message: 'the digest is not to be had' } }));
+        const tenants = TestBed.inject(TenantService);
+        const entered = vi.spyOn(tenants, 'enter');
+        const harness = await RouterTestingHarness.create();
+
+        const landed = await harness.navigateByUrl('/tenants/acme/page');
+        harness.detectChanges();
+
+        // No page of the tenant is drawn and the tenant is not open: the person is not told
+        // they hold nothing, and not told the tenant does not exist.
+        expect(landed).toBeInstanceOf(TenantRefusedComponent);
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+        expect(entered).not.toHaveBeenCalled();
+        expect(tenants.current()).toBe('');
+        expect(tenants.unread()).toBe('/tenants/acme/page');
+        // The address is not moved to the refusal page, so a reload asks for the page again.
+        expect(TestBed.inject(Location).path()).not.toContain(refusedSegment);
+        // The server's own words are shown nowhere.
+        expect(shown(harness)).not.toContain('not to be had');
+      });
+
+      it('asks again on Try again: a second failure leaves the sentence, and an answer opens the page', async () => {
+        let down = true;
+        await appHolding('acme', () =>
+          down ? { status: 500, body: { message: 'the digest is not to be had' } } : undefined,
+        );
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+        await harness.navigateByUrl('/tenants/acme/page');
+        harness.detectChanges();
+        expect(digestReads('acme')).toBe(1);
+
+        await tryAgain(harness);
+        expect(digestReads('acme')).toBe(2);
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+        expect(tenants.current()).toBe('');
+
+        down = false;
+        await tryAgain(harness);
+        expect(digestReads('acme')).toBe(3);
+        expect(shown(harness)).toBe('the page');
+        expect((harness.routeDebugElement?.componentInstance as PageComponent).knewAtFirst).toBe('granted');
+        expect(tenants.current()).toBe('acme');
+        expect(tenants.unread()).toBe('');
+      });
+
+      it('says 404 Not Found, and offers nothing to try, for a tenant the session cannot reach', async () => {
+        await appHolding('acme', () => ({ status: 500, body: { message: 'the digest is not to be had' } }));
+        const harness = await RouterTestingHarness.create();
+        await harness.navigateByUrl('/tenants/acme/page');
+
+        // A refusal that lands after a failed read is the refusal, not the failed read.
+        await harness.navigateByUrl('/tenants/zzz/page');
+        harness.detectChanges();
+
+        expect(shown(harness)).toBe('404 Not Found');
+        expect(TestBed.inject(TenantService).unread()).toBe('');
+      });
     });
 
     it('loads the digest of a tenant entered with none in the cache, as a spec or a reused segment enters one', async () => {

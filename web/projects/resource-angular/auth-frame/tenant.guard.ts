@@ -2,6 +2,7 @@ import { inject } from '@angular/core';
 import { CanActivateFn, RedirectCommand, Router } from '@angular/router';
 import { Domain } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { firstValueFrom } from 'rxjs';
 import { Frame } from './frame';
 import { refusedSegment, TenantService } from './tenant.service';
@@ -20,15 +21,21 @@ import { refusedSegment, TenantService } from './tenant.service';
  * for the tenant's permission digest, then enters. So a page under the segment knows its
  * permissions the first time it draws, and never draws a person as holding nothing and
  * then fills in what they hold; a page already open in another tenant keeps that tenant's
- * answers until the new tenant's are in. A read that fails leaves the digest empty, and
- * the page opens holding nothing.
+ * answers until the new tenant's are in.
+ *
+ * A read that fails opens nothing: a tenant whose digest could not be read is not a tenant
+ * the person holds nothing in, so no page is drawn as if it were. The tenant is not
+ * entered, and the refusal page stands in for the page that was asked for, at that page's
+ * own address, saying it could not be loaded and offering to try again
+ * (TenantService.unreadRedirect); trying again runs this guard again.
  *
  * Leaving is not the guard's: TenantService follows the navigation that lands, so a
  * navigation another guard turns back into the same tenant clears nothing.
  */
-export const tenantGuard: CanActivateFn = async (route) => {
+export const tenantGuard: CanActivateFn = async (route, state) => {
   const tenants = inject(TenantService);
   const auth = inject(AuthService);
+  const client = inject(RESOURCE_CLIENT);
   const router = inject(Router);
   const frame = inject(Frame);
   const tenant = route.paramMap.get(frame.param) ?? '';
@@ -38,7 +45,11 @@ export const tenantGuard: CanActivateFn = async (route) => {
   if (!tenants.tenants().includes(tenant)) {
     return new RedirectCommand(router.createUrlTree(['/', frame.segment, tenant, refusedSegment]));
   }
-  await firstValueFrom(auth.loadDigest(tenant as Domain));
+  try {
+    await client.permissions.loadDigest(tenant as Domain);
+  } catch {
+    return tenants.unreadRedirect(tenant, state.url);
+  }
   tenants.enter(tenant);
   return true;
 };

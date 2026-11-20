@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   ActivatedRouteSnapshot,
   PRIMARY_OUTLET,
+  RedirectCommand,
   ResolveEnd,
   Router,
   UrlSegment,
@@ -14,8 +15,20 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 import { filter } from 'rxjs';
 import { Frame } from './frame';
 
-/** The segment under a tenant where a URL naming a tenant the session cannot reach lands. */
+/**
+ * The segment under a tenant where the tenant guard sends a navigation it cannot open: a
+ * URL naming a tenant the session cannot reach, or a tenant whose permission digest could
+ * not be read.
+ */
 export const refusedSegment = 'refused';
+
+/**
+ * What the guard's redirect carries, as the navigation's `info`, when a tenant's permission
+ * digest could not be read: the address that was asked for.
+ */
+class UnreadTenant {
+  constructor(readonly url: string) {}
+}
 
 /**
  * TenantService holds the one piece of state the tenant's pages share, the tenant the page
@@ -38,6 +51,11 @@ export const refusedSegment = 'refused';
  * tenant entered with no digest in the cache loads it on entering. `can` and `state`
  * answer from the digest, and a question asked inside reactive code is asked again when
  * it loads.
+ *
+ * A tenant whose digest could not be read is not entered: the guard sends the navigation
+ * to the refusal page with the address that was asked for (`unreadRedirect`), and `unread`
+ * holds that address while the page stands in for it, so the page can say the read failed
+ * and offer to try again. Like the tenant, it is settled by the navigation that lands.
  */
 @Injectable({ providedIn: 'root' })
 export class TenantService {
@@ -55,6 +73,16 @@ export class TenantService {
 
   /** The tenant the page is open in; empty outside the tenant segment. */
   readonly current = this.routed.asReadonly();
+
+  // The address the landed navigation was asked for and could not open, because the
+  // tenant's digest could not be read: written by the landing navigation, nothing else.
+  private unreadUrl = signal('');
+
+  /**
+   * The address of the page that could not be opened because what the session holds in its
+   * tenant could not be read, while the refusal page stands in for it; empty otherwise.
+   */
+  readonly unread = this.unreadUrl.asReadonly();
 
   constructor() {
     // Entering a tenant re-scopes every permission question. The tenant guard has read
@@ -85,6 +113,10 @@ export class TenantService {
         } else if (!tenant && this.routed()) {
           this.leave();
         }
+        // Only the guard's redirect for an unread tenant carries the address; any other
+        // landing, the page opening on a second try among them, clears it.
+        const info = this.router.currentNavigation()?.extras.info;
+        this.unreadUrl.set(info instanceof UnreadTenant ? info.url : '');
       });
   }
 
@@ -99,6 +131,19 @@ export class TenantService {
   /** leave closes the tenant: the navigation landed outside the segment. */
   leave(): void {
     this.routed.set('');
+  }
+
+  /**
+   * unreadRedirect is where the tenant guard sends a navigation whose tenant's digest could
+   * not be read: the refusal page under the tenant, carrying the address that was asked
+   * for (`url`), which `unread` then holds. The browser's address is left as it is, so a
+   * deep link keeps its address and a reload asks for the page again.
+   */
+  unreadRedirect(tenant: string, url: string): RedirectCommand {
+    return new RedirectCommand(this.router.createUrlTree(['/', this.frame.segment, tenant, refusedSegment]), {
+      skipLocationChange: true,
+      info: new UnreadTenant(url),
+    });
   }
 
   /**
