@@ -1065,7 +1065,8 @@ describe('what a row says of a list, a missing key and a method it does not offe
 // A column keeps a readable width: the table is never narrower than its columns at the
 // narrowest each is drawn, so a frame too narrow for them scrolls sideways, the frame and
 // never the page, and the first column is then held at the left edge with the select and
-// expand columns. A list whose columns fit is drawn as it always was. jsdom lays nothing
+// expand columns, while the widest of the other columns can be seen whole beside it; no
+// second column is ever held. A list whose columns fit is drawn as it always was. jsdom lays nothing
 // out and has no ResizeObserver, so each case says how wide the frame is, as the browser
 // would report it.
 describe('a list and the width of its frame', () => {
@@ -1088,9 +1089,13 @@ describe('a list and the width of its frame', () => {
     },
   ] as unknown as ColumnConfig[];
   const columnsAtTheirNarrowest = text + text + 64 + text + 66;
-  // What a wide window leaves the list, and a phone held upright.
+  // What a wide window leaves the list, and a phone held upright: one 390 wide, and one 360.
   const wide = 1226;
   const phone = 336;
+  const smallPhone = 306;
+  // The least frame in which the list with a select and an expand column holds its first
+  // column: those two, the first column, and the widest of the others whole beside them.
+  const holdsWithSelectAndExpand = 48 + 40 + text + text;
 
   /** A list with a select column and rows that expand, as a page that offers both hands them to the grid. */
   @Component({
@@ -1373,7 +1378,7 @@ describe('a list and the width of its frame', () => {
 
     it('holds the select and expand columns with it, each after the one before', async () => {
       await withSelectAndExpand();
-      frameIs(phone);
+      frameIs(holdsWithSelectAndExpand);
 
       expect(held()).toBe(true);
       expect(frame().style.getPropertyValue('--impulse-grid-expand-left')).toBe('48px');
@@ -1400,7 +1405,7 @@ describe('a list and the width of its frame', () => {
       expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe(`${text}px`);
 
       await withSelectAndExpand();
-      frameIs(phone);
+      frameIs(holdsWithSelectAndExpand);
       expect(held()).toBe(true);
       expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe(`${48 + 40 + text}px`);
       expect(declares(['.holds-first-column'], ['impulse-grid-table'])).toMatch(
@@ -1447,16 +1452,95 @@ describe('a list and the width of its frame', () => {
       expect(frame().scrollLeft).toBe(100);
     });
 
-    it('lets the first column go where holding it would leave less than the narrowest column beside it', async () => {
+    it('lets the first column go where its widest other column could not be seen whole beside it, to the pixel: nothing is held then, and every column scrolls', async () => {
       await plain();
+      // The first column and the widest of the others are 160 each: 320 of the 336 a list
+      // has on a phone 390 wide, and more than the 306 it has on one 360 wide.
       frameIs(phone);
-      // Dragged to 288, the held column leaves 48 beside it, the least a column goes.
-      drag(0, 288);
       expect(held()).toBe(true);
-      expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe('288px');
+      frameIs(smallPhone);
+      expect(held()).toBe(false);
+      expect(parseFloat(table().style.minWidth)).toBeGreaterThan(smallPhone);
+      // The title row stays at the top of the frame as ever; nothing stays at its left.
+      expect(getComputedStyle(cells(0)[0]).position).not.toBe('sticky');
+      expect(getComputedStyle(table()).borderCollapse).toBe('collapse');
+      frameIs(2 * text);
+      expect(held()).toBe(true);
+      frameIs(2 * text - 1);
+      expect(held()).toBe(false);
+
+      // Dragged to 176 on the phone, the held column leaves the 160 the widest other needs.
+      frameIs(phone);
+      drag(0, 176);
+      expect(held()).toBe(true);
+      expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe('176px');
       drag(0, 1);
       expect(held()).toBe(false);
       expect(parseFloat(table().style.minWidth)).toBeGreaterThan(phone);
+    });
+
+    it('counts the select and expand columns in what is held: the list lets all three go a pixel under the room they and the widest other column need', async () => {
+      await withSelectAndExpand();
+      frameIs(holdsWithSelectAndExpand - 1);
+
+      expect(held()).toBe(false);
+      for (const cell of cells(1).slice(0, 3)) {
+        expect(getComputedStyle(cell).position).not.toBe('sticky');
+      }
+      // On a phone the two columns and a first column at the library's width leave 88.
+      frameIs(phone);
+      expect(held()).toBe(false);
+    });
+
+    it('goes by the widest column that scrolls as it is drawn: one a person dragged wider or narrower, and a column of buttons with the rest', async () => {
+      await plain();
+      // The second column dragged to 170: the first, at 160, needs 330 to hold.
+      drag(1, 170);
+      frameIs(330);
+      expect(held()).toBe(true);
+      frameIs(329);
+      expect(held()).toBe(false);
+
+      // Dragged down to 100, it is no longer the widest: the fourth is, at 160.
+      drag(1, -70);
+      expect(headers()[1].style.width).toBe('100px');
+      frameIs(2 * text - 1);
+      expect(held()).toBe(false);
+      frameIs(2 * text);
+      expect(held()).toBe(true);
+
+      // A first column wider than every other is not counted twice: 200 and 160.
+      drag(0, 200);
+      frameIs(200 + text);
+      expect(held()).toBe(true);
+      frameIs(200 + text - 1);
+      expect(held()).toBe(false);
+
+      // Of a first column, a column 64 wide and a column of buttons, the buttons' 66 is
+      // the widest that scrolls.
+      give('columnDefs', [columns[0], columns[2], columns[4]]);
+      detect();
+      frameIs(200 + 66);
+      expect(held()).toBe(true);
+      frameIs(200 + 66 - 1);
+      expect(held()).toBe(false);
+    });
+
+    it('holds nothing in a list of one column or of two: what scrolls would not be whole beside the first', async () => {
+      await plain();
+      give('columnDefs', [columns[0]]);
+      detect();
+      frameIs(text - 1);
+      expect(parseFloat(table().style.minWidth)).toBeGreaterThan(text - 1);
+      expect(held()).toBe(false);
+
+      // Two columns scroll only in a frame narrower than both, where the second is not whole beside the first.
+      give('columnDefs', [columns[0], columns[1]]);
+      detect();
+      frameIs(2 * text - 1);
+      expect(held()).toBe(false);
+      frameIs(phone);
+      expect(held()).toBe(false);
     });
 
     it('draws a held cell on the color the list sits on, read off the page: a part-clear color nearer by is passed over', async () => {
@@ -1649,10 +1733,15 @@ describe('a list and the width of its frame', () => {
     const frames = (): HTMLElement[] => {
       return Array.from(element.querySelectorAll<HTMLElement>('.impulse-grid-scroll'));
     };
-    /** The browser lays the two frames out: the outer one a phone wide, the inner one wide enough for its two columns. */
+    // The outer list's expand column, its first column and the widest of its others, whole.
+    const outerHolds = 40 + text + text;
+    /**
+     * The browser lays the two frames out: the outer one too narrow for its columns and just
+     * wide enough to hold its first, the inner one wide enough for its two columns.
+     */
     const laidOut = (): void => {
       const [outer, inner] = frames();
-      Object.defineProperty(outer, 'clientWidth', { configurable: true, value: phone });
+      Object.defineProperty(outer, 'clientWidth', { configurable: true, value: outerHolds });
       Object.defineProperty(inner, 'clientWidth', { configurable: true, value: 2 * text + 4 });
       watched.forEach((entry) => entry.report());
       detect();
@@ -2380,6 +2469,25 @@ describe('a list and the width of its frame', () => {
         expect(at(narrowest - 1)).toEqual(scrolls);
         // What it needs does not move with the frame.
         expect(table().style.minWidth).toBe(`${narrowest}px`);
+      });
+
+      it('holds its first column while the widest of the others, as narrow as that one goes, is whole beside it, and lets it go a pixel under that', async () => {
+        await plain();
+        // Name is held at the 131 it needs; Description, at the library's width, is the
+        // widest of those that scroll.
+        frameIs(name + text);
+        expect(held()).toBe(true);
+        frameIs(name + text - 1);
+        expect(held()).toBe(false);
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+
+        // Without Description the widest is Changed By, at the 111 its heading needs.
+        await hand('columnDefs', [columns[0], columns[2], columns[3], columns[4]]);
+        expect(widths()).toEqual([`${name}px`, '64px', `${changedBy}px`, '66px']);
+        frameIs(name + changedBy);
+        expect(held()).toBe(true);
+        frameIs(name + changedBy - 1);
+        expect(held()).toBe(false);
       });
     });
 

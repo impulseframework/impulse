@@ -1110,12 +1110,13 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    * tenant the person reaches in which they may list it, where a page inside a tenant
    * lists that tenant's. The resource must be declared for it (`@listAcrossTenants`; its
    * descriptor says `acrossTenants`), and the page is refused when it is built otherwise,
-   * naming the resource. The table gains a first column naming each row's tenant, under
-   * the application's word for a tenant, and a row's View link opens the row itself
-   * inside its tenant, on the record's own row route there, drawn where the person may
-   * read the record in that tenant and the application mounts it a row route. The page
-   * is shown, and its route opened, to whoever may list the resource in at least one
-   * tenant they reach, as the server tells the global digest; the config names no
+   * naming the resource. The table gains a column naming each row's tenant, under the
+   * application's word for a tenant: its second column, after the page's first, which names
+   * the row and is the one the table holds while the rest scroll sideways. A row's View
+   * link opens the row itself inside its tenant, on the record's own row route there, drawn
+   * where the person may read the record in that tenant and the application mounts it a row
+   * route. The page is shown, and its route opened, to whoever may list the resource in at
+   * least one tenant they reach, as the server tells the global digest; the config names no
    * permission for it. The server decides, tenant by tenant, which of the page's columns a
    * row shows, so the page asks for no column list and a cell the person may not read in
    * a row's tenant stays empty. The page reads: it offers no create, no delete and no

@@ -1282,9 +1282,10 @@ describe('ResourceListComponent', () => {
   describe('lists a resource across tenants', () => {
     // The page is outside every tenant and lists a resource declared for it
     // (@listAcrossTenants) in every tenant the person reaches: one request without the
-    // tenant's segment, each row naming its tenant. The table names the tenant in a first
-    // column and a row's View link opens the row itself inside its own tenant: the
-    // record's row route there, drawn where that tenant's digest lets the person read it.
+    // tenant's segment, each row naming its tenant. The table names the tenant in its
+    // second column, after the column that names the row, and a row's View link opens the
+    // row itself inside its own tenant: the record's row route there, drawn where that
+    // tenant's digest lets the person read it.
     const missions = 'Missions' as Resource;
     const refits = 'Refits' as Resource;
     // Patrols are listed across tenants too, and the application mounts them no row route.
@@ -1476,15 +1477,17 @@ describe('ResourceListComponent', () => {
       ]);
 
       const cols = fixture.componentInstance.columns();
-      expect(cols.map((col) => col.id)).toEqual(['zzTenant', 'title', 'fee', 'view']);
-      expect(cols[0].header).toBe('Sector');
+      // The column that names the row is first, the one the grid holds while the rest
+      // scroll; the tenant is second, in the application's own word for a tenant.
+      expect(cols.map((col) => col.id)).toEqual(['title', 'zzTenant', 'fee', 'view']);
+      expect(cols[1].header).toBe('Sector');
 
       const cells = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')).map((row) =>
         Array.from(row.querySelectorAll('td.data-col:not(.action-col)')).map((cell) => cell.textContent?.trim()),
       );
       expect(cells).toEqual([
-        ['Anvil', 'Hauler', '8000'],
-        ['Bastion', 'Beacon', ''],
+        ['Hauler', 'Anvil', '8000'],
+        ['Beacon', 'Bastion', ''],
       ]);
 
       // Anvil's row links to the mission itself inside Anvil, where the person may read
@@ -1522,7 +1525,7 @@ describe('ResourceListComponent', () => {
 
       // The person may read a patrol in both tenants: with no row route to open one on,
       // the list still draws no View column and no link.
-      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['zzTenant', 'title']);
+      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['title', 'zzTenant']);
       expect(rowLinks()).toEqual([null, null]);
       expect(digestRequests()).toEqual([]);
     });
@@ -1546,7 +1549,7 @@ describe('ResourceListComponent', () => {
       fixture.detectChanges();
       await settle();
 
-      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['zzTenant', 'title', 'fee', 'view']);
+      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['title', 'zzTenant', 'fee', 'view']);
       expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
     });
 
@@ -1566,8 +1569,8 @@ describe('ResourceListComponent', () => {
       // The tenant is not a field of the resource, so the server sorts by none: its
       // heading is words, as a column that opts out of sorting is drawn, and the grid
       // keeps no room for a sort arrow beside words. A field of the resource is pressed.
-      expect(fixture.componentInstance.columns()[0]).toMatchObject({ id: 'zzTenant', sortable: false });
-      expect(headings()).toEqual(['Sector: words', 'Title: a button', 'Fee: a button']);
+      expect(fixture.componentInstance.columns()[1]).toMatchObject({ id: 'zzTenant', sortable: false });
+      expect(headings()).toEqual(['Title: a button', 'Sector: words', 'Fee: a button']);
 
       // A click on those words asks for nothing, and the order the page asked for stands.
       (element.querySelector('th.data-col .header-words') as HTMLElement).click();

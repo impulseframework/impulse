@@ -74,7 +74,9 @@ const EXPAND_COLUMN_WIDTH = 40;
  * characters of the list's 14 pixel type, which is a person's first and last name. It is
  * also the widest that still shows one more column whole beside the held first one on a
  * phone 390 pixels wide, on a page and in a pop-up, in a list with no select or expand
- * column.
+ * column: two columns of this width are 320 of the 336 pixels a list has there, and a
+ * list holds its first column only while its widest other column can be seen whole
+ * beside it (`holdsFirstColumn`).
  */
 export const MIN_TEXT_COLUMN_WIDTH = 160;
 
@@ -206,7 +208,8 @@ export const COMPANION_FILTER_HINT =
  * columns sharing it equally but for one that needs more than its share; where they do not
  * fit, each is as narrow as it goes, the table stays as wide as that and the frame scrolls
  * sideways, the page never. The first column is then held at the left edge, with the
- * select and expand columns, while the others scroll under it.
+ * select and expand columns, while the others scroll under it, as long as the widest of
+ * the others can be seen whole beside it; no second column is ever held.
  */
 @Component({
   selector: 'impulse-grid',
@@ -443,16 +446,29 @@ export class AppGridComponent {
   });
 
   /**
+   * The widest of the columns that scroll under the held one: every column after the
+   * first, a button's column too, each as wide as it is drawn while the list scrolls
+   * sideways. Nothing in a list of one column.
+   */
+  private readonly widestScrollingColumn = computed(() =>
+    this.columnDefs()
+      .slice(1)
+      .reduce((widest, col) => Math.max(widest, this.narrowestFor(col)), 0),
+  );
+
+  /**
    * Whether the first column stays at the left edge while the others scroll under it,
-   * with the select and expand columns: so while the list scrolls sideways, unless the
-   * held columns would leave less room beside them than the narrowest a column goes (a
-   * first column dragged as wide as the frame, a list of one column), where holding
-   * them would keep every other column, and the handle that drags the first one back,
-   * out of reach.
+   * with the select and expand columns: so while the list scrolls sideways and the widest
+   * of the columns that scroll can be seen whole beside the held part, which is every one
+   * of them then, each in its turn. With less room than that beside the held part (a
+   * narrow frame, a first column dragged wide, a list of one column) nothing is held and
+   * every column scrolls: a column that could never be seen whole is worse than a first
+   * column that scrolls away. One column is held and never two: the first, which is the
+   * one that names the row.
    */
   holdsFirstColumn = computed(() => {
     const frame = this.frameWidth();
-    return frame !== undefined && this.scrollsSideways() && this.heldWidth() + MIN_COLUMN_WIDTH <= frame;
+    return frame !== undefined && this.scrollsSideways() && this.heldWidth() + this.widestScrollingColumn() <= frame;
   });
 
   /**

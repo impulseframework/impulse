@@ -681,19 +681,8 @@ export class ResourceListComponent implements OnInit {
     const usedIds = new Set<string>();
 
     if (this.across()) {
-      // Each row of a list across tenants says which tenant it is in: the first column
-      // names it, under the application's word for a tenant. The tenant is not a field of
-      // the resource, so the server sorts by none: the heading is words, with nothing to
-      // press and no room kept for a sort arrow.
+      // The tenant column of a list across tenants takes its id before any column of the page's.
       usedIds.add(TenantProperty);
-      columns.push({
-        id: TenantProperty as FieldName,
-        header: tenantWord(this.store.client.descriptor),
-        sortable: false,
-        filterable: false,
-        valueFormatter: (tenant: DataType | null): string =>
-          tenant ? this.store.client.permissions.domainName(tenant as Domain) : '',
-      });
     }
 
     for (const col of cols) {
@@ -801,6 +790,23 @@ export class ResourceListComponent implements OnInit {
           col.iconConfig ? { ...shared, iconConfig: col.iconConfig, tooltipPosition: col.tooltipPosition } : shared,
         );
       }
+    }
+
+    if (this.across()) {
+      // Each row of a list across tenants says which tenant it is in, under the
+      // application's word for a tenant: in the second column, after the column that names
+      // the row. The first column is the one a list holds in place while the others scroll,
+      // and it holds one, so the row's name stays and its tenant scrolls with the rest. The
+      // tenant is not a field of the resource, so the server sorts by none: the heading is
+      // words, with nothing to press and no room kept for a sort arrow.
+      columns.splice(Math.min(1, columns.length), 0, {
+        id: TenantProperty as FieldName,
+        header: tenantWord(this.store.client.descriptor),
+        sortable: false,
+        filterable: false,
+        valueFormatter: (tenant: DataType | null): string =>
+          tenant ? this.store.client.permissions.domainName(tenant as Domain) : '',
+      });
     }
 
     const target = this.rowTarget();
