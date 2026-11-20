@@ -1,14 +1,15 @@
 // Command sealedstorage is a program that does not compile, and is kept for that: it
-// calls the write beneath an impersonated session (the store's
-// CreateImpersonatedSession) itself, as an application could before the storage was
-// sealed, with a principal, a mask and an actor of its own choosing and no declaration
-// asked. The session package's tests type-check it and pin each refusal
-// (TestSealedStorage_directCallDoesNotCompile).
+// tries to make the write beneath an impersonated session itself, as an application
+// could before the storage was sealed, with a principal, a mask and an actor of its own
+// choosing and no declaration asked. The write is a method of the store whose name
+// belongs to an internal package of the session library, so the program finds it under
+// no name: not the one it had, not the one the library calls it by, and not through the
+// library's own way to it. The session package's tests type-check the program and pin
+// each refusal (TestSealedStorage_directCallDoesNotCompile).
 //
-// It is kept outside the session library's directory on purpose. The key the call takes
-// lives in an internal package of the session library, which the go command lets the
-// library's own directory import and nobody else: a program kept inside that directory
-// could import the key, and an application cannot.
+// It is kept outside the session library's directory on purpose: there an application
+// is, and the go command lets no package outside that directory import the internal
+// package the write is declared in.
 package main
 
 import (
@@ -19,11 +20,6 @@ import (
 	"github.com/impulseframework/impulse/session/sessionstorage"
 )
 
-// lookalike has the shape of the library's key and is not the library's key.
-type lookalike struct {
-	held bool
-}
-
 func main() {
 	var (
 		ctx                             = context.Background()
@@ -33,12 +29,16 @@ func main() {
 		imp                             = &sessioninfo.Impersonation{}
 	)
 
-	// The call as it was written before the storage was sealed.
+	// The call as it was written before the storage was sealed, on the library's store
+	// and on the store's interface.
 	_, _ = store.CreateImpersonatedSession(ctx, req, imp)
-	// A key of the program's own making.
-	_, _ = store.CreateImpersonatedSession(ctx, nil, req, imp)
-	_, _ = store.CreateImpersonatedSession(ctx, struct{}{}, req, imp)
-	_, _ = store.CreateImpersonatedSession(ctx, lookalike{held: true}, req, imp)
-	// The library's own key, which only the library's directory may import.
-	_, _ = behind.CreateImpersonatedSession(ctx, sealed.NewImpersonationKey(), req, imp)
+	_, _ = behind.CreateImpersonatedSession(ctx, req, imp)
+	// The write under the name the session library calls it by.
+	_, _ = store.createImpersonatedSession(ctx, req, imp)
+	_, _ = behind.createImpersonatedSession(ctx, req, imp)
+	// The write of the store an application writes for itself, which would refuse.
+	_, _ = sessionstorage.NoImpersonatedSessions{}.createImpersonatedSession(ctx, req, imp)
+	// The session library's own way to the write, which only the library's directory may
+	// import.
+	_, _ = sealed.CreateImpersonatedSession(ctx, behind, req, imp)
 }

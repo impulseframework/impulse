@@ -12,9 +12,11 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/internal/basesession"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -143,10 +145,10 @@ func TestOpaqueOption_zeroOptionIsRefused(t *testing.T) {
 
 // TestOpaqueOption_sessionMadeByReflectionWritesNothing follows the route reflection
 // still has: it finds the type of the session inside the library through a session
-// type's field, makes one of its own over the library's storage and starts an
+// type's field, makes one of its own over a store whose write works and starts an
 // impersonated session on it with a record of its own writing. The session it made was
-// not built by the library and holds no key, so the storage refuses the write before
-// the database is reached (the storage here has none: reaching it fails the test).
+// not built by the library, so the start is refused before the store is reached: the
+// store here expects no call, and the controller fails the test on any.
 func TestOpaqueOption_sessionMadeByReflectionWritesNothing(t *testing.T) {
 	t.Parallel()
 
@@ -159,7 +161,7 @@ func TestOpaqueOption_sessionMadeByReflectionWritesNothing(t *testing.T) {
 	}
 
 	made := reflect.New(field.Type.Elem())
-	made.Elem().FieldByName("Storage").Set(reflect.ValueOf(sessionstorage.NewSpannerPreauth(nil)))
+	made.Elem().FieldByName("Storage").Set(reflect.ValueOf(mockstore.NewPreauthStore(gomock.NewController(t))))
 	start := made.MethodByName("StartImpersonatedSession")
 	if !start.IsValid() {
 		t.Fatalf("%s has no StartImpersonatedSession: the start moved, and this route is followed to it", field.Type)

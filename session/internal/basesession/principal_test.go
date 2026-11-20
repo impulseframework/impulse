@@ -9,8 +9,8 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -119,7 +119,7 @@ func TestBaseSession_ValidateSessionAPI_PrincipalResolver(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			storage := mock_sessionstorage.NewMockBaseStore(ctrl)
+			storage := mockstore.NewBaseStore(ctrl)
 			storage.EXPECT().Session(gomock.Any(), sessionID).Return(tt.session, nil)
 
 			s := &BaseSession{SessionTimeout: time.Minute, Storage: storage, PrincipalResolver: tt.resolver}

@@ -46,22 +46,26 @@ type BaseStore interface {
 	// has not already ended, and is a no-op otherwise. It errors when no impersonation
 	// table is configured.
 	EndImpersonation(ctx context.Context, sessionID impulse.UUID, reason sessioninfo.ImpersonationEndReason) error
-	// CreateImpersonatedSession creates a new session for the request together with
-	// its impersonation record, atomically, and returns the session ID. Custom session
-	// data follows the session type's creation semantics inside the same transaction
-	// (per-call data, or the configured resolver receiving ReasonImpersonation). No user
-	// record is consulted or written: the request's Username is the
-	// session's effective identity as the session type resolved it. It errors when no
+	// ImpersonatedSessionWriter is the write of an impersonated session with its record,
+	// atomically: a new session for the request the session type made, with custom
+	// session data by the session type's creation semantics inside the same
+	// transaction, and no user record consulted or written. It errors when no
 	// impersonation table is configured.
 	//
-	// It is the session library's alone to call. The write takes whatever principal,
-	// mask and actor it is handed, so it is sealed behind a key of a type declared
-	// inside the library (session/internal/sealed), which no other module can name
-	// or make: a call from an application does not compile, and a key the library
-	// did not make is refused with nothing written. An application starts an
-	// impersonated session through the kinds it declares (session.Impersonations)
-	// and the session type's StartImpersonatedSession.
-	CreateImpersonatedSession(ctx context.Context, key sealed.ImpersonationKey, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error)
+	// Its one method has an unexported name declared inside the session library
+	// (session/internal/sealed), because the write takes whatever principal, mask and
+	// actor it is handed. No package outside the session library's directory can call
+	// it or declare it, so:
+	//   - the stores this package makes have it, and the library alone calls it, from a
+	//     request the application's declaration made (session.Impersonations and the
+	//     session type's StartImpersonatedSession);
+	//   - a store that embeds one of them has it by promotion, and cannot replace it: a
+	//     method of the same name declared in another package is a different method,
+	//     which the library never calls;
+	//   - a store written from nothing does not have it, and is not a BaseStore. A test
+	//     double embeds NoImpersonatedSessions, whose write refuses with
+	//     ErrImpersonationSealed.
+	sealed.ImpersonatedSessionWriter
 	// DestroyImpersonatedSessions expires every live impersonated session established
 	// by actor and ends their records with reason Revoked. It errors when no
 	// impersonation table is configured.

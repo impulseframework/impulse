@@ -56,7 +56,7 @@ func (o impersonationOption) applyPostgres(driver *postgres.SessionStorageDriver
 // WithImpersonation enables impersonated sessions on storage of either backend. The
 // record table is LEFT JOINed into every session read, so an impersonated session's
 // record reaches the request context together with the session, and it is written
-// atomically with the session insert by CreateImpersonatedSession. Without this option
+// atomically with the session insert when an impersonated session starts. Without this option
 // no session is ever impersonated and the impersonation APIs return a configuration
 // error. See the "Impersonated sessions" section of the README.
 func WithImpersonation(table *ImpersonationTable) Option {
@@ -82,34 +82,52 @@ func (s *sessionStorage) EndImpersonation(ctx context.Context, sessionID impulse
 	return nil
 }
 
-// ErrImpersonationSealed is returned by CreateImpersonatedSession to a caller that holds
-// no key of the session library's: the storage beneath an impersonated session is the
-// library's alone to write.
-var ErrImpersonationSealed = errors.New("the storage beneath an impersonated session is sealed: only the session library writes an impersonated session and its record. Declare the kinds of impersonation the application offers (session.Impersonations) and start one with the session's StartImpersonatedSession")
+// ErrImpersonationSealed is returned for a write of an impersonated session the session
+// library did not make: by a store that holds no write (a mock of the store, or a store
+// of an application's own, which embeds NoImpersonatedSessions), and by a session the
+// library did not build. The storage beneath an impersonated session is the library's
+// alone to write.
+var ErrImpersonationSealed = sealed.ErrSealed
 
-// CreateImpersonatedSession creates a new session for the request together with its
-// impersonation record, atomically, and returns the session ID. Custom session data
-// follows the session type's creation semantics inside the same transaction. The
-// request's Username is written as the session's effective identity; no user record is
-// consulted here — the session type resolved the identity before calling.
+// impersonatedSessionWrite is the write of an impersonated session a store embeds, under
+// a name of this package's. The field it makes in a store is unexported, so a program
+// that holds a store can neither take the write out of it nor put another in its place.
+type impersonatedSessionWrite = sealed.ImpersonatedSessionWrite
+
+// NoImpersonatedSessions gives a store written outside the session library the one
+// method of BaseStore that no package outside the library can declare: the write of an
+// impersonated session. The write it gives refuses with ErrImpersonationSealed and
+// writes nothing, so the store that embeds it is a session store that starts no
+// impersonated session. It is for a test double written by hand, and it is what the
+// mocks of the store hold (mock_sessionstorage).
 //
-// The key seals the write to the session library: its type is declared inside the
-// library, so a call from an application does not compile, and a key the library did
-// not make (the zero key) is refused here with ErrImpersonationSealed before anything
-// is written.
-func (s *sessionStorage) CreateImpersonatedSession(ctx context.Context, key sealed.ImpersonationKey, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+// An application's store that wraps one of the library's embeds that store instead, and
+// has the library's write by promotion.
+type NoImpersonatedSessions struct {
+	impersonatedSessionWrite
+}
+
+// impersonatedSessions is the storage's insert of an impersonated session and its
+// record through its driver: what the write of a store the library made runs
+// (newSessionStorage).
+type impersonatedSessions struct {
+	db db
+}
+
+// create creates a new session for the request together with its impersonation record,
+// atomically, and returns the session ID. Custom session data follows the session
+// type's creation semantics inside the same transaction. The request's Username is
+// written as the session's effective identity; no user record is consulted here: the
+// session type resolved the identity before calling.
+func (i impersonatedSessions) create(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
-
-	if !key.Held() {
-		return impulse.NilUUID, ErrImpersonationSealed
-	}
 
 	session := &dbtype.InsertSession{
 		Username: req.Username,
 	}
 
-	id, err := s.db.InsertImpersonatedSession(ctx, session, req, dbtype.NewInsertImpersonation(imp))
+	id, err := i.db.InsertImpersonatedSession(ctx, session, req, dbtype.NewInsertImpersonation(imp))
 	if err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "db.InsertImpersonatedSession()")
 	}

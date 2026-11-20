@@ -10,7 +10,9 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -44,9 +46,23 @@ func (s *BaseSession) ImpersonationTTL(maxDuration time.Duration) time.Duration 
 // lives), writes the auth and XSRF cookies, and stamps the evidence on the establishing
 // request's log entry. req.Username is the session's effective identity; imp.SessionID
 // is set on return.
+//
+// Only a base session the library built (New) starts one. Any other, which is one a
+// program made by reflection, is answered sessionstorage.ErrImpersonationSealed before
+// anything is read or written. The same error comes back from the write itself over a
+// store that holds no write of the library's making: a mock of the store, or a store
+// that embeds sessionstorage.NoImpersonatedSessions.
 func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+
+	// Every session type reaches here from a request the application's declaration made,
+	// on the base session the library built (New). A BaseSession nobody built is one a
+	// program made by reflection, to hand this method a request and a record of its own:
+	// it is refused before anything is read or written.
+	if !s.built {
+		return impulse.NilUUID, sessionstorage.ErrImpersonationSealed
+	}
 
 	if err := bindActorToSession(ctx, imp); err != nil {
 		return impulse.NilUUID, err
@@ -55,13 +71,14 @@ func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.Respo
 		return impulse.NilUUID, err
 	}
 
-	// The storage's write is sealed to the session library, and the key handed to it is
-	// the one this session was built with (New): every session type reaches here from a
-	// request the application's declaration made, on the base session the library
-	// built. A BaseSession nobody built holds the zero key, and the storage refuses it.
-	id, err := s.Storage.CreateImpersonatedSession(ctx, s.impersonationKey, req, imp)
+	// The storage's write is sealed to the session library: it is a method no package
+	// outside the library's directory can name, reached through the library's internal
+	// package and nowhere else. The store the application handed the session type has
+	// the write only from a store the library made (its own, or one it embeds); any
+	// other store refuses here with nothing written.
+	id, err := sealed.CreateImpersonatedSession(ctx, s.Storage, req, imp)
 	if err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "sessionstorage.BaseStore.CreateImpersonatedSession()")
+		return impulse.NilUUID, errors.Wrap(err, "sealed.CreateImpersonatedSession()")
 	}
 	imp.SessionID = id
 	// The establishing call's own span carries the evidence on the source side.

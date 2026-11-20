@@ -1,27 +1,68 @@
 package session
 
 import (
+	"context"
 	"go/types"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/session/internal/sealed"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/tools/go/packages"
 )
 
-// sealedKey is the type of the key the write beneath an impersonated session takes, as
-// the type checker prints it.
-const sealedKey = "sealed.ImpersonationKey"
+// sealedWrite is the name of the write beneath an impersonated session: a method name
+// that belongs to the session library's internal package.
+const sealedWrite = "createImpersonatedSession"
+
+// noSuchName is how the type checker refuses the write under the name the session
+// library calls it by, wherever a program outside the library's internal package
+// writes it.
+const noSuchName = " undefined (cannot refer to unexported method " + sealedWrite + ")"
+
+// typeRefusal is one error the type checker gives a program that is kept because it does
+// not compile: its kind, and what it says.
+type typeRefusal struct {
+	kind packages.ErrorKind
+	says []string
+}
+
+// wantRefusals pins the errors of a program that is kept because it does not compile:
+// exactly the refusals in want, in the order of the lines they are for. Every other
+// line of the program compiles.
+func wantRefusals(t *testing.T, program *packages.Package, want []typeRefusal) {
+	t.Helper()
+
+	if len(program.Errors) != len(want) {
+		t.Fatalf("errors = %q, want exactly one for each route the program tries (%d)", program.Errors, len(want))
+	}
+	for i, w := range want {
+		got := program.Errors[i]
+		if got.Kind != w.kind {
+			t.Errorf("error %d (%q) is of kind %d, want kind %d", i, got.Msg, got.Kind, w.kind)
+		}
+		for _, says := range w.says {
+			if !strings.Contains(got.Msg, says) {
+				t.Errorf("error %d = %q, want it to say %q", i, got.Msg, says)
+			}
+		}
+	}
+}
 
 // TestSealedStorage_directCallDoesNotCompile type-checks the sealedstorage program,
-// which calls the write beneath an impersonated session itself, and pins that every
-// call is refused before the program runs: the call as it was written before the
-// storage was sealed, a key of the program's own making (nil, an empty struct, a struct
-// shaped like the key), and the library's own key, whose package the go command lets
-// the session library's directory import and nobody else.
+// which tries to make the write beneath an impersonated session itself, and pins that
+// every try is refused before the program runs: the call as it was written before the
+// storage was sealed (on the library's store and on the store's interface), the write
+// under the name the session library calls it by (on both, and on the store an
+// application writes for itself), and the library's own way to the write, whose package
+// the go command lets the session library's directory import and nobody else.
 func TestSealedStorage_directCallDoesNotCompile(t *testing.T) {
 	t.Parallel()
 
@@ -29,94 +70,208 @@ func TestSealedStorage_directCallDoesNotCompile(t *testing.T) {
 	// session library's directory, where an application is.
 	program := loadTypes(t, "../testdata/sealedstorage")
 
-	want := []struct {
-		kind    packages.ErrorKind
-		refusal []string
-	}{
+	wantRefusals(t, program, []typeRefusal{
 		{
-			kind:    packages.ListError,
-			refusal: []string{"use of internal package " + reflect.TypeFor[sealed.ImpersonationKey]().PkgPath() + " not allowed"},
+			kind: packages.ListError,
+			says: []string{"use of internal package " + reflect.TypeFor[sealed.ImpersonatedSessionWrite]().PkgPath() + " not allowed"},
 		},
 		{
-			kind:    packages.TypeError,
-			refusal: []string{"not enough arguments in call to store.CreateImpersonatedSession", "want (context.Context, " + sealedKey + ","},
+			kind: packages.TypeError,
+			says: []string{"store.CreateImpersonatedSession undefined", "has no field or method CreateImpersonatedSession"},
 		},
 		{
-			kind:    packages.TypeError,
-			refusal: []string{"cannot use nil as " + sealedKey + " value in argument to store.CreateImpersonatedSession"},
+			kind: packages.TypeError,
+			says: []string{"behind.CreateImpersonatedSession undefined", "type sessionstorage.BaseStore has no field or method CreateImpersonatedSession"},
 		},
 		{
-			kind:    packages.TypeError,
-			refusal: []string{"cannot use struct{}{}", "as " + sealedKey + " value in argument to store.CreateImpersonatedSession"},
+			kind: packages.TypeError,
+			says: []string{"store." + sealedWrite + noSuchName},
 		},
 		{
-			kind:    packages.TypeError,
-			refusal: []string{"cannot use lookalike{", "as " + sealedKey + " value in argument to store.CreateImpersonatedSession"},
+			kind: packages.TypeError,
+			says: []string{"behind." + sealedWrite + noSuchName},
 		},
-	}
-	if len(program.Errors) != len(want) {
-		t.Fatalf("errors = %q, want exactly one for each call the program makes (%d)", program.Errors, len(want))
-	}
-	for i, w := range want {
-		got := program.Errors[i]
-		if got.Kind != w.kind {
-			t.Errorf("error %d (%q) is of kind %d, want kind %d", i, got.Msg, got.Kind, w.kind)
-		}
-		for _, refusal := range w.refusal {
-			if !strings.Contains(got.Msg, refusal) {
-				t.Errorf("error %d = %q, want it to say %q", i, got.Msg, refusal)
-			}
-		}
-	}
+		{
+			kind: packages.TypeError,
+			says: []string{"sessionstorage.NoImpersonatedSessions{}." + sealedWrite + noSuchName},
+		},
+	})
 }
 
-// TestSealedStorage_keyIsTheLibrarysAlone pins the shape that seals the storage: the
-// write beneath an impersonated session takes a key, the key's type lives in an
-// internal package of the session library (so the go command lets nobody else import
-// it), no field of it is exported (so nobody outside fills one in), and a key nobody
-// made (the zero key, which reflection or a type parameter can reach without naming the
-// type) is not a held one.
-func TestSealedStorage_keyIsTheLibrarysAlone(t *testing.T) {
+// TestSealedStorage_wrapperDoesNotCompile type-checks the sealedwrapper program, an
+// application's store that embeds the library's and tries to get between the library
+// and the write beneath an impersonated session, and pins that every try is refused
+// before the program runs: the wrapper that declares the write with a type parameter
+// where the key went, built with the key's type taken by inference from the library's
+// own store and handed over as a session store (which compiled, and was handed the key,
+// the request and the record, while the write was an exported method), and the write of
+// the wrapped store under the name the library calls it by, from inside the wrapper's
+// own method of that name, on the store, and as a function.
+//
+// The line of the program that hands the wrapper over as a session store is not among
+// the refusals: a wrapper is still a store.
+func TestSealedStorage_wrapperDoesNotCompile(t *testing.T) {
 	t.Parallel()
 
-	key := reflect.TypeFor[sealed.ImpersonationKey]()
+	program := loadTypes(t, "../testdata/sealedwrapper")
 
-	create, ok := reflect.TypeFor[sessionstorage.BaseStore]().MethodByName("CreateImpersonatedSession")
-	if !ok {
-		t.Fatal("sessionstorage.BaseStore has no CreateImpersonatedSession: the write beneath an impersonated session moved, and its seal is pinned here")
-	}
-	if takes := slices.Collect(create.Type.Ins()); !slices.Contains(takes, key) {
-		t.Errorf("sessionstorage.BaseStore.CreateImpersonatedSession takes %v, want the key (%s) among them: without it any application can call the write", takes, key)
+	wantRefusals(t, program, []typeRefusal{
+		{
+			kind: packages.TypeError,
+			says: []string{"r.AuthStore." + sealedWrite + noSuchName},
+		},
+		{
+			kind: packages.TypeError,
+			says: []string{"store.CreateImpersonatedSession undefined", "has no field or method CreateImpersonatedSession"},
+		},
+		{
+			kind: packages.TypeError,
+			says: []string{"wrapped." + sealedWrite + noSuchName},
+		},
+		{
+			kind: packages.TypeError,
+			says: []string{"sessionstorage.BaseStore." + sealedWrite + noSuchName},
+		},
+	})
+}
+
+// TestSealedStorage_storeFromNothingDoesNotCompile type-checks the sealedfromnothing
+// program, a session store an application writes with no store of the library's inside
+// it, and pins that it is no session store: the store that declares the write with a
+// type parameter where the key went, built with the key's type taken by inference from
+// the method of the library's own interface and handed to the session library as its
+// storage (which compiled, and was handed the key, while the write was an exported
+// method), the store with a type of the program's own there, which exports every method
+// the interface exports, and the same store with the write declared under the name the
+// library calls it by, which is a method of the program's package and not the one the
+// interface asks for.
+func TestSealedStorage_storeFromNothingDoesNotCompile(t *testing.T) {
+	t.Parallel()
+
+	program := loadTypes(t, "../testdata/sealedfromnothing")
+
+	wantRefusals(t, program, []typeRefusal{
+		{
+			kind: packages.TypeError,
+			says: []string{"sessionstorage.BaseStore.CreateImpersonatedSession undefined", "type sessionstorage.BaseStore has no field or method CreateImpersonatedSession"},
+		},
+		{
+			kind: packages.TypeError,
+			says: []string{"*mine[struct{}] does not implement sessionstorage.PreauthStore (missing method " + sealedWrite + ")"},
+		},
+		{
+			kind: packages.TypeError,
+			says: []string{"*lookalike does not implement sessionstorage.PreauthStore (unexported method " + sealedWrite + ")"},
+		},
+	})
+}
+
+// TestSealedStorage_writeIsTheLibrarysAlone pins the shape that seals the storage. The
+// store's interface has one method that is not exported, the write beneath an
+// impersonated session, and the method's name belongs to an internal package of the
+// session library: the go command lets no package outside the library's directory
+// import that package, and Go lets no other package call or declare a method named
+// there. No exported method stands beside it under the name it had. The type that
+// implements the write, and the stores that hold one, export no field of it, so no
+// program takes a write out of a store or puts one in. And the write nobody built,
+// which is all a store written outside the library can hold, refuses.
+func TestSealedStorage_writeIsTheLibrarysAlone(t *testing.T) {
+	t.Parallel()
+
+	inside := reflect.TypeFor[sealed.ImpersonatedSessionWrite]().PkgPath()
+	if library := reflect.TypeFor[Impersonations]().PkgPath() + "/internal/"; !strings.HasPrefix(inside, library) {
+		t.Errorf("the write is declared in %s, want a package under %s: outside it an application can import the package and call the write", inside, library)
 	}
 
-	if library := reflect.TypeFor[Impersonations]().PkgPath() + "/internal/"; !strings.HasPrefix(key.PkgPath(), library) {
-		t.Errorf("the key lives in %s, want a package under %s: outside it an application can import the key and make one", key.PkgPath(), library)
+	store := reflect.TypeFor[sessionstorage.BaseStore]()
+	var unexported []string
+	for i := range store.NumMethod() {
+		method := store.Method(i)
+		switch {
+		case !method.IsExported():
+			unexported = append(unexported, method.PkgPath+"."+method.Name)
+		case strings.EqualFold(method.Name, sealedWrite):
+			t.Errorf("sessionstorage.BaseStore exports %s: any type can declare an exported method, so an application's store would be handed what the library writes, and any program could call it", method.Name)
+		default:
+		}
 	}
-	if key.Kind() != reflect.Struct || key.NumField() == 0 {
-		t.Fatalf("the key is a %s with %d fields, want a struct with a field of its own: a key with none is the same as struct{}{}, which any program can write", key.Kind(), key.NumField())
+	if want := []string{inside + "." + sealedWrite}; !slices.Equal(unexported, want) {
+		t.Errorf("the methods of sessionstorage.BaseStore that are not exported = %v, want %v: the write beneath an impersonated session, named in the session library's internal package, and nothing else", unexported, want)
 	}
-	for i := range key.NumField() {
-		if field := key.Field(i); field.IsExported() {
-			t.Errorf("the key's field %s is exported: a program that reaches the type could fill it in", field.Name)
+
+	holders := map[string]reflect.Type{
+		"sealed.ImpersonatedSessionWrite":       reflect.TypeFor[sealed.ImpersonatedSessionWrite](),
+		"sessionstorage.NoImpersonatedSessions": reflect.TypeFor[sessionstorage.NoImpersonatedSessions](),
+		"sessionstorage.Auth":                   reflect.TypeFor[sessionstorage.Auth[struct{}]](),
+		"sessionstorage.Preauth":                reflect.TypeFor[sessionstorage.Preauth[struct{}]](),
+		"mock_sessionstorage.MockBaseStore":     reflect.TypeFor[mock_sessionstorage.MockBaseStore](),
+		"mock_sessionstorage.MockPreauthStore":  reflect.TypeFor[mock_sessionstorage.MockPreauthStore](),
+		"mock_sessionstorage.MockAuthStore":     reflect.TypeFor[mock_sessionstorage.MockAuthStore[struct{}]](),
+	}
+	for name, holder := range holders {
+		held := 0
+		for _, field := range reflect.VisibleFields(holder) {
+			if field.Type.PkgPath() != inside && holder.PkgPath() != inside {
+				continue
+			}
+			held++
+			if field.IsExported() {
+				t.Errorf("%s exports the field %s of the write: a program that holds one could read the write out of it, or set another in its place", name, field.Name)
+			}
+		}
+		if held == 0 {
+			t.Errorf("%s holds no field of the write: the type moved, and the walk over its fields holds nothing", name)
 		}
 	}
 
-	if (sealed.ImpersonationKey{}).Held() {
-		t.Error("the zero key is held, want it refused: reflection and a type parameter reach the zero key without naming its type")
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "mallory"}
+	imp := &sessioninfo.Impersonation{Actor: "mallory"}
+	if _, err := sealed.CreateImpersonatedSession(context.Background(), sealed.ImpersonatedSessionWrite{}, req, imp); !errors.Is(err, sessionstorage.ErrImpersonationSealed) {
+		t.Errorf("the write nobody built: error = %v, want %v", err, sessionstorage.ErrImpersonationSealed)
 	}
-	if !sealed.NewImpersonationKey().Held() {
-		t.Error("the key the session library makes is not held, so the store would refuse the library itself")
+	if _, err := sealed.CreateImpersonatedSession(context.Background(), sessionstorage.NoImpersonatedSessions{}, req, imp); !errors.Is(err, sessionstorage.ErrImpersonationSealed) {
+		t.Errorf("the write of a store an application writes for itself: error = %v, want %v", err, sessionstorage.ErrImpersonationSealed)
 	}
 }
 
-// TestSealedStorage_nothingExportedHandsOutTheKey walks everything the session
+// TestSealedStorage_mocksWriteNothing pins what the mocks an application gets do with
+// the write beneath an impersonated session: each refuses it and calls nothing. The
+// generated mocks carry a method of the same name of their own, which is not the
+// store's write: the controller fails the test if the library's call reached it, since
+// no call is expected.
+func TestSealedStorage_mocksWriteNothing(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	mocks := map[string]sessionstorage.BaseStore{
+		"MockBaseStore":    mock_sessionstorage.NewMockBaseStore(ctrl),
+		"MockPreauthStore": mock_sessionstorage.NewMockPreauthStore(ctrl),
+		"MockAuthStore":    mock_sessionstorage.NewMockAuthStore[struct{}](ctrl),
+	}
+	for name, mock := range mocks {
+		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "mallory"}
+		imp := &sessioninfo.Impersonation{Actor: "mallory"}
+		if _, err := sealed.CreateImpersonatedSession(context.Background(), mock, req, imp); !errors.Is(err, sessionstorage.ErrImpersonationSealed) {
+			t.Errorf("the write of mock_sessionstorage.%s: error = %v, want %v", name, err, sessionstorage.ErrImpersonationSealed)
+		}
+	}
+}
+
+// TestSealedStorage_nothingExportedReachesTheWrite walks everything the session
 // library's importable packages export (every package under the session library's
-// directory that is not internal, the mocks included) and pins the one place the key
-// appears: as an argument of a method named CreateImpersonatedSession. A function or
-// method that answers a key, a variable or a field that holds one, a name for its type
-// or a callback that is handed one would each give an application what the internal
-// package keeps from it, and each fails here.
-func TestSealedStorage_nothingExportedHandsOutTheKey(t *testing.T) {
+// directory that is not internal, the mocks included) and pins that none of it is a way
+// to the write beneath an impersonated session, with no exception:
+//
+//   - nothing exported names a type of the internal package the write is declared in:
+//     no function or method takes or returns one, no variable or field holds one, and no
+//     name stands for one, so a program has no value of the write and no type to embed;
+//   - no exported function or method is handed a request for a session and an
+//     impersonation record together, which is what the write takes, whether as arguments
+//     of its own or inside one, and none has the write's name, however it is capitalized;
+//   - the exported types that have the write are the ones listed here and no other: the
+//     store's interfaces, the library's two stores (whose write is the library's), and
+//     the store an application writes for itself and the mocks (whose write refuses).
+func TestSealedStorage_nothingExportedReachesTheWrite(t *testing.T) {
 	t.Parallel()
 
 	loaded, err := packages.Load(&packages.Config{Mode: packages.NeedName | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedImports | packages.NeedDeps}, "./...")
@@ -124,7 +279,7 @@ func TestSealedStorage_nothingExportedHandsOutTheKey(t *testing.T) {
 		t.Fatalf("packages.Load(./...) error = %v", err)
 	}
 
-	var takers, others []string
+	walk := newSealWalk()
 	for _, pkg := range loaded {
 		if strings.Contains(pkg.PkgPath+"/", "/internal/") {
 			continue
@@ -134,80 +289,130 @@ func TestSealedStorage_nothingExportedHandsOutTheKey(t *testing.T) {
 		}
 		scope := pkg.Types.Scope()
 		for _, name := range scope.Names() {
-			object := scope.Lookup(name)
-			if !object.Exported() {
-				continue
-			}
-			typeName, isType := object.(*types.TypeName)
-			if !isType {
-				if namesTheKey(object.Type()) {
-					others = append(others, pkg.Name+"."+name)
-				}
-
-				continue
-			}
-			if typeName.IsAlias() && namesTheKey(types.Unalias(typeName.Type())) {
-				others = append(others, pkg.Name+"."+name)
-			}
-			if structure, ok := typeName.Type().Underlying().(*types.Struct); ok {
-				for field := range structure.Fields() {
-					if field.Exported() && namesTheKey(field.Type()) {
-						others = append(others, pkg.Name+"."+name+"."+field.Name())
-					}
-				}
-			}
-			for _, methods := range []*types.MethodSet{types.NewMethodSet(typeName.Type()), types.NewMethodSet(types.NewPointer(typeName.Type()))} {
-				for method := range methods.Methods() {
-					function := method.Obj()
-					signature, ok := function.Type().(*types.Signature)
-					if !ok || !function.Exported() || !namesTheKey(signature) {
-						continue
-					}
-					place := pkg.Name + "." + name + "." + function.Name()
-					if function.Name() == "CreateImpersonatedSession" && takesTheKeyAndNoMore(signature) {
-						takers = append(takers, place)
-					} else {
-						others = append(others, place)
-					}
-				}
+			if object := scope.Lookup(name); object.Exported() {
+				walk.object(pkg.Name, object)
 			}
 		}
 	}
-	slices.Sort(takers)
-	takers = slices.Compact(takers)
-	slices.Sort(others)
-	others = slices.Compact(others)
 
-	if len(others) != 0 {
-		t.Errorf("the session library exports %v, each of which names the key outside an argument of CreateImpersonatedSession: an application would reach the key through it, and the storage beneath an impersonated session is the library's alone to write", others)
+	if names := sortedSet(walk.names); len(names) != 0 {
+		t.Errorf("the session library exports %v, each of which names a type of the package the write beneath an impersonated session is declared in: an application would hold the write through it, and the storage beneath an impersonated session is the library's alone to write", names)
 	}
-	if !slices.Contains(takers, "sessionstorage.BaseStore.CreateImpersonatedSession") {
-		t.Errorf("the methods that take the key = %v, want sessionstorage.BaseStore.CreateImpersonatedSession among them: the walk found nothing to hold, so it holds nothing", takers)
+	if takers := sortedSet(walk.takers); len(takers) != 0 {
+		t.Errorf("the session library exports %v, each of which is handed a request for a session and an impersonation record together, or has the write's name: only the write beneath an impersonated session takes the two, and nothing exported may stand for it", takers)
+	}
+	wantHolders := []string{
+		"mock_sessionstorage.MockAuthStore",
+		"mock_sessionstorage.MockBaseStore",
+		"mock_sessionstorage.MockPreauthStore",
+		"sessionstorage.Auth",
+		"sessionstorage.AuthStore",
+		"sessionstorage.BaseStore",
+		"sessionstorage.NoImpersonatedSessions",
+		"sessionstorage.Preauth",
+		"sessionstorage.PreauthStore",
+	}
+	if holders := sortedSet(walk.holders); !slices.Equal(holders, wantHolders) {
+		t.Errorf("the exported types that have the write beneath an impersonated session = %v, want %v: a type added to them has a write of the library's making or one that refuses, and is listed here once that is seen", holders, wantHolders)
 	}
 }
 
-// namesTheKey reports whether the type names the key anywhere in it.
-func namesTheKey(typ types.Type) bool {
-	return strings.Contains(types.TypeString(typ, nil), sealedKey)
+// sealWalk is the walk of TestSealedStorage_nothingExportedReachesTheWrite: what it
+// looks for, and each place it found it.
+type sealWalk struct {
+	// inside is the import path of the package the write is declared in.
+	inside string
+	// request and record match a request for a session and an impersonation record in a
+	// type written out with full import paths.
+	request, record *regexp.Regexp
+	// names are the exported places that name a type of the package inside.
+	names []string
+	// takers are the exported functions and methods handed a request and a record
+	// together, and those that have the write's name.
+	takers []string
+	// holders are the exported types that have the write.
+	holders []string
 }
 
-// takesTheKeyAndNoMore reports whether the method takes the key as an argument of its
-// own (not inside a function, a pointer or a collection it is handed) and answers
-// nothing that names it.
-func takesTheKeyAndNoMore(signature *types.Signature) bool {
-	if namesTheKey(signature.Results()) {
-		return false
+// newSealWalk returns the walk, looking for the types the session library declares.
+func newSealWalk() *sealWalk {
+	word := func(typ reflect.Type) *regexp.Regexp {
+		return regexp.MustCompile(regexp.QuoteMeta(typ.PkgPath()+"."+typ.Name()) + `\b`)
 	}
-	taken := false
-	for param := range signature.Params().Variables() {
-		switch {
-		case types.TypeString(param.Type(), (*types.Package).Name) == sealedKey:
-			taken = true
-		case namesTheKey(param.Type()):
-			return false
-		default:
+
+	return &sealWalk{
+		inside:  reflect.TypeFor[sealed.ImpersonatedSessionWrite]().PkgPath(),
+		request: word(reflect.TypeFor[sessioninfo.NewSessionRequest]()),
+		record:  word(reflect.TypeFor[sessioninfo.Impersonation]()),
+	}
+}
+
+// object walks one exported name of the package named pkg.
+func (w *sealWalk) object(pkg string, object types.Object) {
+	place := pkg + "." + object.Name()
+	typeName, isType := object.(*types.TypeName)
+	if !isType {
+		w.value(place, object.Name(), object.Type())
+
+		return
+	}
+
+	if typeName.IsAlias() && w.namesInside(types.Unalias(typeName.Type())) {
+		w.names = append(w.names, place)
+	}
+	if structure, ok := typeName.Type().Underlying().(*types.Struct); ok {
+		for field := range structure.Fields() {
+			if field.Exported() {
+				w.value(place+"."+field.Name(), field.Name(), field.Type())
+			}
 		}
 	}
+	for _, methods := range []*types.MethodSet{types.NewMethodSet(typeName.Type()), types.NewMethodSet(types.NewPointer(typeName.Type()))} {
+		for method := range methods.Methods() {
+			function := method.Obj()
+			switch {
+			case function.Exported():
+				w.value(place+"."+function.Name(), function.Name(), function.Type())
+			case function.Pkg() != nil && function.Pkg().Path() == w.inside:
+				w.holders = append(w.holders, place)
+			default:
+			}
+		}
+	}
+}
 
-	return taken
+// value walks one exported function, method, variable or field: its name and its type.
+func (w *sealWalk) value(place, name string, typ types.Type) {
+	if w.namesInside(typ) {
+		w.names = append(w.names, place)
+	}
+
+	signature, ok := typ.(*types.Signature)
+	if !ok {
+		return
+	}
+	handed := written(signature.Params())
+	if strings.EqualFold(name, sealedWrite) || (w.request.MatchString(handed) && w.record.MatchString(handed)) {
+		w.takers = append(w.takers, place)
+	}
+}
+
+// namesInside reports whether the type names a type of the package inside anywhere in
+// it.
+func (w *sealWalk) namesInside(typ types.Type) bool {
+	return strings.Contains(written(typ), w.inside+".")
+}
+
+// written is the type written out, with the full import path of every package it names.
+func written(typ types.Type) string {
+	return types.TypeString(typ, func(pkg *types.Package) string {
+		return pkg.Path()
+	})
+}
+
+// sortedSet is the places sorted, each once.
+func sortedSet(places []string) []string {
+	slices.Sort(places)
+
+	return slices.Compact(places)
 }

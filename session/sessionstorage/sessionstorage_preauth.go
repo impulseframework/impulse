@@ -29,10 +29,8 @@ func NewSpannerPreauth(db *cloudspanner.Client, opts ...SpannerOption) *Preauth[
 	}
 
 	return &Preauth[*cloudspanner.ReadWriteTransaction]{
-		sessionStorage: sessionStorage{
-			db: driver,
-		},
-		custom: spannerCustomData{driver},
+		sessionStorage: newSessionStorage(driver),
+		custom:         spannerCustomData{driver},
 	}
 }
 
@@ -45,10 +43,8 @@ func NewPostgresPreauth(db postgres.Queryer, opts ...PostgresOption) *Preauth[pg
 	}
 
 	return &Preauth[pgx.Tx]{
-		sessionStorage: sessionStorage{
-			db: driver,
-		},
-		custom: postgresCustomData{driver},
+		sessionStorage: newSessionStorage(driver),
+		custom:         postgresCustomData{driver},
 	}
 }
 

@@ -13,10 +13,9 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/cookie"
-	"github.com/impulseframework/impulse/session/internal/sealed"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/mock/mock_cookie"
 	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -152,7 +151,7 @@ func TestBaseSession_ValidateSession_SpanEvidence(t *testing.T) {
 			newBase := func(t *testing.T, id impulse.UUID) *BaseSession {
 				t.Helper()
 				ctrl := gomock.NewController(t)
-				storage := mock_sessionstorage.NewMockBaseStore(ctrl)
+				storage := mockstore.NewBaseStore(ctrl)
 				storage.EXPECT().Session(gomock.Any(), id).Return(newSession(id), nil)
 				if tt.expired && tt.impersonated {
 					storage.EXPECT().EndImpersonation(gomock.Any(), id, sessioninfo.ImpersonationEndedByExpiry).Return(nil)
@@ -237,8 +236,8 @@ func TestBaseSession_StartImpersonatedSession_SpanEvidence(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	sessionID := impulse.Must(impulse.NewUUID())
-	storage := mock_sessionstorage.NewMockBaseStore(ctrl)
-	storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
+	storage := mockstore.NewBaseStore(ctrl)
+	storage.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
 	cookieHandler := mock_cookie.NewMockHandler(ctrl)
 	cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 	cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
@@ -356,7 +355,7 @@ func TestBaseSession_Establish_TokenEvidence(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			s := &BaseSession{SessionTimeout: time.Minute, Storage: mock_sessionstorage.NewMockBaseStore(gomock.NewController(t)), PrincipalResolver: tt.resolver}
+			s := &BaseSession{SessionTimeout: time.Minute, Storage: mockstore.NewBaseStore(gomock.NewController(t)), PrincipalResolver: tt.resolver}
 			id := impulse.Must(impulse.NewUUID())
 			session := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: id, Username: "bob@partner.org", UpdatedAt: time.Now()}, Token: tt.token}
 

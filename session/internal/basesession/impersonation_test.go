@@ -10,8 +10,8 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -37,7 +37,7 @@ func TestBaseSession_ValidateSessionAPI_Impersonation(t *testing.T) {
 	tests := []struct {
 		name             string
 		session          *sessioninfo.SessionData
-		prepare          func(storage *mock_sessionstorage.MockBaseStore, session *sessioninfo.SessionData)
+		prepare          func(storage *mockstore.BaseStore, session *sessioninfo.SessionData)
 		wantUnauthorized bool
 		wantEnded        bool
 		wantEvents       []sessioninfo.ImpersonationEventKind
@@ -45,14 +45,14 @@ func TestBaseSession_ValidateSessionAPI_Impersonation(t *testing.T) {
 		{
 			name:    "live impersonated session reaches the context",
 			session: newSession(time.Hour),
-			prepare: func(storage *mock_sessionstorage.MockBaseStore, session *sessioninfo.SessionData) {
+			prepare: func(storage *mockstore.BaseStore, session *sessioninfo.SessionData) {
 				storage.EXPECT().Session(gomock.Any(), sessionID).Return(session, nil)
 			},
 		},
 		{
 			name:    "hard cap passed: refused, record ended as Expired, event announced",
 			session: newSession(-time.Second),
-			prepare: func(storage *mock_sessionstorage.MockBaseStore, session *sessioninfo.SessionData) {
+			prepare: func(storage *mockstore.BaseStore, session *sessioninfo.SessionData) {
 				storage.EXPECT().Session(gomock.Any(), sessionID).Return(session, nil)
 				storage.EXPECT().EndImpersonation(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByExpiry).Return(nil)
 			},
@@ -68,7 +68,7 @@ func TestBaseSession_ValidateSessionAPI_Impersonation(t *testing.T) {
 
 				return s
 			}(),
-			prepare: func(storage *mock_sessionstorage.MockBaseStore, session *sessioninfo.SessionData) {
+			prepare: func(storage *mockstore.BaseStore, session *sessioninfo.SessionData) {
 				storage.EXPECT().Session(gomock.Any(), sessionID).Return(session, nil)
 				storage.EXPECT().EndImpersonation(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByExpiry).Return(nil)
 			},
@@ -87,7 +87,7 @@ func TestBaseSession_ValidateSessionAPI_Impersonation(t *testing.T) {
 
 				return s
 			}(),
-			prepare: func(storage *mock_sessionstorage.MockBaseStore, session *sessioninfo.SessionData) {
+			prepare: func(storage *mockstore.BaseStore, session *sessioninfo.SessionData) {
 				storage.EXPECT().Session(gomock.Any(), sessionID).Return(session, nil)
 			},
 			wantUnauthorized: true,
@@ -103,7 +103,7 @@ func TestBaseSession_ValidateSessionAPI_Impersonation(t *testing.T) {
 
 				return s
 			}(),
-			prepare: func(storage *mock_sessionstorage.MockBaseStore, session *sessioninfo.SessionData) {
+			prepare: func(storage *mockstore.BaseStore, session *sessioninfo.SessionData) {
 				storage.EXPECT().Session(gomock.Any(), sessionID).Return(session, nil)
 			},
 			wantUnauthorized: true,
@@ -112,7 +112,7 @@ func TestBaseSession_ValidateSessionAPI_Impersonation(t *testing.T) {
 		{
 			name:    "a failing end write is logged, not returned",
 			session: newSession(-time.Second),
-			prepare: func(storage *mock_sessionstorage.MockBaseStore, session *sessioninfo.SessionData) {
+			prepare: func(storage *mockstore.BaseStore, session *sessioninfo.SessionData) {
 				storage.EXPECT().Session(gomock.Any(), sessionID).Return(session, nil)
 				storage.EXPECT().EndImpersonation(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByExpiry).Return(errors.New("db down"))
 			},
@@ -123,7 +123,7 @@ func TestBaseSession_ValidateSessionAPI_Impersonation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			storage := mock_sessionstorage.NewMockBaseStore(ctrl)
+			storage := mockstore.NewBaseStore(ctrl)
 			tt.prepare(storage, tt.session)
 
 			var events []sessioninfo.ImpersonationEventKind
@@ -232,7 +232,7 @@ func TestBaseSession_LogoutAPI_Impersonation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			storage := mock_sessionstorage.NewMockBaseStore(ctrl)
+			storage := mockstore.NewBaseStore(ctrl)
 			storage.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
 
 			var events []sessioninfo.ImpersonationEventKind

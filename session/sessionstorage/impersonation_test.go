@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -227,37 +228,56 @@ func Test_sessionStorage_unreadableMaskIsLogged(t *testing.T) {
 	}
 }
 
-// Test_sessionStorage_CreateImpersonatedSession pins the storage's write of an
-// impersonated session: the row it hands the driver, the driver's error, and the seal.
-// The write is the session library's alone, so a key the library did not make (the
-// zero key, which is all a caller outside the library can come by) is refused with
+// Test_sessionStorage_impersonatedSessionWrite pins the storage's write of an
+// impersonated session, reached as the session library reaches it
+// (sealed.CreateImpersonatedSession): the row it hands the driver, the driver's error,
+// and the seal. Only the storage the library builds over its driver
+// (newSessionStorage) holds the write. A storage built any other way, and the write a
+// store of an application's own embeds (NoImpersonatedSessions), refuse with
 // ErrImpersonationSealed before the driver is reached: the mock fails the test on any
 // insert it was not told to expect.
-func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
+func Test_sessionStorage_impersonatedSessionWrite(t *testing.T) {
 	t.Parallel()
 
 	sessionID := impulse.Must(impulse.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))
 	started := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
 	expires := started.Add(time.Hour)
 
+	built := func(mockDB *Mockdb) sealed.ImpersonatedSessionWriter {
+		storage := newSessionStorage(mockDB)
+
+		return &storage
+	}
 	tests := []struct {
 		name string
-		// key is the key the caller holds: the session library's unless a case says
-		// otherwise.
-		key     *sealed.ImpersonationKey
+		// store is the store written to: the one the library builds over the driver unless
+		// a case says otherwise.
+		store   func(*Mockdb) sealed.ImpersonatedSessionWriter
 		prepare func(*Mockdb)
 		wantErr bool
 		wantIs  error
 	}{
 		{
-			name:    "a key the session library did not make is refused with nothing written",
-			key:     &sealed.ImpersonationKey{},
+			name: "a storage the library did not build over its driver refuses with nothing written",
+			store: func(mockDB *Mockdb) sealed.ImpersonatedSessionWriter {
+				return &sessionStorage{db: mockDB}
+			},
 			prepare: func(*Mockdb) {},
 			wantErr: true,
 			wantIs:  ErrImpersonationSealed,
 		},
 		{
-			name: "renders the insert row and returns the id",
+			name: "the write a store of an application's own embeds refuses with nothing written",
+			store: func(*Mockdb) sealed.ImpersonatedSessionWriter {
+				return NoImpersonatedSessions{}
+			},
+			prepare: func(*Mockdb) {},
+			wantErr: true,
+			wantIs:  ErrImpersonationSealed,
+		},
+		{
+			name:  "renders the insert row and returns the id",
+			store: built,
 			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
 					InsertImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -281,7 +301,8 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 			},
 		},
 		{
-			name: "propagates the driver error",
+			name:  "propagates the driver error",
+			store: built,
 			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().InsertImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(impulse.NilUUID, errors.New("not configured"))
 			},
@@ -295,7 +316,6 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 			mockDB := NewMockdb(ctrl)
 			tt.prepare(mockDB)
 
-			s := &sessionStorage{db: mockDB}
 			imp := &sessioninfo.Impersonation{
 				Actor:     "alice",
 				Principal: accesstypes.UserPrincipal("bob"),
@@ -303,21 +323,39 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 				StartedAt: started,
 				ExpiresAt: expires,
 			}
-			key := sealed.NewImpersonationKey()
-			if tt.key != nil {
-				key = *tt.key
-			}
-			got, err := s.CreateImpersonatedSession(context.Background(), key, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob"}, imp)
+			got, err := sealed.CreateImpersonatedSession(context.Background(), tt.store(mockDB), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob"}, imp)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("CreateImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("sealed.CreateImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
-				t.Errorf("CreateImpersonatedSession() error = %v, want %v", err, tt.wantIs)
+				t.Errorf("sealed.CreateImpersonatedSession() error = %v, want %v", err, tt.wantIs)
 			}
 			if !tt.wantErr && got != sessionID {
-				t.Errorf("CreateImpersonatedSession() = %v, want %v", got, sessionID)
+				t.Errorf("sealed.CreateImpersonatedSession() = %v, want %v", got, sessionID)
 			}
 		})
+	}
+}
+
+// Test_stores_holdTheWrite pins that every store the package hands out is built with the
+// write of an impersonated session (newSessionStorage): a constructor that built its
+// storage any other way would hand out a store that refuses every impersonated session.
+func Test_stores_holdTheWrite(t *testing.T) {
+	t.Parallel()
+
+	stores := map[string]sessionStorage{
+		"NewSpannerAuth":     NewSpannerAuth(nil).sessionStorage,
+		"NewPostgresAuth":    NewPostgresAuth(nil).sessionStorage,
+		"NewSpannerPreauth":  NewSpannerPreauth(nil).sessionStorage,
+		"NewPostgresPreauth": NewPostgresPreauth(nil).sessionStorage,
+	}
+	for name, storage := range stores {
+		if reflect.ValueOf(storage.impersonatedSessionWrite).IsZero() {
+			t.Errorf("the store of %s holds the zero write, which refuses: build its storage with newSessionStorage", name)
+		}
+	}
+	if !reflect.ValueOf((&sessionStorage{}).impersonatedSessionWrite).IsZero() {
+		t.Error("a storage nothing built holds a write, want the zero write: the test above would hold nothing")
 	}
 }
 

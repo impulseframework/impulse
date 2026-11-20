@@ -7,6 +7,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 )
@@ -14,6 +15,21 @@ import (
 // sessionStorage is what you use to create / update sessions inside of the handlers or as a standalone if you don't want the handlers
 type sessionStorage struct {
 	db db
+	// impersonatedSessionWrite is the write of an impersonated session and its record:
+	// the one method of BaseStore whose name belongs to the session library's internal
+	// package, which the store has by embedding this. newSessionStorage builds it over
+	// the driver; a sessionStorage built any other way holds the zero write, which
+	// refuses.
+	impersonatedSessionWrite
+}
+
+// newSessionStorage returns the storage over driver, with the write of an impersonated
+// session that inserts through it. Every store the library hands out is built here.
+func newSessionStorage(driver db) sessionStorage {
+	return sessionStorage{
+		db:                       driver,
+		impersonatedSessionWrite: sealed.NewImpersonatedSessionWrite(impersonatedSessions{db: driver}.create),
+	}
 }
 
 // SetSessionTableName sets the name of the session table.

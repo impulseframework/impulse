@@ -484,9 +484,11 @@ Where an application offers it, these things hold in every shape.
   a second account, the rule does not see that it is theirs, so they can enable it again
   while they act as an administrator. An application that must stop this refuses those
   three actions by name in the mask of the kind.
-- A session that acts as someone is started through the kinds the application named, and
-  in no other way. The application's own code cannot write one into the session store
-  around them.
+- A session that acts as someone is started through the kinds the application named.
+  Through the library's API there is no other way: the application's own code cannot
+  write one into the session store around them, and a store the application wraps
+  cannot change one on its way in. The application owns its tables, so SQL of its own
+  can write any row, and the library does not see that.
 
 ## Without tenants
 

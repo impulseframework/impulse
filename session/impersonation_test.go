@@ -15,11 +15,10 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/cookie"
 	"github.com/impulseframework/impulse/session/internal/basesession"
-	"github.com/impulseframework/impulse/session/internal/sealed"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/mock/mock_cookie"
 	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -78,11 +77,11 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 	const accountID = "a11ce000-0000-4000-8000-00000000000a"
 	// establishedAs expects the session of username, started by actor from another
 	// application, whose record carries the principal.
-	establishedAs := func(username, actor string, principal accesstypes.Principal) func(*mock_sessionstorage.MockPreauthStore, *mock_cookie.MockHandler) {
-		return func(storage *mock_sessionstorage.MockPreauthStore, cookieHandler *mock_cookie.MockHandler) {
+	establishedAs := func(username, actor string, principal accesstypes.Principal) func(*mockstore.PreauthStore, *mock_cookie.MockHandler) {
+		return func(storage *mockstore.PreauthStore, cookieHandler *mock_cookie.MockHandler) {
 			storage.EXPECT().ImpersonationEnabled().Return(true)
-			storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).
-				DoAndReturn(func(_ context.Context, _ sealed.ImpersonationKey, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+			storage.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 					if req.Username != username || req.UserID != impulse.NilUUID {
 						return impulse.NilUUID, errors.Newf("unexpected NewSessionRequest %+v", req)
 					}
@@ -104,7 +103,7 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 		hook           ImpersonationAuditHook
 		req            *sessioncore.ImpersonationRequest
 		customData     []*NoCustomData
-		prepare        func(storage *mock_sessionstorage.MockPreauthStore, cookieHandler *mock_cookie.MockHandler)
+		prepare        func(storage *mockstore.PreauthStore, cookieHandler *mock_cookie.MockHandler)
 		wantErr        bool
 		wantBadRequest bool
 		wantForbidden  bool
@@ -112,7 +111,7 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name: "refused when impersonation is not configured on the storage",
 			req:  &sessioncore.ImpersonationRequest{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")},
-			prepare: func(storage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
+			prepare: func(storage *mockstore.PreauthStore, _ *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(false)
 			},
 			wantErr: true,
@@ -120,7 +119,7 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name: "requires an actor",
 			req:  &sessioncore.ImpersonationRequest{Principal: accesstypes.UserPrincipal("bob")},
-			prepare: func(storage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
+			prepare: func(storage *mockstore.PreauthStore, _ *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
 			},
 			wantErr:        true,
@@ -129,7 +128,7 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name: "requires a named principal",
 			req:  &sessioncore.ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("")},
-			prepare: func(storage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
+			prepare: func(storage *mockstore.PreauthStore, _ *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
 			},
 			wantErr:        true,
@@ -139,7 +138,7 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 			name: "an impersonated session cannot impersonate",
 			ctx:  impersonatedCtx(sessionID, "bob", &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")}),
 			req:  &sessioncore.ImpersonationRequest{Actor: "bob", Principal: accesstypes.RolePrincipal("Editor")},
-			prepare: func(storage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
+			prepare: func(storage *mockstore.PreauthStore, _ *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
 			},
 			wantErr:       true,
@@ -156,10 +155,10 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 				MaxDuration: 30 * time.Minute,
 			},
 			customData: []*NoCustomData{customData},
-			prepare: func(storage *mock_sessionstorage.MockPreauthStore, cookieHandler *mock_cookie.MockHandler) {
+			prepare: func(storage *mockstore.PreauthStore, cookieHandler *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
-				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).
-					DoAndReturn(func(_ context.Context, _ sealed.ImpersonationKey, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+				storage.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 						if req.Reason != sessioninfo.ReasonImpersonation || req.Username != "bob@partner.org" || req.UserID != impulse.NilUUID || req.CustomData != customData {
 							return impulse.NilUUID, errors.Newf("unexpected NewSessionRequest %+v", req)
 						}
@@ -180,10 +179,10 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 			name:    "a role principal establishes the session as the actor under the configured cap",
 			options: []PreauthOption{WithImpersonationTimeout(15 * time.Minute)},
 			req:     &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("PartnerViewer")},
-			prepare: func(storage *mock_sessionstorage.MockPreauthStore, cookieHandler *mock_cookie.MockHandler) {
+			prepare: func(storage *mockstore.PreauthStore, cookieHandler *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
-				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).
-					DoAndReturn(func(_ context.Context, _ sealed.ImpersonationKey, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+				storage.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 						want := sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
 						if diff := cmp.Diff(want, *req); diff != "" {
 							return impulse.NilUUID, errors.New("unexpected NewSessionRequest: " + diff)
@@ -225,9 +224,9 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 			name: "a failed audit destroys the session and fails the establishment",
 			hook: func(context.Context, sessioninfo.ImpersonationEvent) error { return errors.New("audit store down") },
 			req:  &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob")},
-			prepare: func(storage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
+			prepare: func(storage *mockstore.PreauthStore, _ *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
-				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
+				storage.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
 				storage.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
 			},
 			wantErr: true,

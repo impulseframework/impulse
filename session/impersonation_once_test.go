@@ -9,7 +9,6 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
-	"github.com/impulseframework/impulse/session/internal/sealed"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -64,7 +63,7 @@ func TestImpersonationRequest_startsOneSession(t *testing.T) {
 		t.Parallel()
 		storage := newPreauthStoreMock(gomock.NewController(t))
 		storage.EXPECT().ImpersonationEnabled().Return(true)
-		storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
+		storage.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
 		p, err := NewPreauth[NoCustomData](storage, cookieKey)
 		if err != nil {
 			t.Fatalf("NewPreauth() error = %v", err)
@@ -85,7 +84,7 @@ func TestImpersonationRequest_startsOneSession(t *testing.T) {
 		f.store.EXPECT().ImpersonationEnabled().Return(true)
 		// The name of an actor from elsewhere must be no user's here.
 		f.store.EXPECT().UserByUserName(gomock.Any(), "alice@example.com").Return(nil, httpio.NewNotFoundMessage("no such user"))
-		f.store.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
+		f.store.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
 		start := func(req *ImpersonationRequest) (impulse.UUID, error) {
 			return f.auth.API().StartImpersonatedSession(context.Background(), httptest.NewRecorder(), req)
 		}
@@ -119,7 +118,7 @@ func TestImpersonationRequest_startsOneSession(t *testing.T) {
 		t.Parallel()
 		storage := newPreauthStoreMock(gomock.NewController(t))
 		storage.EXPECT().ImpersonationEnabled().Return(true).Times(2)
-		storage.EXPECT().CreateImpersonatedSession(gomock.Any(), sealed.NewImpersonationKey(), gomock.Any(), gomock.Any()).Return(sessionID, nil).Times(2)
+		storage.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil).Times(2)
 		p, err := NewPreauth[NoCustomData](storage, cookieKey)
 		if err != nil {
 			t.Fatalf("NewPreauth() error = %v", err)

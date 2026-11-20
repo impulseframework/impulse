@@ -3239,22 +3239,48 @@ the session API starts no session that no declared kind allows, and none without
 mask somebody chose: a kind that gives everything the person holds says so where the
 application is read, with `accesstypes.AllowAll()`.
 
-**The storage beneath is sealed.** The store's own `CreateImpersonatedSession` is the
-write the session library makes once it has decided: it writes a session and its
-record with whatever principal, mask and actor it is handed, and asks nothing. So it
-is the session library's alone to call. It takes a key whose type lives inside the
-library (`session/internal/sealed`), which Go lets no other program import: an
-application's direct call does not compile, with no key, with a key of its own making
-or with the library's. A key nobody made, which reflection or a type parameter can
-reach without naming the type, is refused with `sessionstorage.ErrImpersonationSealed`
-before anything is written. An application starts an impersonated session through the
-session API, from a request its declaration made, and in no other way. An application
-that wraps the store keeps doing so by embedding it; one that wrote a store of its own
-from nothing can no longer write this method, and embeds the library's store for it.
+**The storage beneath is sealed.** The write the session library makes once it has
+decided writes a session and its record with whatever principal, mask and actor it is
+handed, and asks nothing. So it is the session library's alone to make, and the library
+hands it to no application code. It is a method of the store's interface
+(`sessionstorage.BaseStore`) that is not exported, and its name belongs to a package
+inside the library (`session/internal/sealed`), which the go command lets no package
+outside the session library's directory import. Go lets no other package call a method
+named there, or declare one. So:
+
+- **A direct call does not compile**, on the library's stores or on the store's
+  interface, under any name.
+- **A store that wraps the library's keeps working.** It embeds the library's store
+  (`*sessionstorage.Auth`, `*sessionstorage.Preauth`, or the interface over one) and has
+  the write from it. It cannot replace the write, and it cannot stand in front of it: a
+  method of the same name in the wrapper's own package is another method, which the
+  library never calls, so the request and the record pass no application code on their
+  way to the database.
+- **A store written from nothing is no session store.** It cannot declare the method, so
+  a program that hands one to `NewAuth` or `NewPreauth` does not compile. A test double
+  written by hand embeds `sessionstorage.NoImpersonatedSessions`, which gives it the
+  method with a write that refuses.
+- **The mocks write nothing.** `mock_sessionstorage.NewMockBaseStore`,
+  `NewMockPreauthStore` and `NewMockAuthStore` mock every other method of the store, and
+  their write refuses. A test in which an impersonated session starts runs over a store
+  the library made (`sessionstorage.NewPostgresAuth` and the others, on a test database).
+
+A write the library did not make is refused with `sessionstorage.ErrImpersonationSealed`
+before anything is written: that is what a mock, a store that embeds
+`NoImpersonatedSessions` and a store value nobody built answer. An application starts an
+impersonated session through the session API, from a request its declaration made, and
+through the library's API there is no other way.
+
+The seal is the library's API and no more. The application owns the tables, so SQL of
+its own writes any row, and the store's `NewSession` and `CreateSession` write an
+ordinary session for any username, by design. And the seal is the type checker's: a
+program that imports `unsafe` and links to a function by its name (`//go:linkname`)
+steps around what the type checker refuses, here as anywhere in Go. An application that
+must rule that out refuses the directive in its own code review or lint.
 
 **No option opens the session.** The session the library builds inside `NewAuth`,
-`NewPreauth` and the other constructors holds the key to that write, so nothing hands
-it to a program. The options that configure it (`session.WithSessionTimeout`,
+`NewPreauth` and the other constructors is the one thing that starts that write, so
+nothing hands it to a program. The options that configure it (`session.WithSessionTimeout`,
 `WithImpersonationTimeout`, `WithImpersonationAudit`, `WithPrincipalResolver`,
 `WithLogHandler` and the table names) are opaque values: `session.BaseSessionOption` is
 a struct with no exported field and no method, which a program passes to a constructor
@@ -3263,8 +3289,8 @@ with it learns nothing of the session it configures, and a program can neither c
 one, read one nor write one of its own; each of those does not compile. The zero value,
 the one option a program can still declare, sets nothing and is refused by every
 constructor. Reflection can find the type of the session inside and make a value of it;
-that value was not built by the library, holds no key, and the storage refuses what it
-starts.
+that value was not built by the library, and it starts no impersonated session: it is
+refused with `sessionstorage.ErrImpersonationSealed` before the store is asked anything.
 
 ```go
 // A person signed in here views bob's pages. The route is behind ValidateSession: the
