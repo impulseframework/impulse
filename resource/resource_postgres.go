@@ -7,6 +7,7 @@ import (
 
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -186,9 +187,21 @@ func (c *PostgresReadWriteTransaction) DataChangeEventIndex(res accesstypes.Reso
 	return c.resourceRowIndex[indexID]
 }
 
-// PostgresReadOnlyTransaction panics because it is not implemented for the PostgresReadWriteTransaction.
+// postgresQuerier is what a read inside a PostgreSQL transaction runs a statement on:
+// a pool, a connection or a pgx transaction.
+type postgresQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// PostgresReadOnlyTransaction returns what a read inside the transaction runs a
+// statement on, and nil for a transaction that holds no connection: a caller that
+// cannot run its statement on the answer refuses, it does not guess.
 func (c *PostgresReadWriteTransaction) PostgresReadOnlyTransaction() any {
-	panic("PostgresReadOnlyTransaction() not implemented for PostgresReadWriteTransaction")
+	if c.postgres == nil {
+		return nil
+	}
+
+	return c.postgres
 }
 
 // BufferMap panics because it is not implemented for the PostgresReadWriteTransaction.

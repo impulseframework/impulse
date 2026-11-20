@@ -176,8 +176,9 @@ func RefuseImpersonatorAsRowSubject[Resource resource.Resourcer](
 //
 // It answers nil outside an impersonated session, without reading anything, and for a
 // row whose value is in no set of the real person's. The caller's grants answer first.
-// It holds whatever the session's mask keeps, and it cannot be asked on a database the
-// library builds no such statement for: that is an error, and the write does not happen.
+// It holds whatever the session's mask keeps, on Spanner and on PostgreSQL alike. Where
+// the question cannot be asked (a patch decoded with no collection, a transaction with
+// no connection to ask on) it answers an error, and the write does not happen.
 func RefuseImpersonatorAsSetSubject[Resource resource.Resourcer](
 	ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet,
 	patchSet *resource.PatchSet[Resource], record string, column accesstypes.Field, set string,

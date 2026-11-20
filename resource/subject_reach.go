@@ -3,10 +3,12 @@ package resource
 import (
 	"context"
 	"fmt"
+	"math/big"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/jackc/pgx/v5"
 )
 
 // This file answers two questions about one named person and the application's
@@ -26,6 +28,10 @@ import (
 // its where: changes these answers with it. The person is named, never read from
 // the request, and the rows are read in no one tenant: a membership held in any
 // tenant counts, which is the strict reading of a rule about a person.
+//
+// The questions are asked on both databases the library supports: on Spanner
+// through the transaction's own reads, on PostgreSQL through the connection the
+// PostgreSQL transaction holds, each in its own dialect of the one statement.
 
 // SubjectSetHolds reports whether value is in the subject set named set for the
 // person subject, by the set's own definition, read inside the write's
@@ -34,10 +40,10 @@ import (
 // `x IN subject.<set>` and needs none of this.
 //
 // The patch must come from a decoder that knows the application's collection. A
-// patch with none, and a database the statement is not run on yet, are errors and
+// patch with none, and a transaction with no connection to ask on, are errors and
 // never a pass: a rule that could not ask does not let the write through.
 func (p *PatchSet[Resource]) SubjectSetHolds(ctx context.Context, txn ReadWriteTransaction, set string, subject accesstypes.User, value any) (bool, error) {
-	collection, err := p.reachCollection(txn)
+	collection, err := p.reachCollection()
 	if err != nil {
 		return false, err
 	}
@@ -65,9 +71,9 @@ func (p *PatchSet[Resource]) SubjectSetHolds(ctx context.Context, txn ReadWriteT
 // A name that is no fact of the application, and a fact that is not read through
 // this record's column, are errors: the generated code names the pair from the
 // same declarations, so a mismatch is a stale build and not a pass. So are a
-// patch with no collection and a database the statement is not run on yet.
+// patch with no collection and a transaction with no connection to ask on.
 func (p *PatchSet[Resource]) SubjectReadThrough(ctx context.Context, txn ReadWriteTransaction, name string, field accesstypes.Field, subject accesstypes.User, key KeySet) (bool, error) {
-	collection, err := p.reachCollection(txn)
+	collection, err := p.reachCollection()
 	if err != nil {
 		return false, err
 	}
@@ -104,21 +110,19 @@ func (p *PatchSet[Resource]) SubjectReadThrough(ctx context.Context, txn ReadWri
 }
 
 // reachCollection returns the collection the patch was decoded with, and refuses
-// a patch that carries none or a database the statements are not run on.
-func (p *PatchSet[Resource]) reachCollection(txn ReadWriteTransaction) (*GeneratedCollection, error) {
+// a patch that carries none.
+func (p *PatchSet[Resource]) reachCollection() (*GeneratedCollection, error) {
 	if p.querySet.collection == nil {
 		return nil, errors.Newf("the change to %s carries no collection, so a subject set cannot be asked about: decode the patch with a decoder built from the application's collection", p.Resource())
-	}
-	if txn.DBType() != SpannerDBType {
-		return nil, errors.Newf("asking a subject set about a named person is implemented for %s alone (the database is %s)", SpannerDBType, txn.DBType())
 	}
 
 	return p.querySet.collection, nil
 }
 
 // askReach runs one of this file's statements for the person subject and reads its
-// one boolean. The instant a set's where: reads as now is the patch's own, the one
-// its permission check folded with, or the present for a patch that carries none.
+// one boolean, on the database the transaction runs on. The instant a set's where:
+// reads as now is the patch's own, the one its permission check folded with, or the
+// present for a patch that carries none.
 func (p *PatchSet[Resource]) askReach(ctx context.Context, txn ReadWriteTransaction, sql string, registry *paramRegistry, subject accesstypes.User) (bool, error) {
 	env := p.querySet.env
 	if _, ok := env.Now(); !ok {
@@ -128,7 +132,16 @@ func (p *PatchSet[Resource]) askReach(ctx context.Context, txn ReadWriteTransact
 	if err != nil {
 		return false, err
 	}
-	rows, err := querySpannerFact(ctx, txn.SpannerReadOnlyTransaction(), spanner.Statement{SQL: sql, Params: params})
+
+	var rows []any
+	switch dbType := txn.DBType(); dbType {
+	case SpannerDBType:
+		rows, err = querySpannerFact(ctx, txn.SpannerReadOnlyTransaction(), spanner.Statement{SQL: sql, Params: params})
+	case PostgresDBType:
+		rows, err = queryPostgresReach(ctx, txn.PostgresReadOnlyTransaction(), sql, params)
+	default:
+		return false, errors.Newf("asking a subject set about a named person is not built for the database %s", dbType)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -141,6 +154,54 @@ func (p *PatchSet[Resource]) askReach(ctx context.Context, txn ReadWriteTransact
 	}
 
 	return answer, nil
+}
+
+// queryPostgresReach runs one of this file's statements on what a PostgreSQL
+// transaction reads through and returns its one boolean column, row by row. A
+// transaction that hands over nothing to run a statement on is an error, never an
+// answer.
+func queryPostgresReach(ctx context.Context, source any, sql string, params map[string]any) ([]any, error) {
+	querier, ok := source.(postgresQuerier)
+	if !ok {
+		return nil, errors.Newf("the PostgreSQL transaction holds no connection a statement can be run on (it handed over %T), so a subject set cannot be asked about", source)
+	}
+
+	rows, err := querier.Query(ctx, sql, postgresReachArgs(params))
+	if err != nil {
+		return nil, errors.Wrap(err, "postgresQuerier.Query()")
+	}
+	defer rows.Close()
+
+	var values []any
+	for rows.Next() {
+		var value bool
+		if err := rows.Scan(&value); err != nil {
+			return nil, errors.Wrap(err, "pgx.Rows.Scan()")
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.Wrap(err, "pgx.Rows.Err()")
+	}
+
+	return values, nil
+}
+
+// postgresReachArgs names a statement's parameters for PostgreSQL. A value is bound
+// as it is, which the driver sends as the type of the column it is compared with
+// (an id that knows its own text form goes as that text); an exact decimal, which
+// the library holds as the Spanner client's type for it, goes as its text.
+func postgresReachArgs(params map[string]any) pgx.NamedArgs {
+	args := make(pgx.NamedArgs, len(params))
+	for name, value := range params {
+		if rat, ok := value.(*big.Rat); ok {
+			args[name] = rat.FloatString(numericScale)
+		} else {
+			args[name] = value
+		}
+	}
+
+	return args
 }
 
 // reachKeyColumn is one column of the primary key that names the row a

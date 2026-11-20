@@ -4756,9 +4756,12 @@ own, outside any request, has no caller and is the application's act):
   (`resource.PatchSet.SubjectSetHolds`, `resource.PatchSet.SubjectReadThrough`), with
   the pieces a condition's `x IN subject.<set>` renders, so the rule and the policy
   share one definition of who is in a set: its `who:`, its `where:` and the sets it
-  builds on. The real person is asked about by name, in no one tenant. A database the
-  statement is not built for yet (PostgreSQL) answers an error and the write does not
-  happen, never a pass. The
+  builds on. The real person is asked about by name, in no one tenant. Both questions
+  are asked on Spanner and on PostgreSQL, each in its own dialect of the one statement:
+  on Spanner through the transaction's reads, on PostgreSQL through the connection the
+  PostgreSQL transaction holds. A question that cannot be asked (a patch decoded with
+  no collection, a PostgreSQL transaction that holds no connection) answers an error
+  and the write does not happen, never a pass. The
   caller's grants and the session's mask answer first, so a person the record's write
   is refused gets the same Forbidden as on any record and learns nothing from the
   rule's sentence. Outside an impersonated session nothing is read: the same write

@@ -196,7 +196,8 @@ func TestSubjectReadThroughStatement(t *testing.T) {
 
 // TestPatchSet_subjectReach_refusesWhatItCannotAsk pins that neither question is
 // ever answered "no" by a patch that cannot ask it: a patch with no collection is
-// an error, and so is a database the statements are not run on.
+// an error, and so are a PostgreSQL transaction that holds no connection to run the
+// statement on and a database the library knows no dialect for.
 func TestPatchSet_subjectReach_refusesWhatItCannotAsk(t *testing.T) {
 	t.Parallel()
 
@@ -210,8 +211,11 @@ func TestPatchSet_subjectReach_refusesWhatItCannotAsk(t *testing.T) {
 
 	known := NewPatchSet(NewMetadata[toStructTestResource]())
 	known.querySet.collection = semanticCollection(t)
-	if _, err := known.SubjectSetHolds(context.Background(), reachTxn{dbType: PostgresDBType}, "teams", "user-1", "north"); err == nil || !strings.Contains(err.Error(), "is implemented for spanner alone") {
-		t.Errorf("SubjectSetHolds() on another database error = %v, want the refusal that names the database", err)
+	if _, err := known.SubjectSetHolds(context.Background(), newPostgresPostgresReadWriteTransaction(nil), "teams", "user-1", "north"); err == nil || !strings.Contains(err.Error(), "holds no connection a statement can be run on") {
+		t.Errorf("SubjectSetHolds() on a PostgreSQL transaction with no connection error = %v, want the refusal that says so", err)
+	}
+	if _, err := known.SubjectSetHolds(context.Background(), reachTxn{dbType: "ledger"}, "teams", "user-1", "north"); err == nil || !strings.Contains(err.Error(), "unsupported dbType: ledger") {
+		t.Errorf("SubjectSetHolds() on a database the library does not know error = %v, want the refusal that names the database", err)
 	}
 }
 
