@@ -1,5 +1,5 @@
-import { DatePipe } from '@angular/common';
-import { Component, computed, inject, ResourceStatus, signal, TemplateRef } from '@angular/core';
+import { DatePipe, formatNumber } from '@angular/common';
+import { Component, computed, inject, LOCALE_ID, ResourceStatus, signal, TemplateRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -100,6 +100,7 @@ function failed(error: Error | undefined): boolean {
 export class HangarDeckComponent {
   sectors = inject(SectorService);
   private dialog = inject(MatDialog);
+  private locale = inject(LOCALE_ID);
 
   readonly methods = Methods;
   readonly resources = Resources;
@@ -234,9 +235,27 @@ export class HangarDeckComponent {
 
   /** A refit's estimate as the open refit's card says it. */
   estimateOf(refit: Refits): string {
-    return refit.estimate !== undefined && refit.estimate !== null
-      ? `Estimate: ${refit.estimate} credits`
-      : 'No estimate yet';
+    const credits = this.credits(refit);
+    return credits === undefined ? 'No estimate yet' : `Estimate: ${credits}`;
+  }
+
+  /** A refit's estimate as the ship's card on the board says it. */
+  estimateOnBoard(refit: Refits): string {
+    return this.credits(refit) ?? 'no estimate';
+  }
+
+  /**
+   * A refit's estimate as a person writes money, "12,000 credits": whole credits, the
+   * digits grouped, the word spelled out. Undefined where the refit has none. An estimate
+   * that arrives as a number and one that arrives as a decimal's string read the same.
+   */
+  private credits(refit: Refits): string | undefined {
+    const estimate: number | string | null | undefined = refit.estimate;
+    if (estimate === undefined || estimate === null) {
+      return undefined;
+    }
+    const whole = Number(estimate);
+    return `${formatNumber(whole, this.locale, '1.0-0')} ${whole === 1 ? 'credit' : 'credits'}`;
   }
 
   /** What the button that opens the estimate and the notes says: the ones this person may change. */

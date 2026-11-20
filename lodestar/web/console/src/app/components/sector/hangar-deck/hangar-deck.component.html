@@ -39,9 +39,7 @@
             (dragstart)="onDragStart(refit)"
             (click)="select(refit)">
             <span class="name">{{ shipName(refit.shipId) }}</span>
-            <span class="meta">{{
-              refit.estimate !== undefined && refit.estimate !== null ? refit.estimate + ' cr' : 'no estimate'
-            }}</span>
+            <span class="meta">{{ estimateOnBoard(refit) }}</span>
           </button>
         }
       </div>

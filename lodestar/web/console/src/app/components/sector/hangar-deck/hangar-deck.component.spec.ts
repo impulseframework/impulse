@@ -61,6 +61,8 @@ const everything = {
 
 /** What the scripted server holds, and how it answers what the deck sends. */
 interface World {
+  /** The estimate of the refit in refit, as the server sends it: a number, or a decimal's string. 1200 when absent. */
+  estimate?: number | string;
   grants: PermissionDigest;
   /** The Good Samaritan's refit's envelope; the Governor's when not given. */
   capabilities?: Record<string, unknown>;
@@ -157,7 +159,7 @@ function serverOf(
               id: 'r-1',
               shipId: 'sh-1',
               statusId: world.state ?? 'in_refit',
-              estimate: 1200,
+              estimate: world.estimate ?? 1200,
               notes: 'port strut cracked',
               openedByName: 'Dockmaster Dara',
               inspectedAt: '2030-12-30T08:00:00Z',
@@ -454,6 +456,24 @@ describe('HangarDeckComponent', () => {
     expect(await offered('refitShip')).toEqual(['Good Samaritan', 'Wren']);
   });
 
+  // An estimate reads as a person writes money: whole credits, the digits grouped, the word
+  // spelled out, on a ship's card on the board and on the open refit's card alike. The
+  // server sends it as a number, or as a decimal's string that keeps every digit.
+  for (const tt of [
+    { name: 'a number', estimate: 12000, reads: '12,000 credits' },
+    { name: "a decimal's string", estimate: '12500', reads: '12,500 credits' },
+    { name: 'one credit', estimate: 1, reads: '1 credit' },
+  ]) {
+    it(`says an estimate sent as ${tt.name} with its digits grouped and the word spelled out, in both places`, async () => {
+      await pageFor({ grants: governor, estimate: tt.estimate });
+
+      // The tug has no estimate; the ship in refit has one.
+      expect(texts('.bay .ship .meta')).toEqual(['no estimate', tt.reads]);
+      await openRefit();
+      expect(texts('.detail-card .facts span')[0]).toBe(`Estimate: ${tt.reads}`);
+    });
+  }
+
   it('draws no form on the page: what adds or changes something is a button', async () => {
     await pageFor({ grants: governor });
 
@@ -474,7 +494,7 @@ describe('HangarDeckComponent', () => {
       'Add task',
     ]);
     // What the forms change is on the card as text.
-    expect(texts('.detail-card .facts span')).toEqual(['Estimate: 1200 credits', 'port strut cracked']);
+    expect(texts('.detail-card .facts span')).toEqual(['Estimate: 1,200 credits', 'port strut cracked']);
     expect(texts('.detail-card .task-notes')).toEqual(['parts on order']);
     expect(element().querySelectorAll('form, input, mat-select, mat-form-field').length).toBe(0);
     expect(dialogOpen()).toBe(false);
