@@ -28,6 +28,11 @@ function refused(error: Error | undefined): boolean {
   return error instanceof ApiError && error.status === 403;
 }
 
+/** Whether a read failed for another reason than the posting: the server broke, or could not be reached. */
+function failed(error: Error | undefined): boolean {
+  return error !== undefined && !refused(error);
+}
+
 /**
  * The hangar deck: the refit workflow drawn as bays across the screen. Each ship in a
  * refit sits in the bay for its state; a bay is a drop target when the ship's own
@@ -64,7 +69,10 @@ function refused(error: Error | undefined): boolean {
  * however many there are. Where the person's posting does not cover the deck it says one
  * sentence of its own, whether the digest says so or the server refuses one of the reads
  * (a posting that holds only during a shift is refused by the server outside it), and
- * never the server's words for the refusal.
+ * never the server's words for the refusal. Where a read fails for another reason (the
+ * server broke, or could not be reached) the deck says it could not be loaded, with a
+ * button that asks its three reads again: no part of a board, and none of the server's
+ * words, which are of no use to the person reading them.
  *
  * Docking takes a ship that is not in a bay: the picker offers the ships with no refit
  * still open, and the server refuses the others.
@@ -120,17 +128,26 @@ export class HangarDeckComponent {
     () => this.canList() && ![this.refits.error(), this.tasks.error(), this.ships.error()].some(refused),
   );
 
-  /** What a read that failed for another reason than the posting said: the first of the three that did. */
-  failure = computed(
-    () =>
-      this.sectors.refusalOf(this.refits) ?? this.sectors.refusalOf(this.tasks) ?? this.sectors.refusalOf(this.ships),
+  /**
+   * Whether one of the deck's reads failed for another reason than the posting. The deck
+   * then holds part of a board at most, so it draws none of it.
+   */
+  private unread = computed(() => [this.refits.error(), this.tasks.error(), this.ships.error()].some(failed));
+
+  /**
+   * Whether the reads are out again: Try again waits for them. A read asked again keeps
+   * what it last answered until the new answer is in, so the sentence stays while it waits.
+   */
+  retrying = computed(() =>
+    [this.refits.status(), this.tasks.status(), this.ships.status()].some((status) => status === 'reloading'),
   );
 
   /**
    * What the deck draws under its heading: nothing while one of its reads is out for the
-   * first time, its one sentence where the posting does not cover it, what a failed read
-   * said, or the board. A read asked again after a change keeps its rows while it is out,
-   * so a board that is drawn stays drawn until the new rows are in.
+   * first time, its one sentence where the posting does not cover it, that it could not
+   * be loaded where a read failed, or the board. A read asked again after a change keeps
+   * its rows while it is out, so a board that is drawn stays drawn until the new rows are
+   * in.
    */
   view = computed<'reading' | 'uncovered' | 'failed' | 'board'>(() => {
     if (![this.refits.status(), this.tasks.status(), this.ships.status()].every(answered)) {
@@ -139,8 +156,15 @@ export class HangarDeckComponent {
     if (!this.covered()) {
       return 'uncovered';
     }
-    return this.failure() ? 'failed' : 'board';
+    return this.unread() ? 'failed' : 'board';
   });
+
+  /** Asks the deck's three reads again, after one of them failed. */
+  tryAgain(): void {
+    this.refits.reload();
+    this.tasks.reload();
+    this.ships.reload();
+  }
 
   /** The rows the deck's reads hold: none where a read was refused or failed. */
   private refitRows = computed(() => (this.refits.hasValue() ? this.refits.value() : []));

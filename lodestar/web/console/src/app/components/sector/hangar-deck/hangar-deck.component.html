@@ -16,8 +16,11 @@
     <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover the hangar deck right now.</p>
   </mat-card>
 } @else if (view() === 'failed') {
-  <mat-card appearance="outlined" class="table-card refusal-slot">
-    <p class="refusal"><b>Refused by the server:</b> {{ failure() }}</p>
+  <mat-card appearance="outlined" class="table-card unread">
+    <p class="empty">The hangar deck could not be loaded.</p>
+    <button mat-stroked-button type="button" class="try-again" [disabled]="retrying()" (click)="tryAgain()">
+      Try again
+    </button>
   </mat-card>
 } @else if (view() === 'board') {
   @if (refusal(); as refusal) {

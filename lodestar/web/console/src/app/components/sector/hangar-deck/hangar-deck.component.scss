@@ -158,3 +158,10 @@ h3 {
     background: var(--mat-sys-surface-container-high);
   }
 }
+
+// The card the deck draws where it could not be loaded: its sentence, and under it the
+// button that reads it again, as wide as its words.
+.unread .try-again {
+  align-self: flex-start;
+  margin: 0 16px 16px;
+}

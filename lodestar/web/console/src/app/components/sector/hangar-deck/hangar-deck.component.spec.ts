@@ -32,7 +32,9 @@ import { HangarDeckComponent } from './hangar-deck.component';
 // three reads have answered, then the whole board. It reads every refit, task and ship, a
 // page of the resource's largest size at a time. Where the server refuses one of its
 // reads it says its own sentence, the one it says to a person the digest gives no posting,
-// and never the server's words. Docking offers the ships that are not in a bay.
+// and never the server's words. Where a read fails for another reason it says the deck
+// could not be loaded, with a button that reads it again, and nothing else. Docking offers
+// the ships that are not in a bay.
 
 /** Anvil's id: a sector's key is an id its create generates, and the name is a field. */
 const anvilID = 'a1111111-1111-4111-8111-111111111111';
@@ -70,6 +72,8 @@ interface World {
   write?: TransportResponse;
   /** The lists the server refuses to read, as it refuses a posting outside its shift. */
   refuses?: List[];
+  /** The lists the server fails to read, for as long as they are named here. */
+  fails?: List[];
   /** What the server waits for before it answers the read of the ships. */
   shipsAfter?: Promise<void>;
   /** Whether each list has a second page: a refit of the Wren and one of the Kestrel, the Kestrel, a third task. */
@@ -83,6 +87,12 @@ type List = 'refits' | 'refit-tasks' | 'ships';
 const outsideShift: TransportResponse = {
   status: 403,
   body: { message: 'user watch does not have List on the resource: the watch starts at 18:00' },
+};
+
+/** A read the server could not answer, in its own words. */
+const broken: TransportResponse = {
+  status: 500,
+  body: { message: 'internal error: the database did not answer' },
 };
 
 /** The second page of each list, which the server names from the first. */
@@ -109,6 +119,9 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
     }
     if (world.refuses?.includes(list)) {
       return outsideShift;
+    }
+    if (world.fails?.includes(list)) {
+      return broken;
     }
     let page = answer(request);
     if (world.secondPage) {
@@ -356,6 +369,53 @@ describe('HangarDeckComponent', () => {
       expect(texts('button')).toEqual([]);
     });
   }
+
+  it('keeps its own sentence where the server refuses one read and fails another', async () => {
+    await pageFor({ grants: governor, refuses: ['refits'], fails: ['ships'] }, () => texts('.empty').length > 0);
+
+    expect(texts('.empty')).toEqual(['Your posting in Anvil does not cover the hangar deck right now.']);
+    expect(texts('button')).toEqual([]);
+  });
+
+  for (const list of ['refits', 'refit-tasks', 'ships'] as const) {
+    it(`says the deck could not be loaded when the read of ${list} fails, with a way to try again and nothing else`, async () => {
+      await pageFor({ grants: governor, fails: [list] }, () => texts('.empty').length > 0);
+
+      expect(texts('mat-card')).toEqual(['The hangar deck could not be loaded. Try again']);
+      expect(texts('.empty')).toEqual(['The hangar deck could not be loaded.']);
+      expect(texts('button')).toEqual(['Try again']);
+      expect(text(element())).not.toContain('Refused by the server');
+      expect(text(element())).not.toContain('500');
+      expect(text(element())).not.toContain('did not answer');
+      expect(element().querySelector('.bays')).toBeNull();
+      expect(element().querySelector('.ship-card')).toBeNull();
+    });
+  }
+
+  it('Try again reads the deck again: a second failure leaves the sentence, and an answer draws the board', async () => {
+    const world: World = { grants: governor, fails: ['refit-tasks'] };
+    await pageFor(world, () => texts('.empty').length > 0);
+    expect(reads('refit-tasks')).toBe(1);
+
+    await press('Try again');
+    await settle(() => reads('refit-tasks') === 2, 50);
+    await settle(() => false, 5);
+
+    expect(reads('refits')).toBe(2);
+    expect(reads('refit-tasks')).toBe(2);
+    expect(reads('ships')).toBe(2);
+    expect(texts('.empty')).toEqual(['The hangar deck could not be loaded.']);
+    expect(texts('button')).toEqual(['Try again']);
+    expect(element().querySelector('.bays')).toBeNull();
+
+    world.fails = [];
+    await press('Try again');
+    await settle(filled, 50);
+
+    expect(texts('.empty')).toEqual([]);
+    expect(texts('.bay .ship .name')).toEqual(['Tug Brava', 'Good Samaritan']);
+    expect(texts('.ship-card b')).toEqual(['Good Samaritan', 'Tug Brava', 'Wren']);
+  });
 
   it('reads every refit, task and ship: a page of the largest size at a time, to the last', async () => {
     await pageFor({ grants: governor, secondPage: true }, () => texts('.bay .ship').length === 4);
