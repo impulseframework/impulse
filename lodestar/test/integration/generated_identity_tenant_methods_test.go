@@ -82,7 +82,7 @@ func crewMemberships(t *testing.T, db *initiator.SpannerDB, stmt spanner.Stateme
 	if err := iter.Do(func(row *spanner.Row) error {
 		var kind, domain, role string
 		if err := row.Columns(&kind, &domain, &role); err != nil {
-			return err
+			return fmt.Errorf("spanner.Row.Columns(): %w", err)
 		}
 		held = append(held, kind+"/"+domain+" "+role)
 

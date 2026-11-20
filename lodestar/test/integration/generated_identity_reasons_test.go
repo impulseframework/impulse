@@ -65,14 +65,15 @@ func endNow(t *testing.T, db *initiator.SpannerDB, table string, key map[string]
 	}
 }
 
-// membershipAt reads the period and the reason of a membership a person holds in a
-// sector, straight from the database; found is false where there is no such row.
-func membershipAt(t *testing.T, db *initiator.SpannerDB, sector, userID, role string) (period accesstypes.Period, reason string, found bool) {
+// engineerAtAnvil reads the period and the reason of the Engineer's role a person holds
+// at Anvil, the one role the cases of this suite take, straight from the database; found
+// is false where there is no such row.
+func engineerAtAnvil(t *testing.T, db *initiator.SpannerDB, userID string) (period accesstypes.Period, reason string, found bool) {
 	t.Helper()
 
 	iter := db.Client.Single().Query(t.Context(), spanner.Statement{
-		SQL:    "SELECT StartsAt, EndsAt, Reason FROM CrewUserRoles WHERE Kind = 'domain' AND Axis = '' AND DomainId = @sector AND Role = @role AND UserId = @user",
-		Params: map[string]any{"sector": sector, "role": role, "user": userID},
+		SQL:    "SELECT StartsAt, EndsAt, Reason FROM CrewUserRoles WHERE Kind = 'domain' AND Axis = '' AND DomainId = @sector AND Role = 'Engineer' AND UserId = @user",
+		Params: map[string]any{"sector": anvil, "user": userID},
 	})
 	defer iter.Stop()
 	row, err := iter.Next()
@@ -82,7 +83,7 @@ func membershipAt(t *testing.T, db *initiator.SpannerDB, sector, userID, role st
 	var starts, ends spanner.NullTime
 	var why spanner.NullString
 	if err := row.Columns(&starts, &ends, &why); err != nil {
-		t.Fatalf("reading the membership of %s in %s: %v", role, sector, err)
+		t.Fatalf("reading the Engineer's role of %s at Anvil: %v", userID, err)
 	}
 
 	return accesstypes.Period{Start: starts.Time, End: ends.Time}, why.StringVal, true
@@ -231,7 +232,7 @@ func TestGeneratedIdentityTakeRole(t *testing.T) {
 			t.Errorf("%s: the refusal = %s, want it to say %q", tt.name, body, tt.says)
 		}
 	}
-	if _, _, held := membershipAt(t, w.db, anvil, governor.String(), "Engineer"); held {
+	if _, _, held := engineerAtAnvil(t, w.db, governor.String()); held {
 		t.Fatal("the governor holds the Engineer's role at Anvil after the refused takings")
 	}
 
@@ -239,7 +240,7 @@ func TestGeneratedIdentityTakeRole(t *testing.T) {
 	before := time.Now().UTC()
 	status, body = take("governor", taking("Engineer", "1 hour", why))
 	assertStatus(t, status, http.StatusNoContent, body)
-	period, reason, held := membershipAt(t, w.db, anvil, governor.String(), "Engineer")
+	period, reason, held := engineerAtAnvil(t, w.db, governor.String())
 	if !held || reason != why {
 		t.Fatalf("the membership the taking wrote: held = %v, reason = %q, want it held for %q", held, reason, why)
 	}
@@ -280,7 +281,7 @@ func TestGeneratedIdentityTakeRole(t *testing.T) {
 	const again = "The inspection found more to look at"
 	status, body = take("governor", taking("Engineer", "4 hours", again))
 	assertStatus(t, status, http.StatusNoContent, body)
-	longer, reason, _ := membershipAt(t, w.db, anvil, governor.String(), "Engineer")
+	longer, reason, _ := engineerAtAnvil(t, w.db, governor.String())
 	if reason != again || longer.End.Sub(longer.Start) != 4*time.Hour || !longer.End.After(period.End) {
 		t.Errorf("the membership after the second taking: %+v for %q, want four hours from now for %q", longer, reason, again)
 	}
@@ -377,7 +378,7 @@ func TestGeneratedIdentityTakeRoleNeedsTheGiving(t *testing.T) {
 			status, body := doRequestAs(t, w.h, "hana", http.MethodPost, consoleAPI+"/take-crew-role",
 				fmt.Sprintf(`{"domain":%q,"role":"Engineer","length":"1 hour","reason":"Covering the hangar desk"}`, anvil))
 			assertStatus(t, status, tt.want, body)
-			_, _, held := membershipAt(t, w.db, anvil, hana, "Engineer")
+			_, _, held := engineerAtAnvil(t, w.db, hana)
 			if held != (tt.want == http.StatusNoContent) {
 				t.Errorf("hana holds the Engineer's role at Anvil: %v, and the taking was answered %d", held, status)
 			}

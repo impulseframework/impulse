@@ -239,7 +239,7 @@ func crewRolesOf(t *testing.T, w *identityWorld, username string) []string {
 	if err := iter.Do(func(row *spanner.Row) error {
 		var role string
 		if err := row.Column(0, &role); err != nil {
-			return err
+			return fmt.Errorf("spanner.Row.Column(): %w", err)
 		}
 		roles = append(roles, role)
 
