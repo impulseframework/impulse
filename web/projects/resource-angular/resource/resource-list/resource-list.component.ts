@@ -69,7 +69,10 @@ import {
 } from '../concat-fns';
 import { applyFormatting, formatByDisplayType, formatDateString } from '../format-fns';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
-import { DeleteResourceConfirmationModalComponent } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
+import {
+  DeleteConfirmation,
+  DeleteResourceConfirmationModalComponent,
+} from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
 import { filledMethods, offeredAs, OfferedMethod, parentOffers, rowMethods } from '../row-methods/row-methods';
 import { ResourceStore } from '../resource-store.service';
@@ -817,9 +820,15 @@ export class ResourceListComponent implements OnInit {
     return columns;
   });
 
-  /** Asks before a row leaves the list, then deletes it through the write resource. */
+  /**
+   * Asks before a row leaves the list, then deletes it through the write resource. The
+   * question names the row by its own name where the config reads one off the row
+   * (`rowTitle`), and the list by its title.
+   */
   confirmDeleteRow(row: RecordData): void {
-    const dialogRef = this.dialog.open(DeleteResourceConfirmationModalComponent, { delayFocusTrap: false });
+    const config = this.config();
+    const data: DeleteConfirmation = { name: config.rowTitle?.(row), from: config.title, inList: true };
+    const dialogRef = this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
     dialogRef.afterClosed().subscribe((confirmed) => {
       if (confirmed === true) {
         this.deleteRow(row);

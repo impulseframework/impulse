@@ -51,7 +51,10 @@ import {
   ActionButtonContext,
 } from '../actions/action-button-smart/action-access-control-wrapper.component';
 import { RpcButtonComponent } from '../actions/rpc-button/rpc-button.component';
-import { DeleteResourceConfirmationModalComponent } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
+import {
+  DeleteConfirmation,
+  DeleteResourceConfirmationModalComponent,
+} from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
 import { filledMethods, OfferedMethod, rowMethods } from '../row-methods/row-methods';
 import { civildateCoercion, flattenElements } from '../gui-constants';
@@ -566,13 +569,20 @@ export class ResourceViewComponent implements OnInit {
     this.setEditMode('view');
   }
 
+  /**
+   * Asks before the page's row is deleted, then deletes it. The question names the row
+   * by its own name where the config reads one off the row (`rowTitle`), and the list
+   * the row is in by the config's title.
+   */
   confirmDeleteResource(): void {
     const existingDialog = this.dialog.openDialogs.find(
       (d) => d.componentInstance instanceof DeleteResourceConfirmationModalComponent,
     );
 
+    const config = this.config();
+    const data: DeleteConfirmation = { name: config.rowTitle?.(this.store.viewData()), from: config.title };
     const dialogRef =
-      existingDialog ?? this.dialog.open(DeleteResourceConfirmationModalComponent, { delayFocusTrap: false });
+      existingDialog ?? this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
 
     const result = dialogRef.afterClosed().pipe(
       tap((value) => {

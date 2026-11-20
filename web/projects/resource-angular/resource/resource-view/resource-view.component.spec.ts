@@ -15,7 +15,13 @@ import {
   ResourceMeta,
   viewConfig,
 } from '@impulseframework/resource-angular/types';
+import { of } from 'rxjs';
 
+import {
+  DeleteConfirmation,
+  deleteQuestion,
+  DeleteResourceConfirmationModalComponent,
+} from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { resourceValidators } from '../gui-constants';
 import { ResourceStore } from '../resource-store.service';
 import { ResourceViewComponent } from './resource-view.component';
@@ -601,5 +607,129 @@ describe('ResourceViewComponent as one of the unsaved forms the leave-page quest
 
     type('name', 'Inner reef');
     expect(unsaved.dirtyForms()).toBe(1);
+  });
+});
+
+describe('ResourceViewComponent asks before its row is deleted', () => {
+  const beacons = 'Beacons' as Resource;
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [beacons]: {
+        resource: beacons,
+        property: 'beacons',
+        route: 'beacons',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read', 'remove'],
+      },
+    },
+  };
+  const meta: ResourceMeta = {
+    route: 'beacons',
+    fields: [
+      {
+        fieldName: 'id',
+        displayType: 'uuid',
+        required: false,
+        isIndex: false,
+        primaryKey: { ordinalPosition: 0 },
+      } as FieldMeta,
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false } as FieldMeta,
+    ],
+  };
+  const server = (request: TransportRequest): TransportResponse => {
+    if (request.method === 'GET' && request.url.split('?')[0] === '/api/beacons/b-1') {
+      return { status: 200, body: { id: 'b-1', name: 'Outer reef' } };
+    }
+    return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+  };
+
+  let fixture: ComponentFixture<ResourceViewComponent>;
+
+  /** Draws the row's page under the config's own words and waits until the row is read. */
+  const drawn = async (words: { rowTitle?: (row: RecordData) => string }): Promise<ResourceViewComponent> => {
+    await TestBed.configureTestingModule({
+      imports: [ResourceViewComponent],
+      providers: [
+        provideResourceTesting({
+          transport: scriptedTransport(server),
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        provideNoopAnimations(),
+        ResourceStore,
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === beacons ? meta : undefined),
+        },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(ResourceViewComponent);
+    fixture.componentRef.setInput('uuid', 'b-1');
+    fixture.componentRef.setInput(
+      'config',
+      viewConfig({
+        primaryResource: beacons,
+        title: 'Beacons',
+        showBackButton: false,
+        elements: [field({ name: 'name' as FieldName, label: 'Name' })],
+        ...words,
+      }),
+    );
+    fixture.detectChanges();
+    for (let i = 0; i < 30 && !fixture.componentInstance.store.rowPresent(); i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+
+    return fixture.componentInstance;
+  };
+
+  /** Opens the confirmation with the dialog answering as told, and says what was asked and how often the row was deleted. */
+  const ask = (
+    component: ResourceViewComponent,
+    answer: boolean | undefined,
+  ): { question: string; deleted: number } => {
+    const opened: { component: unknown; data: unknown }[] = [];
+    component.dialog.open = ((opening: unknown, config: { data: unknown }) => {
+      opened.push({ component: opening, data: config.data });
+
+      return { afterClosed: () => of(answer) };
+    }) as unknown as typeof component.dialog.open;
+    let deleted = 0;
+    component.deleteResource = (): void => {
+      deleted++;
+    };
+
+    component.confirmDeleteResource();
+
+    expect(opened.map((o) => o.component)).toEqual([DeleteResourceConfirmationModalComponent]);
+
+    return { question: deleteQuestion(opened[0].data as DeleteConfirmation | undefined), deleted };
+  };
+
+  it('by the list the row is in, and deletes it once the person says so', async () => {
+    const asked = ask(await drawn({}), true);
+
+    expect(asked.question).toBe('Delete this record from Beacons?');
+    expect(asked.deleted).toBe(1);
+  });
+
+  it("by the row's own name where the page reads one off the row", async () => {
+    const asked = ask(await drawn({ rowTitle: (row) => String(row['name']) }), true);
+
+    expect(asked.question).toBe('Delete Outer reef from Beacons?');
+  });
+
+  it('and deletes nothing when the person cancels or closes the dialog', async () => {
+    const component = await drawn({});
+
+    expect(ask(component, false).deleted).toBe(0);
+    expect(ask(component, undefined).deleted).toBe(0);
   });
 });
