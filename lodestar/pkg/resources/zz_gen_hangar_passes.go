@@ -32,6 +32,7 @@ type hangarPassRead struct {
 	HangarID   impulse.UUID     `json:"hangarId"`
 	UserID     *string          `json:"userId"`
 	SquadronID impulse.NullUUID `json:"squadronId"`
+	GroupID    impulse.NullUUID `json:"groupId"`
 	LevelID    string           `json:"levelId"`
 	ExpiresAt  *time.Time       `json:"expiresAt"`
 }
@@ -47,6 +48,7 @@ type hangarPassWrite struct {
 	HangarID   impulse.UUID     `json:"hangarId"`
 	UserID     *string          `json:"userId"     sqltype:"STRING(36)"`
 	SquadronID impulse.NullUUID `json:"squadronId"`
+	GroupID    impulse.NullUUID `json:"groupId"`
 	LevelID    string           `json:"levelId"    sqltype:"STRING(64)"`
 	ExpiresAt  *time.Time       `json:"expiresAt"`
 }
@@ -162,6 +164,7 @@ func (c *HangarPassColumns) All() *HangarPassColumns {
 		"HangarID",
 		"UserID",
 		"SquadronID",
+		"GroupID",
 		"LevelID",
 		"ExpiresAt",
 	}
@@ -195,6 +198,12 @@ func (c *HangarPassColumns) UserID() *HangarPassColumns {
 
 func (c *HangarPassColumns) SquadronID() *HangarPassColumns {
 	c.fields = append(c.fields, "SquadronID")
+
+	return c
+}
+
+func (c *HangarPassColumns) GroupID() *HangarPassColumns {
+	c.fields = append(c.fields, "GroupID")
 
 	return c
 }
@@ -241,6 +250,10 @@ func (p HangarPassQueryPartialClause) UserID() HangarPassQueryIdent[string] {
 
 func (p HangarPassQueryPartialClause) SquadronID() HangarPassQueryIdent[impulse.UUID] {
 	return HangarPassQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SquadronID", p.partialClause, true)}
+}
+
+func (p HangarPassQueryPartialClause) GroupID() HangarPassQueryIdent[impulse.UUID] {
+	return HangarPassQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("GroupID", p.partialClause, true)}
 }
 
 func (p HangarPassQueryPartialClause) LevelID() HangarPassQueryIdent[string] {
@@ -333,6 +346,10 @@ func (c *hangarPassSort) SquadronID() *HangarPassSort {
 	return c.addField("SquadronID")
 }
 
+func (c *hangarPassSort) GroupID() *HangarPassSort {
+	return c.addField("GroupID")
+}
+
 func (c *hangarPassSort) LevelID() *HangarPassSort {
 	return c.addField("LevelID")
 }
@@ -420,6 +437,9 @@ func (p *HangarPassCreatePatch) Enforce(caller *resource.Caller) *HangarPassCrea
 }
 
 func (p *HangarPassCreatePatch) registerDefaultFuncs() {
+	p.patchSet.RegisterValidateCreateFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return new(HangarPassCreateValidator).Validate(ctx, txn, p)
+	})
 }
 
 func (p *HangarPassCreatePatch) ID() impulse.UUID {
@@ -494,6 +514,22 @@ func (p *HangarPassCreatePatch) SquadronID() impulse.NullUUID {
 
 func (p *HangarPassCreatePatch) SquadronIDIsSet() bool {
 	return p.patchSet.IsSet("SquadronID")
+}
+
+func (p *HangarPassCreatePatch) SetGroupID(v impulse.NullUUID) *HangarPassCreatePatch {
+	p.patchSet.Set("GroupID", v)
+
+	return p
+}
+
+func (p *HangarPassCreatePatch) GroupID() impulse.NullUUID {
+	v, _ := p.patchSet.Get("GroupID").(impulse.NullUUID)
+
+	return v
+}
+
+func (p *HangarPassCreatePatch) GroupIDIsSet() bool {
+	return p.patchSet.IsSet("GroupID")
 }
 
 func (p *HangarPassCreatePatch) SetLevelID(v string) *HangarPassCreatePatch {
@@ -690,6 +726,22 @@ func (p *HangarPassUpdatePatch) SquadronID() impulse.NullUUID {
 
 func (p *HangarPassUpdatePatch) SquadronIDIsSet() bool {
 	return p.patchSet.IsSet("SquadronID")
+}
+
+func (p *HangarPassUpdatePatch) SetGroupID(v impulse.NullUUID) *HangarPassUpdatePatch {
+	p.patchSet.Set("GroupID", v)
+
+	return p
+}
+
+func (p *HangarPassUpdatePatch) GroupID() impulse.NullUUID {
+	v, _ := p.patchSet.Get("GroupID").(impulse.NullUUID)
+
+	return v
+}
+
+func (p *HangarPassUpdatePatch) GroupIDIsSet() bool {
+	return p.patchSet.IsSet("GroupID")
 }
 
 func (p *HangarPassUpdatePatch) SetLevelID(v string) *HangarPassUpdatePatch {

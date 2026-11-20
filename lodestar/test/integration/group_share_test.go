@@ -1,0 +1,546 @@
+// Demonstrates: @subjectSet.on-groups.
+package integration
+
+// The group share suite: a hangar pass that names one of the crew's groups, kept in the
+// permission store, as its holder. The pass is every member's while their place in the
+// group counts, at the level the pass carries and until it expires, exactly as a pass in
+// a person's own name or in a squadron's: the who: of both pass sets tests GroupID IN
+// subject.groups beside the person and the squadron, and subject.groups is the set the
+// library's group members table declares.
+//
+// Every person here holds the Armorer's role in the sector and nothing else, so what
+// they reach of the hangars they reach through a pass: the grants read hangar IN
+// subject.hangarsOpen (List, Read) and hangar IN subject.hangarsRun (Update), and name
+// nothing of the passes or of the groups.
+//
+// The cast's own share is in the seed: the Bay keepers, a group of Anvil's, hold a pass
+// to run the Quarantine Bay, and the sentry is in the group and holds no pass and flies
+// with no squadron.
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse/accesstypes"
+)
+
+const (
+	sentry = accesstypes.User("sentry")
+
+	// The Bay keepers' pass to run the Quarantine Bay, which the bootstrap writes once
+	// the group exists (cmd/bootstrap/users.json).
+	passBayKeepersQuarantineID = "61000000-0000-4000-8000-000000000006"
+
+	// Bastion's one hangar.
+	hangarBastionSlipID = "60000000-0000-4000-8000-000000000003"
+
+	// The passes the suite writes straight into the table, past the create.
+	passSlipHandsBastionSlipID = "61000000-0000-4000-8000-0000000000b1"
+	passRefusedID              = "61000000-0000-4000-8000-0000000000b2"
+)
+
+// groupShareWorld is a world of the test's own: the seeded rows, the cast's accounts and
+// the engines over the same database, so the groups the permission store keeps and the
+// passes that name them are in one place, as they are in a served application.
+type groupShareWorld struct {
+	*identityWorld
+	ctx context.Context
+}
+
+// newGroupShareWorld builds the world and writes the passes the cast's groups hold.
+func newGroupShareWorld(t *testing.T) *groupShareWorld {
+	t.Helper()
+
+	w := &groupShareWorld{identityWorld: newIdentityWorld(t), ctx: t.Context()}
+	if err := seedDemoGroupPasses(w.ctx, w.db); err != nil {
+		t.Fatal(err)
+	}
+
+	return w
+}
+
+// armorerAt makes a person up and gives them the Armorer's role in each sector named:
+// they hold no pass, fly with no squadron and are in no group.
+func (w *groupShareWorld) armorerAt(t *testing.T, username accesstypes.User, sectors ...string) accesstypes.User {
+	t.Helper()
+
+	person := makeCrewAccount(w.ctx, t, w.db, username)
+	for _, sector := range sectors {
+		if err := w.engine.UserManager().AddUserRoles(w.ctx, accesstypes.DomainPolicyScope(accesstypes.Domain(sector)), person, "Armorer"); err != nil {
+			t.Fatalf("access.UserManager.AddUserRoles(%s, Armorer, %s) error = %v", username, sector, err)
+		}
+	}
+
+	return person
+}
+
+// post runs one of the sector's methods as the person.
+func (w *groupShareWorld) post(t *testing.T, user accesstypes.User, sector, method, body string) (int, []byte) {
+	t.Helper()
+
+	return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(sector, method), body)
+}
+
+// hangars is the sector's hangars as the person lists them, by id.
+func (w *groupShareWorld) hangars(t *testing.T, user accesstypes.User, sector string) []string {
+	t.Helper()
+
+	status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(sector, "hangars"), "")
+	assertStatus(t, status, http.StatusOK, body)
+
+	return idsOf(t, decodeRows(t, body))
+}
+
+// rezone writes the hangar's zone as the person and answers the status: the write the
+// run level decides.
+func (w *groupShareWorld) rezone(t *testing.T, user accesstypes.User, sector, hangar, zone string) int {
+	t.Helper()
+
+	status, _ := doRequestAs(t, w.h, user, http.MethodPatch, sectorPath(sector, "hangars"),
+		fmt.Sprintf(`[{"op":"patch","path":"/%s","value":{"zone":%q}}]`, hangar, zone))
+
+	return status
+}
+
+// groupsOffered is what the group picker on a pass offers: the sector's own list of its
+// groups, as whoever writes the pass reads it, the id of each by its name.
+func (w *groupShareWorld) groupsOffered(t *testing.T, user accesstypes.User, sector string) map[string]string {
+	t.Helper()
+
+	status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(sector, sectorGroupsPath+"?limit=200"), "")
+	assertStatus(t, status, http.StatusOK, body)
+	offered := make(map[string]string)
+	for _, row := range decodeRows(t, body) {
+		offered[cell[string](t, row, "name")] = cell[string](t, row, "id")
+	}
+
+	return offered
+}
+
+// createPass writes a pass as the person, through the route the console's form uses, and
+// answers the status, the body and the id of the pass where one was written.
+func (w *groupShareWorld) createPass(t *testing.T, user accesstypes.User, sector, value string) (status int, body []byte, id string) {
+	t.Helper()
+
+	status, body = doRequestAs(t, w.h, user, http.MethodPatch, consoleAPI+"/resources",
+		fmt.Sprintf(`[{"op":"add","path":%q,"value":%s}]`, opPath(sector, "hangar-passes"), value))
+	if status != http.StatusOK {
+		return status, body, ""
+	}
+	ids, _ := decodeRow(t, body)["hangarPasses"].([]any)
+	if len(ids) != 1 {
+		t.Fatalf("created ids = %v, want one pass id: %s", ids, body)
+	}
+	id, _ = ids[0].(string)
+
+	return status, body, id
+}
+
+// groupPass is the value of a pass that names a group.
+func groupPass(hangar, group, level string) string {
+	return fmt.Sprintf(`{"hangarId":%q,"groupId":%q,"levelId":%q}`, hangar, group, level)
+}
+
+// passes counts the passes a query finds, read straight from the database.
+func (w *groupShareWorld) passes(t *testing.T, where string, params map[string]any) int64 {
+	t.Helper()
+
+	iter := w.db.Client.Single().Query(w.ctx, spanner.Statement{SQL: "SELECT COUNT(*) FROM HangarPasses WHERE " + where, Params: params})
+	defer iter.Stop()
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("counting the passes where %s: %v", where, err)
+	}
+	var n int64
+	if err := row.Columns(&n); err != nil {
+		t.Fatalf("reading the count of the passes where %s: %v", where, err)
+	}
+
+	return n
+}
+
+// TestGroupShare_persona holds the cast's own share, read from the seed: the sentry
+// holds the Armorer's role in Anvil, no pass and no squadron, and is one of the Bay
+// keepers, who hold a pass to run the Quarantine Bay. He sees the bay, through the group
+// alone, and no other hangar.
+func TestGroupShare_persona(t *testing.T) {
+	t.Parallel()
+
+	_, h, _ := sharedWorld(t)
+	provesArmorerGrants(t)
+
+	t.Run("the list is the bay his group runs, and not the dock", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := doRequestAs(t, h, sentry, http.MethodGet, sectorPath(anvil, "hangars"), "")
+		assertStatus(t, status, http.StatusOK, body)
+		if got, want := idsOf(t, decodeRows(t, body)), []string{hangarQuarantineID}; !slices.Equal(got, want) {
+			t.Errorf("the hangars open to the sentry = %v, want %v: the bay, through the Bay keepers", got, want)
+		}
+	})
+
+	t.Run("he reads the bay by its id", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := doRequestAs(t, h, sentry, http.MethodGet, sectorPath(anvil, "hangars/"+hangarQuarantineID), "")
+		assertStatus(t, status, http.StatusOK, body)
+	})
+
+	t.Run("a sector where he holds no role is concealed, whatever its passes say", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := doRequestAs(t, h, sentry, http.MethodGet, sectorPath(bastion, "hangars"), "")
+		assertStatus(t, status, http.StatusNotFound, body)
+	})
+}
+
+// TestGroupShare_levels holds a pass in a group's name from its writing to its expiry:
+// the Marshal picks the group from the sector's own, the pass is every member's and
+// nobody else's, a visit opens the hangar and does not let a member run it, the run
+// level does, and a pass that has expired gives nothing. Each step changes what the next
+// one reads, so the steps are one test and each failure names its step.
+func TestGroupShare_levels(t *testing.T) {
+	t.Parallel()
+
+	w := newGroupShareWorld(t)
+	provesArmorerGrants(t)
+	keeper := w.armorerAt(t, "keeper", anvil)
+	w.armorerAt(t, "outsider", anvil)
+
+	open := func(when string, user accesstypes.User, want ...string) {
+		t.Helper()
+		if got := w.hangars(t, user, anvil); !slices.Equal(got, want) {
+			t.Errorf("%s: the hangars open to %s = %v, want %v", when, user, got, want)
+		}
+	}
+	runs := func(when string, user accesstypes.User, zone string, want int) {
+		t.Helper()
+		if got := w.rezone(t, user, anvil, hangarAnvilDockID, zone); got != want {
+			t.Errorf("%s: %s re-zones the dock: status = %d, want %d", when, user, got, want)
+		}
+	}
+
+	// The Marshal makes a group in her sector and puts the keeper in it. The group holds
+	// no pass yet, and a place in it gives no hangar.
+	status, body := w.post(t, "marshal", anvil, "create-crew-sector-group", `{"name":"Dock hands","description":"The crew who keep Anvil Dock One."}`)
+	assertStatus(t, status, http.StatusOK, body)
+	group := cell[string](t, decodeRow(t, body), "id")
+	status, body = w.post(t, "marshal", anvil, "add-crew-sector-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, group, keeper))
+	assertStatus(t, status, http.StatusNoContent, body)
+	open("before the group holds a pass", "keeper")
+
+	// The picker on the pass offers the sector's groups, the new one among them, and a
+	// pass written with the id it offers holds: at the visit level the dock is open to
+	// the group's member, who may not run it.
+	if got := w.groupsOffered(t, "marshal", anvil)["Dock hands"]; got != group {
+		t.Fatalf("the group picker offers Dock hands as %q, want the id the create answered, %q", got, group)
+	}
+	status, body, pass := w.createPass(t, "marshal", anvil, groupPass(hangarAnvilDockID, group, "visit"))
+	assertStatus(t, status, http.StatusOK, body)
+	open("the group visits the dock", "keeper", hangarAnvilDockID)
+	status, body = doRequestAs(t, w.h, "keeper", http.MethodGet, sectorPath(anvil, "hangars/"+hangarAnvilDockID), "")
+	assertStatus(t, status, http.StatusOK, body)
+	runs("the group visits the dock", "keeper", "apron", http.StatusForbidden)
+
+	// At the run level the member re-zones the dock. A person outside the group holds
+	// the same role and reaches nothing: the pass is the group's, not the sector's.
+	if _, err := w.db.Apply(w.ctx, []*spanner.Mutation{spanner.UpdateMap("HangarPasses", map[string]any{"Id": pass, "LevelId": "run"})}); err != nil {
+		t.Fatalf("raising the group's pass to the run level: %v", err)
+	}
+	runs("the group runs the dock", "keeper", "apron", http.StatusOK)
+	if got := readColumn[string](w.ctx, t, w.db, "Hangars", spanner.Key{hangarAnvilDockID}, "Zone"); got != "apron" {
+		t.Errorf("the dock's zone = %q after the member's write, want apron", got)
+	}
+	open("the group runs the dock", "outsider")
+	runs("the group runs the dock", "outsider", "dock", http.StatusForbidden)
+
+	// A pass that has expired gives nothing, with nobody deleting it, and counts again
+	// once it is extended.
+	if _, err := w.db.Apply(w.ctx, []*spanner.Mutation{spanner.UpdateMap("HangarPasses", map[string]any{"Id": pass, "ExpiresAt": time.Now().UTC().Add(-time.Hour)})}); err != nil {
+		t.Fatalf("expiring the group's pass: %v", err)
+	}
+	open("the group's pass has expired", "keeper")
+	runs("the group's pass has expired", "keeper", "dock", http.StatusForbidden)
+	if _, err := w.db.Apply(w.ctx, []*spanner.Mutation{spanner.UpdateMap("HangarPasses", map[string]any{"Id": pass, "ExpiresAt": time.Now().UTC().AddDate(0, 1, 0)})}); err != nil {
+		t.Fatalf("extending the group's pass: %v", err)
+	}
+	open("the group's pass is extended", "keeper", hangarAnvilDockID)
+	runs("the group's pass is extended", "keeper", "dock", http.StatusOK)
+}
+
+// TestGroupShare_places holds the pass to the person's place in the group: a place that
+// has not begun, or that has ended, gives nothing; a person taken out of the group loses
+// the hangar at their next request; and a group that is deleted leaves no pass that
+// names it. It runs on the cast's own share, the Bay keepers' pass to run the Quarantine
+// Bay.
+func TestGroupShare_places(t *testing.T) {
+	t.Parallel()
+
+	w := newGroupShareWorld(t)
+	provesArmorerGrants(t)
+	novice := w.armorerAt(t, "novice", anvil)
+
+	open := func(when string, user accesstypes.User, want ...string) {
+		t.Helper()
+		if got := w.hangars(t, user, anvil); !slices.Equal(got, want) {
+			t.Errorf("%s: the hangars open to %s = %v, want %v", when, user, got, want)
+		}
+	}
+	runs := func(when string, user accesstypes.User, zone string, want int) {
+		t.Helper()
+		if got := w.rezone(t, user, anvil, hangarQuarantineID, zone); got != want {
+			t.Errorf("%s: %s re-zones the bay: status = %d, want %d", when, user, got, want)
+		}
+	}
+	group := w.groupsOffered(t, "marshal", anvil)["Bay keepers"]
+	if group == "" {
+		t.Fatal("Anvil's groups do not list the Bay keepers")
+	}
+	// A place in the group names the person as the permission store does, by the id of
+	// their account.
+	place := func(person accesstypes.User) map[string]any {
+		return map[string]any{"groupId": group, "userId": string(person)}
+	}
+	member := func(person accesstypes.User) string {
+		return periodBody(t, place(person), time.Time{}, time.Time{})
+	}
+
+	// The sentry is in the group and runs the bay. The novice holds the same role and is
+	// not in it.
+	open("as the cast is seeded", sentry, hangarQuarantineID)
+	runs("as the cast is seeded", sentry, "isolation", http.StatusOK)
+	open("before the novice is in the group", "novice")
+
+	// A place that begins later gives nothing until it begins.
+	later := time.Now().UTC().AddDate(0, 0, 7).Truncate(time.Microsecond)
+	status, body := w.post(t, "marshal", anvil, "add-crew-sector-group-member", periodBody(t, place(novice), later, time.Time{}))
+	assertStatus(t, status, http.StatusNoContent, body)
+	open("the novice's place begins in a week", "novice")
+	runs("the novice's place begins in a week", "novice", "quarantine", http.StatusForbidden)
+
+	// Given again with no start, the place counts at the next request.
+	status, body = w.post(t, "marshal", anvil, "add-crew-sector-group-member", member(novice))
+	assertStatus(t, status, http.StatusNoContent, body)
+	open("the novice's place counts", "novice", hangarQuarantineID)
+	runs("the novice's place counts", "novice", "quarantine", http.StatusOK)
+
+	// A place that has ended gives nothing, with nobody taking the person out. The
+	// method refuses an end that is past already, so the end is written as the clock
+	// would have brought it.
+	ended := spanner.UpdateMap("CrewGroupMembers", map[string]any{"GroupId": group, "UserId": string(novice), "EndsAt": time.Now().UTC().Add(-time.Minute)})
+	if _, err := w.db.Apply(w.ctx, []*spanner.Mutation{ended}); err != nil {
+		t.Fatalf("ending the novice's place: %v", err)
+	}
+	open("the novice's place has ended", "novice")
+	runs("the novice's place has ended", "novice", "isolation", http.StatusForbidden)
+
+	// Taken out of the group, the sentry loses the bay at his next request.
+	status, body = w.post(t, "marshal", anvil, "remove-crew-sector-group-member", member(account(t, sentry)))
+	assertStatus(t, status, http.StatusNoContent, body)
+	open("the sentry is out of the group", sentry)
+	runs("the sentry is out of the group", sentry, "isolation", http.StatusForbidden)
+
+	// The group is deleted, and its pass goes with it: no pass is left that names a group
+	// nobody keeps. Nobody whose place counts is left in it; the novice's ended place does
+	// not stand in the way, and goes with the group.
+	if got := w.passes(t, "GroupId = @group", map[string]any{"group": group}); got != 1 {
+		t.Fatalf("the passes that name the Bay keepers = %d before the group is deleted, want 1", got)
+	}
+	status, body = w.post(t, "marshal", anvil, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q}`, group))
+	assertStatus(t, status, http.StatusNoContent, body)
+	if got := w.passes(t, "GroupId = @group OR Id = @pass", map[string]any{"group": group, "pass": passBayKeepersQuarantineID}); got != 0 {
+		t.Errorf("the passes that name the Bay keepers = %d after the group is deleted, want none", got)
+	}
+	if got := w.passes(t, "GroupId IS NOT NULL AND GroupId NOT IN (SELECT Id FROM CrewGroups)", nil); got != 0 {
+		t.Errorf("%d passes name a group that is not kept, want none", got)
+	}
+}
+
+// TestGroupShare_tenants holds a group to the sector that keeps it. subject.groups is
+// read under the request's sector: in a sector's request it holds the groups kept in
+// that sector, and neither another sector's group nor a group kept for the whole fleet.
+// So a pass of Anvil's that names one of those is written, since the column takes any
+// group's id, and opens nothing; the picker offers neither; and the same person reaches
+// Bastion's hangar through Bastion's group, in Bastion alone.
+func TestGroupShare_tenants(t *testing.T) {
+	t.Parallel()
+
+	w := newGroupShareWorld(t)
+	provesArmorerGrants(t)
+	keeper := w.armorerAt(t, "keeper", anvil, bastion)
+	manager := w.engine.UserManager()
+
+	// Three groups with the keeper in each: one of Bastion's, one kept for the whole
+	// fleet, and one of Anvil's.
+	groupOf := func(scope accesstypes.PolicyScope, name string) string {
+		t.Helper()
+
+		id, err := manager.AddGroup(w.ctx, scope, name, "A group of the group share suite.")
+		if err != nil {
+			t.Fatalf("access.UserManager.AddGroup(%s) error = %v", name, err)
+		}
+		if err := manager.AddGroupUsers(w.ctx, id, keeper); err != nil {
+			t.Fatalf("access.UserManager.AddGroupUsers(%s) error = %v", name, err)
+		}
+
+		return string(id)
+	}
+	slipHands := groupOf(accesstypes.DomainPolicyScope(bastion), "Slip hands")
+	inspectors := groupOf(accesstypes.GlobalPolicyScope(), "Fleet inspectors")
+	dockHands := groupOf(accesstypes.DomainPolicyScope(anvil), "Dock hands")
+
+	open := func(when, sector string, want ...string) {
+		t.Helper()
+		if got := w.hangars(t, "keeper", sector); !slices.Equal(got, want) {
+			t.Errorf("%s: the hangars open to the keeper = %v, want %v", when, got, want)
+		}
+	}
+
+	// The picker in Anvil offers Anvil's groups and no other.
+	offered := w.groupsOffered(t, "marshal", anvil)
+	if offered["Dock hands"] != dockHands {
+		t.Errorf("the group picker in Anvil offers Dock hands as %q, want %q", offered["Dock hands"], dockHands)
+	}
+	for _, name := range []string{"Slip hands", "Fleet inspectors"} {
+		if id, listed := offered[name]; listed {
+			t.Errorf("the group picker in Anvil offers %s (%s), which Anvil does not keep", name, id)
+		}
+	}
+
+	// A pass of Anvil's that names Bastion's group is written and opens nothing in
+	// Anvil: the keeper is in the group, and the group is not Anvil's.
+	status, body, _ := w.createPass(t, "marshal", anvil, groupPass(hangarAnvilDockID, slipHands, "run"))
+	assertStatus(t, status, http.StatusOK, body)
+	open("a pass of Anvil's names Bastion's group", anvil)
+	if got := w.rezone(t, "keeper", anvil, hangarAnvilDockID, "apron"); got != http.StatusForbidden {
+		t.Errorf("the keeper re-zones Anvil's dock through Bastion's group: status = %d, want 403", got)
+	}
+
+	// A pass of Anvil's that names a group kept for the whole fleet opens nothing in
+	// Anvil either: a sector's request counts the sector's own groups.
+	status, body, _ = w.createPass(t, "marshal", anvil, groupPass(hangarQuarantineID, inspectors, "run"))
+	assertStatus(t, status, http.StatusOK, body)
+	open("a pass of Anvil's names a group of the whole fleet", anvil)
+	if got := w.rezone(t, "keeper", anvil, hangarQuarantineID, "isolation"); got != http.StatusForbidden {
+		t.Errorf("the keeper re-zones Anvil's bay through a group of the whole fleet: status = %d, want 403", got)
+	}
+
+	// The same person, the same kind of pass, and a group Anvil keeps: the dock opens.
+	status, body, _ = w.createPass(t, "marshal", anvil, groupPass(hangarAnvilDockID, dockHands, "visit"))
+	assertStatus(t, status, http.StatusOK, body)
+	open("a pass of Anvil's names Anvil's group", anvil, hangarAnvilDockID)
+
+	// Bastion's group opens Bastion's hangar, in Bastion: each sector's request reads
+	// its own passes and its own groups.
+	slip := spanner.Insert("HangarPasses", []string{"Id", "SectorId", "HangarId", "GroupId", "LevelId"}, []any{passSlipHandsBastionSlipID, bastion, hangarBastionSlipID, slipHands, "visit"})
+	if _, err := w.db.Apply(w.ctx, []*spanner.Mutation{slip}); err != nil {
+		t.Fatalf("writing Bastion's pass in the name of its group: %v", err)
+	}
+	open("a pass of Bastion's names Bastion's group", bastion, hangarBastionSlipID)
+	open("after Bastion's pass, in Anvil", anvil, hangarAnvilDockID)
+}
+
+// TestGroupShare_oneHolder holds a pass to one holder: a person, a squadron or a group.
+// The create refuses a pass that names two of them, or none, in words whoever fills the
+// form can act on, and the table's holder check refuses the same row from a writer that
+// does not come through the create.
+func TestGroupShare_oneHolder(t *testing.T) {
+	t.Parallel()
+
+	w := newGroupShareWorld(t)
+	group := w.groupsOffered(t, "marshal", anvil)["Bay keepers"]
+	if group == "" {
+		t.Fatal("Anvil's groups do not list the Bay keepers")
+	}
+	person := string(account(t, armorer))
+	written := w.passes(t, "TRUE", nil)
+
+	refused := []struct {
+		name  string
+		value string
+		says  string
+	}{
+		{
+			name:  "a person and a group",
+			value: fmt.Sprintf(`{"hangarId":%q,"userId":%q,"groupId":%q,"levelId":"visit"}`, hangarAnvilDockID, person, group),
+			says:  "a pass has one holder",
+		},
+		{
+			name:  "a squadron and a group",
+			value: fmt.Sprintf(`{"hangarId":%q,"squadronId":%q,"groupId":%q,"levelId":"visit"}`, hangarAnvilDockID, squadronTongsID, group),
+			says:  "a pass has one holder",
+		},
+		{
+			name:  "all three",
+			value: fmt.Sprintf(`{"hangarId":%q,"userId":%q,"squadronId":%q,"groupId":%q,"levelId":"visit"}`, hangarAnvilDockID, person, squadronTongsID, group),
+			says:  "a pass has one holder",
+		},
+		{
+			name:  "no holder",
+			value: fmt.Sprintf(`{"hangarId":%q,"levelId":"visit"}`, hangarAnvilDockID),
+			says:  "a pass needs a holder",
+		},
+	}
+	for _, tt := range refused {
+		status, body, _ := w.createPass(t, "marshal", anvil, tt.value)
+		if status != http.StatusBadRequest {
+			t.Errorf("a pass that names %s: status = %d, want 400: %s", tt.name, status, body)
+
+			continue
+		}
+		if !strings.Contains(string(body), tt.says) || !strings.Contains(string(body), "a person, a squadron or a group") {
+			t.Errorf("the refusal of a pass that names %s = %s, want it to say %q and name the three holders", tt.name, body, tt.says)
+		}
+	}
+
+	// The table holds the same rule for a writer that does not come through the create.
+	rows := []struct {
+		name    string
+		columns []string
+		values  []any
+	}{
+		{
+			name:    "a person and a group",
+			columns: []string{"Id", "SectorId", "HangarId", "UserId", "GroupId", "LevelId"},
+			values:  []any{passRefusedID, anvil, hangarAnvilDockID, person, group, "visit"},
+		},
+		{
+			name:    "a squadron and a group",
+			columns: []string{"Id", "SectorId", "HangarId", "SquadronId", "GroupId", "LevelId"},
+			values:  []any{passRefusedID, anvil, hangarAnvilDockID, squadronTongsID, group, "visit"},
+		},
+		{
+			name:    "no holder",
+			columns: []string{"Id", "SectorId", "HangarId", "LevelId"},
+			values:  []any{passRefusedID, anvil, hangarAnvilDockID, "visit"},
+		},
+	}
+	for _, tt := range rows {
+		_, err := w.db.Apply(w.ctx, []*spanner.Mutation{spanner.Insert("HangarPasses", tt.columns, tt.values)})
+		if err == nil {
+			t.Errorf("the table took a pass that names %s, want it refused by CK_HangarPasses_Holder", tt.name)
+
+			continue
+		}
+		if !strings.Contains(err.Error(), "CK_HangarPasses_Holder") {
+			t.Errorf("the table refused a pass that names %s with %v, want the refusal of CK_HangarPasses_Holder", tt.name, err)
+		}
+	}
+	if got := w.passes(t, "TRUE", nil); got != written {
+		t.Errorf("the passes after the refused writes = %d, want the %d there were", got, written)
+	}
+
+	// One holder of each kind is taken.
+	status, body, _ := w.createPass(t, "marshal", anvil, groupPass(hangarAnvilDockID, group, "visit"))
+	assertStatus(t, status, http.StatusOK, body)
+	status, body, _ = w.createPass(t, "marshal", anvil, fmt.Sprintf(`{"hangarId":%q,"userId":%q,"levelId":"visit"}`, hangarAnvilDockID, person))
+	assertStatus(t, status, http.StatusOK, body)
+	status, body, _ = w.createPass(t, "marshal", anvil, fmt.Sprintf(`{"hangarId":%q,"squadronId":%q,"levelId":"visit"}`, hangarAnvilDockID, squadronTongsID))
+	assertStatus(t, status, http.StatusOK, body)
+}

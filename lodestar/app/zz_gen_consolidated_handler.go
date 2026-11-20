@@ -73,6 +73,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		HangarID   impulse.UUID     `json:"hangarId"`
 		UserID     *string          `json:"userId"     sqltype:"STRING(36)"`
 		SquadronID impulse.NullUUID `json:"squadronId"`
+		GroupID    impulse.NullUUID `json:"groupId"`
 		LevelID    string           `json:"levelId"    sqltype:"STRING(64)"`
 		ExpiresAt  *time.Time       `json:"expiresAt"`
 	}

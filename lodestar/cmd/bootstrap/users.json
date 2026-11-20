@@ -534,6 +534,21 @@
           "days": 30
         }
       ]
+    },
+    {
+      "id": "f0000000-0000-4000-8000-000000000034",
+      "user": "sentry",
+      "password": "lodestar",
+      "roles": {
+        "global": [
+          "CrewCommon"
+        ],
+        "domains": {
+          "Anvil": [
+            "Armorer"
+          ]
+        }
+      }
     }
   ],
   "groups": [
@@ -551,6 +566,22 @@
       },
       "members": [
         "deckhand"
+      ]
+    },
+    {
+      "name": "Bay keepers",
+      "description": "The people who keep Anvil's Quarantine Bay: the group holds a pass to run the bay, so each of them does.",
+      "domain": "Anvil",
+      "roles": {},
+      "members": [
+        "sentry"
+      ],
+      "passes": [
+        {
+          "id": "61000000-0000-4000-8000-000000000006",
+          "hangar": "Quarantine Bay",
+          "level": "run"
+        }
       ]
     }
   ],

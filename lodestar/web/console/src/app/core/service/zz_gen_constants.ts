@@ -1134,6 +1134,7 @@ export namespace FeeByKinds {
 export namespace HangarPasses {
   export const fieldName = {
     expiresAt: 'expiresAt' as FieldName,
+    groupId: 'groupId' as FieldName,
     hangarId: 'hangarId' as FieldName,
     id: 'id' as FieldName,
     levelId: 'levelId' as FieldName,
@@ -1143,6 +1144,7 @@ export namespace HangarPasses {
   };
   export const resourceName = {
     expiresAt: 'HangarPasses.expiresAt' as Resource,
+    groupId: 'HangarPasses.groupId' as Resource,
     hangarId: 'HangarPasses.hangarId' as Resource,
     id: 'HangarPasses.id' as Resource,
     levelId: 'HangarPasses.levelId' as Resource,

@@ -371,6 +371,7 @@ export interface HangarPasses {
   hangarId?: string;
   userId?: string;
   squadronId?: string;
+  groupId?: string;
   levelId?: string;
   expiresAt?: Date;
 }
@@ -1399,6 +1400,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'hangarId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Hangars },
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', maxLength: 36, enumeratedResource: Resources.CrewSectorUsers },
       { fieldName: 'squadronId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
+      { fieldName: 'groupId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSectorGroups },
       { fieldName: 'levelId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "run", display: "Run" }, { id: "visit", display: "Visit" }] },
       { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
     ],

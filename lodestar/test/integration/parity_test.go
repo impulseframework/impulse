@@ -80,13 +80,22 @@ type demoAccount struct {
 
 // demoGroup is one group of the crew as cmd/bootstrap/users.json declares it: where it is
 // kept (a sector by its name, none for the whole fleet), the roles it holds by where each
-// is held, and the personas in it by their usernames.
+// is held, the personas in it by their usernames, and the hangar passes it holds.
 type demoGroup struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description"`
 	Domain      string             `json:"domain"`
 	Roles       demoRoles          `json:"roles"`
 	Members     []accesstypes.User `json:"members"`
+	Passes      []demoGroupPass    `json:"passes"`
+}
+
+// demoGroupPass is one hangar pass a group holds as the file declares it: the fixed id of
+// the pass, the hangar by its name in the group's own sector, and the level.
+type demoGroupPass struct {
+	ID     impulse.UUID `json:"id"`
+	Hangar string       `json:"hangar"`
+	Level  string       `json:"level"`
 }
 
 // demoIdentities mirrors the bootstrap's identities file.
@@ -388,6 +397,51 @@ func assignDemoTours(ctx context.Context, client *access.Client, user accesstype
 	return nil
 }
 
+// seedDemoGroupPasses writes the hangar passes the file's groups hold, as the bootstrap
+// writes them once each group exists: each to the hangar of the group's own sector that
+// carries the name, naming the group by the id the permission store made for it. It
+// follows provisionDemoAccess, which creates the groups, in the worlds whose suites read
+// the passes (the shared world and the served one); a world that leaves it out has the
+// groups and none of their passes.
+func seedDemoGroupPasses(ctx context.Context, db *initiator.SpannerDB) error {
+	identities, err := loadIdentities()
+	if err != nil {
+		return err
+	}
+	for i := range identities.Groups {
+		group := &identities.Groups[i]
+		if len(group.Passes) == 0 {
+			continue
+		}
+		domain, ok := sectorsByName[group.Domain]
+		if !ok {
+			return fmt.Errorf("group %s holds a hangar pass: no seeded sector is named %q", group.Name, group.Domain)
+		}
+		for _, pass := range group.Passes {
+			var written int64
+			if _, err := db.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+				var err error
+				written, err = txn.Update(ctx, spanner.Statement{
+					SQL: `INSERT INTO HangarPasses (Id, SectorId, HangarId, GroupId, LevelId)
+						SELECT @id, h.SectorId, h.Id, g.Id, @level
+						FROM Hangars h JOIN CrewGroups g ON g.DomainId = h.SectorId
+						WHERE h.SectorId = @sector AND h.Name = @hangar AND g.Name = @group AND g.Kind = 'domain'`,
+					Params: map[string]any{"id": pass.ID.String(), "level": pass.Level, "sector": string(domain), "hangar": pass.Hangar, "group": group.Name},
+				})
+
+				return err
+			}); err != nil {
+				return fmt.Errorf("the pass of the group %s to the hangar %s: %w", group.Name, pass.Hangar, err)
+			}
+			if written != 1 {
+				return fmt.Errorf("the pass of the group %s to the hangar %q wrote %d rows, want 1: %s names a hangar of the group's own sector", group.Name, pass.Hangar, written, usersPath)
+			}
+		}
+	}
+
+	return nil
+}
+
 // seedDemoGroup creates one group of the crew as the bootstrap creates it: kept where the
 // file keeps it, holding its roles where each is held, with its personas in it, each by
 // the id of their account.
@@ -582,6 +636,11 @@ func sharedWorld(t *testing.T) (*initiator.SpannerDB, http.Handler, *access.Clie
 			return
 		}
 		if err := provisionDemoAccess(ctx, crewEngine, membersEngine); err != nil {
+			sharedErr = err
+
+			return
+		}
+		if err := seedDemoGroupPasses(ctx, db); err != nil {
 			sharedErr = err
 
 			return

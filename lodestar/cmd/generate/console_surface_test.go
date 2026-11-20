@@ -14,14 +14,16 @@ import (
 // library's tokens, its warning the library's notice at the top of the viewport that any
 // activity ends, with no button of the console's (the retired confirmation flag is not
 // provided); the Squadrons page's componentConfig (the channel card) and arrayConfig (the
-// sector's other squadrons, filtered by the indexed key); and the leave-page
+// sector's other squadrons, filtered by the indexed key); the Hangars page, whose passes
+// list offers the three holder pickers, the sector's groups among them, and opens its
+// create in a dialog (createInDialog); and the leave-page
 // confirmation, which the library's resourceRoutes attaches to every config-driven list
 // and row route under the FRONTEND_LOGIN_PATH the console provides, so the console adds
 // no guard of its own. Lodestar has no browser specs and the walkthrough is curl, so the
 // committed sources are the proof the wiring is present; the dialogs are driven by hand
 // in the browser (README, "Running it"). Needs no emulator.
 //
-// Demonstrates: idle.configured, config.component, config.array, form.leave-page.
+// Demonstrates: idle.configured, config.component, config.array, form.leave-page, list.create-dialog.
 func TestConsoleCarriesLibrarySurface(t *testing.T) {
 	t.Parallel()
 
@@ -86,9 +88,29 @@ func TestConsoleCarriesLibrarySurface(t *testing.T) {
 			want: []string{"export class SquadronChannelComponent extends CustomConfigComponent"},
 		},
 		{
-			name:   "the config-driven routes come from resourceRoutes, which carries the leave-page guard, and the console adds none",
-			file:   "app/app.routes.ts",
-			want:   []string{"resourceRoutes(squadronsConfig, resourceMeta)", "resourceRoutes(missionsConfig, resourceMeta)"},
+			name: "the Hangars page lists a hangar's passes, offers a person, a squadron and a group as the holder, and opens its create in a dialog",
+			file: "app/configs/hangars.config.ts",
+			want: []string{
+				"primaryResource: Resources.HangarPasses,",
+				"parentRelation: { parentKey: Hangars.fieldName.id, childKey: HangarPasses.fieldName.hangarId },",
+				"name: HangarPasses.fieldName.userId,",
+				"listDisplay: [CrewSectorUsers.fieldName.username],",
+				"name: HangarPasses.fieldName.squadronId,",
+				"listDisplay: [Squadrons.fieldName.name],",
+				"name: HangarPasses.fieldName.groupId,",
+				"listDisplay: [CrewSectorGroups.fieldName.name],",
+				"createButtonLabel: 'Add a pass',",
+				"createInDialog: true,",
+			},
+		},
+		{
+			name: "the config-driven routes come from resourceRoutes, which carries the leave-page guard, and the console adds none",
+			file: "app/app.routes.ts",
+			want: []string{
+				"resourceRoutes(squadronsConfig, resourceMeta)",
+				"resourceRoutes(missionsConfig, resourceMeta)",
+				"resourceRoutes(hangarsConfig, resourceMeta)",
+			},
 			absent: []string{"canDeactivate: ["},
 		},
 	}
