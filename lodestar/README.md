@@ -1242,7 +1242,8 @@ desk then name the cadet by username; and
   document's digest as a size in its cell and as a download on its row page
   ([`field.bytes`](web/console/src/app/configs/missionDocuments.config.ts)) and its
   provenance as JSON, the [call log](web/console/src/app/configs/distressCalls.config.ts)
-  shows a call's position as JSON ([`field.object`](web/console/src/app/configs/distressCalls.config.ts))
+  shows a call's position in words, its latitude and its longitude
+  ([`field.object`](web/console/src/app/configs/distressCalls.config.ts))
   and draws nothing for its write-only transcript in view mode and a blank input in its
   create form and in its edit form, whose value travels only when typed; the edit form has
   the input because the row's Update envelope names every field the caller may write,

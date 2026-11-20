@@ -22,9 +22,9 @@ import { field, listViewConfig, rootConfig, section } from '@impulseframework/re
 // although no read returns it, and the library takes the envelope as the positive list
 // of editable fields.
 // Position is a GeoJSON Point, a type whose TypeScript shape is imported from the
-// geojson package: the list's cell shows the JSON on one line, the row page prints it
-// indented, and no mode offers an input; a call relayed by voice has none, the
-// placeholder.
+// geojson package: the list's cell and the row page write it as a person reads a place,
+// its latitude and its longitude (`34.0522° N, 118.2437° W`), never the JSON, and no mode
+// offers an input; a call relayed by voice has none, the placeholder.
 //
 // Demonstrates: field.object, field.write-only, create-form-narrowing, pii, input_only, output_only.
 export const distressCallsConfig = rootConfig({

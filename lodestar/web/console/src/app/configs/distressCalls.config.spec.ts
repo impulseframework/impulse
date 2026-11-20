@@ -129,7 +129,8 @@ describe('the call log', () => {
         '4',
         'relay desk, channel 7',
         'Cadet Orrin',
-        '{"type":"Point","coordinates":[12.5,-4]}',
+        // The position in words, latitude first, and never the GeoJSON the row carries.
+        '4° S, 12.5° E',
       ],
       ['DC-0043', 'Lost beacon', '1', '', 'Marshal Greer', ''],
     ]);

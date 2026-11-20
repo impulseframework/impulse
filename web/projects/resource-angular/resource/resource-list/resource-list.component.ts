@@ -702,9 +702,10 @@ export class ResourceListComponent implements OnInit {
         });
       } else {
         // A cell without a configured format is written by the field's display type: a
-        // size for bytes, the elements for an array, one-line JSON for an object, a
-        // calendar date for a date, the value's text for the rest. A yes-or-no value is
-        // not written at all: the table draws it as a mark (processedRowData).
+        // size for bytes, the elements for an array, a place in words or one-line JSON
+        // for an object, a calendar date for a date, the value's text for the rest. A
+        // yes-or-no value is not written at all: the table draws it as a mark
+        // (processedRowData).
         const displayType = this.meta()?.fields?.find((field) => field.fieldName === col.id)?.displayType;
         const valueFormatter = (params: DataType | null): string => {
           if (col.formatType) {

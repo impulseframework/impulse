@@ -171,11 +171,13 @@ describe('ResourceViewComponent over a write-only field, a masked cell, and the 
     await settle(() => component.store.rowPresent());
   });
 
-  it('draws nothing for the write-only field, the object as JSON, and the array as chips', () => {
+  it('draws nothing for the write-only field, the position in words, and the array as chips', () => {
     const element: HTMLElement = fixture.nativeElement;
     expect(inputLabeled('Summary')?.value).toBe('Beacon lost');
     expect(inputLabeled('Transcript')).toBeNull();
-    expect(element.querySelector('impulse-object-field pre')?.textContent).toBe(JSON.stringify(row.position, null, 2));
+    // The row's position is a GeoJSON point, longitude first: a person reads the latitude first, and never the JSON.
+    expect(element.querySelector('impulse-object-field .object-place')?.textContent).toBe('2° N, 1° E');
+    expect(element.querySelector('impulse-object-field pre')).toBeNull();
     expect(Array.from(element.querySelectorAll('impulse-array-field mat-chip')).map((chip) => chip.textContent?.trim())).toEqual(['a', 'b']);
   });
 
@@ -188,7 +190,9 @@ describe('ResourceViewComponent over a write-only field, a masked cell, and the 
     expect(transcript?.readOnly).toBe(false);
     expect(inputLabeled('Position')).toBeNull();
     expect(inputLabeled('Tags')).toBeNull();
-    expect((fixture.nativeElement as HTMLElement).querySelector('impulse-object-field pre')).not.toBeNull();
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('impulse-object-field .object-place')?.textContent).toBe('2° N, 1° E');
+    expect(element.querySelector('impulse-object-field input:not([type=hidden])')).toBeNull();
   });
 
   it('a save with nothing typed sends nothing, and a typed transcript is the whole patch', async () => {
