@@ -240,19 +240,22 @@ func refuseImpersonatorAsSetSubject(
 		return err
 	}
 
+	refused := func(act string) error {
+		return impersonatorRefusedOf(ctx, actor, fmt.Sprintf(act, record, set), fmt.Sprintf(act, record, inWords(set)))
+	}
 	switch {
 	case op == resource.OperationCreate && after:
-		return impersonatorRefused(ctx, actor, fmt.Sprintf("add a %s record for one of your own %s", record, set))
+		return refused("add a %s record for one of your own %s")
 	case op == resource.OperationCreate:
 		return nil
 	case op == resource.OperationDelete && before:
-		return impersonatorRefused(ctx, actor, fmt.Sprintf("remove a %s record of one of your own %s", record, set))
+		return refused("remove a %s record of one of your own %s")
 	case op == resource.OperationDelete:
 		return nil
 	case before:
-		return impersonatorRefused(ctx, actor, fmt.Sprintf("change a %s record of one of your own %s", record, set))
+		return refused("change a %s record of one of your own %s")
 	case after:
-		return impersonatorRefused(ctx, actor, fmt.Sprintf("move a %s record to one of your own %s", record, set))
+		return refused("move a %s record to one of your own %s")
 	}
 
 	return nil
@@ -352,9 +355,9 @@ func refuseImpersonatorAsReadThroughSubject(
 	return nil
 }
 
-// impersonatorRefusedOf is impersonatorRefused for an act that names a column: the line
-// the refusal is logged with says the act with the column's own name (logged), and the
-// person is told it with the column's name in words (said).
+// impersonatorRefusedOf is impersonatorRefused for an act that names a column or a
+// subject set: the line the refusal is logged with says the act with the name as the
+// code writes it (logged), and the person is told it with the name in words (said).
 func impersonatorRefusedOf(ctx context.Context, actor impulse.UUID, logged, said string) error {
 	line, _ := sessioninfo.ImpersonatorRefusal(actor, logged)
 	logger.FromCtx(ctx).Info(line)
@@ -363,8 +366,9 @@ func impersonatorRefusedOf(ctx context.Context, actor impulse.UUID, logged, said
 	return refusal
 }
 
-// inWords spells a column's name as lower-case words, as the library's refusals spell
-// a field's: "WingID" is "wing id".
+// inWords spells a column's or a subject set's name as lower-case words, as the
+// library's refusals spell a field's: "WingID" is "wing id", "crewGroups" is "crew
+// groups".
 func inWords(name string) string {
 	return strcase.ToCase(name, strcase.LowerCase, ' ')
 }
