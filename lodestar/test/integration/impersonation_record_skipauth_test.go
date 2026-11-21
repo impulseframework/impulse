@@ -225,7 +225,7 @@ func TestImpersonation_ownRecordUnderARole(t *testing.T) {
 	before := standing(ctx, t, s)
 	for _, write := range refused {
 		status, answer := writeRecords(ctx, write.by, write.ops...)
-		if want := actingAsSomeoneElse + write.says + ":"; status != http.StatusForbidden || !strings.Contains(answer, want) {
+		if want := actingAsSomeoneElse + write.says + "."; status != http.StatusForbidden || !strings.Contains(answer, want) {
 			t.Errorf("acting as a role, %s: status %d, want 403 saying %q: %s", write.name, status, want, answer)
 		}
 		if after := standing(ctx, t, s); !slices.Equal(after, before) {
@@ -272,7 +272,7 @@ func TestImpersonation_ownRecordUnderARole(t *testing.T) {
 	// through, because the rule is for a session that acts as someone else.
 	governor := actingBrowser(ctx, t, s, "governor", headquartersRole)
 	raise := recordOp("patch", "/pilots/"+pilotGreerID, `{"clearance":4}`)
-	if status, answer := writeRecords(ctx, governor, raise); status != http.StatusForbidden || !strings.Contains(answer, actingAsSomeoneElse+"change your own pilot record:") {
+	if status, answer := writeRecords(ctx, governor, raise); status != http.StatusForbidden || !strings.Contains(answer, actingAsSomeoneElse+"change your own pilot record.") {
 		t.Errorf("the governor acting as Headquarters, his own Pilot row: status %d, want 403 saying he is acting as someone else: %s", status, answer)
 	}
 	if status, answer := governor.do(ctx, http.MethodPost, consoleAPI+"/impersonate/end", nil); status != http.StatusOK {
@@ -575,7 +575,7 @@ func TestImpersonation_ownSetActingAsAPerson(t *testing.T) {
 	before := standing(ctx, t, s)
 	for _, write := range refused {
 		status, answer := writeRecords(ctx, write.by, write.ops...)
-		if want := actingAsSomeoneElse + write.says + ":"; status != http.StatusForbidden || !strings.Contains(answer, want) {
+		if want := actingAsSomeoneElse + write.says + "."; status != http.StatusForbidden || !strings.Contains(answer, want) {
 			t.Errorf("acting as the marshal, %s: status %d, want 403 saying %q: %s", write.name, status, want, answer)
 		}
 		if after := standing(ctx, t, s); !slices.Equal(after, before) {
@@ -626,11 +626,11 @@ func TestImpersonation_ownSetActingAsAPerson(t *testing.T) {
 	}
 	before = standing(ctx, t, s)
 	status, answer := writeRecords(ctx, asRole, move(squadronTongsID))
-	if want := actingAsSomeoneElse + "change the wing id of the squadron record that decides your own wings:"; status != http.StatusForbidden || !strings.Contains(answer, want) {
+	if want := actingAsSomeoneElse + "change the wing id of the squadron record that decides your own wings."; status != http.StatusForbidden || !strings.Contains(answer, want) {
 		t.Errorf("acting as the Sector Marshal, their own squadron moved to another wing: status %d, want 403 saying %q: %s", status, want, answer)
 	}
 	status, answer = writeRecords(ctx, asRole, pass("squadronId", squadronTongsID, "run"))
-	if want := actingAsSomeoneElse + "add a hangar pass record for one of your own squadrons:"; status != http.StatusForbidden || !strings.Contains(answer, want) {
+	if want := actingAsSomeoneElse + "add a hangar pass record for one of your own squadrons."; status != http.StatusForbidden || !strings.Contains(answer, want) {
 		t.Errorf("acting as the Sector Marshal, a pass given to their own squadron: status %d, want 403 saying %q: %s", status, want, answer)
 	}
 	if after := standing(ctx, t, s); !slices.Equal(after, before) {

@@ -46,8 +46,9 @@ func TestAuthSeams_NoPasswordMethod(t *testing.T) {
 // seamPasswordMethodTakenOut is the scenario "a person sets a password, a release takes
 // the password method out, and the person signs in through the directory for the first
 // time": while the method is registered the sign-in waits for the password; once it is
-// not, the same sign-in is joined to the account and finishes, the account keeps its
-// password, and the next sign-in goes through the link.
+// not, the same sign-in is joined to the account on the code mailed to the account's
+// address and finishes, the account keeps its password, and the next sign-in goes
+// through the link.
 func seamPasswordMethodTakenOut[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	// The first release registers the password method beside the directory. Pat has a
 	// password and has never signed in through the directory, so the sign-in under
@@ -71,15 +72,22 @@ func seamPasswordMethodTakenOut[Tx any](ctx context.Context, t *testing.T, be ba
 
 	// The next release takes the password method out, over the same database. Pat's
 	// account still holds the password, and nothing asks for it: the sign-in is joined
-	// to the account as to one created ahead with no password.
+	// to the account as to one created ahead with no password. Entra's word for the
+	// name is all that ties the two, so the sign-in waits for the code mailed to the
+	// address the account holds, and nothing is linked until the code is entered.
 	second := first.release(t, be, oneOrganization(inviteOnly))
 	b := second.browser(t)
-	assertRedirect(t, second.entraSignIn(ctx, b, claims()), "/home", url.Values{})
+	b.prime(ctx)
+	waits := second.entraRoundTrip(ctx, b, claims())
+	if links := second.links(ctx, t, pat.String()); len(links) != 0 {
+		t.Fatalf("identity links while the sign-in waits for the code = %d, want none", len(links))
+	}
+	assertRedirect(t, second.confirmAddress(ctx, b, waits, "pat@lakeside.edu"), "/home", url.Values{})
 	v := signedInAs(ctx, t, b, "pat@lakeside.edu")
 	if v.UserID != pat.String() {
 		t.Errorf("session user = %s, want the account that holds the password, %s", v.UserID, pat)
 	}
-	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant)
+	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant, "email-code")
 	assertOneLink(t, second.links(ctx, t, pat.String()), azureTenant, azureTenant)
 
 	// The link decides from here on.

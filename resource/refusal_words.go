@@ -107,22 +107,24 @@ func targetRefusedCause(method accesstypes.Resource, label string, key []any) er
 	return errors.Newf("%s may not run against %s %s", method, label, strings.Join(values, ", "))
 }
 
-// TargetNotFound is the answer to a caller whose method names a row that is not there for
-// it: NotFound, with one sentence a person can read. The sentence says the row by its
+// TargetNotFound is the answer to a caller who names a row that is not there for it:
+// NotFound, with one sentence a person can read. The sentence says the row by its
 // record's name in words and nothing else ("This mission does not exist."): no key, and
-// the same words whether no row has the key or the row is another tenant's, so the
-// caller is never told that a row is there. A record with no name is "this record". The
-// cause says the record by its struct's name and the row by its key's values in order,
-// or "this" record where there is no key to say; it is kept for the server's log and no
-// word of it reaches the caller. A generated method's frame answers a row it cannot
-// locate with TargetNotFound and its gate (ExecuteGate) answers with it too, so every
-// way a method finds no row reads the same. It answers the type httpio's own answers
-// do, and is returned as one of those is.
+// the same words whether no row has the key, the row is another tenant's or the
+// caller's grant does not admit it, so the caller is never told that a row is there. A
+// record with no name is "this record". The cause says the record by its struct's name
+// and the row by its key's values in order, or "this" record where there is no key to
+// say; it is kept for the server's log and no word of it reaches the caller. A
+// generated method's frame answers a row it cannot locate with TargetNotFound, its gate
+// (ExecuteGate) answers with it too, and so does a computed record's file route for a
+// row its read does not show, so every way a handler finds no row reads the same. A
+// handler that looks for a row itself answers with it as well. It answers the type
+// httpio's own answers do, and is returned as one of those is.
 func TargetNotFound(label string, key ...any) errors.Chain {
 	return httpio.NewNotFoundMessageWithError(targetNotFoundCause(label, key), doesNotExist(label))
 }
 
-// targetNotFoundCause is what the server's log keeps of a method whose row is not there:
+// targetNotFoundCause is what the server's log keeps of a row that is not there:
 // the record's struct name and the row's key, in the words the answer itself said
 // before it was put in a person's.
 func targetNotFoundCause(label string, key []any) error {
@@ -196,15 +198,44 @@ func mayNotDoThisTo(label string) string {
 	return "You may not do this to this " + thing + "."
 }
 
-// doesNotExist is the sentence for a method whose row is not there: "This mission does
-// not exist." The record is said by its struct's name in words.
+// doesNotExist is the sentence for a row that is not there for the caller: "This mission
+// does not exist." The record is said by its struct's name in words.
 func doesNotExist(label string) string {
-	thing := inWords(label)
-	if thing == "" {
-		thing = "record"
+	return "This " + recordInWords(label) + " does not exist."
+}
+
+// hasNoFile is the sentence for a row that is there and carries no file under the
+// segment asked for: "This mission document has no content." The record is said by its
+// struct's name in words and the file by its route's segment in words.
+func hasNoFile(label, segment string) string {
+	return "This " + recordInWords(label) + " has no " + fileInWords(segment) + "."
+}
+
+// fileWasNotFound is the sentence for a row whose file is not where it was kept: "The
+// content of this mission document was not found." It says nothing of where files are
+// kept.
+func fileWasNotFound(label, segment string) string {
+	return "The " + fileInWords(segment) + " of this " + recordInWords(label) + " was not found."
+}
+
+// recordInWords says a record by its struct's name in words, "mission document", and a
+// record with no name as "record".
+func recordInWords(label string) string {
+	if thing := inWords(label); thing != "" {
+		return thing
 	}
 
-	return "This " + thing + " does not exist."
+	return "record"
+}
+
+// fileInWords says a file by its route's segment in words, "flight plan", and a segment
+// with no words as "file".
+func fileInWords(segment string) string {
+	if file := inWords(segment); file != "" {
+		return file
+	}
+
+	return "file"
 }
 
 // flagHistoryWords is what a caller who may see none of the facts a flag's history tells

@@ -627,6 +627,11 @@ type SignInRules[Tx any] struct {
 	// holds no confirmed address. The Auth sets it where it sends mail, for a
 	// registration that is not the deployment's own provider of seeded accounts.
 	ConfirmAddress bool
+	// WaitedOn is the user a pending sign-in waited on, given by the sign-in that
+	// completes the wait and by no other. An identity still linked to nobody is linked
+	// to that user or to none: the name it asserts may have moved to another account
+	// during the wait.
+	WaitedOn impulse.NullUUID
 }
 
 // SignIn implements AuthStore.
@@ -643,7 +648,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 	flowRules := signinflow.Rules[Tx]{
 		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
 		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, NoPassword: rules.NoPassword,
-		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven, ConfirmAddress: rules.ConfirmAddress,
+		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven, ConfirmAddress: rules.ConfirmAddress, WaitedOn: rules.WaitedOn,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")

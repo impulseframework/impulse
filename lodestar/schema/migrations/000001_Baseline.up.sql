@@ -316,6 +316,11 @@ CREATE TABLE ShipClasses (
   RoleId STRING(64) NOT NULL,
   Tonnage INT64 NOT NULL,
   Hardened BOOL NOT NULL,
+  -- InService records whether the yards still build this hull. A class enters the catalog in
+  -- service and leaves it only when somebody says so, so the column declares the yes itself: a
+  -- row that names no value is in service, the generator carries the default into the browser
+  -- metadata, and the console's form starts the box checked with nothing written in its config.
+  InService BOOL NOT NULL DEFAULT (TRUE),
 
   CONSTRAINT CK_ShipClasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT FK_ShipClasses_RoleId FOREIGN KEY (RoleId) REFERENCES ShipRoles(Id),

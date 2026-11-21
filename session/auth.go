@@ -1002,9 +1002,9 @@ func (h *PendingHandlers) SendCode() http.HandlerFunc {
 // next sign-ins skip the factor. It answers as the password login does:
 // {"mfaIsRequired": false}, or the policy's next wait. A wrong code is 401 with
 // {"code": "invalid_code"} and the code stands with one fewer attempt; a code entered
-// while none stands, because none was sent or the one sent expired, was used or took
-// its last attempt, is 401 with {"code": "code_expired"}, and the page asks for a new
-// one. Route it as SendCode.
+// while none stands, because none was sent or the one sent expired, was used, took its
+// last attempt or was mailed to an address the account no longer holds, is 401 with
+// {"code": "code_expired"}, and the page asks for a new one. Route it as SendCode.
 func (h *PendingHandlers) VerifyCode() http.HandlerFunc {
 	h.requireMail("Pending().VerifyCode()")
 

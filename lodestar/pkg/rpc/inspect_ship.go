@@ -7,7 +7,6 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -78,14 +77,14 @@ func refitReport(ctx context.Context, txn resource.ReadWriteTransaction, refitID
 		return nil, errors.Wrap(err, "resources.RefitQuery.Read()")
 	}
 	if refit == nil {
-		return nil, httpio.NewNotFoundMessagef("refit %s does not exist", refitID)
+		return nil, resource.TargetNotFound("Refit", refitID)
 	}
 	ship, err := resources.NewShipQuery().AddColumns(resources.NewShipColumns().Name()).SetID(refit.Data.ShipID).Read(ctx, txn)
 	if err != nil {
 		return nil, errors.Wrap(err, "resources.ShipQuery.Read()")
 	}
 	if ship == nil {
-		return nil, httpio.NewNotFoundMessagef("ship %s does not exist", refit.Data.ShipID)
+		return nil, resource.TargetNotFound("Ship", refit.Data.ShipID)
 	}
 
 	report := &RefitReport{RefitID: refitID, ShipID: refit.Data.ShipID, ShipName: ship.Data.Name}

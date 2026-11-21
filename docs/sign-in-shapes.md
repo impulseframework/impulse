@@ -422,12 +422,16 @@ An account's email address counts once the person has shown that the mailbox is 
 The address is then confirmed. It gets confirmed in one of these ways:
 
 - The person accepted an invitation mailed to it, or signed up from a link mailed to it.
-- Google vouched for it at a sign-in.
-- The person entered a code mailed to it. Microsoft and other identity providers do not
-  vouch for an address. So the first time a person signs in through one of them to an
-  account that holds no confirmed address, the login page stops before the application
-  opens: it asks for the address where the account has none, mails it a code, and the code
-  confirms the address. Later sign-ins are not stopped for it.
+- Google vouched for it at a sign-in. Google vouches only for an address it answers for
+  itself: a Gmail address, or the address of a Google Workspace account. A Google account
+  can also be made with an address from somewhere else, and for that address Google's
+  word counts no more than any other provider's.
+- The person entered a code mailed to it. Microsoft and every other identity provider do
+  not vouch for an address, whatever their sign-in says about it: the people who run a
+  provider can mark any address as verified. So the first time a person signs in through
+  one of them to an account that holds no confirmed address, the login page stops before
+  the application opens: it asks for the address where the account has none, mails it a
+  code, and the code confirms the address. Later sign-ins are not stopped for it.
 - The person followed a link mailed to it: their own change on the Your account page, or
   a change an administrator asked for.
 
@@ -746,11 +750,11 @@ The method is neither opened to sign-up nor made invite only: the directory deci
 signs in. The directory gives the Super Administrator role too, like any other role, so
 no first administrator is invited.
 
-The application still sends mail, though it invites nobody. Through Microsoft, each
-person's first sign-in stops for a code mailed to the address they give, as
-[The email address on an account](#the-email-address-on-an-account) says. Through any
-directory, a sign-in that carries no second factor of the directory's own stops for a
-code mailed to the person's address. So each deployed environment needs its mailbox,
+The application still sends mail, though it invites nobody. Through Microsoft or another
+identity provider, each person's first sign-in stops for a code mailed to the address
+they give, as [The email address on an account](#the-email-address-on-an-account) says.
+Through any directory, a sign-in that carries no second factor of the directory's own
+stops for a code mailed to the person's address. So each deployed environment needs its mailbox,
 although no release asks for one: without it the code is written to the server's log,
 and the person stays on the login page.
 
@@ -1014,7 +1018,13 @@ A person an administrator created an account for is not such a person. Their sig
 under the account's sign-in name is joined to the account, through any of the auth's
 methods. An account that has a password asks for it first. An account that has none, and
 has never signed in, is joined to the first sign-in under its name, as in an application
-without tenants.
+without tenants. It is joined at once only where Google answers for the name: a Gmail
+address, or the address of a Google Workspace account. Through every other sign-in
+(Microsoft, another identity provider, or a Google account made with an address from
+somewhere else) the login page stops and asks for a code mailed to the address the
+account holds, and nothing is joined until the code is entered. An account that holds no
+address cannot be mailed a code, so that sign-in is refused: an administrator creates the
+account with the person's address.
 
 Where the auth has no password method, nothing asks for a password: an account that has
 one is joined as an account that has none.
