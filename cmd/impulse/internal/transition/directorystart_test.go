@@ -571,12 +571,12 @@ func TestDirectoryStart_Apply_directoryRoles(t *testing.T) {
 			migrateCommand: {
 				// The application's own imports sort before the libraries' under this module
 				// path, and stay: what is taken out of the block is the standard library's.
-				"import (\n\t\"context\"\n\t\"flag\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"os/signal\"\n\t\"strconv\"\n\n\t\"example.com/acme/depot/pkg/auth/staff\"\n\t\"example.com/acme/depot/pkg/config\"\n\t\"example.com/acme/depot/pkg/deploy\"\n\t\"github.com/go-playground/errors/v5\"\n)\n",
+				"import (\n\t\"context\"\n\t\"flag\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"os/signal\"\n\t\"strconv\"\n\t\"time\"\n\n\t\"example.com/acme/depot/pkg/auth/staff\"\n\t\"example.com/acme/depot/pkg/config\"\n\t\"example.com/acme/depot/pkg/deploy\"\n\t\"github.com/go-playground/errors/v5\"\n)\n",
 				"// Package main is the deployment's migration step: it applies the schema migrations and\n// checks the release's role policy against what the permission engine's store holds. It\n// reads the core and data configuration levels and nothing above them.\n",
 				"// being retired among them. It applies no migration and goes with no other flag.\npackage main\n",
 				"so -seed does not go with it; a retirement goes\n// alone.\nfunc parse(",
 				"// run does what the flags ask: the report, the force, the retirement, or the\n// migrations.\nfunc run(",
-				"\tcase o.retireSecret != \"\":\n\t\treturn retireSecret(ctx, o.retireSecret, out)\n\t}\n\n\treturn migrate(ctx, settings, o.seed)\n}\n",
+				"\tcase o.retireSecret != \"\":\n\t\treturn retireSecret(ctx, settings, o.retireSecret, out)\n\t}\n\n\treturn migrate(ctx, settings, o.seed)\n}\n",
 				"// migrate is the deployment's migration step itself.\nfunc migrate(ctx context.Context, settings config.DatabaseSettings, seed bool) error {\n",
 				"\t\treturn errors.Wrap(err, \"deploy.CheckRoles()\")\n\t}\n\n\t// The feature flags the release declares",
 				"deploy.CheckRoles(ctx, data.Staff().Access(), staff.Name)",

@@ -450,7 +450,7 @@ func TestAuth_Apply_administratorNotWritten(t *testing.T) {
 				t.Helper()
 				rewriteOnce(t, a, migrateCommand, "\treturn migrate(ctx, settings, o.seed)\n", "\treturn migrate(ctx, settings, o.seed || o.force.set)\n")
 			},
-			wantWhy: "cmd/deployment/migrate/main.go runs no invitation (deploy.InviteAdministrators(...)) and is not as a start whose directory gives every role leaves it (\"\\t\\treturn retireSecret(ctx, o.retireSecret, out)\\n\\t}\\n\\n\\treturn migrate(ctx, settings, o.seed)\\n}\\n\\n// report prints one line per migrations table\" is not there once)",
+			wantWhy: "cmd/deployment/migrate/main.go runs no invitation (deploy.InviteAdministrators(...)) and is not as a start whose directory gives every role leaves it (\"\\t\\treturn retireSecret(ctx, settings, o.retireSecret, out)\\n\\t}\\n\\n\\treturn migrate(ctx, settings, o.seed)\\n}\\n\\n// report prints one line per migrations table\" is not there once)",
 		},
 		{
 			name:           "the deployment package has a file of the name already",
