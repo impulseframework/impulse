@@ -60,10 +60,15 @@ const (
 	mailSenderSaid      = "// refused until it is. The log is no mailbox (mail.Delivers): while nobody of an auth\n// holds the Super Administrator role the migrate command refuses to invite its first\n// administrator through it, since an invitation's link is never written to a log, so\n// the mailbox and its app password come before the first release.\nfunc openMailSender("
 	partnersEnvDid      = ".envrc.template: the partners auth's first administrator's variable (APP_PARTNERS_ADMINISTRATOR), unset: a deployment names the address per environment"
 	partnersCommandDid  = "cmd/deployment/migrate/main.go: the invitation of the partners auth's first administrator, which a release runs after its role check (deploy.InviteAdministrators), and the -reinvite-administrator flag, which mails a fresh invitation where the first was lost (deploy.ReinviteAdministrator)"
-	partnersTestLeft    = "cmd/deployment/migrate/main_test.go: a release now invites the partners auth's first administrator, and refuses while nobody of the auth holds the Super Administrator role and APP_PARTNERS_ADMINISTRATOR names no address. Give the cases that run a release the address or a holder of the role, take out a case that says nobody is invited, that the command has no -reinvite-administrator flag or that the flag refuses the partners auth's name, and prove the auth's invitation as the base's test of the command proves its own"
-	partnersRolesLeft   = "pkg/auth/partners/foothold.go: the first administrator the migrate command invites while nobody of the auth holds the Super Administrator role, by an invitation mailed to the address the placement names (APP_PARTNERS_ADMINISTRATOR) that gives the Super Administrator role and the first administrator's roles; no account and no password are made ahead of the person, who signs in from the link by a method of the auth. Author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the invitation gives) with the role file"
-	partnersAccessor    = "\n// PartnersAdministrator returns the email address of the partners auth's first administrator,\n// which the placement names and the migrate command has the invitation mailed to; empty\n// where the deployment names none.\nfunc (c *DataConfiguration) PartnersAdministrator() string {\n\treturn c.env.PartnersAdministrator\n}\n"
-	partnersEnvBlock    = "# APP_PARTNERS_ADMINISTRATOR is the email address of the partners auth's first administrator\n# (pkg/auth/partners, InviteAdministrator): while nobody of the auth holds the Super Administrator\n# role the migrate command has an invitation mailed there, and the person signs in from\n# its link. A deployment names it per environment, with the mailbox (APP_MAIL_MAILBOX),\n# since the link is never written to a log; no release runs in development, so it stays\n# unset here.\n# export APP_PARTNERS_ADMINISTRATOR=\n"
+	partnersTestHeld    = "cmd/deployment/migrate/main_test.go: the cases that give the staff auth a holder of the Super Administrator role give the partners auth one too (withPartnersHolder), and expect the line a release prints for each auth, since a release now invites the partners auth's first administrator and stops while nobody of the auth holds the role and APP_PARTNERS_ADMINISTRATOR names no address"
+	partnersTestSaid    = "cmd/deployment/migrate/main_test.go: the case that proved a release invites nobody now proves it stops for the partners auth's first administrator while APP_PARTNERS_ADMINISTRATOR names no address, and the case that proved the command has no -reinvite-administrator flag now proves the flag refuses the staff auth's name, since the partners auth invites a first administrator and the staff auth's directory gives every role"
+	// partnersIdentityAccessor is the accessor of the auth's identity client the data level
+	// gains beside the accessor of the auth.
+	partnersIdentityAccessor = "\n// PartnersIdentity returns the partners auth's identity client, which the auth built when it\n// opened: what the generated methods that manage the auth's people run over.\nfunc (c *DataConfiguration) PartnersIdentity() *partnersidentity.Client {\n\treturn c.partners.Identity()\n}\n"
+	partnersTestLeft         = "cmd/deployment/migrate/main_test.go: a release now invites the partners auth's first administrator, and refuses while nobody of the auth holds the Super Administrator role and APP_PARTNERS_ADMINISTRATOR names no address. Give the cases that run a release the address or a holder of the role, take out a case that says nobody is invited, that the command has no -reinvite-administrator flag or that the flag refuses the partners auth's name, and prove the auth's invitation as the base's test of the command proves its own"
+	partnersRolesLeft        = "pkg/auth/partners/foothold.go: the first administrator the migrate command invites while nobody of the auth holds the Super Administrator role, by an invitation mailed to the address the placement names (APP_PARTNERS_ADMINISTRATOR) that gives the Super Administrator role and the first administrator's roles; no account and no password are made ahead of the person, who signs in from the link by a method of the auth. Author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the invitation gives) with the role file"
+	partnersAccessor         = "\n// PartnersAdministrator returns the email address of the partners auth's first administrator,\n// which the placement names and the migrate command has the invitation mailed to; empty\n// where the deployment names none.\nfunc (c *DataConfiguration) PartnersAdministrator() string {\n\treturn c.env.PartnersAdministrator\n}\n"
+	partnersEnvBlock         = "# APP_PARTNERS_ADMINISTRATOR is the email address of the partners auth's first administrator\n# (pkg/auth/partners, InviteAdministrator): while nobody of the auth holds the Super Administrator\n# role the migrate command has an invitation mailed there, and the person signs in from\n# its link. A deployment names it per environment, with the mailbox (APP_MAIL_MAILBOX),\n# since the link is never written to a log; no release runs in development, so it stays\n# unset here.\n# export APP_PARTNERS_ADMINISTRATOR=\n"
 )
 
 // TestAuth_Apply_invitesAdministrator holds what impulse add auth writes outside the
@@ -97,7 +102,7 @@ func TestAuth_Apply_invitesAdministrator(t *testing.T) {
 		if strings.Count(level, mailSenderSaid) != 1 {
 			t.Errorf("%s does not say once on its mail sender what the base says of an invitation:\n%s", baseDataLevel, level)
 		}
-		if accessors := read(t, a, "pkg/config/partners.go"); !strings.HasSuffix(accessors, "func (c *DataConfiguration) Partners() *partners.Auth {\n\treturn c.partners\n}\n"+partnersAccessor) {
+		if accessors := read(t, a, "pkg/config/partners.go"); !strings.HasSuffix(accessors, "func (c *DataConfiguration) Partners() *partners.Auth {\n\treturn c.partners\n}\n"+partnersIdentityAccessor+partnersAccessor) {
 			t.Errorf("pkg/config/partners.go does not end in the accessor of the address:\n%s", accessors)
 		}
 		for _, rel := range []string{deployFile, baseDataLevel, "pkg/config/partners.go"} {
@@ -113,13 +118,13 @@ func TestAuth_Apply_invitesAdministrator(t *testing.T) {
 			partnersSettingDid,
 			deployFile + ": the partners auth joins AdministratorAuths and administratorOf, so a release invites its first administrator after the others' and the migrate command's -reinvite-administrator takes its name",
 			partnersEnvDid,
+			partnersTestHeld,
 		} {
 			once(t, ch.Did, did)
 		}
 		for _, left := range []string{
 			partnersRolesLeft,
 			deployFile + ", " + migrateCommand + ": the comments on the first administrator speak of the auths the application had (AdministratorAuths, InviteAdministrators, the migrate command's package comment and its step after the role check); name the partners auth and its setting (APP_PARTNERS_ADMINISTRATOR) in them",
-			partnersTestLeft,
 		} {
 			once(t, ch.Skipped, left)
 		}
@@ -209,10 +214,11 @@ func TestAuth_Apply_invitesAdministrator(t *testing.T) {
 			deployAdministrators + ", " + deployAdministratorsTest + ", " + deployFile + ": what invites a first administrator, which the application had none of, written for the partners auth as impulse new writes it: AdministratorAuths, InviteAdministrators and ReinviteAdministrator with what they stand on, the test of what they report where the package had none, and the package comment's sentence on the invitation",
 			partnersCommandDid,
 			partnersEnvDid,
+			partnersTestSaid,
 		} {
 			once(t, ch.Did, did)
 		}
-		for _, left := range []string{partnersRolesLeft, partnersTestLeft} {
+		for _, left := range []string{partnersRolesLeft} {
 			once(t, ch.Skipped, left)
 		}
 		if got := linesWith(ch.Skipped, "", []string{"the comments on the first administrator"}); len(got) != 0 {
@@ -444,7 +450,7 @@ func TestAuth_Apply_administratorNotWritten(t *testing.T) {
 				t.Helper()
 				rewriteOnce(t, a, migrateCommand, "\treturn migrate(ctx, settings, o.seed)\n", "\treturn migrate(ctx, settings, o.seed || o.force.set)\n")
 			},
-			wantWhy: "cmd/deployment/migrate/main.go runs no invitation (deploy.InviteAdministrators(...)) and is not as a start whose directory gives every role leaves it (\"\\t\\treturn retireSecret(ctx, o.retireSecret, out)\\n\\t}\\n\\n\\treturn migrate(ctx, settings, o.seed)\\n}\\n\\n// report prints one line per migrations table\" is not there once)",
+			wantWhy: "cmd/deployment/migrate/main.go runs no invitation (deploy.InviteAdministrators(...)) and is not as a start whose directory gives every role leaves it (\"\\t\\treturn retireSecret(ctx, settings, o.retireSecret, out)\\n\\t}\\n\\n\\treturn migrate(ctx, settings, o.seed)\\n}\\n\\n// report prints one line per migrations table\" is not there once)",
 		},
 		{
 			name:           "the deployment package has a file of the name already",

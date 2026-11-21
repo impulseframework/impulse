@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go/format"
+	"net/url"
 	"os"
 	"path"
 	"regexp"
@@ -40,9 +41,10 @@ type DirectoryStart struct {
 	// Methods are the methods the auth registers in the password's place, in order.
 	Methods []authpkg.Method
 	// Organization is the one organization of a method that admits one: a Google
-	// Workspace by its domain, a Microsoft Entra tenant by its tenant id. It is written
-	// as the development value of the method's organization setting; a deployment sets
-	// its own per environment. Empty keeps the placeholder.
+	// Workspace by its domain, a Microsoft Entra tenant by its tenant id, another
+	// identity provider by its issuer, an https URL. It is written as the development
+	// value of the method's organization setting; a deployment sets its own per
+	// environment. Empty keeps the placeholder.
 	Organization string
 	// ShapeKey and ShapeName are the shape the application starts from, as --shape takes
 	// it and by number and name.
@@ -151,8 +153,9 @@ func (d *DirectoryStart) ValidateChoices() error {
 	return nil
 }
 
-// googleDomainRE and tenantIDRE are the shapes of the one organization a method admits:
-// a Google Workspace's domain and a Microsoft Entra tenant's id.
+// googleDomainRE and tenantIDRE are the shapes of the one organization a Google or a
+// Microsoft method admits: a Google Workspace's domain and a Microsoft Entra tenant's id.
+// Another identity provider is named by its issuer (validIssuer).
 var (
 	googleDomainRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 	tenantIDRE     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -168,9 +171,22 @@ func validOrganization(m *authpkg.Method, organization string) error {
 		return errors.Newf("--organization %s: a Google method's one organization is a Google Workspace, named by its domain in lowercase (fleet.example)", organization)
 	case m.Kind == app.MethodAzure && !tenantIDRE.MatchString(organization):
 		return errors.Newf("--organization %s: a Microsoft method's one organization is a Microsoft Entra tenant, named by its tenant id (a GUID, as the Entra admin center shows it)", organization)
+	case m.Kind == app.MethodOIDC && !validIssuer(organization):
+		return errors.Newf("--organization %s: another identity provider's one organization is the provider, named by its issuer: an https URL with a host and no query or fragment (https://id.fleet.example), where the provider's configuration is read (<issuer>/.well-known/openid-configuration)", organization)
 	}
 
 	return nil
+}
+
+// validIssuer reports whether issuer is what names another identity provider: an
+// absolute https URL with a host and no query or fragment, the shape OpenID Connect
+// discovery requires of an issuer. The session library's registration takes an http
+// issuer too, for a provider run beside a test; the command takes none, since what it
+// writes is the value a development run and every environment after it start from.
+func validIssuer(issuer string) bool {
+	u, err := url.Parse(issuer)
+
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && !strings.HasSuffix(issuer, "#")
 }
 
 // Apply makes the deterministic half: the auth package written again with the methods,
@@ -440,12 +456,13 @@ func (d *DirectoryStart) developmentLogins(a *app.App, pkg *app.AuthPackage, spe
 }
 
 // nameOrganization writes the one organization the author named as the development
-// value of the method's organization setting, in the placeholder's place.
+// value of the method's organization setting, in the placeholder's place: a Workspace's
+// domain, an Entra tenant's id, or another identity provider's issuer.
 func (d *DirectoryStart) nameOrganization(a *app.App, text string, m *authpkg.Method, ch *Change) string {
 	fields := m.Fields()
 	for i := range fields {
 		f := &fields[i]
-		if f.Name != authpkg.FieldHostedDomain && f.Name != authpkg.FieldTenantID {
+		if f.Name != authpkg.FieldHostedDomain && f.Name != authpkg.FieldTenantID && (f.Name != authpkg.FieldIssuer || m.Kind != app.MethodOIDC) {
 			continue
 		}
 		variable := m.Variable(d.Auth, f)
@@ -737,10 +754,20 @@ func (d *DirectoryStart) MeaningIn(a *app.App) string {
 // the directory does not answer for, and it goes to the address on the person's account.
 // A directory that vouches for no address (Microsoft Entra ID) leaves the person to give
 // theirs at the first sign-in and to prove it with that code, whatever the directory
-// says of a second factor. Without a mailbox the code is written to the server's log, so
-// the item names the settings that give an environment one.
+// says of a second factor, and so does another identity provider whose token does not
+// say it verified the address. Without a mailbox the code is written to the server's
+// log, so the item names the settings that give an environment one.
 func (d *DirectoryStart) mailboxItem() string {
 	m := d.methods()[0]
+	const (
+		opens  = "Give each deployed environment its mailbox (`APP_MAIL_MAILBOX`, with the secret `APP_MAIL_APP_PASSWORD`) before anybody signs in. No release asks for one, since nobody is invited, and the application mails all the same: a sign-in waits for a code mailed to the person's address unless "
+		closes = " Without the mailbox the code is written to the server's log and reaches nobody, and the person is left at the login page's code step."
+	)
+	if m.Kind == app.MethodOIDC {
+		// The provider is no organization a deployment declares it administers: its
+		// token alone says whether a second factor was passed.
+		return opens + "the provider's token says a second factor was passed (its `amr` claim names `mfa`), or the browser is one the person asked to be remembered. A person's first sign-in waits for one whatever the token says of a second factor where it does not say the provider verified their address (`email_verified`): the login page asks the person for theirs where the account holds none, and the code proves it." + closes
+	}
 	organization, unless := "Workspace", "or"
 	first := ""
 	if m.Kind == app.MethodAzure {
@@ -755,7 +782,7 @@ func (d *DirectoryStart) mailboxItem() string {
 		}
 	}
 
-	return fmt.Sprintf("Give each deployed environment its mailbox (`APP_MAIL_MAILBOX`, with the secret `APP_MAIL_APP_PASSWORD`) before anybody signs in. No release asks for one, since nobody is invited, and the application mails all the same: a sign-in waits for a code mailed to the person's address unless the %s is one the deployment administers%s, %s the browser is one the person asked to be remembered.%s Without the mailbox the code is written to the server's log and reaches nobody, and the person is left at the login page's code step.", organization, administered, unless, first)
+	return fmt.Sprintf("%sthe %s is one the deployment administers%s, %s the browser is one the person asked to be remembered.%s%s", opens, organization, administered, unless, first, closes)
 }
 
 // meaning is the start's account, given the tests it wrote (a tree of suiteFiles, or

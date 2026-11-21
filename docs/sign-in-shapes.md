@@ -748,7 +748,7 @@ no first administrator is invited.
 
 The application still sends mail, though it invites nobody. Through Microsoft, each
 person's first sign-in stops for a code mailed to the address they give, as
-[The email address on an account](#the-email-address-on-an-account) says. Through either
+[The email address on an account](#the-email-address-on-an-account) says. Through any
 directory, a sign-in that carries no second factor of the directory's own stops for a
 code mailed to the person's address. So each deployed environment needs its mailbox,
 although no release asks for one: without it the code is written to the server's log,
@@ -784,8 +784,21 @@ impulse new ./fleet --module example.com/fleet --auth staff --shape directory-ro
   value of the method's setting, and each deployment names its own.
 - The command asks for the directory and the organization when a flag is missing. Where
   nobody is there to answer, it refuses and names the flag.
-- Another identity provider's directory is not a start of `impulse new`: it is an auth of
-  its own, added with `impulse add auth`, as below.
+
+It starts from another identity provider in the same way:
+
+```sh
+impulse new ./fleet --module example.com/fleet --auth staff --shape directory-roles --method oidc:okta --organization https://id.fleet.example
+```
+
+- `--method oidc:okta` names the directory as another identity provider's and registers
+  its method under the name `okta`. This kind always takes a name: the application's word
+  for the provider.
+- `--organization https://id.fleet.example` names the provider by its issuer, which is an
+  `https` URL with no query or fragment. The command checks it before it writes anything,
+  and refuses an issuer that is not one, as it refuses a missing one where nobody is there
+  to answer. It is written as the development value of the setting
+  `APP_<AUTH>_<METHOD>_ISSUER`, and each deployment names its own.
 
 A development run of such an application signs a person in through a simulated
 directory: the person the setting `APP_USERNAME` names, with the roles the setting
