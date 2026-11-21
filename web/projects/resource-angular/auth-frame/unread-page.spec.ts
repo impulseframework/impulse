@@ -119,10 +119,10 @@ describe('a frame over permissions that could not be read', () => {
     await settle();
   };
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
-  const unread = (): string | undefined => element().querySelector('.unread h1')?.textContent?.trim();
+  const unread = (): string | undefined => element().querySelector('.impulse-frame-unread h1')?.textContent?.trim();
   const drawn = (): string | undefined => element().querySelector('.spec-page')?.textContent?.trim();
   const tryAgain = async (): Promise<void> => {
-    (element().querySelector('.unread .try-again') as HTMLButtonElement).click();
+    (element().querySelector('.impulse-frame-unread .impulse-frame-try-again') as HTMLButtonElement).click();
     await settle();
   };
 
@@ -144,6 +144,21 @@ describe('a frame over permissions that could not be read', () => {
     expect(unread()).toBeUndefined();
     expect(drawn()).toBe('notes');
     expect(asked).toEqual(['', '', '']);
+  });
+
+  it('names what it draws there for the frame, as every element of the frame is: a rule an application writes for its own content lands on none', async () => {
+    await signIn(['']);
+    await go('/notes');
+
+    const block = element().querySelector('main > div') as HTMLElement;
+    const button = block.querySelector('button') as HTMLElement;
+    expect(block.querySelector('h1')?.textContent?.trim()).toBe('This page could not be loaded');
+    for (const part of [block, button]) {
+      // Material's own names on its button are not the frame's to give.
+      const named = Array.from(part.classList).filter((name) => !/^_?(mat|mdc|cdk|ng)-/.test(name));
+      expect(named.length).toBeGreaterThan(0);
+      expect(named.filter((name) => !name.startsWith('impulse-frame-'))).toEqual([]);
+    }
   });
 
   it('says the page could not be loaded where the landing cannot be decided, and lands once Try again reads it', async () => {

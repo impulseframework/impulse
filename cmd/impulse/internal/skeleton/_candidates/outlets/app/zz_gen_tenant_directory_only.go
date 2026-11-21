@@ -182,7 +182,10 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 // <prefix>/tenants/{tenantID}/directory-only: what the tenant's Sign-in page shows the person
 // who may turn it, who does not read the global Tenant record. It is asked under the
 // grant of either method that turns it, Execute on MakeTenantDirectoryOnly or on EndTenantDirectoryOnly in the
-// tenant, and writes nothing (resource.DirectoryOnlyStateHandler).
+// tenant, and writes nothing (resource.DirectoryOnlyStateHandler). It is given the
+// rules the two methods are given, each auth's answer about the caller's password
+// with them, so it says what turning the switch on takes of the caller in the words
+// the method refuses in.
 func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName), a.UserPermissions, router.Domain, "MakeTenantDirectoryOnly", "EndTenantDirectoryOnly")
+	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword), a.UserPermissions, router.Domain, "MakeTenantDirectoryOnly", "EndTenantDirectoryOnly")
 }

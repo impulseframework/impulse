@@ -33,6 +33,14 @@
   margin: 8px 0 0;
 }
 
+.turned-on-by.unmet {
+  color: var(--mat-sys-on-surface);
+}
+
+.to-do {
+  font-weight: 500;
+}
+
 .refusal {
   margin: 8px 0;
   color: var(--mat-sys-error, #b3261e);

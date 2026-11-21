@@ -42,12 +42,19 @@ function isCutShort(text: HTMLElement): boolean {
  *
  * A text is cut short when it is wider than its box, measured as the pointer or the focus
  * arrives, so the answer follows a column being resized and the window changing width
- * with nothing watching either. One tooltip and a handful of listeners on the table
- * serve every cell: the grid draws every row of its page unless it scrolls virtually,
- * and a list served whole is one long page, so a tooltip, a listener or an observer on
- * each cell would be paid for once per cell. The listeners stay on the table while its
- * rows come and go, so virtual scroll is served the same way, and rows read anew under
- * a resting pointer are too: the browser says what the pointer is on now, as if it had moved.
+ * with nothing watching either. The keyboard's focus arrives only on what takes it, and a
+ * cell of text does not: when the Tab key is pressed, wherever the focus is then, each
+ * cell whose text is cut is made a stop of the Tab key before the browser picks the next
+ * stop, and the stop is taken from each cell whose text fits. The cells are looked at for
+ * that at the key and never when the table is drawn, and not again until the table's
+ * owner says that what it draws has changed (`redrawn`).
+ *
+ * One tooltip and a handful of listeners serve every cell: the grid draws every row of
+ * its page unless it scrolls virtually, and a list served whole is one long page, so a
+ * tooltip, a listener or an observer on each cell would be paid for once per cell. The
+ * listeners stay on the table while its rows come and go, so virtual scroll is served the
+ * same way, and rows read anew under a resting pointer are too: the browser says what the
+ * pointer is on now, as if it had moved.
  *
  * The directive sits on an empty element in the positioned box around the table, and
  * that element is the tooltip's anchor: it is laid over the cut text before the tooltip
@@ -81,6 +88,8 @@ export class CutShortTooltipDirective implements OnInit {
   private awaited: number | undefined;
   /** The wait after which the anchor of a closed tooltip is taken back, while it runs. */
   private kept: ReturnType<typeof setTimeout> | undefined;
+  /** Whether the cells' stops of the Tab key are those of what the table draws now. */
+  private reached = false;
 
   constructor() {
     this.tooltip.position = 'above';
@@ -105,6 +114,19 @@ export class CutShortTooltipDirective implements OnInit {
         this.forget();
         this.withdraw();
       });
+      // The Tab key is on its way to its next stop, wherever the focus is now: the cells
+      // whose text is cut are stops before the browser picks one. Heard on the way down,
+      // so that nothing on the page keeps the key from here.
+      this.listen(
+        table.ownerDocument,
+        'keydown',
+        (event) => {
+          if ((event as KeyboardEvent).key === 'Tab') {
+            this.reach();
+          }
+        },
+        true,
+      );
       // A scroll does not bubble, so the box around the table hears the table's scroll
       // container on the way down.
       const frame = this.anchor.parentElement;
@@ -126,7 +148,39 @@ export class CutShortTooltipDirective implements OnInit {
     });
   }
 
-  private listen(target: HTMLElement, type: string, handler: (event: Event) => void, capture = false): void {
+  /**
+   * What the table draws has changed, its rows or a width: the cells whose text is cut may
+   * be others now, and the next press of the Tab key looks again. Said by the table's
+   * owner, which knows; nothing is read here.
+   */
+  redrawn(): void {
+    this.reached = false;
+  }
+
+  /**
+   * Lets the keyboard reach the cells whose text is cut short: each is made a stop of the
+   * Tab key, where its whole text is offered as it is under the pointer, and a cell whose
+   * text fits, or that draws its value, is no stop. One read of each cell of this table,
+   * and none of a table inside it, every read before the first stop is set; nothing at all
+   * where the stops are already those of what the table draws.
+   */
+  private reach(): void {
+    if (this.reached) {
+      return;
+    }
+    this.reached = true;
+    const cells = Array.from(this.table().querySelectorAll<HTMLElement>(':scope > tbody > tr > td'));
+    const cut = cells.map((cell) => this.textAt(cell) === cell && isCutShort(cell));
+    cells.forEach((cell, index) => {
+      if (cut[index]) {
+        cell.tabIndex = 0;
+      } else if (cell.hasAttribute('tabindex')) {
+        cell.removeAttribute('tabindex');
+      }
+    });
+  }
+
+  private listen(target: EventTarget, type: string, handler: (event: Event) => void, capture = false): void {
     const options = { capture, passive: true };
     target.addEventListener(type, handler, options);
     this.destroyRef.onDestroy(() => {

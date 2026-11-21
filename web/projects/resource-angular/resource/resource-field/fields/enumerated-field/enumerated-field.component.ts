@@ -56,7 +56,6 @@ import {
   notPermitted,
   optionColumns,
   optionDisplay,
-  pickerConsoleLine,
   PickerOption,
   pickerNarrowing,
   pickerRefusal,
@@ -717,6 +716,8 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     // What the server said of a request of the picker's that it refused, or how the request
     // failed, is for whoever looks into it: it is written to the console, once, with the
     // resource and the read it belongs to. The field says it in the library's words.
+    // Each line's words are a constant, and the console puts the resource's name where they
+    // keep its place (%s): a name is never itself read as words to print.
     effect(() => {
       const list = this.pager() ?? this.enumResourceRef();
       const row = this.singleEnumResourceRef();
@@ -734,7 +735,12 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
           }
           this.logged.add(error);
         }
-        console.error(pickerConsoleLine(String(untracked(this.resource) ?? ''), read), error);
+        const resource = String(untracked(this.resource) ?? '');
+        if (read === 'list') {
+          console.error('%s: the list a picker offers could not be loaded:', resource, error);
+        } else {
+          console.error('%s: the record a picker shows could not be loaded:', resource, error);
+        }
       }
     });
     // What the server refused as not permitted is remembered, so the picker asks nothing

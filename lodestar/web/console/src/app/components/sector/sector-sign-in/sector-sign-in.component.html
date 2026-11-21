@@ -92,7 +92,7 @@
         <button mat-button type="button" class="end-directory-only" [disabled]="busy()" (click)="endOnly()">
           Turn directory only off
         </button>
-      } @else if (!directoryOnly() && canMakeOnly()) {
+      } @else if (!directoryOnly() && canMakeOnly() && directory()) {
         <button mat-flat-button type="button" class="make-directory-only" [disabled]="busy()" (click)="makeOnly()">
           Make this sector directory only
         </button>
@@ -110,10 +110,15 @@
           Set a directory first: a sector with no directory cannot be directory only, since nobody could enter it.
         </p>
       } @else {
-        <p class="empty turned-on-by">
-          Directory only is turned on by a person who is signed in through this sector's directory. You are shown who it
-          will keep out before it is saved.
-        </p>
+        @for (condition of conditions(); track condition.sentence) {
+          <p class="empty turned-on-by" [class.unmet]="!condition.met">
+            {{ condition.sentence }}
+            @if (!condition.met) {
+              <strong class="to-do">{{ condition.toDo }}</strong>
+            }
+          </p>
+        }
+        <p class="empty shown-first">You are shown who it will keep out before it is saved.</p>
       }
     } @else {
       <p class="empty">Your role does not cover this setting: a marshal of this sector sets it.</p>

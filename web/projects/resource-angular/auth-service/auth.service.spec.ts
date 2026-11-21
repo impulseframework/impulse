@@ -346,6 +346,48 @@ describe('AuthService under a forced password change', () => {
   });
 });
 
+describe("AuthService, an accepted invitation's tenant", () => {
+  // The server names the tenant an accepted invitation seated the person in on the first
+  // session read after the acceptance and on no later one; the service keeps it until the
+  // person has landed, or the session ends.
+  const sessionOf = (answer: () => Record<string, unknown>): ScriptedTransport =>
+    scriptedTransport((request) =>
+      request.url === '/api/user/session' && request.method === 'GET'
+        ? { status: 200, body: answer() }
+        : serverWith(true)(request),
+    );
+
+  it('keeps the tenant the first session read named through a later read that names none, until the person has landed', async () => {
+    let answer: Record<string, unknown> = { authenticated: true, invitedTenant: 't-2' };
+    const auth = authOver(sessionOf(() => answer));
+    expect(auth.invitedTenant()).toBe('');
+    await firstValueFrom(auth.checkUserSession());
+    expect(auth.invitedTenant()).toBe('t-2');
+
+    answer = { authenticated: true };
+    await firstValueFrom(auth.checkUserSession());
+    expect(auth.invitedTenant()).toBe('t-2');
+
+    auth.invitationLanded();
+    expect(auth.invitedTenant()).toBe('');
+  });
+
+  it('forgets the tenant when the session ends: an unauthenticated answer, and a logout', async () => {
+    let answer: Record<string, unknown> = { authenticated: true, invitedTenant: 't-2' };
+    const auth = authOver(sessionOf(() => answer));
+    await firstValueFrom(auth.checkUserSession());
+    answer = { authenticated: false };
+    await firstValueFrom(auth.checkUserSession());
+    expect(auth.invitedTenant()).toBe('');
+
+    answer = { authenticated: true, invitedTenant: 't-2' };
+    await firstValueFrom(auth.checkUserSession());
+    expect(auth.invitedTenant()).toBe('t-2');
+    await firstValueFrom(auth.logout());
+    expect(auth.invitedTenant()).toBe('');
+  });
+});
+
 describe('AuthService feature flags', () => {
   beforeEach(() => {
     enabledFeatures = ['debriefs'];

@@ -123,13 +123,13 @@ describe('a frame over a tenant list that could not be read', () => {
     await settle();
   };
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
-  const unread = (): string | undefined => element().querySelector('.unread h1')?.textContent?.trim();
+  const unread = (): string | undefined => element().querySelector('.impulse-frame-unread h1')?.textContent?.trim();
   const drawn = (): string | undefined => element().querySelector('.spec-page')?.textContent?.trim();
   /** What the place switcher draws: nothing, the name of a lone place, or the open place on its button. */
   const switcher = (): string | undefined =>
     element().querySelector('impulse-place-switcher .switcher .name')?.textContent?.trim();
   const tryAgain = async (): Promise<void> => {
-    (element().querySelector('.unread .try-again') as HTMLButtonElement).click();
+    (element().querySelector('.impulse-frame-unread .impulse-frame-try-again') as HTMLButtonElement).click();
     await settle();
   };
 
