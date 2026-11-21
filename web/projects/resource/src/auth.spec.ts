@@ -915,8 +915,15 @@ describe("changing the person's own name", () => {
     },
     {
       name: 'an impersonated session resolves as refused',
-      answer: { status: 403, body: { message: 'ChangeName is not permitted in an impersonated session' } },
-      want: { outcome: 'refused', status: 403, message: 'ChangeName is not permitted in an impersonated session' },
+      answer: {
+        status: 403,
+        body: { message: 'You are acting as someone else, and this session cannot change their account.' },
+      },
+      want: {
+        outcome: 'refused',
+        status: 403,
+        message: 'You are acting as someone else, and this session cannot change their account.',
+      },
     },
   ];
   for (const tt of refusals) {
@@ -981,8 +988,15 @@ describe('keeping the look the person chose', () => {
     },
     {
       name: 'an impersonated session resolves as refused',
-      answer: { status: 403, body: { message: 'ChangeLook is not permitted in an impersonated session' } },
-      want: { outcome: 'refused', status: 403, message: 'ChangeLook is not permitted in an impersonated session' },
+      answer: {
+        status: 403,
+        body: { message: 'You are acting as someone else, and this session cannot change their account.' },
+      },
+      want: {
+        outcome: 'refused',
+        status: 403,
+        message: 'You are acting as someone else, and this session cannot change their account.',
+      },
     },
   ];
   for (const tt of refusals) {

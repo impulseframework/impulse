@@ -67,14 +67,30 @@ func TestAuth_ownAccountRoutes_refuseAViewOfThePerson(t *testing.T) {
 					f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
 				}
 
+				// The guard's event names the route by its operation, which the sentence does not.
+				var blocked []string
+				f.auth.baseSession.ImpersonationAudit = func(_ context.Context, event sessioninfo.ImpersonationEvent) error {
+					if event.Kind == sessioninfo.ImpersonationIdentityOperationBlocked {
+						blocked = append(blocked, event.Operation)
+					}
+
+					return nil
+				}
+
 				r := httptest.NewRequestWithContext(context.WithValue(context.Background(), sessioninfo.CTXSessionID, sessionID), http.MethodPost, "/", strings.NewReader(`{"this does not parse`))
 				r.Header.Set("Content-Type", "application/json")
 				rr := httptest.NewRecorder()
 				route.handler(f.auth).ServeHTTP(rr, r)
 
-				want := route.operation + " is not permitted in an impersonated session"
-				if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), want) {
+				want := "You are acting as someone else, and this session cannot change their account."
+				if impersonation.Principal.IsRole() {
+					want = "You are acting as someone else, and this session cannot do this."
+				}
+				if rr.Code != http.StatusForbidden || decoded(t, rr)["message"] != want {
 					t.Errorf("%s in a session that views as the person = %d %s, want 403 saying %q", route.operation, rr.Code, rr.Body.String(), want)
+				}
+				if len(blocked) != 1 || blocked[0] != route.operation {
+					t.Errorf("%s: the blocked operations announced = %q, want the route's own alone", route.operation, blocked)
 				}
 			})
 		}

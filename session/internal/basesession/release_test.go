@@ -76,6 +76,9 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 		wantActorID    impulse.NullUUID
 		wantBadRequest bool
 		wantForbidden  bool
+		// wantSays is the sentence a refused person reads: no session's id and nobody's
+		// name is in it.
+		wantSays string
 	}{
 		{
 			name: "on a validated session, the actor and source are bound to it and verified as usual",
@@ -101,6 +104,7 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 			imp:           &sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")},
 			prepare:       func(*mockstore.BaseStore, *mock_cookie.MockHandler) {},
 			wantForbidden: true,
+			wantSays:      "You cannot start a session that acts as someone else in another person's name.",
 		},
 		{
 			name:          "on a validated session, naming another session as the source is refused before any lookup",
@@ -108,6 +112,7 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 			imp:           &sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")},
 			prepare:       func(*mockstore.BaseStore, *mock_cookie.MockHandler) {},
 			wantForbidden: true,
+			wantSays:      "The session this request names as yours is not the one making it, so it cannot start a session that acts as someone else.",
 		},
 		{
 			name:          "on a validated session, a foreign realm is refused: an actor logged in here is local",
@@ -115,6 +120,7 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 			imp:           &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Editor")},
 			prepare:       func(*mockstore.BaseStore, *mock_cookie.MockHandler) {},
 			wantForbidden: true,
+			wantSays:      "You are signed in to this application, so a session that acts as someone else cannot be started for you from another system.",
 		},
 		{
 			name: "a foreign actor is not checked here",
@@ -166,6 +172,7 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 				storage.EXPECT().Session(gomock.Any(), sourceID).Return(nil, httpio.NewNotFoundMessage("no such session"))
 			},
 			wantForbidden: true,
+			wantSays:      "A session that acts as someone else is started from a live session of your own, and this one is not. Sign in again.",
 		},
 		{
 			name: "a source session of another user is refused",
@@ -174,6 +181,7 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 				storage.EXPECT().Session(gomock.Any(), sourceID).Return(ordinarySession(sourceID, "carol", time.Now()), nil)
 			},
 			wantForbidden: true,
+			wantSays:      "A session that acts as someone else is started from a live session of your own, and this one is not. Sign in again.",
 		},
 		{
 			name: "a destroyed source session is refused",
@@ -184,6 +192,7 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 				storage.EXPECT().Session(gomock.Any(), sourceID).Return(src, nil)
 			},
 			wantForbidden: true,
+			wantSays:      "A session that acts as someone else is started from a live session of your own, and this one is not. Sign in again.",
 		},
 		{
 			name: "an idle-expired source session is refused",
@@ -192,6 +201,7 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 				storage.EXPECT().Session(gomock.Any(), sourceID).Return(ordinarySession(sourceID, "alice", time.Now().Add(-time.Hour)), nil)
 			},
 			wantForbidden: true,
+			wantSays:      "A session that acts as someone else is started from a live session of your own, and this one is not. Sign in again.",
 		},
 		{
 			name: "an impersonated source session is refused",
@@ -202,6 +212,7 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 				storage.EXPECT().Session(gomock.Any(), sourceID).Return(src, nil)
 			},
 			wantForbidden: true,
+			wantSays:      "A session that acts as someone else is started from a live session of your own, and this one is not. Sign in again.",
 		},
 	}
 	for _, tt := range tests {
@@ -227,6 +238,9 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 			}
 			if httpio.HasBadRequest(err) != tt.wantBadRequest || httpio.HasForbidden(err) != tt.wantForbidden {
 				t.Errorf("error = %v; want badRequest=%v forbidden=%v", err, tt.wantBadRequest, tt.wantForbidden)
+			}
+			if tt.wantForbidden && httpio.Message(err) != tt.wantSays {
+				t.Errorf("the refusal said %q, want %q", httpio.Message(err), tt.wantSays)
 			}
 			// The actor's account is the source session's: null for a session type whose
 			// sessions belong to no account, and for a foreign actor, who has none here.

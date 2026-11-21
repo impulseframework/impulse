@@ -744,7 +744,7 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 			// The action as served: a read-only session's write is stopped by the
 			// read-only guard, which records the blocked write; any other by the check.
 			status, body := b.do(ctx, http.MethodPost, "/run/"+string(action), nil)
-			if status != http.StatusForbidden || tt.readOnly != strings.Contains(string(body), "this session is read-only") {
+			if status != http.StatusForbidden || tt.readOnly != strings.Contains(string(body), "You are acting as someone else, and this session cannot change anything.") {
 				t.Errorf("%s: POST /run/%s = %d %s, want 403 (from the read-only guard: %t)", tt.name, action, status, body, tt.readOnly)
 			}
 			want := wantLogged
@@ -787,7 +787,7 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 		}
 		says, want := "You are acting as someone else, and this session cannot create a tenant.", tt.creation
 		if tt.readOnly {
-			says, want = "this session is read-only", "impersonation: POST /create-tenant refused for"
+			says, want = "You are acting as someone else, and this session cannot change anything.", "impersonation: POST /create-tenant refused for"
 		}
 		if status != http.StatusForbidden || !strings.Contains(string(body), says) {
 			t.Errorf("%s: POST /create-tenant = %d %s, want 403 saying %q", tt.name, status, body, says)
