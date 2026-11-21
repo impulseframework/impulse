@@ -49,7 +49,12 @@ import (
 // something vouches for the link: the sign-in came through the directory of the one
 // tenant the user belongs to, holding a role there and nothing anywhere else, or it
 // carries the user's own invitation. Any other sign-in under the name is refused as a
-// person no user was created for is, since a directory asserts the names it likes. A
+// person no user was created for is, since a directory asserts the names it likes. In
+// any other application no tenant vouches for a link, so such a user is linked at once
+// only where the method vouches for the sign-in name (Google, for a Gmail address or a
+// Workspace account's), and otherwise once the person enters the code mailed to the
+// address the user holds, with nothing linked while the sign-in waits; a user who holds
+// no address is refused the link (ErrLinkNeedsAddress). A
 // registration that declares its provider's names the application's own
 // (Registration.SeededUsers) links such a user on the name alone. A user with no
 // password who already signs in through an identity is never linked a second one on
@@ -196,7 +201,7 @@ func Standard(opts ...ResolutionOption) *Resolution {
 // connection, or a user with no identity yet, links. The standard rule's own link of
 // such a user, made on the name, is held to more: it is made only as the user's first
 // identity unless the user holds the identity's verified address (ErrLinkSecondIdentity),
-// and in a tenanted application only when something vouches for it (see AccountRule).
+// and as a first identity only when something vouches for it (see AccountRule).
 // Never
 // choose userID by an email address or another claim the identity's provider does not
 // verify, unless the connection itself is one the application trusts, and then say so
@@ -394,6 +399,17 @@ var (
 	// sessioninfo.RefusedIdentityRejected.
 	ErrLinkSecondIdentity = errors.New(
 		"signin: an identity the application has not seen can't be linked on its sign-in name to a user who already signs in through another identity")
+	// ErrLinkNeedsAddress is the cause when the standard rule matched a pre-created
+	// user by a sign-in name the identity's method does not vouch for, as that user's
+	// first identity, and the user holds no email address. Such a link waits for the
+	// code mailed to the address the account holds, which shows that the person signing
+	// in reads the account's mail; an account that holds no address has nowhere to send
+	// it, and an address typed at the sign-in would show only that the person reads
+	// their own. An administrator gives the account its address, a registration's own
+	// rule links it on its own evidence, or the application links it itself. The code
+	// is sessioninfo.RefusedIdentityRejected.
+	ErrLinkNeedsAddress = errors.New(
+		"signin: an identity can't be linked on a sign-in name its method does not vouch for to a user who holds no email address")
 	// ErrEmailHeld is the cause when an account rule provisioned a new user for an
 	// identity whose verified address another user already holds verified: that user
 	// is the person, and the standard rule matches the person by the address before

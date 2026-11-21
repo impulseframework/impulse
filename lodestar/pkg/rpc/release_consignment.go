@@ -61,7 +61,7 @@ func (m *ReleaseConsignment) Execute(ctx context.Context, txn resource.ReadWrite
 		return nil, errors.Wrap(err, "resources.ConsignmentQuery.Read()")
 	}
 	if manifest == nil {
-		return nil, httpio.NewNotFoundMessagef("consignment %s does not exist", m.ConsignmentID)
+		return nil, resource.TargetNotFound("Consignment", m.ConsignmentID)
 	}
 	if released := manifest.Data.ReleasedAt; released != nil {
 		return nil, httpio.NewConflictMessagef(

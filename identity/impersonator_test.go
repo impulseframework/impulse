@@ -15,7 +15,7 @@ import (
 )
 
 // The sentence the rule refuses with opens the same way for every act.
-const actingAsSomeoneElse = "you are acting as someone else, so you cannot "
+const actingAsSomeoneElse = "You are acting as someone else, so you cannot "
 
 // The sessions and the group the tests of the rule add to the shared names: dana's and
 // frank's own sessions, and a group kept in alpha that holds nobody.
@@ -350,7 +350,7 @@ func TestManager_impersonatorIsNeverTheSubject(t *testing.T) {
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				return act.act(viewedBy(asErin(ctx, managedAuth, act.tenant), userID), txn, m, &danaHerself)
 			})
-			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+act.says+":") {
+			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+act.says+".") {
 				t.Fatalf("error = %v, want the refusal %q", err, actingAsSomeoneElse+act.says)
 			}
 			if len(store.writes) != 0 {
@@ -438,7 +438,7 @@ func TestManager_impersonatorIsNeverTheSubject(t *testing.T) {
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				return act.act(viewedBy(ctx, userID), txn, m, &danaHerself)
 			})
-			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+act.says+":") {
+			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+act.says+".") {
 				t.Fatalf("error = %v, want the refusal %q: the session says who is acting, caller or none", err, actingAsSomeoneElse+act.says)
 			}
 			if len(store.writes) != 0 {
@@ -482,7 +482,7 @@ func TestManager_AddGroupMember_underAMaskThatKeepsTheAction(t *testing.T) {
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				return act.act(acting(ctx, act.tenant), txn, m, &danaHerself)
 			})
-			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+act.says+":") {
+			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+act.says+".") {
 				t.Fatalf("error = %v, want the refusal %q: the mask keeps the action, and the rule still holds her own account", err, actingAsSomeoneElse+act.says)
 			}
 			if len(store.writes) != 0 {
@@ -544,7 +544,7 @@ func TestManager_ownAccount_withoutACaller(t *testing.T) {
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				return act.act(viewedBy(ctx, userID), txn, m, userID)
 			})
-			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+act.says+":") {
+			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+act.says+".") {
 				t.Fatalf("error = %v, want the refusal %q", err, actingAsSomeoneElse+act.says)
 			}
 			if len(store.writes) != 0 {
@@ -589,7 +589,7 @@ func TestManager_UnlockSignIn_impersonatorsOwnCounts(t *testing.T) {
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				return m.UnlockSignIn(viewedBy(asErin(ctx, managedAuth, false), userID), txn, name)
 			})
-			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+"unlock your own sign-in:") {
+			if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), actingAsSomeoneElse+"unlock your own sign-in.") {
 				t.Fatalf("UnlockSignIn(%q) error = %v, want the refusal of the rule on the person who impersonates", name, err)
 			}
 			if len(store.writes) != 0 {
@@ -740,7 +740,7 @@ func TestRefuseImpersonatorAsSubject(t *testing.T) {
 
 				return
 			}
-			want := "you are acting as someone else, so you cannot assign yourself a mission: while you act as another person, nothing you do is done to your own account. Stop acting as them first"
+			want := "You are acting as someone else, so you cannot assign yourself a mission."
 			if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != want {
 				t.Fatalf("RefuseImpersonatorAsSubject() error = %v, want the refusal %q", err, want)
 			}

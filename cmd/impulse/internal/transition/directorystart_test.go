@@ -310,8 +310,8 @@ func TestDirectoryStart_Command(t *testing.T) {
 // nobody, so it asks for none, and the application still mails the sign-in code: to every
 // sign-in the directory does not answer for, and, through Microsoft, to each person's
 // first, since that directory vouches for no address, and through another identity
-// provider to the first of a person whose address the provider's token does not say it
-// verified. A start that invites a first administrator says nothing of it here: its
+// provider to each person's first too, whatever the provider's token says of the
+// address. A start that invites a first administrator says nothing of it here: its
 // release refuses without the mailbox.
 func TestDirectoryStart_Meaning_mailbox(t *testing.T) {
 	t.Parallel()
@@ -343,7 +343,7 @@ func TestDirectoryStart_Meaning_mailbox(t *testing.T) {
 		{
 			name: "directory roles through another identity provider", start: providerStart(providerIssuer),
 			wants: []string{
-				mailbox + "a sign-in waits for a code mailed to the person's address unless the provider's token says a second factor was passed (its `amr` claim names `mfa`), or the browser is one the person asked to be remembered. A person's first sign-in waits for one whatever the token says of a second factor where it does not say the provider verified their address (`email_verified`): the login page asks the person for theirs where the account holds none, and the code proves it. " + noSender,
+				mailbox + "a sign-in waits for a code mailed to the person's address unless the provider's token says a second factor was passed (its `amr` claim names `mfa`), or the browser is one the person asked to be remembered. Each person's first sign-in waits for one whatever the token says, of a second factor or of their address (`email_verified`): the provider's word confirms no address, so the login page asks the person for theirs where the account holds none, and the code proves it. " + noSender,
 			},
 			never: []string{first, "Workspace", "tenant is one", "administers"},
 		},

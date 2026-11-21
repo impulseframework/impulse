@@ -396,9 +396,9 @@ func seamInvitationCodesCountedApart[Tx any](ctx context.Context, t *testing.T, 
 	a := newRulesApp(ctx, t, be, oneOrganization(inviteOnly))
 	const address = "pat@lakeside.edu"
 
-	// Pat has an account, signs in through the organization's directory and has
-	// confirmed their address.
-	a.createUser(ctx, t, address)
+	// Pat has an account, made with their address, signs in through the organization's
+	// directory and has confirmed the address by the code mailed to it.
+	a.createUserAt(ctx, t, address, address)
 	pat := passwordOnlyClaims("oid-pat", address)
 	a.entraPerson(ctx, t, pat)
 	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCodeTx })

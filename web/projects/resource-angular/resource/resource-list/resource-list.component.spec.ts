@@ -2091,17 +2091,19 @@ describe('ResourceListComponent', () => {
       // mission there, so the list says what happened, above its rows.
       const element = fixture.nativeElement as HTMLElement;
       expect(rowLinks()).toEqual([null, null]);
-      expect(element.querySelector('.links-unread .notice-words')?.textContent?.trim()).toBe(
+      expect(element.querySelector('.impulse-resource-list-links-unread .notice-words')?.textContent?.trim()).toBe(
         'The links to open some rows could not be loaded.',
       );
 
       digestFails = undefined;
-      element.querySelector<HTMLButtonElement>('.links-unread button.try-again')!.click();
+      element
+        .querySelector<HTMLButtonElement>('.impulse-resource-list-links-unread button.impulse-resource-list-try-again')!
+        .click();
       fixture.detectChanges();
       await settle();
       await settle();
 
-      expect(element.querySelector('.links-unread')).toBeNull();
+      expect(element.querySelector('.impulse-resource-list-links-unread')).toBeNull();
       expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
       // The tenant that answered is not asked again.
       expect(digestRequests()).toEqual([
@@ -2109,6 +2111,22 @@ describe('ResourceListComponent', () => {
         `/api/permission-digest?domain=${bastion}`,
         `/api/permission-digest?domain=${anvil}`,
       ]);
+    });
+
+    it("names the state for the list: a page's rule for its own .links-unread or .try-again lands on nothing of it", async () => {
+      await page(missions);
+      digestFails = anvil;
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      const element = fixture.nativeElement as HTMLElement;
+      // The state is drawn under the list's own names, the button inside the notice.
+      expect(
+        element.querySelector('.impulse-resource-list-links-unread button.impulse-resource-list-try-again'),
+      ).not.toBeNull();
+      // And nothing of the list answers to either bare name.
+      expect([...element.querySelectorAll('.links-unread, .try-again')].map((named) => named.className)).toEqual([]);
     });
 
     it('says nothing where every digest answers, and nothing for a tenant the server refuses', async () => {
@@ -2120,7 +2138,7 @@ describe('ResourceListComponent', () => {
 
       // Bastion is not there for this session: its row has no link, and that is an answer.
       expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
-      expect((fixture.nativeElement as HTMLElement).querySelector('.links-unread')).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).querySelector('.impulse-resource-list-links-unread')).toBeNull();
     });
 
     it('draws no row before the digest of every tenant on the page has answered: no link arrives on a row already drawn', async () => {

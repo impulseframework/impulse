@@ -259,9 +259,13 @@ func TestAuth_verifyEmailCode_guessesAtOnce(t *testing.T) {
 	t.Run("a code with an attempt left stands in the status", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
-		pending := &pendingState{ID: impulse.Must(impulse.NewUUID())}
+		userID := impulse.Must(impulse.NewUUID())
+		pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID)}
 		code := expectFactorCode(f, pending)
 		code.taken, code.row.Attempts = emailCodeAttempts-1, emailCodeAttempts-1
+		// The code stands for the address the account holds, which is the one it was
+		// mailed to.
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", Email: strPtr("pat@lakeside.edu")}, nil).AnyTimes()
 
 		state, err := f.auth.emailCodeState(context.Background(), pending)
 		if err != nil {
@@ -373,4 +377,70 @@ func TestAuth_proveFirstPasswordCode_guessesAtOnce(t *testing.T) {
 			t.Errorf("the account's record = %+v, want %d failures and held", record, firstPasswordAttempts.Failures)
 		}
 	})
+}
+
+// TestAuth_EnrollEmailNeedsTheWaitsIdentityLinked proves the mailed code's step takes
+// an address only where the sign-in that waits is already the account's: a password
+// sign-in, or an identity linked to the wait's user. A sign-in that waits to be linked
+// on the code mailed to the account's address has nothing else that ties it to the
+// account, so once the account holds no address it is given none to answer for:
+// whoever holds the pending sign-in would name their own mailbox and be linked to the
+// account on its code.
+func TestAuth_EnrollEmailNeedsTheWaitsIdentityLinked(t *testing.T) {
+	t.Parallel()
+
+	userID, other := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
+	outside := sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "google", Subject: "g-1", SignInName: "pat", Email: "pat@corp.example"}
+	tests := []struct {
+		name     string
+		identity sessioninfo.Identity
+		// link is the user the identity is linked to; nil is no link.
+		link        *impulse.UUID
+		wantRefused bool
+	}{
+		{name: "an identity linked to nobody is given no address to answer for", identity: outside, wantRefused: true},
+		{name: "an identity linked to another user is given none either", identity: outside, link: &other, wantRefused: true},
+		{name: "an identity linked to the wait's user gives the address the code confirms", identity: outside, link: &userID},
+		{name: "a password sign-in's person gives one", identity: sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f, recorder, _ := newMailFixture(t, gomock.NewController(t))
+			f.store.EXPECT().User(gomock.Any(), userID).Return(pat(userID), nil).AnyTimes()
+			f.store.EXPECT().UserByEmail(gomock.Any(), "mallory@elsewhere.example").Return(nil, httpio.NewNotFoundMessage("no user holds the address")).AnyTimes()
+			f.store.EXPECT().InsertFactorCode(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			if tt.identity.Method != sessioninfo.MethodPassword {
+				f.store.EXPECT().Identity(gomock.Any(), tt.identity.Method, tt.identity.Connection, tt.identity.Subject).DoAndReturn(
+					func(context.Context, sessioninfo.AuthMethod, string, string) (*sessionstorage.SessionIdentity, error) {
+						if tt.link == nil {
+							return nil, httpio.NewNotFoundMessage("no identity link")
+						}
+
+						return &sessionstorage.SessionIdentity{UserID: *tt.link, Method: tt.identity.Method, Connection: tt.identity.Connection, Subject: tt.identity.Subject}, nil
+					}).AnyTimes()
+			}
+			pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID), Identity: tt.identity}
+
+			_, err := f.auth.enrollEmail(context.Background(), pending, "mallory@elsewhere.example")
+
+			if tt.wantRefused {
+				if !httpio.HasConflict(err) {
+					t.Errorf("enrollEmail() error = %v, want the address refused with a conflict", err)
+				}
+				if sent := recorder.Messages(); len(sent) != 0 {
+					t.Errorf("enrollEmail() mailed %d message(s), want none", len(sent))
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("enrollEmail() error = %v, want the code mailed", err)
+			}
+			if sent := recorder.Messages(); len(sent) != 1 {
+				t.Errorf("enrollEmail() mailed %d message(s), want the code", len(sent))
+			}
+		})
+	}
 }

@@ -1001,9 +1001,10 @@ if the directory has a problem (`PasswordsBy`, handed the crew's
 Each refusal is a sentence that says what to do, on the method, on its dry run and on
 the warning: a marshal who has only ever signed in through a directory, as the warden
 has, is told to choose a password on Your account first, and does, on a code mailed to
-his confirmed address (in development the simulated provider vouches for a person under
-their login name, which no message can be sent to, so the account is told to add an
-address and confirm it first; `POST /console/api/user/first-password/code`, then
+his confirmed address (the persona provider's sign-in confirms no address, as no
+provider's word but Google's does, and the address the cast gave his account is one
+nobody has confirmed, so the account is told to add an address and confirm it first;
+`POST /console/api/user/first-password/code`, then
 `/console/api/user/first-password` with the code and the password; refused for an
 account that has a password, which changes it with the one it has, and under a view of
 someone else). Turning it off is
@@ -1144,9 +1145,8 @@ stored text as words.
 Whatever the kind and its mask, nobody is the subject of what they do in such a session.
 The marshal who acts as the `Headquarters` role holds, for the length of the session,
 everything headquarters may do to the crew's accounts, and is refused each of those
-things on her own account ("you are acting as someone else, so you cannot give yourself
-a role: while you act as another person, nothing you do is done to your own account.
-Stop acting as them first"): a role, a place in a group, a password, an address, an
+things on her own account ("You are acting as someone else, so you cannot give yourself
+a role."): a role, a place in a group, a password, an address, an
 enable, the unlock of her own name, an invitation to her own address. The same act on
 anyone else goes through, and her own row is still listed. The rule is the identity
 library's and needs no line in the application. An action of Lodestar's own that names a
@@ -1208,8 +1208,8 @@ constants leave it out.
 The rule also sees a row that reaches a person without naming them. The marshal who
 acts as the `Headquarters` role is refused a role, a pass or a place in a squadron
 given to her own account, and she is refused a hangar pass given to a squadron she is
-in, and her own squadron moved to another wing ("you are acting as someone else, so you
-cannot add a hangar pass record for one of your own squadrons"). The generated writes
+in, and her own squadron moved to another wing ("You are acting as someone else, so you
+cannot add a hangar pass record for one of your own squadrons."). The generated writes
 of `HangarPasses` and `Squadrons` name the column and the set, and the library asks the
 set by its own declaration, so the rule and the policy agree on who is in a squadron.
 A squadron's new name asks nothing: only a change that sets the wing does. The `act`

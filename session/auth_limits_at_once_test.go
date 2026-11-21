@@ -123,7 +123,7 @@ func TestAuth_limitMail_askedAtOnce(t *testing.T) {
 				f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).AnyTimes()
 				f.store.EXPECT().InsertFactorCode(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				links.expectAccounts(f)
-				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID)}
+				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID), Identity: sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()}}
 
 				return "new@lakeside.edu", func(ctx context.Context) error {
 					_, err := f.auth.enrollEmail(ctx, pending, "new@lakeside.edu")
@@ -139,7 +139,7 @@ func TestAuth_limitMail_askedAtOnce(t *testing.T) {
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(userID), nil).AnyTimes()
 				links.holds("taken@lakeside.edu", &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: "sam", Email: strPtr("taken@lakeside.edu")})
 				links.expectAccounts(f)
-				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID)}
+				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID), Identity: sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()}}
 
 				return "taken@lakeside.edu", func(ctx context.Context) error {
 					_, err := f.auth.enrollEmail(ctx, pending, "taken@lakeside.edu")
@@ -256,7 +256,9 @@ func TestAuth_signInCodesCountedApart(t *testing.T) {
 			flood: func(ctx context.Context, f *authFixture, _ *mailLinks, email string) error {
 				strangerID := impulse.Must(impulse.NewUUID())
 				f.store.EXPECT().User(gomock.Any(), strangerID).Return(&sessionstorage.SessionUser{ID: strangerID, Username: "sam"}, nil).AnyTimes()
-				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(strangerID)}
+				// The stranger proved their own account's password: the step takes an
+				// address from nobody else (identityIsTheUsers).
+				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(strangerID), Identity: sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: strangerID.String()}}
 				var err error
 				for range mailLimit.Failures + 1 {
 					_, err = f.auth.enrollEmail(ctx, pending, email)

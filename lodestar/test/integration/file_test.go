@@ -88,11 +88,11 @@ func TestExpenseManifest_renderedFile(t *testing.T) {
 			wantStatus: http.StatusForbidden,
 		},
 		{
-			name:        "a mission that is not the sector's is 404 in the row's words",
+			name:        "a mission that is not the sector's is 404 in the words an absent row gets, with no id",
 			user:        "purser",
 			target:      sectorPath(anvil, "expense-manifests/"+missionBeaconID+"/content"),
 			wantStatus:  http.StatusNotFound,
-			wantMessage: "ExpenseManifest " + missionBeaconID + " has no content",
+			wantMessage: "This expense manifest does not exist.",
 		},
 		{
 			name:       "a sector the purser holds no role in is concealed",
@@ -115,6 +115,9 @@ func TestExpenseManifest_renderedFile(t *testing.T) {
 			}
 			if tt.wantMessage != "" && !strings.Contains(rr.Body.String(), tt.wantMessage) {
 				t.Errorf("body = %s, want the message %q", rr.Body.String(), tt.wantMessage)
+			}
+			if tt.wantStatus == http.StatusNotFound && strings.Contains(rr.Body.String(), missionBeaconID) {
+				t.Errorf("body = %s, names the row by its id", rr.Body.String())
 			}
 			if tt.wantLines == 0 {
 				return

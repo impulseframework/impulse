@@ -29,6 +29,7 @@ import (
 	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
+	"github.com/impulseframework/impulse/session/internal/vouch"
 	"github.com/impulseframework/impulse/session/internal/workos"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/mock/mock_azure"
@@ -1687,12 +1688,14 @@ func TestAuth_GoogleCallback(t *testing.T) {
 
 	sessionID := impulse.Must(impulse.NewUUID())
 
-	// expectIdentity expects the store's SignIn with an identity under connection and
-	// signs the request in.
-	expectIdentity := func(connection, hd string) func(f *authFixture) {
+	// expectIdentity expects the store's SignIn with the identity of email under
+	// connection, and signs the request in. vouched says Google's word for the address
+	// is the identity's: it is for a Workspace account's address (the token carries hd)
+	// and for a Gmail address, and for no other, whatever the token says.
+	expectIdentity := func(connection, hd, email string, vouched bool) func(f *authFixture) {
 		return func(f *authFixture) {
 			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-				want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: connection, Subject: "sub-1", Email: "pat@example.com", EmailVerified: true, SignInName: "pat@example.com", Organization: connection}
+				want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: connection, Subject: "sub-1", Email: email, EmailVerified: vouched, SignInName: email, Organization: connection}
 				if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" {
 					t.Errorf("SignIn() identity mismatch (-want +got):\n%s", diff)
 				}
@@ -1714,15 +1717,17 @@ func TestAuth_GoogleCallback(t *testing.T) {
 		workspaces func() google.WorkspaceSet
 		prepare    func(f *authFixture)
 		// wantIdentity is the identity the method's rule decodes from the claims, when
-		// the sign-in reached the store.
+		// the sign-in reached the store. Its EmailVouched says to the rule what the
+		// identity's EmailVerified says to the core: whether Google answers for the
+		// address.
 		wantIdentity *google.Identity
 		wantLocation string
 	}{
 		{
 			name:         "a Google identity is keyed by the registration's name for its Workspace and sub",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`,
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "example.com", Workspace: "lakeside"},
-			prepare:      expectIdentity("lakeside", "example.com"),
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", EmailVouched: true, HostedDomain: "example.com", Workspace: "lakeside"},
+			prepare:      expectIdentity("lakeside", "example.com", "pat@example.com", true),
 			wantLocation: "/home",
 		},
 		{
@@ -1731,8 +1736,8 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			workspaces: func() google.WorkspaceSet {
 				return google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org"))
 			},
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "Example.ORG", Workspace: "riverside"},
-			prepare:      expectIdentity("riverside", "Example.ORG"),
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", EmailVouched: true, HostedDomain: "Example.ORG", Workspace: "riverside"},
+			prepare:      expectIdentity("riverside", "Example.ORG", "pat@example.com", true),
 			wantLocation: "/home",
 		},
 		{
@@ -1744,16 +1749,48 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			name:         "any Workspace: the account's domain is the connection, lowercased",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"Elsewhere.Example"}`,
 			workspaces:   google.AnyWorkspace,
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "Elsewhere.Example", Workspace: "elsewhere.example"},
-			prepare:      expectIdentity("elsewhere.example", "Elsewhere.Example"),
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", EmailVouched: true, HostedDomain: "Elsewhere.Example", Workspace: "elsewhere.example"},
+			prepare:      expectIdentity("elsewhere.example", "Elsewhere.Example", "pat@example.com", true),
 			wantLocation: "/home",
 		},
 		{
-			name:         "any Google account: an account outside every Workspace carries the fixed connection",
+			name:         "any Google account: an account outside every Workspace carries the fixed connection, and Google's word for an address it is not the authority for is not the identity's",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true}`,
 			workspaces:   google.AnyGoogleAccount,
 			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", Workspace: google.AnyAccountConnection},
-			prepare:      expectIdentity(google.AnyAccountConnection, ""),
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "pat@example.com", false),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: Google vouches for a Gmail address, whose token carries no hd",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"Pat@Gmail.com","email_verified":true}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "Pat@Gmail.com", EmailVouched: true, Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "Pat@Gmail.com", true),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: Google vouches for an address of its own mail under its other domain, googlemail.com",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@googlemail.com","email_verified":true}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@googlemail.com", EmailVouched: true, Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "pat@googlemail.com", true),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: Google vouches for a Workspace account's address, whatever its domain",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@elsewhere.example","email_verified":true,"hd":"elsewhere.example"}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@elsewhere.example", EmailVouched: true, HostedDomain: "elsewhere.example", Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "elsewhere.example", "pat@elsewhere.example", true),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: an address that only looks like Gmail's is not one Google vouches for",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@gmail.com.example","email_verified":true}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@gmail.com.example", Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "pat@gmail.com.example", false),
 			wantLocation: "/home",
 		},
 		{
@@ -3349,6 +3386,150 @@ const (
 // entraIssuer is the issuer of tenant tid's tokens under testAuthority.
 func entraIssuer(tid string) string {
 	return testAuthority + "/" + tid + "/v2.0"
+}
+
+// TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress proves the core takes a method's
+// word that an address is verified from Google's method alone. Whatever any other
+// method fills in Identity.EmailVerified, a provider's own claim or an application's own
+// method, the identity reaches the store without it: nothing confirms the address but
+// the code mailed to it, which the person's first sign-in to an account with no
+// confirmed address waits for. Google's method is the one session/google builds, known
+// by the library's mark and not by its name: a method of the application's own that
+// names itself and its identities google keeps no flag either. The word is Google's
+// only for an identity that says it came through Google: the marked method keeps none
+// for an identity of another method.
+func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// registered is the method the registration is of, and asserted the method the
+		// identity says it came through.
+		registered, asserted sessioninfo.AuthMethod
+		// mark is the library's mark the method carries: Google's on the method Google's
+		// package builds, none on any other.
+		mark vouch.Mark
+	}{
+		{name: "an application's own method", registered: "bare", asserted: "bare"},
+		{name: "the generic OpenID Connect method", registered: sessioninfo.MethodOIDC, asserted: sessioninfo.MethodOIDC},
+		{name: "Microsoft Entra ID", registered: sessioninfo.MethodAzure, asserted: sessioninfo.MethodAzure},
+		{name: "WorkOS", registered: sessioninfo.MethodWorkOS, asserted: sessioninfo.MethodWorkOS},
+		{name: "another method whose identity says it is Google's", registered: "bare", asserted: sessioninfo.MethodGoogle},
+		{name: "a method of the application's own that takes Google's name", registered: sessioninfo.MethodGoogle, asserted: sessioninfo.MethodGoogle},
+		{name: "Google's method, for an identity that says it came through another", registered: sessioninfo.MethodGoogle, asserted: sessioninfo.MethodOIDC, mark: vouch.Google()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newAuthFixture(t, gomock.NewController(t))
+			h := f.auth.RegisterExternal(&signin.Registration[mockTx]{
+				Name: "provider", Method: tt.registered,
+				Build: func(signin.StateCookies) (*signin.Method, error) {
+					return &signin.Method{
+						Name:             tt.registered,
+						LoginURL:         func() string { return "/login" },
+						AddressAuthority: tt.mark,
+						Complete: func(context.Context, http.ResponseWriter, *http.Request) (*signin.Verified, error) {
+							return &signin.Verified{
+								Identity:  &sessioninfo.Identity{Method: tt.asserted, Connection: "c", Subject: "s", Email: "pat@example.com", EmailVerified: true, SignInName: "pat"},
+								ReturnURL: "/next",
+							}, nil
+						},
+					}, nil
+				},
+			})
+			f.expectSignIn(impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
+				if req.Identity.EmailVerified || req.Identity.Email != "pat@example.com" {
+					t.Errorf("SignIn() identity = %+v, want the address the method asserts without its word that the address is verified", req.Identity)
+				}
+			}, func(req *sessioninfo.NewSessionRequest) error {
+				req.UserID, req.Username = impulse.Must(impulse.NewUUID()), "pat"
+
+				return nil
+			})
+
+			rr := f.serve(h.Callback, http.MethodGet, "/provider/callback?code=c&state=s", nil, nil)
+
+			if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/next" {
+				t.Errorf("response = %d %q, want 302 /next", rr.Code, rr.Header().Get("Location"))
+			}
+		})
+	}
+}
+
+// TestAuth_HeldSignInKeepsNoOtherMethodsWordForAnAddress proves the word a held sign-in
+// stored is kept as a callback's is: Google's method's alone. A pending sign-in stored
+// with another provider's word that the address is verified, as a release that kept
+// every provider's word stored one, is reported and finished without it, so its
+// completion confirms no address by it. One Google's method stored keeps Google's word.
+func TestAuth_HeldSignInKeepsNoOtherMethodsWordForAnAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// method is the method of the registration the sign-in came through and of its
+		// identity, and mark the library's mark the method carries.
+		method   sessioninfo.AuthMethod
+		mark     vouch.Mark
+		wantKept bool
+	}{
+		{name: "another provider's word is not kept", method: sessioninfo.MethodOIDC},
+		{name: "Google's word is kept", method: sessioninfo.MethodGoogle, mark: vouch.Google(), wantKept: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			userID, sessionID := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
+			f := newAuthFixture(t, gomock.NewController(t))
+			f.auth.RegisterExternal(&signin.Registration[mockTx]{
+				Name: "provider", Method: tt.method,
+				Build: func(signin.StateCookies) (*signin.Method, error) {
+					return &signin.Method{
+						Name:             tt.method,
+						LoginURL:         func() string { return "/login" },
+						AddressAuthority: tt.mark,
+						Complete: func(context.Context, http.ResponseWriter, *http.Request) (*signin.Verified, error) {
+							return nil, errors.New("no round trip in this test")
+						},
+					}, nil
+				},
+			})
+			// The row is stored with the provider's word on it: holdPending stores the
+			// identity it is given.
+			stored := &sessioninfo.Identity{Method: tt.method, Connection: "c", Subject: "s", Email: "pat@example.com", EmailVerified: true}
+			wait := &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat"}
+			cookies, pendingID := f.hold(t, &signInAttempt{identity: stored, reason: sessioninfo.ReasonLogin, registration: "provider"}, wait)
+			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
+				if req.Identity.EmailVerified != tt.wantKept || req.Identity.Email != "pat@example.com" {
+					t.Errorf("SignIn() identity = %+v, want the stored address with EmailVerified %v", req.Identity, tt.wantKept)
+				}
+				req.UserID, req.Username = userID, "pat"
+			}, nil)
+			f.expectConsume(pendingID)
+			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).AnyTimes()
+
+			var (
+				reported *sessioninfo.PendingIdentity
+				got      impulse.UUID
+				err      error
+			)
+			f.serve(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if reported, err = f.auth.API().PendingIdentity(r.Context()); err != nil {
+					return
+				}
+				got, err = f.auth.API().CompletePending(r.Context(), w, sessioninfo.AuthEvent{Method: "email-otp"})
+			}), http.MethodPost, "/mfa", nil, cookies)
+
+			if err != nil || got != sessionID {
+				t.Fatalf("CompletePending() = %s, %v; want %s", got, err, sessionID)
+			}
+			if reported.Identity.EmailVerified != tt.wantKept {
+				t.Errorf("PendingIdentity() identity = %+v, want EmailVerified %v", reported.Identity, tt.wantKept)
+			}
+		})
+	}
 }
 
 // TestAuth_CallbackFromUndeclaredIssuer proves the core refuses a round trip whose token

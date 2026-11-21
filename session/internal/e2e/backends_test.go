@@ -43,6 +43,11 @@ type appDB interface {
 	requirePasswordChange(ctx context.Context, t *testing.T, userID impulse.UUID)
 	// hasUser reports whether a user exists under username, as stored.
 	hasUser(ctx context.Context, t *testing.T, username string) bool
+	// heldWithProvidersWord rewrites the pending sign-ins as a release that kept every
+	// provider's word for an address stored one: the row says the provider verified the
+	// address, and the step waits for the application's own second factor (email-otp),
+	// not for the address.
+	heldWithProvidersWord(ctx context.Context, t *testing.T)
 	// declareTenant writes tenant's declaration: the directories it admits its people
 	// through, and whether through those only.
 	declareTenant(ctx context.Context, t *testing.T, tenant string, directoryOnly bool, directories ...signin.Directory)
@@ -260,6 +265,14 @@ func (d postgresDB) requirePasswordChange(ctx context.Context, t *testing.T, use
 	}
 }
 
+func (d postgresDB) heldWithProvidersWord(ctx context.Context, t *testing.T) {
+	t.Helper()
+
+	if _, err := d.Exec(ctx, `UPDATE "SessionPendingSignIns" SET "EmailVerified" = TRUE, "Factors" = ARRAY['email-otp']::character varying[]`); err != nil {
+		t.Fatalf("rewrite the pending sign-ins: %v", err)
+	}
+}
+
 func (d postgresDB) hasUser(ctx context.Context, t *testing.T, username string) bool {
 	t.Helper()
 
@@ -434,6 +447,21 @@ func (d spannerDB) requirePasswordChange(ctx context.Context, t *testing.T, user
 	m := spanner.Update("SessionUsers", []string{"Id", "PasswordChangeRequired"}, []any{userID.String(), true})
 	if _, err := d.Apply(ctx, []*spanner.Mutation{m}); err != nil {
 		t.Fatalf("require a new password of the user: %v", err)
+	}
+}
+
+func (d spannerDB) heldWithProvidersWord(ctx context.Context, t *testing.T) {
+	t.Helper()
+
+	_, err := d.ReadWriteTransaction(ctx, func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
+		if _, err := tx.Update(ctx, spanner.Statement{SQL: `UPDATE SessionPendingSignIns SET EmailVerified = TRUE, Factors = ['email-otp'] WHERE TRUE`}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("rewrite the pending sign-ins: %v", err)
 	}
 }
 

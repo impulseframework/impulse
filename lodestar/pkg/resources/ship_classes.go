@@ -11,8 +11,9 @@ type (
 	// InService is the yes or no whose column declares its own default: the table says
 	// NOT NULL DEFAULT (TRUE), so a create that names no value stores yes, the field is not
 	// one a create must be given, and the generated browser metadata carries the yes, which
-	// is where the console's form starts the box. Hardened declares nothing, so its box
-	// starts empty and every create must say.
+	// is where the console's form starts the box. Hardened declares nothing, so a create
+	// must be given it, and the console's form draws it as a choice of yes or no that
+	// starts at No.
 	//
 	// It declares no @order, the one listed table in the demo that does not, and no
 	// maximum, so the ship form's class picker reads the whole catalog with limit=all:

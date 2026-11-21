@@ -790,13 +790,3 @@ func keyParamList(compound bool, names []string) string {
 
 	return strings.Join(params, ", ")
 }
-
-// keyFormat renders one %v per key part, slash-joined.
-func keyFormat(count int) string {
-	parts := make([]string, 0, count)
-	for range count {
-		parts = append(parts, "%v")
-	}
-
-	return strings.Join(parts, "/")
-}

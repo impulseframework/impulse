@@ -127,7 +127,7 @@ func TestManager_AssignRole_superAdministrator(t *testing.T) {
 			},
 			held:  []access.MembershipKey{erinSuper, danaSteward},
 			scope: globalScope, role: accesstypes.SuperAdministrator,
-			wantErr: httpio.HasForbidden, wantSays: "you are acting as someone else, so you cannot give yourself a role",
+			wantErr: httpio.HasForbidden, wantSays: "You are acting as someone else, so you cannot give yourself a role.",
 		},
 		{
 			name: "a super administrator who views as someone else is a super administrator still",

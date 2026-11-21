@@ -209,6 +209,9 @@ type authApp[Tx any] struct {
 	mail *mail.Recorder
 	// verified writes an address as a person's confirmed one, the store's own write.
 	verified func(ctx context.Context, userID impulse.UUID, email string) error
+	// setEmail writes a person's address as an administrator does, the store's own
+	// write; nil takes the address off the account.
+	setEmail func(ctx context.Context, userID impulse.UUID, email *string) error
 }
 
 // confirmedAddress writes email as the confirmed address of a seeded person. A person
@@ -471,7 +474,7 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
-	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail}
+	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail, setEmail: store.SetUserEmail}
 }
 
 // browser is a user agent of an Auth app.

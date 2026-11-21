@@ -66,15 +66,16 @@
 }
 
 // The links of a list across tenants that could not be worked out: the same notice, with
-// the way to try again at its end.
-.links-unread {
+// the way to try again at its end. Both names carry the element's own, so a page's rule for
+// its own .links-unread or .try-again lands on neither.
+.impulse-resource-list-links-unread {
   align-items: center;
 
   .notice-words {
     flex: 1;
   }
 
-  .try-again {
+  .impulse-resource-list-try-again {
     flex: none;
   }
 }

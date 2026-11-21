@@ -70,7 +70,7 @@ func newResetApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *res
 	t.Cleanup(server.Close)
 
 	return &resetApp[Tx]{
-		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail},
+		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail, setEmail: store.SetUserEmail},
 		store:   store,
 	}
 }

@@ -197,7 +197,7 @@ func (d *memDriver) UserIn(_ context.Context, _ *memTx, userID impulse.UUID) (*d
 		return nil, httpio.NewNotFoundMessagef("user %s not found", userID)
 	}
 
-	return &dbtype.User{ID: userID, Username: user.username, EmailConfirmed: user.confirmed}, nil
+	return &dbtype.User{ID: userID, Username: user.username, EmailConfirmed: user.confirmed, EmailHeld: user.email != ""}, nil
 }
 
 func (d *memDriver) LockUserIn(ctx context.Context, tx *memTx, userID impulse.UUID) (*dbtype.User, error) {

@@ -305,3 +305,38 @@ func TestWorkspaceSet_nameOf(t *testing.T) {
 		})
 	}
 }
+
+// TestVouchesFor pins where Google's word for an address is kept: for a Workspace
+// account's address and for an address of Google's own mail, which is told by an ASCII
+// domain alone. A domain written with a letter from outside ASCII that Unicode
+// lowercases to an ASCII one (the dotted capital I, U+0130, to i) is not Gmail's, and
+// Google's word for an address there confirms nothing.
+func TestVouchesFor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		emailVerified bool
+		email         string
+		hostedDomain  string
+		want          bool
+	}{
+		{name: "a Gmail address Google verified", emailVerified: true, email: "pat@gmail.com", want: true},
+		{name: "a Gmail address whatever its case", emailVerified: true, email: "Pat@GMail.COM", want: true},
+		{name: "the other domain of Google's own mail", emailVerified: true, email: "pat@googlemail.com", want: true},
+		{name: "a Workspace account's address", emailVerified: true, email: "pat@lakeside.edu", hostedDomain: "lakeside.edu", want: true},
+		{name: "an address Google did not verify", email: "pat@gmail.com"},
+		{name: "an address from anywhere else", emailVerified: true, email: "pat@elsewhere.example"},
+		{name: "a domain written with the dotted capital I is not Gmail's", emailVerified: true, email: "pat@gma\u0130l.com"},
+		{name: "a domain written with the dotted capital I is not the other domain of Google's mail", emailVerified: true, email: "pat@googlema\u0130l.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := vouchesFor(tt.emailVerified, tt.email, tt.hostedDomain); got != tt.want {
+				t.Errorf("vouchesFor(%v, %q, %q) = %v, want %v", tt.emailVerified, tt.email, tt.hostedDomain, got, tt.want)
+			}
+		})
+	}
+}
