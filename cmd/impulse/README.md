@@ -192,11 +192,12 @@ templates, this README, and the tool's source.
   development and the test environments. Per-user and per-tenant enablement are
   permissions, not flags.
 - **Warning**: a schema finding the generator raises on every run and prints as a
-  `Warning:` line (an index a listed tenant-scoped resource wants, a tenant resolved
-  through a join path, an enumeration table too large to bake): a performance matter the
-  application decides, never a refusal. The generate program's warnings test pins the
-  accepted set as typed values, so a new warning fails the application's CI until it is
-  fixed or pinned.
+  `Warning:` line, never a refusal. Most are performance matters the application decides
+  (an index a listed tenant-scoped resource wants, a tenant resolved through a join
+  path, an enumeration table too large to bake). One is about access: a table a fact
+  about people is read through that no resource declares. The generate program's
+  warnings test pins the accepted set as typed values, so a new warning fails the
+  application's CI until it is fixed or pinned.
 - **Audit finding**: an advisory finding about a shape the framework handles under a
   stated limitation (a table storing files whose rows the database deletes by cascade),
   printed as an `Audit:` line only when asked: the generate program's `-audit` flag, or

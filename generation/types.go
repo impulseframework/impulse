@@ -50,7 +50,7 @@ const (
 type Generator interface {
 	Generate() error
 	// Warnings reports the schema findings the last Generate raised: informational,
-	// never a refusal, performance matters the application decides (see Warning).
+	// never a refusal, each a matter the application decides (see Warning).
 	// Nil before Generate runs.
 	Warnings() []Warning
 	// Audit reports the advisory findings the last Generate raised: shapes the
