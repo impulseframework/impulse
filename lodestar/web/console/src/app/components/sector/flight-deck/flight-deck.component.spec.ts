@@ -1059,6 +1059,40 @@ describe('FlightDeckComponent', () => {
     expect(writes()).toEqual([]);
   });
 
+  it('Save with nothing changed sends nothing for a mission whose deadline carries seconds', async () => {
+    // The form holds a deadline to the minute. A deadline with seconds, left as the form
+    // opened with it, is not a changed deadline. The envelope lets the deadline be edited,
+    // so nothing but the comparison keeps it from being sent.
+    await pageFor({
+      grants: marshal,
+      board: {
+        status: 200,
+        body: [
+          {
+            id: 'm-1',
+            title: 'Tow the Kestrel',
+            kindId: 'rescue',
+            clientId: 'c-1',
+            hazard: 2,
+            fee: '900',
+            deadline: '2031-01-01T08:00:42.500Z',
+            statusId: 'open',
+            notes: 'bring spare couplings',
+            zzCapabilities: { ...everything, Update: ['fee', 'notes', 'deadline'] },
+          },
+        ],
+      },
+    });
+    await openMission();
+    await press('Edit call sheet');
+    expect(dialogOpen()).toBe(true);
+    await send();
+    await settle(() => !dialogOpen());
+
+    expect(dialogOpen()).toBe(false);
+    expect(writes()).toEqual([]);
+  });
+
   it("a save the server refuses is shown in the dialog in the server's words", async () => {
     const sentence = 'user dispatcher does not have Update on Missions.notes';
     await pageFor({ grants: marshal, write: { status: 403, body: { message: sentence } } });

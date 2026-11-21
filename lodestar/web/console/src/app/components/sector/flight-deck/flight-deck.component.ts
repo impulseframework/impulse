@@ -893,8 +893,12 @@ export class FlightDeckComponent {
     const handle = this.sectors.sectorApi().missions;
     const patch: Record<string, unknown> = {};
     if (this.canEdit(mission, 'notes') && this.editNotes !== (mission.notes ?? '')) patch['notes'] = this.editNotes;
+    // The form holds a deadline to the minute. A deadline is sent only when the day or the
+    // time was changed: the mission's own, read as the form reads it, is what it opened
+    // with, whatever seconds it carries.
     const deadline = combineDateAndTime(this.editDeadlineDate, this.editDeadlineTime);
-    if (this.canEdit(mission, 'deadline') && deadline && deadline.getTime() !== this.deadlineOf(mission)?.getTime()) {
+    const opened = combineDateAndTime(this.deadlineOf(mission), this.deadlineOf(mission));
+    if (this.canEdit(mission, 'deadline') && deadline && deadline.getTime() !== opened?.getTime()) {
       patch['deadline'] = deadline;
     }
     if (
