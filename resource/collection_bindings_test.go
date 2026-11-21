@@ -320,7 +320,7 @@ func TestGeneratedCollection_SubjectSets(t *testing.T) {
 			Scope: accesstypes.GlobalPermissionScope,
 			SubjectSets: []SubjectBindingData{
 				{Name: "crews", UserColumn: "UserId", Column: "CrewId", Type: AttributeTypeString, Auth: "crew"},
-				{Name: "groups", UserColumn: "UserId", Column: "GroupId", Type: AttributeTypeString, Offered: true, Auth: "crew"},
+				{Name: "crewGroups", UserColumn: "UserId", Column: "GroupId", Type: AttributeTypeString, Offered: true, Auth: "crew"},
 			},
 		},
 		{
@@ -328,7 +328,7 @@ func TestGeneratedCollection_SubjectSets(t *testing.T) {
 			Scope: accesstypes.GlobalPermissionScope,
 			SubjectSets: []SubjectBindingData{{
 				Name: "docks", UserColumn: "UserId", Column: "DockId", Type: AttributeTypeString, Auth: "crew",
-				Who: []SubjectWhoData{{Column: "UserId"}, {Column: "CrewId", Set: "crews"}, {Column: "GroupId", Set: "groups"}},
+				Who: []SubjectWhoData{{Column: "UserId"}, {Column: "CrewId", Set: "crews"}, {Column: "GroupId", Set: "crewGroups"}},
 			}},
 		},
 		{
@@ -359,7 +359,7 @@ func TestGeneratedCollection_SubjectSets(t *testing.T) {
 		{
 			name: "an auth is listed its own sets and the sets that name no auth",
 			auth: "crew",
-			want: map[string][]string{"crews": nil, "docks": {"crews", "groups"}, "watches": nil},
+			want: map[string][]string{"crews": nil, "docks": {"crews", "crewGroups"}, "watches": nil},
 		},
 		{
 			name: "another auth is listed its own, and none of the first's",
@@ -373,7 +373,7 @@ func TestGeneratedCollection_SubjectSets(t *testing.T) {
 		},
 		{
 			name: "an empty auth is listed every set",
-			want: map[string][]string{"accounts": nil, "crews": nil, "docks": {"crews", "groups"}, "watches": nil},
+			want: map[string][]string{"accounts": nil, "crews": nil, "docks": {"crews", "crewGroups"}, "watches": nil},
 		},
 	}
 	for _, tt := range tests {
@@ -388,7 +388,7 @@ func TestGeneratedCollection_SubjectSets(t *testing.T) {
 
 	// Whose people a set describes is answered for every set, the generator's among
 	// them, which the listing leaves out.
-	wantAuths := map[string]string{"crews": "crew", "docks": "crew", "groups": "crew", "accounts": "members", "watches": "", "berths": ""}
+	wantAuths := map[string]string{"crews": "crew", "docks": "crew", "crewGroups": "crew", "accounts": "members", "watches": "", "berths": ""}
 	for name, want := range wantAuths {
 		if got := g.SubjectSetAuth(name); got != want {
 			t.Errorf("SubjectSetAuth(%q) = %q, want %q", name, got, want)

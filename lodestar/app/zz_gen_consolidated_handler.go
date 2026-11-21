@@ -697,7 +697,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 						if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "SquadronID", "squadrons"); err != nil {
 							return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
 						}
-						if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "GroupID", "groups"); err != nil {
+						if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "GroupID", "crewGroups"); err != nil {
 							return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
 						}
 

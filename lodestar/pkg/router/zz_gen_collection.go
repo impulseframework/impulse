@@ -585,8 +585,8 @@ func Collection() *resource.GeneratedCollection {
 				ImmutableTags: []accesstypes.Tag{"groupId", "squadronId", "userId"},
 				Domain:        &resource.DomainBindingData{Column: "SectorId"},
 				SubjectSets: []resource.SubjectBindingData{
-					{Name: "hangarsOpen", UserColumn: "UserId", Column: "HangarId", Type: "string", Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "SquadronId", Set: "squadrons"}, {Column: "GroupId", Set: "groups"}}, Where: &resource.SubjectWhereData{Condition: "LevelID IN ('visit', 'run') AND (ExpiresAt IS NULL OR ExpiresAt > now)", Columns: []resource.SubjectColumnData{{Name: "ExpiresAt", Column: "ExpiresAt", Type: "timestamp"}, {Name: "LevelID", Column: "LevelId", Type: "string"}}}, Auth: "crew"},
-					{Name: "hangarsRun", UserColumn: "UserId", Column: "HangarId", Type: "string", Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "SquadronId", Set: "squadrons"}, {Column: "GroupId", Set: "groups"}}, Where: &resource.SubjectWhereData{Condition: "LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now)", Columns: []resource.SubjectColumnData{{Name: "ExpiresAt", Column: "ExpiresAt", Type: "timestamp"}, {Name: "LevelID", Column: "LevelId", Type: "string"}}}, Auth: "crew"},
+					{Name: "hangarsOpen", UserColumn: "UserId", Column: "HangarId", Type: "string", Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "SquadronId", Set: "squadrons"}, {Column: "GroupId", Set: "crewGroups"}}, Where: &resource.SubjectWhereData{Condition: "LevelID IN ('visit', 'run') AND (ExpiresAt IS NULL OR ExpiresAt > now)", Columns: []resource.SubjectColumnData{{Name: "ExpiresAt", Column: "ExpiresAt", Type: "timestamp"}, {Name: "LevelID", Column: "LevelId", Type: "string"}}}, Auth: "crew"},
+					{Name: "hangarsRun", UserColumn: "UserId", Column: "HangarId", Type: "string", Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "SquadronId", Set: "squadrons"}, {Column: "GroupId", Set: "crewGroups"}}, Where: &resource.SubjectWhereData{Condition: "LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now)", Columns: []resource.SubjectColumnData{{Name: "ExpiresAt", Column: "ExpiresAt", Type: "timestamp"}, {Name: "LevelID", Column: "LevelId", Type: "string"}}}, Auth: "crew"},
 				},
 				Order:        []accesstypes.Tag{"hangarId"},
 				QueryKeys:    []accesstypes.Tag{"sectorId", "hangarId", "userId", "squadronId", "groupId", "levelId"},
@@ -1467,7 +1467,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "group", Column: "GroupId", Type: "string"},
 				},
 				SubjectSets: []resource.SubjectBindingData{
-					{Name: "groups", UserColumn: "UserId", Column: "GroupId", Type: "string", Where: &resource.SubjectWhereData{Condition: "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)", Columns: []resource.SubjectColumnData{{Name: "EndsAt", Column: "EndsAt", Type: "timestamp"}, {Name: "StartsAt", Column: "StartsAt", Type: "timestamp"}}}, Domain: &resource.DomainBindingData{Column: "GroupId", Path: []resource.BindingHop{{Table: "CrewGroups", JoinColumn: "Id", Column: "DomainId"}}}, Offered: true, Auth: "crew"},
+					{Name: "crewGroups", UserColumn: "UserId", Column: "GroupId", Type: "string", Where: &resource.SubjectWhereData{Condition: "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)", Columns: []resource.SubjectColumnData{{Name: "EndsAt", Column: "EndsAt", Type: "timestamp"}, {Name: "StartsAt", Column: "StartsAt", Type: "timestamp"}}}, Domain: &resource.DomainBindingData{Column: "GroupId", Path: []resource.BindingHop{{Table: "CrewGroups", JoinColumn: "Id", Column: "DomainId"}}}, Offered: true, Auth: "crew"},
 				},
 				Order: []accesstypes.Tag{"userId"},
 			},

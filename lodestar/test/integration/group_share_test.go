@@ -5,8 +5,8 @@ package integration
 // permission store, as its holder. The pass is every member's while their place in the
 // group counts, at the level the pass carries and until it expires, exactly as a pass in
 // a person's own name or in a squadron's: the who: of both pass sets tests GroupID IN
-// subject.groups beside the person and the squadron, and subject.groups is the set the
-// library's group members table declares.
+// subject.crewGroups beside the person and the squadron, and subject.crewGroups is the
+// set the library's group members table declares.
 //
 // Every person here holds the Armorer's role in the sector and nothing else, so what
 // they reach of the hangars they reach through a pass: the grants read hangar IN
@@ -495,8 +495,8 @@ func TestGroupShare_places(t *testing.T) {
 	}
 }
 
-// TestGroupShare_tenants holds a group to the sector that keeps it. subject.groups is
-// read under the request's sector: in a sector's request it holds the groups kept in
+// TestGroupShare_tenants holds a group to the sector that keeps it. subject.crewGroups
+// is read under the request's sector: in a sector's request it holds the groups kept in
 // that sector, and neither another sector's group nor a group kept for the whole fleet.
 // So a pass of Anvil's that names one of those opens nothing, shown with a row written
 // straight into the table, past the library, which refuses to write one

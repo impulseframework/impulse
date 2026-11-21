@@ -18,8 +18,8 @@ type (
 	//   - who: says which passes are the requester's. A pass is theirs when it names them
 	//     (UserID = subject), names a squadron they fly with (SquadronID IN
 	//     subject.squadrons, the set SquadronMembership declares), or names a group they
-	//     are in (GroupID IN subject.groups, the set the library's group members table
-	//     declares). The second and third tests are a set that follows another set:
+	//     are in (GroupID IN subject.crewGroups, the set the library's group members
+	//     table declares). The second and third tests are a set that follows another set:
 	//     nothing in the library knows what a squadron is, nothing here knows how a group
 	//     keeps its people, and the pass reaches a person through any table that declares
 	//     a set of its own.
@@ -58,9 +58,9 @@ type (
 	// Each set keeps its own tenant filter. A pass carries its sector on the row, so the
 	// passes read are the request's sector's; subject.squadrons is filtered to the same
 	// sector through its own two-hop path, so a squadron the requester flies with in
-	// another sector opens nothing here; and subject.groups holds the groups kept in the
-	// request's sector alone, so a pass that named another sector's group, or a group kept
-	// for the whole fleet, would open nothing. No such pass is written: the picker offers
+	// another sector opens nothing here; and subject.crewGroups holds the groups kept in
+	// the request's sector alone, so a pass that named another sector's group, or a group
+	// kept for the whole fleet, would open nothing. No such pass is written: the picker offers
 	// neither, and the library refuses a create that names either, whoever writes it (the
 	// API, the bootstrap, a job), with 400 and "groupId names a group that is not one of
 	// this sector's own. Choose a group kept in this sector: a group kept in another
@@ -86,10 +86,10 @@ type (
 		SectorID impulse.UUID `spanner:"SectorId"`
 		HangarID impulse.UUID `spanner:"HangarId"`
 		// @subjectSet(hangarsOpen, value: HangarID, auth: crew,
-		//     who:   UserID = subject OR SquadronID IN subject.squadrons OR GroupID IN subject.groups,
+		//     who:   UserID = subject OR SquadronID IN subject.squadrons OR GroupID IN subject.crewGroups,
 		//     where: LevelID IN ('visit', 'run') AND (ExpiresAt IS NULL OR ExpiresAt > now))
 		// @subjectSet(hangarsRun, value: HangarID, auth: crew,
-		//     who:   UserID = subject OR SquadronID IN subject.squadrons OR GroupID IN subject.groups,
+		//     who:   UserID = subject OR SquadronID IN subject.squadrons OR GroupID IN subject.crewGroups,
 		//     where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))
 		// @enumerate(CrewSectorUsers)
 		UserID     *string          `spanner:"UserId"     conditions:"immutable"`

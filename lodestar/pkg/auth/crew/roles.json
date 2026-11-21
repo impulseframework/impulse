@@ -2349,7 +2349,7 @@
                 "people",
                 "roles"
               ],
-              "condition": "group IN subject.groups"
+              "condition": "group IN subject.crewGroups"
             },
             {
               "resource": "CrewSectorGroupUsers",
@@ -2358,7 +2358,7 @@
                 "name",
                 "groupName"
               ],
-              "condition": "group IN subject.groups"
+              "condition": "group IN subject.crewGroups"
             }
           ],
           "Read": [
@@ -2385,7 +2385,7 @@
                 "people",
                 "roles"
               ],
-              "condition": "group IN subject.groups"
+              "condition": "group IN subject.crewGroups"
             }
           ]
         }

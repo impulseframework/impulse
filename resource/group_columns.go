@@ -13,10 +13,10 @@ import (
 )
 
 // A row of a tenant's table may name one of an auth's groups of people, and a subject
-// set then follows the group to its people (who: GroupID IN subject.groups). In a
-// tenant's request a person's groups are the groups that tenant keeps, so a row that
-// names another tenant's group, or a group kept for the whole application, would be
-// written and open nothing to anyone. The patch set refuses to write one: every create
+// set then follows the group to its people (who: GroupID IN subject.staffGroups for the
+// auth staff). In a tenant's request a person's groups are the groups that tenant
+// keeps, so a row that names another tenant's group, or a group kept for the whole
+// application, would be written and open nothing to anyone. The patch set refuses to write one: every create
 // and every update that names a group, and every update that moves a row which names
 // one, asks where the group is kept, inside the transaction, and writes the row only
 // when that is the row's own tenant. The rule is

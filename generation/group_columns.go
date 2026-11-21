@@ -13,10 +13,10 @@ const groupKeyColumn = "Id"
 
 // groupColumn is one column of a tenant's resource that names a group of people of an
 // auth: a column the who: part of a set tests against the auth's set of a person's
-// groups (who: GroupID IN subject.groups). In a tenant's request a person's groups are
-// the groups that tenant keeps, so the library refuses to write a row that names any
-// other (resource.GroupColumn), and the generated resource declares each such column
-// for it (GroupColumns).
+// groups (who: GroupID IN subject.staffGroups for the auth staff). In a tenant's request
+// a person's groups are the groups that tenant keeps, so the library refuses to write a
+// row that names any other (resource.GroupColumn), and the generated resource declares
+// each such column for it (GroupColumns).
 type groupColumn struct {
 	// Field is the column that names the group.
 	Field *resourceField

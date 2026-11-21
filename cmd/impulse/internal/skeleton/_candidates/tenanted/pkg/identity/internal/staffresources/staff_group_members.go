@@ -16,10 +16,10 @@ type (
 	// names anyone.
 	//
 	// The table names people, so it declares a subject set as any such table does:
-	// subject.groups is the ids of the groups the caller is in. A grant's
+	// subject.staffGroups is the ids of the groups the caller is in. A grant's
 	// condition tests a row's group against it, and a table of the application's own
 	// whose rows name a group follows a person through it in its own set's definition
-	// (who: GroupID IN subject.groups). The people are the Staff auth's, and the
+	// (who: GroupID IN subject.staffGroups). The people are the Staff auth's, and the
 	// set says so (auth: staff): generation refuses a set that describes another
 	// auth's people and follows a person through this one.
 	//
@@ -34,7 +34,7 @@ type (
 	// StartsAt and EndsAt are the place's period: the first instant it counts and the
 	// first it no longer does, each empty for none. Outside its period a place gives the
 	// person none of the group's roles, and the set says so with its where: part, so a
-	// condition that tests subject.groups leaves the group out as the permission
+	// condition that tests subject.staffGroups leaves the group out as the permission
 	// engine does. A row whose period has ended stands until its person next signs in,
 	// which removes it.
 	//
@@ -48,7 +48,7 @@ type (
 	StaffGroupMember struct {
 		// @attribute(group)
 		GroupID impulse.UUID `spanner:"GroupId"`
-		// @subjectSet(groups, value: GroupID, domain: GroupID.DomainID, auth: staff, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))
+		// @subjectSet(staffGroups, value: GroupID, domain: GroupID.DomainID, auth: staff, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))
 		UserID    string     `spanner:"UserId"`
 		CreatedAt time.Time  `spanner:"CreatedAt"`
 		StartsAt  *time.Time `spanner:"StartsAt"`

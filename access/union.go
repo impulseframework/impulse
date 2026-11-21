@@ -105,9 +105,9 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 // held to the sets of its own auth by that name (SubjectSetAuth), so a name is one
 // auth's in every site. A set one collection labels and another leaves unsaid is taken,
 // the label standing for both. The sets asked about are the ones some collection lists
-// (SubjectSets): the set of a person's groups that the generator declares is listed by
-// none, so two sites that each generate one under one name for two auths are not seen
-// here, and the first collection's label answers for it.
+// (SubjectSets). The set of a person's groups that generation declares is not listed and
+// is not compared here: it is named after its auth, so two auths' sets never share a
+// name.
 func refuseSetOfTwoAuths(collections []PermissionCollection) error {
 	names := make(map[string]struct{})
 	for _, c := range collections {

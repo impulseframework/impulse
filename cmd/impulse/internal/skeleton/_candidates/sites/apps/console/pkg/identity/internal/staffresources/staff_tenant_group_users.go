@@ -17,7 +17,7 @@ type (
 	// tenant's group holds any account, so a person listed here need hold no role of
 	// their own in the tenant. The group's id is read by a grant's condition (group), so
 	// a role file can show a person the people of the groups they are in themselves
-	// (group IN subject.groups).
+	// (group IN subject.staffGroups).
 	//
 	// StartsAt and EndsAt are the period of the person's place in the group, each empty
 	// for none. A place that has ended is not listed: it gives the person nothing and

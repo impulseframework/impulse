@@ -4360,13 +4360,14 @@ holding some of them is refused at generation.
   Where a person belongs to one tenant (`identity.WithOneTenantPerPerson()`), a place in
   a tenant's group counts as a role in that tenant.
 - The declaration over the members table declares a subject set, the ids of the groups
-  the caller is in: `subject.groups` (section 2, `@subjectSet`). Every list over groups
-  carries the group's id under the attribute `group`, so a role file holds a grant to
-  the caller's own groups (`group IN subject.groups`: Lodestar's sector crew see the
-  groups they are in and the people in them), and a table of the application's own
-  whose rows name a group follows a person through it in a set of its own
-  (`who: GroupID IN subject.groups`: a hangar pass in Lodestar names a person, a squadron
-  or a group). The members table is no tenant's, so the set names its own way to a
+  the caller is in, named after the auth: `subject.crewGroups` for Lodestar's auth
+  `crew`, `subject.staffGroups` for an auth `staff` (section 2, `@subjectSet`). Every
+  list over groups carries the group's id under the attribute `group`, so a role file
+  holds a grant to the caller's own groups (`group IN subject.crewGroups`: Lodestar's
+  sector crew see the groups they are in and the people in them), and a table of the
+  application's own whose rows name a group follows a person through it in a set of its
+  own (`who: GroupID IN subject.crewGroups`: a hangar pass in Lodestar names a person, a
+  squadron or a group). The members table is no tenant's, so the set names its own way to a
   group's tenant (`domain: GroupID.DomainID`): in a tenant's request it holds the groups
   kept in that tenant alone, so a tenant's row that named another tenant's group, or a
   group kept for the whole application, would give nobody anything; in a request with no
@@ -4477,7 +4478,7 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   `CrewGroupRoles`) list each row as the table holds it, period included.
 - The subject set of a person's groups counts a place inside its period alone: the
   members' declaration says so with the set's `where:` part, so a condition that tests
-  `subject.groups` leaves a group out exactly when the engine stops giving its roles.
+  `subject.crewGroups` leaves a group out exactly when the engine stops giving its roles.
 - An ended row goes at its person's next sign-in, and no job runs on a schedule. The
   generated client answers the session library's hook for a sign-in that stands
   (`crewidentity.Client.SignedIn(db)`), and the Auth's package sets it where it sets

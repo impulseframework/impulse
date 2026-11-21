@@ -921,11 +921,12 @@ the kind: `access.GrantWarning`, `access.RequiredFieldWarning`,
 `access.UnreadSetWarning` names a subject set the application declares
 (`@subjectSet`) that no role reads. A set is read when a grant's condition
 names it (`hangarId IN subject.hangarsOpen`), or when a set that is read builds
-on it in its `who:` part (`GroupID IN subject.groups`). Nobody holds anything
-through an unread set, so the line says to write the grant that reads it. It is
-never a refusal: a set may be declared one change before its first grant, and
-the role-file test accepts the warning until then. The set of a person's groups
-that the generator declares for an auth is not flagged, since nobody wrote it.
+on it in its `who:` part (`GroupID IN subject.crewGroups`). Nobody holds
+anything through an unread set, so the line says to write the grant that reads
+it. It is never a refusal: a set may be declared one change before its first
+grant, and the role-file test accepts the warning until then. The set of a
+person's groups that the generator declares for an auth is not flagged, since
+nobody wrote it.
 
 A set describes the people of one auth: its user column holds that auth's
 people, so only that auth's roles can give anybody anything through it. An

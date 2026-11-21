@@ -63,7 +63,7 @@ func Test_prepareIdentity_periods(t *testing.T) {
 		},
 		"internal/crewresources/crew_group_members.go": {
 			// A place counts in a condition inside its period alone, as it does on a check.
-			"// @subjectSet(groups, value: GroupID, domain: GroupID.DomainID, auth: crew, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))",
+			"// @subjectSet(crewGroups, value: GroupID, domain: GroupID.DomainID, auth: crew, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))",
 			"StartsAt  *time.Time `spanner:\"StartsAt\"`\n\t\tEndsAt    *time.Time `spanner:\"EndsAt\"`\n\t}",
 		},
 		"internal/crewresources/crew_group_roles.go": {

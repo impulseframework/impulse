@@ -13,7 +13,7 @@ import (
 // subject.hangarsOpen). A set no grant reads does nothing: the people it gathers hold
 // nothing through it, and nobody is told. A set is read when a grant's condition names
 // it, or when a set that is read builds on it in its who: part (GroupID IN
-// subject.groups), since the first set then holds what the second yields. A set describes
+// subject.crewGroups), since the first set then holds what the second yields. A set describes
 // the people of one auth, and only that auth's roles can give them anything through it:
 // an application with several auths says which on each set (auth: in the @subjectSet), the
 // collection lists each auth its own, and one auth's check never looks at another's. It

@@ -569,10 +569,10 @@ func TestUnionCollection_oneSetNameForTwoAuths(t *testing.T) {
 		{
 			name: "a set one collection lists and another names an auth for without listing it",
 			collections: []PermissionCollection{
-				&stubCollection{unlistedSets: map[string]string{"groups": "staff"}},
-				&stubCollection{authSets: map[string]map[string][]string{"members": {"groups": nil}}},
+				&stubCollection{unlistedSets: map[string]string{"staffGroups": "staff"}},
+				&stubCollection{authSets: map[string]map[string][]string{"members": {"staffGroups": nil}}},
 			},
-			wantErr: []string{`both declare subject set "groups"`, `auth "staff" vs auth "members"`},
+			wantErr: []string{`both declare subject set "staffGroups"`, `auth "staff" vs auth "members"`},
 		},
 		{
 			name:        "both label the set for one auth",
@@ -607,6 +607,70 @@ func TestUnionCollection_oneSetNameForTwoAuths(t *testing.T) {
 			}
 			if got := union.SubjectSetAuth("teams"); got != tt.wantAuth {
 				t.Errorf("SubjectSetAuth(\"teams\") = %q, want %q", got, tt.wantAuth)
+			}
+		})
+	}
+}
+
+// TestUnionCollection_groupSetsOfTwoAuths pins what two sites meet with when each keeps
+// groups for an auth of its own: the set of a person's groups that generation declares
+// for each, listed by neither, under the name of its own auth. Each auth's role file
+// reads its own auth's set, and a role file of one auth that reads the other's set is
+// refused, since the set says nothing about the people who hold the role.
+func TestUnionCollection_groupSetsOfTwoAuths(t *testing.T) {
+	t.Parallel()
+
+	aSet, bSet := "aGroups", "bGroups"
+	site := func(auth, set string) *stubCollection {
+		return &stubCollection{
+			auths:        []string{auth},
+			subjectSets:  map[string]accesstypes.AttributeType{set: accesstypes.AttributeTypeString},
+			unlistedSets: map[string]string{set: auth},
+		}
+	}
+	readsSet := func(set string) RoleFile {
+		return RoleFile(`{"roles": {"domain": [{"name": "Fitter", "description": "Reads the widgets of their groups.", "permissions": {"Read": [{"resource": "Widgets", "condition": "owner IN subject.` + set + `"}]}}]}}`)
+	}
+	tests := []struct {
+		name    string
+		auth    string
+		reads   string
+		wantErr string
+	}{
+		{name: "the role file of a reads the set of a's groups", auth: "a", reads: aSet},
+		{name: "the role file of b reads the set of b's groups", auth: "b", reads: bSet},
+		{
+			name:    "the role file of a reads the set of b's groups",
+			auth:    "a",
+			reads:   bSet,
+			wantErr: "role Fitter: Read grant on Widgets: the condition reads subject." + bSet + ", which describes the people of b (auth: b in the set's @subjectSet)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			union, err := UnionCollection(grammarCollection{}, site("a", aSet), site("b", bSet))
+			if err != nil {
+				t.Fatalf("UnionCollection() error = %v", err)
+			}
+			client, err := New(newFakeStore(), union, WithDefaultRoles(readsSet(tt.reads), tt.auth))
+			if client != nil {
+				t.Cleanup(func() {
+					if err := client.Close(); err != nil {
+						t.Errorf("Client.Close() error = %v", err)
+					}
+				})
+			}
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("New() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("New() error = %v, want it to contain %q", err, tt.wantErr)
 			}
 		})
 	}

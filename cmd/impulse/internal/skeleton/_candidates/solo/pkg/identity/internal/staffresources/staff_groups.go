@@ -21,7 +21,7 @@ type (
 	// rest of that key (the axis, the domain, the name) beside the kind.
 	//
 	// The id is read by a grant's condition (group), so a role file can hold a grant to
-	// the groups its holder is in (group IN subject.groups).
+	// the groups its holder is in (group IN subject.staffGroups).
 	//
 	// @resource
 	// @suppress(patchHandler)
