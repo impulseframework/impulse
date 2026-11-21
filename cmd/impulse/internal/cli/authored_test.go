@@ -61,6 +61,9 @@ func (a *authoredApplication) read(t *testing.T, rel string) string {
 // run runs a command in the application's root and gives back everything it wrote.
 func (a *authoredApplication) run(t *testing.T, name string, args ...string) (string, error) {
 	t.Helper()
+	// The command is one the test names itself (go, git or golangci-lint), with the arguments
+	// its callers write: nothing from outside the test reaches it.
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := osexec.CommandContext(t.Context(), name, args...) //nolint:gosec // the test's own commands: go, git and golangci-lint, with the arguments its callers write
 	cmd.Dir = a.dir
 	out, err := cmd.CombinedOutput()

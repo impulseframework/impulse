@@ -16,7 +16,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"text/template"
+
+	// The templates render the tests of an application, Go and TypeScript source files and
+	// never HTML, so text/template is the right package.
+	"text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template.import-text-template
 
 	"github.com/go-playground/errors/v5"
 
