@@ -13,6 +13,7 @@ import { provideResourceTesting } from '@impulseframework/resource-angular/testi
 import { dayAndMinuteFormat } from '@impulseframework/resource-angular/types';
 import { format } from 'date-fns';
 
+import { notNamedFor } from '../auth-frame/frame-testing';
 import {
   FeatureFlagHistoryData,
   FeatureFlagHistoryDialogComponent,
@@ -102,7 +103,7 @@ describe('FeatureFlagHistoryDialogComponent', () => {
       [written('2026-11-03T09:05:00Z'), 'Turned off', 'gale'],
       [written('2026-10-28T12:00:00Z'), 'Turned on', 'Process bootstrap'],
     ]);
-    expect(element(fixture).querySelector('.feature-flag-history-note')).toBeNull();
+    expect(element(fixture).querySelector('.impulse-feature-flag-history-dialog-note')).toBeNull();
   });
 
   it('only reads: its headers are words with nothing to press, and its one button closes it', async () => {
@@ -124,7 +125,7 @@ describe('FeatureFlagHistoryDialogComponent', () => {
     const { fixture } = await historyOver({ status: 200, body: { ...flips, more: true } });
 
     expect(cellsOf(fixture)).toHaveLength(3);
-    expect(element(fixture).querySelector('.feature-flag-history-note')?.textContent?.trim()).toBe(
+    expect(element(fixture).querySelector('.impulse-feature-flag-history-dialog-note')?.textContent?.trim()).toBe(
       'Only the newest 3 changes are shown.',
     );
   });
@@ -150,6 +151,23 @@ describe('FeatureFlagHistoryDialogComponent', () => {
     expect(element(fixture).querySelector('[role="alert"]')?.textContent).toContain('no List on FeatureFlags');
     expect(element(fixture).querySelector('impulse-grid')).toBeNull();
     expect(element(fixture).textContent).not.toContain(noFeatureFlagChanges);
+  });
+
+  it("names its own elements for the pop-up: an application's rule for its own .feature-flag-history-note lands on none", async () => {
+    // The stylesheet is read whole, so the refusal's name is held here too, though this read is answered.
+    const { fixture } = await historyOver({ status: 200, body: { ...flips, more: true } });
+
+    expect(notNamedFor('impulse-feature-flag-history-dialog-', element(fixture))).toEqual([]);
+    expect(element(fixture).querySelector('p.impulse-feature-flag-history-dialog-note')).not.toBeNull();
+  });
+
+  it('draws a refusal in the element named for it', async () => {
+    const { fixture } = await historyOver({ status: 403, body: { message: 'no List on FeatureFlags' } });
+
+    expect(notNamedFor('impulse-feature-flag-history-dialog-', element(fixture))).toEqual([]);
+    expect(
+      element(fixture).querySelector('p.impulse-feature-flag-history-dialog-error[role="alert"]')?.textContent,
+    ).toContain('no List on FeatureFlags');
   });
 
   it('draws no table before the answer is known', async () => {

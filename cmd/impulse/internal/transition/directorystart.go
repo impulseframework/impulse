@@ -752,11 +752,11 @@ func (d *DirectoryStart) MeaningIn(a *app.App) string {
 // A release of such an application asks for none, since it invites nobody, and the
 // application mails all the same: the sign-in code is the second factor of every sign-in
 // the directory does not answer for, and it goes to the address on the person's account.
-// A directory that vouches for no address (Microsoft Entra ID) leaves the person to give
-// theirs at the first sign-in and to prove it with that code, whatever the directory
-// says of a second factor, and so does another identity provider whose token does not
-// say it verified the address. Without a mailbox the code is written to the server's
-// log, so the item names the settings that give an environment one.
+// A directory that vouches for no address (Microsoft Entra ID, and another identity
+// provider whatever its token says of the address) leaves the person to give theirs at
+// the first sign-in and to prove it with that code, whatever the directory says of a
+// second factor. Without a mailbox the code is written to the server's log, so the item
+// names the settings that give an environment one.
 func (d *DirectoryStart) mailboxItem() string {
 	m := d.methods()[0]
 	const (
@@ -766,7 +766,7 @@ func (d *DirectoryStart) mailboxItem() string {
 	if m.Kind == app.MethodOIDC {
 		// The provider is no organization a deployment declares it administers: its
 		// token alone says whether a second factor was passed.
-		return opens + "the provider's token says a second factor was passed (its `amr` claim names `mfa`), or the browser is one the person asked to be remembered. A person's first sign-in waits for one whatever the token says of a second factor where it does not say the provider verified their address (`email_verified`): the login page asks the person for theirs where the account holds none, and the code proves it." + closes
+		return opens + "the provider's token says a second factor was passed (its `amr` claim names `mfa`), or the browser is one the person asked to be remembered. Each person's first sign-in waits for one whatever the token says, of a second factor or of their address (`email_verified`): the provider's word confirms no address, so the login page asks the person for theirs where the account holds none, and the code proves it." + closes
 	}
 	organization, unless := "Workspace", "or"
 	first := ""

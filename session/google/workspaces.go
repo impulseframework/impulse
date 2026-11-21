@@ -21,8 +21,29 @@ const AnyAccountConnection = signin.GoogleAnyAccountConnection
 const anyWorkspaceAccount = "*"
 
 // personalDomains are the domains of Google accounts outside any Workspace, which
-// AnyWorkspace does not admit and only AnyGoogleAccount does.
+// AnyWorkspace does not admit and only AnyGoogleAccount does. They are Google's own
+// mail: the one kind of address outside a Workspace that Google answers for (vouchesFor).
 var personalDomains = []string{"gmail.com", "googlemail.com"}
+
+// vouchesFor reports whether Google's word that an address is verified (the token's
+// email_verified) confirms the address: it does only where Google is the address's own
+// authority. That is the address of a Workspace account, which the organization that
+// owns the domain gave the person (the token carries hd), and an address of Google's
+// own mail (personalDomains), told by its ASCII domain alone: a domain written with a
+// letter from outside ASCII is not Google's mail, whatever Unicode lowercases the letter
+// to (signin.AddressDomain). A Google account can also be made with an address from
+// anywhere else, and of that address Google says no more than any provider says of
+// one: its word confirms nothing and reaches no account. The account's sign-in name is
+// that address all the same, so a first sign-in under the name of an account created
+// ahead waits for the code mailed to the address that account holds, and a first
+// sign-in to any account with no confirmed address waits for the mailed code.
+func vouchesFor(emailVerified bool, email, hostedDomain string) bool {
+	if !emailVerified {
+		return false
+	}
+
+	return hostedDomain != "" || slices.Contains(personalDomains, signin.AddressDomain(email))
+}
 
 // WorkspaceSet is the organization slot of the Google method (Config.Workspaces): which
 // Google accounts a registration admits, and the connection each identity link carries.
