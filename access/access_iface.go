@@ -347,8 +347,8 @@ type UserManager interface {
 
 	// AddRolePermissionResources grants permission on resources to role.
 	// Errors if role is not a custom role held in scope. A resource the
-	// release does not declare the permission on refuses the whole call, as
-	// AddRoleGrant refuses one.
+	// release does not declare the permission on, or one of another scope
+	// than the role's, refuses the whole call, as AddRoleGrant refuses one.
 	AddRolePermissionResources(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
 
 	// AddRoleGrant grants permission on one resource to role, limited by
@@ -363,13 +363,23 @@ type UserManager interface {
 	// be left out when the policy loads (SkippedGrant) and give nothing, and
 	// a name nobody declared is one nobody can say the meaning of. All of a
 	// resource's fields ("Resource.*") is the resource's own name.
+	//
+	// The grant is held to the rest of the rule a role file's grants are held
+	// to as well, and refused as a bad request in the role file's own
+	// sentence: the resource is of the role's scope (a global resource for a
+	// role held globally, a domain's for a role held in a domain or in every
+	// domain), Update is not given on what the release marks immutable, and
+	// the condition parses and reads only the attributes the resource declares
+	// and the subject vocabulary the application declares. A load of the
+	// policy holds a stored grant to its names alone: a stored condition that
+	// reads nothing declared fails closed when it is evaluated.
 	AddRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
 
 	// AddRoleGrants writes the grants to role as one store write rather than
 	// one per grant; grants the role already holds are left as they are.
 	// Errors if role is not a custom role held in scope or a grant names no
-	// resource. One grant the release does not declare refuses the whole call,
-	// as AddRoleGrant refuses one.
+	// resource. One grant AddRoleGrant would refuse, by its names, its scope
+	// or its condition, refuses the whole call.
 	AddRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, grants ...GrantRow) error
 
 	// ChangeRoleGrants removes the removals from role and adds the additions
@@ -378,9 +388,9 @@ type UserManager interface {
 	// were. Additions the role already holds are left as they are; removals
 	// it does not hold are ignored. Errors if role is not a custom role held
 	// in scope or a grant names no resource. An addition is held to what the
-	// release declares, as AddRoleGrant holds it, and one that is refused
-	// refuses the whole change. A removal is held to nothing, so a grant the
-	// release no longer declares can be taken away.
+	// release declares and to the role file's rule, as AddRoleGrant holds it,
+	// and one that is refused refuses the whole change. A removal is held to
+	// nothing, so a grant the release no longer declares can be taken away.
 	ChangeRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []GrantRow) error
 
 	// DeleteRolePermissionResources removes every grant of permission on the

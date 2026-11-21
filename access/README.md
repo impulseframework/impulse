@@ -273,8 +273,27 @@ this release declares no List on Ledgers. ...`), and nothing of the call is
 written, the rows beside the refused one included. The load and the writes go
 by one rule for a grant's names, so the grants a load skips by name are the
 ones another release wrote or that were written straight to the store, never
-ones this release was asked for and took. A removal is held to nothing: a grant
-the release no longer declares can always be taken away. No client is without
+ones this release was asked for and took.
+
+A write of a grant on a resource is held to the rest of the rule the role
+file's grants are held to as well, so a role made at run time holds nothing a
+default role could not. The resource is of the role's scope: a global resource
+for a role held globally, a domain's for a role held in one domain or in every
+domain, since a grant of another scope sits in a partition the role's holders
+never look in. `Update` is not given on what the release marks immutable. And
+the condition parses and reads only the attributes the resource declares and
+the subject vocabulary the application declares, a field's condition being
+held to its resource's attributes. Each is refused as a bad request in the
+role file's own sentence (`role Auditor is a domain role but grants Execute on
+CloseLedger, a global-scoped resource — a role's grants live at its declared
+scope; move the grant to a global role`, `role Auditor: Read grant on Ledgers:
+condition references "owner", which is not an attribute of Ledgers`), and
+nothing of the call is written. The load holds a stored grant to its names
+alone: a stored condition that reads nothing the release declares fails closed
+when it is evaluated.
+
+A removal is held to nothing: a grant the release no longer declares can
+always be taken away. No client is without
 the collection: `New` takes it as an argument and refuses a nil one, a nil
 pointer of a collection's type included, so there is no client that checks no
 name.

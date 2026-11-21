@@ -557,11 +557,44 @@ func newAccessClient(t *testing.T, db *initiator.SpannerDB, roles access.RoleFil
 }
 
 // alsoDeclared is the permission collection of a release that declared what this one
-// does and more: the generated collection, with the names in also listed beside its own.
-// Every other answer is the generated collection's.
+// does and more: the generated collection, with the names in also listed beside its own,
+// each as that release held it, a sector's resource a role may be given the permission
+// on. Every other answer is the generated collection's.
 type alsoDeclared struct {
 	access.PermissionCollection
 	also map[accesstypes.Permission][]accesstypes.Resource
+}
+
+// lists reports whether res is one of the names in also.
+func (d alsoDeclared) lists(res accesstypes.Resource) bool {
+	for _, resources := range d.also {
+		if slices.Contains(resources, res) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Scope is the scope of a sector for a name in also, which a write to a custom role
+// holds the role's scope to, and the generated collection's answer for any other name.
+func (d alsoDeclared) Scope(res accesstypes.Resource) accesstypes.PermissionScope {
+	if d.lists(res) {
+		return accesstypes.DomainPermissionScope
+	}
+
+	return d.PermissionCollection.Scope(res)
+}
+
+// IsResourceImmutable is false for a name in also, whatever this release makes of it:
+// the release that declared Update on the name let it be written. It is the generated
+// collection's answer for any other name.
+func (d alsoDeclared) IsResourceImmutable(scope accesstypes.PermissionScope, res accesstypes.Resource) bool {
+	if d.lists(res) {
+		return false
+	}
+
+	return d.PermissionCollection.IsResourceImmutable(scope, res)
 }
 
 // List is what the generated collection lists, and the names in also under their

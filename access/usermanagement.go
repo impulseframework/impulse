@@ -474,7 +474,7 @@ func (u *userManager) addGrantRows(ctx context.Context, scope accesstypes.Policy
 	if err := requireResources(rows); err != nil {
 		return err
 	}
-	if err := u.requireDeclared(rows); err != nil {
+	if err := u.requireDeclared(scope, role, rows); err != nil {
 		return err
 	}
 
@@ -504,7 +504,7 @@ func (u *userManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.Po
 	}
 	// A removal is held to nothing: a grant the release no longer declares is one
 	// to take away.
-	if err := u.requireDeclared(additions); err != nil {
+	if err := u.requireDeclared(scope, role, additions); err != nil {
 		return err
 	}
 
@@ -526,22 +526,40 @@ func requireResources(rows []GrantRow) error {
 	return nil
 }
 
-// requireDeclared refuses a grant the running release does not declare, before
-// it is written to a role: a permission on a resource or a field the permission
-// collection does not list under it, and an action no role is given. The rule is
-// the role file's own, and the one a load of the policy leaves a stored grant
-// out by (unlistedName): a grant the load would skip is not written, so a role
-// carries no name nobody declared. A stored grant can still outlive its
-// release, after a rollback or once a release drops a resource, and the load
-// skips and reports that one as before.
+// requireDeclared refuses a grant a role file could not give the role, before
+// it is written to a custom role held in scope: the whole of the rule the role
+// file's grants are held to when the engine opens (expandRoleGrants), so a role
+// made at run time holds nothing a default role could not.
+//
+// The names come first: a permission on a resource or a field the permission
+// collection does not list under it, and an action no role is given. That part
+// is the one a load of the policy leaves a stored grant out by (unlistedName):
+// a grant the load would skip is not written, so a role carries no name nobody
+// declared. A stored grant can still outlive its release, after a rollback or
+// once a release drops a resource, and the load skips and reports that one as
+// before.
+//
+// Then what a listed name can still break, in the role file's own sentences
+// (misplacedGrant, validateGrantCondition): the resource is of the role's
+// scope, a global resource for a role held globally and a domain's for one
+// held in a domain or in every domain; Update is not given on what the release
+// marks immutable; and a condition parses and reads only the attributes the
+// resource declares and the subject vocabulary the application declares, a
+// field's condition being held to its resource's attributes. A load does not
+// hold a stored grant to this part: it keeps to the names, and a stored
+// condition that reads nothing declared fails closed when it is evaluated.
 //
 // A name the store cannot hold (splitGrantResource) is left to the store, which
 // refuses it in its own words.
-func (u *userManager) requireDeclared(rows []GrantRow) error {
+func (u *userManager) requireDeclared(scope accesstypes.PolicyScope, role accesstypes.Role, rows []GrantRow) error {
 	if len(rows) == 0 {
 		return nil
 	}
 
+	declared := accesstypes.DomainPermissionScope
+	if scope.IsGlobal() {
+		declared = accesstypes.GlobalPermissionScope
+	}
 	listed := u.collection.List()
 	for _, row := range rows {
 		base, field, err := splitGrantResource(row.Resource)
@@ -560,6 +578,21 @@ func (u *userManager) requireDeclared(rows []GrantRow) error {
 				"%s on %s cannot be given to a role: %s. A role is given a permission the application declares on a resource or a field; check the permission and the name",
 				row.Permission, row.Resource, plainText(err),
 			)
+		}
+		name := grantResourceName(grant)
+		resourceScope := u.collection.Scope(name)
+		if resourceScope == "" {
+			return httpio.NewBadRequestMessagef("resource %s does not require a permission or does not exist", name)
+		}
+		if err := misplacedGrant(u.collection, role, declared, row.Permission, name, resourceScope); err != nil {
+			return httpio.NewBadRequestMessageWithError(err, plainText(err))
+		}
+		if row.Condition == "" {
+			continue
+		}
+		authored := Grant{Resource: accesstypes.Resource(base), Fields: nil, Condition: row.Condition}
+		if err := validateGrantCondition(u.collection, role, row.Permission, authored); err != nil {
+			return httpio.NewBadRequestMessageWithError(err, plainText(err))
 		}
 	}
 
@@ -598,7 +631,7 @@ func (u *userManager) AddRoleGrant(ctx context.Context, scope accesstypes.Policy
 	if resource == "" {
 		return httpio.NewBadRequestMessage("resource cannot be empty string")
 	}
-	if err := u.requireDeclared([]GrantRow{{Permission: permission, Resource: resource, Condition: condition}}); err != nil {
+	if err := u.requireDeclared(scope, role, []GrantRow{{Permission: permission, Resource: resource, Condition: condition}}); err != nil {
 		return err
 	}
 

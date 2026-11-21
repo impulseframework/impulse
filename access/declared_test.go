@@ -37,17 +37,29 @@ func declaringRecords(records *policy.Records) PermissionCollection {
 
 // fixtureCollection is what the release of the engine's and the user manager's tests
 // declares: every name those tests put in a policy, so a test of how the engine loads,
-// reloads and answers reads the policy it wrote. What the library does with a name the
-// release does not declare is pinned where a test hands over a collection of its own
-// (Test_newSnapshot_skipsGrantsTheReleaseCannotUse,
-// TestUserManager_grantsHeldToTheCollection).
-var fixtureCollection = declaring(map[accesstypes.Permission][]accesstypes.Resource{
-	"Read":   {"employees", "employees.name", "widgets", "widgets.name"},
-	"Update": {"employees", "employees.name", "employees.email", "employees.salary", "widgets", "widgets.name"},
-	"List":   {"gadgets", "reports", "widgets"},
-	// The permissions a role is given for the whole of a scope, attached to no resource.
-	"Approve":     nil,
-	"Export":      nil,
-	"ViewReports": nil,
-	"ViewUsers":   nil,
-})
+// reloads and answers reads the policy it wrote. A write to a custom role is held to the
+// role file's whole rule, so the collection also says what those tests' writes lean on:
+// reports is the one global resource, which the tests give a role held globally, and
+// status and region are the attributes their conditions read. What the library does with
+// a name the release does not declare is pinned where a test hands over a collection of
+// its own (Test_newSnapshot_skipsGrantsTheReleaseCannotUse,
+// TestUserManager_grantsHeldToTheCollection), and what a write does with a grant of
+// another scope or a condition that reads nothing declared in
+// TestUserManager_grantsHeldToTheRoleFilesRule.
+var fixtureCollection PermissionCollection = &stubCollection{
+	list: map[accesstypes.Permission][]accesstypes.Resource{
+		"Read":   {"employees", "employees.name", "widgets", "widgets.name"},
+		"Update": {"employees", "employees.name", "employees.email", "employees.salary", "widgets", "widgets.name"},
+		"List":   {"gadgets", "reports", "widgets"},
+		// The permissions a role is given for the whole of a scope, attached to no resource.
+		"Approve":     nil,
+		"Export":      nil,
+		"ViewReports": nil,
+		"ViewUsers":   nil,
+	},
+	scopes: map[accesstypes.Resource]accesstypes.PermissionScope{"reports": accesstypes.GlobalPermissionScope},
+	attributes: map[string]accesstypes.AttributeType{
+		"employees.status": accesstypes.AttributeTypeString,
+		"widgets.region":   accesstypes.AttributeTypeString,
+	},
+}

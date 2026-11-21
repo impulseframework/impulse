@@ -622,11 +622,8 @@ func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.
 				if !slices.Contains(storePermissions[perm], res) {
 					return nil, errors.Newf("resource %s does not require permission %s", res, perm)
 				}
-				if perm == accesstypes.Update && store.IsResourceImmutable(scope, res) {
-					return nil, errors.Newf("role %s cannot have update permission on immutable resource %s", r.Name, res)
-				}
-				if scope != declared {
-					return nil, errors.Newf("role %s is a %s role but grants %s on %s, a %s-scoped resource — a role's grants live at its declared scope; move the grant to a %s role", r.Name, declared, perm, res, scope, scope)
+				if err := misplacedGrant(store, r.Name, declared, perm, res, scope); err != nil {
+					return nil, err
 				}
 
 				desired.add(perm, res, grant.Condition)
@@ -635,6 +632,24 @@ func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.
 	}
 
 	return desired, nil
+}
+
+// misplacedGrant says why a role declared at a scope cannot hold a permission
+// on a resource of the collection's, held there in scope, or nil when it can:
+// Update is not given on a resource the release marks immutable, and a role's
+// grants are of its own scope, since one on a resource of another scope would
+// be provisioned into a partition the role's holders never look in. It is the
+// part of the role file's rule a listed name can still break, and a write to a
+// custom role is held to it in the same sentences (userManager.requireDeclared).
+func misplacedGrant(store PermissionCollection, role accesstypes.Role, declared accesstypes.PermissionScope, perm accesstypes.Permission, res accesstypes.Resource, scope accesstypes.PermissionScope) error {
+	if perm == accesstypes.Update && store.IsResourceImmutable(scope, res) {
+		return errors.Newf("role %s cannot have update permission on immutable resource %s", role, res)
+	}
+	if scope != declared {
+		return errors.Newf("role %s is a %s role but grants %s on %s, a %s-scoped resource — a role's grants live at its declared scope; move the grant to a %s role", role, declared, perm, res, scope, scope)
+	}
+
+	return nil
 }
 
 // authoredGrants tracks the (permission, resource, condition) triples a role's

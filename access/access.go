@@ -42,7 +42,9 @@ type Client struct {
 // that names a permission and no resource among them; the writes that give a
 // custom role a grant refuse a name the release does not declare
 // (UserManager.AddRoleGrant, UserManager.AddRolePermission), by the rule the
-// load skips by; and the role file validates against it.
+// load skips by, and hold a grant on a resource to the rest of the role
+// file's rule as well, its scope and its condition; and the role file
+// validates against it.
 //
 // Permission checks are answered by the snapshot engine, compiled in-memory
 // from the release's default roles (WithDefaultRoles) and the policy store.
