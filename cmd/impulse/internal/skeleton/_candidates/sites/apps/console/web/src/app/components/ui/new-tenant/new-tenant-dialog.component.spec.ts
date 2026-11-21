@@ -116,7 +116,7 @@ describe('NewTenantDialogComponent', () => {
     const pending = fixture.componentInstance.create();
 
     const refusal = {
-      message: 'the session already holds a tenant; a person creates one tenant and becomes its administrator',
+      message: 'You already hold a role in a tenant, so you cannot create a tenant of your own.',
     };
     const request = http.expectOne(`${environment.apiUrl}/${createTenantRoute}`);
     request.flush(refusal, { status: 403, statusText: 'Forbidden' });
@@ -125,7 +125,7 @@ describe('NewTenantDialogComponent', () => {
 
     expect(fixture.componentInstance.error()).toBe(refusal.message);
     expect((fixture.nativeElement as HTMLElement).querySelector('.refusal')?.textContent).toContain(
-      'already holds a tenant',
+      'You already hold a role in a tenant',
     );
     expect(closed).toEqual([]);
     expect(navigated).not.toHaveBeenCalled();

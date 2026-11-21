@@ -147,8 +147,8 @@ func TestAuth_ChangeName(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 		f.auth.ChangeName().ServeHTTP(rr, request(ctx, `{"name":"Pat"}`))
-		if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "not permitted in an impersonated session") {
-			t.Errorf("ChangeName() = %d %s, want 403 naming the impersonated session", rr.Code, rr.Body.String())
+		if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "You are acting as someone else, and this session cannot change their account.") {
+			t.Errorf("ChangeName() = %d %s, want 403 saying the session cannot change their account", rr.Code, rr.Body.String())
 		}
 	})
 

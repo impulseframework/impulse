@@ -20,7 +20,7 @@ import (
 // what the Sign-in page's dialog shows before an administrator opens the password
 // method.
 const (
-	signUpClosed      = "sign-up is not open, so you cannot create a tenant of your own: ask an administrator of the application to create one for you, or to invite you to one"
+	signUpClosed      = "Sign-up is not open, so you cannot create a tenant of your own. Ask an administrator of the application to create one for you, or to invite you to one."
 	passwordOpenWarns = "Anyone with an email address will be able to sign up and create a tenant of their own, without an invitation."
 )
 

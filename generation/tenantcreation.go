@@ -537,12 +537,13 @@ func tenantCreationDirectoryData(record *resourceInfo) *tenantCreationDirectory 
 	}
 }
 
-// tenantCreationRefusal is the sentence a person who already holds a tenant is
-// answered with: one tenant per person.
+// tenantCreationRefusal is the sentence a person who already holds a role in a tenant
+// is answered with, one tenant per person: "You already hold a role in a tenant, so you
+// cannot create a tenant of your own."
 func tenantCreationRefusal(record string) string {
 	lower := strings.ToLower(strcase.ToCase(record, strcase.LowerCase, ' '))
 
-	return fmt.Sprintf("the session already holds a %s; a person creates one %s and becomes its administrator", lower, lower)
+	return fmt.Sprintf("You already hold a role in %s, so you cannot %s.", withArticle(lower), tenantCreationOwnCreation(record))
 }
 
 // tenantCreationOwnCreation is what the route does, said to the person who asks and as
@@ -556,11 +557,11 @@ func tenantCreationOwnCreation(record string) string {
 	return fmt.Sprintf("create %s of your own", withArticle(lower))
 }
 
-// tenantCreationClosedRefusal is the sentence a person is answered with while every
-// sign-in method is invite only: nobody signs up, so nobody creates a tenant of their
-// own.
+// tenantCreationClosedRefusal is what a person is answered with while every sign-in
+// method is invite only: nobody signs up, so nobody creates a tenant of their own. Its
+// second sentence is the person's own next step.
 func tenantCreationClosedRefusal(record string) string {
-	return fmt.Sprintf("sign-up is not open, so you cannot %s: ask an administrator of the application to create one for you, or to invite you to one", tenantCreationOwnCreation(record))
+	return fmt.Sprintf("Sign-up is not open, so you cannot %s. Ask an administrator of the application to create one for you, or to invite you to one.", tenantCreationOwnCreation(record))
 }
 
 // withArticle is the word with its article, as a sentence names one of them: "a

@@ -39,7 +39,7 @@ interface Sector {
 const anvil = 'a1111111-1111-4111-8111-111111111111' as Domain;
 const digestOf = (domain: Domain): string => `/api/permission-digest?domain=${domain}`;
 const held = { Missions: { List: 'granted' } };
-const unknown: TransportResponse = { status: 404, body: { message: `unknown domain "${anvil}"` } };
+const unknown: TransportResponse = { status: 404, body: { message: 'This sector does not exist.' } };
 
 /** A client over answers scripted by URL: an answer, or what answers each time the URL is asked. */
 function clientOver(script: Record<string, TransportResponse | (() => TransportResponse)>) {
