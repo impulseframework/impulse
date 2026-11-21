@@ -53,13 +53,17 @@ func (s *SessionStorageDriver) UserByEmail(ctx context.Context, email string) (*
 // SetUserEmail puts an address on the user by hand, unverified, or takes it off (nil):
 // an administrator's entry for an invitation or a migration, which reserves the
 // address. An address another user holds is a Conflict. On a store whose usernames
-// are the addresses the entry is refused: the address is the username.
+// are the addresses the entry is refused: the address is the username. Taking the
+// address off ends the sign-in codes mailed for the user before it (takeUserEmail).
 func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.UUID, email *string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if s.usernameIsEmail {
 		return errUsernameIsEmail()
+	}
+	if email == nil {
+		return s.takeUserEmail(ctx, userID)
 	}
 	query := fmt.Sprintf(`UPDATE %s SET "Email" = $2, "EmailVerifiedAt" = NULL WHERE "Id" = $1`, s.userTable())
 	tag, err := s.conn.Exec(ctx, query, userID, email)
@@ -75,6 +79,35 @@ func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.
 	}
 
 	return nil
+}
+
+// takeUserEmail takes the user's address off and, in the same transaction, consumes
+// every live sign-in code of the user's pending sign-ins. A code is good only for the
+// address the account holds when it is entered, and an account that holds none takes
+// the address its own person gives at the code's step, so a code mailed to the address
+// before it was taken off would otherwise read as one mailed to an address the person
+// gave, and write the address back. With the codes ended, the only code that stands on
+// an account that holds no address is one mailed after the change. An address replaced
+// by another needs none of this: its codes are dead while the account holds the other,
+// and taking that one off ends them all.
+func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse.UUID) error {
+	return s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		take := fmt.Sprintf(`UPDATE %s SET "Email" = NULL, "EmailVerifiedAt" = NULL WHERE "Id" = $1`, s.userTable())
+		tag, err := tx.Exec(ctx, take, userID)
+		if err != nil {
+			return errors.Wrap(err, "pgx.Tx.Exec()")
+		}
+		if tag.RowsAffected() == 0 {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		}
+		end := fmt.Sprintf(`UPDATE %s SET "ConsumedAt" = now() WHERE "ConsumedAt" IS NULL AND "PendingId" IN (SELECT "Id" FROM %s WHERE "UserId" = $1)`,
+			s.factorCodesTable(), s.pendingTable())
+		if _, err := tx.Exec(ctx, end, userID); err != nil {
+			return errors.Wrap(err, "pgx.Tx.Exec()")
+		}
+
+		return nil
+	})
 }
 
 // VerifyUserEmail writes the address the person has just proven they read, verified

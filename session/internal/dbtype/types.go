@@ -9,6 +9,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -141,7 +142,7 @@ func ValidateInsertUser(user *InsertSessionUser, usernameIsEmail bool) error {
 	switch {
 	case user.Email != nil && strings.TrimSpace(*user.Email) == "":
 		return httpio.NewBadRequestMessage("an email address, when given, is not empty")
-	case usernameIsEmail && user.Email != nil && !strings.EqualFold(strings.TrimSpace(*user.Email), strings.TrimSpace(user.Username)):
+	case usernameIsEmail && user.Email != nil && !util.EqualASCIIFold(strings.TrimSpace(*user.Email), strings.TrimSpace(user.Username)):
 		return httpio.NewBadRequestMessagef("the username is the user's email address: %q is not the username %q", *user.Email, user.Username)
 	case user.EmailVerified && user.Email == nil && !usernameIsEmail:
 		return httpio.NewBadRequestMessage("a verified mark needs an address")

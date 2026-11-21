@@ -25,6 +25,7 @@ import (
 
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/cookie"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/internal/vouch"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
@@ -214,16 +215,7 @@ func AddressDomain(email string) string {
 		return ""
 	}
 
-	return strings.Map(lowerASCII, email[i+1:])
-}
-
-// lowerASCII is r lowercased when it is an ASCII capital letter, and r otherwise.
-func lowerASCII(r rune) rune {
-	if 'A' <= r && r <= 'Z' {
-		return r + ('a' - 'A')
-	}
-
-	return r
+	return util.LowerASCII(email[i+1:])
 }
 
 // RoleNames returns names, or an empty list for nil. A role-synchronizing method always

@@ -514,6 +514,10 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesListedWorkspaces[Tx],
 		},
 		{
+			name: "an account that cannot hold its address: a Gmail sign-in that reaches an account made ahead under the address as its sign-in name, while another account holds the address confirmed, is refused and links nothing; an identity linked before is refused the same once another account holds the address confirmed and its own holds none",
+			run:  seamRulesAccountCannotHoldItsAddress[Tx],
+		},
+		{
 			name: "a token whose amr names mfa attests by evidence, so a policy requiring the email code proceeds with an attested-by-evidence event; a token without it, and a Google sign-in, are held for the code",
 			run:  seamRulesAttestedByEvidence[Tx],
 		},
@@ -1729,4 +1733,53 @@ func seamRulesAnyWorkspace[Tx any](ctx context.Context, t *testing.T, be backend
 	n := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, n, map[string]any{"sub": "sub-n", "email": "n@gmail.example", "email_verified": true}), "/login", url.Values{"code": {"not_workspace_member"}})
 	a.assertNoRow(ctx, t, n, "n@gmail.example")
+}
+
+// seamRulesAccountCannotHoldItsAddress is the scenario "an account that cannot hold its
+// address": Google's word for a Gmail address spares a sign-in the mailed code because
+// the address is written on the account as the session starts, and where another
+// account holds that address, confirmed, it is written on nobody. The sign-in is
+// refused, so nobody is signed in to an account with no confirmed address.
+func seamRulesAccountCannotHoldItsAddress[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, nameLinkShape())
+
+	// One account holds the address, confirmed, under another name, and a second was
+	// made ahead with the address as its sign-in name and nothing else. Google vouches
+	// for the name, so the sign-in reaches the second, which cannot take the address:
+	// it is refused with what any sign-in the rules reject reads, and links nothing.
+	pat := a.createUser(ctx, t, "pat")
+	a.confirmedAddress(ctx, t, pat, "pat@gmail.com")
+	duplicate := a.createUser(ctx, t, "pat@gmail.com")
+	b := a.browser(t)
+	b.prime(ctx)
+	assertRedirect(t, a.googleSignIn(ctx, b, outsideGoogleClaims("g-sub-pat", "pat@gmail.com")), "/login", url.Values{"code": {"identity_rejected"}})
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	for name, id := range map[string]impulse.UUID{"the account that holds the address": pat, "the account under the name": duplicate} {
+		if links := a.links(ctx, t, id.String()); len(links) != 0 {
+			t.Errorf("identity links of %s after the refusal = %d, want none", name, len(links))
+		}
+	}
+
+	// An identity linked before meets the same refusal. The person signed in while
+	// nobody else held the address, which Google's word wrote on the account. An
+	// administrator then took it off and confirmed it on another account, so the next
+	// sign-in would leave the first with no confirmed address.
+	lee := a.createUser(ctx, t, "lee@gmail.com")
+	first := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, first, outsideGoogleClaims("g-sub-lee", "lee@gmail.com")), "/home", url.Values{})
+	if email, verified := first.authenticatedEmail(ctx); email != "lee@gmail.com" || !verified {
+		t.Fatalf("the address after the first sign-in = %q (confirmed %v), want lee@gmail.com confirmed by Google's word", email, verified)
+	}
+	if err := a.setEmail(ctx, lee, nil); err != nil {
+		t.Fatalf("SetUserEmail(nil) error = %v", err)
+	}
+	other := a.createUser(ctx, t, "lee")
+	a.confirmedAddress(ctx, t, other, "lee@gmail.com")
+	again := a.browser(t)
+	again.prime(ctx)
+	assertRedirect(t, a.googleSignIn(ctx, again, outsideGoogleClaims("g-sub-lee", "lee@gmail.com")), "/login", url.Values{"code": {"identity_rejected"}})
+	again.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if sent := a.mail.Messages(); len(sent) != 0 {
+		t.Errorf("mail after the refusals = %d messages, want none", len(sent))
+	}
 }
