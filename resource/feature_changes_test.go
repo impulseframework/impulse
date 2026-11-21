@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 // TestFeatureWords pins a flag's name in words: the underscores are the spaces and the
@@ -128,4 +129,17 @@ func TestFlippedBy(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFlagHistoryRefused_plainWords pins what a caller who may list none of the three
+// facts a flag's history tells is answered: one sentence, with no account's id, no
+// table's name and no column's, and a cause that keeps each of those for the server's
+// log.
+func TestFlagHistoryRefused_plainWords(t *testing.T) {
+	t.Parallel()
+
+	plainAnswer(
+		t, flagHistoryRefused("account-7"), httpio.HasForbidden, "You may not see this flag's history here.",
+		"account-7", "FeatureFlags", "updatedAt", "updatedBy", "a grant of List on any of them",
+	)
 }

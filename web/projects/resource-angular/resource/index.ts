@@ -12,6 +12,7 @@ export * from './method-dialog/method-dialog.component';
 export * from './method-dialog/open-method-dialog';
 export * from './padding-element/padding-element.component';
 export * from './paged-list';
+export * from './place-words';
 export * from './resource-array-view/resource-array-view.component';
 export * from './resource-create/resource-create.component';
 export * from './resource-create-dialog/resource-create-dialog.component';

@@ -115,6 +115,14 @@ export class ResourceFieldComponent {
     return this.form().get(this.fieldConfig().name) !== null;
   });
 
+  /**
+   * Whether the field says, under its input, that what is typed is never shown again: a
+   * write-only field wherever it is drawn, which is only in a form. The server takes its
+   * value and never returns it, so its input is blank each time the form opens; without
+   * the line a person who typed something and saved takes the blank for a loss.
+   */
+  saysNeverShownAgain = computed(() => this.fieldMeta().writeOnly === true && this.showField());
+
   showField = computed(() => {
     if (!this.hasControl()) {
       return false;

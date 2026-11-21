@@ -135,7 +135,7 @@ func (a *App) CompleteMission() http.HandlerFunc {
 			default:
 				// One refusal for the state check and the grant condition
 				// alike: the wire never says which said no (§12).
-				return httpio.NewForbiddenMessagef("CompleteMission may not run against Mission %s", p.MissionID)
+				return resource.TargetRefused("CompleteMission", "Mission", p.MissionID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant

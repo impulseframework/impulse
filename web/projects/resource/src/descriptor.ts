@@ -12,8 +12,8 @@ export type ResourceOperation = 'list' | 'read' | 'create' | 'patch' | 'remove' 
  * largest page it may ask for. A resource with no `max` also permits `limit: 'all'`.
  * The maximum is also the switch every reader of a whole set reads (`readMode`): a
  * resource with none is small enough to load and is read whole in one request; one
- * with a maximum is read one server page at a time and never whole, its chosen row
- * read by key. Declaring the maximum is the author's deliberate choice; nothing
+ * with a maximum is read one server page at a time, never in one request, its chosen
+ * row read by key. Declaring the maximum is the author's deliberate choice; nothing
  * decides at runtime from an observed size.
  */
 export interface PageDescriptor {

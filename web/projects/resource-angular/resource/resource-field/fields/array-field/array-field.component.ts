@@ -6,9 +6,9 @@ import { BaseInputComponent } from '../../base-field.directive';
 
 /**
  * An array field, read-only in every mode: the elements as chips, each written the way
- * a grid cell writes a value of the element type (a date as a date, an object as its
- * JSON, a bytes value as its size). No mode offers an input: a typed string is not the
- * array the server accepts, and the array editor is a later item.
+ * a grid cell writes a value of the element type (a date as a date, a place in words,
+ * any other object as its JSON, a bytes value as its size). No mode offers an input: a
+ * typed string is not the array the server accepts, and the array editor is a later item.
  */
 @Component({
   selector: 'impulse-array-field',

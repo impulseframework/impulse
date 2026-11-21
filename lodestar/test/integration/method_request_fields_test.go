@@ -371,9 +371,7 @@ func TestMethodRequestFieldsTarget(t *testing.T) {
 		})
 	}
 
-	refused := func(pilot string) string {
-		return "SetSectorPilotClearance may not run against SectorPilot " + pilot
-	}
+	const refused = "You may not do this to this sector pilot."
 	// The fires run in order: each allowed one writes the registry, and the next reads it.
 	fires := []struct {
 		name          string
@@ -386,19 +384,19 @@ func TestMethodRequestFieldsTarget(t *testing.T) {
 		wantClearance int64
 	}{
 		{name: "the fact holds and the request field passes", user: fieldRater, sector: anvil, pilot: pilotVelaID, clearance: 3, wantStatus: http.StatusNoContent, wantClearance: 3},
-		{name: "the fact holds and the request field fails: the uniform refusal", user: fieldRater, sector: anvil, pilot: pilotVelaID, clearance: 4, wantStatus: http.StatusForbidden, wantBody: refused(pilotVelaID), wantClearance: 3},
-		{name: "the request field passes and the fact fails: the same refusal", user: fieldRater, sector: anvil, pilot: pilotPaxID, clearance: 2, wantStatus: http.StatusForbidden, wantBody: refused(pilotPaxID), wantClearance: 3},
-		{name: "both fail: the same refusal", user: fieldRater, sector: anvil, pilot: pilotPaxID, clearance: 5, wantStatus: http.StatusForbidden, wantBody: refused(pilotPaxID), wantClearance: 3},
+		{name: "the fact holds and the request field fails: the uniform refusal", user: fieldRater, sector: anvil, pilot: pilotVelaID, clearance: 4, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 3},
+		{name: "the request field passes and the fact fails: the same refusal", user: fieldRater, sector: anvil, pilot: pilotPaxID, clearance: 2, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 3},
+		{name: "both fail: the same refusal", user: fieldRater, sector: anvil, pilot: pilotPaxID, clearance: 5, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 3},
 		{name: "another sector's pilot is not found, though the request field passes", user: fieldRater, sector: anvil, pilot: pilotCassID, clearance: 2, wantStatus: http.StatusNotFound, wantBody: "SectorPilot " + pilotCassID + " does not exist", wantClearance: 2},
 		{name: "and is not found where the request field fails: the refusal does not say a row is there", user: fieldRater, sector: anvil, pilot: pilotCassID, clearance: 5, wantStatus: http.StatusNotFound, wantBody: "SectorPilot " + pilotCassID + " does not exist", wantClearance: 2},
 		{name: "the role is held at Anvil alone: Bastion is no sector of the caller's", user: fieldRater, sector: bastion, pilot: pilotCassID, clearance: 2, wantStatus: http.StatusNotFound, wantBody: "unknown domain", wantClearance: 2},
 		{name: "a request field alone: a shared pilot, the field passes", user: fieldCapper, sector: anvil, pilot: pilotPaxID, clearance: 1, wantStatus: http.StatusNoContent, wantClearance: 1},
-		{name: "a request field alone: the field fails, the uniform refusal", user: fieldCapper, sector: anvil, pilot: pilotPaxID, clearance: 4, wantStatus: http.StatusForbidden, wantBody: refused(pilotPaxID), wantClearance: 1},
+		{name: "a request field alone: the field fails, the uniform refusal", user: fieldCapper, sector: anvil, pilot: pilotPaxID, clearance: 4, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 1},
 		{name: "a request field alone: another sector's pilot is not found", user: fieldCapper, sector: anvil, pilot: pilotCassID, clearance: 4, wantStatus: http.StatusNotFound, wantBody: "SectorPilot " + pilotCassID + " does not exist", wantClearance: 2},
 		// Two conditional grants are either-or: the Wing Commander's (the fact alone)
 		// admits what the rater's (the fact and clearance up to 3) does not.
 		{name: "two grants with conditions: the other grant admits clearance 5", user: fieldTwo, sector: anvil, pilot: pilotVelaID, clearance: 5, wantStatus: http.StatusNoContent, wantClearance: 5},
-		{name: "two grants with conditions: neither admits a shared pilot", user: fieldTwo, sector: anvil, pilot: pilotPaxID, clearance: 2, wantStatus: http.StatusForbidden, wantBody: refused(pilotPaxID), wantClearance: 1},
+		{name: "two grants with conditions: neither admits a shared pilot", user: fieldTwo, sector: anvil, pilot: pilotPaxID, clearance: 2, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 1},
 		// A grant with no condition from another role settles it: nothing is judged.
 		{name: "two grants, one with no condition: a shared pilot, clearance 5", user: fieldMarshal, sector: anvil, pilot: pilotPaxID, clearance: 5, wantStatus: http.StatusNoContent, wantClearance: 5},
 		{name: "a clearance out of range is still the body's to refuse", user: fieldMarshal, sector: anvil, pilot: pilotPaxID, clearance: 9, wantStatus: http.StatusBadRequest, wantBody: "clearance 9 is not a clearance", wantClearance: 5},

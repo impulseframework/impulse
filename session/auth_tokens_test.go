@@ -134,15 +134,13 @@ func TestMachineOutlet_ValidateToken(t *testing.T) {
 		kind          sessionstorage.TokenKind
 		outlet        string
 		unknown       bool
-		lastUsed      *time.Time
+		usedAgo       time.Duration // how long before the case runs the token was last used; never used when zero
 		user          func(u *sessionstorage.SessionUser)
 		wantStatus    int
 		wantChallenge string
 		wantCode      string
 		wantTouch     bool
 	}
-	recent := time.Now().Add(-10 * time.Second)
-	stale := time.Now().Add(-2 * time.Minute)
 	tests := []testCase{
 		{
 			name: "a request without a bearer token is refused with the challenge alone", authorization: func(string) string { return "" },
@@ -180,11 +178,11 @@ func TestMachineOutlet_ValidateToken(t *testing.T) {
 		},
 		{
 			name: "an access token used a minute ago is touched again", authorization: func(s string) string { return "Bearer " + s },
-			kind: sessionstorage.TokenAccess, outlet: droids, lastUsed: &stale, wantStatus: http.StatusOK, wantTouch: true,
+			kind: sessionstorage.TokenAccess, outlet: droids, usedAgo: 2 * time.Minute, wantStatus: http.StatusOK, wantTouch: true,
 		},
 		{
 			name: "a token used seconds ago is not touched", authorization: func(s string) string { return "Bearer  " + s + " " },
-			kind: sessionstorage.TokenAccess, outlet: droids, lastUsed: &recent, wantStatus: http.StatusOK,
+			kind: sessionstorage.TokenAccess, outlet: droids, usedAgo: 10 * time.Second, wantStatus: http.StatusOK,
 		},
 	}
 	for _, tt := range tests {
@@ -192,7 +190,13 @@ func TestMachineOutlet_ValidateToken(t *testing.T) {
 			t.Parallel()
 			f := newTokenFixture(t, gomock.NewController(t))
 			secret, tok := f.liveToken(tt.kind, tt.outlet)
-			tok.LastUsedAt = tt.lastUsed
+			if tt.usedAgo > 0 {
+				// The time is read when the case runs: a parallel case can wait for its
+				// turn longer than the touch interval, and a time read with the list of
+				// cases would be older by that wait.
+				lastUsed := time.Now().Add(-tt.usedAgo)
+				tok.LastUsedAt = &lastUsed
+			}
 			if tt.user != nil {
 				tt.user(f.user)
 			}

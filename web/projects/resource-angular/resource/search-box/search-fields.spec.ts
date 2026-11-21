@@ -12,7 +12,8 @@ import {
 
 // What a box over a resource searches for a caller, how it says so, and when its request
 // travels in the body: the resource's search fields less the digest's denials, a branch
-// judged by the child field's grant on the child resource, PII read off the metadata.
+// judged by the child field's grant on the child resource, a key field searched by
+// whoever lists its resource, PII read off the metadata.
 
 const contacts = 'ClientContacts' as Resource;
 const notes = 'ClientNotes' as Resource;
@@ -43,6 +44,45 @@ const clients: ResourceMeta = {
     { field: 'clientNote.body', resource: notes, fieldName: 'body', pii: true },
   ],
 };
+
+/**
+ * A board whose rows are keyed by the ship and the subsystem, and searched by the
+ * subsystem and the ship's name. The key takes no grant, so no digest names it.
+ */
+const board: ResourceMeta = {
+  route: 'hazard-boards',
+  fields: [
+    { fieldName: 'shipId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+    {
+      fieldName: 'subsystem',
+      primaryKey: { ordinalPosition: 1 },
+      displayType: 'string',
+      required: true,
+      isIndex: false,
+      search: ['contains'],
+    },
+    { fieldName: 'shipName', displayType: 'string', required: false, isIndex: false, search: ['contains'] },
+    { fieldName: 'worstReading', displayType: 'number', required: false, isIndex: false },
+  ],
+  searchFields: ['subsystem', 'shipName'],
+};
+
+/** A ship searched by its name and by the code its registry is keyed by, through a branch. */
+const registries = 'Registries' as Resource;
+const ships: ResourceMeta = {
+  route: 'ships',
+  fields: [{ fieldName: 'name', displayType: 'string', required: true, isIndex: true, search: ['contains'] }],
+  searchFields: ['name', 'registry.code'],
+  searchBranches: [{ field: 'registry.code', resource: registries, fieldName: 'code' }],
+};
+const registry: ResourceMeta = {
+  route: 'registries',
+  fields: [
+    { fieldName: 'code', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true },
+    { fieldName: 'port', displayType: 'string', required: true, isIndex: false },
+  ],
+};
+const metaOf = (resource: Resource): ResourceMeta | undefined => (resource === registries ? registry : undefined);
 
 /** A digest answering per resource; a resource absent here carries no field information. */
 const digest =
@@ -92,6 +132,30 @@ describe('searchedFields', () => {
   it('a resource with no search fields, and no metadata', () => {
     expect(searchedFields({ route: 'ships', fields: [] }, undefined)).toEqual([]);
     expect(searchedFields(undefined, new Set(['name']))).toEqual([]);
+  });
+
+  it('a key field is searched by whoever lists the resource: no digest names it, and none leaves it out', () => {
+    // Every grant on the board's fields, as the digest carries them: the key is in none.
+    const everyGrant = new Set(['shipName', 'worstReading']);
+    expect(searchedFields(board, everyGrant)).toEqual(['subsystem', 'shipName']);
+    expect(deniedSearchFields(board, everyGrant)).toEqual([]);
+    // A role without the ship's name still searches the key, and is told of the name alone.
+    expect(searchedFields(board, new Set(['worstReading']))).toEqual(['subsystem']);
+    expect(deniedSearchFields(board, new Set(['worstReading']))).toEqual(['shipName']);
+    // A digest that holds no List on the board searches nothing of it.
+    expect(searchedFields(board, new Set<string>())).toEqual([]);
+    expect(searchedFields(board, undefined)).toEqual(['subsystem', 'shipName']);
+  });
+
+  it("a branch on the child's key is searched by whoever lists the child", () => {
+    const own = new Set(['name']);
+    expect(searchedFields(ships, own, digest({ [registries]: ['port'] }), metaOf)).toEqual(['name', 'registry.code']);
+    expect(deniedSearchFields(ships, own, digest({ [registries]: ['port'] }), metaOf)).toEqual([]);
+    // No List on the child at all: the branch drops, as the server drops it.
+    expect(searchedFields(ships, own, digest({ [registries]: [] }), metaOf)).toEqual(['name']);
+    expect(deniedSearchFields(ships, own, digest({ [registries]: [] }), metaOf)).toEqual(['registry.code']);
+    // Without the child's metadata the branch is judged as any other field.
+    expect(searchedFields(ships, own, digest({ [registries]: ['port'] }))).toEqual(['name']);
   });
 });
 

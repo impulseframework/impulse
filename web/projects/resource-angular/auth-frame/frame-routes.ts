@@ -21,9 +21,11 @@ export function frameRoutes(): Routes {
 }
 
 /**
- * The route the tenant guard sends a refused tenant to, under the tenant's own URL
- * (`tenants/:tenantID/refused`). Declare it beside the tenant segment, ahead of it, with
- * the segment's path: `refusedRoute(DomainRoutePath)`.
+ * The route a navigation that cannot open a tenant is sent to, under the tenant's own URL
+ * (`tenants/:tenantID/refused`): a tenant the session cannot reach, one whose permission
+ * digest the server refuses to read, or one whose digest could not be read. Declare it
+ * beside the tenant segment, ahead of it, with the segment's path:
+ * `refusedRoute(DomainRoutePath)`.
  */
 export function refusedRoute(tenantPath: string): Route {
   return { path: `${tenantPath}/${refusedSegment}`, component: TenantRefusedComponent };

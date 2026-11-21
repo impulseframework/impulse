@@ -383,12 +383,13 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 		}
 	})
 	t.Run("the Marshal hands out every role but the Marshal's own", func(t *testing.T) {
-		// The method names a row, so the grant's holder hears that the method may not run
-		// against it; a caller with no grant is refused before any row is looked for.
+		// The method names a row, so the grant's holder hears that it may not be done to
+		// that person, in a person's words; a caller with no grant is refused before any
+		// row is looked for.
 		status, body := assign("marshal", anvil, "ada", "SectorMarshal")
 		assertStatus(t, status, http.StatusForbidden, body)
-		if !strings.Contains(string(body), "AssignCrewSectorRole may not run against CrewSectorUser "+w.ids["ada"]) {
-			t.Errorf("the Marshal's refusal = %s", body)
+		if got, want := refusalMessage(t, body), "You may not do this to this crew sector user."; got != want {
+			t.Errorf("the Marshal's refusal = %q, want %q", got, want)
 		}
 		status, body = assign("cadet", anvil, "ada", "Pilot")
 		assertStatus(t, status, http.StatusForbidden, body)

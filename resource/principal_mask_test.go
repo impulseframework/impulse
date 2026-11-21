@@ -826,10 +826,11 @@ func TestMasked_generatedCollection_records(t *testing.T) {
 }
 
 // TestRefuseActionUnderMask pins the refusal a handler makes of an action no grant
-// admits: under a mask that refuses the action the person is answered 403 with what
-// the session cannot do and why, and the log carries the line the masked check writes
-// for a denial of its own, naming the person acted as; a session with no mask is
-// refused nothing and logs nothing. The standard logger is the process's: the test
+// admits: under a mask that refuses the action the person is answered 403 with one
+// sentence, what the session cannot do, in the words the handler gave; why the mask
+// refuses it is kept for the server's log and told to no one, and the log carries the
+// line the masked check writes for a denial of its own, naming the person acted as; a
+// session with no mask is refused nothing and logs nothing. The standard logger is the process's: the test
 // reads the output the package's tests share (standardLog), and each case names a
 // person no other test of the package names.
 func TestRefuseActionUnderMask(t *testing.T) {
@@ -846,9 +847,11 @@ func TestRefuseActionUnderMask(t *testing.T) {
 		// cannot do in the answer's words; creating a tenant when empty.
 		action accesstypes.Resource
 		act    string
-		// wantSays is what the answer says, and wantLogged the log's line; both empty
-		// for a session the mask refuses nothing.
+		// wantSays is the one sentence the answer says, wantWhy the mask's reason,
+		// which the answer keeps for the server's log and tells no one, and wantLogged
+		// the log's line; all empty for a session the mask refuses nothing.
 		wantSays   string
+		wantWhy    string
 		wantLogged string
 		// person is who the case's session acts as, looked for in the log of a case
 		// that is refused nothing.
@@ -865,24 +868,24 @@ func TestRefuseActionUnderMask(t *testing.T) {
 			person: "a maskless-route person",
 		},
 		{
-			name: "a mask that refuses the action's class",
-			ctx:  maskedSession("a class-route person", accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassAccess))),
-			wantSays: "you are acting as someone else, and this session cannot create a tenant: the mask refuses the class access. " +
-				"What a session that acts as someone may do is set when it starts; start one that may, or stop acting as them first",
+			name:       "a mask that refuses the action's class",
+			ctx:        maskedSession("a class-route person", accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassAccess))),
+			wantSays:   "You are acting as someone else, and this session cannot create a tenant.",
+			wantWhy:    "the mask refuses the class access",
 			wantLogged: "impersonation: Execute denied by mask (*;-class:access) for a class-route person on CreateTenant: the mask refuses the class access",
 		},
 		{
-			name: "a mask that refuses the action by name",
-			ctx:  maskedSession("a name-route person", accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("CreateTenant"))),
-			wantSays: "you are acting as someone else, and this session cannot create a tenant: the mask refuses Execute on CreateTenant. " +
-				"What a session that acts as someone may do is set when it starts; start one that may, or stop acting as them first",
+			name:       "a mask that refuses the action by name",
+			ctx:        maskedSession("a name-route person", accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("CreateTenant"))),
+			wantSays:   "You are acting as someone else, and this session cannot create a tenant.",
+			wantWhy:    "the mask refuses Execute on CreateTenant",
 			wantLogged: "impersonation: Execute denied by mask (*;-on:Execute:CreateTenant) for a name-route person on CreateTenant: the mask refuses Execute on CreateTenant",
 		},
 		{
-			name: "a mask that does not keep Execute",
-			ctx:  maskedSession("a kind-route person", accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read, accesstypes.Create)),
-			wantSays: "you are acting as someone else, and this session cannot create a tenant: the mask does not keep Execute. " +
-				"What a session that acts as someone may do is set when it starts; start one that may, or stop acting as them first",
+			name:       "a mask that does not keep Execute",
+			ctx:        maskedSession("a kind-route person", accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read, accesstypes.Create)),
+			wantSays:   "You are acting as someone else, and this session cannot create a tenant.",
+			wantWhy:    "the mask does not keep Execute",
 			wantLogged: "impersonation: Execute denied by mask (Create,List,Read) for a kind-route person on [CreateTenant]",
 		},
 		{
@@ -890,20 +893,20 @@ func TestRefuseActionUnderMask(t *testing.T) {
 			ctx: sessionCtx("starter", &sessioninfo.Impersonation{
 				Actor: "a role-route person", Principal: accesstypes.RolePrincipal("Auditor"), Mask: accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassAccess)),
 			}),
-			wantSays: "you are acting as someone else, and this session cannot create a tenant: the mask refuses the class access. " +
-				"What a session that acts as someone may do is set when it starts; start one that may, or stop acting as them first",
+			wantSays:   "You are acting as someone else, and this session cannot create a tenant.",
+			wantWhy:    "the mask refuses the class access",
 			wantLogged: "impersonation: Execute denied by mask (*;-class:access) for a role-route person on CreateTenant: the mask refuses the class access",
 		},
 		{
 			// The handler asks about an action the application never registered: under
-			// a mask that refuses a class the session is refused, and both the answer
-			// and the log say which name is no action and what to do about it.
-			name:   "a mask that refuses a class, asked about an action the application does not register",
-			ctx:    maskedSession("an unregistered-route person", accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassAccess))),
-			action: "CreateWorkspace",
-			act:    "create a workspace",
-			wantSays: "you are acting as someone else, and this session cannot create a workspace: " + unknownActionWhy("CreateWorkspace") + ". " +
-				"What a session that acts as someone may do is set when it starts; start one that may, or stop acting as them first",
+			// a mask that refuses a class the session is refused, and the log says which
+			// name is no action and what to do about it, as the answer's cause does.
+			name:       "a mask that refuses a class, asked about an action the application does not register",
+			ctx:        maskedSession("an unregistered-route person", accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassAccess))),
+			action:     "CreateWorkspace",
+			act:        "create a workspace",
+			wantSays:   "You are acting as someone else, and this session cannot create a workspace.",
+			wantWhy:    unknownActionWhy("CreateWorkspace"),
 			wantLogged: "impersonation: Execute denied by mask (*;-class:access) for an unregistered-route person on CreateWorkspace: " + unknownActionWhy("CreateWorkspace"),
 		},
 		{
@@ -934,12 +937,7 @@ func TestRefuseActionUnderMask(t *testing.T) {
 
 				return
 			}
-			if err == nil || !httpio.HasForbidden(err) {
-				t.Fatalf("RefuseActionUnderMask() error = %v, want a 403", err)
-			}
-			if got := httpio.Message(err); got != tt.wantSays {
-				t.Errorf("RefuseActionUnderMask() says %q, want %q", got, tt.wantSays)
-			}
+			plainAnswer(t, err, httpio.HasForbidden, tt.wantSays, tt.wantWhy, "start one that may, or stop acting as them first")
 			if got := output.String(); !strings.Contains(got, tt.wantLogged) {
 				t.Errorf("log = %q, want a line carrying %q", got, tt.wantLogged)
 			}
