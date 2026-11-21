@@ -44,12 +44,13 @@ var candidateAuths = map[string][]authpkg.Spec{
 // Administrator, and TenantAdministrator in a tenant. FeatureAdministrator turns flags
 // on and off and manages nobody, so its holder is no administrator left behind.
 func staffSpec(candidate string) authpkg.Spec {
+	if candidate == Base {
+		// The base's auth is the one description impulse new renders a first auth from,
+		// so the candidate is held to it and not to a copy of it.
+		return authpkg.FirstAuth(candidateModule(candidate), PlaceholderAuth)
+	}
 	roles := authpkg.AdministratorRoles{Global: []string{"Administrator"}, EveryDomain: []string{"TenantAdministrator"}}
 	first := authpkg.AdministratorRoles{Global: []string{"Administrator", "FeatureAdministrator"}, EveryDomain: []string{"TenantAdministrator"}}
-	if candidate == Base {
-		roles.EveryDomain = nil
-		first.EveryDomain = nil
-	}
 	// The outlets candidate's staff auth issues the devices outlet's tokens.
 	var outlets []string
 	if candidate == "outlets" {

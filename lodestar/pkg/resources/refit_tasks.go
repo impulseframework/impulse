@@ -36,8 +36,9 @@ type (
 	// release that deletes a stored object after the commit never runs for them; their
 	// photos are the orphaned-file cleanup's (cmd/jobs cleanup-files). A normal
 	// generation says nothing about that, since it would say so on every run;
-	// `go run ./cmd/generate/resourcegenerator -audit` prints the one finding that
-	// names this table and its parent, and cmd/generate/audit_test.go pins it.
+	// `go run ./cmd/generate/resourcegenerator -audit` prints the finding that names
+	// this table and its parent, beside the one for the mission documents, and
+	// cmd/generate/audit_test.go pins the two.
 	//
 	// Demonstrates: interleaved-table, compound-key, client-supplied-key, @stateRoot, @domain.join-path, create-under-parent, index.trailing-key, commit.constraint-refusal, audit.cascade-release, filestore.named, batch.patch-or-add, batch.add-or-skip.
 	//

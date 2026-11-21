@@ -26,6 +26,7 @@ export const distressCallsConfig = rootConfig({
   parentConfig: listViewConfig({
     title: 'Distress calls',
     createTitle: 'Distress call',
+    createButtonLabel: 'File a distress call',
     primaryResource: Resources.DistressCalls,
     listColumns: [
       { id: DistressCalls.fieldName.caseNumber, header: 'Case' },

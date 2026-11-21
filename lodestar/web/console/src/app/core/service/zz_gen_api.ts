@@ -233,14 +233,13 @@ export interface HangarPassesCreate {
   hangarId: string;
   userId?: string | null;
   squadronId?: string | null;
+  groupId?: string | null;
   levelId: string;
   expiresAt?: Date | null;
 }
 /** The fields a client may change on HangarPasses. Keys, server-owned, and immutable fields are absent. */
 export interface HangarPassesPatch {
   hangarId?: string;
-  userId?: string | null;
-  squadronId?: string | null;
   levelId?: string;
   expiresAt?: Date | null;
 }
@@ -306,12 +305,12 @@ export interface MissionsCreate {
   brief?: string | null;
   briefingTemplateId?: string | null;
   hazard: number;
-  fee: number;
+  fee: string;
   deadline: Date;
   requiredCertId?: string | null;
   assignedSquadronId?: string | null;
   notes?: string | null;
-  settlement?: number | null;
+  settlement?: string | null;
 }
 /** The fields a client may change on Missions. Keys, server-owned, and immutable fields are absent. */
 export interface MissionsPatch {
@@ -321,12 +320,12 @@ export interface MissionsPatch {
   brief?: string | null;
   briefingTemplateId?: string | null;
   hazard?: number;
-  fee?: number;
+  fee?: string;
   deadline?: Date;
   requiredCertId?: string | null;
   assignedSquadronId?: string | null;
   notes?: string | null;
-  settlement?: number | null;
+  settlement?: string | null;
 }
 /** The primary key of Missions, in route order. */
 export type MissionsKey = [id: string];
@@ -360,14 +359,14 @@ export interface PilotsCreate {
   userId: string;
   displayName: string;
   clearance: number;
-  feeLimit: number;
+  feeLimit: string;
 }
 /** The fields a client may change on Pilots. Keys, server-owned, and immutable fields are absent. */
 export interface PilotsPatch {
   userId?: string;
   displayName?: string;
   clearance?: number;
-  feeLimit?: number;
+  feeLimit?: string;
 }
 /** The primary key of Pilots, in route order. */
 export type PilotsKey = [id: string];
@@ -394,13 +393,13 @@ export type PilotCertificationsKey = [userId: string, certificationId: string];
  */
 export interface RefitsCreate {
   shipId: string;
-  estimate?: number | null;
+  estimate?: string | null;
   notes?: string | null;
 }
 /** The fields a client may change on Refits. Keys, server-owned, and immutable fields are absent. */
 export interface RefitsPatch {
   shipId?: string;
-  estimate?: number | null;
+  estimate?: string | null;
   notes?: string | null;
 }
 /** The primary key of Refits, in route order. */
@@ -521,14 +520,14 @@ export type SortiesKey = [id: string];
 export interface SortieExpensesCreate {
   sortieId: string;
   category: string;
-  amount: number;
+  amount: string;
   memo?: string | null;
 }
 /** The fields a client may change on SortieExpenses. Keys, server-owned, and immutable fields are absent. */
 export interface SortieExpensesPatch {
   sortieId?: string;
   category?: string;
-  amount?: number;
+  amount?: string;
   memo?: string | null;
 }
 /** The primary key of SortieExpenses, in route order. */
@@ -1081,7 +1080,7 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
       page: { default: 25, max: 200 },
       order: [{ field: 'hangarId', direction: 'asc' }],
-      patchable: ['hangarId', 'userId', 'squadronId', 'levelId', 'expiresAt'],
+      patchable: ['hangarId', 'levelId', 'expiresAt'],
     },
     [Resources.MembersHeldRoles]: {
       resource: Resources.MembersHeldRoles,

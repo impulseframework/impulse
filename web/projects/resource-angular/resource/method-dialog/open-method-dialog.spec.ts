@@ -1,4 +1,4 @@
-import { Method, MethodMeta, MethodPresentation } from '@impulseframework/resource-angular/types';
+import { Method, MethodMeta, MethodPresentation, nameInWords } from '@impulseframework/resource-angular/types';
 import { OfferedMethod } from '../row-methods/row-methods';
 import { methodDoneMessage } from './open-method-dialog';
 
@@ -11,15 +11,27 @@ function offered(parts?: Partial<MethodPresentation>): OfferedMethod {
 }
 
 describe('methodDoneMessage', () => {
-  it("says the page's words for a method that has run, or the label and done", () => {
+  it("says the page's words for a method that has run, or that the method, named by its label, is done", () => {
     expect(methodDoneMessage(offered({ successMessage: 'Sent.' }), undefined)).toEqual({
       message: 'Sent.',
       failed: false,
     });
     expect(methodDoneMessage(offered(), undefined)).toEqual({
-      message: 'Send a password reset link: done.',
+      message: '"Send a password reset link" is done.',
       failed: false,
     });
+  });
+
+  it('says a plain sentence for a method the page gives no words: its name in words, or one word, in quotes', () => {
+    const said = (label: string): string =>
+      methodDoneMessage({ method, meta: {} as MethodMeta, label, presentation: undefined }).message;
+
+    expect(said(nameInWords('ClaimMission'))).toBe('"Claim mission" is done.');
+    expect(said(nameInWords('SendStaffUserPasswordResetLink'))).toBe('"Send staff user password reset link" is done.');
+    expect(said(nameInWords('SetFeature'))).toBe('"Set feature" is done.');
+    expect(said('Disable')).toBe('"Disable" is done.');
+    // Nothing of the old form, a label and a colon, is left.
+    expect(said('Disable')).not.toContain(':');
   });
 
   it("reads the method's answer where the page reads one: a method that ran and did not do what was asked is a failure", () => {

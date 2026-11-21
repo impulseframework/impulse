@@ -1,399 +1,494 @@
-<h1>Flight Deck</h1>
-<p>
-  Every mission is a live state graph. The call sheets show what your posting lets you see; open one and the edges you
-  may fire right now are drawn live — they come from the row's own capability envelope, so a Cadet and the Marshal see
-  the same graph with different edges lit. Redacted fees print a stamp; an overdue deadline turns red.
-</p>
+<!--
+  The deck holds itself back until it knows what it will draw (the grants and every list it
+  reads), and then draws whole: nothing here is drawn and then taken away.
+-->
+@if (ready()) {
+  <h1>Flight Deck</h1>
+  <p>
+    The missions of this sector, by deadline. Open one to see where it stands and what you may do with it now. A fee you
+    may not see is shown as REDACTED, and a deadline that has passed is shown in red.
+  </p>
 
-@if (sectors.refusalOf(missionsPage); as refusal) {
-  <mat-card appearance="outlined" class="table-card refusal-slot">
-    <p class="refusal"><b>Refused by the server:</b> {{ refusal }}</p>
-  </mat-card>
-} @else if (!canList()) {
-  <mat-card appearance="outlined" class="table-card">
-    <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover missions.</p>
-  </mat-card>
-} @else {
-  <div class="pager">
-    <button mat-button type="button" [disabled]="!missionsPage.value()?.prev" (click)="turnPage('prev')">
-      <mat-icon>chevron_left</mat-icon> Previous
-    </button>
-    <span class="pager-total">
-      @if (missionTotal() !== undefined) {
-        {{ missions().length }} of {{ missionTotal() }} missions, {{ pageSize }} a page from the descriptor
-      } @else {
-        {{ missions().length }} missions
-      }
-    </span>
-    <button mat-button type="button" [disabled]="!missionsPage.value()?.next" (click)="turnPage('next')">
-      Next <mat-icon>chevron_right</mat-icon>
-    </button>
-  </div>
-  <div class="sheets">
-    @for (mission of missions(); track mission.id) {
-      <button type="button" class="sheet" [class.selected]="selected()?.id === mission.id" (click)="select(mission)">
-        <div class="sheet-head">
-          <span class="title">{{ mission.title }}</span>
-          <span class="state-chip">{{ mission.statusId }}</span>
-        </div>
-        <div class="sheet-row">
-          <span class="kind">{{ mission.kindId }}</span>
-          <span class="client">{{ clientName(mission.clientId) }}</span>
-        </div>
-        <div class="sheet-row">
-          <span class="hazard" title="Hazard {{ mission.hazard }}">{{ pips(mission.hazard) }}</span>
-          <span class="fee">
-            @if (feeMasked(mission)) {
-              <span class="redacted">REDACTED</span>
-            } @else {
-              {{ mission.fee | number: '1.0-0' }} cr
-            }
-          </span>
-        </div>
-        <div class="sheet-row">
-          <span class="squadron">{{ squadronName(mission.assignedSquadronId) }}</span>
-          <span class="deadline" [class.overdue]="overdue(mission)">{{ countdown(mission) }}</span>
-        </div>
-      </button>
-    } @empty {
+  @if (canBook()) {
+    <div class="actions">
+      <button mat-flat-button type="button" class="book" (click)="openBook(bookForm)">Book a mission</button>
+    </div>
+  }
+
+  @if (sectors.saidBy(missionsPage); as said) {
+    <mat-card appearance="outlined" class="table-card refusal-slot">
+      <p class="refusal">The server would not list the missions: {{ said }}</p>
+    </mat-card>
+  } @else if (!canList()) {
+    <mat-card appearance="outlined" class="table-card">
+      <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover missions.</p>
+    </mat-card>
+  } @else if (missions().length === 0) {
+    <mat-card appearance="outlined" class="table-card">
       <p class="empty">No missions on your board in {{ sectorName() }}.</p>
-    }
-  </div>
-}
-
-@if (selected(); as mission) {
-  <mat-card appearance="outlined" class="detail-card">
-    <mat-card-header>
-      <mat-card-title>{{ mission.title }}</mat-card-title>
-      <mat-card-subtitle>
-        Booked by {{ mission.bookedByName || '—' }} · {{ mission.brief || 'no brief' }}
-        @if (overdue(mission)) {
-          · <span class="overdue">overdue</span>
-        }
-      </mat-card-subtitle>
-    </mat-card-header>
-    <mat-card-content>
-      <app-workflow-graph
-        [root]="resources.Missions"
-        [current]="mission.statusId ?? ''"
-        [executable]="executable(mission)"
-        (fire)="onEdge(mission, $event)"></app-workflow-graph>
-
-      <div class="edges">
-        @for (method of executable(mission); track method) {
-          <span class="edge">
-            <button mat-stroked-button (click)="onEdge(mission, method)">{{ method }}</button>
-            @if (check(method); as verdict) {
-              <span
-                class="probe"
-                [class.refused]="!verdict.ok"
-                [title]="verdict.message ?? 'The dry run says this edge would commit for you.'">
-                {{ verdict.ok ? 'dry run: would commit' : 'dry run: ' + verdict.message }}
-              </span>
-            }
-          </span>
-        } @empty {
-          <span class="empty">No edges are lit for you on this mission.</span>
-        }
-      </div>
-
-      @if (refusal(); as refusal) {
-        <p class="refusal">{{ refusal }}</p>
+    </mat-card>
+  } @else {
+    <div class="pager">
+      <button mat-button type="button" [disabled]="!page()?.prev" (click)="turnPage('prev')">
+        <mat-icon>chevron_left</mat-icon> Previous
+      </button>
+      <span class="pager-total">{{ missionCount() }}</span>
+      <button mat-button type="button" [disabled]="!page()?.next" (click)="turnPage('next')">
+        Next <mat-icon>chevron_right</mat-icon>
+      </button>
+    </div>
+    <div class="sheets">
+      @for (mission of missions(); track mission.id) {
+        <button type="button" class="sheet" [class.selected]="selectedID() === mission.id" (click)="select(mission)">
+          <div class="sheet-head">
+            <span class="title">{{ mission.title }}</span>
+            <span class="state-chip">{{ stateWords(mission.statusId) }}</span>
+          </div>
+          <div class="sheet-row">
+            <span class="kind">{{ mission.kindId }}</span>
+            <span class="client">{{ clientName(mission.clientId) }}</span>
+          </div>
+          <div class="sheet-row">
+            <span class="hazard" title="Hazard {{ mission.hazard }}">{{ pips(mission.hazard) }}</span>
+            <span class="fee">
+              @if (feeMasked(mission)) {
+                <span class="redacted">REDACTED</span>
+              } @else {
+                {{ mission.fee | number: '1.0-0' }} cr
+              }
+            </span>
+          </div>
+          <div class="sheet-row">
+            <span class="squadron">{{ squadronName(mission.assignedSquadronId) }}</span>
+            <span class="deadline" [class.overdue]="overdue(mission)">{{ countdown(mission) }}</span>
+          </div>
+        </button>
       }
+    </div>
+  }
 
-      @switch (pendingEdge()) {
-        @case (methods.ClaimMission) {
-          <form class="inline-form" (ngSubmit)="fire(mission, methods.ClaimMission)">
-            <mat-form-field appearance="outline">
-              <mat-label>Squadron</mat-label>
-              <mat-select name="claimSquadron" [(ngModel)]="claimSquadronId" required>
-                @for (squadron of squadrons.value(); track squadron.id) {
-                  <mat-option [value]="squadron.id">{{ squadron.name }}</mat-option>
-                }
-              </mat-select>
-            </mat-form-field>
-            <button mat-flat-button type="submit">Claim</button>
-          </form>
-        }
-        @case (methods.LaunchMission) {
-          <form class="inline-form" (ngSubmit)="fire(mission, methods.LaunchMission)">
-            <mat-form-field appearance="outline">
-              <mat-label>Ship</mat-label>
-              <mat-select name="launchShip" [(ngModel)]="launchShipId" required>
-                @for (ship of ships.value(); track ship.id) {
-                  <mat-option [value]="ship.id">{{ ship.name }}</mat-option>
-                }
-              </mat-select>
-            </mat-form-field>
-            <mat-form-field appearance="outline">
-              <mat-label>Pilot</mat-label>
-              <mat-select name="launchPilot" [(ngModel)]="launchPilotUserId" required>
-                @for (pilot of pilots.value(); track pilot.id) {
-                  <mat-option [value]="pilot.userId">{{ pilot.displayName }}</mat-option>
-                }
-              </mat-select>
-            </mat-form-field>
-            <button mat-flat-button type="submit">Launch</button>
-          </form>
-        }
-        @case (methods.HoldMission) {
-          <form class="inline-form" (ngSubmit)="fire(mission, methods.HoldMission)">
-            <mat-form-field appearance="outline" class="grow">
-              <mat-label>Reason</mat-label>
-              <input matInput name="holdReason" [(ngModel)]="holdReason" required />
-            </mat-form-field>
-            <button mat-flat-button type="submit" [disabled]="holdCheck()?.ok === false">Hold</button>
-          </form>
-          @if (holdCheck(); as check) {
-            @if (check.ok) {
-              <p class="probe">The dry run says this hold would commit for you.</p>
-            } @else {
-              <p class="refusal">The dry run refused before you touched anything: {{ check.message }}</p>
-            }
+  <!-- The open mission, drawn once the server has answered for each of its edges. -->
+  @if (selected(); as mission) {
+    <mat-card appearance="outlined" class="detail-card">
+      <mat-card-header>
+        <mat-card-title>{{ mission.title }}</mat-card-title>
+        <mat-card-subtitle>
+          Booked by {{ mission.bookedByName || '—' }} · {{ mission.brief || 'no brief' }}
+          @if (overdue(mission)) {
+            · <span class="overdue">overdue</span>
           }
-        }
-        @case (methods.FailMission) {
-          <form class="inline-form" (ngSubmit)="fire(mission, methods.FailMission)">
-            <mat-form-field appearance="outline">
-              <mat-label>Reason</mat-label>
-              <mat-select name="failReason" [(ngModel)]="failReasonId" required>
-                @for (reason of failReasons; track reason.id) {
-                  <mat-option [value]="reason.id">{{ reason.display }}</mat-option>
-                }
-              </mat-select>
-            </mat-form-field>
-            <button mat-flat-button type="submit">Fail</button>
-          </form>
-        }
-      }
+        </mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <app-workflow-graph
+          [root]="resources.Missions"
+          [current]="mission.statusId ?? ''"
+          [executable]="edges(mission)"
+          [words]="words"
+          (fire)="onEdge($event)"></app-workflow-graph>
 
-      @if (
-        canEdit(mission, 'notes') ||
-        canEdit(mission, 'deadline') ||
-        canEdit(mission, 'assignedSquadronId') ||
-        canEdit(mission, 'fee')
-      ) {
-        <h3>Edit call sheet</h3>
-        <form class="inline-form" (ngSubmit)="saveEdits(mission)">
-          @if (canEdit(mission, 'assignedSquadronId')) {
-            <mat-form-field appearance="outline">
-              <mat-label>Assigned squadron</mat-label>
-              <mat-select name="editSquadron" [(ngModel)]="editAssignedSquadronId">
-                @for (squadron of squadrons.value(); track squadron.id) {
-                  <mat-option [value]="squadron.id">{{ squadron.name }}</mat-option>
-                }
-              </mat-select>
-            </mat-form-field>
+        <div class="edges">
+          @for (method of edges(mission); track method) {
+            <div class="edge">
+              <button mat-stroked-button type="button" (click)="onEdge(method)">{{ words(method) }}</button>
+              @if (verdict(method); as verdict) {
+                <span class="probe" [class.refused]="verdict.ok === false" [class.untried]="verdict.ok === undefined">
+                  {{ verdict.says }}
+                </span>
+              }
+            </div>
+          } @empty {
+            <span class="empty">There is no next step you may take with this mission now.</span>
           }
-          @if (canEdit(mission, 'deadline')) {
-            <mat-form-field appearance="outline">
-              <mat-label>Deadline</mat-label>
-              <input matInput name="editDeadlineDate" [matDatepicker]="editDatePicker" [(ngModel)]="editDeadlineDate" />
-              <mat-datepicker-toggle matIconSuffix [for]="editDatePicker"></mat-datepicker-toggle>
-              <mat-datepicker #editDatePicker></mat-datepicker>
-            </mat-form-field>
-            <mat-form-field appearance="outline" class="time">
-              <mat-label>Time</mat-label>
-              <input matInput name="editDeadlineTime" [matTimepicker]="editTimePicker" [(ngModel)]="editDeadlineTime" />
-              <mat-timepicker-toggle matIconSuffix [for]="editTimePicker"></mat-timepicker-toggle>
-              <mat-timepicker #editTimePicker interval="30m"></mat-timepicker>
-            </mat-form-field>
-          }
-          @if (canEdit(mission, 'fee')) {
-            <mat-form-field appearance="outline">
-              <mat-label>Fee</mat-label>
-              <input matInput name="editFee" type="number" [(ngModel)]="editFee" />
-            </mat-form-field>
-          }
-          @if (canEdit(mission, 'notes')) {
-            <mat-form-field appearance="outline" class="grow">
-              <mat-label>Notes</mat-label>
-              <input matInput name="editNotes" [(ngModel)]="editNotes" />
-            </mat-form-field>
-          }
-          <button mat-flat-button type="submit">Save</button>
-          @if (canRemove(mission)) {
-            <button mat-stroked-button type="button" (click)="remove(mission)">Delete</button>
-          }
-        </form>
-        @if (conditionalEdits(); as fields) {
-          <p class="empty">
-            Your grant on {{ fields }} is conditional: the digest says you may write it, the server judges each change
-            against the grant's condition when you save.
-          </p>
-        }
-        @if (editRefusal(); as refusal) {
-          <p class="refusal">{{ refusal }}</p>
-        }
-      }
-
-      <h3>Documents</h3>
-      @for (document of documentsOf(mission); track document.id) {
-        <div class="sortie">
-          <a [href]="documentUrl(document)" target="_blank">{{ document.title }} — {{ document.fileName }}</a>
-          ({{ document.size }} bytes, {{ document.contentType }}) uploaded by <b>{{ document.uploadedByName }}</b>
-          {{ document.uploadedAt | date: 'medium' }}
         </div>
-      } @empty {
-        <p class="empty">No documents attached.</p>
-      }
-      @if (canAttach()) {
-        <form class="inline-form" (ngSubmit)="attach(mission)">
-          <mat-form-field appearance="outline">
-            <mat-label>Title</mat-label>
-            <input matInput name="attachTitle" [(ngModel)]="attachTitle" required />
-          </mat-form-field>
-          <input type="file" name="attachFiles" multiple (change)="pickFiles($event)" />
-          <button mat-stroked-button type="submit">Attach document</button>
-        </form>
-        @if (attachRefusal(); as refusal) {
-          <p class="refusal">{{ refusal }}</p>
-        }
-      }
 
-      <h3>Sorties</h3>
-      @for (sortie of sortiesOf(mission); track sortie.id) {
-        <div class="sortie">
-          <div>
-            <b>{{ pilotName(sortie.pilotUserId) }}</b> launched {{ sortie.launchedAt | date: 'medium' }}
-            @if (sortie.returnedAt) {
-              · returned {{ sortie.returnedAt | date: 'medium' }}
+        @if (editable(mission) || canRemove(mission)) {
+          <div class="actions">
+            @if (editable(mission)) {
+              <button mat-stroked-button type="button" class="edit" (click)="openEdit(mission, editForm)">
+                Edit call sheet
+              </button>
+            }
+            @if (canRemove(mission)) {
+              <button mat-stroked-button type="button" class="remove" (click)="openRemove(removeForm)">Delete</button>
             }
           </div>
-          <ul class="expenses">
-            @for (expense of expensesOf(sortie); track expense.id) {
-              <li>
-                {{ expense.category }} — {{ expense.amount }} cr {{ expense.memo ? '(' + expense.memo + ')' : '' }}
-              </li>
+        }
+
+        <h3>Documents</h3>
+        @for (document of documentsOf(mission); track document.id) {
+          <div class="sortie">
+            <a [href]="documentUrl(document)" target="_blank">{{ document.title }} — {{ document.fileName }}</a>
+            ({{ document.size }} bytes, {{ document.contentType }}) uploaded by <b>{{ document.uploadedByName }}</b>
+            {{ document.uploadedAt | date: 'medium' }}
+          </div>
+        } @empty {
+          <p class="empty">No documents attached.</p>
+        }
+        @if (canAttach(mission)) {
+          <div class="actions">
+            <button mat-stroked-button type="button" class="attach" (click)="openAttach(attachForm)">
+              Attach document
+            </button>
+          </div>
+        }
+
+        <h3>Sorties</h3>
+        @for (sortie of sortiesOf(mission); track sortie.id) {
+          <div class="sortie">
+            <div>
+              <b>{{ pilotName(sortie.pilotUserId) }}</b> launched {{ sortie.launchedAt | date: 'medium' }}
+              @if (sortie.returnedAt) {
+                · returned {{ sortie.returnedAt | date: 'medium' }}
+              }
+            </div>
+            <ul class="expenses">
+              @for (expense of expensesOf(sortie); track expense.id) {
+                <li>
+                  {{ categoryWords(expense.category) }} — {{ expense.amount | number: '1.0-0' }} cr
+                  {{ expense.memo ? '(' + expense.memo + ')' : '' }}
+                </li>
+              }
+            </ul>
+            @if (canAddExpense(sortie)) {
+              <button mat-stroked-button type="button" class="add-expense" (click)="openExpense(sortie, expenseForm)">
+                Add expense
+              </button>
             }
-          </ul>
-          @if (canAddExpense(sortie)) {
-            <form class="inline-form" (ngSubmit)="addExpense(sortie)">
+          </div>
+        } @empty {
+          <p class="empty">No sorties flown yet.</p>
+        }
+        @if (canAddSortie(mission)) {
+          <div class="actions">
+            <button mat-stroked-button type="button" class="add-sortie" (click)="openSortie(sortieForm)">
+              Add sortie
+            </button>
+          </div>
+        }
+      </mat-card-content>
+    </mat-card>
+  }
+}
+
+<!--
+  The deck's dialogs. Each opens over the page from the button that names it: the title and
+  the button that sends are that button's words, Cancel and Escape close it with nothing
+  sent, and what the server refuses is shown in the dialog. An edge's dialog and the
+  delete's name the mission and say what will happen to it.
+-->
+<ng-template #bookForm>
+  <div mat-dialog-title>Book a mission</div>
+  <form class="dialog-form" (ngSubmit)="book()">
+    <mat-dialog-content>
+      <p class="hint">
+        You are asked only for what your role may set. Some roles may book only up to a fee limit: a booking over the
+        limit is refused, and the refusal is shown here.
+      </p>
+      @if (canBookField('title')) {
+        <mat-form-field appearance="outline">
+          <mat-label>Title</mat-label>
+          <input matInput name="title" [(ngModel)]="newTitle" required />
+        </mat-form-field>
+      }
+      @if (canBookField('clientId')) {
+        <mat-form-field appearance="outline">
+          <mat-label>Client</mat-label>
+          <mat-select name="client" [(ngModel)]="newClientId" required>
+            @for (client of clients.value(); track client.id) {
+              <mat-option [value]="client.id">{{ client.name }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      }
+      @if (canBookField('kindId')) {
+        <mat-form-field appearance="outline">
+          <mat-label>Kind</mat-label>
+          <mat-select name="kind" [(ngModel)]="newKind" required>
+            @for (kind of kinds; track kind) {
+              <mat-option [value]="kind">{{ kind }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      }
+      @if (canBookField('hazard')) {
+        <mat-form-field appearance="outline">
+          <mat-label>Hazard (1–5)</mat-label>
+          <input matInput name="hazard" type="number" min="1" max="5" [(ngModel)]="newHazard" />
+        </mat-form-field>
+      }
+      @if (canBookField('fee')) {
+        <mat-form-field appearance="outline">
+          <mat-label>Fee</mat-label>
+          <input matInput name="fee" type="number" [(ngModel)]="newFee" required />
+        </mat-form-field>
+      }
+      @if (canBookField('deadline')) {
+        <mat-form-field appearance="outline">
+          <mat-label>Deadline</mat-label>
+          <input matInput name="deadlineDate" [matDatepicker]="newDatePicker" [(ngModel)]="newDeadlineDate" required />
+          <mat-datepicker-toggle matIconSuffix [for]="newDatePicker"></mat-datepicker-toggle>
+          <mat-datepicker #newDatePicker></mat-datepicker>
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Time</mat-label>
+          <input matInput name="deadlineTime" [matTimepicker]="newTimePicker" [(ngModel)]="newDeadlineTime" required />
+          <mat-timepicker-toggle matIconSuffix [for]="newTimePicker"></mat-timepicker-toggle>
+          <mat-timepicker #newTimePicker interval="30m"></mat-timepicker>
+        </mat-form-field>
+      }
+      @if (canBookField('brief')) {
+        <mat-form-field appearance="outline">
+          <mat-label>Brief</mat-label>
+          <input matInput name="brief" [(ngModel)]="newBrief" />
+        </mat-form-field>
+      }
+      @if (formRefusal(); as refusal) {
+        <p class="refusal" role="alert">{{ refusal }}</p>
+      }
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+      <button mat-raised-button type="submit" color="accent" class="send">Book a mission</button>
+    </mat-dialog-actions>
+  </form>
+</ng-template>
+
+<ng-template #edgeForm>
+  @if (selected(); as mission) {
+    @if (pendingEdge(); as edge) {
+      <div mat-dialog-title>{{ words(edge) }}</div>
+      <form class="dialog-form" (ngSubmit)="fire(mission, edge)">
+        <mat-dialog-content>
+          <p class="asks">{{ asks(edge, mission) }}</p>
+          @switch (edge) {
+            @case (methods.ClaimMission) {
               <mat-form-field appearance="outline">
-                <mat-label>Category</mat-label>
-                <mat-select name="expenseCategory" [(ngModel)]="newExpenseCategory">
-                  <mat-option value="fuel">fuel</mat-option>
-                  <mat-option value="medical">medical supplies</mat-option>
-                  <mat-option value="tow_gear">tow gear</mat-option>
+                <mat-label>Squadron</mat-label>
+                <mat-select name="claimSquadron" [(ngModel)]="claimSquadronId" required>
+                  @for (squadron of squadrons.value(); track squadron.id) {
+                    <mat-option [value]="squadron.id">{{ squadron.name }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            }
+            @case (methods.LaunchMission) {
+              <mat-form-field appearance="outline">
+                <mat-label>Ship</mat-label>
+                <mat-select name="launchShip" [(ngModel)]="launchShipId" required>
+                  @for (ship of ships.value(); track ship.id) {
+                    <mat-option [value]="ship.id">{{ ship.name }}</mat-option>
+                  }
                 </mat-select>
               </mat-form-field>
               <mat-form-field appearance="outline">
-                <mat-label>Amount</mat-label>
-                <input matInput name="expenseAmount" type="number" [(ngModel)]="newExpenseAmount" required />
+                <mat-label>Pilot</mat-label>
+                <mat-select name="launchPilot" [(ngModel)]="launchPilotUserId" required>
+                  @for (pilot of pilots.value(); track pilot.id) {
+                    <mat-option [value]="pilot.userId">{{ pilot.displayName }}</mat-option>
+                  }
+                </mat-select>
               </mat-form-field>
-              <button mat-stroked-button type="submit">Add expense</button>
-            </form>
+            }
+            @case (methods.HoldMission) {
+              <mat-form-field appearance="outline">
+                <mat-label>Reason</mat-label>
+                <input matInput name="holdReason" [(ngModel)]="holdReason" required />
+              </mat-form-field>
+              @if (pendingVerdict(); as verdict) {
+                @if (verdict.ok === false) {
+                  <p class="refusal ahead">{{ verdict.says }}</p>
+                }
+              }
+            }
+            @case (methods.FailMission) {
+              <mat-form-field appearance="outline">
+                <mat-label>Reason</mat-label>
+                <mat-select name="failReason" [(ngModel)]="failReasonId" required>
+                  @for (reason of failReasons; track reason.id) {
+                    <mat-option [value]="reason.id">{{ reason.display }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            }
           }
-        </div>
-      } @empty {
-        <p class="empty">No sorties flown yet.</p>
-      }
-      @if (canAddSortie(mission)) {
-        <form class="inline-form" (ngSubmit)="addSortie(mission)">
-          <mat-form-field appearance="outline">
-            <mat-label>Ship</mat-label>
-            <mat-select name="sortieShip" [(ngModel)]="newSortieShipId" required>
-              @for (ship of ships.value(); track ship.id) {
-                <mat-option [value]="ship.id">{{ ship.name }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>Pilot</mat-label>
-            <mat-select name="sortiePilot" [(ngModel)]="newSortiePilot" required>
-              @for (pilot of pilots.value(); track pilot.id) {
-                <mat-option [value]="pilot.userId">{{ pilot.displayName }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-          <button mat-stroked-button type="submit">Add sortie</button>
-        </form>
-      }
-    </mat-card-content>
-  </mat-card>
-}
+          @if (refusal(); as refusal) {
+            <p class="refusal sent" role="alert">{{ refusal }}</p>
+          }
+        </mat-dialog-content>
+        <mat-dialog-actions align="end">
+          <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+          <button
+            mat-raised-button
+            type="submit"
+            color="accent"
+            class="send"
+            [disabled]="edge === methods.HoldMission && pendingVerdict()?.ok === false">
+            {{ words(edge) }}
+          </button>
+        </mat-dialog-actions>
+      </form>
+    }
+  }
+</ng-template>
 
-@if (canBook()) {
-  <mat-card appearance="outlined" class="create-card">
-    <mat-card-header>
-      <mat-card-title>Book a mission</mat-card-title>
-      <mat-card-subtitle>
-        The Booking Agent may book only up to their fee limit (an insert-image condition on the new row). Inputs render
-        from the digest's field-level Create entries.
-      </mat-card-subtitle>
-    </mat-card-header>
-    <mat-card-content>
-      <form class="inline-form" (ngSubmit)="book()">
-        @if (canBookField('title')) {
-          <mat-form-field appearance="outline" class="grow">
-            <mat-label>Title</mat-label>
-            <input matInput name="title" [(ngModel)]="newTitle" required />
-          </mat-form-field>
-        }
-        @if (canBookField('clientId')) {
+<ng-template #editForm>
+  @if (selected(); as mission) {
+    <div mat-dialog-title>Edit call sheet</div>
+    <form class="dialog-form" (ngSubmit)="saveEdits(mission)">
+      <mat-dialog-content>
+        @if (canEdit(mission, 'assignedSquadronId')) {
           <mat-form-field appearance="outline">
-            <mat-label>Client</mat-label>
-            <mat-select name="client" [(ngModel)]="newClientId" required>
-              @for (client of clients.value(); track client.id) {
-                <mat-option [value]="client.id">{{ client.name }}</mat-option>
+            <mat-label>Assigned squadron</mat-label>
+            <mat-select name="editSquadron" [(ngModel)]="editAssignedSquadronId">
+              @for (squadron of squadrons.value(); track squadron.id) {
+                <mat-option [value]="squadron.id">{{ squadron.name }}</mat-option>
               }
             </mat-select>
           </mat-form-field>
         }
-        @if (canBookField('kindId')) {
-          <mat-form-field appearance="outline">
-            <mat-label>Kind</mat-label>
-            <mat-select name="kind" [(ngModel)]="newKind" required>
-              @for (kind of kinds; track kind) {
-                <mat-option [value]="kind">{{ kind }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-        }
-        @if (canBookField('hazard')) {
-          <mat-form-field appearance="outline">
-            <mat-label>Hazard (1–5)</mat-label>
-            <input matInput name="hazard" type="number" min="1" max="5" [(ngModel)]="newHazard" />
-          </mat-form-field>
-        }
-        @if (canBookField('fee')) {
-          <mat-form-field appearance="outline">
-            <mat-label>Fee</mat-label>
-            <input matInput name="fee" type="number" [(ngModel)]="newFee" required />
-          </mat-form-field>
-        }
-        @if (canBookField('deadline')) {
+        @if (canEdit(mission, 'deadline')) {
           <mat-form-field appearance="outline">
             <mat-label>Deadline</mat-label>
-            <input
-              matInput
-              name="deadlineDate"
-              [matDatepicker]="newDatePicker"
-              [(ngModel)]="newDeadlineDate"
-              required />
-            <mat-datepicker-toggle matIconSuffix [for]="newDatePicker"></mat-datepicker-toggle>
-            <mat-datepicker #newDatePicker></mat-datepicker>
+            <input matInput name="editDeadlineDate" [matDatepicker]="editDatePicker" [(ngModel)]="editDeadlineDate" />
+            <mat-datepicker-toggle matIconSuffix [for]="editDatePicker"></mat-datepicker-toggle>
+            <mat-datepicker #editDatePicker></mat-datepicker>
           </mat-form-field>
-          <mat-form-field appearance="outline" class="time">
+          <mat-form-field appearance="outline">
             <mat-label>Time</mat-label>
-            <input
-              matInput
-              name="deadlineTime"
-              [matTimepicker]="newTimePicker"
-              [(ngModel)]="newDeadlineTime"
-              required />
-            <mat-timepicker-toggle matIconSuffix [for]="newTimePicker"></mat-timepicker-toggle>
-            <mat-timepicker #newTimePicker interval="30m"></mat-timepicker>
+            <input matInput name="editDeadlineTime" [matTimepicker]="editTimePicker" [(ngModel)]="editDeadlineTime" />
+            <mat-timepicker-toggle matIconSuffix [for]="editTimePicker"></mat-timepicker-toggle>
+            <mat-timepicker #editTimePicker interval="30m"></mat-timepicker>
           </mat-form-field>
         }
-        @if (canBookField('brief')) {
-          <mat-form-field appearance="outline" class="grow">
-            <mat-label>Brief</mat-label>
-            <input matInput name="brief" [(ngModel)]="newBrief" />
+        @if (canEdit(mission, 'fee')) {
+          <mat-form-field appearance="outline">
+            <mat-label>Fee</mat-label>
+            <input matInput name="editFee" type="number" [(ngModel)]="editFee" />
           </mat-form-field>
         }
-        <button mat-flat-button type="submit">Book</button>
-      </form>
-    </mat-card-content>
-  </mat-card>
-}
+        @if (canEdit(mission, 'notes')) {
+          <mat-form-field appearance="outline">
+            <mat-label>Notes</mat-label>
+            <input matInput name="editNotes" [(ngModel)]="editNotes" />
+          </mat-form-field>
+        }
+        @if (conditionalEdits(); as fields) {
+          <p class="hint">
+            You may change {{ fields }} only within limits. The server checks each change when you save, and a change it
+            refuses is said here.
+          </p>
+        }
+        @if (editRefusal(); as refusal) {
+          <p class="refusal" role="alert">{{ refusal }}</p>
+        }
+      </mat-dialog-content>
+      <mat-dialog-actions align="end">
+        <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+        <button mat-raised-button type="submit" color="accent" class="send">Save</button>
+      </mat-dialog-actions>
+    </form>
+  }
+</ng-template>
+
+<ng-template #removeForm>
+  @if (selected(); as mission) {
+    <div mat-dialog-title>Delete</div>
+    <form class="dialog-form" (ngSubmit)="remove(mission)">
+      <mat-dialog-content>
+        <p class="asks">Delete the mission {{ mission.title }}? It is taken off the board for good.</p>
+        @if (formRefusal(); as refusal) {
+          <p class="refusal" role="alert">{{ refusal }}</p>
+        }
+      </mat-dialog-content>
+      <mat-dialog-actions align="end">
+        <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+        <button mat-raised-button type="submit" color="accent" class="send">Delete</button>
+      </mat-dialog-actions>
+    </form>
+  }
+</ng-template>
+
+<ng-template #attachForm>
+  @if (selected(); as mission) {
+    <div mat-dialog-title>Attach document</div>
+    <form class="dialog-form" (ngSubmit)="attach(mission)">
+      <mat-dialog-content>
+        <mat-form-field appearance="outline">
+          <mat-label>Title</mat-label>
+          <input matInput name="attachTitle" [(ngModel)]="attachTitle" required />
+        </mat-form-field>
+        <input type="file" name="attachFiles" multiple (change)="pickFiles($event)" />
+        @if (attachRefusal(); as refusal) {
+          <p class="refusal" role="alert">{{ refusal }}</p>
+        }
+      </mat-dialog-content>
+      <mat-dialog-actions align="end">
+        <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+        <button mat-raised-button type="submit" color="accent" class="send">Attach document</button>
+      </mat-dialog-actions>
+    </form>
+  }
+</ng-template>
+
+<ng-template #sortieForm>
+  @if (selected(); as mission) {
+    <div mat-dialog-title>Add sortie</div>
+    <form class="dialog-form" (ngSubmit)="addSortie(mission)">
+      <mat-dialog-content>
+        <mat-form-field appearance="outline">
+          <mat-label>Ship</mat-label>
+          <mat-select name="sortieShip" [(ngModel)]="newSortieShipId" required>
+            @for (ship of ships.value(); track ship.id) {
+              <mat-option [value]="ship.id">{{ ship.name }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Pilot</mat-label>
+          <mat-select name="sortiePilot" [(ngModel)]="newSortiePilot" required>
+            @for (pilot of pilots.value(); track pilot.id) {
+              <mat-option [value]="pilot.userId">{{ pilot.displayName }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+        @if (formRefusal(); as refusal) {
+          <p class="refusal" role="alert">{{ refusal }}</p>
+        }
+      </mat-dialog-content>
+      <mat-dialog-actions align="end">
+        <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+        <button mat-raised-button type="submit" color="accent" class="send">Add sortie</button>
+      </mat-dialog-actions>
+    </form>
+  }
+</ng-template>
+
+<ng-template #expenseForm>
+  @if (expenseSortie(); as sortie) {
+    <div mat-dialog-title>Add expense</div>
+    <form class="dialog-form" (ngSubmit)="addExpense(sortie)">
+      <mat-dialog-content>
+        <mat-form-field appearance="outline">
+          <mat-label>Category</mat-label>
+          <mat-select name="expenseCategory" [(ngModel)]="newExpenseCategory">
+            @for (category of expenseCategories; track category.code) {
+              <mat-option [value]="category.code">{{ category.words }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Amount</mat-label>
+          <input matInput name="expenseAmount" type="number" [(ngModel)]="newExpenseAmount" required />
+        </mat-form-field>
+        @if (formRefusal(); as refusal) {
+          <p class="refusal" role="alert">{{ refusal }}</p>
+        }
+      </mat-dialog-content>
+      <mat-dialog-actions align="end">
+        <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+        <button mat-raised-button type="submit" color="accent" class="send">Add expense</button>
+      </mat-dialog-actions>
+    </form>
+  }
+</ng-template>

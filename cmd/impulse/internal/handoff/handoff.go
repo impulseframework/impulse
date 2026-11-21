@@ -48,9 +48,9 @@ type Brief struct {
 	// the owned and generated files rendered, the recipes' edits. Change accounts for
 	// what a recipe did; the staged paths account for the whole of the change.
 	Staged []string
-	// Left counts the obligations the change itself lists (the hand-written uses a
-	// removal leaves), which the check cannot see; the brief is written for them even
-	// when no check fails.
+	// Left counts the obligations the change itself lists (an edit it could not make,
+	// the hand-written uses a removal leaves), which the check cannot see; the brief is
+	// written for them even when no check fails.
 	Left int
 }
 

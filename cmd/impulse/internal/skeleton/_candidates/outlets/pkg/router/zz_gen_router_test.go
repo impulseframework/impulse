@@ -132,7 +132,6 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/directory/login", suffix: "/user/directory/login", method: http.MethodGet, handler: "PortalDirectoryLogin"},
 		{url: "/portal/api/user/directory/callback", suffix: "/user/directory/callback", method: http.MethodGet, handler: "PortalDirectoryCallback"},
 		{url: "/portal/api/user/directory/logout", suffix: "/user/directory/logout", method: http.MethodGet, handler: "PortalDirectoryFrontChannelLogout"},
-		{url: "/portal/api/user/pending/confirm", suffix: "/user/pending/confirm", method: http.MethodPost, handler: "PortalPendingConfirmWithPassword", xsrf: true},
 		{url: "/portal/api/user/pending/cancel", suffix: "/user/pending/cancel", method: http.MethodPost, handler: "PortalPendingCancel", xsrf: true},
 		{url: "/portal/api/user/pending/code", suffix: "/user/pending/code", method: http.MethodPost, handler: "PortalPendingSendCode", xsrf: true},
 		{url: "/portal/api/user/pending/code/verify", suffix: "/user/pending/code/verify", method: http.MethodPost, handler: "PortalPendingVerifyCode", xsrf: true},
@@ -1852,10 +1851,6 @@ func (s *routerPortalSessionStub) DirectoryCallback() http.HandlerFunc {
 
 func (s *routerPortalSessionStub) DirectoryFrontChannelLogout() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "DirectoryFrontChannelLogout")
-}
-
-func (s *routerPortalSessionStub) PendingConfirmWithPassword() http.HandlerFunc {
-	return s.rec.RecordHandlerCall(s.prefix + "PendingConfirmWithPassword")
 }
 
 func (s *routerPortalSessionStub) PendingCancel() http.HandlerFunc {

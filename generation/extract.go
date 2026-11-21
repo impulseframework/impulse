@@ -94,40 +94,56 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 		return nil, errors.Wrapf(errors.Join(resourceErrors...), "encountered %d errors converting structs to resources", len(resourceErrors))
 	}
 
+	if err := c.resolveAcrossResources(resources); err != nil {
+		return nil, err
+	}
+
+	return resources, nil
+}
+
+// resolveAcrossResources runs the checks and the resolutions that read more than one
+// resource, which can be answered only once every struct is extracted.
+func (c *client) resolveAcrossResources(resources []*resourceInfo) error {
 	// One tenant record per package, and one directories record: known only once
 	// every struct is extracted.
 	if err := rejectSecondTenant(resources); err != nil {
-		return nil, err
+		return err
 	}
 	if err := rejectSecondTenantDirectory(resources); err != nil {
-		return nil, err
+		return err
+	}
+
+	// A subject set's domain: may end on another resource's table, whose tenant
+	// column is known once every resource is extracted.
+	if err := c.checkSubjectDomainEnds(resources); err != nil {
+		return err
 	}
 
 	// A subject set's who: may name another resource's set, so the sets it
 	// names are checked once every resource is extracted.
 	if err := c.resolveExtractedSubjectSets(resources); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Workflow chains cross resources, so they resolve — and the uniform
 	// state bindings synthesize — only once every resource is extracted.
 	if err := c.resolveWorkflows(resources); err != nil {
-		return nil, err
+		return err
 	}
 
 	// A @searchAlso names another table's field, so it resolves once every
 	// table-backed resource is extracted with its search facts.
 	if err := c.resolveSearchBranches(resources); err != nil {
-		return nil, err
+		return err
 	}
 
 	// What is under a record crosses resources: a @deleteCascade is held to the schema,
 	// and the tenant record's description written, once every resource is extracted.
 	if err := c.resolveDeleteTrees(resources); err != nil {
-		return nil, err
+		return err
 	}
 
-	return resources, nil
+	return nil
 }
 
 // resolveResource applies everything a table-backed resource declares beyond its

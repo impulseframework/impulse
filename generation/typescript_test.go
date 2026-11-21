@@ -517,6 +517,11 @@ func Test_typescriptMethodsTemplate_target(t *testing.T) {
 		{TargetField: "UserID", RootPKField: "UserID"},
 		{TargetField: "HeldRole", RootPKField: "Role"},
 	}}
+	held := &rpcTarget{RootStruct: "Widget", RootResource: "Widgets", Keys: []rpcTargetKey{
+		{TargetField: "UserID", RootPKField: "UserID"},
+		{TargetField: "HeldRole", RootPKField: "Role"},
+		{TargetField: "GroupID", RootPKField: "GroupID", MayBeEmpty: true},
+	}}
 
 	tests := []struct {
 		name    string
@@ -536,6 +541,16 @@ func Test_typescriptMethodsTemplate_target(t *testing.T) {
 			name:   "a target keyed by two columns names each request field with the row's field it carries",
 			method: &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Target: compound},
 			want:   []string{"target: { resource: Resources.Widgets, key: { userId: 'userId', heldRole: 'role' } },"},
+			// No part of this key may be empty, and the metadata lists none.
+			wantNot: []string{"mayBeEmpty: ["},
+		},
+		{
+			name:   "a part of the key that may be empty is listed by its request field",
+			method: &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Target: held},
+			want: []string{
+				"target: { resource: Resources.Widgets, key: { userId: 'userId', heldRole: 'role', groupId: 'groupId' }, mayBeEmpty: ['groupId'] },",
+				"  mayBeEmpty?: string[];",
+			},
 		},
 		{
 			name: "a transition names its target too",

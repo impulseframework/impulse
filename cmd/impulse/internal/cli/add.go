@@ -30,10 +30,14 @@ func newAdd() *cobra.Command {
 		Short: "Add an option to the application: files and generator edits, then a handoff for the wiring",
 		Long: `add makes the deterministic half of an option (files laid in, the generator program and
 the seams edited at the source level, go generate run), stages it, and runs impulse check. The checks that fail are
-exactly the obligations of the option just enabled, and add hands them to an f.agent the
+exactly the obligations of the option just enabled, and add hands them to an agent the
 way impulse handoff does: a brief at ` + handoff.File + ` with what changed, what the
-option means, the failing checks verbatim, and a rendered reference application; --f.agent
-launches Claude Code on it and verifies the guardrails when it returns.`,
+option means, the failing checks verbatim, and a rendered reference application; --agent
+launches Claude Code on it and verifies the guardrails when it returns.
+
+Where no check fails, add says the option is wired and writes no brief, unless the change
+lists work the check cannot see (an edit add could not make, a line it leaves to the
+author): then the brief is written with the check clean, for those lines.`,
 	}
 	cmd.AddCommand(newAddOutlet())
 	cmd.AddCommand(newAddTenancy())
@@ -292,21 +296,27 @@ web/<name> with its API prefix, base path, and ports rewritten and registered in
 angular.json, the package scripts, and the Procfile. A console that was alone at / moves
 to /console with its API at /console/api, since no browser application is mounted at /
 beside another (an installed application's scope is every URL under its start), and the
-regenerated router answers the root alone with a redirect there; the brief lists the Go
-and prose that still name /api. A machine outlet (--tokens <name>) is a surface with no
-browser whose requests carry the bearer tokens the named auth issues to its people and
-their programs: the generator program gains WithRouterOutlet with Tokens(<pkg/auth/name>),
-the generated router composes the token check in front of the outlet's routes and the
-device flow's endpoints under its prefix, and the auth's session outlet gains the token
-routes where a signed-in person issues, lists and revokes their tokens and approves a
-command-line client. (An application that kept a hand-written router gains
-ServesSessions or nothing, as before, and the brief names the auth the outlet binds to.)
+regenerated router answers the root alone with a redirect there; the App's served browser
+app, the login pages the console's auth names, and the application's own Go and prose that
+named /api follow, and the brief lists each line. A machine outlet (--tokens <name>) is a
+surface with no browser whose requests carry the bearer tokens the named auth issues to
+its people and their programs: the generator program gains WithRouterOutlet with
+Tokens(<pkg/auth/name>), the generated router composes the token check in front of the
+outlet's routes and the device flow's endpoints under its prefix, and the auth's session
+outlet gains the token routes where a signed-in person issues, lists and revokes their
+tokens and approves a command-line client. (An application that kept a hand-written
+router gains ServesSessions or nothing, as before, and the brief names the auth the
+outlet binds to.)
 
 Either way go generate emits the outlet's routes, handlers, and client, and the
-generated router mounts the outlet from its declaration. The App's handlers the router
-now requires (the outlet's session getter and browser-application pair, or its token
-surface), the configuration, the members, and the tests are handed to the agent with
-the failing checks as the obligations.`,
+generated router mounts the outlet from its declaration. The command then writes what
+the router now requires of the application, so the application builds as the command
+leaves it: the App's session getter and browser-application pair for a session outlet,
+with the configuration naming the built bundle's directory; for a machine outlet, the
+registration on the auth, the device page in the auth's settings and in the console, and
+the App's token check. What it could not write, where a file does not read as the tool
+writes it, is listed in the brief. The members, the outlet's own routes, and the tests
+are handed to the agent with the failing checks as the obligations.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if (auth != "") == (tokens != "") {
@@ -335,75 +345,25 @@ func newAddTenancy() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tenancy",
 		Short: "Make the application tenanted: a tenant table as the domain universe",
-		Long: `tenancy makes a flat, untenanted application tenanted. The tenant table becomes the
-next schema migration, with two development tenants seeded as a data migration beside
-it; the tenant-record struct is added to the resource package as a global resource
-annotated @tenant, from which the generator derives the tenant segment and emits the
-constructor of the tenant roster; the generator program gains WithConcealedDomains; the
-data level gains the roster, built with that constructor over the live service's tenants
-signal and started where the configuration is built (a new file plus a field and the
-start in DataConfiguration), so a tenant made on any instance is usable at once,
-without a restart; the app exposes the roster to the generated code as TenantRoster()
-and hands its Domains to the session permissions (a new file plus the Configurer, App
-and UserPermissions edits); and the reference's tenant pages (the tenant's sign-in page
-where a tenant can have a directory, All tenants and the dialog a person who signed up
-creates their own tenant through) are copied into the browser app, whose frame carries
-the tenant the URL names, the guard and the place switcher.
-
-Nobody creates a tenant directly. Staff of the auth whose outlets serve the record bring
-an organization in by inviting one person, and that person's first sign-in makes the
-tenant: the auth's settings gain the generated maker (TenantMaker), its New refuses a
-nil one and hands it to the identity client, and where the data level has the
-skeleton's shape the roster is built ahead of that auth and the maker passed in.
-
---one-tenant-per-person says a person belongs to one tenant, as in an application whose
-tenants own their people: every auth whose roles the application gives builds its
-identity client with identity.WithOneTenantPerPerson(), so a role in a second tenant is
-refused however it would be given. Without it a person can be in several tenants.
-
---tenant-directories says whether a tenant can have a directory of its own, and is on
-unless told otherwise. With it the command writes the directories record and its table,
-the tenant record's directory-only switch, each auth's directory admission and the
-tenant's Sign-in page, so a tenant's administrator, signed in through their
-organization's directory, makes it the tenant's, opens the tenant to it and makes the
-tenant directory only. With --tenant-directories=false it writes none of them: no tenant
-has a directory, a tenant's people come by invitation alone, and a Google, Microsoft or
-other provider's method is a way for an invited person to sign in and nothing more,
-whichever methods the application has or gets later. Laying the directories in
-afterward is the author's act; no impulse add method does it.
-
---shape names a sign-in shape to start from, one of the four an application with tenants
-has, and fills in the tenants' choices: ` + shape.Keys(shape.OfTenants()) + `.
-The two tenant-owned shapes hold a person to one tenant (--one-tenant-per-person), and in
-the two global ones a person can be in several. In the two invite-only shapes a tenant's
-people come by invitation alone: the command writes no tenant directories
-(--tenant-directories=false), whatever sign-in methods the application already
-registers, and names the ones that go through an organization's directory as ways for
-an invited person to sign in. In the other two a tenant's people come through its own
-directory: the command writes the tenant directories, and where no sign-in method goes
-through an organization's directory yet it says which impulse add method adds it.
-Whether a tenant takes a directory, and whether that directory's people get an account
-without an invitation, is each tenant's choice, made while the application runs. A flag
-given beside --shape that contradicts it is refused, naming both, and impulse audit
-reads the shape back from the code (its sign-in section).
-
-Which resources become tenant-scoped and how their rows are assigned, the bootstrap
-order, the harnesses, the tests, the tenant segment in the browser's routes, and the
-tenant menus in its menu file are handed to the agent with the failing checks as the
-obligations.`,
-		Args: cobra.NoArgs,
+		Long:  addTenancyLong(),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			step, start, err := tenancyAsked(cmd)
 			if err != nil {
 				return err
 			}
-			if start != nil {
-				if f.start, err = tenancyStartingPoint(start, f.appDir); err != nil {
-					return err
-				}
+			if start == nil {
+				return runSteps(cmd, &f, []transition{step}, transition_.TenancyReferenceCandidate)
 			}
+			// A shape whose tenants' people come through a directory alone writes the methods
+			// they come through first, so the tenancy step lays its directories over them.
+			starting, steps, err := tenancyStartingPoint(start, f.appDir)
+			if err != nil {
+				return err
+			}
+			f.start = starting
 
-			return runTransition(cmd, &f, step, transition_.TenancyReferenceCandidate)
+			return runSteps(cmd, &f, append(steps, step), transition_.TenancyReferenceCandidate)
 		},
 	}
 	f.bind(cmd)
@@ -416,7 +376,8 @@ obligations.`,
 	return cmd
 }
 
-// tenantTableFlag is add tenancy's flag for the tenant record's table.
+// tenantTableFlag is the flag for the tenant record's table, on impulse add tenancy and
+// on impulse new.
 const tenantTableFlag = "tenant-table"
 
 // tenancyAsked is the tenancy step add tenancy was asked for, read from its flags: the
@@ -803,6 +764,12 @@ func askAuthority(cmd *cobra.Command) (string, error) {
 // deterministic half, go generate through the transition, the check with its fixes,
 // staging, and the handoff.
 func runTransition(cmd *cobra.Command, f *transitionFlags, t transition, reference string) error {
+	return runSteps(cmd, f, []transition{t}, reference)
+}
+
+// runSteps is the same flow for a subcommand whose change is more than one step: the
+// steps are applied in order on the one clean tree, and end in one check and one brief.
+func runSteps(cmd *cobra.Command, f *transitionFlags, ts []transition, reference string) error {
 	ctx := cmd.Context()
 	a, err := app.Discover(f.appDir)
 	if err != nil {
@@ -820,7 +787,19 @@ func runTransition(cmd *cobra.Command, f *transitionFlags, t transition, referen
 		return errors.Newf("the working tree is not clean (%d path(s)): commit or stash first, so the transition is one reviewable diff", len(dirty))
 	}
 
-	return runTransitions(cmd, f, repo, []transition{t}, reference)
+	return runTransitions(cmd, f, repo, ts, reference)
+}
+
+// meaningOf is a transition's account of what it means and leaves: the one written for
+// the application where the transition has one, since what is true of a change can
+// depend on what the application has (how its people sign in, what its tests already
+// build), and the general one otherwise.
+func meaningOf(t transition, a *app.App) string {
+	if in, ok := t.(interface{ MeaningIn(a *app.App) string }); ok {
+		return in.MeaningIn(a)
+	}
+
+	return t.Meaning()
 }
 
 // runTransitions applies the transitions in order, each on the tree the one before it
@@ -831,9 +810,9 @@ func runTransitions(cmd *cobra.Command, f *transitionFlags, repo handoff.Repo, t
 	out := cmd.OutOrStdout()
 	exec := check.OSExec{}
 	var changes, meanings []string
-	// left counts the obligations the changes list themselves (the hand-written uses a
-	// removal leaves, a scaffolded job's work), which the check cannot see, so the
-	// handoff happens for them even when the check is clean.
+	// left counts the obligations the changes list themselves (an edit a change could
+	// not make, the hand-written uses a removal leaves, a scaffolded job's work), which
+	// the check cannot see, so the handoff happens for them even when the check is clean.
 	left := 0
 	for _, t := range ts {
 		// Each transition reads the tree the one before it left.
@@ -850,8 +829,8 @@ func runTransitions(cmd *cobra.Command, f *transitionFlags, repo handoff.Repo, t
 		}
 		writeChange(out, change)
 		changes = append(changes, change.Text())
-		meanings = append(meanings, t.Meaning())
-		left += len(change.Left)
+		meanings = append(meanings, meaningOf(t, a))
+		left += change.Obligations()
 	}
 	if f.start != nil {
 		f.start.write(out)
@@ -939,6 +918,82 @@ func renderReference(candidate string) (string, error) {
 	return dir, nil
 }
 
+// addTenancyLong is add tenancy's long help, which lists the shapes an application with
+// tenants starts from.
+func addTenancyLong() string {
+	return `tenancy makes a flat, untenanted application tenanted. The tenant table becomes the
+next schema migration, with two development tenants seeded as a data migration beside
+it; the tenant-record struct is added to the resource package as a global resource
+annotated @tenant, from which the generator derives the tenant segment and emits the
+constructor of the tenant roster; the generator program gains WithConcealedDomains; the
+data level gains the roster, built with that constructor over the live service's tenants
+signal and started where the configuration is built (a new file plus a field and the
+start in DataConfiguration), so a tenant made on any instance is usable at once,
+without a restart; the app exposes the roster to the generated code as TenantRoster()
+and hands its Domains to the session permissions (a new file plus the Configurer, App
+and UserPermissions edits); and the reference's tenant pages (the tenant's sign-in page
+where a tenant can have a directory, All tenants and the dialog a person who signed up
+creates their own tenant through) are copied into the browser app, whose frame carries
+the tenant the URL names, the guard and the place switcher.
+
+Nobody creates a tenant directly. Staff of the auth whose outlets serve the record bring
+an organization in by inviting one person, and that person's first sign-in makes the
+tenant: the auth's settings gain the generated maker (TenantMaker), its New refuses a
+nil one and hands it to the identity client, and where the data level has the
+skeleton's shape the roster is built ahead of that auth and the maker passed in.
+
+--one-tenant-per-person says a person belongs to one tenant, as in an application whose
+tenants own their people: every auth whose roles the application gives builds its
+identity client with identity.WithOneTenantPerPerson(), so a role in a second tenant is
+refused however it would be given. Without it a person can be in several tenants.
+
+--tenant-directories says whether a tenant can have a directory of its own, and is on
+unless told otherwise. With it the command writes the directories record and its table,
+the tenant record's directory-only switch, each auth's directory admission and the
+tenant's Sign-in page, so a tenant's administrator, signed in through their
+organization's directory, makes it the tenant's, opens the tenant to it and makes the
+tenant directory only. With --tenant-directories=false it writes none of them: no tenant
+has a directory, a tenant's people come by invitation alone, and a Google, Microsoft or
+other provider's method is a way for an invited person to sign in and nothing more,
+whichever methods the application has or gets later. Laying the directories in
+afterward is the author's act; no impulse add method does it.
+
+--shape names a sign-in shape to start from, one of the four an application with tenants
+has, and fills in the tenants' choices: ` + shape.Keys(shape.OfTenants()) + `.
+The two tenant-owned shapes hold a person to one tenant (--one-tenant-per-person), and in
+the two global ones a person can be in several. In the two invite-only shapes a tenant's
+people come by invitation alone: the command writes no tenant directories
+(--tenant-directories=false), whatever sign-in methods the application already
+registers, and names the ones that go through an organization's directory as ways for
+an invited person to sign in. In the other two a tenant's people come through its own
+directory, and the command writes the tenant directories. In
+global-users-each-tenant-chooses, where no sign-in method goes through an organization's
+directory yet, it says which impulse add method adds it. In
+tenant-owned-users-by-directory every person of a tenant signs in through the tenant's
+directory, so on each auth whose roles the application gives that registers neither a
+Google nor a Microsoft method the command writes both, as impulse add method would: a
+Google method open to any Google Workspace and a Microsoft method open to any Microsoft
+Entra tenant, neither with personal accounts, the application giving the roles. An auth
+that has either is left as its author made it. That shape has no password sign-in, and
+no command removes a sign-in method: an auth's password method stays, the command says
+that it keeps the application outside the shape and names the hand step that takes it
+out, and impulse audit says the same until it is gone.
+Whether a tenant takes a directory, and whether that directory's people get an account
+without an invitation, is each tenant's choice, made while the application runs. A flag
+given beside --shape that contradicts it is refused, naming both, and impulse audit
+reads the shape back from the code (its sign-in section).
+
+The tests the skeleton started with are brought up to an application with tenants where
+they are the skeleton's still (the two harnesses written again, the two tests of sign-up
+taken out, the password reset test opening sign-up with no role), so the application
+passes go vet and its own tests as the command leaves it.
+
+Which resources become tenant-scoped and how their rows are assigned, the bootstrap
+order, the tests of what the tenants add, the harnesses where they were no longer the
+skeleton's, the tenant segment in the browser's routes, and the tenant menus in its menu
+file are handed to the agent with the failing checks as the obligations.`
+}
+
 // addAuthLong is the help of add auth.
 const addAuthLong = `auth adds an auth package, pkg/auth/<name>, rendered from the same source as the skeleton's
 auths, so the new population owns its own session, user, identity, auth event and pending
@@ -961,12 +1016,18 @@ as it is, replaces one that ran out, and withdraws one for an address the placem
 longer names; the migrate command's -reinvite-administrator mails a fresh one on demand;
 and both refuse while nobody holds the role and the application has no mailbox to send
 as, since the link is never written to a log. Once somebody holds the Super Administrator
-role nobody is invited, and an account that holds no such role stops no invitation. The foothold's roles, its setting in the data level and its invitation
-from pkg/deploy are handed to the agent; impulse check holds the package to inviting
-(first-administrator). An auth the application generates no management for
-(generation.GenerateIdentity) invites nobody, since nothing there would give an accepted
-invitation its roles, and impulse check refuses it until the application does: it has no
-way in.
+role nobody is invited, and an account that holds no such role stops no invitation. The
+command writes the invitation outside the package too, as impulse new writes it for the
+auth an application starts with: the address on the data level with its accessor, the
+variable in the environment template, and the auth among those pkg/deploy invites; in an
+application that holds nothing that invites a first administrator (one started with
+--shape directory-roles) it writes that whole, with the migrate command's invitation and
+its -reinvite-administrator flag. It is all written or none of it, and the change says
+which file stopped it. The foothold's roles and the migrate command's test are handed to
+the agent; impulse check holds the package to inviting (first-administrator). An auth the
+application generates no management for (generation.GenerateIdentity) invites nobody,
+since nothing there would give an accepted invitation its roles, and impulse check
+refuses it until the application does: it has no way in.
 
 --method names the sign-in methods the Auth starts with, repeatable: password (the default
 when none is given), azure:<registration> (Microsoft Entra over OpenID Connect),

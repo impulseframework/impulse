@@ -2,6 +2,7 @@ import { NgComponentOutlet } from '@angular/common';
 import {
   Component,
   computed,
+  DestroyRef,
   effect,
   inject,
   Injector,
@@ -69,7 +70,10 @@ import {
 } from '../concat-fns';
 import { applyFormatting, formatByDisplayType, formatDateString } from '../format-fns';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
-import { DeleteResourceConfirmationModalComponent } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
+import {
+  DeleteConfirmation,
+  DeleteResourceConfirmationModalComponent,
+} from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
 import { filledMethods, offeredAs, OfferedMethod, parentOffers, rowMethods } from '../row-methods/row-methods';
 import { ResourceStore } from '../resource-store.service';
@@ -124,19 +128,23 @@ export class ResourceListComponent implements OnInit {
   activatedRoute = inject(ActivatedRoute);
   auth = inject(AuthService);
   dialog = inject(MatDialog);
+  private readonly destroyRef = inject(DestroyRef);
 
   hideCreateButton = input<boolean>(true);
-  createMode = output<boolean>();
+  /**
+   * The list's create button was pressed. The list draws no form of its own: the page
+   * that holds it opens the create in a dialog.
+   */
+  createRequested = output<void>();
   /**
    * A method ran from this list, against one of its rows or from above it. The list has
    * already asked for its rows again; a page that holds the list under a row reads the
-   * row and its other lists again.
+   * row and its other lists again. A list whose page has left by then tells nobody.
    */
   methodRan = output<void>();
   resourceConfig = input<ChildResourceConfig>();
   viewRoute = input<string>();
   filter = input<string>('');
-  linkCreateType = input<boolean>(false);
   isRootList = input<boolean>(true);
 
   showCreateButton = computed(() => {
@@ -814,9 +822,15 @@ export class ResourceListComponent implements OnInit {
     return columns;
   });
 
-  /** Asks before a row leaves the list, then deletes it through the write resource. */
+  /**
+   * Asks before a row leaves the list, then deletes it through the write resource. The
+   * question names the row by its own name where the config reads one off the row
+   * (`rowTitle`), and the list by its title.
+   */
   confirmDeleteRow(row: RecordData): void {
-    const dialogRef = this.dialog.open(DeleteResourceConfirmationModalComponent, { delayFocusTrap: false });
+    const config = this.config();
+    const data: DeleteConfirmation = { name: config.rowTitle?.(row), from: config.title, inList: true };
+    const dialogRef = this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
     dialogRef.afterClosed().subscribe((confirmed) => {
       if (confirmed === true) {
         this.deleteRow(row);
@@ -937,7 +951,11 @@ export class ResourceListComponent implements OnInit {
   /**
    * Runs a method through its dialog: against the row when one is given, its key filling
    * the request, or with no row for a method offered above the list. Once the method has
-   * run the page says so and reads its rows again, by the page's own cursor.
+   * run the page says so and reads its rows again, by the page's own cursor. Where the
+   * method took away the row the list sits under, the page may have left before the
+   * dialog answers here (a live page reads its row again as soon as the write lands):
+   * what ran is still said, and the list, which nobody sees any more, reads no rows and
+   * tells no page.
    */
   runMethod(method: OfferedMethod, row?: RecordData): void {
     openMethodDialog(this.dialog, method, row, this.relatedData(), this.store.page().rows).subscribe((result) => {
@@ -951,6 +969,9 @@ export class ResourceListComponent implements OnInit {
         duration: 5000,
         link: '',
       });
+      if (this.destroyRef.destroyed) {
+        return;
+      }
       this.store.reloadPage();
       this.methodRan.emit();
     });
@@ -983,7 +1004,7 @@ export class ResourceListComponent implements OnInit {
 
   createResource(event: MouseEvent): void {
     event.stopPropagation();
-    this.createMode.emit(true);
+    this.createRequested.emit();
   }
 
   parentKey = computed(() => {

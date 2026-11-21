@@ -17,7 +17,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 )
 
@@ -716,7 +715,7 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context
 	} else if len(changeSet) == 0 {
 		// The insert-or-update keeps the refusal an update has let go of
 		// (bufferUpdateWithDataChangeEvent).
-		return httpio.NewBadRequestMessagef("No changes to apply for %s (%s)", p.Resource(), where)
+		return nothingToChange(p.Resource(), where)
 	}
 
 	rowID := p.PrimaryKey().RowID()
@@ -811,7 +810,7 @@ func (p *PatchSet[Resource]) insertChangeSet() (map[accesstypes.Field]DiffElem, 
 
 // updateChangeSet reads the stored row and answers what the patch changes on it: the
 // fields whose stored value differs from the one the patch sets, and none when every
-// field holds its value already. where is the row's WHERE clause, for a message.
+// field holds its value already. where is the row's WHERE clause, for the server's log.
 func (p *PatchSet[Resource]) updateChangeSet(ctx context.Context, txn ReadWriteTransaction) (changeSet map[accesstypes.Field]DiffElem, where string, err error) {
 	stmt, err := p.querySet.stmt(txn.DBType())
 	if err != nil {

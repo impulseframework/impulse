@@ -1,4 +1,4 @@
-// Demonstrates: auth.periods, auth.groups, auth.generated-identity, auth.tenant-methods, @subjectSet.global.
+// Demonstrates: auth.periods, auth.groups, auth.generated-identity, auth.tenant-methods.
 package integration
 
 // generated_identity_periods_test: the period of an assignment as the generated

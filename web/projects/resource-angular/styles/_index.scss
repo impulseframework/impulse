@@ -58,7 +58,10 @@
 
     --layout-label-background-white: #ffffff;
     --layout-label-background-off-white: #fafafa;
-    --layout-label-background-grey: #bdbdbd;
+    --layout-label-background-gray: #bdbdbd;
+    // The name the gray preset had first, kept for applications that set it: it holds
+    // the preset's value, the theme's where a theme sheet sets one.
+    --layout-label-background-grey: var(--layout-label-background-gray);
     --layout-label-background-blue: var(--default-blue);
 
     --form-edit-mode-bg-transparent: transparent;

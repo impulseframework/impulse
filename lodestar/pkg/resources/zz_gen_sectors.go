@@ -136,7 +136,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 				Resource: "HangarPasses",
 				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
 				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 7, Files: 0},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},

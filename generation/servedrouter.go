@@ -132,9 +132,11 @@ type servedMethod struct {
 }
 
 // servedPending are the pending sign-in routes of a session outlet: what the login
-// page is told beside the methods. The last three are the second factor's: where the
-// page asks for the sign-in code the Auth mails, where it verifies the code entered,
-// and where a person who holds no address gives one for the code.
+// page is told beside the methods. Confirm is where a person confirms with their
+// password, and is empty for an auth with no password method: nobody there holds a
+// password, so the route would have nothing behind it. The last three are the second
+// factor's: where the page asks for the sign-in code the Auth mails, where it verifies
+// the code entered, and where a person who holds no address gives one for the code.
 type servedPending struct {
 	Status      string
 	Confirm     string
@@ -1194,7 +1196,7 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 	}
 	so.MethodsPath = prefix + userMethodsSuffix
 	so.Pending = servedPending{
-		Status: prefix + userPendingSuffix, Confirm: prefix + userPendingSuffix + "/confirm", Cancel: prefix + userPendingSuffix + "/cancel",
+		Status: prefix + userPendingSuffix, Cancel: prefix + userPendingSuffix + "/cancel",
 		SendCode: prefix + userPendingSuffix + "/code", VerifyCode: prefix + userPendingSuffix + "/code/verify", EnrollEmail: prefix + userPendingSuffix + "/email",
 	}
 	open := []servedRoute{
@@ -1255,12 +1257,8 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		so.Methods = append(so.Methods, sm)
 		kinds = append(kinds, m.name)
 	}
+	guarded = servedPendingRoutesOf(so, o, guarded, route)
 	guarded = append(guarded,
-		route(http.MethodPost, userPendingSuffix+"/confirm", pendingConfirmHandler, true),
-		route(http.MethodPost, userPendingSuffix+"/cancel", pendingCancelHandler, true),
-		route(http.MethodPost, userPendingSuffix+"/code", pendingSendCodeHandler, true),
-		route(http.MethodPost, userPendingSuffix+"/code/verify", pendingVerifyCodeHandler, true),
-		route(http.MethodPost, userPendingSuffix+"/email", pendingEnrollEmailHandler, true),
 		route(http.MethodPost, userForgetBrowserSuffix, forgetBrowserHandler, true),
 		route(http.MethodPost, userNameSuffix, changeNameHandler, true),
 		route(http.MethodPost, userLookSuffix, changeLookHandler, true),
@@ -1274,6 +1272,24 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		so.AuthLabel += " of the " + so.AuthPackage + " auth"
 	}
 	so.AuthLabel += " (" + strings.Join(kinds, ", ") + ")"
+}
+
+// servedPendingRoutesOf adds the routes that answer a pending sign-in behind the XSRF
+// guard and returns the guarded routes with them. A pending sign-in is confirmed with
+// the password of the account it matched, so the confirmation is served, and told to
+// the login page, only where the auth has the password method.
+func servedPendingRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute, route func(method, suffix, handler string, xsrf bool) servedRoute) []servedRoute {
+	if o.auth.hasPassword() {
+		so.Pending.Confirm = "/" + o.prefix + userPendingSuffix + "/confirm"
+		guarded = append(guarded, route(http.MethodPost, userPendingSuffix+"/confirm", pendingConfirmHandler, true))
+	}
+
+	return append(guarded,
+		route(http.MethodPost, userPendingSuffix+"/cancel", pendingCancelHandler, true),
+		route(http.MethodPost, userPendingSuffix+"/code", pendingSendCodeHandler, true),
+		route(http.MethodPost, userPendingSuffix+"/code/verify", pendingVerifyCodeHandler, true),
+		route(http.MethodPost, userPendingSuffix+"/email", pendingEnrollEmailHandler, true),
+	)
 }
 
 // servedMailRoutesOf adds the invitation, email address, sign-up and first password
@@ -1295,7 +1311,7 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 	// Every auth with the password method mounts the sign-up routes: whether anyone
 	// may sign up is an administrator's choice in the running application, and the
 	// handlers answer 404 while the method is invite only.
-	hasPassword := slices.ContainsFunc(o.auth.methods, func(m AuthMethod) bool { return m.kind == methodPassword })
+	hasPassword := o.auth.hasPassword()
 	so.Invitation = servedInvitation{Open: prefix + userInvitationSuffix, Accept: prefix + userInvitationSuffix + "/accept"}
 	so.Email = servedEmail{Add: prefix + userEmailSuffix, Verify: prefix + userEmailSuffix + "/verify", Confirm: prefix + userEmailSuffix + "/confirm"}
 	guarded = append(guarded, route(http.MethodPost, userInvitationSuffix, invitationOpenHandler, true))
@@ -1711,12 +1727,21 @@ type {{ .SessionInterface }} interface {
 	// Methods tells the login page what the outlet offers (session.Auth.Methods): the
 	// router hands it the methods below at the paths it mounts them.
 	Methods(list *session.MethodList) http.HandlerFunc
+{{- if .Pending.Confirm }}
 	// The pending sign-in (session.PendingHandlers): a sign-in that waits for a
 	// password confirmation or for the second factor, and the second factor's step:
 	// the sign-in code the Auth mails, verified from the login page, and the address a
 	// person who holds none gives for it.
 	PendingStatus() http.HandlerFunc
 	PendingConfirmWithPassword() http.HandlerFunc
+{{- else }}
+	// The pending sign-in (session.PendingHandlers): a sign-in that waits for the
+	// second factor, and the second factor's step: the sign-in code the Auth mails,
+	// verified from the login page, and the address a person who holds none gives for
+	// it. The Auth has no password method, so no pending sign-in is confirmed with a
+	// password and the router mounts no route for one.
+	PendingStatus() http.HandlerFunc
+{{- end }}
 	PendingCancel() http.HandlerFunc
 	PendingSendCode() http.HandlerFunc
 	PendingVerifyCode() http.HandlerFunc
@@ -1969,7 +1994,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			},
 {{- end }}
 			Pending: session.PendingRoutes{
-				Status: "{{ $outlet.Pending.Status }}", Confirm: "{{ $outlet.Pending.Confirm }}", Cancel: "{{ $outlet.Pending.Cancel }}",
+				Status: "{{ $outlet.Pending.Status }}",{{ if $outlet.Pending.Confirm }} Confirm: "{{ $outlet.Pending.Confirm }}",{{ end }} Cancel: "{{ $outlet.Pending.Cancel }}",
 				SendCode: "{{ $outlet.Pending.SendCode }}", VerifyCode: "{{ $outlet.Pending.VerifyCode }}", EnrollEmail: "{{ $outlet.Pending.EnrollEmail }}",
 			},
 {{- if $outlet.ChangePassword }}
