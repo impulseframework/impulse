@@ -259,6 +259,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls/testDistressCallID", method: http.MethodGet},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls/testDistressCallID", method: http.MethodPost},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays", method: http.MethodGet},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays", method: http.MethodPost},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID", method: http.MethodGet},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID", method: http.MethodPost},
 		{url: "/droids/fee-by-kinds", method: http.MethodGet},
 		{url: "/droids/fee-by-kinds", method: http.MethodPost},
 		{url: "/droids/fee-by-kinds/testFeeByKindKindID", method: http.MethodGet},
@@ -650,6 +654,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/crew-user-group-roles/testCrewUserGroupRoleUserID/testCrewUserGroupRoleGroupID/testCrewUserGroupRoleKind/testCrewUserGroupRoleAxis/testCrewUserGroupRoleDomainID/testCrewUserGroupRoleRole", method: http.MethodPost},
 		{url: "/portal/api/crew-user-roles", method: http.MethodGet},
 		{url: "/portal/api/crew-user-roles", method: http.MethodPost},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays", method: http.MethodGet},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays", method: http.MethodPost},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID", method: http.MethodGet},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/droid-reports", method: http.MethodGet},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/droid-reports", method: http.MethodPost},
 		{url: "/portal/api/fee-by-kinds", method: http.MethodGet},
@@ -1001,6 +1009,7 @@ func generatedRouteParameters() []string {
 		"crewUserGroupRoleDomainID",
 		"crewUserGroupRoleRole",
 		"distressCallID",
+		"distressRelayID",
 		"feeByKindKindID",
 		"hangarID",
 		"hangarPassID",
@@ -1767,6 +1776,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls/testDistressCallID", method: http.MethodPost,
 			handlerFunc: "DistressCall",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "distressCallID": "testDistressCallID"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays", method: http.MethodGet,
+			handlerFunc: "DistressRelays",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays", method: http.MethodPost,
+			handlerFunc: "DistressRelays",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID", method: http.MethodGet,
+			handlerFunc: "DistressRelay",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "distressRelayID": "testDistressRelayID"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID", method: http.MethodPost,
+			handlerFunc: "DistressRelay",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "distressRelayID": "testDistressRelayID"},
 		},
 		{
 			url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/droid-reports", method: http.MethodGet,
@@ -3602,6 +3631,14 @@ func (s *generatedHandlersStub) DistressCalls() http.HandlerFunc {
 
 func (s *generatedHandlersStub) DistressCall() http.HandlerFunc {
 	return s.record("DistressCall")
+}
+
+func (s *generatedHandlersStub) DistressRelays() http.HandlerFunc {
+	return s.record("DistressRelays")
+}
+
+func (s *generatedHandlersStub) DistressRelay() http.HandlerFunc {
+	return s.record("DistressRelay")
 }
 
 func (s *generatedHandlersStub) EnableCrewSectorUser() http.HandlerFunc {

@@ -113,8 +113,24 @@ func TestTenants_aDeletedTenantTakesItsDirectoryAndItsRows(t *testing.T) {
 	}
 	before := changeEvents(ctx, t, s, "TenantDirectories")["TenantDirectories"]
 
-	// One request, with nothing before it.
-	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+ember+`"}]`)); status != http.StatusOK {
+	// A request that does not say it takes what is under the tenant is asked the
+	// question, and nothing is gone. The question counts each kind the person may list
+	// in the tenant being deleted. The administrator holds the tenant's administrator
+	// role in every tenant, which lists the directory and the announcement, and enters
+	// Ember as a super administrator though it is directory only.
+	status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+ember+`"}]`))
+	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 tenant directory, 1 announcement. This can't be undone.") {
+		t.Fatalf("deleting Ember without saying it takes what is under it: status %d, want 428 with the question: %s", status, body)
+	}
+	if tenantNamed(ctx, t, admin, "Ember") == nil || rowsOf(ctx, t, s, "TenantDirectories", ember) != 1 || rowsOf(ctx, t, s, "Announcements", ember) != 1 {
+		t.Fatal("Ember, its directory or its announcement is gone after the question: a delete that is asked the question deletes nothing")
+	}
+	if after := changeEvents(ctx, t, s, "TenantDirectories")["TenantDirectories"]; after != before {
+		t.Errorf("change events of TenantDirectories: %d before the question and %d after, want no more", before, after)
+	}
+
+	// One request that says so, with nothing before it.
+	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+ember+`","value":{"everythingUnder":true}}]`)); status != http.StatusOK {
 		t.Fatalf("deleting Ember, directory only, with its directory, its people and an announcement: status %d, want 200: %s", status, body)
 	}
 

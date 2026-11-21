@@ -118,6 +118,14 @@ type DeleteKind struct {
 	// cascade (NewTakenRows). A kind without one is not taken in code, and a delete of
 	// the record is refused while it has a row of the kind (delete_refusal.go).
 	Rows TakenRows
+	// Tenant is how a row of the kind resolves to its tenant, for a kind whose rows are
+	// a tenant's: the column that holds the tenant's key, or the foreign key the way to
+	// it leaves through and that way. The generator writes it from the kind's @domain.
+	// A row of such a kind is under a tenant's record only where its tenant is the
+	// record's (DeleteTree.Tenant): a row of another tenant that names the record, or a
+	// row under it, is not under it, and a delete of the record neither counts it, names
+	// it nor takes it, whoever asks.
+	Tenant *DomainBindingData
 }
 
 // sameAs reports whether the two links are the one step: the same columns to the same
@@ -196,6 +204,11 @@ type DeleteTree struct {
 	// of its kind (a folder in a folder). Each kind's Paths are those links alone, one
 	// step each. A delete of the record is refused while one of these rows is there.
 	Under []DeleteKind
+	// Tenant is how the record's row resolves to its tenant, as DeleteKind.Tenant is for
+	// a kind's row. For the tenant record its column is the record's own key: the row is
+	// its tenant. It is nil for a record that is no tenant's, and the rows under such a
+	// record are under it whatever tenant they are of.
+	Tenant *DomainBindingData
 }
 
 // RowName is what a sentence calls the row a delete is asked of, opening the sentence:
@@ -211,19 +224,23 @@ func (t *DeleteTree) rowNameInside() string {
 	return "this " + t.Words.One
 }
 
-// referenced are the columns of a table that the taken kinds' rows are found by: the
-// columns their steps up to a row of the table reference, each once. They are the
-// table's key, or part of it, except where a foreign key references other columns.
+// referenced are the columns of a table that rows under one of its rows are found by:
+// the columns the taken kinds' steps up to a row of the table reference, and the
+// refusing kinds', whose rows are looked for under the rows a walk found
+// (refusingCount), each once. They are the table's key, or part of it, except where a
+// foreign key references other columns.
 func (t *DeleteTree) referenced(table string) []string {
 	var columns []string
-	for i := range t.Taken {
-		for _, link := range t.Taken[i].stepsUp() {
-			if link.Table != table {
-				continue
-			}
-			for _, column := range link.References {
-				if !slices.Contains(columns, column) {
-					columns = append(columns, column)
+	for _, kinds := range [][]DeleteKind{t.Taken, t.RefusedBy} {
+		for i := range kinds {
+			for _, link := range kinds[i].stepsUp() {
+				if link.Table != table {
+					continue
+				}
+				for _, column := range link.References {
+					if !slices.Contains(columns, column) {
+						columns = append(columns, column)
+					}
 				}
 			}
 		}
@@ -233,7 +250,7 @@ func (t *DeleteTree) referenced(table string) []string {
 }
 
 // reads are the columns a delete that takes rows reads of a row of the table: its key,
-// and any other column the taken kinds' rows under it are found by (referenced).
+// and any other column the rows under it are found by (referenced).
 func (t *DeleteTree) reads(table accesstypes.Resource, key []string) []string {
 	columns := slices.Clone(key)
 	for _, column := range t.referenced(string(table)) {

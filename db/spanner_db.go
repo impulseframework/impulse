@@ -123,6 +123,17 @@ func (db *SpannerDB) MigrateDown(sourceURL string) error {
 	return nil
 }
 
+// DDL returns the statements that would create the database's schema as it now stands,
+// as the database prints them: each table with its columns, key and constraints.
+func (db *SpannerDB) DDL(ctx context.Context) ([]string, error) {
+	ddl, err := db.admin.GetDatabaseDdl(ctx, &databasepb.GetDatabaseDdlRequest{Database: db.dbStr})
+	if err != nil {
+		return nil, errors.Wrap(err, "database.DatabaseAdminClient.GetDatabaseDdl()")
+	}
+
+	return ddl.GetStatements(), nil
+}
+
 // runner returns the migration runner on the default schema migrations table.
 func (db *SpannerDB) runner() *runner.Spanner {
 	return runner.NewSpanner(db.admin, db.Client, db.dbStr, defaultSchemaMigrationsTable)

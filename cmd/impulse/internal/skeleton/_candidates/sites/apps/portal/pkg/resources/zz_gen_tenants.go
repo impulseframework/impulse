@@ -33,17 +33,20 @@ func (Tenant) DeleteTree() *resource.DeleteTree {
 		Words:  resource.DeleteWords{One: "tenant", Many: "tenants"},
 		Key:    []string{"Id"},
 		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "Id"},
 		Taken: []resource.DeleteKind{
 			{
 				Resource: "Announcements",
 				Words:    resource.DeleteWords{One: "announcement", Many: "announcements"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[Announcement], *resource.Caller) {}),
 			},
 		},
 	}
@@ -532,6 +535,19 @@ func NewTenantDeletePatch(id impulse.UUID) *TenantDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &TenantDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the Tenant with it:
+// every row of the application's that is the Tenant's own or leads to one that
+// is, each deleted through its kind's delete, with its delete rule asked, its change
+// record written and its files released. The grant to delete the Tenant answers
+// for them all. Without it, a delete of a Tenant that has such rows deletes
+// nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *TenantDeletePatch) WithEverythingUnder() *TenantDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
 }
 
 func (p *TenantDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

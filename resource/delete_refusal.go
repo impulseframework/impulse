@@ -24,16 +24,18 @@ import (
 // transaction's function has returned, over every delete it buffered, so a request that
 // deletes the rows and the record together, in either order, is not refused: a read
 // inside the transaction does not see its own buffered writes, and each count leaves
-// out the rows the transaction itself deleted or updated. The count never refuses a
-// delete the database would take: a kind whose rows the database may remove with
-// another row the transaction deleted is not counted (DeleteKind.RemovedWith). What the
-// count does not reach (a row two steps down that the database comes to by a cascade,
-// a row under a foreign key the generator does not follow, a row written in the same
-// transaction and still under the record) is left to the commit, which answers in its
-// own sentence (referentialMessage).
+// out the rows the transaction itself deleted. A row the transaction changed is counted
+// as the read shows it, as it was before the transaction: a request that moves a row
+// from under a record and deletes the record is refused, and the two are sent one after
+// the other. The count never refuses a delete the database would take: a kind whose
+// rows the database may remove with another row the transaction deleted is not counted
+// (DeleteKind.RemovedWith). What the count does not reach (a row two steps down that
+// the database comes to by a cascade, a row under a foreign key the generator does not
+// follow, a row written in the same transaction and still under the record) is left to
+// the commit, which answers in its own sentence (referentialMessage).
 
 // deleteExclusionLimit is the most rows of one table a count leaves out by key. A
-// transaction that wrote more rows of a table than this is not counted over that
+// transaction that deleted more rows of a table than this is not counted over that
 // table, and the commit answers for it: the statement would outgrow what a query takes
 // in parameters.
 const deleteExclusionLimit = 200
@@ -58,25 +60,29 @@ type recordedDelete struct {
 }
 
 // transactionDeletes is the record a write transaction keeps of the deletes to count
-// over, in buffered order, of the key of every row its patches deleted or updated, by
-// table, and of how many rows of each table they deleted. Like the released-keys record
-// it belongs to one attempt: a retried transaction runs its function again over a
-// fresh record.
+// over, in buffered order, of the key of every row its patches deleted, by table, of
+// how many rows of each table they deleted, and of every row they deleted or changed.
+// Like the released-keys record it belongs to one attempt: a retried transaction runs
+// its function again over a fresh record.
 type transactionDeletes struct {
 	deletes []recordedDelete
-	written map[accesstypes.Resource][]map[string]any
+	// gone are the keys of the rows the transaction's patches deleted, by table, in the
+	// order they were deleted: the rows a count leaves out.
+	gone    map[accesstypes.Resource][]map[string]any
 	deleted map[accesstypes.Resource]int
-	// rows holds each written row once more, by table and key (rowOfTable), for the
-	// walk that asks about one row at a time (wrote).
-	rows map[string]struct{}
+	// rows holds each row a patch deleted or changed, by table and key (rowOfTable),
+	// for the walk that asks about one row at a time: true where a patch deleted it
+	// (deletedRow), false where patches only updated it, or inserted or updated it
+	// (changedRow).
+	rows map[string]bool
 }
 
 // newTransactionDeletes returns an empty record.
 func newTransactionDeletes() *transactionDeletes {
 	return &transactionDeletes{
-		written: make(map[accesstypes.Resource][]map[string]any),
+		gone:    make(map[accesstypes.Resource][]map[string]any),
 		deleted: make(map[accesstypes.Resource]int),
-		rows:    make(map[string]struct{}),
+		rows:    make(map[string]bool),
 	}
 }
 
@@ -98,11 +104,17 @@ func rowOfTable(res accesstypes.Resource, key map[string]any) string {
 	return b.String()
 }
 
-// wrote reports whether a patch of the transaction deleted or updated the row.
-func (t *transactionDeletes) wrote(res accesstypes.Resource, key map[string]any) bool {
-	_, ok := t.rows[rowOfTable(res, key)]
+// deletedRow reports whether a patch of the transaction deleted the row.
+func (t *transactionDeletes) deletedRow(res accesstypes.Resource, key map[string]any) bool {
+	return t.rows[rowOfTable(res, key)]
+}
 
-	return ok
+// changedRow reports whether a patch of the transaction updated the row, or inserted or
+// updated it, and none deleted it.
+func (t *transactionDeletes) changedRow(res accesstypes.Resource, key map[string]any) bool {
+	deleted, ok := t.rows[rowOfTable(res, key)]
+
+	return ok && !deleted
 }
 
 // recordDelete notes a delete to count over.
@@ -110,11 +122,14 @@ func (t *transactionDeletes) recordDelete(d recordedDelete) {
 	t.deletes = append(t.deletes, d)
 }
 
-// recordWritten notes the key of a row a patch deleted or updated.
+// recordWritten notes the key of a row a patch deleted, or changed without deleting it.
+// A row a patch deleted stays deleted, whatever else the transaction's patches did to
+// it.
 func (t *transactionDeletes) recordWritten(res accesstypes.Resource, key map[string]any, deleted bool) {
-	t.written[res] = append(t.written[res], key)
-	t.rows[rowOfTable(res, key)] = struct{}{}
+	row := rowOfTable(res, key)
+	t.rows[row] = t.rows[row] || deleted
 	if deleted {
+		t.gone[res] = append(t.gone[res], key)
 		t.deleted[res]++
 	}
 }
@@ -155,10 +170,10 @@ func (p *PatchSet[Resource]) keyByColumn(dbType DBType) (key map[string]any, ok 
 	return key, len(key) > 0
 }
 
-// recordWrittenRow notes on the transaction that the patch deleted or updated its row,
-// so a count over a record deleted in the same transaction leaves the row out: the
-// count reads the row as it was before the transaction, and the row may be gone or
-// moved from under the record by the commit.
+// recordWrittenRow notes on the transaction that the patch changed its row, so a delete
+// in the same transaction that would take the row is refused: the delete's reads show
+// the row as it was before the transaction, and the row may be moved under the record
+// or from under it by the commit.
 func (p *PatchSet[Resource]) recordWrittenRow(txn ReadWriteTransaction) {
 	recorder, ok := txn.(deleteRecorder)
 	if !ok {
@@ -228,6 +243,9 @@ type rowsUnderWriter struct {
 	dbType  DBType
 	written map[accesstypes.Resource][]map[string]any
 	args    []any
+	// steps counts the steps written of rows' ways to their tenants, so each reads its
+	// table under a name of its own.
+	steps int
 }
 
 // quote spells an identifier as the database type quotes it.
@@ -250,8 +268,8 @@ func (w *rowsUnderWriter) value(v any) string {
 }
 
 // notWritten is the conditions that leave out the rows of a table the transaction
-// itself deleted or updated, for the table read under alias: " AND NOT (...)" for each
-// such row, in the order the transaction wrote them.
+// itself deleted, for the table read under alias: " AND NOT (...)" for each such row,
+// in the order the transaction deleted them.
 func (w *rowsUnderWriter) notWritten(alias string, table accesstypes.Resource) string {
 	var b strings.Builder
 	for _, key := range w.written[table] {
@@ -270,10 +288,74 @@ func (w *rowsUnderWriter) notWritten(alias string, table accesstypes.Resource) s
 	return b.String()
 }
 
+// rowTenant is the tenant of a row as a statement reads it: the column that holds the
+// tenant's key, spelled after the prefix, or, for a row that reaches its tenant through
+// other rows, one scalar subquery for each step of the way. It is NULL where a step's
+// column is empty or names no row, and NULL equals no tenant.
+func (w *rowsUnderWriter) rowTenant(prefix string, binding *DomainBindingData) string {
+	tenant := prefix + w.quote(binding.Column)
+	for _, hop := range binding.Path {
+		w.steps++
+		alias := "n" + strconv.Itoa(w.steps)
+		tenant = fmt.Sprintf("(SELECT %[1]s.%[2]s FROM %[3]s AS %[1]s WHERE %[1]s.%[4]s = %[5]s)",
+			alias, w.quote(hop.Column), w.quote(hop.Table), w.quote(hop.JoinColumn), tenant)
+	}
+
+	return tenant
+}
+
+// ofRecordsTenant is the condition that a row of the kind, its columns spelled after
+// the prefix, is of the record's tenant, as " AND ..." after the conditions that put the
+// row under the record. The record's tenant is the value its key holds where the key
+// holds the tenant's column (the tenant record itself, or a record keyed by its
+// tenant), and is read from the record's row by its key otherwise. It is empty where
+// the kind's rows or the record are no tenant's: every row is then under the record
+// that the links put there.
+func (w *rowsUnderWriter) ofRecordsTenant(prefix string, kind *DeleteKind, tree *DeleteTree, recordKey map[string]any) string {
+	if tree == nil || tree.Tenant == nil || kind.Tenant == nil {
+		return ""
+	}
+	row := w.rowTenant(prefix, kind.Tenant)
+	if value, held := heldTenant(tree, recordKey); held {
+		return fmt.Sprintf(" AND %s = %s", row, w.value(value))
+	}
+	equal := make([]string, 0, len(recordKey))
+	for _, column := range slices.Sorted(maps.Keys(recordKey)) {
+		equal = append(equal, fmt.Sprintf("tr.%s = %s", w.quote(column), w.value(recordKey[column])))
+	}
+
+	return fmt.Sprintf(" AND %s = (SELECT %s FROM %s AS tr WHERE %s)",
+		row, w.rowTenant("tr.", tree.Tenant), w.quote(string(tree.Record)), strings.Join(equal, " AND "))
+}
+
+// heldTenant is the tenant the record's key holds: the value of the column that holds
+// the tenant's key, where the record's rows are a tenant's by a column of their own and
+// the key holds that column (the tenant record itself, or a record keyed by its tenant).
+// held is false where the record is no tenant's, reaches its tenant through other rows,
+// or is keyed without the column.
+func heldTenant(tree *DeleteTree, recordKey map[string]any) (value any, held bool) {
+	if tree == nil || tree.Tenant == nil || len(tree.Tenant.Path) != 0 {
+		return nil, false
+	}
+	value, held = recordKey[tree.Tenant.Column]
+
+	return value, held
+}
+
+// tenantValues is the most values ofRecordsTenant adds to a statement about the kind's
+// rows: the record's key, and none where it writes no condition.
+func tenantValues(kind *DeleteKind, tree *DeleteTree, recordKey map[string]any) int {
+	if tree == nil || tree.Tenant == nil || kind.Tenant == nil {
+		return 0
+	}
+
+	return max(1, len(recordKey))
+}
+
 // way is the condition that a row of the kind, read as t0, is under the record by one
 // path. A path of one step compares the row's own columns with the record's key. A
 // longer one asks for the rows between, each joined to the one before it, the last
-// holding the record's key, and none of them a row the transaction wrote. A last step
+// holding the record's key, and none of them a row the transaction deleted. A last step
 // that references a column outside the record's key (a foreign key to other columns of
 // the record's table) asks for the record's own row too, found by its key, and compares
 // with the column there.
@@ -323,10 +405,11 @@ func (w *rowsUnderWriter) way(index int, path DeletePath, recordKey map[string]a
 
 // newRowsUnderStatement renders the count of a kind's rows under the record with the
 // given key, by any of the kind's ways up to it, leaving out the rows the transaction
-// itself deleted or updated. ok is false when the transaction wrote more rows of one of
-// the tables read than a statement leaves out by key (deleteExclusionLimit): the kind
-// is then not counted.
-func newRowsUnderStatement(dbType DBType, kind *DeleteKind, recordKey map[string]any, written map[accesstypes.Resource][]map[string]any) (statement rowsUnderStatement, ok bool) {
+// itself deleted (written) and, where the kind's rows and the record are a tenant's,
+// the rows of another tenant (ofRecordsTenant). ok is false when the transaction
+// deleted more rows of one of the tables read than a statement leaves out by key
+// (deleteExclusionLimit): the kind is then not counted.
+func newRowsUnderStatement(dbType DBType, tree *DeleteTree, kind *DeleteKind, recordKey map[string]any, written map[accesstypes.Resource][]map[string]any) (statement rowsUnderStatement, ok bool) {
 	if len(written[kind.Resource]) > deleteExclusionLimit {
 		return rowsUnderStatement{}, false
 	}
@@ -349,7 +432,8 @@ func newRowsUnderStatement(dbType DBType, kind *DeleteKind, recordKey map[string
 	if len(ways) == 0 {
 		return rowsUnderStatement{}, false
 	}
-	sql := fmt.Sprintf("SELECT COUNT(*) FROM %s AS t0 WHERE (%s)%s", w.quote(string(kind.Resource)), strings.Join(ways, " OR "), w.notWritten("t0", kind.Resource))
+	sql := fmt.Sprintf("SELECT COUNT(*) FROM %s AS t0 WHERE (%s)%s%s",
+		w.quote(string(kind.Resource)), strings.Join(ways, " OR "), w.ofRecordsTenant("t0.", kind, tree, recordKey), w.notWritten("t0", kind.Resource))
 
 	return rowsUnderStatement{SQL: sql, Args: w.args}, true
 }
@@ -389,7 +473,7 @@ func (t *transactionDeletes) refuse(ctx context.Context, dbType DBType, count ro
 // the transaction deleted is not among them (databaseRemoves): the count never refuses
 // a delete the database would take.
 func (d *recordedDelete) refusal(ctx context.Context, dbType DBType, t *transactionDeletes, count rowCounter) (string, error) {
-	refusing, err := d.rowsOf(ctx, dbType, d.tree.RefusedBy, t.written, count)
+	refusing, err := d.rowsOf(ctx, dbType, d.tree.RefusedBy, t.gone, count)
 	if err != nil {
 		return "", err
 	}
@@ -414,7 +498,7 @@ func (d *recordedDelete) refusal(ctx context.Context, dbType DBType, t *transact
 		}
 		plain = append(plain, *under)
 	}
-	under, err := d.rowsOf(ctx, dbType, plain, t.written, count)
+	under, err := d.rowsOf(ctx, dbType, plain, t.gone, count)
 	if err != nil {
 		return "", err
 	}
@@ -434,7 +518,7 @@ func (d *recordedDelete) refusal(ctx context.Context, dbType DBType, t *transact
 func (d *recordedDelete) rowsOf(ctx context.Context, dbType DBType, kinds []DeleteKind, written map[accesstypes.Resource][]map[string]any, count rowCounter) ([]kindRows, error) {
 	var found []kindRows
 	for i := range kinds {
-		statement, ok := newRowsUnderStatement(dbType, &kinds[i], d.key, written)
+		statement, ok := newRowsUnderStatement(dbType, d.tree, &kinds[i], d.key, written)
 		if !ok {
 			continue
 		}
@@ -451,29 +535,71 @@ func (d *recordedDelete) rowsOf(ctx context.Context, dbType DBType, kinds []Dele
 }
 
 // seen is the kinds the person may be told of: the ones they may list, granted
-// outright in the delete's own scope. A grant that carries a condition shows some of a
-// kind's rows and not others, and the count is of every row, so it is not enough. A
+// outright. A kind of a tenant's rows under a record whose key holds its tenant (the
+// tenant record above all, or a record keyed by its tenant) is asked about in that
+// tenant, whatever scope the delete is asked in, since its rows under the record are
+// that tenant's; every other kind is asked about in the delete's own scope. One check
+// is asked for the kinds of each scope. A grant that carries a condition shows some of
+// a kind's rows and not others, and the count is of every row, so it is not enough. A
 // trusted call is told every kind.
 func (d *recordedDelete) seen(ctx context.Context, kinds []kindRows) ([]kindRows, error) {
 	if d.caller.IsZero() {
 		return kinds, nil
 	}
-	resources := make([]accesstypes.Resource, 0, len(kinds))
-	for _, k := range kinds {
-		resources = append(resources, k.kind.Resource)
-	}
-	decisions, err := d.caller.Check(ctx, accesstypes.List, resources...)
+	tenant, inTenant, err := d.tenantScope(kinds)
 	if err != nil {
 		return nil, err
 	}
+	scopeOf := func(kind *DeleteKind) accesstypes.Scope {
+		if inTenant && kind.Tenant != nil {
+			return tenant
+		}
+
+		return d.caller.Scope
+	}
+	var scopes []accesstypes.Scope
+	resources := make(map[accesstypes.Scope][]accesstypes.Resource, 2)
+	for _, k := range kinds {
+		scope := scopeOf(k.kind)
+		if _, asked := resources[scope]; !asked {
+			scopes = append(scopes, scope)
+		}
+		resources[scope] = append(resources[scope], k.kind.Resource)
+	}
+	decisions := make(map[accesstypes.Scope]accesstypes.Decisions, len(scopes))
+	for _, scope := range scopes {
+		decided, err := d.caller.Permissions.Check(ctx, d.caller.Env, scope, accesstypes.List, resources[scope]...)
+		if err != nil {
+			return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
+		}
+		decisions[scope] = decided
+	}
 	var seen []kindRows
 	for _, k := range kinds {
-		if decisions[k.kind.Resource].IsGranted() {
+		if decisions[scopeOf(k.kind)][k.kind.Resource].IsGranted() {
 			seen = append(seen, k)
 		}
 	}
 
 	return seen, nil
+}
+
+// tenantScope is the scope of the tenant the record's key holds (heldTenant), where one
+// of the kinds is a tenant's rows: ok is false where none is, or the key holds no tenant.
+func (d *recordedDelete) tenantScope(kinds []kindRows) (scope accesstypes.Scope, ok bool, err error) {
+	if !slices.ContainsFunc(kinds, func(k kindRows) bool { return k.kind.Tenant != nil }) {
+		return accesstypes.Scope{}, false, nil
+	}
+	value, held := heldTenant(d.tree, d.key)
+	if !held {
+		return accesstypes.Scope{}, false, nil
+	}
+	domain, err := tenantDomainOf(value)
+	if err != nil {
+		return accesstypes.Scope{}, false, errors.Wrapf(err, "the tenant of a %s", d.tree.Words.One)
+	}
+
+	return accesstypes.DomainScope(domain), true, nil
 }
 
 // deleteRefusedSentence is the sentence a person reads when a delete is refused over
@@ -555,7 +681,8 @@ func (c *SpannerReadWriteTransaction) recordDelete(d recordedDelete) {
 	c.deleted.recordDelete(d)
 }
 
-// recordWritten notes the key of a row a patch of the transaction deleted or updated.
+// recordWritten notes the key of a row a patch of the transaction deleted, or changed
+// without deleting it.
 func (c *SpannerReadWriteTransaction) recordWritten(res accesstypes.Resource, key map[string]any, deleted bool) {
 	c.deleted.recordWritten(res, key, deleted)
 }

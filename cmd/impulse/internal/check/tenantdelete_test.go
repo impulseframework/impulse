@@ -621,7 +621,7 @@ func TestTenantDeleteRule_throughAnotherRow(t *testing.T) {
 }
 
 // TestTenantDeleteRule_lodestar holds the demonstration application to the rule as it
-// stands: its seven tables that carry a sector's key go with the sector, and so do the
+// stands: its eight tables that carry a sector's key go with the sector, and so do the
 // eight that reach their sector through another row, by the rule on every link of each
 // one's way. A table added with a sector's key, or a link added to a way, with no rule
 // fails here before it fails in the pipeline.
@@ -635,7 +635,7 @@ func TestTenantDeleteRule_lodestar(t *testing.T) {
 	got := tenantDeleteRule{}.Run(context.Background(), &Env{App: a})
 	want := Result{
 		Name: tenantDeleteRuleName, Status: Pass,
-		Summary: "7 table(s) that carry a tenant's key go with the tenant (ON DELETE CASCADE to Sectors); 8 table(s) that reach their tenant through another row go with it too (ON DELETE CASCADE on every link of the way)",
+		Summary: "8 table(s) that carry a tenant's key go with the tenant (ON DELETE CASCADE to Sectors); 8 table(s) that reach their tenant through another row go with it too (ON DELETE CASCADE on every link of the way)",
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Run() mismatch (-want +got):\n%s", diff)

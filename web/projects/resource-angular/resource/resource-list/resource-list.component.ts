@@ -35,7 +35,7 @@ import {
   withoutOrphanedCompanions,
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
-import { Domain, TenantProperty } from '@impulseframework/resource';
+import { Domain, RemoveOptions, TenantProperty } from '@impulseframework/resource';
 import {
   AlertType,
   ChildResourceConfig,
@@ -935,7 +935,8 @@ export class ResourceListComponent implements OnInit {
    * question names the row by its own name where the config reads one off the row
    * (`rowTitle`), and the list by its title. The dialog is handed the delete and runs it
    * when the person says so, so a delete the server refuses is answered in the dialog, in
-   * the server's words.
+   * the server's words, and a row whose delete takes records with it is asked about a
+   * second time, in the server's question.
    */
   confirmDeleteRow(row: RecordData): void {
     const config = this.config();
@@ -943,7 +944,7 @@ export class ResourceListComponent implements OnInit {
       name: config.rowTitle?.(row),
       from: config.title,
       inList: true,
-      delete: () => this.deleteRow(row),
+      delete: (options) => this.deleteRow(row, options),
     };
     this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
   }
@@ -952,11 +953,13 @@ export class ResourceListComponent implements OnInit {
    * Deletes one row through the write resource, lifting the key fields the row carries
    * under the table's names — the compound key an association view carries whole. The
    * list's page is read again once the row is gone. A delete the server refuses rejects
-   * with the client's `ApiError`, for whoever asked to show.
+   * with the client's `ApiError`, for whoever asked to show, and so does the delete of a
+   * row with records under it that its delete takes, until the options say it takes them
+   * (`everythingUnder`).
    */
-  deleteRow(row: RecordData): Promise<void> {
+  deleteRow(row: RecordData, options?: RemoveOptions): Promise<void> {
     const handle = this.store.handle();
-    const operation = handle.ops.remove(handle.keyOf(row));
+    const operation = handle.ops.remove(handle.keyOf(row), options);
 
     return this.store.apply([operation], `${this.store.resourceName()} deleted successfully`).then(() => {
       this.store.reloadPage();

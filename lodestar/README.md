@@ -554,9 +554,18 @@ No role Lodestar ships holds Delete on `Sectors`; the suite gives the governor o
 prove it (`test/integration/tenant_delete_skipauth_test.go`). The delete carries the
 class `access`, so a person who acts as the governor under the `act` kind is refused it
 (`TestImpersonation_sectorDeletedActingAsAPerson`). The sector's rows go with
-it by the schema: each of the seven tables that carry a sector's key (Wings, Hangars,
-HangarPasses, Missions, Consignments, DroidReports, DistressCalls) references `Sectors`
-with `ON DELETE CASCADE`, as the skeletons' sample tenant table does, and `impulse check`
+it, and the delete takes them in code: every row under the sector, in the same
+transaction, each through its resource's own delete, so a kind that keeps a change
+record keeps one of the row that went. A sector with rows under it is asked first
+("Delete this sector and everything under it: 1 wing, 1 sector directory, 1 hangar, 1
+distress call, 1 consignment, 1 squadron, 1 ship, 1 distress relay, 1 squadron
+membership, 1 refit, 1 mission, 1 hangar pass, 1 sortie, 1 refit task, 1 mission
+document, 1 sortie expense, and records you can't see. This can't be undone.", counting
+each kind the person may list in that sector), and the request that goes ahead says it
+takes them. The schema carries the same rule under that: each of
+the eight tables that carry a sector's key (Wings, Hangars,
+HangarPasses, Missions, Consignments, DroidReports, DistressCalls, DistressRelays)
+references `Sectors` with `ON DELETE CASCADE`, as the skeletons' sample tenant table does, and `impulse check`
 holds every such table to the rule (`tenant-delete-rule`). A table that reaches its
 sector through another row carries the rule on every link of that way, and the check
 holds it to that too: a squadron goes with its wing and a membership with its squadron,
@@ -583,6 +592,34 @@ to another squadron). The hangar that would take such a ship along, and
 the wing that would take such a squadron, are refused by the database at the commit
 (`commit.referential-refusal`). A hangar pass is the exception among those references:
 it goes with its hangar and with the squadron it is issued to.
+
+A record that declares what goes with it is deleted another way
+([`@deleteCascade`](pkg/resources/missions.go)): the library finds the rows under it and
+deletes each in code, by that row's own delete, once the request says it takes them. A
+mission declares its sorties, their expenses and its documents; a client its contacts,
+with a mission or a consignment refusing its delete; a distress call the relays passed
+along about it; a relay the relays that answer it. A delete of such a record that has
+rows under it deletes nothing at first. It is answered 428 with the question a person is
+asked ("Delete this mission and everything under it: 2 sorties, 1 mission document, 1
+sortie expense. This can't be undone."), which counts each kind the person may list and
+says "and records you can't see" of the rest. The same delete saying so (the remove
+operation's value `{"everythingUnder": true}`) deletes the rows and the record in one
+transaction; the delete dialog asks the server's question in place of its own and sends
+that at the next press. Each row goes by its own resource's delete, so the person needs
+Delete on every kind taken ("This mission has sortie expenses that you can't delete, so
+it can't be deleted."), each kind's own delete rule is asked, a row whose kind tracks
+changes leaves its change record, and a document's stored file is released. A
+client with a mission or a consignment is refused either way ("This client has 10
+missions and 5 consignments, so it can't be deleted."). A record with nothing under it
+is deleted without the question (`test/integration/delete_cascade_test.go`). The relays
+show the two links the generator follows beyond a table's key: a relay names its call by
+its sector and the call's case number, which is unique within a sector and is not the
+call's key, so a relay never names another sector's call
+([`@deleteCascade.other-columns`](pkg/resources/distress_relays.go)), and a relay that
+answers another names it in its own table
+([`@deleteCascade.own-kind`](pkg/resources/distress_relays.go)), so a call's delete takes
+its relays and the relays that answer them, however deep. The Calls page lists a call's
+relays under it ([`distressCalls.config.ts`](web/console/src/app/configs/distressCalls.config.ts)).
 
 How it is wired:
 

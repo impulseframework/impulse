@@ -22,8 +22,14 @@ const (
 	// foreign key's delete rule (v4), each column's generation expression with each
 	// index's search kind (v5), each table's foreign keys whole (v6), and each column's
 	// default expression (v7), and a cache an earlier generator wrote would load without
-	// them under the same schema hash.
-	tableMapCache  string = "tablemap-v7" + genCacheSuffix
+	// them under the same schema hash. It then came to pair a foreign key column with
+	// the column it references by its position in the referenced key (v8), and an
+	// earlier cache would load the pairing as it was read before. It then came to read
+	// the columns of two foreign keys to the same columns once each (v9), and an earlier
+	// cache would load them twice. It then came to refuse a foreign key that lists its
+	// columns in another order than the key it references (v10), and an earlier cache
+	// would load such a schema with the columns crossed and nothing said.
+	tableMapCache  string = "tablemap-v10" + genCacheSuffix
 	enumValueCache string = "enumvalues" + genCacheSuffix
 
 	// latestEmulatorVersion is the emulator's moving tag: a generator may name it, and
