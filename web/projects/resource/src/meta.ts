@@ -1,19 +1,19 @@
 import { Resource } from './brands';
 
 /**
- * The display-type vocabulary: the name the ccc generator emits for every field it
+ * The display-type vocabulary: the name the impulse generator emits for every field it
  * describes, a table column, a view column, a computed field, and an RPC field alike, and
  * the name a browser chooses a control and a cell renderer by. A leaf's display type is
- * its own name on every path (a time.Time is 'date', a civil.Date 'civildate', a impulse.UUID
+ * its own name on every path (a time.Time is 'date', a civil.Date 'civildate', an impulse.UUID
  * 'uuid', so a computed UUID field and a UUID column carry the same name), a nested
  * struct, an imported type, and a value with no fixed shape are 'object', a byte slice is
  * 'bytes', a nullable BOOL column is 'nullboolean', and a picker is 'enumerated'. A slice
  * of a leaf adds [], for every leaf but 'nullboolean', the tri-state rule for one
  * nullable BOOL column. 'enumerated[]' is a method's request field that holds several
  * picked keys; a column stores one key, so no resource field carries it. The list is the
- * generator's own (resource/generation/displaytype.go) and its
- * README's table (section 12), spelled the same, and the generator refuses to emit
- * anything outside it, so the union says exactly what a generated file can carry.
+ * generator's own (generation/displaytype.go) and the table of the resource package's
+ * README (resource/README.md, section 12), spelled the same, and the generator refuses to
+ * emit anything outside it, so the union says exactly what a generated file can carry.
  */
 export type ValidDisplayTypes =
   | 'string'
@@ -213,7 +213,7 @@ export interface FieldMeta {
    * Set when the field is declared `pii` on the server: a filter naming it, a text match
    * on it, or a search box that reaches it must travel in the request body, never in a
    * URL, which the server refuses with a 400. The store posts such a request on its own.
-   * Absent on every other field. Emitted by the ccc TypeScript generator.
+   * Absent on every other field. Emitted by the impulse TypeScript generator.
    */
   pii?: true;
   /**
@@ -231,13 +231,13 @@ export interface FieldMeta {
    * browser. JavaScript counts UTF-16 units and the server counts code points, so the
    * form refuses a little early on astral characters and never accepts what the server
    * refuses. Absent on an unbounded column and on every non-string field. Emitted by the
-   * ccc TypeScript generator.
+   * impulse TypeScript generator.
    */
   maxLength?: number;
   /**
    * The server never accepts this field from clients — it is server-owned
    * (output-only, an @state column, or the tenant key) — so forms render it read-only
-   * in every mode. Emitted by the ccc TypeScript generator.
+   * in every mode. Emitted by the impulse TypeScript generator.
    */
   readOnly?: boolean;
   /**
@@ -245,7 +245,7 @@ export interface FieldMeta {
    * accepted on create and update and absent from every list and read response, and a
    * `columns=` naming it is refused. The generated row interface has no property for it
    * while the Create and Patch shapes carry it, so a create or edit form renders a blank
-   * input for it and a view renders nothing. Emitted by the ccc TypeScript generator.
+   * input for it and a view renders nothing. Emitted by the impulse TypeScript generator.
    */
   writeOnly?: boolean;
   /**
@@ -307,7 +307,7 @@ export interface ResourceMeta {
    * one that says `live: true` is announced once and asks plainly, since its subscription
    * would never hear a change. Absent on metadata from a generator that predates the
    * field: no page is live by itself, and a page's own `live: true` is honored as before.
-   * See pageIsLive. Emitted by the ccc TypeScript generator.
+   * See pageIsLive. Emitted by the impulse TypeScript generator.
    */
   live?: boolean;
   /**

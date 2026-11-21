@@ -126,7 +126,7 @@ export const RESOURCE_DOMAIN = new InjectionToken<Signal<Domain | undefined>>('R
 });
 
 /**
- * The generated resourceMeta from the output of the [ccc package](https://github.com/impulseframework/impulse) typescript generator
+ * The generated resourceMeta from the output of the [impulse package](https://github.com/impulseframework/impulse) typescript generator
  * Required to work with generated routes and resource metadata
  * @defaultValue a no-op function that returns an empty object
  */
@@ -135,7 +135,7 @@ export const RESOURCE_META = new InjectionToken<(resource: Resource) => Resource
 });
 
 /**
- * The generated methodMeta from the output of the [ccc package](https://github.com/impulseframework/impulse) typescript generator
+ * The generated methodMeta from the output of the [impulse package](https://github.com/impulseframework/impulse) typescript generator
  * Required to work with generated method data
  * @defaultValue a no-op function that returns an empty object
  */
