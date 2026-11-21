@@ -71,7 +71,7 @@ import {
   spaceConcatWithoutResource,
   spaceHyphenConcatWithoutResource,
 } from '../concat-fns';
-import { applyFormatting, formatByDisplayType, formatDateString } from '../format-fns';
+import { applyFormatting, formatDateString, formatFieldValue } from '../format-fns';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import {
   DeleteConfirmation,
@@ -91,6 +91,7 @@ import {
   searchReachesPII,
 } from '../search-box/search-fields';
 import {
+  filterChoiceLists,
   filterEligibility,
   filterInputKinds,
   listEmptyMessage,
@@ -522,10 +523,12 @@ export class ResourceListComponent implements OnInit {
     return configured;
   });
 
-  /** One of the row's fields as a sentence writes it: by the field's display type, a null as nothing. */
+  /** One of the row's fields as a sentence writes it: by the name of a fixed value, else by the field's display type, a null as nothing. */
   private fieldText = (field: string, value: DataType | null): string => {
-    const displayType = this.meta()?.fields?.find((f) => f.fieldName === field)?.displayType;
-    return formatByDisplayType(displayType, value);
+    return formatFieldValue(
+      this.meta()?.fields?.find((f) => f.fieldName === field),
+      value,
+    );
   };
 
   /** Whether the rows carry the field their route lifts: no rowRoute, or one the list requests. */
@@ -593,6 +596,9 @@ export class ResourceListComponent implements OnInit {
 
   /** Which control each column's menu takes a value from, from the listed resource's metadata: a date control on a date field, a date and a time on a timestamp. */
   filterInputs = computed(() => filterInputKinds(this.meta(), this.columns()));
+
+  /** The values each column filters by where its field takes one of a fixed set, from the listed resource's metadata: the grid's menu offers their names. */
+  filterChoices = computed(() => filterChoiceLists(this.meta(), this.columns()));
 
   /**
    * The fields the search box searches for this caller: the listed resource's search
@@ -791,18 +797,19 @@ export class ResourceListComponent implements OnInit {
           },
         });
       } else {
-        // A cell without a configured format is written by the field's display type: a
-        // size for bytes, the elements for an array, a place in words or one-line JSON
-        // for an object, a calendar date for a date, the value's text for the rest. A
-        // yes-or-no value is not written at all: the table draws it as a mark
+        // A cell without a configured format is written by the field: the name of the
+        // value where the field takes one of a fixed set, and otherwise by the display
+        // type: a size for bytes, the elements for an array, a place in words or one-line
+        // JSON for an object, a calendar date for a date, the value's text for the rest.
+        // A yes-or-no value is not written at all: the table draws it as a mark
         // (processedRowData).
-        const displayType = this.meta()?.fields?.find((field) => field.fieldName === col.id)?.displayType;
+        const fieldMeta = this.meta()?.fields?.find((field) => field.fieldName === col.id);
         const valueFormatter = (params: DataType | null): string => {
           if (col.formatType) {
             const retValue = applyFormatting(col.formatType, params as string);
             return retValue || (col.emptyDataValue as string);
           }
-          return formatByDisplayType(displayType, params) || (col.emptyDataValue as string);
+          return formatFieldValue(fieldMeta, params) || (col.emptyDataValue as string);
         };
         // A column that says how its cell is read off the row (valueGetter) is read
         // that way, then formatted like any other.

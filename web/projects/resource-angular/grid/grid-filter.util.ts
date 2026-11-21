@@ -2,13 +2,15 @@ import { and, Condition, searchBox, SearchMatch, serializeFilter, where } from '
 import {
   ColumnFilter,
   ColumnFilterability,
+  ColumnFilterChoices,
   ColumnFilterInputs,
   ColumnSearches,
   FILTER_OPERATORS,
+  FilterChoice,
   FilterControl,
-  FilterInput,
   FilterOperator,
   FilterOperatorOption,
+  FilterValueInput,
   MATCH_OPERATORS,
 } from './grid-types';
 
@@ -156,15 +158,53 @@ export function withoutOrphanedCompanions(
 }
 
 /**
- * The control a column's menu takes a value from under an operator: the column's own
- * control (a date, or a date and a time) for one value, and typed text for a list, since
- * a list is typed in the forms the server reads, and on a column with no control.
+ * The control a column's menu takes a value from under an operator. A column whose field
+ * takes fixed values offers their names: one to pick under a comparison with one value,
+ * each to tick under a list. A text match on such a column is typed, since it matches the
+ * text of the stored value. Every other column takes one value from its own control (a
+ * date, or a date and a time) and a list as typed text, since a list is typed in the
+ * forms the server reads, and so does a column with no control.
  */
-export function filterInputFor(columnId: string, inputs: ColumnFilterInputs, operator: FilterOperator): FilterInput {
-  if (operatorOption(operator).takesList) {
+export function filterInputFor(
+  columnId: string,
+  inputs: ColumnFilterInputs,
+  operator: FilterOperator,
+  choices: ColumnFilterChoices = {},
+): FilterValueInput {
+  const list = operatorOption(operator).takesList;
+  if (choices[columnId] !== undefined && !MATCH_OPERATORS.some((option) => option.value === operator)) {
+    return list ? 'choices' : 'choice';
+  }
+  if (list) {
     return 'text';
   }
   return inputs[columnId] ?? 'text';
+}
+
+/** The values a list filter holds: its text split on commas, each trimmed, the empty ones dropped. */
+export function listValues(value: string): string[] {
+  return value
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part !== '');
+}
+
+/**
+ * A list filter's value once one of the field's values is ticked or cleared: the ticked
+ * values in the order the menu offers them, joined with commas, so the same ticks make
+ * the same request whatever order they were made in.
+ */
+export function withChoice(value: string, choices: readonly FilterChoice[], choice: string, ticked: boolean): string {
+  const held = new Set(listValues(value));
+  if (ticked) {
+    held.add(choice);
+  } else {
+    held.delete(choice);
+  }
+  return choices
+    .filter((candidate) => held.has(candidate.value))
+    .map((candidate) => candidate.value)
+    .join(',');
 }
 
 /** A date-and-time value as its two controls hold it: the day and the time of day, either empty. */
@@ -183,15 +223,20 @@ export function joinDateTime(date: string, time: string): string {
 
 /**
  * Whether a control can show a value: a date control shows a day, a date-and-time control
- * a day with or without a time, and a text box anything. A value the next operator's
+ * a day with or without a time, a pick one of the values it offers, a list to tick the
+ * values it offers and no other, and a text box anything. A value the next operator's
  * control cannot show starts over.
  */
-export function fitsInput(value: string, input: FilterInput): boolean {
+export function fitsInput(value: string, input: FilterValueInput, choices: readonly FilterChoice[] = []): boolean {
   switch (input) {
     case 'date':
       return value === '' || /^\d{4}-\d{2}-\d{2}$/.test(value);
     case 'datetime':
       return value === '' || /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/.test(value);
+    case 'choice':
+      return value === '' || choices.some((choice) => choice.value === value);
+    case 'choices':
+      return listValues(value).every((part) => choices.some((choice) => choice.value === part));
     default:
       return true;
   }
@@ -204,14 +249,7 @@ export function conditionOf(filter: ColumnFilter): Condition<Record<string, unkn
     return where(filter.field, filter.operator);
   }
   if (option.takesList) {
-    return where(
-      filter.field,
-      filter.operator,
-      filter.value
-        .split(',')
-        .map((value) => value.trim())
-        .filter((value) => value !== ''),
-    );
+    return where(filter.field, filter.operator, listValues(filter.value));
   }
   return where(filter.field, filter.operator, filter.value.trim());
 }

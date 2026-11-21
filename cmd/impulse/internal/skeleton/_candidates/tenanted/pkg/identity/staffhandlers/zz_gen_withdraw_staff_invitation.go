@@ -78,10 +78,16 @@ func (h *Handlers) WithdrawStaffInvitation() http.HandlerFunc {
 				SetID(p.InvitationID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("StaffSessionMailLink", p.InvitationID)
+				}
+
 				return errors.Wrap(err, "staffresources.StaffSessionMailLinkQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("StaffSessionMailLink %s does not exist", p.InvitationID)
+				return resource.TargetNotFound("StaffSessionMailLink", p.InvitationID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant

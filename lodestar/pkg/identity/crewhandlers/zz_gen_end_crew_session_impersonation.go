@@ -78,10 +78,16 @@ func (h *Handlers) EndCrewSessionImpersonation() http.HandlerFunc {
 				SetSessionID(p.SessionID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("CrewSessionImpersonation", p.SessionID)
+				}
+
 				return errors.Wrap(err, "crewresources.CrewSessionImpersonationQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("CrewSessionImpersonation %s does not exist", p.SessionID)
+				return resource.TargetNotFound("CrewSessionImpersonation", p.SessionID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant

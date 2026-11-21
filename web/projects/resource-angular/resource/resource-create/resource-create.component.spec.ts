@@ -28,6 +28,7 @@ import {
   viewConfig,
 } from '@impulseframework/resource-angular/types';
 
+import { resourceValidators } from '../gui-constants';
 import { ResourceCreateComponent } from './resource-create.component';
 
 describe('ResourceCreateComponent', () => {
@@ -399,9 +400,19 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
     expect(shown.map(({ element }) => labelOf(element))).toEqual(['Call sign']);
   });
 
+  it('and says only that fields are missing while every field it refuses is drawn', () => {
+    fill('notes', 'Hold at the outer marker.');
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(sentence()).toBe('Please complete or fix required fields.');
+  });
+
   // A field that is not shown keeps its control in the form, and that control can be the
-  // first one refused: nothing of it is on the screen to bring into view.
-  it('the first refused field that is drawn, when the first control refused is of a field not shown, and still says so', () => {
+  // first one refused: nothing of it is on the screen to bring into view or to mark, so the
+  // form's sentence names it.
+  it('the first refused field that is drawn, when the first control refused is of a field not shown, and names the one not shown', () => {
     showing([
       field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
       field({ name: 'notes' as FieldName, label: 'Notes' }),
@@ -416,10 +427,12 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
     expect(shown.map(({ element }) => `${element.tagName.toLowerCase()} ${labelOf(element)}`)).toEqual([
       'mat-form-field Name',
     ]);
-    expect(sentence()).toBe('Please complete or fix required fields.');
+    expect(sentence()).toBe(
+      'Please complete or fix required fields. Call sign is missing or wrong, and it is not on this form.',
+    );
   });
 
-  it('nothing, when no field it refuses is drawn, and still says so', () => {
+  it('nothing, when no field it refuses is drawn, and says which field that is and that it is not on the form', () => {
     showing([
       field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
       field({ name: 'notes' as FieldName, label: 'Notes' }),
@@ -432,7 +445,39 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
 
     expect(sent()).toBe(0);
     expect(shown).toEqual([]);
-    expect(sentence()).toBe('Please complete or fix required fields.');
+    expect(sentence()).toBe('Call sign is missing or wrong, and it is not on this form.');
+  });
+
+  it('nothing, when several refused fields are not drawn, and names each of them in the order the form holds them', () => {
+    showing([
+      field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
+      field({ name: 'notes' as FieldName, label: 'Notes' }),
+      field({ name: 'name' as FieldName, label: 'Name', shouldRender: false }),
+    ]);
+    fill('notes', 'Hold at the outer marker.');
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(shown).toEqual([]);
+    expect(sentence()).toBe('Call sign and Name are missing or wrong, and they are not on this form.');
+
+    showing([
+      field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
+      field({
+        name: 'notes' as FieldName,
+        label: 'Notes',
+        shouldRender: false,
+        validators: [resourceValidators.REQUIRED],
+      }),
+      field({ name: 'name' as FieldName, label: 'Name', shouldRender: false }),
+    ]);
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(sent()).toBe(0);
+    expect(sentence()).toBe('Call sign, Notes and Name are missing or wrong, and they are not on this form.');
   });
 
   it('nothing, once the form refuses no field: the create is sent', async () => {
@@ -450,11 +495,12 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
   });
 });
 
-// A yes or no field that is never empty starts at what the page's config gives it. With
-// nothing given, a field the resource requires starts unchecked, and a form saved untouched
-// sends that; a field the resource does not require has a default the resource declares,
-// and the form sends nothing for it, so the server applies that default. Whichever it is,
-// the form writes nothing to the console.
+// A yes or no field starts at what the page's config gives it. With nothing given, a field
+// the resource requires starts unchecked, and a form saved untouched sends that; a field the
+// resource does not require starts at the default the schema declares, which the metadata
+// carries, and a form saved untouched sends it; where the schema declares none the form
+// holds nothing for the field and sends nothing. Whichever it is, the form writes nothing
+// to the console.
 describe('ResourceCreateComponent starts a yes or no field', () => {
   const probes = 'Probes' as Resource;
   const descriptor: ApiDescriptor = {
@@ -482,11 +528,19 @@ describe('ResourceCreateComponent starts a yes or no field', () => {
       fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }),
       // Required, and the page gives nothing.
       fieldMeta('armed', { required: true }),
-      // Not required (the resource declares a default), and the page gives nothing.
+      // Not required, the schema declares no default the metadata carries, and the page gives nothing.
       fieldMeta('docked'),
       // The page gives each of these one, a yes and a no.
       fieldMeta('shielded', { required: true }),
       fieldMeta('listed'),
+      // Not required: the schema declares a yes for one and a no for the other, and the page gives nothing.
+      fieldMeta('lit', { schemaDefault: true }),
+      fieldMeta('dark', { schemaDefault: false }),
+      // The schema declares a yes, and the page gives a no.
+      fieldMeta('moored', { schemaDefault: true }),
+      // Yes, no or nothing: the schema declares a yes for one and nothing for the other.
+      fieldMeta('logged', { displayType: 'nullboolean', schemaDefault: true }),
+      fieldMeta('sealed', { displayType: 'nullboolean' }),
     ],
   };
 
@@ -499,7 +553,12 @@ describe('ResourceCreateComponent starts a yes or no field', () => {
   /** What the form holds for each yes or no field. */
   const held = (): Record<string, unknown> => {
     const form = component.form();
-    return Object.fromEntries(['armed', 'docked', 'shielded', 'listed'].map((name) => [name, form.get(name)?.value]));
+    return Object.fromEntries(
+      ['armed', 'docked', 'shielded', 'listed', 'lit', 'dark', 'moored', 'logged', 'sealed'].map((name) => [
+        name,
+        form.get(name)?.value,
+      ]),
+    );
   };
   /** The value of each add operation sent so far. */
   const adds = (): unknown[] =>
@@ -543,6 +602,11 @@ describe('ResourceCreateComponent starts a yes or no field', () => {
           field({ name: 'docked' as FieldName, label: 'Docked' }),
           field({ name: 'shielded' as FieldName, label: 'Shielded', default: staticDefault({ value: true }) }),
           field({ name: 'listed' as FieldName, label: 'Listed', default: staticDefault({ value: false }) }),
+          field({ name: 'lit' as FieldName, label: 'Lit' }),
+          field({ name: 'dark' as FieldName, label: 'Dark' }),
+          field({ name: 'moored' as FieldName, label: 'Moored', default: staticDefault({ value: false }) }),
+          field({ name: 'logged' as FieldName, label: 'Logged' }),
+          field({ name: 'sealed' as FieldName, label: 'Sealed' }),
         ],
       }),
     );
@@ -553,22 +617,56 @@ describe('ResourceCreateComponent starts a yes or no field', () => {
     vi.restoreAllMocks();
   });
 
-  it('at what the page gives it; with nothing given, unchecked where the resource requires it and at nothing where the resource declares a default; and writes nothing to the console', () => {
+  it('at what the page gives it; with nothing given, unchecked where the resource requires it, at the default the schema declares where it does not, and at nothing where the schema declares none; and writes nothing to the console', () => {
     // Both at once, so that a form that fails says what it started the fields at and what it wrote.
     expect({ held: held(), written }).toEqual({
-      held: { armed: false, docked: null, shielded: true, listed: false },
+      held: {
+        armed: false,
+        docked: null,
+        shielded: true,
+        listed: false,
+        lit: true,
+        dark: false,
+        moored: false,
+        logged: true,
+        sealed: '',
+      },
       written: [],
     });
   });
 
-  it('so a form saved untouched is sent: a no for the required box, what the page gave, and nothing for the field whose default the resource declares', async () => {
+  it('draws the box of a field the schema declares a yes for checked, and unchecked where it declares a no, where it declares nothing, and where the page gives a no', () => {
+    fixture.detectChanges();
+
+    /** Whether the box drawn for a field is checked; undefined where the field has no box. */
+    const checked = (name: string): boolean | undefined =>
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+        `[data-field="${name}"] input[type="checkbox"]`,
+      )?.checked;
+
+    expect({
+      lit: checked('lit'),
+      dark: checked('dark'),
+      docked: checked('docked'),
+      moored: checked('moored'),
+    }).toEqual({
+      lit: true,
+      dark: false,
+      docked: false,
+      moored: false,
+    });
+  });
+
+  it('so a form saved untouched is sent: a no for the required box, what the page gave, what the schema declares, and nothing for the field with no default declared', async () => {
     component.saveForm();
     for (let i = 0; i < 30 && adds().length === 0; i++) {
       TestBed.tick();
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
-    expect(adds()).toEqual([{ armed: false, shielded: true, listed: false }]);
+    expect(adds()).toEqual([
+      { armed: false, shielded: true, listed: false, lit: true, dark: false, moored: false, logged: true },
+    ]);
   });
 });
 

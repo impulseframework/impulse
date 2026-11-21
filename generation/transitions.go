@@ -160,17 +160,6 @@ func (t *rpcTarget) KeyArgs(receiver string) string {
 	return strings.Join(args, ", ")
 }
 
-// KeyVerbs renders the format verbs a message names the row with: one %s for
-// each key value, as the gate's own messages join them.
-func (t *rpcTarget) KeyVerbs() string {
-	verbs := make([]string, 0, len(t.Keys))
-	for range t.Keys {
-		verbs = append(verbs, "%s")
-	}
-
-	return strings.Join(verbs, ", ")
-}
-
 // PKColumns renders the target's key columns as the Go literal the gate's
 // ExecuteTarget takes: `[]string{"Id"}`, or `[]string{"UserId", "Role"}`.
 func (t *rpcTarget) PKColumns() string {

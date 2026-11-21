@@ -13,8 +13,9 @@ import (
 // Test_createTableMapUsingQuery reads the index-shapes fixture schema through the
 // emulator and pins what the information schema yields: every index's composition,
 // the primary key and Spanner's foreign-key backing indexes included, the column flags
-// derived from it, and the cascade facts the audit pass reads: each table's parent and
-// delete action, and each foreign key's delete rule. Orders and Seats share the column
+// derived from it, the cascade facts the audit pass reads: each table's parent and
+// delete action, and each foreign key's delete rule, and each column's default
+// expression. Orders and Seats share the column
 // name Note and every table carries a PRIMARY_KEY index, so an index joined to its
 // columns on index name alone would leak across tables here. Requires the Spanner
 // emulator (podman/docker).
@@ -74,6 +75,9 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 		// wantForeignKeys are the table's foreign keys whole, in constraint name order,
 		// compared where a case names any.
 		wantForeignKeys []foreignKeyMeta
+		// wantDefaults maps a column to its default expression as the information
+		// schema spells it, "" where the column declares none.
+		wantDefaults map[string]string
 	}{
 		{
 			name:        "a table with only its primary key, sharing the key column name with Orders",
@@ -180,6 +184,18 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 				{Name: "FK_Stubs_PassId", Columns: []string{"PassId"}, ReferencedTable: "Passes", ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"},
 			},
 		},
+		{
+			// The expression comes back as the migration wrote it, in its own case and
+			// without the parentheses the DDL wraps it in.
+			name:        "each column's default is read as the schema declares it",
+			table:       "Switches",
+			wantIndexes: []indexMeta{{Name: "PRIMARY_KEY", PrimaryKey: true, Unique: true, Key: []indexColumn{{Column: "Id"}}}},
+			wantFlags:   map[string][2]bool{"Id": {true, true}},
+			wantTypes:   map[string]string{"Lit": "BOOL", "Maybe": "BOOL", "Count": "INT64"},
+			wantDefaults: map[string]string{
+				"Id": "", "Lit": "TRUE", "Dark": "FALSE", "Low": "false", "Open": "", "Odd": "1 = 1", "Maybe": "TRUE", "Count": "0",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -223,6 +239,12 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 			if tt.wantForeignKeys != nil {
 				if diff := cmp.Diff(tt.wantForeignKeys, table.ForeignKeys); diff != "" {
 					t.Errorf("%s foreign keys mismatch (-want +got):\n%s", tt.table, diff)
+				}
+			}
+			for column, want := range tt.wantDefaults {
+				meta := table.Columns[column]
+				if meta.Default != want || meta.HasDefault != (want != "") {
+					t.Errorf("%s.%s (Default, HasDefault) = (%q, %v), want (%q, %v)", tt.table, column, meta.Default, meta.HasDefault, want, want != "")
 				}
 			}
 		})
