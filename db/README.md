@@ -22,7 +22,7 @@ A test suite can start the Spanner emulator or the Firestore emulator, the local
 
 ### Spanner
 
-`NewSpannerContainer(ctx, "1.5.56")` starts the Spanner emulator image of that version and creates an instance on it. `CreateDatabase` then gives each test a database of its own.
+`NewSpannerContainer(ctx, "1.5.56")` starts the Spanner emulator image of that version and creates an instance on it. `CreateDatabase` then gives each test a database of its own. `SpannerDB.DDL` returns the statements that would create the database's schema as it stands, as the database prints them.
 
 ### Firestore
 

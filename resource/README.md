@@ -1748,6 +1748,15 @@ with nothing gone where it cannot be made whole:
   link to itself (`DeleteKind.Within`: an answer names the relay it answers) is followed
   until a level finds nothing new, so a row under a row of its own kind goes however deep
   it is, and so does one that is under the record through such a row alone.
+- A foreign key of two or more columns is written with its columns in the order of the
+  key it references: for an order keyed `(Depot, Number)`, a line's is
+  `FOREIGN KEY (OrderDepot, OrderNumber) REFERENCES Orders (Depot, Number)`. The generator
+  refuses one written in another order, naming the table and the foreign key and printing
+  the line to write. The emulator the schema is read through answers a column's position
+  in the referenced key with its position in the foreign key, so the other order would
+  read with its columns crossed, and what is under a record would be looked for by the
+  wrong column. Where the columns referenced are not the other table's key, the order is
+  the one the database holds them in, which the refusal prints.
 - A row of a kind the record lists under `refusedBy` refuses the delete wherever it is
   under the record. One under a row that is under the record through a row of its own
   kind alone (an invoice for a task under a task) is on none of the kind's ways up, so it

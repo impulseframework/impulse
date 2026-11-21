@@ -2,9 +2,9 @@
 -- references. A berth is keyed by its dock and its slot, in that order, and is also known
 -- by its name and its tag. A mooring names its berth in the key's order. A line names a
 -- mooring by the mooring's slot, the second column of the mooring's own foreign key. A
--- hawser names its berth with the two columns in the other order than the berth's key,
--- and a fender names its berth by the name and the tag, in the other order than the
--- berth's columns.
+-- spring names its berth by a foreign key the schema gives no name, and a painter by one
+-- added once the table is there. (The foreign keys that name a berth in another order
+-- than its key are in testdata/crossedkeys: the generator refuses them.)
 CREATE TABLE Berths (
   Dock STRING(16) NOT NULL,
   Slot INT64 NOT NULL,
@@ -27,18 +27,18 @@ CREATE TABLE Lines (
   CONSTRAINT FK_Lines_MooringSlot FOREIGN KEY (MooringSlot) REFERENCES Moorings (BerthSlot),
 ) PRIMARY KEY (Id);
 
-CREATE TABLE Hawsers (
+CREATE TABLE Springs (
   Id STRING(36) NOT NULL,
-  BerthSlot INT64 NOT NULL,
   BerthDock STRING(16) NOT NULL,
+  BerthSlot INT64 NOT NULL,
 
-  CONSTRAINT FK_Hawsers_Berth FOREIGN KEY (BerthSlot, BerthDock) REFERENCES Berths (Slot, Dock),
+  FOREIGN KEY (BerthDock, BerthSlot) REFERENCES Berths (Dock, Slot),
 ) PRIMARY KEY (Id);
 
-CREATE TABLE Fenders (
+CREATE TABLE Painters (
   Id STRING(36) NOT NULL,
-  BerthTag INT64 NOT NULL,
-  BerthName STRING(16) NOT NULL,
-
-  CONSTRAINT FK_Fenders_Berth FOREIGN KEY (BerthTag, BerthName) REFERENCES Berths (Tag, Name),
+  BerthDock STRING(16) NOT NULL,
+  BerthSlot INT64 NOT NULL,
 ) PRIMARY KEY (Id);
+
+ALTER TABLE Painters ADD CONSTRAINT FK_Painters_Berth FOREIGN KEY (BerthDock, BerthSlot) REFERENCES Berths (Dock, Slot);

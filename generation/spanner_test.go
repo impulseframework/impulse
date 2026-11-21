@@ -46,7 +46,7 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 		releaseSpannerContainer(context.Background(), spannerContainer)
 	})
 
-	tableMap, err := createTableMapUsingQuery(ctx, db.Client)
+	tableMap, err := createTableMapUsingQuery(ctx, db)
 	if err != nil {
 		t.Fatalf("createTableMapUsingQuery() error = %v", err)
 	}

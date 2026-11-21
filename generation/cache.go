@@ -26,8 +26,10 @@ const (
 	// the column it references by its position in the referenced key (v8), and an
 	// earlier cache would load the pairing as it was read before. It then came to read
 	// the columns of two foreign keys to the same columns once each (v9), and an earlier
-	// cache would load them twice.
-	tableMapCache  string = "tablemap-v9" + genCacheSuffix
+	// cache would load them twice. It then came to refuse a foreign key that lists its
+	// columns in another order than the key it references (v10), and an earlier cache
+	// would load such a schema with the columns crossed and nothing said.
+	tableMapCache  string = "tablemap-v10" + genCacheSuffix
 	enumValueCache string = "enumvalues" + genCacheSuffix
 
 	// latestEmulatorVersion is the emulator's moving tag: a generator may name it, and

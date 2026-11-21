@@ -4,10 +4,13 @@ import (
 	"context"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/spxscan"
 )
 
@@ -21,39 +24,22 @@ type keyPosition struct {
 	InUnique   int64  `spanner:"POSITION_IN_UNIQUE_CONSTRAINT"`
 }
 
-// Test_createTableMapUsingQuery_keyOrder reads foreign keys of two columns through the
-// emulator and pins how each column is paired with the column it references.
-//
-// Google's documentation of INFORMATION_SCHEMA.KEY_COLUMN_USAGE defines the pairing
-// (https://docs.cloud.google.com/spanner/docs/information-schema): a foreign key
-// column's POSITION_IN_UNIQUE_CONSTRAINT is "the ordinal position of the column within
-// the unique constraint", so the column pairs with the column at that position of the
-// constraint the foreign key references, whatever order the foreign key lists its own
-// columns in. The generator's queries pair by that column, on the foreign key itself and
-// on the foreign key a referenced column is in turn part of.
-//
-// The emulator answers that column against the documentation. It gives each foreign key
-// column its own position in the foreign key, the same number as ORDINAL_POSITION, and
-// it lists the referenced columns in the referenced table's own order, not the order the
-// foreign key names them in. So a foreign key that names its columns in another order
-// than the key it references reads through the emulator with its columns crossed. The
-// cases that set declared pin that as what the emulator does, beside what the schema
-// declares, which is what a database that answers as documented reads. Requires the
-// Spanner emulator (podman/docker).
-func Test_createTableMapUsingQuery_keyOrder(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("the schema read requires the Spanner emulator")
-	}
+// keyOrderDatabase migrates the named fixture directories of testdata, one layered over
+// the other in the order given, into a database of their own on an emulator the test
+// releases.
+func keyOrderDatabase(ctx context.Context, t *testing.T, fixtures ...string) *initiator.SpannerDB {
+	t.Helper()
 
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller() failed")
 	}
-	migrations := "file://" + filepath.Join(filepath.Dir(thisFile), "testdata", "migrations")
+	sources := make([]string, 0, len(fixtures))
+	for _, fixture := range fixtures {
+		sources = append(sources, "file://"+filepath.Join(filepath.Dir(thisFile), "testdata", fixture))
+	}
 
-	ctx := context.Background()
-	db, spannerContainer, err := createSpannerDB(ctx, "1.5.56", []string{migrations})
+	db, spannerContainer, err := createSpannerDB(ctx, "1.5.56", sources)
 	if err != nil {
 		t.Fatalf("createSpannerDB() error = %v", err)
 	}
@@ -66,6 +52,134 @@ func Test_createTableMapUsingQuery_keyOrder(t *testing.T) {
 		}
 		releaseSpannerContainer(context.Background(), spannerContainer)
 	})
+
+	return db
+}
+
+// Test_createTableMapUsingQuery_keyOrder reads foreign keys of two columns through the
+// emulator and pins how each column is paired with the column it references, where the
+// foreign key names its columns in the order of the key it references: named in the
+// table, left without a name, and added once the table is there. Each is found in the
+// DDL the database prints, which is what its order is checked against. Requires the
+// Spanner emulator (podman/docker).
+func Test_createTableMapUsingQuery_keyOrder(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("the schema read requires the Spanner emulator")
+	}
+
+	ctx := context.Background()
+	db := keyOrderDatabase(ctx, t, "migrations")
+
+	tableMap, err := createTableMapUsingQuery(ctx, db)
+	if err != nil {
+		t.Fatalf("createTableMapUsingQuery() error = %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		table string
+		// wantReferences maps a column to the table and column it reads as referencing.
+		wantReferences  map[string]string
+		wantForeignKeys []foreignKeyMeta
+		// namedByDatabase marks a foreign key the schema gives no name: the database
+		// names it, and the name is not compared.
+		namedByDatabase bool
+	}{
+		{
+			name:           "a foreign key that names its columns in the key's order",
+			table:          "Moorings",
+			wantReferences: map[string]string{"BerthDock": "Berths.Dock", "BerthSlot": "Berths.Slot"},
+			wantForeignKeys: []foreignKeyMeta{
+				{Name: "FK_Moorings_Berth", Columns: []string{"BerthDock", "BerthSlot"}, ReferencedTable: "Berths", ReferencedColumns: []string{"Dock", "Slot"}, DeleteRule: "NO ACTION"},
+			},
+		},
+		{
+			// The mooring's slot is the second column of the mooring's own foreign key, so
+			// it leads on to the second column of the berth's key, whatever position the
+			// line's column has in the line's foreign key.
+			name:           "a column that references the second column of another foreign key reads on to what that column references",
+			table:          "Lines",
+			wantReferences: map[string]string{"MooringSlot": "Berths.Slot"},
+			wantForeignKeys: []foreignKeyMeta{
+				{Name: "FK_Lines_MooringSlot", Columns: []string{"MooringSlot"}, ReferencedTable: "Moorings", ReferencedColumns: []string{"BerthSlot"}, DeleteRule: "NO ACTION"},
+			},
+		},
+		{
+			name:           "a foreign key the schema gives no name",
+			table:          "Springs",
+			wantReferences: map[string]string{"BerthDock": "Berths.Dock", "BerthSlot": "Berths.Slot"},
+			wantForeignKeys: []foreignKeyMeta{
+				{Columns: []string{"BerthDock", "BerthSlot"}, ReferencedTable: "Berths", ReferencedColumns: []string{"Dock", "Slot"}, DeleteRule: "NO ACTION"},
+			},
+			namedByDatabase: true,
+		},
+		{
+			name:           "a foreign key added once the table is there",
+			table:          "Painters",
+			wantReferences: map[string]string{"BerthDock": "Berths.Dock", "BerthSlot": "Berths.Slot"},
+			wantForeignKeys: []foreignKeyMeta{
+				{Name: "FK_Painters_Berth", Columns: []string{"BerthDock", "BerthSlot"}, ReferencedTable: "Berths", ReferencedColumns: []string{"Dock", "Slot"}, DeleteRule: "NO ACTION"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			table, ok := tableMap[tt.table]
+			if !ok {
+				t.Fatalf("table %s not in the table map", tt.table)
+			}
+			got := make(map[string]string, len(tt.wantReferences))
+			for column := range tt.wantReferences {
+				got[column] = table.Columns[column].ReferencedTable + "." + table.Columns[column].ReferencedColumn
+			}
+			if diff := cmp.Diff(tt.wantReferences, got); diff != "" {
+				t.Errorf("%s references mismatch (-want +got):\n%s", tt.table, diff)
+			}
+			var options cmp.Options
+			if tt.namedByDatabase {
+				options = append(options, cmpopts.IgnoreFields(foreignKeyMeta{}, "Name"))
+			}
+			if diff := cmp.Diff(tt.wantForeignKeys, table.ForeignKeys, options); diff != "" {
+				t.Errorf("%s foreign keys mismatch (-want +got):\n%s", tt.table, diff)
+			}
+		})
+	}
+}
+
+// Test_createTableMapUsingQuery_crossedForeignKey reads a schema with foreign keys that
+// name their columns in another order than the key they reference, and pins both why
+// the generator refuses them and that it does.
+//
+// Google's documentation of INFORMATION_SCHEMA.KEY_COLUMN_USAGE defines the pairing
+// (https://docs.cloud.google.com/spanner/docs/information-schema): a foreign key
+// column's POSITION_IN_UNIQUE_CONSTRAINT is "the ordinal position of the column within
+// the unique constraint", so the column pairs with the column at that position of the
+// constraint the foreign key references, whatever order the foreign key lists its own
+// columns in. The generator's queries pair by that column, on the foreign key itself and
+// on the foreign key a referenced column is in turn part of.
+//
+// The emulator answers that column against the documentation. It gives each foreign key
+// column its own position in the foreign key, the same number as ORDINAL_POSITION, and
+// it lists the referenced columns in the order it holds them in, not the order the
+// foreign key names them in. So a foreign key that names its columns in another order
+// than the key it references reads through the emulator with its columns crossed, and
+// the generator reads every schema through the emulator. The first subtest pins that
+// answer. The DDL the emulator prints keeps the two lists of each foreign key as the
+// schema wrote them, and a foreign key the read pairs otherwise than that is refused,
+// with the line that says the same link in the key's order. Requires the Spanner
+// emulator (podman/docker).
+func Test_createTableMapUsingQuery_crossedForeignKey(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("the schema read requires the Spanner emulator")
+	}
+
+	ctx := context.Background()
+	db := keyOrderDatabase(ctx, t, "migrations", "crossedkeys")
 
 	t.Run("the emulator answers each foreign key column's own position", func(t *testing.T) {
 		t.Parallel()
@@ -90,85 +204,31 @@ func Test_createTableMapUsingQuery_keyOrder(t *testing.T) {
 			{Constraint: "FK_Moorings_Berth", Column: "BerthSlot", Ordinal: 2, InUnique: 2},
 		}
 		if diff := cmp.Diff(want, got); diff != "" {
-			t.Errorf("the emulator's positions changed; if it now answers as documented, the cases below that set declared read as declared (-want +got):\n%s", diff)
+			t.Errorf("the emulator's positions changed; if it now answers as documented, the hawser's and the fender's foreign keys read as declared and are no longer refused (-want +got):\n%s", diff)
 		}
 	})
 
-	tableMap, err := createTableMapUsingQuery(ctx, db.Client)
-	if err != nil {
-		t.Fatalf("createTableMapUsingQuery() error = %v", err)
-	}
+	t.Run("a foreign key in another order than the key it references is refused with the line to write", func(t *testing.T) {
+		t.Parallel()
 
-	tests := []struct {
-		name  string
-		table string
-		// wantReferences maps a column to the table and column it reads as referencing.
-		wantReferences  map[string]string
-		wantForeignKeys []foreignKeyMeta
-		// declared is what the schema declares, set where the emulator's answers cross
-		// the columns: a database that answers as documented reads this.
-		declared map[string]string
-	}{
-		{
-			name:           "a foreign key that names its columns in the key's order",
-			table:          "Moorings",
-			wantReferences: map[string]string{"BerthDock": "Berths.Dock", "BerthSlot": "Berths.Slot"},
-			wantForeignKeys: []foreignKeyMeta{
-				{Name: "FK_Moorings_Berth", Columns: []string{"BerthDock", "BerthSlot"}, ReferencedTable: "Berths", ReferencedColumns: []string{"Dock", "Slot"}, DeleteRule: "NO ACTION"},
-			},
-		},
-		{
-			// The mooring's slot is the second column of the mooring's own foreign key, so
-			// it leads on to the second column of the berth's key, whatever position the
-			// line's column has in the line's foreign key.
-			name:           "a column that references the second column of another foreign key reads on to what that column references",
-			table:          "Lines",
-			wantReferences: map[string]string{"MooringSlot": "Berths.Slot"},
-			wantForeignKeys: []foreignKeyMeta{
-				{Name: "FK_Lines_MooringSlot", Columns: []string{"MooringSlot"}, ReferencedTable: "Moorings", ReferencedColumns: []string{"BerthSlot"}, DeleteRule: "NO ACTION"},
-			},
-		},
-		{
-			name:           "a foreign key that names its columns in another order than the key it references",
-			table:          "Hawsers",
-			wantReferences: map[string]string{"BerthSlot": "Berths.Dock", "BerthDock": "Berths.Slot"},
-			wantForeignKeys: []foreignKeyMeta{
-				{Name: "FK_Hawsers_Berth", Columns: []string{"BerthSlot", "BerthDock"}, ReferencedTable: "Berths", ReferencedColumns: []string{"Dock", "Slot"}, DeleteRule: "NO ACTION"},
-			},
-			declared: map[string]string{"BerthSlot": "Berths.Slot", "BerthDock": "Berths.Dock"},
-		},
-		{
-			name:           "a foreign key to columns that are no key, in another order than the table's columns",
-			table:          "Fenders",
-			wantReferences: map[string]string{"BerthTag": "Berths.Name", "BerthName": "Berths.Tag"},
-			wantForeignKeys: []foreignKeyMeta{
-				{Name: "FK_Fenders_Berth", Columns: []string{"BerthTag", "BerthName"}, ReferencedTable: "Berths", ReferencedColumns: []string{"Name", "Tag"}, DeleteRule: "NO ACTION"},
-			},
-			declared: map[string]string{"BerthTag": "Berths.Tag", "BerthName": "Berths.Name"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			table, ok := tableMap[tt.table]
-			if !ok {
-				t.Fatalf("table %s not in the table map", tt.table)
+		tableMap, err := createTableMapUsingQuery(ctx, db)
+		if err == nil {
+			hawser, fender := tableMap["Hawsers"], tableMap["Fenders"]
+			t.Fatalf("createTableMapUsingQuery() error = nil, want the two foreign keys refused; it read the hawser's as %+v and the fender's as %+v", hawser.ForeignKeys, fender.ForeignKeys)
+		}
+		for _, want := range []string{
+			"table Hawsers: foreign key FK_Hawsers_Berth (BerthSlot, BerthDock) lists its columns in another order than the key it references in Berths. Write it in the key's order: FOREIGN KEY (BerthDock, BerthSlot) REFERENCES Berths (Dock, Slot)",
+			"table Fenders: foreign key FK_Fenders_Berth (BerthTag, BerthName) lists its columns in another order than the key it references in Berths. Write it in the key's order: FOREIGN KEY (BerthName, BerthTag) REFERENCES Berths (Name, Tag)",
+		} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("createTableMapUsingQuery() error = %v, want it to contain %q", err, want)
 			}
-			got := make(map[string]string, len(tt.wantReferences))
-			for column := range tt.wantReferences {
-				got[column] = table.Columns[column].ReferencedTable + "." + table.Columns[column].ReferencedColumn
+		}
+		// The foreign keys in the key's order are in the same schema, and none is named.
+		for _, not := range []string{"Moorings", "Springs", "Painters", "Stubs", "Seals"} {
+			if strings.Contains(err.Error(), "table "+not+":") {
+				t.Errorf("createTableMapUsingQuery() error = %v, want it not to name the table %s", err, not)
 			}
-			if diff := cmp.Diff(tt.wantReferences, got); diff != "" {
-				t.Errorf("%s references mismatch (-want +got):\n%s", tt.table, diff)
-				if tt.declared != nil {
-					t.Logf("the schema declares %v: the pin here is the emulator's crossed answer, and moves to that once the emulator answers as documented", tt.declared)
-				}
-			}
-			if diff := cmp.Diff(tt.wantForeignKeys, table.ForeignKeys); diff != "" {
-				t.Errorf("%s foreign keys mismatch (-want +got):\n%s", tt.table, diff)
-			}
-		})
-	}
+		}
+	})
 }

@@ -59,7 +59,7 @@ func (c *client) runSpanner(ctx context.Context, emulatorVersion string, migrati
 	}
 	defer releaseSpannerContainer(ctx, spannerContainer)
 
-	tableMap, err := createTableMapUsingQuery(ctx, db.Client)
+	tableMap, err := createTableMapUsingQuery(ctx, db)
 	if err != nil {
 		return errors.Wrap(err, "newTableMap()")
 	}
@@ -83,9 +83,14 @@ func (c *client) runSpanner(ctx context.Context, emulatorVersion string, migrati
 	return nil
 }
 
-func createTableMapUsingQuery(ctx context.Context, db *spanner.Client) (map[string]*tableMetadata, error) {
+// createTableMapUsingQuery reads the database's schema into the table map: every
+// table's columns, indexes and foreign keys from the information schema. A schema with a
+// foreign key the read pairs otherwise than the schema declares it is refused
+// (refuseCrossedForeignKeys), so no map holds a crossed link.
+func createTableMapUsingQuery(ctx context.Context, database *initiator.SpannerDB) (map[string]*tableMetadata, error) {
 	log.Println("Creating spanner table lookup...")
 
+	db := database.Client
 	results, err := queryInformationSchema(ctx, db)
 	if err != nil {
 		return nil, err
@@ -139,6 +144,14 @@ func createTableMapUsingQuery(ctx context.Context, db *spanner.Client) (map[stri
 		table.deriveIndexFlags()
 	}
 
+	ddl, err := database.DDL(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "initiator.SpannerDB.DDL()")
+	}
+	if err := refuseCrossedForeignKeys(schemaMetadata, declaredForeignKeys(ddl)); err != nil {
+		return nil, err
+	}
+
 	return schemaMetadata, nil
 }
 
@@ -169,9 +182,11 @@ func valueOrEmpty(s *string) string {
 // references. A foreign key column is paired with the column it references by its
 // POSITION_IN_UNIQUE_CONSTRAINT, which the information schema defines as the column's
 // position within the constraint the foreign key references, so the pairing does not
-// depend on the order the foreign key lists its own columns in. Where the referenced
-// column is itself part of a foreign key, the read goes one step on, to what that column
-// references, paired by that column's position in the same way.
+// depend on the order the foreign key lists its own columns in. The emulator answers
+// that position otherwise, and a foreign key it would so pair crossed is refused
+// (refuseCrossedForeignKeys). Where the referenced column is itself part of a foreign
+// key, the read goes one step on, to what that column references, paired by that
+// column's position in the same way.
 const tableMapQuery string = `WITH DEPENDENCIES AS (
 		SELECT
 			kcu1.TABLE_NAME, 
