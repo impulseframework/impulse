@@ -385,6 +385,17 @@ describe("the filter menu's value control", () => {
     expect(emitted).toEqual([{ field: 'deadline', operator: 'eq', value: '2026-12-15T09:30' }]);
   });
 
+  it('groups Apply with Clear, and a day with its time of day, so a narrow menu moves each pair to the next line whole', async () => {
+    await create({ deadline: 'datetime', expiresOn: 'date' });
+    const menu = await openMenu(0);
+    const within = (group: string, selector: string): string[] =>
+      Array.from(menu.querySelectorAll<HTMLElement>(`.filter-menu-content > ${group} > ${selector}`)).map(
+        (element) => element.querySelector('input')?.type ?? element.textContent?.trim() ?? '',
+      );
+    expect(within('.filter-date-time', 'mat-form-field')).toEqual(['date', 'time']);
+    expect(within('.filter-actions', 'button')).toEqual(['Apply', 'Clear']);
+  });
+
   it('a timestamp column with the day alone sends the day', async () => {
     await create({ deadline: 'datetime', expiresOn: 'date' });
     const menu = await openMenu(0);
