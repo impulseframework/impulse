@@ -17,10 +17,20 @@ import (
 )
 
 // The user's email address, in two states (see the auth set's SessionUserEmail
-// migration). The address is matched without regard to case through the normalized
-// column, which the database derives; on a store whose usernames are the addresses
-// the database derives the address itself from the username, so the driver writes the
-// username where it would write the address and never writes Email.
+// migration). The address is matched without regard to the case of its ASCII letters
+// through the normalized column, which the database derives; on a store whose usernames
+// are the addresses the database derives the address itself from the username, so the
+// driver writes the username where it would write the address and never writes Email.
+
+// addressFold is the form the normalized column holds, over operand (the column's
+// source or a parameter), which every lookup by address compares the column with: the
+// address with its ASCII capital letters lowercased and every other character as
+// written. It must equal util.LowerASCII, the rule the library compares two addresses
+// by. LOWER over BYTES treats its argument as ASCII and leaves every byte above 127 as
+// it is, so it folds nothing else, and the bytes it returns are the UTF-8 it was given.
+func addressFold(operand string) string {
+	return fmt.Sprintf(`CAST(LOWER(CAST(%s AS BYTES)) AS STRING)`, operand)
+}
 
 // emailVerifiedAtColumn is the column that records when the address was verified.
 const (
@@ -40,12 +50,12 @@ func errEmailTaken(email string) error {
 }
 
 // UserByEmail returns the user holding the address, verified or not, matched without
-// regard to case, or NotFound.
+// regard to the case of its ASCII letters, or NotFound.
 func (s *SessionStorageDriver) UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT %s FROM %s WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email)`, s.userSelectColumns(), s.userTableName))
+	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT %s FROM %s WHERE NormalizedEmail = %s`, s.userSelectColumns(), s.userTableName, addressFold("@email")))
 	stmt.Params["email"] = email
 
 	user := &dbtype.SessionUser{}
@@ -314,14 +324,14 @@ func (s *SessionStorageDriver) ClaimVerifiedEmailIn(ctx context.Context, tx *spa
 }
 
 // UserByEmailIn reads the user holding email inside tx, verified or not, matched
-// without regard to case, or nil when there is none.
+// without regard to the case of its ASCII letters, or nil when there is none.
 func (s *SessionStorageDriver) UserByEmailIn(ctx context.Context, tx *spanner.ReadWriteTransaction, email string) (*dbtype.User, error) {
 	return s.userByEmailIn(ctx, tx, email, "")
 }
 
 // UserByVerifiedEmailIn reads the user who holds email as a verified address inside
-// tx, matched without regard to case, or nil when there is none; an address a user
-// holds unverified matches no one.
+// tx, matched without regard to the case of its ASCII letters, or nil when there is
+// none; an address a user holds unverified matches no one.
 func (s *SessionStorageDriver) UserByVerifiedEmailIn(ctx context.Context, tx *spanner.ReadWriteTransaction, email string) (*dbtype.User, error) {
 	return s.userByEmailIn(ctx, tx, email, "AND EmailVerifiedAt IS NOT NULL")
 }
@@ -330,7 +340,7 @@ func (s *SessionStorageDriver) UserByVerifiedEmailIn(ctx context.Context, tx *sp
 // matched on the normalized address and narrowed by the clause more, or nil when
 // there is none.
 func (s *SessionStorageDriver) userByEmailIn(ctx context.Context, tx *spanner.ReadWriteTransaction, email, more string) (*dbtype.User, error) {
-	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT Id, Username, PasswordHash, Disabled FROM %s WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) %s`, s.userTableName, more))
+	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT Id, Username, PasswordHash, Disabled FROM %s WHERE NormalizedEmail = %s %s`, s.userTableName, addressFold("@email"), more))
 	stmt.Params["email"] = email
 
 	var user *dbtype.User

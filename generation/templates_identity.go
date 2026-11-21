@@ -1152,10 +1152,12 @@ func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, user
 func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (id impulse.UUID, found bool, err error) {
 	// A read that goes past the declarations, as UserID's is: the table's normalized
 	// address is no field of the declaration, and it is the column the unique index
-	// is over, so the address is compared as the session library compares one. An
-	// address nobody confirmed names no one, as at a sign-in.
+	// is over, so the address is compared as the session library compares one, by the
+	// case of its ASCII letters alone (LOWER over BYTES treats its argument as ASCII and
+	// leaves every byte above 127 as it is). An address nobody confirmed names no one,
+	// as at a sign-in.
 	stmt := spanner.Statement{
-		SQL:    "SELECT Id FROM {{ .Tables.Users }} WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL",
+		SQL:    "SELECT Id FROM {{ .Tables.Users }} WHERE NormalizedEmail = CAST(LOWER(CAST(@email AS BYTES)) AS STRING) AND EmailVerifiedAt IS NOT NULL",
 		Params: map[string]any{"email": email},
 	}
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {

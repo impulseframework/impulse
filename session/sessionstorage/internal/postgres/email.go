@@ -14,10 +14,20 @@ import (
 )
 
 // The user's email address, in two states (see the auth set's SessionUserEmail
-// migration). The address is matched without regard to case through the normalized
-// column, which the database derives; on a store whose usernames are the addresses
-// the database derives the address itself from the username, so the driver writes the
-// username where it would write the address and never writes Email.
+// migration). The address is matched without regard to the case of its ASCII letters
+// through the normalized column, which the database derives; on a store whose usernames
+// are the addresses the database derives the address itself from the username, so the
+// driver writes the username where it would write the address and never writes Email.
+
+// addressFold is the form the normalized column holds, over operand (the column's
+// source or a parameter), which every lookup by address compares the column with: the
+// address with its ASCII capital letters lowercased and every other character as
+// written. It must equal util.LowerASCII, the rule the library compares two addresses
+// by. Under the "C" collation only the ASCII letters are letters, so lower() folds
+// nothing else.
+func addressFold(operand string) string {
+	return fmt.Sprintf(`lower(%s COLLATE "C")`, operand)
+}
 
 // errUsernameIsEmail is the refusal of a rename, or of an address entered by hand, on a
 // store whose usernames are the addresses: both change through a verified link.
@@ -31,12 +41,12 @@ func errEmailTaken(email string) error {
 }
 
 // UserByEmail returns the user holding the address, verified or not, matched without
-// regard to case, or NotFound.
+// regard to the case of its ASCII letters, or NotFound.
 func (s *SessionStorageDriver) UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "NormalizedEmail" = casefold(normalize($1))`, s.userSelectColumns(), s.userTable())
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "NormalizedEmail" = %s`, s.userSelectColumns(), s.userTable(), addressFold("$1"))
 
 	user := &dbtype.SessionUser{}
 	if err := pgxscan.Get(ctx, s.conn, user, query, email); err != nil {
@@ -228,12 +238,12 @@ func (s *SessionStorageDriver) ClaimVerifiedEmailIn(ctx context.Context, tx pgx.
 	if s.usernameIsEmail {
 		query = fmt.Sprintf(`
 			UPDATE %s SET "EmailVerifiedAt" = now()
-			WHERE "Id" = $1 AND "EmailVerifiedAt" IS NULL AND "NormalizedEmail" = casefold(normalize($2))`, s.userTable())
+			WHERE "Id" = $1 AND "EmailVerifiedAt" IS NULL AND "NormalizedEmail" = %s`, s.userTable(), addressFold("$2"))
 	} else {
 		query = fmt.Sprintf(`
 			UPDATE %s u SET "Email" = $2, "EmailVerifiedAt" = now()
 			WHERE u."Id" = $1 AND u."EmailVerifiedAt" IS NULL
-			  AND NOT EXISTS (SELECT 1 FROM %s other WHERE other."NormalizedEmail" = casefold(normalize($2)) AND other."Id" <> $1)`, s.userTable(), s.userTable())
+			  AND NOT EXISTS (SELECT 1 FROM %s other WHERE other."NormalizedEmail" = %s AND other."Id" <> $1)`, s.userTable(), s.userTable(), addressFold("$2"))
 	}
 	tag, err := tx.Exec(ctx, query, userID, email)
 	if err != nil {
@@ -244,14 +254,14 @@ func (s *SessionStorageDriver) ClaimVerifiedEmailIn(ctx context.Context, tx pgx.
 }
 
 // UserByEmailIn reads the user holding email inside tx, verified or not, matched
-// without regard to case, or nil when there is none.
+// without regard to the case of its ASCII letters, or nil when there is none.
 func (s *SessionStorageDriver) UserByEmailIn(ctx context.Context, tx pgx.Tx, email string) (*dbtype.User, error) {
 	return s.userByEmailIn(ctx, tx, email, "")
 }
 
 // UserByVerifiedEmailIn reads the user who holds email as a verified address inside
-// tx, matched without regard to case, or nil when there is none; an address a user
-// holds unverified matches no one.
+// tx, matched without regard to the case of its ASCII letters, or nil when there is
+// none; an address a user holds unverified matches no one.
 func (s *SessionStorageDriver) UserByVerifiedEmailIn(ctx context.Context, tx pgx.Tx, email string) (*dbtype.User, error) {
 	return s.userByEmailIn(ctx, tx, email, `AND "EmailVerifiedAt" IS NOT NULL`)
 }
@@ -260,7 +270,7 @@ func (s *SessionStorageDriver) UserByVerifiedEmailIn(ctx context.Context, tx pgx
 // matched on the normalized address and narrowed by the clause more, or nil when
 // there is none.
 func (s *SessionStorageDriver) userByEmailIn(ctx context.Context, tx pgx.Tx, email, more string) (*dbtype.User, error) {
-	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "NormalizedEmail" = casefold(normalize($1)) %s`, s.userTable(), more)
+	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "NormalizedEmail" = %s %s`, s.userTable(), addressFold("$1"), more)
 
 	var u dbtype.User
 	if err := tx.QueryRow(ctx, query, email).Scan(&u.ID, &u.Username, &u.HasPassword, &u.Disabled); err != nil {

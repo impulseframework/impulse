@@ -350,7 +350,7 @@ type AuthStore[Tx any] interface {
 	// UsernameIsEmail reports whether the address is the username.
 	UsernameIsEmail() bool
 	// UserByEmail returns the user holding the address, verified or not, matched
-	// without regard to case, or a NotFound error.
+	// without regard to the case of its ASCII letters, or a NotFound error.
 	UserByEmail(ctx context.Context, email string) (*SessionUser, error)
 	// SetUserEmail puts an address on a user by hand, unverified, or takes it off
 	// (nil): an administrator's entry, which reserves the address. An address another

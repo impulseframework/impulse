@@ -1647,8 +1647,10 @@ may use an unverified address; code that relies on one (linking a social identit
 recovery) requires the time. No address is required of any user: an account without a
 verified address has no mail-based recovery, and multi-factor authentication can serve
 instead. The address is unique among every address held, verified or not, matched
-without regard to case (`NormalizedEmail`), so an address is held by one account at a
-time.
+without regard to the case of its ASCII letters (`NormalizedEmail`), so an address is
+held by one account at a time. Nothing else is folded: an address written with a letter
+from outside ASCII is the same address only when it is written with that same letter,
+in the stores as in every comparison the library makes.
 
 How an address gets onto a user:
 
@@ -1767,10 +1769,10 @@ matching shape:
   ```sql
   -- Spanner
   ALTER TABLE SessionUsers ADD COLUMN Email STRING(MAX) AS (Username) STORED;
-  ALTER TABLE SessionUsers ADD COLUMN NormalizedEmail STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED;
+  ALTER TABLE SessionUsers ADD COLUMN NormalizedEmail STRING(MAX) AS (CAST(LOWER(CAST(Username AS BYTES)) AS STRING)) STORED;
   -- PostgreSQL
   ALTER TABLE "SessionUsers" ADD COLUMN "Email" character varying GENERATED ALWAYS AS ("Username") STORED;
-  ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying GENERATED ALWAYS AS (casefold(normalize("Username"))) STORED;
+  ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying GENERATED ALWAYS AS (lower("Username" COLLATE "C")) STORED;
   ```
 
   `EmailVerifiedAt`, the unique index on `NormalizedEmail` and the index by username,

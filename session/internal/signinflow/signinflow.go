@@ -52,8 +52,9 @@ type Driver[Tx any] interface {
 	// none.
 	UserByUsernameIn(ctx context.Context, tx Tx, username string) (*dbtype.User, error)
 	// UserByVerifiedEmailIn reads the user who holds email as a verified address,
-	// matched without regard to case as the users table's normalized address is, or
-	// nil when there is none; an address a user holds unverified matches no one.
+	// matched without regard to the case of its ASCII letters as the users table's
+	// normalized address is, or nil when there is none; an address a user holds
+	// unverified matches no one.
 	UserByVerifiedEmailIn(ctx context.Context, tx Tx, email string) (*dbtype.User, error)
 	// InsertUserIn writes a new user row and returns its ID. A taken username ends the
 	// transaction with a UsernameConflict.
@@ -76,7 +77,7 @@ type Driver[Tx any] interface {
 	// insert carries the name.
 	ClaimUserNameIn(ctx context.Context, tx Tx, userID impulse.UUID, name string) (bool, error)
 	// UserByEmailIn reads the user holding email inside tx, verified or not, matched
-	// without regard to case, or nil when there is none.
+	// without regard to the case of its ASCII letters, or nil when there is none.
 	UserByEmailIn(ctx context.Context, tx Tx, email string) (*dbtype.User, error)
 	// UsernameIsEmail reports whether the store's usernames are the addresses.
 	UsernameIsEmail() bool
