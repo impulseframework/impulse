@@ -96,7 +96,7 @@ func (a *App) ScrapShip() http.HandlerFunc {
 			default:
 				// One refusal for the state check and the grant condition
 				// alike: the wire never says which said no (§12).
-				return httpio.NewForbiddenMessagef("ScrapShip may not run against Refit %s", p.RefitID)
+				return resource.TargetRefused("ScrapShip", "Refit", p.RefitID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant
