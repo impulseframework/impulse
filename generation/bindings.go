@@ -991,7 +991,9 @@ func (c *client) resolveRunSubjectSets(resources []*resourceInfo) error {
 // (auth:), and the role-file check of an auth then looks at that auth's sets
 // alone. With one auth every set is its, and the part may be left out. A name
 // that is no auth of the application is refused wherever the run knows its
-// auths. The set of a person's groups, which the generator declares for an auth
+// auths, and so is a name in a run that knows no auth: there is nothing to hold
+// it to, and it would reach the generated collection unchecked. The set of a
+// person's groups, which the generator declares for an auth
 // (Offered), is asked nothing here: its declaration names the auth it was
 // generated for.
 func resolveSubjectSetAuths(resources []*resourceInfo, auths []string) error {
@@ -1010,6 +1012,8 @@ func resolveSubjectSetAuths(resources []*resourceInfo, auths []string) error {
 					where, strings.Join(auths, ", "), set.Anchor.Name(), subjectAuthArgKey))
 			case set.Auth != "" && len(auths) > 0 && !slices.Contains(auths, set.Auth):
 				errs = append(errs, errors.Newf("%s %s: names %s, which is no auth of the application; its auths are: %s", where, subjectAuthArgKey, set.Auth, strings.Join(auths, ", ")))
+			case set.Auth != "" && len(auths) == 0:
+				errs = append(errs, errors.Newf("%s %s: names %s, and this run knows no auth to hold the name to: name the auth on the outlet of the generate program that serves its people, or take %s: off the set", where, subjectAuthArgKey, set.Auth, subjectAuthArgKey))
 			}
 		}
 	}

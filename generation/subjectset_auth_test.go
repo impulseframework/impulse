@@ -80,9 +80,14 @@ func TestResolveSubjectSetAuths(t *testing.T) {
 			wantErr: []string{"struct BayKeeper field UserID: @subjectSet(bays): auth: names staff, which is no auth of the application; its auths are: crew"},
 		},
 		{
-			name:    "a run that is told of no auth takes the name as written",
+			name:    "a run that is told of no auth, and a set that names one",
 			structs: []string{"BayKeeper", "TeamMember"},
-			want:    map[string]string{"bays": "staff", "teams": ""},
+			wantErr: []string{"struct BayKeeper field UserID: @subjectSet(bays): auth: names staff, and this run knows no auth to hold the name to: name the auth on the outlet of the generate program that serves its people, or take auth: off the set"},
+		},
+		{
+			name:    "a run that is told of no auth, and a set that names none",
+			structs: []string{"TeamMember"},
+			want:    map[string]string{"teams": ""},
 		},
 		{
 			name:     "several auths, and the set of a person's groups an auth declares names that auth",
