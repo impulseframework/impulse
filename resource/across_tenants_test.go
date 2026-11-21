@@ -724,25 +724,31 @@ func TestAcrossTenants_refusals(t *testing.T) {
 		})
 	}
 
+	// wantSaid is the sentence the caller is told; wantErr is the error's text, which the
+	// server's log prints.
 	checkTests := []struct {
-		name    string
-		target  string
-		wantErr string
+		name     string
+		target   string
+		wantErr  string
+		wantSaid string
 	}{
 		{
-			name:    "a column no grant covers in any tenant of the set is refused as the tenant's own list refuses it",
-			target:  "/crates?columns=id,value",
-			wantErr: "user (erin) does not have (List) on Crates.value in any tenant the list reads",
+			name:     "a column no grant covers in any tenant of the set is refused as the tenant's own list refuses it",
+			target:   "/crates?columns=id,value",
+			wantErr:  "user (erin) does not have (List) on Crates.value in any tenant the list reads",
+			wantSaid: "You may not list the value of crates anywhere.",
 		},
 		{
-			name:    "a sort on a field no grant covers in any tenant of the set is refused",
-			target:  "/crates?columns=id&sort=value",
-			wantErr: "user (erin) cannot sort or filter on value: (List) on Crates.value is denied in every tenant the list reads",
+			name:     "a sort on a field no grant covers in any tenant of the set is refused",
+			target:   "/crates?columns=id&sort=value",
+			wantErr:  "user (erin) cannot sort or filter on value: (List) on Crates.value is denied in every tenant the list reads",
+			wantSaid: "You may not sort or filter crates by the value anywhere.",
 		},
 		{
-			name:    "a filter on a field no grant covers in any tenant of the set is refused",
-			target:  "/crates?columns=id&filter=value:gte:1",
-			wantErr: "user (erin) cannot sort or filter on value: (List) on Crates.value is denied in every tenant the list reads",
+			name:     "a filter on a field no grant covers in any tenant of the set is refused",
+			target:   "/crates?columns=id&filter=value:gte:1",
+			wantErr:  "user (erin) cannot sort or filter on value: (List) on Crates.value is denied in every tenant the list reads",
+			wantSaid: "You may not sort or filter crates by the value anywhere.",
 		},
 	}
 	for _, tt := range checkTests {
@@ -753,7 +759,7 @@ func TestAcrossTenants_refusals(t *testing.T) {
 			if err != nil {
 				t.Fatalf("QueryDecoder.DecodeAcrossTenants() error = %v", err)
 			}
-			assertClientMessage(t, qSet.checkPermissions(t.Context(), SpannerDBType), http.StatusForbidden, tt.wantErr)
+			plainAnswer(t, qSet.checkPermissions(t.Context(), SpannerDBType), httpio.HasForbidden, tt.wantSaid, tt.wantErr, "erin", "(List)", "Crates")
 		})
 	}
 

@@ -255,8 +255,8 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 			t.Errorf("%s as the governor, unmasked: status 403, want the method let through: %s", action, answer)
 		case holdsIt:
 			held++
-		case status != http.StatusForbidden || !strings.Contains(answer, "does not have Execute on"):
-			t.Errorf("%s as the governor, who does not hold it, unmasked: status %d, want 403 from policy, naming the grant: %s", action, status, answer)
+		case status != http.StatusForbidden || !strings.Contains(answer, "You may not do this here."):
+			t.Errorf("%s as the governor, who does not hold it, unmasked: status %d, want 403 from policy, in its own words: %s", action, status, answer)
 		}
 		if logged := output.String(); strings.Contains(logged, "denied by mask") || strings.Contains(logged, "WriteBlocked") {
 			t.Errorf("%s as the governor, unmasked: the log names a mask: %s", action, logged)
