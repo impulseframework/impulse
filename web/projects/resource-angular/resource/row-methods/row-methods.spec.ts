@@ -21,6 +21,7 @@ import {
 
 const people = 'CrewSectorUsers' as Resource;
 const roles = 'CrewSectorUserRoles' as Resource;
+const heldRoles = 'CrewSectorHeldRoles' as Resource;
 const meta: Record<string, MethodMeta> = {
   DisableCrewSectorUser: {
     route: 'disable',
@@ -46,6 +47,21 @@ const meta: Record<string, MethodMeta> = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
+    ],
+  },
+  // A role a person holds, their own or through a group: the group is a part of the key,
+  // and it is the empty text on a role held directly, which the method says it may be.
+  RemoveCrewSectorHeldRole: {
+    route: 'remove-held',
+    target: {
+      resource: heldRoles,
+      key: { userId: 'userId', role: 'role', groupId: 'groupId' },
+      mayBeEmpty: ['groupId'],
+    },
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'groupId', displayType: 'string' },
     ],
   },
   CreateCrewSectorUser: { route: 'create', fields: [{ fieldName: 'username', displayType: 'string', required: true }] },
@@ -297,6 +313,44 @@ describe('targetBody', () => {
   it('refuses a row that lacks a key field, naming the field', () => {
     expect(() => targetBody('RemoveCrewSectorRole', meta['RemoveCrewSectorRole'], { userId: 'u-1' })).toThrow(
       'RemoveCrewSectorRole names its target row by role, which this row does not carry',
+    );
+  });
+
+  it('sends a part of the key that may be empty as the empty text the row holds', () => {
+    const held = meta['RemoveCrewSectorHeldRole'];
+    // A role held directly: it comes through no group, and the row says so with the empty text.
+    expect(targetBody('RemoveCrewSectorHeldRole', held, { userId: 'u-1', role: 'Pilot', groupId: '' })).toEqual({
+      userId: 'u-1',
+      role: 'Pilot',
+      groupId: '',
+    });
+    expect(targetBody('RemoveCrewSectorHeldRole', held, { userId: 'u-1', role: 'Pilot', groupId: 'g-1' })).toEqual({
+      userId: 'u-1',
+      role: 'Pilot',
+      groupId: 'g-1',
+    });
+  });
+
+  it('refuses a row whose key is empty in a part that must hold a value, and one that lacks a part that may be empty', () => {
+    const held = meta['RemoveCrewSectorHeldRole'];
+    const empty = (field: string): string =>
+      `RemoveCrewSectorHeldRole names its target row by ${field}, which is empty on this row: only a text field of the key that the method does not declare required may be empty`;
+    expect(() => targetBody('RemoveCrewSectorHeldRole', held, { userId: 'u-1', role: '', groupId: '' })).toThrow(
+      empty('role'),
+    );
+    expect(() => targetBody('RemoveCrewSectorHeldRole', held, { userId: '', role: 'Pilot', groupId: '' })).toThrow(
+      empty('userId'),
+    );
+    // A method that says nothing of its key takes no part of it empty.
+    expect(() => targetBody('RemoveCrewSectorRole', meta['RemoveCrewSectorRole'], { userId: 'u-1', role: '' })).toThrow(
+      'RemoveCrewSectorRole names its target row by role, which is empty on this row',
+    );
+    // The part that may be empty is still a field the row carries.
+    expect(() => targetBody('RemoveCrewSectorHeldRole', held, { userId: 'u-1', role: 'Pilot' })).toThrow(
+      'RemoveCrewSectorHeldRole names its target row by groupId, which this row does not carry',
+    );
+    expect(() => targetBody('RemoveCrewSectorHeldRole', held, { userId: 'u-1', role: 'Pilot', groupId: null })).toThrow(
+      'RemoveCrewSectorHeldRole names its target row by groupId, which this row does not carry',
     );
   });
 });

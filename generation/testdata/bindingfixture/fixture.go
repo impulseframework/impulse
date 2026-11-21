@@ -381,6 +381,21 @@ type (
 		Slot int64 `spanner:"Slot"`
 	}
 
+	// HeldSeatDigest keys a global view by a person, the name of a seat and the group
+	// the seat comes through: the empty text for a seat the person holds directly.
+	//
+	// @virtual
+	HeldSeatDigest struct {
+		// @primarykey
+		UserID impulse.UUID `spanner:"UserId"`
+
+		// @primarykey
+		Seat string `spanner:"Seat"`
+
+		// @primarykey
+		GroupID string `spanner:"GroupId"`
+	}
+
 	// DigestByPath declares a join path on a view's field: a view has no schema
 	// to resolve one against.
 	//
@@ -766,6 +781,20 @@ type (
 		UserID impulse.UUID
 	}
 
+	// PlainTargetHeldSeat targets a row of a view whose key holds two fields of text:
+	// the seat's name, which the method requires, and the group the seat comes
+	// through, which it does not, so a seat held directly is named by the empty text.
+	//
+	// @rpc
+	PlainTargetHeldSeat struct {
+		// @target(HeldSeatDigest, key: UserID)
+		UserID impulse.UUID
+		// @target(HeldSeatDigest, key: Seat)
+		Seat string `validate:"required"`
+		// @target(HeldSeatDigest, key: GroupID)
+		GroupID string
+	}
+
 	// @rpc
 	TargetCompoundMissingColumn struct {
 		// @target(CompoundFleetDigest, key: ID)
@@ -919,6 +948,9 @@ func (PlainTargetCompoundFleetDigest) Execute(context.Context, resource.ReadWrit
 	return nil
 }
 func (PlainTargetCrewSeat) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (PlainTargetHeldSeat) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
 	return nil
 }
 func (TargetCompoundMissingColumn) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {

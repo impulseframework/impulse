@@ -25,7 +25,8 @@ type MethodList struct {
 	Methods []AdvertisedMethod
 	// Pending are the paths of the pending sign-in handlers (Pending().Status(),
 	// ConfirmWithPassword() and Cancel()), all three or none. The page needs them once a
-	// sign-in waits for a confirmation or the application's MFA step.
+	// sign-in waits for a confirmation or the application's MFA step. A list of an Auth
+	// that registers no password method may leave Confirm out: see PendingRoutes.
 	Pending PendingRoutes
 	// ChangePassword is the path of the password method's ChangeUserPassword handler,
 	// which the page needs when a sign-in finds the user must change a password an
@@ -138,6 +139,15 @@ type AdvertisedMethod struct {
 // them: Status, Confirm and Cancel together, and the email code's SendCode, VerifyCode
 // and EnrollEmail together or not at all, which the page needs when a sign-in waits
 // for the library's second factor (see "The second factor" in the README).
+//
+// Confirm is where a person whose sign-in matched an account with a password enters
+// that password. Every list of an Auth that registers the password method names it, a
+// list that does not offer the method among them: the person may come through any
+// method the Auth registers, and the page they came in by takes the confirmation. An
+// Auth that registers no password method asks for none (a password an account holds
+// there holds no sign-in), so its lists may leave Confirm out: the application then
+// mounts no ConfirmWithPassword() handler, and the page is told of none and offers no
+// password confirmation.
 type PendingRoutes struct {
 	Status      string
 	Confirm     string
@@ -238,7 +248,7 @@ type signUpAnswer struct {
 // pendingAnswer is the pending block of a methods answer.
 type pendingAnswer struct {
 	Status      string `json:"status"`
-	Confirm     string `json:"confirm"`
+	Confirm     string `json:"confirm,omitempty"`
 	Cancel      string `json:"cancel"`
 	SendCode    string `json:"sendCode,omitempty"`
 	VerifyCode  string `json:"verifyCode,omitempty"`
@@ -279,8 +289,9 @@ type pendingAnswer struct {
 // panics on a wiring mistake, the way a registration does: an empty list, a method
 // that is not registered on this Auth, a name listed twice, a method without a label
 // or with a path that is not a canonical path in the application, a pending block
-// with some of its paths, the password method without the password change route, or
-// that route or the remove-password route without the password method.
+// with some of its paths (a list of an Auth that registers no password method may
+// leave the confirm path out), the password method without the password change
+// route, or that route or the remove-password route without the password method.
 func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 	answer := a.advertise(list)
 
@@ -449,7 +460,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	}
 	a.methods.lists = append(a.methods.lists, listing)
 	passwordListed := seen[string(sessioninfo.MethodPassword)]
-	answer.Pending = pendingAnswerOf(&list.Pending)
+	answer.Pending = pendingAnswerOf(&list.Pending, a.methods.passwordRegistered())
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)
 	answer.RemovePassword = removePasswordPathOf(list, passwordListed)
 	answer.FirstPassword = firstPasswordAnswerOf(list.FirstPassword, passwordListed)
@@ -622,13 +633,28 @@ func forgetBrowserPathOf(list *MethodList) string {
 }
 
 // pendingAnswerOf validates the pending routes: none, or all three as canonical paths.
-func pendingAnswerOf(p *PendingRoutes) *pendingAnswer {
+// What decides the confirm path is whether the Auth registers the password method
+// (passwordRegistered), which is what the sign-in rule asks too, not whether this list
+// offers it: where the method is registered, a sign-in through any method may wait for
+// a password, so every list names the confirm path. The list of an Auth that registers
+// no password method may leave it out, since no sign-in there waits for a password: it
+// then names the status and cancel paths, and the answer carries no confirm path.
+func pendingAnswerOf(p *PendingRoutes, passwordRegistered bool) *pendingAnswer {
 	if *p == (PendingRoutes{}) {
 		return nil
 	}
-	for _, path := range []string{p.Status, p.Confirm, p.Cancel} {
+	paths, named := []string{p.Status, p.Confirm, p.Cancel}, "the status, confirm and cancel paths together, each a canonical path in the application, or none"
+	switch {
+	case passwordRegistered:
+		named += " (this Auth registers the password method, so a sign-in through any of its methods may wait for a password: " +
+			"a list that does not offer the password method names the confirm path too)"
+	case p.Confirm == "":
+		paths, named = []string{p.Status, p.Cancel}, "the status and cancel paths together, each a canonical path in the application, or none "+
+			"(this Auth registers no password method, so the list may leave the confirm path out, as it does)"
+	}
+	for _, path := range paths {
 		if !advertisedPath(path) {
-			panic(fmt.Sprintf("session: Methods is given the pending routes %+v: name the status, confirm and cancel paths together, each a canonical path in the application, or none", p))
+			panic(fmt.Sprintf("session: Methods is given the pending routes %+v: name %s", p, named))
 		}
 	}
 	if p.SendCode != "" || p.VerifyCode != "" || p.EnrollEmail != "" {

@@ -33,7 +33,7 @@ import {
   rowActionsKey,
   rowButtonKey,
 } from '@impulseframework/resource-angular/types';
-import { of } from 'rxjs';
+import { of, Subject } from 'rxjs';
 
 import { CompoundResourceComponent } from '../compound-resource/compound-resource.component';
 import { MethodDialogData, MethodDialogResult } from '../method-dialog/method-dialog.component';
@@ -307,6 +307,36 @@ describe('ResourceListComponent row methods', () => {
     expect(opened).toHaveLength(1);
     expect(listRequests().length).toBe(before);
     expect(told).toBe(0);
+  });
+
+  it('once its page has left, says the method ran, reads no rows again and tells no page', async () => {
+    await create({ primaryResource: people });
+    const before = listRequests().length;
+    const notices: string[] = [];
+    fixture.componentInstance.store.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
+    // The dialog answers when the test says so. On a live page the row's own read lands
+    // before the dialog's answer does: a method that took the row away has taken the
+    // page, and the list under it, away by then.
+    const closed = new Subject<MethodDialogResult | undefined>();
+    fixture.componentInstance.dialog.open = (() =>
+      ({ afterClosed: () => closed }) as unknown as MatDialogRef<unknown>) as never;
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    actionsOf(0)[2].run();
+    fixture.destroy();
+    closed.next({ answer: undefined });
+    closed.complete();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const warnings = warned.mock.calls.map((call) => String(call[0]));
+    warned.mockRestore();
+
+    // What ran is still said: the notice is the application's to show, not the list's.
+    expect(notices).toEqual(['Rename person: done.']);
+    // An output that is emitted after its component is destroyed warns in the console
+    // (NG0953), and a list nobody sees has no rows to ask for.
+    expect(warnings).toEqual([]);
+    expect(listRequests().length).toBe(before);
   });
 
   it("shows a method the page names in the page's words, holds it to its row predicate, and leaves out what the page hides", async () => {

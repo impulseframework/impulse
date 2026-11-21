@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"path"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/spf13/cobra"
@@ -181,18 +182,74 @@ const directoriesUsage = "a tenant can have a directory of its own: the director
 // against the application as it stood: the sign-in methods it already registers through
 // an organization's directory are named, as what a tenant's people come through its
 // directory by or, where the tenants have no directories, as a way for an invited
-// person to sign in.
-func tenancyStartingPoint(s *shape.Shape, appDir string) (*startingPoint, error) {
+// person to sign in. Where the shape is Tenant-owned users, by directory, it also
+// returns the steps that write the shape's methods ahead of the tenancy step
+// (byDirectorySteps), which the starting point names with the rest.
+func tenancyStartingPoint(s *shape.Shape, appDir string) (*startingPoint, []transition, error) {
 	a, err := app.Discover(appDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var auths []string
 	for i := range a.AuthPackages {
 		auths = append(auths, a.AuthPackages[i].Name)
 	}
+	through := shape.DirectoryMethods(a)
+	var steps []transition
+	var says []string
+	if s.NoPassword() {
+		var written []string
+		steps, written, says = byDirectorySteps(s, a)
+		through = append(through, written...)
+	}
 
-	return &startingPoint{shape: *s, says: s.TenantsSay(auths, shape.DirectoryMethods(a))}, nil
+	return &startingPoint{shape: *s, says: append(s.TenantsSay(auths, through), says...)}, steps, nil
+}
+
+// byDirectorySteps are what add tenancy does about the sign-in methods of an
+// application it starts as Tenant-owned users, by directory, in which every person of a
+// tenant signs in through the tenant's own directory. On each auth whose roles the
+// application gives that registers neither a Google nor a Microsoft method it writes
+// the shape's two (shape.ByDirectoryMethods), each as impulse add method would; an auth
+// that has either is left as its author made it, and an auth whose directory gives the
+// roles holds no tenant's people. It removes nothing: of an auth that registers the
+// password method it says that the method keeps the application outside the shape, and
+// names the hand step. written names the methods the steps write, as what a tenant's
+// people come through its directory by.
+func byDirectorySteps(s *shape.Shape, a *app.App) (steps []transition, written, says []string) {
+	for i := range a.Auths {
+		construction := &a.Auths[i]
+		name := app.AuthPackageName(construction.File)
+		if name == "" {
+			continue
+		}
+		var provider, password, synced bool
+		for j := range construction.Methods {
+			switch m := &construction.Methods[j]; {
+			case m.Authority == app.AuthorityDirectory:
+				synced = true
+			case m.Kind == app.MethodGoogle, m.Kind == app.MethodAzure:
+				provider = true
+			case m.Kind == app.MethodPassword:
+				password = true
+			}
+		}
+		if synced {
+			continue
+		}
+		if !provider {
+			for _, m := range shape.ByDirectoryMethods() {
+				steps = append(steps, &transition_.Method{Auth: name, Spec: m})
+				written = append(written, fmt.Sprintf("the %s auth's %s method", name, m.Name))
+			}
+			says = append(says, s.WritesMethods(name))
+		}
+		if password {
+			says = append(says, s.PasswordKeepsOutside(name, path.Dir(construction.File), construction.File))
+		}
+	}
+
+	return steps, written, says
 }
 
 // errTenancyOff is the refusal of --shape beside --tenancy=false on impulse new.

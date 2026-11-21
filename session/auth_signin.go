@@ -140,6 +140,9 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
 			Account: rule, Method: method, Audience: audience, SeededUsers: seeded, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
 			Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn,
+			// The rule asks what the Auth registers: with no password method no sign-in
+			// can prove a password, so one an account holds holds no sign-in for it.
+			NoPassword:    !a.registered().passwordRegistered(),
 			TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
 			// A person who comes through a directory that does not vouch for their address
 			// confirms one by the mailed code before their first session, where the Auth
@@ -193,6 +196,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 
 		return &signInOutcome{pending: pending}, nil
 	}
+	logConfirmNobodyCanGive(ctx, at, err)
 	if err != nil {
 		return nil, passwordNoLongerHeld(err)
 	}
@@ -219,6 +223,21 @@ func passwordNoLongerHeld(err error) error {
 	}
 
 	return err
+}
+
+// logConfirmNobodyCanGive says in one line of the server's log why a sign-in was refused
+// when the account rule of its sign-in method asked for a password confirmation on an Auth
+// that registers no password method. The person sees a refused sign-in; what is wrong is
+// the developer's to change, so the line says what to change. Any other error logs nothing.
+func logConfirmNobodyCanGive(ctx context.Context, at *signInAttempt, err error) {
+	if !errors.Is(err, signin.ErrConfirmNeedsPasswordMethod) {
+		return
+	}
+	logger.FromCtx(ctx).Errorf(
+		"the account rule of sign-in method %q answered signin.Confirm for %q, and this Auth registers no password method, "+
+			"so nobody could enter the password the sign-in would wait for: the sign-in was refused. "+
+			"Register the password method, or have the rule answer signin.Link or signin.Reject",
+		at.registration, at.identity.SignInName)
 }
 
 // signedInEvents are the auth events the session of at recorded: the events the

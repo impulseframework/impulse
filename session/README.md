@@ -225,6 +225,10 @@ DML what a later rule must read.
     already signs in through an identity is linked no second one on the name, on the
     same connection or another (see "Never a second identity on a name alone" below).
     An address a user holds unverified is a reservation, not a match.
+    The rule asks what the Auth registers. On an Auth with no password method nobody
+    can enter a password, so a password a user holds there (one the API set, or one
+    kept from a release that registered the method) asks for no confirmation: the user
+    is linked as one who has none, by the same checks, and keeps the password.
   - **A person who has none is decided by what an administrator chose for the method**,
     the registration's row of the sign-in methods table, read in the same transaction
     (see "Open to sign-up, or invite only"). A method with no row is **invite only**:
@@ -357,7 +361,14 @@ DML what a later rule must read.
   through is refused unless the link is `trusted`. A rule's link on a connection the
   user already signs in through is made on the rule's word, which the standard rule's
   match by name does not have. Never choose the user by an email or
-  another claim the provider does not verify.
+  another claim the provider does not verify. On an Auth that registers no password
+  method nobody can confirm, so a rule's `Link` to a user who holds a password is
+  decided as a link to a user without one. A rule's own `Confirm` is refused there
+  (`identity_rejected`, `signin.ErrConfirmNeedsPasswordMethod`): the sign-in would wait
+  for a password nobody can enter, so it ends on the login page with the code, nothing
+  is linked, and the server logs one error line that names the sign-in method and says
+  what to change. Register the password method on such an Auth, or have the rule answer
+  `Link` or `Reject`.
 
 A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
 
@@ -912,6 +923,14 @@ the password method is listed.
   block's `sendCode`, `verifyCode` and `enrollEmail` are the sign-in code's routes,
   named together or not at all (`PendingRoutes`); a page told them runs the library's
   second factor (see "The second factor") when a sign-in waits for it.
+- The pending block's `confirm` is where a person whose sign-in matched an account with
+  a password enters it. Every list of an Auth that registers the password method names
+  it, a list that does not offer the method among them: the person may come through any
+  of the Auth's methods, and `Methods` refuses a list that leaves it out. An Auth that
+  registers no password method asks nobody for a password, so its lists may leave it
+  out (`PendingRoutes.Confirm`): the application mounts no `ConfirmWithPassword()`
+  handler, the answer carries no `confirm`, and the page offers no password
+  confirmation.
 - `changePassword` is the path of the password method's `ChangeUserPassword` handler,
   which the page posts `{"oldPassword", "newPassword"}` to when a sign-in finds the
   user must change their password (the session read's `passwordChangeRequired`). It is
@@ -2805,7 +2824,7 @@ table is the wire contract:
 | `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
 | `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
-| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
+| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |

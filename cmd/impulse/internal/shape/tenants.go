@@ -5,6 +5,9 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+
+	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
 )
 
 // OneTenantFlag is the flag that says a person belongs to one tenant, which a starting
@@ -109,4 +112,46 @@ func (s Shape) TenantsSay(auths, directoryMethods []string) []string {
 	}
 
 	return []string{people, way}
+}
+
+// ByDirectoryMethods are the sign-in methods Tenant-owned users, by directory, starts
+// with: a Google method open to any Google Workspace and a Microsoft method open to any
+// Microsoft Entra tenant, neither with personal accounts, each registered under its kind
+// with the application giving the roles. It is the one way the shape starts: a tenant is
+// then the directory of whichever organization its founder signs in from, and another
+// width is the author's change to what was written.
+func ByDirectoryMethods() []authpkg.Method {
+	return []authpkg.Method{
+		{Kind: app.MethodGoogle, Name: app.MethodGoogle, Authority: app.AuthorityApplication, Slot: authpkg.SlotAnyWorkspace},
+		{Kind: app.MethodAzure, Name: app.MethodAzure, Authority: app.AuthorityApplication, Slot: authpkg.SlotAny},
+	}
+}
+
+// StartsWithoutPassword is what impulse new says of the first auth of an application
+// that starts from a shape with no password sign-in (NoPassword): why it has none, what
+// stands in its place, and how a development run signs a person in. persona is the
+// login of the persona a development run of Tenant-owned users, by directory, signs its
+// administrator in as.
+func (s Shape) StartsWithoutPassword(auth, persona string) string {
+	if s.Number == directoryRoles {
+		return fmt.Sprintf("The %s auth has no password sign-in and invites no first administrator: the directory gives every role, the Super Administrator's included, so nothing in the application gives one. A development run signs a person in through the simulated directory: the person APP_USERNAME names in the environment template, with the roles APP_ROLES names there.", auth)
+	}
+
+	return fmt.Sprintf("The %s auth has no password sign-in: every person of a tenant signs in through the tenant's own directory, so a password could enter no tenant. It registers a Google method open to any Google Workspace and a Microsoft method open to any Microsoft Entra tenant, neither with personal accounts, which is how the shape is typically used; another width works, and is your change to what was written. Register the application at both providers before it deploys, since each method needs a client id and secret of its own. The application's own people, its first administrator among them, come by invitation and accept it through either method. The persona method beside them is the sign-in of the test environments, and a development run signs its administrator in through it, as the persona %s.", auth, persona)
+}
+
+// WritesMethods is what impulse add tenancy says of an auth it writes the methods of
+// Tenant-owned users, by directory, on (ByDirectoryMethods): what they are, and what the
+// author owes each provider before the application deploys.
+func (s Shape) WritesMethods(auth string) string {
+	return fmt.Sprintf("The %s auth registered neither a Google nor a Microsoft method, so the command writes both: a Google method open to any Google Workspace and a Microsoft method open to any Microsoft Entra tenant, neither with personal accounts, the application giving the roles, which is how %s is typically used. Another width works, and is your change to what was written. Register the application at both providers before it deploys, since each method needs a client id and secret of its own.", auth, s)
+}
+
+// PasswordKeepsOutside is what impulse add tenancy says of an auth it starts as
+// Tenant-owned users, by directory, that registers the password method: the method
+// stays, since no command removes one, and what its staying means and the hand step
+// that takes it out. dir and file are the auth's package directory and the file of its
+// Auth.
+func (s Shape) PasswordKeepsOutside(auth, dir, file string) string {
+	return fmt.Sprintf("The %s auth keeps its password method, since no command removes a sign-in method, and the method keeps the application outside %s: in that shape every person of a tenant signs in through the tenant's own directory, so a password could enter no tenant, and impulse audit says so until it is gone. Taking it out is a hand step (%s).", auth, s, passwordSteps(dir, file))
 }

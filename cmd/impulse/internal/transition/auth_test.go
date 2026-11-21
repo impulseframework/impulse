@@ -406,13 +406,17 @@ func TestAuthApply(t *testing.T) {
 		"\treturn &DataConfiguration{\n\t\tspannerClient: spannerClient,\n\t\tstaff:         staffAuth,\n\t}, nil\n",
 		"\treturn assemble(spannerClient, staffAuth), nil\n", 1)
 
-	// What the foothold file leaves its author: the first administrator's invitation
-	// where the application generates the auth's management, whose acceptance hook gives
-	// the invitation's roles, and no first administrator where it generates none.
+	// What the foothold file leaves its author: the roles of the first administrator's
+	// invitation where the application generates the auth's management, whose
+	// acceptance hook gives the invitation's roles, and no first administrator where it
+	// generates none. What invites one outside the package is the command's to write,
+	// and a data level that keeps no environment struct, as this application's, gets
+	// none of it and the account of what to write by hand.
 	const (
-		invited    = "pkg/auth/partners/foothold.go: the first administrator the migrate command invites while nobody of the auth holds the Super Administrator role, by an invitation mailed to the address the placement names (APP_PARTNERS_ADMINISTRATOR) that gives the Super Administrator role and the first administrator's roles; no account and no password are made ahead of the person, who signs in from the link by a method of the auth. Author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the invitation gives) with the role file, declare the address in the data level (APP_PARTNERS_ADMINISTRATOR, a setting with no secret tag), invite from pkg/deploy InviteAdministrators and send the invitation again from ReinviteAdministrator (the migrate command's -reinvite-administrator), as they are written for the auth the application has"
+		invited    = "pkg/auth/partners/foothold.go: the first administrator the migrate command invites while nobody of the auth holds the Super Administrator role, by an invitation mailed to the address the placement names (APP_PARTNERS_ADMINISTRATOR) that gives the Super Administrator role and the first administrator's roles; no account and no password are made ahead of the person, who signs in from the link by a method of the auth. Author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the invitation gives) with the role file"
 		notInvited = "pkg/auth/partners/foothold.go: AdministratorRoles, the roles whose holder can give a role back, to author with the role file. The deployment invites no first administrator for the partners auth: the application generates no management of the auth's people, so nothing would give an accepted invitation its roles. impulse check refuses the auth as it stands (first-administrator), since nobody can be invited as its first administrator and an account seeded by hand is refused too: have the program generate the management (generation.GenerateIdentity), build the auth's identity client from it in New, and invite the first administrator as the tool writes foothold.go for such an auth"
 	)
+	const handed = "pkg/config/data.go: DataConfiguration keeps no environment struct (a field env *T) to read the address into, so nothing that invites the partners auth's first administrator was written outside its package, and no release invites one. Read the address on the data level (APP_PARTNERS_ADMINISTRATOR, a setting with no secret tag, behind a PartnersAdministrator() accessor), name the auth in the deployment package's AdministratorAuths and administratorOf, and have the migrate command call deploy.InviteAdministrators after its role check and deploy.ReinviteAdministrator from a -reinvite-administrator flag, as impulse new writes them for the auth an application starts with"
 	const packageDid = "pkg/auth/partners: the partners auth package (foothold.go, partners.go, password.go), rendered from the skeleton's auth source: the Auth session over tables prefixed Partners, the partners permission store, and the methods password, each in its own file"
 	const migrationsDid = "schema/migrations: 000005_PartnersAccess, 000006_PartnersSessionUsers, 000007_PartnersSessions, the partners auth's tables: the access tables copied from the staff auth's under the Partners prefix, and the Auth session tables (sessions, users with their addresses, identities, auth events, pending sign-ins, sign-in attempts, sign-in methods, mail links)"
 	const rolesDid = "pkg/auth/partners/roles.json: the partners auth's role file, empty: author its roles when its surfaces are bound"
@@ -775,6 +779,7 @@ func TestAuthApply(t *testing.T) {
 			extra: map[string]string{programFile: strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)},
 			wantSkipped: []string{
 				invited,
+				handed,
 				programFile + `: the program generates each auth's management (GenerateIdentity("pkg/identity")), so the regeneration writes the partners auth's packages under pkg/identity and the generated contract asks the handlers for PartnersIdentity() *partnersidentity.Client, which the tool does not write. The auth builds its client when it opens (partners.Auth.Identity(), with the hooks a sign-in gives roles through set in New): hand it to the App through the Configurer, and add the accessor where the App is declared and on every test configurer; the application does not compile until it holds`,
 			},
 			// The default outlet still declares the staff auth, so its management stays.
@@ -1309,6 +1314,103 @@ func Test_servesTenantRecord(t *testing.T) {
 			if got := servesTenantRecord(a, tt.site, &app.Outlet{Name: tt.outlet}); got != tt.want {
 				t.Errorf("servesTenantRecord() = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+// TestWithoutRegistrations pins what a copy of the settings function of an auth that signs
+// in through a directory leaves behind: the login page the directory sends a person back
+// to and the registration's settings, elements of the function's Settings literal as the
+// outlets skeleton's data level writes them for its members auth. The Settings of an auth
+// with no directory method have neither field, so a copy that kept them would not
+// compile. Everything else of the copy stands, the page a mailed link opens among it, and
+// so does a literal of another auth's.
+func TestWithoutRegistrations(t *testing.T) {
+	t.Parallel()
+
+	sub, err := skeleton.FS("outlets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := fs.ReadFile(sub, "pkg/config/data.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	level := string(data)
+	const (
+		page         = "\t\tLoginURL:       \"/portal/login\",\n"
+		registration = "\t\tDirectory: members.DirectorySettings{\n\t\t\tTenantID:            env.MembersDirectoryTenantID,\n\t\t\tAdministeredTenants: env.MembersDirectoryAdministeredTenants,\n\t\t\tClientID:            env.MembersDirectoryClientID,\n\t\t\tClientSecret:        env.MembersDirectoryClientSecret,\n\t\t\tRedirectURL:         env.MembersDirectoryRedirectURL,\n\t\t},\n"
+		before       = "\t\tMailLoginURL:   env.PublicURL + \"/portal/login\",\n"
+		after        = "\t\tTenantDeclarations: app.NewTenantDeclarationReader(),\n"
+	)
+	if carried := before + page + registration + after; !strings.Contains(level, carried) {
+		t.Fatalf("the outlets skeleton's data level no longer carries the members auth's registration as %q, which withoutRegistrations reads", carried)
+	}
+
+	got := withoutRegistrations(level, "members")
+	if !strings.Contains(got, before+after) {
+		t.Errorf("withoutRegistrations() does not leave %q:\n%s", before+after, got)
+	}
+	if want := strings.Replace(level, page+registration, "", 1); got != want {
+		t.Errorf("withoutRegistrations() took out more or less than the page and the registration (-want +got):\n%s", cmp.Diff(want, got))
+	}
+
+	// Under another auth's name the registration is not the copy's own to lose: the page
+	// alone goes.
+	if got, want := withoutRegistrations(level, "staff"), strings.Replace(level, page, "", 1); got != want {
+		t.Errorf("withoutRegistrations() under another auth's name (-want +got):\n%s", cmp.Diff(want, got))
+	}
+}
+
+// TestAuthApply_settingsBesideADirectoryAuth holds the settings function impulse add auth
+// copies for the new auth from an auth that signs in through a directory, in an
+// application started with Directory roles: the copy carries nothing of the staff auth's
+// registration, and the new auth's own registration joins it once, so the data level
+// compiles whichever way the new auth signs in. The staff auth's function keeps its own.
+func TestAuthApply_settingsBesideADirectoryAuth(t *testing.T) {
+	t.Parallel()
+
+	const base = "func (env *dataConfig) partnersSettings(collection access.PermissionCollection, signals partners.Signals, cookieKey string, sender mail.Sender) *partners.Settings {\n\treturn &partners.Settings{\n\t\tCollection:     collection,\n\t\tSignals:        signals,\n\t\tCookieKey:      cookieKey,\n\t\tSessionTimeout: env.SessionTimeout,\n\t\tMail:           sender,\n\t\tMailLoginURL:   env.PublicURL + \"/login\",\n"
+	tests := []struct {
+		name    string
+		methods []authpkg.Method
+		// want is the function's Settings literal after the elements every auth has.
+		want string
+	}{
+		{
+			name: "an auth whose people sign in with a password takes no registration",
+			want: "\t}\n}\n",
+		},
+		{
+			name:    "an auth with a registration of its own takes its own alone",
+			methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}},
+			want:    "\t\tLoginURL:       \"/login\",\n\t\tWorkspace: partners.WorkspaceSettings{\n\t\t\tHostedDomain:           env.PartnersWorkspaceHostedDomain,\n\t\t\tAdministeredWorkspaces: env.PartnersWorkspaceAdministeredWorkspaces,\n\t\t\tClientID:               env.PartnersWorkspaceClientID,\n\t\t\tClientSecret:           env.PartnersWorkspaceClientSecret,\n\t\t\tRedirectURL:            env.PartnersWorkspaceRedirectURL,\n\t\t},\n\t}\n}\n",
+		},
+		{
+			name:    "an auth with a registration named as the staff auth's takes its own once, with its own fields",
+			methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication}},
+			want:    "\t\tLoginURL:       \"/login\",\n\t\tGoogle: partners.GoogleSettings{\n\t\t\tHostedDomain:           env.PartnersGoogleHostedDomain,\n\t\t\tAdministeredWorkspaces: env.PartnersGoogleAdministeredWorkspaces,\n\t\t\tClientID:               env.PartnersGoogleClientID,\n\t\t\tClientSecret:           env.PartnersGoogleClientSecret,\n\t\t\tRedirectURL:            env.PartnersGoogleRedirectURL,\n\t\t},\n\t}\n}\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a := directoryRoles(t)
+			staffs := "\t\tLoginURL:       \"/login\",\n\t\tGoogle: staff.GoogleSettings{\n\t\t\tHostedDomain:           env.StaffGoogleHostedDomain,\n"
+			if level := read(t, a, baseDataLevel); !strings.Contains(level, staffs) {
+				t.Fatalf("the start's data level does not carry the staff auth's registration as %q:\n%s", staffs, level)
+			}
+			added(t, a, &Auth{Name: "partners", Methods: tt.methods, Outlet: app.DefaultOutletName})
+
+			level := read(t, a, baseDataLevel)
+			if want := base + tt.want; !strings.Contains(level, want) {
+				t.Errorf("%s does not hold the partners auth's settings as %q:\n%s", baseDataLevel, want, level)
+			}
+			if !strings.Contains(level, staffs) {
+				t.Errorf("%s lost the staff auth's registration:\n%s", baseDataLevel, level)
+			}
+			wellFormed(t, a, baseDataLevel)
 		})
 	}
 }

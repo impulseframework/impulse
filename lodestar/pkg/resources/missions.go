@@ -84,6 +84,12 @@ type (
 	// order across sectors, storing the sector; MissionsBySectorIdDeadline stays the
 	// sector's own.
 	//
+	// A mission's sorties, their expenses and its documents go with it: each reaches its
+	// sector through the mission, and every link of a table's way to its sector carries
+	// the delete rule. Whoever may delete a mission deletes them too, past their own
+	// Delete grants and row conditions; a document's stored file is the orphaned-file
+	// cleanup's then (the generator's audit pass names the table).
+	//
 	// Demonstrates: list.across-tenants.
 	//
 	// Demonstrates: @state, @attribute, @attribute.decimal, @attribute.timestamp, @attribute.nullable-fk, output_only, default_create_fn, @defaultsCreateType, @validateCreateType, change-tracking, outlet.shared, @order, @page, cell-masking, paging.masked-sort, masking.positional, filter.typed-values, filter.validated-at-decode, condition.now, condition.not-in, condition.prefix-not, condition.subject-scalar, condition.old-vs-new, write-grouping, @attribute.join-path-global, @enumerate.plain-column, @enumerate.key-view, metadata.filterable, index.tenant-second, commit.constraint-refusal, decode.value-limit, search.box, search.date, search.partitioned, condition.key-only-read.

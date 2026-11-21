@@ -146,10 +146,20 @@ CREATE UNIQUE INDEX SectorDirectoriesByMethodConnection ON SectorDirectories(Met
 -- it (tenant-delete-rule). Wings, Hangars, HangarPasses, Missions, Consignments,
 -- DroidReports and DistressCalls carry it. A sector's directory carries none: the
 -- generated delete of a sector removes that row itself, so its change event is written.
--- A table that reaches its sector through another row (a squadron through its wing, a
--- ship through its hangar, a sortie through its mission) goes as its own foreign key
--- says, and those say nothing: a hangar that still holds a ship is not deleted, and
--- neither is the sector the hangar is in.
+-- A table that reaches its sector through another row carries the rule on every link of
+-- that way, and the check holds it to that too: a squadron goes with its wing and a
+-- membership with its squadron, a ship with its hangar and a refit with its ship (its
+-- tasks are interleaved in it), a sortie and a document with their mission and an
+-- expense with its sortie. So a sector that is deleted takes all of it. Each of those
+-- rules is the database's and fires for the row deleted by itself too: a wing takes its
+-- squadrons and their memberships, a squadron its memberships, a hangar its ships with
+-- their refits, a ship its refits, a mission its sorties, their expenses and its
+-- documents, a sortie its expenses. Rows removed that way are removed past their own
+-- resource's Delete grant and row condition, and leave no change event. The references
+-- on no table's way to its sector say nothing of a delete, and refuse one: a sortie's
+-- and a droid report's to the ship, a mission's to the squadron it is assigned to and to
+-- its client, a ship's to its class. A hangar pass is the exception among those: it goes
+-- with its hangar and with the squadron it is issued to, as it did before.
 CREATE TABLE Wings (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
@@ -354,7 +364,7 @@ CREATE TABLE Squadrons (
   Name STRING(MAX) NOT NULL,
 
   CONSTRAINT CK_Squadrons_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Squadrons_WingId FOREIGN KEY (WingId) REFERENCES Wings(Id),
+  CONSTRAINT FK_Squadrons_WingId FOREIGN KEY (WingId) REFERENCES Wings(Id) ON DELETE CASCADE,
   -- Callsigns are the handles a squadron answers to on the open channel, filed by the sector
   -- marshal: a nullable ARRAY<STRING(16)> column typed by the plain []string in the resource
   -- struct, where NULL (the squadron has not filed yet) and an empty array (it flies silent
@@ -372,7 +382,7 @@ CREATE TABLE SquadronMemberships (
   SquadronId STRING(36) NOT NULL,
   UserId STRING(36) NOT NULL,
 
-  CONSTRAINT FK_SquadronMemberships_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id),
+  CONSTRAINT FK_SquadronMemberships_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id) ON DELETE CASCADE,
 ) PRIMARY KEY (SquadronId, UserId);
 
 CREATE INDEX SquadronMembershipsByUserId ON SquadronMemberships(UserId);
@@ -439,7 +449,7 @@ CREATE TABLE Ships (
   UpdatedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 
   CONSTRAINT CK_Ships_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Ships_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id),
+  CONSTRAINT FK_Ships_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id) ON DELETE CASCADE,
   CONSTRAINT FK_Ships_ClassId FOREIGN KEY (ClassId) REFERENCES ShipClasses(Id),
   -- CargoBays is the tonnage each of a ship's cargo bays takes, in order: an ARRAY<INT64>
   -- column, which the generator types number[] in the console's interface and metadata, one
@@ -514,7 +524,7 @@ CREATE TABLE Sorties (
   Debrief STRING(MAX),
 
   CONSTRAINT CK_Sorties_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Sorties_MissionId FOREIGN KEY (MissionId) REFERENCES Missions(Id),
+  CONSTRAINT FK_Sorties_MissionId FOREIGN KEY (MissionId) REFERENCES Missions(Id) ON DELETE CASCADE,
   CONSTRAINT FK_Sorties_ShipId FOREIGN KEY (ShipId) REFERENCES Ships(Id),
 ) PRIMARY KEY (Id);
 
@@ -526,7 +536,7 @@ CREATE TABLE SortieExpenses (
   Note STRING(MAX),
 
   CONSTRAINT CK_SortieExpenses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_SortieExpenses_SortieId FOREIGN KEY (SortieId) REFERENCES Sorties(Id),
+  CONSTRAINT FK_SortieExpenses_SortieId FOREIGN KEY (SortieId) REFERENCES Sorties(Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE TABLE Refits (
@@ -542,7 +552,7 @@ CREATE TABLE Refits (
   Notes STRING(MAX),
 
   CONSTRAINT CK_Refits_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Refits_ShipId FOREIGN KEY (ShipId) REFERENCES Ships(Id),
+  CONSTRAINT FK_Refits_ShipId FOREIGN KEY (ShipId) REFERENCES Ships(Id) ON DELETE CASCADE,
   CONSTRAINT FK_Refits_StatusId FOREIGN KEY (StatusId) REFERENCES RefitStatuses(Id),
 ) PRIMARY KEY (Id);
 
@@ -629,7 +639,7 @@ CREATE TABLE MissionDocuments (
   UploadedAt TIMESTAMP NOT NULL,
 
   CONSTRAINT CK_MissionDocuments_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_MissionDocuments_MissionId FOREIGN KEY (MissionId) REFERENCES Missions(Id),
+  CONSTRAINT FK_MissionDocuments_MissionId FOREIGN KEY (MissionId) REFERENCES Missions(Id) ON DELETE CASCADE,
   -- Two JSON columns typed by application types: Provenance, a plain struct whose
   -- TypeScript interface the generator derives, and Position, a GeoJSON Point whose
   -- TypeScript type the Go type declares with @typescript. Both nullable: a document filed

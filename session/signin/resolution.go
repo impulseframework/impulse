@@ -228,7 +228,9 @@ func Provision(user *NewUser, onProvisioned func(ctx context.Context, userID imp
 // Confirm holds the identity as pending until the person enters the password of the
 // existing user userID. The identity is then linked. A user without a password cannot
 // confirm (the confirmation answers 401), so Confirm is for users that sign in with a
-// password; a password-less user is linked with Link or refused with Reject.
+// password; a password-less user is linked with Link or refused with Reject. On an Auth
+// that registers no password method nobody can enter a password, so the sign-in is
+// refused (ErrConfirmNeedsPasswordMethod): a rule there answers Link or Reject.
 func Confirm(userID impulse.UUID, opts ...ResolutionOption) *Resolution {
 	r := &Resolution{outcome: RequireConfirmation, userID: userID}
 	for _, opt := range opts {
@@ -365,6 +367,14 @@ var (
 	// sessioninfo.RefusedIdentityRejected. The rule should return Confirm instead.
 	ErrLinkRequiresConfirmation = errors.New(
 		"signin: an identity can't be linked to a user that has a password without confirmation (or a trusted link)")
+	// ErrConfirmNeedsPasswordMethod is the cause when the account rule returned
+	// RequireConfirmation (Confirm) on an Auth that registers no password method. A
+	// confirmation is the user's password, and nothing in such an application takes
+	// one, so the sign-in is refused where it would wait for ever, and nothing is
+	// linked. The code is sessioninfo.RefusedIdentityRejected. The Auth should register
+	// the password method, or the rule return Link or Reject.
+	ErrConfirmNeedsPasswordMethod = errors.New(
+		"signin: the account rule asked for a password confirmation on an Auth that registers no password method")
 	// ErrLinkCrossConnection is the cause when the account rule returned LinkIdentity
 	// (Link) without trusted, or the standard rule matched a pre-created user, for a user
 	// that has no password and already signs in through another connection. No

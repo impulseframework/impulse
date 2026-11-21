@@ -1234,6 +1234,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -1843,7 +1851,7 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveCrewSectorRole]: {
     route: 'remove-crew-sector-role',
-    target: { resource: Resources.CrewSectorHeldRoles, key: { userId: 'userId', role: 'role', groupId: 'groupId' } },
+    target: { resource: Resources.CrewSectorHeldRoles, key: { userId: 'userId', role: 'role', groupId: 'groupId' }, mayBeEmpty: ['groupId'] },
     statuses: [204],
     dryRun: true,
     fields: [
