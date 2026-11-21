@@ -35,12 +35,14 @@ func (Mission) DeleteTree() *resource.DeleteTree {
 		Words:  resource.DeleteWords{One: "mission", Many: "missions"},
 		Key:    []string{"Id"},
 		Cost:   resource.DeleteCost{IndexEntries: 10, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "SectorId"},
 		Taken: []resource.DeleteKind{
 			{
 				Resource: "SortieExpenses",
 				Words:    resource.DeleteWords{One: "sortie expense", Many: "sortie expenses"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SortieId", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}, {Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
@@ -60,6 +62,7 @@ func (Mission) DeleteTree() *resource.DeleteTree {
 				Words:    resource.DeleteWords{One: "mission document", Many: "mission documents"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
@@ -77,6 +80,7 @@ func (Mission) DeleteTree() *resource.DeleteTree {
 				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},

@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // deleteFixtureResources extracts the deletefixture package over its schema: every
@@ -818,6 +819,121 @@ func Test_tenantDeleteTree(t *testing.T) {
 	if strings.Contains(literal, "Enforce(") {
 		t.Errorf("the tenant's description arms a taken row's delete against the caller, want none armed:\n%s", literal)
 	}
+}
+
+// Test_deleteTree_tenant pins how a description says the tenant each row resolves to,
+// so a delete reads no row of another tenant under a record: the tenant record's own
+// row is its tenant, by its key column; a record or a kind with a @domain carries it,
+// with the way through other rows where it has one; and a record or a kind with none
+// carries nothing and writes no line. A kind's line follows its cost, as the record's
+// does.
+func Test_deleteTree_tenant(t *testing.T) {
+	t.Parallel()
+
+	toClient := []bindingHop{{Table: "Projects", JoinColumn: "Id", Column: "ClientId"}}
+	throughProjects := &resource.DomainBindingData{Column: "ProjectId", Path: []resource.BindingHop{{Table: "Projects", JoinColumn: "Id", Column: "ClientId"}}}
+	byClient := &resource.DomainBindingData{Column: "ClientId"}
+
+	t.Run("the tenant record", func(t *testing.T) {
+		t.Parallel()
+
+		c, byName := deleteFixtureResources(t)
+		client := byName["Client"]
+		client.deleteCascade, client.DeleteTree, client.IsTenant = nil, nil, true
+		for _, name := range []string{"Ledger", "Project", "Invoice"} {
+			byName[name].DomainBinding = &domainBinding{Anchor: byName[name].fieldNamed("ClientID")}
+		}
+		task := byName["Task"]
+		task.DomainBinding = &domainBinding{Anchor: task.fieldNamed("ProjectID"), Path: toClient}
+
+		if err := c.resolveDeleteTrees(resourceList(byName)); err != nil {
+			t.Fatalf("resolveDeleteTrees() error = %v", err)
+		}
+		if diff := cmp.Diff(&resource.DomainBindingData{Column: "Id"}, client.DeleteTree.Record.Tenant); diff != "" {
+			t.Errorf("the tenant record's own tenant mismatch (-want +got):\n%s", diff)
+		}
+		got := make(map[string]*resource.DomainBindingData)
+		for _, kind := range client.DeleteTree.Taken {
+			got[kind.Table] = kind.Tenant
+		}
+		want := map[string]*resource.DomainBindingData{
+			"TaskComments": nil, "ProjectNotes": nil, "Tasks": throughProjects,
+			"Invoices": byClient, "Ledgers": byClient, "Projects": byClient,
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("the tenant of each kind the tenant's delete takes mismatch (-want +got):\n%s", diff)
+		}
+
+		literal := client.DeleteTreeLiteral()
+		for _, want := range []string{
+			"Cost: resource.DeleteCost{IndexEntries: 0, Files: 0},\nTenant: &resource.DomainBindingData{Column: \"Id\"},\nTaken:",
+			"Resource: \"Tasks\",\nWords: resource.DeleteWords{One: \"task\", Many: \"tasks\"},\nKey: []string{\"Id\"},\nCost: resource.DeleteCost{IndexEntries: 1, Files: 0},\n" +
+				"Tenant: &resource.DomainBindingData{Column: \"ProjectId\", Path: []resource.BindingHop{{Table: \"Projects\", JoinColumn: \"Id\", Column: \"ClientId\"}}},\nPaths:",
+			"Resource: \"Ledgers\",\nWords: resource.DeleteWords{One: \"ledger\", Many: \"ledgers\"},\nKey: []string{\"Id\"},\nCost: resource.DeleteCost{IndexEntries: 0, Files: 0},\n" +
+				"Tenant: &resource.DomainBindingData{Column: \"ClientId\"},\nPaths:",
+			// A kind whose rows are no tenant's writes no line.
+			"Resource: \"TaskComments\",\nWords: resource.DeleteWords{One: \"task comment\", Many: \"task comments\"},\nKey: []string{\"Id\"},\nCost: resource.DeleteCost{IndexEntries: 0, Files: 0},\nPaths:",
+		} {
+			if !strings.Contains(literal, want) {
+				t.Errorf("the tenant's description as written lacks %q:\n%s", want, literal)
+			}
+		}
+	})
+
+	t.Run("a record under a tenant, and one that is no tenant's", func(t *testing.T) {
+		t.Parallel()
+
+		c, byName := deleteFixtureResources(t)
+		for _, name := range []string{"Project", "Invoice"} {
+			byName[name].DomainBinding = &domainBinding{Anchor: byName[name].fieldNamed("ClientID")}
+		}
+		task := byName["Task"]
+		task.DomainBinding = &domainBinding{Anchor: task.fieldNamed("ProjectID"), Path: toClient}
+		// The fixture's descriptions were written before the bindings were given.
+		for _, res := range byName {
+			res.DeleteTree = nil
+		}
+
+		if err := c.resolveDeleteTrees(resourceList(byName)); err != nil {
+			t.Fatalf("resolveDeleteTrees() error = %v", err)
+		}
+
+		client := byName["Client"].DeleteTree
+		if client.Record.Tenant != nil {
+			t.Errorf("a record with no @domain carries the tenant %+v, want none", client.Record.Tenant)
+		}
+		tenants := func(kinds []*deleteKind) map[string]*resource.DomainBindingData {
+			out := make(map[string]*resource.DomainBindingData, len(kinds))
+			for _, kind := range kinds {
+				out[kind.Table] = kind.Tenant
+			}
+
+			return out
+		}
+		if diff := cmp.Diff(map[string]*resource.DomainBindingData{"TaskComments": nil, "ProjectNotes": nil, "Tasks": throughProjects, "Projects": byClient}, tenants(client.Taken)); diff != "" {
+			t.Errorf("the tenant of each kind the client's delete takes mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(map[string]*resource.DomainBindingData{"Invoices": byClient}, tenants(client.RefusedBy)); diff != "" {
+			t.Errorf("the tenant of each kind that refuses the client's delete mismatch (-want +got):\n%s", diff)
+		}
+		if literal := byName["Client"].DeleteTreeLiteral(); !strings.Contains(literal, "Cost: resource.DeleteCost{IndexEntries: 0, Files: 0},\nTaken:") {
+			t.Errorf("the description of a record that is no tenant's writes a tenant:\n%s", literal)
+		}
+
+		project := byName["Project"].DeleteTree
+		if project == nil {
+			t.Fatal("the project has no description after resolveDeleteTrees()")
+		}
+		if diff := cmp.Diff(byClient, project.Record.Tenant); diff != "" {
+			t.Errorf("the project's own tenant mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(map[string]*resource.DomainBindingData{"ProjectNotes": nil, "Tasks": throughProjects}, tenants(project.Under)); diff != "" {
+			t.Errorf("the tenant of each kind under the project mismatch (-want +got):\n%s", diff)
+		}
+		if literal := byName["Project"].DeleteTreeLiteral(); !strings.Contains(literal, "Cost: resource.DeleteCost{IndexEntries: 0, Files: 0},\nTenant: &resource.DomainBindingData{Column: \"ClientId\"},\nUnder:") {
+			t.Errorf("the project's description as written lacks its tenant after its cost:\n%s", literal)
+		}
+	})
 }
 
 // Test_tableMetadata_foreignKeys pins how the schema read keeps a table's foreign keys

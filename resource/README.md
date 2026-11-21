@@ -1691,6 +1691,12 @@ transaction, and answers the first delete that has one with a 409:
   against, else the caller the request carries. A kind they may not list is never named
   or counted for them, and a grant to list it that carries a condition is not enough,
   since the count is of every row. A trusted call is told every kind.
+- A row of another tenant is never counted. Where the kind's rows are a tenant's
+  (`@domain`) and the record is a tenant's, or is the tenant record, the count is of the
+  rows of the record's own tenant (`DeleteKind.Tenant` and `DeleteTree.Tenant`, which the
+  generator writes). A row of another tenant that names the record is not under it; where
+  a foreign key holds it there, the commit refuses the delete in its own sentence (the
+  table that opens this section).
 - A row the transaction's own patches deleted is left out of the count, by its key: a
   read inside the transaction does not see its buffered writes. So the rows and the
   record go together in one transaction, in either order. A row the transaction's
@@ -1763,6 +1769,16 @@ with nothing gone where it cannot be made whole:
   link to itself (`DeleteKind.Within`: an answer names the relay it answers) is followed
   until a level finds nothing new, so a row under a row of its own kind goes however deep
   it is, and so does one that is under the record through such a row alone.
+- A row is under a record of a tenant only where it is that tenant's. For a kind whose
+  rows are a tenant's (`@domain`), each level reads the rows of the record's own tenant
+  alone: the tenant the record's key holds (the tenant record, or a record keyed by its
+  tenant), or the one the record's row resolves to (`DeleteTree.Tenant`), compared with
+  the tenant each row of the kind resolves to (`DeleteKind.Tenant`), through other rows
+  where its `@domain` goes through them. A row of another tenant that names the record,
+  or a row under it, is not found, counted, named or taken, whoever asks, a trusted delete
+  included. Where a foreign key holds such a row to a row that goes, the commit refuses
+  the delete in its own sentence and nothing is deleted. A record that is no tenant's has
+  under it whatever its links put there, and so does a kind whose rows are no tenant's.
 - A foreign key of two or more columns is written with its columns in the order of the
   key it references: for an order keyed `(Depot, Number)`, a line's is
   `FOREIGN KEY (OrderDepot, OrderNumber) REFERENCES Orders (Depot, Number)`. The generator

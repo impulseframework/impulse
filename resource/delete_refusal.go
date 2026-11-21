@@ -243,6 +243,9 @@ type rowsUnderWriter struct {
 	dbType  DBType
 	written map[accesstypes.Resource][]map[string]any
 	args    []any
+	// steps counts the steps written of rows' ways to their tenants, so each reads its
+	// table under a name of its own.
+	steps int
 }
 
 // quote spells an identifier as the database type quotes it.
@@ -283,6 +286,56 @@ func (w *rowsUnderWriter) notWritten(alias string, table accesstypes.Resource) s
 	}
 
 	return b.String()
+}
+
+// rowTenant is the tenant of a row as a statement reads it: the column that holds the
+// tenant's key, spelled after the prefix, or, for a row that reaches its tenant through
+// other rows, one scalar subquery for each step of the way. It is NULL where a step's
+// column is empty or names no row, and NULL equals no tenant.
+func (w *rowsUnderWriter) rowTenant(prefix string, binding *DomainBindingData) string {
+	tenant := prefix + w.quote(binding.Column)
+	for _, hop := range binding.Path {
+		w.steps++
+		alias := "n" + strconv.Itoa(w.steps)
+		tenant = fmt.Sprintf("(SELECT %[1]s.%[2]s FROM %[3]s AS %[1]s WHERE %[1]s.%[4]s = %[5]s)",
+			alias, w.quote(hop.Column), w.quote(hop.Table), w.quote(hop.JoinColumn), tenant)
+	}
+
+	return tenant
+}
+
+// ofRecordsTenant is the condition that a row of the kind, its columns spelled after
+// the prefix, is of the record's tenant, as " AND ..." after the conditions that put the
+// row under the record. The record's tenant is the value its key holds where the key
+// holds the tenant's column (the tenant record itself, or a record keyed by its
+// tenant), and is read from the record's row by its key otherwise. It is empty where
+// the kind's rows or the record are no tenant's: every row is then under the record
+// that the links put there.
+func (w *rowsUnderWriter) ofRecordsTenant(prefix string, kind *DeleteKind, tree *DeleteTree, recordKey map[string]any) string {
+	if tree == nil || tree.Tenant == nil || kind.Tenant == nil {
+		return ""
+	}
+	row := w.rowTenant(prefix, kind.Tenant)
+	if value, held := recordKey[tree.Tenant.Column]; held && len(tree.Tenant.Path) == 0 {
+		return fmt.Sprintf(" AND %s = %s", row, w.value(value))
+	}
+	equal := make([]string, 0, len(recordKey))
+	for _, column := range slices.Sorted(maps.Keys(recordKey)) {
+		equal = append(equal, fmt.Sprintf("tr.%s = %s", w.quote(column), w.value(recordKey[column])))
+	}
+
+	return fmt.Sprintf(" AND %s = (SELECT %s FROM %s AS tr WHERE %s)",
+		row, w.rowTenant("tr.", tree.Tenant), w.quote(string(tree.Record)), strings.Join(equal, " AND "))
+}
+
+// tenantValues is the most values ofRecordsTenant adds to a statement about the kind's
+// rows: the record's key, and none where it writes no condition.
+func tenantValues(kind *DeleteKind, tree *DeleteTree, recordKey map[string]any) int {
+	if tree == nil || tree.Tenant == nil || kind.Tenant == nil {
+		return 0
+	}
+
+	return max(1, len(recordKey))
 }
 
 // way is the condition that a row of the kind, read as t0, is under the record by one
@@ -338,10 +391,11 @@ func (w *rowsUnderWriter) way(index int, path DeletePath, recordKey map[string]a
 
 // newRowsUnderStatement renders the count of a kind's rows under the record with the
 // given key, by any of the kind's ways up to it, leaving out the rows the transaction
-// itself deleted (written). ok is false when the transaction deleted more rows of one
-// of the tables read than a statement leaves out by key (deleteExclusionLimit): the
-// kind is then not counted.
-func newRowsUnderStatement(dbType DBType, kind *DeleteKind, recordKey map[string]any, written map[accesstypes.Resource][]map[string]any) (statement rowsUnderStatement, ok bool) {
+// itself deleted (written) and, where the kind's rows and the record are a tenant's,
+// the rows of another tenant (ofRecordsTenant). ok is false when the transaction
+// deleted more rows of one of the tables read than a statement leaves out by key
+// (deleteExclusionLimit): the kind is then not counted.
+func newRowsUnderStatement(dbType DBType, tree *DeleteTree, kind *DeleteKind, recordKey map[string]any, written map[accesstypes.Resource][]map[string]any) (statement rowsUnderStatement, ok bool) {
 	if len(written[kind.Resource]) > deleteExclusionLimit {
 		return rowsUnderStatement{}, false
 	}
@@ -364,7 +418,8 @@ func newRowsUnderStatement(dbType DBType, kind *DeleteKind, recordKey map[string
 	if len(ways) == 0 {
 		return rowsUnderStatement{}, false
 	}
-	sql := fmt.Sprintf("SELECT COUNT(*) FROM %s AS t0 WHERE (%s)%s", w.quote(string(kind.Resource)), strings.Join(ways, " OR "), w.notWritten("t0", kind.Resource))
+	sql := fmt.Sprintf("SELECT COUNT(*) FROM %s AS t0 WHERE (%s)%s%s",
+		w.quote(string(kind.Resource)), strings.Join(ways, " OR "), w.ofRecordsTenant("t0.", kind, tree, recordKey), w.notWritten("t0", kind.Resource))
 
 	return rowsUnderStatement{SQL: sql, Args: w.args}, true
 }
@@ -449,7 +504,7 @@ func (d *recordedDelete) refusal(ctx context.Context, dbType DBType, t *transact
 func (d *recordedDelete) rowsOf(ctx context.Context, dbType DBType, kinds []DeleteKind, written map[accesstypes.Resource][]map[string]any, count rowCounter) ([]kindRows, error) {
 	var found []kindRows
 	for i := range kinds {
-		statement, ok := newRowsUnderStatement(dbType, &kinds[i], d.key, written)
+		statement, ok := newRowsUnderStatement(dbType, d.tree, &kinds[i], d.key, written)
 		if !ok {
 			continue
 		}

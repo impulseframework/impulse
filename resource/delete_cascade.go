@@ -256,10 +256,13 @@ func rowsStatement(writer *rowsUnderWriter, table accesstypes.Resource, columns 
 // row above that holds nothing in a referenced column has no row under it by the link,
 // as the database holds a foreign key only for a row with a value in every column of
 // it. The rows above are read for in parts, so no read names more values than a query
-// takes (takenParameterLimit).
-func takenStatements(dbType DBType, kind *DeleteKind, link DeleteLink, above []map[string]any, columns []string) ([]rowsUnderStatement, error) {
+// takes (takenParameterLimit). Where the kind's rows and the record are a tenant's, a
+// read finds the rows of the record's tenant alone (ofRecordsTenant): a row of another
+// tenant that names one of the rows above is not under the record.
+func takenStatements(dbType DBType, tree *DeleteTree, recordKey map[string]any, kind *DeleteKind, link DeleteLink, above []map[string]any, columns []string) ([]rowsUnderStatement, error) {
 	var statements []rowsUnderStatement
-	for part := range slices.Chunk(above, max(1, takenParameterLimit/len(link.Columns))) {
+	room := takenParameterLimit - tenantValues(kind, tree, recordKey)
+	for part := range slices.Chunk(above, max(1, room/len(link.Columns))) {
 		writer := &rowsUnderWriter{dbType: dbType}
 		condition, err := writer.underAbove("", kind, link, part)
 		if err != nil {
@@ -267,6 +270,9 @@ func takenStatements(dbType DBType, kind *DeleteKind, link DeleteLink, above []m
 		}
 		if condition == "" {
 			continue
+		}
+		if tenant := writer.ofRecordsTenant(writer.quote(string(kind.Resource))+".", kind, tree, recordKey); tenant != "" {
+			condition = "(" + condition + ")" + tenant
 		}
 		statements = append(statements, rowsStatement(writer, kind.Resource, columns, condition))
 	}
@@ -353,17 +359,18 @@ func (c *refusingCount) rows(ctx context.Context, found *takenFound) ([]kindRows
 
 // refusingStatements are the reads of the key of the refusing kind's rows that one link
 // puts under any of the rows above, leaving out the rows of the kind the transaction
-// itself deleted (written). The rows above are read for in parts, so no read names
+// itself deleted (written) and, where the kind's rows and the record are a tenant's,
+// the rows of another tenant (ofRecordsTenant). The rows above are read for in parts, so no read names
 // more values than a query takes (takenParameterLimit). There is none where the
 // transaction deleted more rows of the kind than a statement leaves out by key
 // (deleteExclusionLimit), or so many that no room is left for a row above: the kind is
 // then not counted here, and the commit answers for it. The reads are spelled for
 // Spanner, the one database a delete takes rows on (deleteTaken).
-func refusingStatements(kind *DeleteKind, link DeleteLink, above, written []map[string]any) ([]rowsUnderStatement, error) {
+func refusingStatements(tree *DeleteTree, recordKey map[string]any, kind *DeleteKind, link DeleteLink, above, written []map[string]any) ([]rowsUnderStatement, error) {
 	if len(written) > deleteExclusionLimit {
 		return nil, nil
 	}
-	room := takenParameterLimit - len(written)*len(kind.Key)
+	room := takenParameterLimit - len(written)*len(kind.Key) - tenantValues(kind, tree, recordKey)
 	if room < len(link.Columns) {
 		return nil, nil
 	}
@@ -383,8 +390,9 @@ func refusingStatements(kind *DeleteKind, link DeleteLink, above, written []map[
 		if condition == "" {
 			continue
 		}
-		sql := fmt.Sprintf("SELECT %s FROM %s AS t0 WHERE (%s)%s",
-			strings.Join(key, ", "), writer.quote(string(kind.Resource)), condition, writer.notWritten("t0", kind.Resource))
+		sql := fmt.Sprintf("SELECT %s FROM %s AS t0 WHERE (%s)%s%s",
+			strings.Join(key, ", "), writer.quote(string(kind.Resource)), condition,
+			writer.ofRecordsTenant("t0.", kind, tree, recordKey), writer.notWritten("t0", kind.Resource))
 		statements = append(statements, rowsUnderStatement{SQL: sql, Args: writer.args})
 	}
 
@@ -394,7 +402,9 @@ func refusingStatements(kind *DeleteKind, link DeleteLink, above, written []map[
 // takenReader reads the rows a walk asks for inside the delete's transaction.
 type takenReader struct {
 	tree *DeleteTree
-	txn  *SpannerReadWriteTransaction
+	// key is the key of the record the rows are read under.
+	key map[string]any
+	txn *SpannerReadWriteTransaction
 	// columns are each taken kind's columns, and the record's own.
 	columns map[accesstypes.Resource]map[string]takenColumn
 }
@@ -428,7 +438,7 @@ func (r *takenReader) recordRow(ctx context.Context, key map[string]any) (map[st
 // more than most of them.
 func (r *takenReader) under(ctx context.Context, kind *DeleteKind, link DeleteLink, above []map[string]any, most int) ([]map[string]any, error) {
 	columns := r.tree.reads(kind.Resource, kind.Key)
-	statements, err := takenStatements(SpannerDBType, kind, link, above, columns)
+	statements, err := takenStatements(SpannerDBType, r.tree, r.key, kind, link, above, columns)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +461,7 @@ func (r *takenReader) under(ctx context.Context, kind *DeleteKind, link DeleteLi
 // above, each by its key in one text, leaving out the rows the transaction itself
 // deleted.
 func (r *takenReader) refusing(ctx context.Context, kind *DeleteKind, link DeleteLink, above []map[string]any) ([]string, error) {
-	statements, err := refusingStatements(kind, link, above, r.txn.deleted.gone[kind.Resource])
+	statements, err := refusingStatements(r.tree, r.key, kind, link, above, r.txn.deleted.gone[kind.Resource])
 	if err != nil {
 		return nil, err
 	}
@@ -610,7 +620,7 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 		return false, nil
 	}
 
-	reader, tracked, ok := p.takenReaderOf(tree, spannerTxn)
+	reader, tracked, ok := p.takenReaderOf(tree, key, spannerTxn)
 	if !ok {
 		return false, nil
 	}
@@ -682,9 +692,10 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 // takenReaderOf is the reader of the rows under the record, and whether each kind keeps
 // change history, for a description whose every taken kind has its deletes
 // (DeleteKind.Rows). ok is false where one has none.
-func (p *PatchSet[Resource]) takenReaderOf(tree *DeleteTree, txn *SpannerReadWriteTransaction) (reader *takenReader, tracked map[accesstypes.Resource]bool, ok bool) {
+func (p *PatchSet[Resource]) takenReaderOf(tree *DeleteTree, key map[string]any, txn *SpannerReadWriteTransaction) (reader *takenReader, tracked map[accesstypes.Resource]bool, ok bool) {
 	reader = &takenReader{
 		tree:    tree,
+		key:     key,
 		txn:     txn,
 		columns: map[accesstypes.Resource]map[string]takenColumn{tree.Record: columnsOf(p.querySet.rMeta, txn.DBType())},
 	}

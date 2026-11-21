@@ -308,7 +308,10 @@ func TestTakenWalk_find(t *testing.T) {
 // Test_takenStatements pins the reads of one level: the kind's rows whose columns hold
 // what the link references of one of the rows above, a row above that holds nothing in
 // a referenced column left out, and the rows above read for in parts so that no read
-// names more values than a query takes.
+// names more values than a query takes. Where the kind's rows and the record are a
+// tenant's, each read finds the rows of the record's own tenant alone, by the kind's
+// ways up and by its links to its own kind, and the value that names the tenant takes
+// its room among the values of a read.
 func Test_takenStatements(t *testing.T) {
 	t.Parallel()
 
@@ -376,7 +379,7 @@ func Test_takenStatements(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := takenStatements(SpannerDBType, tasks, tt.link, tt.above, tt.columns)
+			got, err := takenStatements(SpannerDBType, nil, nil, tasks, tt.link, tt.above, tt.columns)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("takenStatements() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -411,7 +414,7 @@ func Test_takenStatements(t *testing.T) {
 			"one column":  {link: byProject, want: []int{takenParameterLimit, 1}},
 			"two columns": {link: byCode, want: []int{takenParameterLimit, takenParameterLimit, 2}},
 		} {
-			statements, err := takenStatements(SpannerDBType, tasks, tt.link, above, []string{"Id"})
+			statements, err := takenStatements(SpannerDBType, nil, nil, tasks, tt.link, above, []string{"Id"})
 			if err != nil {
 				t.Fatalf("takenStatements() error = %v", err)
 			}
@@ -422,6 +425,139 @@ func Test_takenStatements(t *testing.T) {
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("%s: values named by each read mismatch (-want +got):\n%s", name, diff)
 			}
+		}
+	})
+
+	t.Run("a kind of a tenant's rows under a record of a tenant", func(t *testing.T) {
+		t.Parallel()
+
+		byTenant := &DomainBindingData{Column: "TenantId"}
+		tenantTasks := &DeleteKind{Resource: "CascadeTasks", Key: []string{"Id"}, Tenant: byTenant}
+		byParent := DeleteLink{Columns: []string{"ParentTaskId"}, Table: "CascadeTasks", References: []string{"Id"}}
+		tenants := &DeleteTree{Record: "CascadeTenants", Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "Id"}}
+		clients := &DeleteTree{Record: "CascadeClients", Key: []string{"Id"}, Tenant: byTenant}
+		above := []map[string]any{{"Id": "p1"}, {"Id": "p2"}}
+
+		for _, tt := range []struct {
+			name      string
+			dbType    DBType
+			tree      *DeleteTree
+			recordKey map[string]any
+			kind      *DeleteKind
+			link      DeleteLink
+			above     []map[string]any
+			wantSQL   string
+			wantArgs  []any
+		}{
+			{
+				name:      "the tenant record: the tenant its key holds",
+				dbType:    SpannerDBType,
+				tree:      tenants,
+				recordKey: map[string]any{"Id": "anvil"},
+				kind:      tenantTasks,
+				link:      byProject,
+				above:     above,
+				wantSQL:   "SELECT `Id` FROM `CascadeTasks` WHERE ((`ProjectId` = @d1) OR (`ProjectId` = @d2)) AND `CascadeTasks`.`TenantId` = @d3",
+				wantArgs:  []any{"p1", "p2", "anvil"},
+			},
+			{
+				name:      "a record under a tenant: the tenant its row resolves to",
+				dbType:    SpannerDBType,
+				tree:      clients,
+				recordKey: map[string]any{"Id": "c1"},
+				kind:      tenantTasks,
+				link:      byProject,
+				above:     above,
+				wantSQL: "SELECT `Id` FROM `CascadeTasks` WHERE ((`ProjectId` = @d1) OR (`ProjectId` = @d2))" +
+					" AND `CascadeTasks`.`TenantId` = (SELECT tr.`TenantId` FROM `CascadeClients` AS tr WHERE tr.`Id` = @d3)",
+				wantArgs: []any{"p1", "p2", "c1"},
+			},
+			{
+				name:      "a kind whose rows reach their tenant through another table",
+				dbType:    SpannerDBType,
+				tree:      tenants,
+				recordKey: map[string]any{"Id": "anvil"},
+				kind: &DeleteKind{Resource: "CascadeTasks", Key: []string{"Id"}, Tenant: &DomainBindingData{
+					Column: "ProjectId", Path: []BindingHop{{Table: "CascadeProjects", JoinColumn: "Id", Column: "TenantId"}},
+				}},
+				link:  byProject,
+				above: above,
+				wantSQL: "SELECT `Id` FROM `CascadeTasks` WHERE ((`ProjectId` = @d1) OR (`ProjectId` = @d2))" +
+					" AND (SELECT n1.`TenantId` FROM `CascadeProjects` AS n1 WHERE n1.`Id` = `CascadeTasks`.`ProjectId`) = @d3",
+				wantArgs: []any{"p1", "p2", "anvil"},
+			},
+			{
+				name:      "a link to a row of its own kind",
+				dbType:    SpannerDBType,
+				tree:      tenants,
+				recordKey: map[string]any{"Id": "anvil"},
+				kind:      tenantTasks,
+				link:      byParent,
+				above:     []map[string]any{{"Id": "t1"}},
+				wantSQL:   "SELECT `Id` FROM `CascadeTasks` WHERE ((`ParentTaskId` = @d1)) AND `CascadeTasks`.`TenantId` = @d2",
+				wantArgs:  []any{"t1", "anvil"},
+			},
+			{
+				name:      "the tenant record, on PostgreSQL",
+				dbType:    PostgresDBType,
+				tree:      tenants,
+				recordKey: map[string]any{"Id": "anvil"},
+				kind:      tenantTasks,
+				link:      byProject,
+				above:     above,
+				wantSQL:   `SELECT "Id" FROM "CascadeTasks" WHERE (("ProjectId" = $1) OR ("ProjectId" = $2)) AND "CascadeTasks"."TenantId" = $3`,
+				wantArgs:  []any{"p1", "p2", "anvil"},
+			},
+			{
+				name:      "a record that is no tenant's",
+				dbType:    SpannerDBType,
+				tree:      &DeleteTree{Record: "CascadeClients", Key: []string{"Id"}},
+				recordKey: map[string]any{"Id": "c1"},
+				kind:      tenantTasks,
+				link:      byProject,
+				above:     above,
+				wantSQL:   "SELECT `Id` FROM `CascadeTasks` WHERE (`ProjectId` = @d1) OR (`ProjectId` = @d2)",
+				wantArgs:  []any{"p1", "p2"},
+			},
+			{
+				name:      "a kind whose rows are no tenant's",
+				dbType:    SpannerDBType,
+				tree:      tenants,
+				recordKey: map[string]any{"Id": "anvil"},
+				kind:      tasks,
+				link:      byProject,
+				above:     above,
+				wantSQL:   "SELECT `Id` FROM `CascadeTasks` WHERE (`ProjectId` = @d1) OR (`ProjectId` = @d2)",
+				wantArgs:  []any{"p1", "p2"},
+			},
+		} {
+			got, err := takenStatements(tt.dbType, tt.tree, tt.recordKey, tt.kind, tt.link, tt.above, []string{"Id"})
+			if err != nil {
+				t.Fatalf("%s: takenStatements() error = %v", tt.name, err)
+			}
+			want := []rowsUnderStatement{{SQL: tt.wantSQL, Args: tt.wantArgs}}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("%s: takenStatements() mismatch (-want +got):\n%s", tt.name, diff)
+			}
+		}
+
+		many := make([]map[string]any, takenParameterLimit+1)
+		for i := range many {
+			many[i] = map[string]any{"Id": i}
+		}
+		statements, err := takenStatements(SpannerDBType, tenants, map[string]any{"Id": "anvil"}, tenantTasks, byProject, many, []string{"Id"})
+		if err != nil {
+			t.Fatalf("takenStatements() error = %v", err)
+		}
+		var rows []int
+		for i, statement := range statements {
+			rows = append(rows, len(statement.Args)-1)
+			if len(statement.Args) > takenParameterLimit {
+				t.Errorf("read %d names %d values, want no more than %d", i, len(statement.Args), takenParameterLimit)
+			}
+		}
+		if diff := cmp.Diff([]int{takenParameterLimit - 1, 2}, rows); diff != "" {
+			t.Errorf("rows above read by each read, the tenant's value beside them, mismatch (-want +got):\n%s", diff)
 		}
 	})
 }
@@ -674,7 +810,9 @@ func TestRecordedDelete_refusedUnder(t *testing.T) {
 // found: the key of the kind's rows whose columns hold what the link references of one
 // of the rows above, the rows of the kind the transaction itself wrote left out, the
 // rows above read for in parts that leave room for those, and no read at all where the
-// transaction wrote more rows of the kind than a statement leaves out.
+// transaction wrote more rows of the kind than a statement leaves out. Where the kind's
+// rows and the record are a tenant's, a read finds the rows of the record's own tenant
+// alone, and its parts leave room for the value that names the tenant too.
 func Test_refusingStatements(t *testing.T) {
 	t.Parallel()
 
@@ -689,7 +827,7 @@ func Test_refusingStatements(t *testing.T) {
 		return out
 	}
 
-	got, err := refusingStatements(invoices, byTask, []map[string]any{{"Id": "t1"}, {"Id": "t2"}}, []map[string]any{{"Id": "i9"}})
+	got, err := refusingStatements(nil, nil, invoices, byTask, []map[string]any{{"Id": "t1"}, {"Id": "t2"}}, []map[string]any{{"Id": "i9"}})
 	if err != nil {
 		t.Fatalf("refusingStatements() error = %v", err)
 	}
@@ -701,7 +839,7 @@ func Test_refusingStatements(t *testing.T) {
 		t.Errorf("refusingStatements() mismatch (-want +got):\n%s", diff)
 	}
 
-	parts, err := refusingStatements(invoices, byTask, rows(takenParameterLimit), rows(100))
+	parts, err := refusingStatements(nil, nil, invoices, byTask, rows(takenParameterLimit), rows(100))
 	if err != nil {
 		t.Fatalf("refusingStatements() error = %v", err)
 	}
@@ -714,12 +852,73 @@ func Test_refusingStatements(t *testing.T) {
 		}
 	}
 
-	none, err := refusingStatements(invoices, byTask, rows(2), rows(deleteExclusionLimit+1))
+	none, err := refusingStatements(nil, nil, invoices, byTask, rows(2), rows(deleteExclusionLimit+1))
 	if err != nil {
 		t.Fatalf("refusingStatements() error = %v", err)
 	}
 	if len(none) != 0 {
 		t.Errorf("refusingStatements() made %d reads with more rows written than a statement leaves out, want none", len(none))
+	}
+
+	byTenant := &DomainBindingData{Column: "TenantId"}
+	tenantInvoices := &DeleteKind{Resource: "CascadeInvoices", Key: []string{"Id"}, Tenant: byTenant}
+	tenants := &DeleteTree{Record: "CascadeTenants", Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "Id"}}
+	for _, tt := range []struct {
+		name      string
+		tree      *DeleteTree
+		recordKey map[string]any
+		kind      *DeleteKind
+		want      rowsUnderStatement
+	}{
+		{
+			name:      "the tenant record: the tenant its key holds",
+			tree:      tenants,
+			recordKey: map[string]any{"Id": "anvil"},
+			kind:      tenantInvoices,
+			want: rowsUnderStatement{
+				SQL:  "SELECT t0.`Id` FROM `CascadeInvoices` AS t0 WHERE ((t0.`TaskId` = @d1) OR (t0.`TaskId` = @d2)) AND t0.`TenantId` = @d3 AND NOT (t0.`Id` = @d4)",
+				Args: []any{"t1", "t2", "anvil", "i9"},
+			},
+		},
+		{
+			name:      "a record under a tenant: the tenant its row resolves to",
+			tree:      &DeleteTree{Record: "CascadeClients", Key: []string{"Id"}, Tenant: byTenant},
+			recordKey: map[string]any{"Id": "c1"},
+			kind:      tenantInvoices,
+			want: rowsUnderStatement{
+				SQL: "SELECT t0.`Id` FROM `CascadeInvoices` AS t0 WHERE ((t0.`TaskId` = @d1) OR (t0.`TaskId` = @d2))" +
+					" AND t0.`TenantId` = (SELECT tr.`TenantId` FROM `CascadeClients` AS tr WHERE tr.`Id` = @d3) AND NOT (t0.`Id` = @d4)",
+				Args: []any{"t1", "t2", "c1", "i9"},
+			},
+		},
+		{
+			name:      "a kind whose rows are no tenant's",
+			tree:      tenants,
+			recordKey: map[string]any{"Id": "anvil"},
+			kind:      invoices,
+			want: rowsUnderStatement{
+				SQL:  "SELECT t0.`Id` FROM `CascadeInvoices` AS t0 WHERE ((t0.`TaskId` = @d1) OR (t0.`TaskId` = @d2)) AND NOT (t0.`Id` = @d3)",
+				Args: []any{"t1", "t2", "i9"},
+			},
+		},
+	} {
+		got, err := refusingStatements(tt.tree, tt.recordKey, tt.kind, byTask, []map[string]any{{"Id": "t1"}, {"Id": "t2"}}, []map[string]any{{"Id": "i9"}})
+		if err != nil {
+			t.Fatalf("%s: refusingStatements() error = %v", tt.name, err)
+		}
+		if diff := cmp.Diff([]rowsUnderStatement{tt.want}, got); diff != "" {
+			t.Errorf("%s: refusingStatements() mismatch (-want +got):\n%s", tt.name, diff)
+		}
+	}
+
+	roomy, err := refusingStatements(tenants, map[string]any{"Id": "anvil"}, tenantInvoices, byTask, rows(takenParameterLimit), rows(100))
+	if err != nil {
+		t.Fatalf("refusingStatements() error = %v", err)
+	}
+	for i, part := range roomy {
+		if len(part.Args) > takenParameterLimit {
+			t.Errorf("read %d of a tenant's rows names %d values, want no more than %d", i, len(part.Args), takenParameterLimit)
+		}
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/resource"
 )
 
 const (
@@ -104,6 +105,11 @@ type deleteKind struct {
 	// the delete itself.
 	IndexEntries int
 	Files        int
+	// Tenant is how a row of the kind resolves to its tenant (resource.DeleteKind.Tenant
+	// and resource.DeleteTree.Tenant): the kind's @domain, and for the tenant record its
+	// key column, the row being its tenant. It is nil for a kind whose rows are no
+	// tenant's, and for the tenant record under a tenant.
+	Tenant *resource.DomainBindingData
 	// RemovedWith is the tables whose row's delete makes the database remove rows of
 	// the kind (removedWith). It is written for the kinds under Under alone.
 	RemovedWith []string
@@ -669,6 +675,11 @@ func (c *client) tenantDeleteTree(tenant *resourceInfo, resources []*resourceInf
 
 	reached := pathsUnder(withKeys, record, nil)
 	tree := &deleteTree{Record: c.deleteKindOf(tenant, nil)}
+	if len(tenantKey) == 1 {
+		// The tenant record's row is its tenant: a row under it is of the tenant whose
+		// key is the record's.
+		tree.Record.Tenant = &resource.DomainBindingData{Column: tenantKey[0]}
+	}
 	for table, paths := range reached {
 		kind, ok := byTable[table]
 		if !ok || kind.IsEnumeration() {
@@ -695,7 +706,10 @@ func sortDeepestFirst(kinds []*deleteKind) {
 }
 
 // deleteKindOf describes a resource as a kind in a description, with its ways up to
-// the record (none for the record itself).
+// the record (none for the record itself), and the tenant its rows resolve to where the
+// resource declares one (@domain). The tenant record declares none: a tenant row under
+// a tenant row is of no tenant, and the tenant record's own description says its row
+// is its tenant (tenantDeleteTree).
 func (c *client) deleteKindOf(res *resourceInfo, paths [][]deleteLink) *deleteKind {
 	one, many := c.deleteWords(res)
 	kind := &deleteKind{
@@ -705,6 +719,12 @@ func (c *client) deleteKindOf(res *resourceInfo, paths [][]deleteLink) *deleteKi
 		Many:  many,
 		Paths: paths,
 		Files: len(res.FileKeyFields()),
+	}
+	if !res.IsTenant && res.DomainBinding != nil {
+		kind.Tenant = &resource.DomainBindingData{
+			Column: fieldColumn(res.DomainBinding.Anchor),
+			Path:   collectionHops(res.DomainBinding.Path),
+		}
 	}
 	if table, err := c.tableMetadataFor(res.Name()); err == nil {
 		kind.Key = table.keyColumns()
@@ -744,6 +764,7 @@ func (r *resourceInfo) DeleteTreeLiteral() string {
 	fmt.Fprintf(&b, "Words: resource.DeleteWords{One: %q, Many: %q},\n", tree.Record.One, tree.Record.Many)
 	fmt.Fprintf(&b, "Key: %s,\n", stringsLiteral(tree.Record.Key))
 	fmt.Fprintf(&b, "Cost: resource.DeleteCost{IndexEntries: %d, Files: %d},\n", tree.Record.IndexEntries, tree.Record.Files)
+	b.WriteString(deleteTenantLiteral(tree.Record.Tenant))
 	writeDeleteKinds(&b, "Taken", tree.Taken)
 	writeDeleteKinds(&b, "RefusedBy", tree.RefusedBy)
 	writeDeleteKinds(&b, "Under", tree.Under)
@@ -766,6 +787,7 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 		fmt.Fprintf(b, "Words: resource.DeleteWords{One: %q, Many: %q},\n", kind.One, kind.Many)
 		fmt.Fprintf(b, "Key: %s,\n", stringsLiteral(kind.Key))
 		fmt.Fprintf(b, "Cost: resource.DeleteCost{IndexEntries: %d, Files: %d},\n", kind.IndexEntries, kind.Files)
+		b.WriteString(deleteTenantLiteral(kind.Tenant))
 		b.WriteString("Paths: []resource.DeletePath{\n")
 		for _, path := range kind.Paths {
 			b.WriteString("{\n")
@@ -791,6 +813,17 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 		b.WriteString("},\n")
 	}
 	b.WriteString("},\n")
+}
+
+// deleteTenantLiteral is the tenant a row resolves to as the Go value a description is
+// written with (DeleteKind.Tenant, DeleteTree.Tenant), on a line of its own, and nothing
+// for a row that is no tenant's.
+func deleteTenantLiteral(tenant *resource.DomainBindingData) string {
+	if tenant == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("Tenant: &resource.DomainBindingData{Column: %q%s},\n", tenant.Column, bindingHopsLiteral(tenant.Path))
 }
 
 // linkLiteral is one step as the Go value a description is written with

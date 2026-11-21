@@ -118,6 +118,14 @@ type DeleteKind struct {
 	// cascade (NewTakenRows). A kind without one is not taken in code, and a delete of
 	// the record is refused while it has a row of the kind (delete_refusal.go).
 	Rows TakenRows
+	// Tenant is how a row of the kind resolves to its tenant, for a kind whose rows are
+	// a tenant's: the column that holds the tenant's key, or the foreign key the way to
+	// it leaves through and that way. The generator writes it from the kind's @domain.
+	// A row of such a kind is under a tenant's record only where its tenant is the
+	// record's (DeleteTree.Tenant): a row of another tenant that names the record, or a
+	// row under it, is not under it, and a delete of the record neither counts it, names
+	// it nor takes it, whoever asks.
+	Tenant *DomainBindingData
 }
 
 // sameAs reports whether the two links are the one step: the same columns to the same
@@ -196,6 +204,11 @@ type DeleteTree struct {
 	// of its kind (a folder in a folder). Each kind's Paths are those links alone, one
 	// step each. A delete of the record is refused while one of these rows is there.
 	Under []DeleteKind
+	// Tenant is how the record's row resolves to its tenant, as DeleteKind.Tenant is for
+	// a kind's row. For the tenant record its column is the record's own key: the row is
+	// its tenant. It is nil for a record that is no tenant's, and the rows under such a
+	// record are under it whatever tenant they are of.
+	Tenant *DomainBindingData
 }
 
 // RowName is what a sentence calls the row a delete is asked of, opening the sentence:

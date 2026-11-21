@@ -33,12 +33,14 @@ func (Ship) DeleteTree() *resource.DeleteTree {
 		Words:  resource.DeleteWords{One: "ship", Many: "ships"},
 		Key:    []string{"Id"},
 		Cost:   resource.DeleteCost{IndexEntries: 3, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "HangarId", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
 		Under: []resource.DeleteKind{
 			{
 				Resource: "DroidReports",
 				Words:    resource.DeleteWords{One: "droid report", Many: "droid reports"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
@@ -51,6 +53,7 @@ func (Ship) DeleteTree() *resource.DeleteTree {
 				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},

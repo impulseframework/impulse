@@ -577,6 +577,103 @@ func TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind(t *testing.T) {
 	})
 }
 
+// TestDeleteCascade_anotherSectorsRowIsNotUnderARecord pins that a row of another sector
+// is never under a record, on the served routes. Anvil's call has one relay of Anvil.
+// Bastion's relay, on Bastion's own call, answers Anvil's relay: it names a row under
+// Anvil's call, and it is Bastion's. Anvil's question counts Anvil's relay alone, and
+// Bastion's row neither turns the delete into one the person may not make nor goes with
+// it: the foreign key that holds it to Anvil's relay refuses the commit, and nothing is
+// deleted.
+func TestDeleteCascade_anotherSectorsRowIsNotUnderARecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		anvilCall     = "dc000000-0000-4000-8000-0000000c0011"
+		bastionCall   = "dc000000-0000-4000-8000-0000000c0012"
+		anvilNumber   = "DC-SECTORS-0001"
+		bastionNumber = "DC-SECTORS-0002"
+		anvilRelay    = "dc100000-0000-4000-8000-0000000c0011" // on Anvil's call
+		bastionRelay  = "dc100000-0000-4000-8000-0000000c0012" // on Bastion's call, answers Anvil's relay
+		batch         = "/console/api/resources"
+	)
+	call := func(id, sector, number string) *spanner.Mutation {
+		return spanner.InsertMap("DistressCalls", map[string]any{
+			"Id": id, "SectorId": sector, "Summary": "Sector call " + number, "Severity": 1, "CaseNumber": number,
+			"FiledByUserId": "f0000000-0000-4000-8000-000000000004", "FiledByName": "marshal",
+		})
+	}
+	relay := func(id, sector, number, answers string) *spanner.Mutation {
+		row := map[string]any{
+			"Id": id, "SectorId": sector, "CaseNumber": number, "Message": "Relay " + id, "RelayedByName": "marshal", "RelayedAt": spanner.CommitTimestamp,
+		}
+		if answers != "" {
+			row["AnswersRelayId"] = answers
+		}
+
+		return spanner.InsertMap("DistressRelays", row)
+	}
+	if _, err := db.Apply(ctx, []*spanner.Mutation{
+		call(anvilCall, anvil, anvilNumber),
+		call(bastionCall, bastion, bastionNumber),
+		relay(anvilRelay, anvil, anvilNumber, ""),
+		relay(bastionRelay, bastion, bastionNumber, anvilRelay),
+	}); err != nil {
+		t.Fatalf("spanner.Apply(): %v", err)
+	}
+
+	stands := func(t *testing.T, table, id string) bool {
+		t.Helper()
+
+		_, err := db.Single().ReadRow(ctx, table, spanner.Key{id}, []string{"Id"})
+		if err != nil && spanner.ErrCode(err) != codes.NotFound {
+			t.Fatalf("ReadRow(%s, %s): %v", table, id, err)
+		}
+
+		return err == nil
+	}
+	everythingStands := func(t *testing.T) {
+		t.Helper()
+
+		for _, row := range []struct{ table, id string }{
+			{"DistressCalls", anvilCall}, {"DistressRelays", anvilRelay}, {"DistressRelays", bastionRelay}, {"DistressCalls", bastionCall},
+		} {
+			if !stands(t, row.table, row.id) {
+				t.Errorf("%s %s is gone, want it standing", row.table, row.id)
+			}
+		}
+	}
+	h := newTestApp(db, grants{
+		accesstypes.Delete: {"DistressCalls", "DistressRelays"},
+		accesstypes.List:   {"DistressRelays"},
+	})
+
+	t.Run("the question counts the relay of the call's own sector alone", func(t *testing.T) {
+		status, body := doRequest(t, h, http.MethodPatch, batch, fmt.Sprintf(`[{"op":"remove","path":%q}]`, opPath(anvil, "distress-calls/"+anvilCall)))
+		assertStatus(t, status, http.StatusPreconditionRequired, body)
+		if got, want := refusalMessage(t, body), "Delete this distress call and everything under it: 1 distress relay. This can't be undone."; got != want {
+			t.Errorf("message = %q, want %q", got, want)
+		}
+		everythingStands(t)
+	})
+
+	t.Run("the commit refuses the delete while another sector's relay answers a relay that goes", func(t *testing.T) {
+		status, body := doRequest(t, h, http.MethodPatch, batch,
+			fmt.Sprintf(`[{"op":"remove","path":%q,"value":{"everythingUnder":true}}]`, opPath(anvil, "distress-calls/"+anvilCall)))
+		assertStatus(t, status, http.StatusConflict, body)
+		if got, want := refusalMessage(t, body), "a record cannot be deleted while other records still reference it."; !strings.HasSuffix(got, want) {
+			t.Errorf("message = %q, want the commit's sentence, ending %q", got, want)
+		}
+		everythingStands(t)
+	})
+}
+
 // TestDeleteCascade_tooManyRowsAtOnce pins the refusal of a delete whose rows cost more
 // than one commit takes. A sortie costs three mutations, its delete and an entry in each
 // of two indexes, so a mission with 26,700 sorties is over the 80,000 a commit takes: the

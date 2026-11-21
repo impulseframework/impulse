@@ -163,7 +163,7 @@ linters:
           TestGeneratedIdentitySectorAccountMethods|TestGeneratedIdentitySectorRoleMethods|TestGeneratedIdentitySectorIdentities|\
           TestImpersonationOperator|\
           TestConditionLanguageWrites|\
-          TestDeleteCascade_takesWhatIsUnder|TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind|\
+          TestDeleteCascade_takesWhatIsUnder|TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind|TestDeleteCascade_anotherSectorsRowIsNotUnderARecord|\
           TestMethodRequestFieldsNoTarget|TestMethodRequestFieldsList|TestMethodRequestFieldsTarget|\
           TestRowsOfWrites|\
           TestSectorPilotsMethod|\

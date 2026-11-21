@@ -33,12 +33,14 @@ func (DistressCall) DeleteTree() *resource.DeleteTree {
 		Words:  resource.DeleteWords{One: "distress call", Many: "distress calls"},
 		Key:    []string{"Id"},
 		Cost:   resource.DeleteCost{IndexEntries: 4, Files: 0},
+		Tenant: &resource.DomainBindingData{Column: "SectorId"},
 		Taken: []resource.DeleteKind{
 			{
 				Resource: "DistressRelays",
 				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 5, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"CaseNumber"}, Table: "DistressCalls", References: []string{"CaseNumber"}},
@@ -61,6 +63,7 @@ func (DistressCall) DeleteTree() *resource.DeleteTree {
 				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
 				Key:      []string{"Id"},
 				Cost:     resource.DeleteCost{IndexEntries: 5, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"CaseNumber"}, Table: "DistressCalls", References: []string{"CaseNumber"}},
