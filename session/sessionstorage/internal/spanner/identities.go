@@ -185,8 +185,9 @@ func (s *SessionStorageDriver) newIdentityLink(userID impulse.UUID, identity *se
 // UserIn reads the part of userID's user the sign-in decides on, inside tx. A missing
 // user is NotFound.
 func (s *SessionStorageDriver) UserIn(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID) (*dbtype.User, error) {
-	// Whether the person has confirmed the address the row holds is read with the row, in
-	// the same transaction: a hold for the code that confirms one is decided on it.
+	// Whether the row holds an address, and whether its person has confirmed it, is read
+	// with the row, in the same transaction: a hold for the code that confirms one, and
+	// a first link that waits for the code mailed to it, are decided on them.
 	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{idColumn, usernameColumn, "PasswordHash", "Disabled", emailColumn, emailVerifiedAtColumn})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
@@ -209,7 +210,7 @@ func (s *SessionStorageDriver) UserIn(ctx context.Context, tx *spanner.ReadWrite
 	if err := row.Column(5, &verifiedAt); err != nil {
 		return nil, errors.Wrap(err, "spanner.Row.Column()")
 	}
-	user.EmailConfirmed = email.Valid && verifiedAt.Valid
+	user.EmailConfirmed, user.EmailHeld = email.Valid && verifiedAt.Valid, email.Valid
 
 	return user, nil
 }

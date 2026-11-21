@@ -25,7 +25,7 @@ import (
 func lakeside(subject string) *sessioninfo.Identity {
 	return &sessioninfo.Identity{
 		Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", Subject: subject,
-		Email: subject + "@lakeside.edu", EmailVerified: true, IDPAMR: []string{"mfa"},
+		Email: subject + "@lakeside.edu", IDPAMR: []string{"mfa"},
 	}
 }
 
@@ -33,7 +33,7 @@ func lakeside(subject string) *sessioninfo.Identity {
 func riverside(subject string) *sessioninfo.Identity {
 	return &sessioninfo.Identity{
 		Method: sessioninfo.MethodWorkOS, Connection: "conn_riverside", Subject: subject,
-		Email: subject + "@lakeside.edu", EmailVerified: true,
+		Email: subject + "@lakeside.edu",
 	}
 }
 

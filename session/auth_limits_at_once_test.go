@@ -98,7 +98,7 @@ func TestAuth_limitMail_askedAtOnce(t *testing.T) {
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(userID), nil).AnyTimes()
 				links.holds("taken@lakeside.edu", &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: "sam", Email: strPtr("taken@lakeside.edu")})
 				links.expectAccounts(f)
-				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID)}
+				pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID), Identity: sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()}}
 
 				return "taken@lakeside.edu", func(ctx context.Context) error {
 					_, err := f.auth.enrollEmail(ctx, pending, "taken@lakeside.edu")
