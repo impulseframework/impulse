@@ -52,6 +52,7 @@ func defaultsRoleConfig() *RoleConfig {
 func defaultsTestEngine(t *testing.T, store Store, defaults *defaultRoles) *snapshotEngine {
 	t.Helper()
 	opts := defaultClientOptions()
+	opts.collection = grammarCollection{}
 	opts.heartbeatInterval = time.Hour
 	e := newSnapshotEngine(store, defaults, opts)
 	t.Cleanup(func() {
@@ -83,7 +84,7 @@ func defaultsManager(t *testing.T) (*userManager, *fakeStore) {
 	manager := newStoreManager(store)
 	engine := defaultsTestEngine(t, store, defaults)
 	manager.onPolicyChange = engine.policyChanged
-	m := newUserManager(manager, defaults, engine, nil, nil)
+	m := newUserManager(manager, defaults, engine, nil, grammarCollection{})
 
 	for _, seed := range []struct {
 		scope       accesstypes.PolicyScope

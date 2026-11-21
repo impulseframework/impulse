@@ -507,7 +507,7 @@ func TestReadSuperAdministrators(t *testing.T) {
 		res     = "github.com/impulseframework/impulse/resource"
 		// The engine as an auth package opens it, on line 15 of the file, and the
 		// construction of the Auth over an argument.
-		ownEngine = `	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.Signals))
+		ownEngine = `	accessClient, err := access.New(store, settings.Collection, access.WithDefaultRoles(Roles()), access.WithChangeSignal(settings.Signals))
 	if err != nil {
 		return
 	}
@@ -545,7 +545,7 @@ func TestReadSuperAdministrators(t *testing.T) {
 		},
 		{
 			name: "an engine handed no role file here",
-			body: strings.Replace(ownEngine, "access.WithDefaultRoles(settings.Collection, Roles()), ", "", 1) + fmt.Sprintf(construct, scaffolded),
+			body: strings.Replace(ownEngine, "access.WithDefaultRoles(Roles()), ", "", 1) + fmt.Sprintf(construct, scaffolded),
 			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, Packages: []string{res, session, signin}},
 		},
 		{

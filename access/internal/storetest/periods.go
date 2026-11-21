@@ -277,7 +277,7 @@ func periodChecks(t *testing.T, store access.Store, p *periods) {
 		t.Fatalf("InsertGroupRole() error = %v", err)
 	}
 
-	client, err := access.New(store, access.WithHeartbeatInterval(time.Hour))
+	client, err := access.New(store, suiteCollection, access.WithHeartbeatInterval(time.Hour))
 	if err != nil {
 		t.Fatalf("access.New() error = %v", err)
 	}

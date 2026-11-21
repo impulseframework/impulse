@@ -95,7 +95,7 @@ const (
 type snapshotEngine struct {
 	store      Store
 	defaults   *defaultRoles        // may be nil: no default roles
-	collection PermissionCollection // may be nil: grant names are then not checked
+	collection PermissionCollection // what the release declares: a grant naming anything else is skipped
 	// tenantAdministrators are the roles whose holders administer a tenant
 	// (WithTenantAdministratorRoles); none where the application named none.
 	tenantAdministrators []accesstypes.Role

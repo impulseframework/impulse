@@ -680,9 +680,10 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 // (SkippedGroupRole), and memberships naming a role that is neither a default
 // nor a custom role in their scope, which grant nothing (OrphanedMembership),
 // a person's own and the ones a group gives alike. The
-// findings are sorted for a stable report. defaults and collection may be
-// nil: no default roles, and grant names unchecked. The snapshot holds the
-// assignments that count at loadedAt (newSnapshotAt).
+// findings are sorted for a stable report. defaults may be nil: no default
+// roles. collection is what the release declares, which every grant's names are
+// held to. The snapshot holds the assignments that count at loadedAt
+// (newSnapshotAt).
 func newSnapshot(records *policy.Records, defaults *defaultRoles, collection PermissionCollection, loadedAt time.Time) (*snapshot, []policyFinding, error) {
 	return newSnapshotAt(records, defaults, collection, loadedAt, loadedAt)
 }
@@ -900,8 +901,8 @@ func groupByScope(grants []policy.Grant, memberships []policy.Membership) (globa
 // in the store must not stop authorization for everyone, freeze a running
 // instance on a stale snapshot, or keep a new instance from becoming ready. A
 // skipped grant is denied, since a permission the snapshot does not hold is
-// not held. Three things make a grant unusable: when the collection is known,
-// a permission, resource or field the release does not declare; a condition
+// not held. Three things make a grant unusable: a permission, resource or
+// field the release's collection does not declare; a condition
 // text that does not parse, so a check never meets an unparseable condition;
 // and a row-referencing condition (a binding-name attribute or new. reference)
 // on a scope-wide grant, which has no row for it to see; only row-free
@@ -912,12 +913,10 @@ func (s *snapshot) intern(grants []policy.Grant, collection PermissionCollection
 	kept := make([]policy.Grant, 0, len(grants))
 	var skipped []*SkippedGrant
 	for _, g := range grants {
-		if collection != nil {
-			if err := unusableName(collection, &g); err != nil {
-				skipped = append(skipped, newSkippedGrant(&g, err))
+		if err := unusableName(collection, &g); err != nil {
+			skipped = append(skipped, newSkippedGrant(&g, err))
 
-				continue
-			}
+			continue
 		}
 		if g.Condition != "" {
 			expr, ok := exprs[g.Condition]

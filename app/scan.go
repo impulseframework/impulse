@@ -859,8 +859,8 @@ func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, e
 			return true
 		}
 		d := DefaultRoles{File: rel, Line: fset.Position(call.Pos()).Line}
-		if len(call.Args) == 2 {
-			d.RolesPackage = rolesCallPackage(call.Args[1], imports, ownPkg)
+		if len(call.Args) == 1 {
+			d.RolesPackage = rolesCallPackage(call.Args[0], imports, ownPkg)
 		}
 		calls = append(calls, d)
 

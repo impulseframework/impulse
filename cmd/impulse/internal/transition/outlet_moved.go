@@ -49,14 +49,18 @@ type consoleMove struct {
 	// mounted are the lines that built the console's served browser app at the root, and
 	// renamed the lines that named the old prefix as a path.
 	mounted, renamed mentions
+	// left is each file those lines are in, as the rewrite left it: the text their numbers
+	// are of, which the report places them from.
+	left map[string][]byte
 }
 
 // followConsole brings the application's own sources after the console: the App's served
 // browser app is built under the mount path, the login pages the default outlet's auth is
 // told are under it, and hand-written Go, the README, the process files and the
-// environment template name the new prefix where they named the old one as a path.
-func followConsole(a *app.App, site *app.Site, oldPrefix, prefix, mount string, ch *Change) error {
-	mv := &consoleMove{oldPrefix: oldPrefix, prefix: prefix, mount: mount, mounted: mentions{}, renamed: mentions{}}
+// environment template name the new prefix where they named the old one as a path. It
+// returns the rewrite, whose lines the command reports after its last edit.
+func followConsole(a *app.App, site *app.Site, oldPrefix, prefix, mount string, ch *Change) (*consoleMove, error) {
+	mv := &consoleMove{oldPrefix: oldPrefix, prefix: prefix, mount: mount, mounted: mentions{}, renamed: mentions{}, left: map[string][]byte{}}
 	err := walkOwnSources(a, func(root *os.Root, rel string, mode fs.FileMode, isGo, _ bool) error {
 		local := filepath.FromSlash(rel)
 		data, err := root.ReadFile(local)
@@ -64,6 +68,9 @@ func followConsole(a *app.App, site *app.Site, oldPrefix, prefix, mount string, 
 			return errors.Wrap(err, "os.Root.ReadFile()")
 		}
 		out := mv.rewrite(rel, data, isGo, rel == site.Generator.File)
+		if len(mv.mounted[rel])+len(mv.renamed[rel]) > 0 {
+			mv.left[rel] = out
+		}
 		if bytes.Equal(out, data) {
 			return nil
 		}
@@ -74,11 +81,10 @@ func followConsole(a *app.App, site *app.Site, oldPrefix, prefix, mount string, 
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	mv.report(ch)
 
-	return moveLoginPages(a, site, mount, ch)
+	return mv, moveLoginPages(a, site, mount, ch)
 }
 
 // rewrite is one file after the move. Hand-written Go outside the tests builds the
@@ -156,19 +162,25 @@ func partOfPath(c byte, before bool) bool {
 
 // report records what the move rewrote: the served browser app by file and line, and the
 // old prefix's lines in one entry, since they were rewritten as text and are to be read.
-func (mv *consoleMove) report(ch *Change) {
+// Each line is named where it is in the application now.
+func (mv *consoleMove) report(a *app.App, ch *Change) error {
+	if err := placeLines(a, mv.left, mv.mounted, mv.renamed); err != nil {
+		return err
+	}
 	for _, m := range mv.mounted.sorted() {
 		ch.didf("%s:%s: the App builds the console's served browser app under %s, where the generated router mounts it now: NewBrowserApp(..., %q) in place of \"/\"", m.file, lineList(m.lines), mv.mount, mv.mount)
 	}
 	renamed := mv.renamed.sorted()
 	if len(renamed) == 0 {
-		return
+		return nil
 	}
 	lines := make([]string, 0, len(renamed))
 	for _, m := range renamed {
 		lines = append(lines, m.file+":"+lineList(m.lines))
 	}
 	ch.didf("the console's API was under /%s and is under /%s, and the application's own Go, README, process files and environment template say so where they named the old path; they were rewritten as text, so read each line: %s", mv.oldPrefix, mv.prefix, strings.Join(lines, "; "))
+
+	return nil
 }
 
 // inTestFile reports whether a file is one of a package's tests.

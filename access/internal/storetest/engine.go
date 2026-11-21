@@ -296,7 +296,7 @@ func newEngine(t *testing.T, store access.Store, opts ...access.Option) (*access
 	t.Helper()
 
 	reported := &reportedErrors{}
-	client, err := access.New(store, append(opts, access.WithReloadErrorHandler(reported.collect))...)
+	client, err := access.New(store, suiteCollection, append(opts, access.WithReloadErrorHandler(reported.collect))...)
 	if err != nil {
 		t.Fatalf("access.New() error = %v", err)
 	}

@@ -39,6 +39,8 @@ const (
 
 	readPerm   = accesstypes.Permission("Read")
 	updatePerm = accesstypes.Permission("Update")
+	// exportPerm is granted for the whole of a scope, attached to no resource.
+	exportPerm = accesstypes.Permission("Export")
 
 	employees = "employees"
 	widgets   = "widgets"
@@ -482,14 +484,14 @@ func runPartitions(t *testing.T, store access.Store) {
 
 	// A scope-wide grant is stored as an empty resource+field row — a spot no
 	// real resource can occupy — and lists back exactly that way.
-	if err := store.InsertGrant(ctx, globalScope, admin, "Export", "", "", ""); err != nil {
+	if err := store.InsertGrant(ctx, globalScope, admin, exportPerm, "", "", ""); err != nil {
 		t.Fatalf("InsertGrant(scope-wide) error = %v", err)
 	}
 	grants, err := store.ListRoleGrants(ctx, globalScope, admin)
 	if err != nil {
 		t.Fatalf("ListRoleGrants(global scope) error = %v", err)
 	}
-	want := []policy.RoleGrant{{Perm: "Export", Resource: "", Field: ""}}
+	want := []policy.RoleGrant{{Perm: exportPerm, Resource: "", Field: ""}}
 	if diff := cmp.Diff(want, grants); diff != "" {
 		t.Errorf("ListRoleGrants(global scope) (-want +got):\n%s", diff)
 	}
@@ -611,7 +613,7 @@ func runReadPolicy(t *testing.T, store access.Store) {
 			{Scope: tenant1, Subject: roleSubject(viewer), Perm: "List", Resource: widgets, Field: "*"},
 			{Scope: tenant1, Subject: roleSubject(viewer), Perm: readPerm, Resource: widgets, Field: nameField, Condition: ownerCondition},
 			{Scope: everyDomain, Subject: roleSubject(admin), Perm: readPerm, Resource: widgets},
-			{Scope: globalScope, Subject: roleSubject(admin), Perm: "Export", Resource: "", Field: ""},
+			{Scope: globalScope, Subject: roleSubject(admin), Perm: exportPerm, Resource: "", Field: ""},
 		},
 		Memberships: []policy.Membership{
 			{Scope: tenant1, Member: userSubject(alice), Role: viewer},
