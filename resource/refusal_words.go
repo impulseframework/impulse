@@ -166,6 +166,23 @@ func mayNotDoThisTo(label string) string {
 	return "You may not do this to this " + thing + "."
 }
 
+// flagHistoryWords is what a caller who may see none of the facts a flag's history tells
+// is told.
+const flagHistoryWords = "You may not see this flag's history here."
+
+// actingAsRoleWords is what the person behind a session that acts as a role the
+// application runs no sessions as is told when the session is refused an answer. What
+// was asked for is not known where it is refused, so the sentence says no act.
+const actingAsRoleWords = "You are acting as a role, and this session cannot do this."
+
+// actingAsSomeoneCannot is the sentence for an act the mask of a session that acts as
+// someone refuses: "You are acting as someone else, and this session cannot create a
+// tenant." act is the handler's own words for what it does, the end of "this session
+// cannot".
+func actingAsSomeoneCannot(act string) string {
+	return "You are acting as someone else, and this session cannot " + act + "."
+}
+
 // thingsInWords says the resources a refusal is about. A resource is its name in words,
 // after quantity ("some hangar passes"); fields of a resource that is not itself among
 // them are "the budget or the due date of" it. Resources that have no words say "".

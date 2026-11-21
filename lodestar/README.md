@@ -1192,9 +1192,9 @@ takes no grant, so in a session that acts as a person it would make the person a
 as a new sector's marshal, with no permission checked for a mask to deny. The route
 carries an action's name for that, `CreateSector`, classed `access`, and asks the
 session's mask before anything else: the stand-in who acts as the pioneer is refused
-("you are acting as someone else, and this session cannot create a sector: the mask
-refuses the class access. ...") with nothing written and the denial logged as the
-mask's, and the route's `GET` answers that none is offered. The `role` kind is refused
+("You are acting as someone else, and this session cannot create a sector.") with
+nothing written and the denial logged as the mask's, with the class it refuses, and the
+route's `GET` answers that none is offered. The `role` kind is refused
 the same route by the rule and not by a mask, since it has none: the marshal behind a
 session that acts as a role would become the sector's marshal herself ("you are acting
 as someone else, so you cannot create a sector of your own"). An application that

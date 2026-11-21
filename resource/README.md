@@ -644,6 +644,9 @@ read, the same in every application:
 | a write whose grant holds for some rows and not for this one | "You may change some hangar passes here, but not this one." |
 | the same, where the grant is on a field | "You may change the budget of some hangar passes here, but not of this one." |
 | a column, a sort or a filter no tenant of a list across tenants grants | the same sentences, ending "anywhere." |
+| the history of a feature flag none of whose facts the caller may list | "You may not see this flag's history here." |
+| an act the mask of a session that acts as someone refuses | "You are acting as someone else, and this session cannot create a tenant." |
+| an answer a session that acts as a role the application runs no sessions as cannot give | "You are acting as a role, and this session cannot do this." |
 
 The verb is the permission's: Create is "add", Read is "see", Update is "change", Delete
 is "delete" and List is "list". The resource is its name split into lower-case words
