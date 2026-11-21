@@ -78,10 +78,16 @@ func (h *Handlers) RevokeStaffSessionToken() http.HandlerFunc {
 				SetID(p.TokenID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("StaffSessionToken", p.TokenID)
+				}
+
 				return errors.Wrap(err, "staffresources.StaffSessionTokenQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("StaffSessionToken %s does not exist", p.TokenID)
+				return resource.TargetNotFound("StaffSessionToken", p.TokenID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant

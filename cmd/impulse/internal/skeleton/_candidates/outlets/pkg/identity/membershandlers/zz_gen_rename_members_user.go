@@ -79,10 +79,16 @@ func (h *Handlers) RenameMembersUser() http.HandlerFunc {
 				SetID(p.UserID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("MembersSessionUser", p.UserID)
+				}
+
 				return errors.Wrap(err, "membersresources.MembersSessionUserQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("MembersSessionUser %s does not exist", p.UserID)
+				return resource.TargetNotFound("MembersSessionUser", p.UserID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant

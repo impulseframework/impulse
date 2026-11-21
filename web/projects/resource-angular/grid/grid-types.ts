@@ -104,6 +104,27 @@ export type FilterInput = 'text' | 'date' | 'datetime';
  */
 export type ColumnFilterInputs = Readonly<Record<string, FilterInput | undefined>>;
 
+/** One value a column's field takes, as its filter menu offers it: the name a person reads in the column, and the value the server filters by. */
+export interface FilterChoice {
+  value: string;
+  label: string;
+}
+
+/**
+ * The values each column's field takes, by column id, where the field takes one of a
+ * fixed set: the generated field metadata's `enumeration`. The column's menu offers the
+ * names, as the column's cells write them, and the filter carries the values. A column
+ * absent here takes its value from its control (`ColumnFilterInputs`).
+ */
+export type ColumnFilterChoices = Readonly<Record<string, readonly FilterChoice[] | undefined>>;
+
+/**
+ * What a column's menu draws for a value under an operator: one of the column's controls
+ * (`FilterInput`), or, on a column whose field takes fixed values, one name to pick
+ * (`choice`) or, under a list operator, each name to tick (`choices`).
+ */
+export type FilterValueInput = FilterInput | 'choice' | 'choices';
+
 /** Where the rows sit in the server's list: the rows before this page, whether neighbors exist, and the total when the first page asked for it. */
 export interface GridPageState {
   offset: number;

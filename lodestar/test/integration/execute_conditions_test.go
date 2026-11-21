@@ -254,6 +254,16 @@ func TestExecuteConditionsFired(t *testing.T) {
 			route:      "hail-ship",
 			body:       fmt.Sprintf(`{"shipId":%q}`, shipBastionWatchID),
 			wantStatus: http.StatusNotFound,
+			wantSaid:   "This ship does not exist.",
+		},
+		{
+			name:       "a ship that is nowhere is NotFound in the same words, so neither says a row is there",
+			user:       "marshal",
+			sector:     anvil,
+			route:      "hail-ship",
+			body:       `{"shipId":"70000000-0000-4000-8000-0000000000ff"}`,
+			wantStatus: http.StatusNotFound,
+			wantSaid:   "This ship does not exist.",
 		},
 		{
 			name:       "supercargo releases a consignment once",
@@ -279,6 +289,7 @@ func TestExecuteConditionsFired(t *testing.T) {
 			route:      "release-consignment",
 			body:       fmt.Sprintf(`{"consignmentId":%q}`, consignmentRelayID),
 			wantStatus: http.StatusNotFound,
+			wantSaid:   "This consignment does not exist.",
 		},
 	}
 	for _, tt := range fires {
@@ -288,6 +299,11 @@ func TestExecuteConditionsFired(t *testing.T) {
 			status, body := doRequestAs(t, h, tt.user, http.MethodPost, sectorPath(tt.sector, tt.route), tt.body)
 			if status != tt.wantStatus {
 				t.Fatalf("status = %d, want %d: %s", status, tt.wantStatus, body)
+			}
+			if tt.wantStatus == http.StatusNotFound {
+				if got := refusalMessage(t, body); got != tt.wantSaid {
+					t.Errorf("answer = %q, want %q: the record in a person's words, and neither its struct's name nor the row's id", got, tt.wantSaid)
+				}
 			}
 			if tt.wantStatus == http.StatusForbidden {
 				if got := refusalMessage(t, body); got != tt.wantSaid {

@@ -7,7 +7,7 @@
 
       <div class="state-buttons">
         @if (!form().valid && submitted()) {
-          <div class="invalid message">Please complete or fix required fields.</div>
+          <div class="invalid message">{{ incomplete() }}</div>
         }
         <button mat-raised-button color="primary" (click)="cancelForm()">Cancel</button>
         <button mat-raised-button color="accent" (click)="saveForm()" [disabled]="form().pristine">Create</button>

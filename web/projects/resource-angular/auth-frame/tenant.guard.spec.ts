@@ -334,7 +334,9 @@ describe('tenantGuard', () => {
       ((harness.routeNativeElement as HTMLElement).textContent ?? '').replace(/\s+/g, ' ').trim();
 
     const tryAgain = async (harness: RouterTestingHarness): Promise<void> => {
-      (harness.routeNativeElement as HTMLElement).querySelector<HTMLButtonElement>('button.try-again')!.click();
+      (harness.routeNativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>('button.impulse-tenant-refused-try-again')!
+        .click();
       await settle(harness);
     };
 

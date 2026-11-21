@@ -2,6 +2,7 @@ import { ApiError, FieldMeta, Resource, ResourceMeta } from '@impulseframework/r
 import { PageTurn } from '@impulseframework/resource-angular/grid';
 import { ColumnConfig } from '@impulseframework/resource-angular/types';
 import {
+  filterChoiceLists,
   filterEligibility,
   filterInputKinds,
   listEmptyMessage,
@@ -94,6 +95,49 @@ describe('filterInputKinds', () => {
   for (const tt of cases) {
     it(tt.name, () => {
       expect(filterInputKinds(tt.meta, tt.columns.map((id) => ({ id })))).toEqual(tt.want as never);
+    });
+  }
+});
+
+describe('filterChoiceLists', () => {
+  const missions: ResourceMeta = {
+    route: 'sectors/{sectorID}/missions',
+    fields: [
+      field('title', { isIndex: true, filterable: 'always' }),
+      field('statusId', {
+        displayType: 'enumerated',
+        isIndex: true,
+        filterable: 'always',
+        enumeration: [
+          { id: 'claimed', display: 'Claimed' },
+          { id: 'on_hold', display: 'On hold' },
+          { id: 'open', display: 'Open' },
+        ],
+      }),
+      field('pilotId', { displayType: 'enumerated', filterable: 'always', enumeratedResource: 'Pilots' as never }),
+    ],
+  };
+  const cases: { name: string; meta: ResourceMeta | undefined; columns: string[]; want: Record<string, unknown> }[] = [
+    {
+      name: "a field that takes fixed values offers each value beside its name, in the metadata's order",
+      meta: missions,
+      columns: ['title', 'statusId'],
+      want: {
+        statusId: [
+          { value: 'claimed', label: 'Claimed' },
+          { value: 'on_hold', label: 'On hold' },
+          { value: 'open', label: 'Open' },
+        ],
+      },
+    },
+    { name: "a key into another resource's rows lists no values", meta: missions, columns: ['pilotId'], want: {} },
+    { name: 'an action column and a renamed duplicate are absent', meta: missions, columns: ['view', 'statusId_1'], want: {} },
+    { name: 'no metadata, no values', meta: undefined, columns: ['statusId'], want: {} },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(filterChoiceLists(tt.meta, tt.columns.map((id) => ({ id })))).toEqual(tt.want as never);
     });
   }
 });
