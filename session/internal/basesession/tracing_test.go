@@ -13,9 +13,9 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/cookie"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/mock/mock_cookie"
 	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -116,14 +116,23 @@ func TestBaseSession_ValidateSession_SpanEvidence(t *testing.T) {
 			},
 		},
 		{
-			name:         "a resolver that changes the subject adds the principal attributes",
+			name:     "a resolver that changes the subject of an ordinary request adds the principal attributes",
+			resolver: func(context.Context) (accesstypes.Principal, error) { return accesstypes.RolePrincipal("Editor"), nil },
+			want: func(impulse.UUID) map[string]string {
+				return map[string]string{
+					attrEndUserID:                 "bob@partner.org",
+					sessioninfo.AttrPrincipalKind: "Role",
+					sessioninfo.AttrPrincipal:     "Editor",
+				}
+			},
+		},
+		{
+			name:         "an impersonated request never asks the resolver, and carries no principal attributes of its choosing",
 			impersonated: true,
 			resolver:     func(context.Context) (accesstypes.Principal, error) { return accesstypes.RolePrincipal("Editor"), nil },
 			want: func(id impulse.UUID) map[string]string {
 				m := impersonationAttrs(id)
 				m[attrEndUserID] = "bob@partner.org"
-				m[sessioninfo.AttrPrincipalKind] = "Role"
-				m[sessioninfo.AttrPrincipal] = "Editor"
 
 				return m
 			},
@@ -151,7 +160,7 @@ func TestBaseSession_ValidateSession_SpanEvidence(t *testing.T) {
 			newBase := func(t *testing.T, id impulse.UUID) *BaseSession {
 				t.Helper()
 				ctrl := gomock.NewController(t)
-				storage := mock_sessionstorage.NewMockBaseStore(ctrl)
+				storage := mockstore.NewBaseStore(ctrl)
 				storage.EXPECT().Session(gomock.Any(), id).Return(newSession(id), nil)
 				if tt.expired && tt.impersonated {
 					storage.EXPECT().EndImpersonation(gomock.Any(), id, sessioninfo.ImpersonationEndedByExpiry).Return(nil)
@@ -236,13 +245,14 @@ func TestBaseSession_StartImpersonatedSession_SpanEvidence(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	sessionID := impulse.Must(impulse.NewUUID())
-	storage := mock_sessionstorage.NewMockBaseStore(ctrl)
-	storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
+	storage := mockstore.NewBaseStore(ctrl)
+	storage.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
 	cookieHandler := mock_cookie.NewMockHandler(ctrl)
 	cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 	cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 
-	s := &BaseSession{Storage: storage, CookieHandler: cookieHandler}
+	s := New(storage)
+	s.CookieHandler = cookieHandler
 	imp := &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Editor")}
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
 	if _, err := s.StartImpersonatedSession(context.Background(), httptest.NewRecorder(), req, imp); err != nil {
@@ -354,7 +364,7 @@ func TestBaseSession_Establish_TokenEvidence(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			s := &BaseSession{SessionTimeout: time.Minute, Storage: mock_sessionstorage.NewMockBaseStore(gomock.NewController(t)), PrincipalResolver: tt.resolver}
+			s := &BaseSession{SessionTimeout: time.Minute, Storage: mockstore.NewBaseStore(gomock.NewController(t)), PrincipalResolver: tt.resolver}
 			id := impulse.Must(impulse.NewUUID())
 			session := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: id, Username: "bob@partner.org", UpdatedAt: time.Now()}, Token: tt.token}
 

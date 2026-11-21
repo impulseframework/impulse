@@ -35,6 +35,7 @@ import (
 // @permissionScope(domain)
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type RemoveMembersTenantRole struct {
 	// @target(MembersTenantHeldRole, key: UserID)
 	UserID impulse.UUID

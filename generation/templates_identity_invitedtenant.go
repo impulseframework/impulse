@@ -56,7 +56,7 @@ type (
 	// that nobody holds: invite again.
 	//
 	// @rpc
-	// @outlet({{ .Outlets }})
+	// @outlet({{ .Outlets }})` + identityAccessClass + `
 	{{ .InviteTenant }} struct {
 		// Email is the address the invitation is mailed to, and Name the name the sender
 		// gives the person.
@@ -346,7 +346,7 @@ import (
 //
 // @rpc
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type {{ .WithdrawInvitedTenant }} struct {
 	// InvitationID is the invitation's id, as the list of them carries it
 	// ({{ Pluralize .InvitedTenant }}).

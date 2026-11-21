@@ -22,6 +22,8 @@ type stubPermissions struct {
 	domains    []accesstypes.Domain
 	err        error
 	checkPerms []accesstypes.Permission
+	// checkResources are the resources each delegated check asked about, in order.
+	checkResources []accesstypes.Resource
 	// global makes the checker hold a grant in the global partition, which exempts
 	// nobody from a tenant's sign-in settings.
 	global bool
@@ -56,6 +58,7 @@ func (s *stubPermissions) SuperAdministrator(context.Context) (bool, error) {
 
 func (s *stubPermissions) Check(_ context.Context, _ accesstypes.Environment, _ accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
 	s.checkPerms = append(s.checkPerms, perm)
+	s.checkResources = append(s.checkResources, resources...)
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -94,6 +97,12 @@ func (s *stubPermissions) Domains(context.Context) ([]accesstypes.Domain, error)
 
 func (s *stubPermissions) Reaches(context.Context, accesstypes.Domain) (bool, error) {
 	return true, nil
+}
+
+// HeldDomains is the stub's list: it runs under no mask and no admission, so what it
+// lists is what its person holds.
+func (s *stubPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	return s.domains, nil
 }
 
 func (s *stubPermissions) User() accesstypes.User { return s.user }
@@ -220,7 +229,7 @@ func TestMasked(t *testing.T) {
 			t.Parallel()
 
 			stub := &stubPermissions{user: "bob", digest: fullDigest, domains: []accesstypes.Domain{"tenant"}}
-			perms := Masked(stub, tt.mask)
+			perms := Masked(stub, tt.mask, nil)
 			if tt.mask.IsZero() && perms != UserPermissions(stub) {
 				t.Fatal("Masked() with the unrestricted mask did not return the checker itself")
 			}
@@ -271,7 +280,7 @@ func TestMasked_WrapsDelegateErrors(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubPermissions{user: "bob", err: errors.New("snapshot unavailable")}
-	perms := Masked(stub, accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read))
+	perms := Masked(stub, accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read), nil)
 
 	if _, err := perms.Check(context.Background(), accesstypes.NewEnvironment(), accesstypes.GlobalScope(), accesstypes.Read, "documents"); err == nil {
 		t.Error("Check() error = nil, want the delegate's error")
@@ -306,9 +315,10 @@ func (r *checkerRecorder) forRole(role accesstypes.Role) *stubRolePermissions {
 // and one that belongs to none (a session type that keeps no accounts) has only its
 // username. A role principal is nobody. The User() of a session established to act as
 // a role is the actor who established it, their account's id where the impersonation
-// carries one and their name where it does not; a session the application's resolver
-// gave a role stays its own person's, who is the person viewed as when it views as
-// someone, never the actor.
+// carries one and their name where it does not; an ordinary session the application's
+// resolver gave a role stays its own person's. A session that acts as someone else is
+// checked as its record says, whatever principal a resolver's choice left on it: the
+// session library never asks the resolver about one, and the read holds the same.
 func TestSessionPermissions(t *testing.T) {
 	t.Parallel()
 
@@ -392,11 +402,11 @@ func TestSessionPermissions(t *testing.T) {
 			wantDomains:   []accesstypes.Domain{"tenant"},
 		},
 		{
-			name: "role principal the session was established as: the actor's account id is supplied whatever role a resolver chose for the request",
+			name: "role principal the session was established as: the record's role is checked whatever role a resolver's choice left on the session, and the actor's account id is supplied",
 			ctx: resolvedAs(sessionCtx("alice", &sessioninfo.Impersonation{
 				Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.RolePrincipal("PartnerViewer"),
 			}), accesstypes.RolePrincipal("Auditor")),
-			wantRoles:     []accesstypes.Role{"Auditor"},
+			wantRoles:     []accesstypes.Role{"PartnerViewer"},
 			wantUser:      aliceUser,
 			wantUpdate:    true,
 			wantDigestLen: 1,
@@ -421,22 +431,22 @@ func TestSessionPermissions(t *testing.T) {
 			wantDomains:   []accesstypes.Domain{"tenant"},
 		},
 		{
-			name: "role principal a resolver chose for an impersonated user: the account id of the person viewed as is supplied, never the actor's",
+			name: "role a resolver's choice left on a session that views as a user: the person viewed as is checked, by their account id, and the role is never asked for",
 			ctx: resolvedAs(accountCtx("bob", bobID, &sessioninfo.Impersonation{
 				Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.UserPrincipal(bobUser),
 			}), accesstypes.RolePrincipal("PartnerViewer")),
-			wantRoles:     []accesstypes.Role{"PartnerViewer"},
+			wantUsers:     []accesstypes.User{bobUser},
 			wantUser:      bobUser,
 			wantUpdate:    true,
 			wantDigestLen: 1,
 			wantDomains:   []accesstypes.Domain{"tenant"},
 		},
 		{
-			name: "role principal a resolver chose for an impersonated user, an actor with no account here: the account id of the person viewed as is supplied, never the actor's name",
+			name: "role a resolver's choice left on a session that views as a user, an actor with no account here: the person viewed as is checked, by their account id, never the actor's name",
 			ctx: resolvedAs(accountCtx("bob", bobID, &sessioninfo.Impersonation{
 				Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(bobUser),
 			}), accesstypes.RolePrincipal("PartnerViewer")),
-			wantRoles:     []accesstypes.Role{"PartnerViewer"},
+			wantUsers:     []accesstypes.User{bobUser},
 			wantUser:      bobUser,
 			wantUpdate:    true,
 			wantDigestLen: 1,
@@ -471,13 +481,16 @@ func TestSessionPermissions(t *testing.T) {
 			wantDomains: []accesstypes.Domain{},
 		},
 		{
-			name: "role principal a resolver chose for an impersonated user, without a role checker, fails closed, and User() is the account id of the person viewed as",
+			name: "role a resolver's choice left on a session that views as a user, without a role checker: the role is never asked for, so the person viewed as is checked and nothing fails closed",
 			ctx: resolvedAs(accountCtx("bob", bobID, &sessioninfo.Impersonation{
 				Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.UserPrincipal(bobUser),
 			}), accesstypes.RolePrincipal("PartnerViewer")),
-			unsupported: true,
-			wantUser:    bobUser,
-			wantDomains: []accesstypes.Domain{},
+			unsupported:   true,
+			wantUsers:     []accesstypes.User{bobUser},
+			wantUser:      bobUser,
+			wantUpdate:    true,
+			wantDigestLen: 1,
+			wantDomains:   []accesstypes.Domain{"tenant"},
 		},
 	}
 	roster := func(context.Context) ([]accesstypes.Domain, error) {
@@ -490,9 +503,9 @@ func TestSessionPermissions(t *testing.T) {
 			rec := &checkerRecorder{}
 			var perms UserPermissions
 			if tt.unsupported {
-				perms = SessionPermissions(tt.ctx, rec.forUser, RolePrincipalsUnsupported, roster, nil)
+				perms = SessionPermissions(tt.ctx, rec.forUser, RolePrincipalsUnsupported, roster, nil, nil)
 			} else {
-				perms = SessionPermissions(tt.ctx, rec.forUser, rec.forRole, roster, nil)
+				perms = SessionPermissions(tt.ctx, rec.forUser, rec.forRole, roster, nil, nil)
 			}
 
 			if diff := cmp.Diff(tt.wantUsers, rec.users); diff != "" {
@@ -655,7 +668,7 @@ func TestSessionPermissions_roster(t *testing.T) {
 			forUser := func(user accesstypes.User) *stubPermissions {
 				return &stubPermissions{user: user, domains: tt.holds}
 			}
-			perms := SessionPermissions(sessionCtx("alice", nil), forUser, RolePrincipalsUnsupported, tt.roster, nil)
+			perms := SessionPermissions(sessionCtx("alice", nil), forUser, RolePrincipalsUnsupported, tt.roster, nil, nil)
 			got, err := perms.Domains(context.Background())
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Domains() error = %v, wantErr %v", err, tt.wantErr)
@@ -1033,7 +1046,7 @@ func TestSessionPermissions_admission(t *testing.T) {
 			if tt.reader != nil {
 				declarations = tt.reader.read
 			}
-			perms := SessionPermissions(tt.ctx, forUser, forRole, roster, declarations)
+			perms := SessionPermissions(tt.ctx, forUser, forRole, roster, declarations, nil)
 
 			domains, err := perms.Domains(context.Background())
 			if (err != nil) != tt.wantErr {
@@ -1130,7 +1143,7 @@ func TestSessionPermissions_admissionReadsOnce(t *testing.T) {
 	roster := func(context.Context) ([]accesstypes.Domain, error) {
 		return []accesstypes.Domain{anvil}, nil
 	}
-	perms := SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, roster, reader.read)
+	perms := SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, roster, reader.read, nil)
 
 	for range 3 {
 		if reaches, err := perms.Reaches(context.Background(), anvil); err != nil || reaches {
@@ -1191,7 +1204,7 @@ func TestSessionPermissions_administratorAskedWhereItCouldAdmit(t *testing.T) {
 			roster := func(context.Context) ([]accesstypes.Domain, error) {
 				return []accesstypes.Domain{anvil, bastion}, nil
 			}
-			perms := SessionPermissions(tt.ctx, forUser, RolePrincipalsUnsupported, roster, reader.read)
+			perms := SessionPermissions(tt.ctx, forUser, RolePrincipalsUnsupported, roster, reader.read, nil)
 
 			for range 3 {
 				for _, domain := range []accesstypes.Domain{anvil, bastion} {
@@ -1316,7 +1329,7 @@ func TestSessionPermissions_actorByAccount(t *testing.T) {
 				return &stubRolePermissions{}
 			}
 			reader := &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: {DirectoryOnly: true}}}
-			perms := SessionPermissions(tt.ctx, forUser, forRole, roster, reader.read)
+			perms := SessionPermissions(tt.ctx, forUser, forRole, roster, reader.read, nil)
 
 			if perms.User() != tt.wantUser {
 				t.Errorf("User() = %q, want %q", perms.User(), tt.wantUser)

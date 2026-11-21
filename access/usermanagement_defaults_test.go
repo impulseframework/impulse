@@ -83,7 +83,7 @@ func defaultsManager(t *testing.T) (*userManager, *fakeStore) {
 	manager := newStoreManager(store)
 	engine := defaultsTestEngine(t, store, defaults)
 	manager.onPolicyChange = engine.policyChanged
-	m := newUserManager(manager, defaults, engine, nil)
+	m := newUserManager(manager, defaults, engine, nil, nil)
 
 	for _, seed := range []struct {
 		scope       accesstypes.PolicyScope

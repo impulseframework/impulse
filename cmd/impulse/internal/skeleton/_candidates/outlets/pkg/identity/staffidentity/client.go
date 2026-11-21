@@ -131,6 +131,25 @@ func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransacti
 	return nil
 }
 
+// HoldsTenant reports whether user holds a role of the Staff auth in some tenant, read
+// in the caller's transaction (identity.Manager.HoldsTenant): a membership of their own
+// held in one tenant, or a place in a group kept in one. The generated create of a
+// tenant asks it in the transaction that writes the tenant's row, so that of two
+// creations by one person at once only one is written. A user that is no account's id
+// (a session that acts for nobody with an account here) holds none.
+func (c *Client) HoldsTenant(ctx context.Context, txn resource.ReadWriteTransaction, user accesstypes.User) (bool, error) {
+	userID, ok := identity.UserID(user)
+	if !ok {
+		return false, nil
+	}
+	holds, err := c.manager.HoldsTenant(ctx, txn, userID)
+	if err != nil {
+		return false, errors.Wrap(err, "identity.Manager.HoldsTenant()")
+	}
+
+	return holds, nil
+}
+
 // ClearTenant buffers the removal of everything the Staff auth holds for a tenant, in
 // the transaction that deletes the tenant's row (identity.Manager.ClearTenant): every
 // membership held in it, the custom roles made in it with their grants, and the

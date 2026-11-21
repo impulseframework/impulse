@@ -2,11 +2,12 @@
 // the generate package declares (NewGenerator) and prints what a successful run raised,
 // one line each, to standard error with a fixed prefix and no timestamp, so a tool that
 // reads the lines has one contract per prefix. Every run prints the schema warnings as
-// "Warning: <text>": a performance finding about the schema, never a refusal, and the
-// run has written its output when the lines print. Run with -audit, it also prints the
-// audit pass's findings as "Audit: <text>": advisory findings about shapes the framework
-// handles under a stated limitation, which a normal generation (go generate passes no
-// flag) never prints.
+// "Warning: <text>": a finding about the schema, never a refusal (most are about
+// performance, one is about access: a table a fact about people is read through that no
+// resource declares), and the run has written its output when the lines print. Run with
+// -audit, it also prints the audit pass's findings as "Audit: <text>": advisory findings
+// about shapes the framework handles under a stated limitation, which a normal
+// generation (go generate passes no flag) never prints.
 package main
 
 import (

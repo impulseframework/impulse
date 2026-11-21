@@ -49,7 +49,7 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 
 		// The annotations other kinds own: a method's frame, a view's table, and a
 		// field type's TypeScript type; and the name the library's flags resource holds.
-		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "resource"), rejectRowsOf(pStruct, annotations, "table-backed resource"), rejectChangedBy(pStruct, annotations, "table-backed resource"), rejectTypescriptAnnotation(pStruct, annotations, "table-backed resource"), c.rejectReservedResourceName(pStruct, "table-backed resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "resource"), rejectClassAnnotation(pStruct, annotations, "table-backed resource"), rejectRowsOf(pStruct, annotations, "table-backed resource"), rejectChangedBy(pStruct, annotations, "table-backed resource"), rejectTypescriptAnnotation(pStruct, annotations, "table-backed resource"), c.rejectReservedResourceName(pStruct, "table-backed resource")); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
@@ -502,7 +502,7 @@ func (c *client) structsToVirtualResources(structs []*parser.Struct, validators 
 			continue
 		}
 
-		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "virtual resource"), rejectTypescriptAnnotation(pStruct, annotations, "virtual resource"), rejectTenantAnnotation(pStruct, annotations, "@"+virtualKeyword+" struct"), c.rejectReservedResourceName(pStruct, "virtual resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "virtual resource"), rejectClassAnnotation(pStruct, annotations, "virtual resource"), rejectTypescriptAnnotation(pStruct, annotations, "virtual resource"), rejectTenantAnnotation(pStruct, annotations, "@"+virtualKeyword+" struct"), c.rejectReservedResourceName(pStruct, "virtual resource")); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -908,8 +908,8 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 
 // resolveRPCDeclarations applies a method's struct-level declarations in order: its
 // permission scope, its outlets, its transition, its answers, its upload, its warning,
-// its body limit and its words, its feature gate, its former names and its schedule,
-// which reads the others off the method.
+// its body limit and its words, its feature gate, its former names, its classes and
+// its schedule, which reads the others off the method.
 func (c *client) resolveRPCDeclarations(rpcMethod *rpcMethodInfo, s *parser.Struct, annotations genlang.StructAnnotations, structsByName map[string]*parser.Struct) error {
 	if err := resolvePermissionScope(annotations, &rpcMethod.PermissionScope); err != nil {
 		return errors.Wrapf(err, "on %s", s.Name())
@@ -950,6 +950,12 @@ func (c *client) resolveRPCDeclarations(rpcMethod *rpcMethodInfo, s *parser.Stru
 	if err := resolveRPCFormerly(rpcMethod, annotations, structsByName); err != nil {
 		return err
 	}
+
+	classes, err := resolveClasses(annotations.Struct, "struct "+s.Name())
+	if err != nil {
+		return err
+	}
+	rpcMethod.Classes = classes
 
 	return resolveSchedule(rpcMethod, s, annotations)
 }
@@ -1065,7 +1071,7 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 			continue
 		}
 
-		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectClassAnnotation(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue

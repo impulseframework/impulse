@@ -1004,7 +1004,7 @@
       },
       {
         "name": "CommandStaff",
-        "description": "Views the application as another user and assumes any role, for support and demonstrations.",
+        "description": "Views the application as another user, reading only, and assumes any role, for support and demonstrations.",
         "permissions": {
           "Execute": [
             {
@@ -1012,6 +1012,17 @@
             },
             {
               "resource": "AssumeRole"
+            }
+          ]
+        }
+      },
+      {
+        "name": "StandIn",
+        "description": "Acts as another crew member: does what they may do, except change how they sign in or who may do what.",
+        "permissions": {
+          "Execute": [
+            {
+              "resource": "ActAsUser"
             }
           ]
         }

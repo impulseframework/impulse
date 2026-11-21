@@ -154,7 +154,7 @@ func TestSessionPermissions_tenantDoor(t *testing.T) {
 				return &stubPermissions{user: user, digest: accesstypes.PermissionDigest{"documents": {accesstypes.Read: accesstypes.DigestGranted}}, domains: tt.seated}
 			}
 			reader := &declarationReader{declarations: tt.declared}
-			perms := SessionPermissions(sessionCtx("alice", tt.impersonation, tt.established), forUser, RolePrincipalsUnsupported, roster, reader.read)
+			perms := SessionPermissions(sessionCtx("alice", tt.impersonation, tt.established), forUser, RolePrincipalsUnsupported, roster, reader.read, nil)
 
 			reached, err := perms.Domains(context.Background())
 			if err != nil {
@@ -224,16 +224,16 @@ func TestClosedDomains_otherPermissions(t *testing.T) {
 		{name: "permissions that are not a session's", perms: &stubPermissions{user: "alice", domains: []accesstypes.Domain{"lakeside"}}},
 		{
 			name:          "a session that acts as a role: its role holds a grant in a tenant this sign-in does not open, and the list is a person's own",
-			perms:         SessionPermissions(asRole, forUser, forRole, roleRoster, directoryOnly.read),
+			perms:         SessionPermissions(asRole, forUser, forRole, roleRoster, directoryOnly.read, nil),
 			wantUnreached: "tenant",
 		},
 		{
 			name:  "an application that keeps no declarations",
-			perms: SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, roster, nil),
+			perms: SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, roster, nil, nil),
 		},
 		{
 			name:  "an application without tenants",
-			perms: SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, nil, nil),
+			perms: SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, nil, nil, nil),
 		},
 	}
 	for _, tt := range tests {

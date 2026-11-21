@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/resource"
@@ -118,6 +119,25 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 					req, err := op.ReqWithPattern("/{resource}/{id}")
 					if err != nil {
 						return errors.Wrap(err, "op.ReqWithPattern()")
+					}
+
+					// This record's rows decide what a person may do, so nobody writes the
+					// row that decides it for themselves while they act as someone else,
+					// whatever the session's mask keeps, an exception that keeps this
+					// record's writes included. The caller's grants answer first.
+					//
+					// A row that names a person: the rule is asked about the person the
+					// row names before the write and the person it names after it.
+					//
+					// A row removed with its parent, and a column that records who made a
+					// row, are the rule's stated limits:
+					// identity.RefuseImpersonatorAsRowSubject says what closes each.
+					subjectKey := resource.KeySet{}
+					if op.Type != resource.OperationCreate {
+						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+					}
+					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "client contact", "UserID"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
 					}
 
 					switch op.Type {

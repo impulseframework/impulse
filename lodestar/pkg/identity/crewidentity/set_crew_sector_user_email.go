@@ -31,6 +31,7 @@ type (
 	// @rpc
 	// @permissionScope(domain)
 	// @outlet(default)
+	// @class(credential)
 	SetCrewSectorUserEmail struct {
 		// @target(CrewSectorUser)
 		UserID impulse.UUID

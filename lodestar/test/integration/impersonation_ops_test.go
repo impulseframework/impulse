@@ -1,7 +1,7 @@
 package integration
 
 // impersonation_ops_test (design plan §9): the watch desk lists a minted session with its
-// two-hour cap, revocation refuses its next request, a forged write on a read-only
+// two-hour cap and its mask in words, revocation refuses its next request, a forged write on a read-only
 // session is refused by the middleware before any handler runs, and the desk itself is
 // gated by the manual Execute registration.
 
@@ -16,10 +16,12 @@ import (
 
 // watchDeskEntry is one live impersonated session as the watch desk lists it.
 type watchDeskEntry struct {
-	SessionID string    `json:"sessionId"`
-	Actor     string    `json:"actor"`
-	Principal string    `json:"principal"`
-	Kind      string    `json:"kind"`
+	SessionID string `json:"sessionId"`
+	Actor     string `json:"actor"`
+	Principal string `json:"principal"`
+	Kind      string `json:"kind"`
+	// Mask is what the session may do, in words.
+	Mask      string    `json:"mask"`
 	StartedAt time.Time `json:"startedAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
 }
@@ -67,6 +69,10 @@ func TestImpersonationOperator(t *testing.T) {
 		// account, and the desk answers the account's username, never the id.
 		if found.Actor != "marshal" || found.Principal != "cadet" || found.Kind != "user" {
 			t.Errorf("entry = %+v, want marshal viewing as cadet, both by username", found)
+		}
+		// The desk says what the session may do, in words.
+		if found.Mask != "reading only" {
+			t.Errorf("entry's mask = %q, want it in words: reading only", found.Mask)
 		}
 		// StartedAt is the database's commit time and ExpiresAt the mint route's own
 		// deadline, two hours from its clock a moment before the commit, so the

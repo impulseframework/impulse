@@ -1052,6 +1052,11 @@ the account. Every auth
 mails, through the application's one sender (Settings.Mail) and to the login page of the
 surface bound to it (Settings.MailLoginURL): an administrator invites a person by address
 with the roles the invitation gives, and a signed-in person adds and verifies an address.
+The command leaves an application that builds and passes its checks: where the App is the
+base's it hands the auth to the App, serves the outlet's session group from the auth's
+own handlers, binds the outlet's browser application to the auth, and names the outlet's
+login page as the page the auth's mail opens; where the outlet serves no browser
+application the first skipped line says to set that page before the next release.
 A directory method's settings are read from the environment under the registration's
 variables (APP_<NAME>_<REGISTRATION>_*), the Procfile builds with the session library's
 skipAuth tag (the directory simulated until the application is registered with one), and

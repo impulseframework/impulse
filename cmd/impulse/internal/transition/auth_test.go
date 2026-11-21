@@ -758,7 +758,7 @@ func TestAuthApply(t *testing.T) {
 						t.Errorf("workspace.go lacks %q", want)
 					}
 				}
-				if got := read(t, a, "pkg/config/data.go"); !strings.Contains(got, "partnersAuth, err := partners.New(ctx, spannerClient, &partners.Settings{\n\t\tCookieKey: cookieKey,\n\t\tLoginURL:  \"/login\",\n\t})") {
+				if got := read(t, a, "pkg/config/data.go"); !strings.Contains(got, "partnersAuth, err := partners.New(ctx, spannerClient, &partners.Settings{\n\t\tCookieKey: cookieKey,\n\t\tLoginURL:  \"/portal/login\",\n\t})") {
 					t.Errorf("data.go construction = %q", got)
 				}
 				program := read(t, a, programFile)
@@ -780,7 +780,7 @@ func TestAuthApply(t *testing.T) {
 			wantSkipped: []string{
 				invited,
 				handed,
-				programFile + `: the program generates each auth's management (GenerateIdentity("pkg/identity")), so the regeneration writes the partners auth's packages under pkg/identity and the generated contract asks the handlers for PartnersIdentity() *partnersidentity.Client, which the tool does not write. The auth builds its client when it opens (partners.Auth.Identity(), with the hooks a sign-in gives roles through set in New): hand it to the App through the Configurer, and add the accessor where the App is declared and on every test configurer; the application does not compile until it holds`,
+				"no file declares a Configurer interface, so the App is not given the partners auth: the generated router's Handlers requires BindAuth(name string) func(http.Handler) http.Handler and the portal outlet's session handlers from the partners auth (partners.Auth.Handlers()), and the generated contract asks the handlers for PartnersIdentity() *partnersidentity.Client (partners.Auth.Identity()); the application does not compile until the App holds them",
 			},
 			// The default outlet still declares the staff auth, so its management stays.
 			neverSkipped: []string{"no outlet declares"},

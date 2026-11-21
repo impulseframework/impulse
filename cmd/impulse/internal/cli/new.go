@@ -50,8 +50,8 @@ func (nf *newFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&nf.opts.tenants.oneTenant, shape.OneTenantFlag, false, "with --tenancy, "+oneTenantUsage)
 	cmd.Flags().Bool(shape.DirectoriesFlag, true, "with --tenancy, "+directoriesUsage)
 	bindShape(cmd, &nf.opts.shapeKey, shape.OfNew(), "the first auth's sign-in methods where the shape has no password sign-in, and the tenants' choices, composing --tenancy, where it has tenants")
-	cmd.Flags().StringVar(&nf.opts.method, methodFlag, "", "with --shape "+directoryRolesKey()+", the one directory that gives the roles: google or azure, with :<registration> to name the registration (asked when not given)")
-	cmd.Flags().StringVar(&nf.opts.organization, organizationFlag, "", "with --shape "+directoryRolesKey()+", the directory's one organization: a Google Workspace by its domain (fleet.example), a Microsoft Entra tenant by its tenant id (asked when not given)")
+	cmd.Flags().StringVar(&nf.opts.method, methodFlag, "", "with --shape "+directoryRolesKey()+", the one directory that gives the roles: google, azure, or oidc:<registration> for another identity provider; google and azure take :<registration> too, to name the registration (asked when not given)")
+	cmd.Flags().StringVar(&nf.opts.organization, organizationFlag, "", "with --shape "+directoryRolesKey()+", the directory's one organization: a Google Workspace by its domain (fleet.example), a Microsoft Entra tenant by its tenant id, another identity provider by its issuer, an https URL (https://id.fleet.example) (asked when not given)")
 	cmd.Flags().StringArrayVar(&nf.opts.outlets, "outlet", nil, "compose a session outlet, <name>=<prefix> (repeatable), such as portal=portal/api")
 	cmd.Flags().StringArrayVar(&nf.opts.apiOutlets, "api-outlet", nil, "compose a machine outlet, <name>=<prefix> (repeatable), such as machines=machines: a surface with no browser whose requests carry the tokens the console's auth issues")
 	cmd.Flags().StringArrayVar(&nf.opts.sites, "site", nil, "compose the sites layout: two or more site names (repeatable), the first being what the base site becomes under apps/")
@@ -132,11 +132,13 @@ no password account among its development logins.
     signs its administrator in as the persona admin.
   - directory-roles: one organization's directory gives every role, so the first auth
     registers that directory's method alone, no first administrator is invited, and
-    nothing in the application gives a role. --method names the directory (google or
-    azure) and --organization its one organization (a Google Workspace's domain, a
-    Microsoft Entra tenant's id); each is asked for when not given. It is an application
-    without tenants. A development run signs in through the simulated directory, as the
-    person and with the roles the environment template names (APP_USERNAME, APP_ROLES).
+    nothing in the application gives a role. --method names the directory (google,
+    azure, or oidc:<registration> for another identity provider) and --organization its
+    one organization (a Google Workspace's domain, a Microsoft Entra tenant's id, another
+    provider's issuer, which is an https URL); each is asked for when not given. It is an
+    application without tenants. A development run signs in through the simulated
+    directory, as the person and with the roles the environment template names
+    (APP_USERNAME, APP_ROLES).
 
 Either start writes the application's tests for the sign-in it has: the served suite
 signs in through the simulated directory (go test -tags skipAuth ./...), the spec of the
@@ -588,8 +590,9 @@ func (o *composedOptions) settleStart(cmd *cobra.Command, start *shape.Shape) er
 // directoryMethod is the one method of a start from Directory roles: the directory
 // --method names, or the one a person at the terminal answers with, with the choices the
 // shape fixes filled in (the directory gives the roles, and the method admits one
-// organization). impulse new starts the shape from a Google Workspace or a Microsoft
-// Entra tenant; another identity provider's directory is an auth of its own.
+// organization). impulse new starts the shape from a Google Workspace, a Microsoft Entra
+// tenant or another identity provider (oidc:<registration>); a method that has no
+// directory is refused.
 func (o *composedOptions) directoryMethod(cmd *cobra.Command, start *shape.Shape) (*authpkg.Method, error) {
 	if o.method == "" {
 		answer, err := askDirectory(cmd)
@@ -599,8 +602,8 @@ func (o *composedOptions) directoryMethod(cmd *cobra.Command, start *shape.Shape
 		o.method = answer
 	}
 	kind, _, _ := strings.Cut(o.method, ":")
-	if kind != app.MethodGoogle && kind != app.MethodAzure {
-		return nil, errors.Newf("--%s %s: impulse new starts %s from a Google Workspace (google) or a Microsoft Entra tenant (azure), with :<registration> to name the registration. Another identity provider's directory is an auth of its own, added with impulse add auth <name> %s --method oidc:<registration>", methodFlag, o.method, start.Name, start.Flag())
+	if kind != app.MethodGoogle && kind != app.MethodAzure && kind != app.MethodOIDC {
+		return nil, errors.Newf("--%s %s: impulse new starts %s from a Google Workspace (google), a Microsoft Entra tenant (azure) or another identity provider (oidc:<registration>), and the google and azure methods take :<registration> too, to name the registration", methodFlag, o.method, start.Name)
 	}
 	specs, err := parseMethods([]string{o.method})
 	if err != nil {
@@ -768,11 +771,12 @@ func askAuthName(cmd *cobra.Command) (string, error) {
 	return ask(cmd, authQuestion)
 }
 
-// directoryQuestion and the two organization questions are what a person at the terminal
-// is asked when a start from Directory roles was not told its directory.
+// directoryQuestion and the three organization questions are what a person at the
+// terminal is asked when a start from Directory roles was not told its directory.
 const (
 	directoryQuestion = `Directory roles: one organization's directory gives every role. Which directory is it:
-google (a Google Workspace) or azure (a Microsoft Entra tenant)?
+google (a Google Workspace), azure (a Microsoft Entra tenant), or oidc:<registration>
+(another identity provider, under the application's word for it, such as oidc:okta)?
 Directory: `
 	workspaceQuestion = `Name the Google Workspace whose directory gives the roles, by its domain (fleet.example).
 It is written as the development value; a deployment names its own per environment.
@@ -781,13 +785,17 @@ Workspace domain: `
 as the Entra admin center shows it). It is written as the development value; a deployment
 names its own per environment.
 Tenant id: `
+	issuerQuestion = `Name the identity provider whose directory gives the roles, by its issuer: an https URL
+(https://id.fleet.example), where the provider's configuration is read. It is written as
+the development value; a deployment names its own per environment.
+Issuer: `
 )
 
 // askDirectory asks which directory gives the roles when --method did not say and a
 // person is at the terminal. Without a terminal the flag is required.
 func askDirectory(cmd *cobra.Command) (string, error) {
 	if !stdinIsTerminal() {
-		return "", errors.Newf("--%s is required with --shape %s: name the one directory that gives the roles, google (a Google Workspace) or azure (a Microsoft Entra tenant), and its one organization with --%s", methodFlag, directoryRolesKey(), organizationFlag)
+		return "", errors.Newf("--%s is required with --shape %s: name the one directory that gives the roles, google (a Google Workspace), azure (a Microsoft Entra tenant) or oidc:<registration> (another identity provider), and its one organization with --%s", methodFlag, directoryRolesKey(), organizationFlag)
 	}
 
 	return ask(cmd, directoryQuestion)
@@ -797,8 +805,11 @@ func askDirectory(cmd *cobra.Command) (string, error) {
 // give it and a person is at the terminal. Without a terminal the flag is required.
 func askOrganization(cmd *cobra.Command, m *authpkg.Method) (string, error) {
 	question, what := workspaceQuestion, "the Google Workspace whose directory gives the roles, by its domain (fleet.example)"
-	if m.Kind == app.MethodAzure {
+	switch m.Kind {
+	case app.MethodAzure:
 		question, what = tenantQuestion, "the Microsoft Entra tenant whose directory gives the roles, by its tenant id"
+	case app.MethodOIDC:
+		question, what = issuerQuestion, "the identity provider whose directory gives the roles, by its issuer, an https URL (https://id.fleet.example)"
 	}
 	if !stdinIsTerminal() {
 		return "", errors.Newf("--%s is required with --shape %s: name %s", organizationFlag, directoryRolesKey(), what)

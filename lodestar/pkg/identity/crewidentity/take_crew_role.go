@@ -30,6 +30,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type TakeCrewRole struct {
 	// Domain is the sector the role is taken in, picked from the
 	// Sector records the caller may list.

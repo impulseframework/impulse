@@ -316,6 +316,8 @@ type NameChange struct {
 
 // Token is a bearer token as the rules read it.
 type Token struct {
+	// UserID is the account the token signs in as, the person a revocation is done to.
+	UserID impulse.UUID
 	// FamilyID is the device authorization the token belongs to, nil for a token that
 	// stands alone.
 	FamilyID *impulse.UUID

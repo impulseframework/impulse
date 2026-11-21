@@ -84,6 +84,10 @@ func (grantAll) Reaches(context.Context, accesstypes.Domain) (bool, error) {
 	return true, nil
 }
 
+func (grantAll) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	return []accesstypes.Domain{}, nil
+}
+
 func (grantAll) User() accesstypes.User {
 	return "dispatcher"
 }

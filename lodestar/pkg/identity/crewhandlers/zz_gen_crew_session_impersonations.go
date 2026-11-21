@@ -20,20 +20,20 @@ import (
 
 func (h *Handlers) CrewSessionImpersonations() http.HandlerFunc {
 	type crewSessionImpersonation struct {
-		SessionID       impulse.UUID  `json:"sessionId"       index:"true" perm:"-"`
-		ActorUsername   string        `json:"actorUsername"   index:"true"`
-		ActorUserID     *impulse.UUID `json:"actorUserId"`
-		ActorRealm      *string       `json:"actorRealm"`
-		SourceSessionID *impulse.UUID `json:"sourceSessionId"`
-		PrincipalKind   string        `json:"principalKind"`
-		PrincipalUserID *string       `json:"principalUserId" index:"true"`
-		PrincipalRole   *string       `json:"principalRole"`
-		Mask            *string       `json:"mask"`
-		Reason          *string       `json:"reason"`
-		StartedAt       time.Time     `json:"startedAt"`
-		ExpiresAt       time.Time     `json:"expiresAt"`
-		EndedAt         *time.Time    `json:"endedAt"`
-		EndReason       *string       `json:"endReason"`
+		SessionID       impulse.UUID              `json:"sessionId"       index:"true" perm:"-"`
+		ActorUsername   string                    `json:"actorUsername"   index:"true"`
+		ActorUserID     *impulse.UUID             `json:"actorUserId"`
+		ActorRealm      *string                   `json:"actorRealm"`
+		SourceSessionID *impulse.UUID             `json:"sourceSessionId"`
+		PrincipalKind   string                    `json:"principalKind"`
+		PrincipalUserID *string                   `json:"principalUserId" index:"true"`
+		PrincipalRole   *string                   `json:"principalRole"`
+		Mask            accesstypes.NullMaskWords `json:"mask"`
+		Reason          *string                   `json:"reason"`
+		StartedAt       time.Time                 `json:"startedAt"`
+		ExpiresAt       time.Time                 `json:"expiresAt"`
+		EndedAt         *time.Time                `json:"endedAt"`
+		EndReason       *string                   `json:"endReason"`
 	}
 
 	type response []map[string]any
@@ -154,20 +154,20 @@ func (h *Handlers) CrewSessionImpersonations() http.HandlerFunc {
 
 func (h *Handlers) CrewSessionImpersonation() http.HandlerFunc {
 	type response struct {
-		SessionID       impulse.UUID  `json:"sessionId"       index:"true" perm:"-"`
-		ActorUsername   string        `json:"actorUsername"`
-		ActorUserID     *impulse.UUID `json:"actorUserId"`
-		ActorRealm      *string       `json:"actorRealm"`
-		SourceSessionID *impulse.UUID `json:"sourceSessionId"`
-		PrincipalKind   string        `json:"principalKind"`
-		PrincipalUserID *string       `json:"principalUserId"`
-		PrincipalRole   *string       `json:"principalRole"`
-		Mask            *string       `json:"mask"`
-		Reason          *string       `json:"reason"`
-		StartedAt       time.Time     `json:"startedAt"`
-		ExpiresAt       time.Time     `json:"expiresAt"`
-		EndedAt         *time.Time    `json:"endedAt"`
-		EndReason       *string       `json:"endReason"`
+		SessionID       impulse.UUID              `json:"sessionId"       index:"true" perm:"-"`
+		ActorUsername   string                    `json:"actorUsername"`
+		ActorUserID     *impulse.UUID             `json:"actorUserId"`
+		ActorRealm      *string                   `json:"actorRealm"`
+		SourceSessionID *impulse.UUID             `json:"sourceSessionId"`
+		PrincipalKind   string                    `json:"principalKind"`
+		PrincipalUserID *string                   `json:"principalUserId"`
+		PrincipalRole   *string                   `json:"principalRole"`
+		Mask            accesstypes.NullMaskWords `json:"mask"`
+		Reason          *string                   `json:"reason"`
+		StartedAt       time.Time                 `json:"startedAt"`
+		ExpiresAt       time.Time                 `json:"expiresAt"`
+		EndedAt         *time.Time                `json:"endedAt"`
+		EndReason       *string                   `json:"endReason"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSessionImpersonation, response](h, accesstypes.Read)

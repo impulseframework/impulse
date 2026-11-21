@@ -588,6 +588,7 @@ func (c *client) templateFuncs() map[string]any {
 		"PermissionConstant":      permissionConstant,
 		"ScopeConstant":           scopeConstant,
 		"MaskingConstant":         maskingConstant,
+		"ClassConstant":           classConstantName,
 		"BindingHops":             bindingHopsLiteral,
 		"SubjectParts":            subjectPartsLiteral,
 		"SubjectDomain":           subjectDomainLiteral,

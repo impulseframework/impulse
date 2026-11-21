@@ -14,16 +14,18 @@ import { firstValueFrom } from 'rxjs';
 import { ImpersonationRecord, ImpersonationService } from '../impersonation.service';
 import { RosterComponent } from './roster.component';
 
-// Demonstrates: impersonation.view-as, impersonation.act-as-role.
+// Demonstrates: impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role.
 //
 // The roster draws the sector's squadrons as a table of its own and no form. Viewing as a
-// crew member and acting as a role are two buttons, each opening its picker in a dialog
-// over the page, as the library's lists open their create: the dialog is titled with the
-// button's words and carries Cancel and those words as its buttons; Cancel and Escape
-// close it with nothing minted; the mint names the person by the id of their account, or
-// the role by its name, and the dialog closes once the session is minted; a mint the
-// server refuses is shown in the dialog in the server's words. A session that holds
-// neither grant, or one that is already minted, is offered neither button.
+// crew member, acting as one and acting as a role are three buttons, each opening its
+// picker in a dialog over the page, as the library's lists open their create: the dialog
+// is titled with the button's words and carries Cancel and those words as its buttons;
+// Cancel and Escape close it with nothing minted; the mint names the person by the id of
+// their account, or the role by its name, and the dialog closes once the session is
+// minted; a mint the server refuses is shown in the dialog in the server's words. Each
+// button is offered by its own grant: the grant to view is not the grant to act. A
+// session that holds none of the grants, or one that is already minted, is offered no
+// button.
 //
 // The roster draws once it knows: nothing until the grants and its lists are in, then the
 // whole page, "does not cover" only where the grants say so and "no squadrons" only where
@@ -40,12 +42,18 @@ const reads: PermissionDigest = {
   Squadrons: { List: 'granted' },
   SquadronMemberships: { List: 'granted' },
 };
-/** The Marshal: the lists, the sector's people, and both mints. */
+/** The Marshal: the lists, the sector's people, and the mints to view as a person and to act as a role. */
 const marshal: PermissionDigest = {
   ...reads,
   CrewSectorUsers: { List: 'granted' },
   ViewAsUser: { Execute: 'granted' },
   AssumeRole: { Execute: 'granted' },
+};
+/** Whoever holds the stand-in role: the lists, the sector's people, and the mint to act as a person. */
+const standIn: PermissionDigest = {
+  ...reads,
+  CrewSectorUsers: { List: 'granted' },
+  ActAsUser: { Execute: 'granted' },
 };
 
 /** What the page is drawn over: the grants in Anvil, and the mint route as the spec plays it. */
@@ -120,7 +128,7 @@ describe('RosterComponent', () => {
   let fixture: ComponentFixture<RosterComponent>;
   let transport: ScriptedTransport;
   /** The sessions the page asked the mint route for, in order. */
-  let mints: { kind: 'user' | 'role'; principal: string }[];
+  let mints: { kind: 'user' | 'act' | 'role'; principal: string }[];
 
   /** What the page read each time it was drawn, one after another: the film of the page. */
   let film: string[];
@@ -153,13 +161,14 @@ describe('RosterComponent', () => {
     mints = [];
     // The mint route is hand-written and asked through HttpClient: the spec plays it at
     // the service, which records what the page asked for and refuses as the world says.
-    const mint = (kind: 'user' | 'role', principal: string): Promise<void> => {
+    const mint = (kind: 'user' | 'act' | 'role', principal: string): Promise<void> => {
       mints.push({ kind, principal });
       return world.refuses ? Promise.reject(world.refuses) : Promise.resolve();
     };
-    const impersonation: Pick<ImpersonationService, 'record' | 'viewAs' | 'assumeRole'> = {
+    const impersonation: Pick<ImpersonationService, 'record' | 'viewAs' | 'actAs' | 'assumeRole'> = {
       record: signal(world.minted),
       viewAs: (userId) => mint('user', userId),
+      actAs: (userId) => mint('act', userId),
       assumeRole: (role) => mint('role', role),
     };
     await TestBed.configureTestingModule({
@@ -209,13 +218,13 @@ describe('RosterComponent', () => {
     await settle(() => false, 5);
   };
 
-  it('draws the squadrons as its own table and no form: the two mints are buttons', async () => {
+  it('draws the squadrons as its own table and no form: the mints are buttons', async () => {
     await pageFor({ grants: marshal });
 
     expect(texts('th')).toEqual(['Squadron', 'Wing', 'Flies with']);
     expect(rows()).toEqual([['Kestrel Flight', 'Forge Wing', 'Cass']]);
     expect(element().querySelectorAll('form, input, mat-select').length).toBe(0);
-    // The two buttons sit in a card named for what it holds, not for the form it once drew.
+    // The buttons sit in a card named for what it holds, not for the form it once drew.
     expect(texts('.impersonation-card mat-card-title')).toEqual(['Viewing as, acting as']);
     expect(texts('.impersonation-card .actions button')).toEqual(['View as', 'Act as role']);
     expect(element().querySelector('.create-card')).toBeNull();
@@ -223,7 +232,7 @@ describe('RosterComponent', () => {
     expect(mints).toEqual([]);
   });
 
-  it('offers neither button to a session without the two grants', async () => {
+  it('offers no button to a session that holds none of the grants', async () => {
     await pageFor({ grants: reads });
 
     expect(rows().length).toBe(1);
@@ -231,10 +240,16 @@ describe('RosterComponent', () => {
     expect(element().querySelector('.actions')).toBeNull();
   });
 
-  it('offers neither button to a session that is already minted: chaining is refused', async () => {
+  it('offers no button to a session that is already minted: chaining is refused', async () => {
     await pageFor({
       grants: marshal,
-      minted: { actor: 'marshal', principalKind: 'Role', principal: 'Cadet', expiresAt: '2030-01-01T00:00:00Z' },
+      minted: {
+        actor: 'marshal',
+        principalKind: 'Role',
+        principal: 'Cadet',
+        maskWords: 'everything',
+        expiresAt: '2030-01-01T00:00:00Z',
+      },
     });
 
     expect(element().querySelector('.impersonation-card')).toBeNull();
@@ -278,6 +293,66 @@ describe('RosterComponent', () => {
 
     expect(mints).toEqual([{ kind: 'user', principal: 'u-guest' }]);
     expect(dialogOpen()).toBe(false);
+  });
+
+  it('offers Act as by its own grant: the grant to view is not the grant to act', async () => {
+    await pageFor({ grants: standIn });
+
+    expect(texts('.impersonation-card .actions button')).toEqual(['Act as']);
+    expect(element().querySelectorAll('form, input, mat-select').length).toBe(0);
+  });
+
+  it('offers the three buttons to a session that holds the three grants', async () => {
+    await pageFor({ grants: { ...marshal, ...standIn } });
+
+    expect(texts('.impersonation-card .actions button')).toEqual(['View as', 'Act as', 'Act as role']);
+    expect(element().querySelectorAll('form, input, mat-select').length).toBe(0);
+  });
+
+  it("Act as opens its picker in a dialog under the button's words, and Cancel mints nothing", async () => {
+    await pageFor({ grants: standIn });
+    await open('button.act-as');
+
+    expect(dialogTexts('[mat-dialog-title]')).toEqual(['Act as']);
+    expect(dialogTexts('.hint')).toEqual([
+      'You do what that crew member may do, except change how anyone signs in or who may do what.',
+    ]);
+    expect(dialogTexts('mat-label')).toEqual(['Crew member']);
+    expect(dialogTexts('mat-dialog-actions button')).toEqual(['Cancel', 'Act as']);
+
+    await pick('Guest Gale (guest)');
+    inDialog<HTMLButtonElement>('button.cancel')?.click();
+    await settle(() => !dialogOpen());
+
+    expect(dialogOpen()).toBe(false);
+    expect(mints).toEqual([]);
+  });
+
+  it('Act as mints a session that acts as the person picked, named by the id of their account, and the dialog closes', async () => {
+    await pageFor({ grants: standIn });
+    await open('button.act-as');
+    await pick('Guest Gale (guest)');
+    await send();
+    await settle(() => !dialogOpen());
+
+    expect(mints).toEqual([{ kind: 'act', principal: 'u-guest' }]);
+    expect(dialogOpen()).toBe(false);
+  });
+
+  it("an Act as the server refuses is shown in the dialog in the server's words, and the picker stays", async () => {
+    const sentence = 'user standin does not have Execute on ActAsUser';
+    await pageFor({
+      grants: standIn,
+      refuses: new HttpErrorResponse({ status: 403, error: { message: sentence } }),
+    });
+    await open('button.act-as');
+    await pick('cadet');
+    await send();
+    await settle(() => dialogTexts('.refusal').length > 0, 50);
+
+    expect(mints).toEqual([{ kind: 'act', principal: 'u-cadet' }]);
+    expect(dialogOpen()).toBe(true);
+    expect(dialogTexts('.refusal')).toEqual([sentence]);
   });
 
   it("Act as role opens its picker in a dialog under the button's words and mints a session under the role picked", async () => {
@@ -424,7 +499,8 @@ describe('RosterComponent', () => {
     expect(text(element().querySelector('h1 + p'))).toBe(
       "The sector's wings and squadrons, and who flies with whom. Headquarters and the Marshal may also see the " +
         'console as another crew member does, read-only, or act as a role: the role lends what it may do, never ' +
-        "anyone's identity.",
+        "anyone's identity. Whoever holds the stand-in role may act as a crew member too: everything that person " +
+        'may do, except change how anyone signs in.',
     );
     expect(element().querySelector('code')).toBeNull();
     expect(text(element())).not.toMatch(/subject\.|anchors|minted|Chaining|grants/);
