@@ -24,50 +24,50 @@ import { linksTo, ShownEntry, ShownGroup } from './menu';
   imports: [CdkMenu, CdkMenuGroup, CdkMenuItem, CdkMenuItemRadio, CdkMenuTrigger, MatIconModule, NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div cdkMenu class="menu-list">
+    <div cdkMenu class="impulse-menu-list-menu">
       <ng-content />
       @for (group of groups(); track $index; let at = $index) {
         @if (!$first) {
-          <div class="separator" role="separator"></div>
+          <div class="impulse-menu-list-separator" role="separator"></div>
         }
-        <div cdkMenuGroup class="group">
+        <div cdkMenuGroup class="impulse-menu-list-group">
           @if (group.label) {
-            <div class="group-label" role="presentation">{{ group.label }}</div>
+            <div class="impulse-menu-list-group-label" role="presentation">{{ group.label }}</div>
           }
           @for (entry of group.entries; track entry.label) {
             @if (entry.groups) {
               <button
                 type="button"
                 cdkMenuItem
-                class="item submenu"
+                class="impulse-menu-list-item impulse-menu-list-submenu"
                 [cdkMenuTriggerFor]="submenu"
                 [cdkMenuTriggerData]="{ group: at, label: entry.label }"
                 [cdkMenuItemDisabled]="entry.disabled">
                 <ng-container *ngTemplateOutlet="row; context: { $implicit: entry }" />
-                <mat-icon class="end">chevron_right</mat-icon>
+                <mat-icon class="impulse-menu-list-end">chevron_right</mat-icon>
               </button>
             } @else if (entry.checked !== undefined) {
               <button
                 type="button"
                 cdkMenuItemRadio
-                class="item"
+                class="impulse-menu-list-item"
                 [cdkMenuItemChecked]="entry.checked"
                 [cdkMenuItemDisabled]="entry.disabled"
                 (cdkMenuItemTriggered)="choose(entry)">
                 <ng-container *ngTemplateOutlet="row; context: { $implicit: entry }" />
-                <mat-icon class="end">{{ entry.checked ? 'check' : '' }}</mat-icon>
+                <mat-icon class="impulse-menu-list-end">{{ entry.checked ? 'check' : '' }}</mat-icon>
               </button>
             } @else {
               <button
                 type="button"
                 cdkMenuItem
-                class="item"
-                [class.current]="isCurrent(entry)"
+                class="impulse-menu-list-item"
+                [class.impulse-menu-list-current]="isCurrent(entry)"
                 [attr.aria-current]="isCurrent(entry) ? 'page' : null"
                 [cdkMenuItemDisabled]="entry.disabled"
                 (cdkMenuItemTriggered)="choose(entry)">
                 <ng-container *ngTemplateOutlet="row; context: { $implicit: entry }" />
-                <span class="end"></span>
+                <span class="impulse-menu-list-end"></span>
               </button>
             }
           }
@@ -77,9 +77,9 @@ import { linksTo, ShownEntry, ShownGroup } from './menu';
     </div>
 
     <ng-template #row let-entry>
-      <mat-icon class="icon">{{ entry.icon ?? '' }}</mat-icon>
-      <span class="label">{{ entry.label }}</span>
-      <span class="hint">{{ entry.hint ?? '' }}</span>
+      <mat-icon class="impulse-menu-list-icon">{{ entry.icon ?? '' }}</mat-icon>
+      <span class="impulse-menu-list-label">{{ entry.label }}</span>
+      <span class="impulse-menu-list-hint">{{ entry.hint ?? '' }}</span>
     </ng-template>
 
     <ng-template #submenu let-group="group" let-label="label">
@@ -103,7 +103,7 @@ export class MenuListComponent {
     // asked, not the page: the page shows the submenu open only once it has drawn again.
     const host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
     const keepOpen = (event: MouseEvent): void => {
-      const entry = (event.target as Element | null)?.closest('button.submenu');
+      const entry = (event.target as Element | null)?.closest('button.impulse-menu-list-submenu');
       const at = this.triggerButtons().findIndex((button) => button.nativeElement === entry);
       if (at >= 0 && this.triggers()[at]?.isOpen()) {
         event.stopPropagation();

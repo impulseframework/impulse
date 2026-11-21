@@ -189,7 +189,12 @@ func (d *Decoder[Resource, Request]) DecodeOperationWithoutPermissions(oper *Ope
 		return nil, err
 	}
 	if oper.Type == OperationDelete {
-		return NewPatchSet(d.resourceSet.ResourceMetadata()), nil
+		patchSet := NewPatchSet(d.resourceSet.ResourceMetadata())
+		if err := readRemoveValue(oper, patchSet); err != nil {
+			return nil, err
+		}
+
+		return patchSet, nil
 	}
 
 	patchSet, err := d.DecodeWithoutPermissions(oper.Req)
@@ -210,6 +215,9 @@ func (d *Decoder[Resource, Request]) DecodeOperation(oper *Operation, userPermis
 		patchSet := NewPatchSet(d.resourceSet.ResourceMetadata())
 		patchSet.querySet.env = RequestEnvironment()
 		patchSet.querySet.collection = d.collection
+		if err := readRemoveValue(oper, patchSet); err != nil {
+			return nil, err
+		}
 
 		return patchSet.EnableUserPermissionEnforcement(d.resourceSet, userPermissions, scope, permissionFromType(oper.Type)), nil
 	}
@@ -220,6 +228,39 @@ func (d *Decoder[Resource, Request]) DecodeOperation(oper *Operation, userPermis
 	}
 
 	return patchSet, nil
+}
+
+// removeValue is what a remove operation's value may say.
+type removeValue struct {
+	// EverythingUnder says the delete takes the rows the record lists as going with it
+	// (PatchSet.DeleteEverythingUnder).
+	EverythingUnder bool `json:"everythingUnder"`
+}
+
+// readRemoveValue reads a remove operation's value into the delete it decodes to:
+// {"everythingUnder": true} says the delete takes the rows the record lists as going
+// with it. A remove with no value, or one that says nothing of it, takes the record's
+// row alone.
+func readRemoveValue[Resource Resourcer](oper *Operation, patchSet *PatchSet[Resource]) error {
+	if oper.Req == nil || oper.Req.Body == nil {
+		return nil
+	}
+	body, err := io.ReadAll(oper.Req.Body)
+	if err != nil {
+		return bodyError(err)
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	var value removeValue
+	if err := json.Unmarshal(body, &value); err != nil {
+		return httpio.NewBadRequestMessageWithError(err, `a remove operation's value is an object, and "everythingUnder" in it is true or false`)
+	}
+	if value.EverythingUnder {
+		patchSet.DeleteEverythingUnder()
+	}
+
+	return nil
 }
 
 // acceptsNull reports whether a JSON null may land in the request field: a pointer, one
