@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse/access"
-	"github.com/impulseframework/impulse/access/spannerstore"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
@@ -65,19 +64,7 @@ func TestCustomRole_undeclaredGrantIsSkipped(t *testing.T) {
 	// The grant on the undeclared resource is put in the store as a release that
 	// declared the resource would have left it there: by an engine over the same store
 	// that was told nothing of what this release declares, and so checks no name.
-	store, err := spannerstore.New(db.Client, spannerstore.WithPrefix(crew.TablePrefix))
-	if err != nil {
-		t.Fatalf("spannerstore.New() error = %v", err)
-	}
-	earlier, err := access.New(store)
-	if err != nil {
-		t.Fatalf("access.New() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := earlier.Close(); err != nil {
-			t.Errorf("access.Client.Close() error = %v", err)
-		}
-	})
+	earlier := engineThatChecksNoName(t, db)
 	if err := earlier.UserManager().AddRoleGrant(ctx, held, role, accesstypes.List, undeclared, ""); err != nil {
 		t.Fatalf("access.UserManager.AddRoleGrant() by an engine with no collection, error = %v", err)
 	}
