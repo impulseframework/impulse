@@ -296,7 +296,7 @@ func (d *FileDecoder[Resource, Request]) Decode(request *http.Request, userPermi
 		return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return nil, httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), accesstypes.Read, denied)
+		return nil, NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), accesstypes.Read, denied), accesstypes.Read, denied...)
 	}
 
 	if d.computed {

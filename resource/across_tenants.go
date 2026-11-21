@@ -588,14 +588,24 @@ func (q *QuerySet[Resource]) settleAcrossTenants(dbType DBType, groups []*tenant
 	} else {
 		for _, field := range q.fields {
 			if hiddenEverywhere(field) {
-				return httpio.NewForbiddenMessagef("user (%s) does not have (%s) on %s in any tenant the list reads", q.userPermissions.User(), q.requiredPermission, q.resourceSet.Resource(field))
+				denied := q.resourceSet.Resource(field)
+
+				return httpio.NewForbiddenMessageWithError(
+					errors.Newf("user (%s) does not have (%s) on %s in any tenant the list reads", q.userPermissions.User(), q.requiredPermission, denied),
+					mayNot(q.requiredPermission, []accesstypes.Resource{denied}, refusedAnywhere),
+				)
 			}
 		}
 	}
 
 	for _, field := range q.queryFields() {
 		if hiddenEverywhere(field) {
-			return httpio.NewForbiddenMessagef("user (%s) cannot sort or filter on %s: (%s) on %s is denied in every tenant the list reads", q.userPermissions.User(), q.jsonName(field), q.requiredPermission, q.resourceSet.Resource(field))
+			denied := q.resourceSet.Resource(field)
+
+			return httpio.NewForbiddenMessageWithError(
+				errors.Newf("user (%s) cannot sort or filter on %s: (%s) on %s is denied in every tenant the list reads", q.userPermissions.User(), q.jsonName(field), q.requiredPermission, denied),
+				mayNotAskBy(bySortOrFilter, denied, refusedAnywhere),
+			)
 		}
 	}
 
