@@ -822,12 +822,14 @@ const (
 	checkPolicyFunc   = "CheckPolicy"
 	validateRolesFunc = "ValidateRoles"
 	rolesFunc         = "Roles"
+	authNameConst     = "Name"
 )
 
 // parseDefaultRoles returns every access.WithDefaultRoles call in the file, each carrying
 // the package whose Roles() it hands over. ownPkg is the file's package import path, which
-// an unqualified Roles() names. The role file is the call's first argument: the one after
-// it is the auth's name, which no reader here looks at.
+// an unqualified Roles() names. The role file is the call's first argument, and the one
+// after it is the auth's name: each call carries the package whose Name it is too, so a
+// file handed over under another package's name can be told.
 func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
@@ -849,6 +851,9 @@ func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, e
 		d := DefaultRoles{File: rel, Line: fset.Position(call.Pos()).Line}
 		if len(call.Args) > 0 {
 			d.RolesPackage = rolesCallPackage(call.Args[0], imports, ownPkg)
+		}
+		if len(call.Args) > 1 {
+			d.NamePackage = authNamePackage(call.Args[1], imports, ownPkg)
 		}
 		calls = append(calls, d)
 
@@ -872,6 +877,24 @@ func rolesCallPackage(expr ast.Expr, imports map[string]string, ownPkg string) s
 		}
 	case *ast.SelectorExpr:
 		if id, ok := fun.X.(*ast.Ident); ok && fun.Sel.Name == rolesFunc {
+			return imports[id.Name]
+		}
+	}
+
+	return ""
+}
+
+// authNamePackage reads the auth's name a role file is handed over under: the import path
+// of the package whose Name it is, ownPkg for Name unqualified, or empty for anything
+// else (a literal, a variable, a call), which nothing here can tie to a package.
+func authNamePackage(expr ast.Expr, imports map[string]string, ownPkg string) string {
+	switch name := expr.(type) {
+	case *ast.Ident:
+		if name.Name == authNameConst {
+			return ownPkg
+		}
+	case *ast.SelectorExpr:
+		if id, ok := name.X.(*ast.Ident); ok && name.Sel.Name == authNameConst {
 			return imports[id.Name]
 		}
 	}

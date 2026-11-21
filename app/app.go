@@ -425,6 +425,11 @@ type DefaultRoles struct {
 	// the file's own package when the argument is Roles() unqualified, the imported
 	// package when it is <auth>.Roles(), or empty when the argument reads some other way.
 	RolesPackage string
+	// NamePackage is the import path of the package whose Name the call hands the file
+	// over under, the auth's name: the file's own package when the second argument is
+	// Name unqualified, the imported package when it is <auth>.Name, or empty when the
+	// argument reads some other way (a literal, a variable) or is not there.
+	NamePackage string
 }
 
 // PolicyCheck is one call to CheckPolicy outside tests: the deploy step printing what

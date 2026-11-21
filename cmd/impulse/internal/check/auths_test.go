@@ -484,6 +484,14 @@ func TestAuthsWired(t *testing.T) {
 			wantStatus: Pass, wantSummary: "1 auth(s) constructed, roles handed to the engine, and bound: staff",
 		},
 		{
+			name: "the role file handed over under another package's name",
+			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
+				strings.Replace(strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", "staff.Roles(), members.Name", 1),
+					"\t\"example.com/harbor/pkg/auth/staff\"\n", "\t\"example.com/harbor/pkg/auth/members\"\n\t\"example.com/harbor/pkg/auth/staff\"\n", 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{"pkg/auth/staff: pkg/config/data.go:18 hands staff.Roles() to access.WithDefaultRoles under members.Name; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(staff.Roles(), staff.Name)"},
+		},
+		{
 			name: "the package exports no Roles()", files: with(without(), "pkg/auth/staff/staff.go", staffAuthNoRoles),
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
 			wantDetails: []string{"pkg/auth/staff: the package exports no Roles(); the staff auth's role file reaches the permission engine as staff.Roles() handed to access.WithDefaultRoles"},

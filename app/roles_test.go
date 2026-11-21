@@ -66,6 +66,25 @@ func New(store access.Store, collection access.PermissionCollection, auth string
 	return access.New(store, collection, access.WithDefaultRoles(Roles(), auth))
 }
 `
+	const otherName = `package config
+
+import (
+	"github.com/impulseframework/impulse/access"
+
+	"example.com/harbor/pkg/auth/members"
+	"example.com/harbor/pkg/auth/staff"
+	"example.com/harbor/pkg/router"
+)
+
+func engines(store access.Store) error {
+	if _, err := access.New(store, router.Collection(), access.WithDefaultRoles(staff.Roles(), members.Name)); err != nil {
+		return err
+	}
+	_, err := access.New(store, router.Collection(), access.WithDefaultRoles(staff.Roles(), "staff"))
+
+	return err
+}
+`
 	const deploy = `package deploy
 
 import (
@@ -102,9 +121,9 @@ func run(ctx context.Context, data *Data) error {
 			name:  "the role file handed over unqualified, qualified, and in other shapes",
 			files: map[string]string{"pkg/auth/staff/staff.go": auth, "pkg/config/data.go": data},
 			wantRoles: []DefaultRoles{
-				{File: "pkg/auth/staff/staff.go", Line: 15, RolesPackage: "example.com/harbor/pkg/auth/staff"},
-				{File: "pkg/config/data.go", Line: 11, RolesPackage: "example.com/harbor/pkg/auth/crew"},
-				{File: "pkg/config/data.go", Line: 14},
+				{File: "pkg/auth/staff/staff.go", Line: 15, RolesPackage: "example.com/harbor/pkg/auth/staff", NamePackage: "example.com/harbor/pkg/auth/staff"},
+				{File: "pkg/config/data.go", Line: 11, RolesPackage: "example.com/harbor/pkg/auth/crew", NamePackage: "example.com/harbor/pkg/auth/crew"},
+				{File: "pkg/config/data.go", Line: 14, NamePackage: "example.com/harbor/pkg/config"},
 				{File: "pkg/config/data.go", Line: 17},
 			},
 		},
@@ -113,6 +132,14 @@ func run(ctx context.Context, data *Data) error {
 			files: map[string]string{"pkg/auth/crew/crew.go": variable},
 			wantRoles: []DefaultRoles{
 				{File: "pkg/auth/crew/crew.go", Line: 15, RolesPackage: "example.com/harbor/pkg/auth/crew"},
+			},
+		},
+		{
+			name:  "the role file handed over under another package's name, and under a name written out",
+			files: map[string]string{"pkg/config/data.go": otherName},
+			wantRoles: []DefaultRoles{
+				{File: "pkg/config/data.go", Line: 12, RolesPackage: "example.com/harbor/pkg/auth/staff", NamePackage: "example.com/harbor/pkg/auth/members"},
+				{File: "pkg/config/data.go", Line: 15, RolesPackage: "example.com/harbor/pkg/auth/staff"},
 			},
 		},
 		{
