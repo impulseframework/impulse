@@ -205,7 +205,7 @@ func TestRefuseImpersonatorAsReadThroughSubject(t *testing.T) {
 		{
 			name: "the column set on the row the real person's set is read through is refused", ctx: acting, op: resource.OperationUpdate,
 			fields: map[accesstypes.Field]any{"WingID": "wing-2"}, readFor: true, wantAsked: true,
-			wantAct: "change the WingID of the squadron record that decides your own wings",
+			wantAct: "change the wing id of the squadron record that decides your own wings",
 		},
 		{
 			name: "the column set on another row goes through", ctx: acting, op: resource.OperationUpdate,

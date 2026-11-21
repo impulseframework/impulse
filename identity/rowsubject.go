@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // RefuseImpersonatorAsRowSubject is RefuseImpersonatorAsSubject for the write of a row
@@ -311,6 +314,10 @@ func heldBeforeAndAfter(
 // which no row of anyone's points at yet. A removal is not this rule's: the rows that
 // point at the removed row go with a constraint of the database or stop the delete.
 // It answers nil outside an impersonated session. The caller's grants answer first.
+//
+// The person refused is told the column by its name in words ("change the wing id of
+// the squadron record that decides your own wings"); the line the refusal is logged
+// with says it by its own name, WingID.
 func RefuseImpersonatorAsReadThroughSubject[Resource resource.Resourcer](
 	ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet,
 	patchSet *resource.PatchSet[Resource], record string, column accesstypes.Field, fact string,
@@ -337,10 +344,29 @@ func refuseImpersonatorAsReadThroughSubject(
 		return errors.Wrap(err, "resource.PatchSet.SubjectReadThrough()")
 	}
 	if reads {
-		return impersonatorRefused(ctx, actor, fmt.Sprintf("change the %s of the %s record that decides your own %s", column, record, fact))
+		const act = "change the %s of the %s record that decides your own %s"
+
+		return impersonatorRefusedOf(ctx, actor, fmt.Sprintf(act, column, record, fact), fmt.Sprintf(act, inWords(string(column)), record, fact))
 	}
 
 	return nil
+}
+
+// impersonatorRefusedOf is impersonatorRefused for an act that names a column: the line
+// the refusal is logged with says the act with the column's own name (logged), and the
+// person is told it with the column's name in words (said).
+func impersonatorRefusedOf(ctx context.Context, actor impulse.UUID, logged, said string) error {
+	line, _ := sessioninfo.ImpersonatorRefusal(actor, logged)
+	logger.FromCtx(ctx).Info(line)
+	_, refusal := sessioninfo.ImpersonatorRefusal(actor, said)
+
+	return refusal
+}
+
+// inWords spells a column's name as lower-case words, as the library's refusals spell
+// a field's: "WingID" is "wing id".
+func inWords(name string) string {
+	return strcase.ToCase(name, strcase.LowerCase, ' ')
 }
 
 // holdsNothing reports whether a column's value is no value at all: a NULL is in no
