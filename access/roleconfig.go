@@ -574,13 +574,18 @@ func (s grantSet) reads(res accesstypes.Resource) bool {
 }
 
 // listed renders the set in the shape UserManager.RoleGrants speaks: each
-// resource's conditions, sorted.
-func (s grantSet) listed() map[accesstypes.Permission]map[accesstypes.Resource][]string {
-	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]string, len(s))
+// resource's grants, sorted by condition. The set is a role's of the release, held to
+// the whole rule when the role file was read, so the role holds each.
+func (s grantSet) listed() map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant {
+	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant, len(s))
 	for perm, resources := range s {
-		out[perm] = make(map[accesstypes.Resource][]string, len(resources))
+		out[perm] = make(map[accesstypes.Resource][]RoleGrant, len(resources))
 		for res, conditions := range resources {
-			out[perm][res] = sortedConditions(conditions)
+			grants := make([]RoleGrant, 0, len(conditions))
+			for _, text := range sortedConditions(conditions) {
+				grants = append(grants, RoleGrant{Condition: text})
+			}
+			out[perm][res] = grants
 		}
 	}
 

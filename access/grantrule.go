@@ -132,6 +132,18 @@ func parseAuthoredCondition(text string) (condition.Expr, error) {
 	return compiled.Expr(), nil
 }
 
+// parseStoredCondition compiles a condition the policy store holds, and says one that
+// does not parse in the load's words: the sentence the report of a skipped grant carries
+// (SkippedGrant) and a role's listing says of the row (RoleGrant.Skipped).
+func parseStoredCondition(text string) (condition.Expr, error) {
+	expr, err := condition.Parse(text)
+	if err != nil {
+		return nil, errors.Wrap(err, "the condition does not parse")
+	}
+
+	return expr, nil
+}
+
 // unusable says why the running release cannot use a grant a load found, or nil when
 // it can. stored is whether the grant came from the policy store.
 //

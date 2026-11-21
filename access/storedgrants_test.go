@@ -43,9 +43,11 @@ func storedGrantsRelease(t *testing.T) PermissionCollection {
 //
 // A row the write would refuse is skipped: its holder is not given the permission, the
 // grant alone is no foothold where the role is held, the deploy check lists it and the
-// reload hook is told, in the write's own reason. A row the write would make is
-// carried. Each case writes the same grant through the user manager too, so the load
-// and the write are seen to draw the line in one place.
+// reload hook is told, in the write's own reason, and the role's listing
+// (UserManager.RoleGrants) marks the row skipped with that reason. A row the write
+// would make is carried, and listed as held. Each case writes the same grant through
+// the user manager too, so the load and the write are seen to draw the line in one
+// place.
 func TestClient_storedGrantIsHeldToTheWritesRule(t *testing.T) {
 	t.Parallel()
 
@@ -162,6 +164,19 @@ func TestClient_storedGrantIsHeldToTheWritesRule(t *testing.T) {
 				t.Errorf("the hook's reports mismatch (-want +got):\n%s", diff)
 			}
 
+			// The role's listing holds the row either way, and says of a row the load
+			// leaves out why the role does not hold it, in the load's reason.
+			grants, err := client.UserManager().RoleGrants(ctx, tt.held, clerk)
+			if err != nil {
+				t.Fatalf("RoleGrants() error = %v", err)
+			}
+			wantGrants := map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{
+				tt.perm: {tt.res: {{Condition: tt.cond, Skipped: tt.wantReason}}},
+			}
+			if diff := cmp.Diff(wantGrants, grants); diff != "" {
+				t.Errorf("RoleGrants() mismatch (-want +got):\n%s", diff)
+			}
+
 			// The write of the same grant, to a role of the same name held in the
 			// same place in a store that holds nothing else.
 			manager := newPolicyClient(t, newFakeStore(), storedGrantsRelease(t)).UserManager()
@@ -178,6 +193,58 @@ func TestClient_storedGrantIsHeldToTheWritesRule(t *testing.T) {
 				t.Errorf("AddRoleGrant() refusal = %q, want it to end in the load's reason %q", httpio.Message(err), tt.wantReason)
 			}
 		})
+	}
+}
+
+// TestUserManager_RoleGrants_saysTheLoadsReason pins that a role's listing says of a
+// stored row the load leaves out what the load reports for it, word for word, where the
+// load reads a condition its own way: a condition that does not parse. The row is
+// listed beside one the role holds on the same resource, the two in the order of their
+// conditions, and only the row the load leaves out is marked.
+func TestUserManager_RoleGrants_saysTheLoadsReason(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	const clerk accesstypes.Role = "Clerk"
+	const (
+		unparsed = "status ="
+		open     = "status = 'open'"
+	)
+	store := newFakeStore()
+	for _, err := range []error{
+		store.InsertRole(ctx, tenant1Policy, clerk, aDescription),
+		store.InsertGrant(ctx, tenant1Policy, clerk, accesstypes.Read, "Documents", "", open),
+		store.InsertGrant(ctx, tenant1Policy, clerk, accesstypes.Read, "Documents", "", unparsed),
+	} {
+		if err != nil {
+			t.Fatalf("seeding fake store: %v", err)
+		}
+	}
+	hook := &reloadErrors{}
+	client := newPolicyClient(t, store, storedGrantsRelease(t), WithReloadErrorHandler(hook.collect))
+	settle(client.snapEngine)
+
+	var reasons []string
+	for _, err := range hook.list() {
+		var skipped *SkippedGrant
+		if !errors.As(err, &skipped) {
+			t.Fatalf("the hook received %v, want nothing but a skipped grant", err)
+		}
+		reasons = append(reasons, plainText(skipped.Reason))
+	}
+	if len(reasons) != 1 || !strings.HasPrefix(reasons[0], "the condition does not parse: ") {
+		t.Fatalf("the load reported %q, want the one row whose condition does not parse", reasons)
+	}
+
+	got, err := client.UserManager().RoleGrants(ctx, tenant1Policy, clerk)
+	if err != nil {
+		t.Fatalf("RoleGrants() error = %v", err)
+	}
+	want := map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{
+		accesstypes.Read: {"Documents": {{Condition: unparsed, Skipped: reasons[0]}, {Condition: open}}},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("RoleGrants() mismatch (-want +got):\n%s", diff)
 	}
 }
 

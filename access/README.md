@@ -297,7 +297,10 @@ resource to the same rule: one that breaks it, such as a grant of another scope
 or a condition that reads an attribute the release does not declare, is skipped
 and reported as a `*access.SkippedGrant` with the write's reason. So such a
 grant is no foothold where its role is held, no check meets a condition it
-cannot resolve, and its holder's other grants decide as they did.
+cannot resolve, and its holder's other grants decide as they did. The store
+still holds the row, so `RoleGrants` lists it, marked with the reason
+(`RoleGrant.Skipped`): a page of a role's grants shows it as one the role does
+not hold, with why.
 
 A removal is held to nothing: a grant the release no longer declares can
 always be taken away. No client is without
@@ -754,7 +757,9 @@ mgr.DeleteRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 // folded: the file's grants for a default role, the store's for a custom one.
 permissions, err := mgr.RolePermissions(ctx, accesstypes.DomainScope("tenant1"), "Administrator")
 
-// The role's resource grants as held, with the conditions each is granted under.
+// The role's resource grants, each with the condition it is granted under
+// (access.RoleGrant). A stored row this release cannot use is listed too, with
+// why in Skipped: the load left it out, so the role does not hold it.
 grants, err := mgr.RoleGrants(ctx, tenant1, "Administrator")
 ```
 

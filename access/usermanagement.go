@@ -782,10 +782,11 @@ func (u *userManager) RolePermissions(ctx context.Context, scope accesstypes.Sco
 	return permissions, nil
 }
 
-// RoleGrants returns the role's resource grants as held, keyed by permission
-// and resource, with the conditions each resource is granted under (sorted;
-// "" is the unconditional grant).
-func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
+// RoleGrants returns the role's resource grants, keyed by permission and
+// resource, each with the condition the resource is granted under (sorted by
+// it; "" is the unconditional grant). A custom role's stored row that a load of
+// the policy leaves out is listed with why (RoleGrant.Skipped).
+func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -801,12 +802,53 @@ func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.PolicySc
 		return nil, httpio.NewNotFoundMessagef("role %s doesn't exist", role)
 	}
 
-	grants, err := u.store.roleGrantConditions(ctx, *held, role)
+	rows, err := u.store.roleResourceGrants(ctx, *held, role)
 	if err != nil {
 		return nil, err
 	}
 
-	return grants, nil
+	return u.listStoredGrants(*held, role, rows), nil
+}
+
+// listStoredGrants renders a custom role's stored rows on resources in the shape
+// RoleGrants speaks, each resource's grants sorted by condition. held is where the role
+// is held, the scope a load of the policy reads its rows in.
+//
+// Each row is asked what a load of the policy asks of it (grantRule.unusable, with the
+// load's reading of a condition), and a row the load leaves out is marked with the
+// load's reason: the store holds it and the role does not, so a listing that showed it
+// as any other row would show a grant nobody is given.
+func (u *userManager) listStoredGrants(held accesstypes.PolicyScope, role accesstypes.Role, rows []policy.RoleGrant) map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant {
+	rule := newGrantRule(u.collection)
+	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant)
+	for _, row := range rows {
+		listed := RoleGrant{Condition: row.Condition}
+		grant := &policy.Grant{
+			Scope:     held,
+			Subject:   policy.Subject{Kind: policy.SubjectRole, Name: string(role)},
+			Perm:      row.Perm,
+			Resource:  row.Resource,
+			Field:     row.Field,
+			Condition: row.Condition,
+		}
+		if reason := rule.unusable(grant, true, parseStoredCondition); reason != nil {
+			listed.Skipped = plainText(reason)
+		}
+		if out[row.Perm] == nil {
+			out[row.Perm] = make(map[accesstypes.Resource][]RoleGrant)
+		}
+		res := joinResourceField(row.Resource, row.Field)
+		out[row.Perm][res] = append(out[row.Perm][res], listed)
+	}
+	for _, resources := range out {
+		for _, grants := range resources {
+			slices.SortFunc(grants, func(a, b RoleGrant) int {
+				return strings.Compare(a.Condition, b.Condition)
+			})
+		}
+	}
+
+	return out
 }
 
 // ResolveRole returns the role scope holds under name, matched without regard

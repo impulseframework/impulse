@@ -954,9 +954,9 @@ func (s *snapshot) intern(released, stored []policy.Grant, collection Permission
 		if expr, ok := exprs[text]; ok {
 			return expr, nil
 		}
-		expr, err := condition.Parse(text)
+		expr, err := parseStoredCondition(text)
 		if err != nil {
-			return nil, errors.Wrap(err, "the condition does not parse")
+			return nil, err
 		}
 		exprs[text] = expr
 

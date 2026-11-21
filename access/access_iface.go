@@ -433,11 +433,13 @@ type UserManager interface {
 	// if role doesn't exist in scope.
 	RolePermissions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
 
-	// RoleGrants returns the role's resource grants as held, keyed by
-	// permission and resource, with the conditions each resource is granted
-	// under (sorted; "" is the unconditional grant): the store's rows for a
-	// custom role held in scope (or, for one domain, in every domain), the
-	// file's grants for a default role. Scope-wide grants are not included.
-	// Errors if role doesn't exist in scope.
-	RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error)
+	// RoleGrants returns the role's resource grants, keyed by permission and
+	// resource, each with the condition the resource is granted under (sorted
+	// by it; "" is the unconditional grant): the store's rows for a custom
+	// role held in scope (or, for one domain, in every domain), the file's
+	// grants for a default role. A stored row the running release cannot use
+	// is listed too, marked with why (RoleGrant.Skipped): a load of the
+	// policy leaves it out, so the role does not hold it. Scope-wide grants
+	// are not included. Errors if role doesn't exist in scope.
+	RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant, error)
 }
