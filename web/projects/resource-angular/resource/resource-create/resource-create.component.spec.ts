@@ -28,6 +28,7 @@ import {
   viewConfig,
 } from '@impulseframework/resource-angular/types';
 
+import { resourceValidators } from '../gui-constants';
 import { ResourceCreateComponent } from './resource-create.component';
 
 describe('ResourceCreateComponent', () => {
@@ -399,9 +400,19 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
     expect(shown.map(({ element }) => labelOf(element))).toEqual(['Call sign']);
   });
 
+  it('and says only that fields are missing while every field it refuses is drawn', () => {
+    fill('notes', 'Hold at the outer marker.');
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(sentence()).toBe('Please complete or fix required fields.');
+  });
+
   // A field that is not shown keeps its control in the form, and that control can be the
-  // first one refused: nothing of it is on the screen to bring into view.
-  it('the first refused field that is drawn, when the first control refused is of a field not shown, and still says so', () => {
+  // first one refused: nothing of it is on the screen to bring into view or to mark, so the
+  // form's sentence names it.
+  it('the first refused field that is drawn, when the first control refused is of a field not shown, and names the one not shown', () => {
     showing([
       field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
       field({ name: 'notes' as FieldName, label: 'Notes' }),
@@ -416,10 +427,12 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
     expect(shown.map(({ element }) => `${element.tagName.toLowerCase()} ${labelOf(element)}`)).toEqual([
       'mat-form-field Name',
     ]);
-    expect(sentence()).toBe('Please complete or fix required fields.');
+    expect(sentence()).toBe(
+      'Please complete or fix required fields. Call sign is missing or wrong, and it is not on this form.',
+    );
   });
 
-  it('nothing, when no field it refuses is drawn, and still says so', () => {
+  it('nothing, when no field it refuses is drawn, and says which field that is and that it is not on the form', () => {
     showing([
       field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
       field({ name: 'notes' as FieldName, label: 'Notes' }),
@@ -432,7 +445,39 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
 
     expect(sent()).toBe(0);
     expect(shown).toEqual([]);
-    expect(sentence()).toBe('Please complete or fix required fields.');
+    expect(sentence()).toBe('Call sign is missing or wrong, and it is not on this form.');
+  });
+
+  it('nothing, when several refused fields are not drawn, and names each of them in the order the form holds them', () => {
+    showing([
+      field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
+      field({ name: 'notes' as FieldName, label: 'Notes' }),
+      field({ name: 'name' as FieldName, label: 'Name', shouldRender: false }),
+    ]);
+    fill('notes', 'Hold at the outer marker.');
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(shown).toEqual([]);
+    expect(sentence()).toBe('Call sign and Name are missing or wrong, and they are not on this form.');
+
+    showing([
+      field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
+      field({
+        name: 'notes' as FieldName,
+        label: 'Notes',
+        shouldRender: false,
+        validators: [resourceValidators.REQUIRED],
+      }),
+      field({ name: 'name' as FieldName, label: 'Name', shouldRender: false }),
+    ]);
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(sent()).toBe(0);
+    expect(sentence()).toBe('Call sign, Notes and Name are missing or wrong, and they are not on this form.');
   });
 
   it('nothing, once the form refuses no field: the create is sent', async () => {

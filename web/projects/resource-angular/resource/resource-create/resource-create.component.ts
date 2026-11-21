@@ -53,6 +53,28 @@ import { maxLengthValidator, metadataTypeCoercion } from '../resources-helpers';
 /** The display types the create form presents and never takes: their control starts null and a null control leaves the add operation. */
 const READ_ONLY_SHAPES = new Set(['bytes', 'array', 'object']);
 
+/** What a create form says about fields it refuses that are drawn, each marked where it stands. */
+const FIX_FIELDS = 'Please complete or fix required fields.';
+
+/** The labels as a person lists them: "Name", "Name and Call sign", "Name, Call sign and Notes". */
+function listed(labels: string[]): string {
+  if (labels.length < 3) {
+    return labels.join(' and ');
+  }
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+}
+
+/**
+ * What a create form says about fields it refuses that are not on it: nothing on the screen
+ * can be marked for them, so each is named by its label.
+ */
+function notOnThisForm(labels: string[]): string {
+  if (labels.length === 1) {
+    return `${labels[0]} is missing or wrong, and it is not on this form.`;
+  }
+  return `${listed(labels)} are missing or wrong, and they are not on this form.`;
+}
+
 /**
  * Where a create form starts a yes or no field that is never empty. What the page's config
  * gives it comes first. With nothing given, a field the resource requires starts unchecked:
@@ -118,6 +140,16 @@ export class ResourceCreateComponent implements OnInit {
   saving = signal(false);
   /** The server's refusal of the last create in a dialog, in its words; empty while there is none. */
   refusal = signal('');
+  /**
+   * What the form says about the last create it did not send because it refuses a field, as
+   * the form stood when the create was asked for; empty until one is refused.
+   */
+  incomplete = signal('');
+  /**
+   * Whether that create left the form nothing to bring into view: every field it refuses
+   * is one that is not on it, and the sentence alone tells the person.
+   */
+  nothingRefusedIsDrawn = signal(false);
 
   rootConfig = computed(() => {
     return this.activatedRoute.snapshot.data['config'] as RootConfig;
@@ -274,8 +306,9 @@ export class ResourceCreateComponent implements OnInit {
    * in the form, inside an element the library's stylesheet takes off the screen
    * (`hidden-field`), and it can be the first one refused: there is nothing of it to bring
    * into view, so the field brought into view is the first refused one that is drawn.
+   * The answer is whether there was one.
    */
-  private showFirstRefused(): void {
+  private showFirstRefused(): boolean {
     const marked = Array.from(this.host.nativeElement.querySelectorAll('form .ng-invalid'));
     const control = marked.find(
       (element) =>
@@ -283,13 +316,45 @@ export class ResourceCreateComponent implements OnInit {
     );
     const field = control?.closest('mat-form-field') ?? control;
     field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return field !== undefined;
+  }
+
+  /**
+   * What the form says about a create it does not send. A refused field that is drawn is
+   * marked where it stands, and the sentence asks for those to be completed or fixed. A
+   * refused field that is not on the form (one not shown, whose value the page gives or
+   * another field decides) has nothing on the screen to mark: the sentence names it by its
+   * label and says it is not on this form, and where no refused field is drawn that is all
+   * it says. A field is on the form when the element the library draws it in (marked with
+   * the field's name) is not inside one the stylesheet takes off the screen.
+   */
+  private refusedSentence(): string {
+    const drawn = new Set(
+      Array.from(this.host.nativeElement.querySelectorAll<HTMLElement>('form [data-field]'))
+        .filter((element) => element.closest('.hidden-field') === null)
+        .map((element) => element.dataset['field']),
+    );
+    const refused = flattenElements(this.config().elements).filter(
+      (element): element is FieldElement => element.type === 'field' && this.form().get(element.name)?.invalid === true,
+    );
+    const notOnForm = [
+      ...new Set(refused.filter((element) => !drawn.has(element.name)).map((element) => element.label)),
+    ];
+    if (notOnForm.length === 0) {
+      return FIX_FIELDS;
+    }
+    if (refused.some((element) => drawn.has(element.name))) {
+      return `${FIX_FIELDS} ${notOnThisForm(notOnForm)}`;
+    }
+    return notOnThisForm(notOnForm);
   }
 
   saveForm(): void {
     if (!this.form().valid) {
       this.submitted.set(true);
       this.form().markAllAsTouched();
-      this.showFirstRefused();
+      this.incomplete.set(this.refusedSentence());
+      this.nothingRefusedIsDrawn.set(!this.showFirstRefused());
       return;
     }
 
