@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 // projectionResource is the two-database fixture: a key, a text, a number the
@@ -73,6 +74,9 @@ func TestQuerySet_stmt_visibleProjection(t *testing.T) {
 		wantPostgres string
 		wantParams   map[string]any
 		wantErr      string
+		// wantSaid is the sentence a refused caller is told; wantErr is then in the
+		// error's text, which the server's log prints.
+		wantSaid string
 	}{
 		{
 			name:      "sort on an unpruned conditional field orders its CASE, the masked rows in the database's NULL region",
@@ -176,6 +180,7 @@ func TestQuerySet_stmt_visibleProjection(t *testing.T) {
 			target:    "/?sort=fee",
 			decisions: accesstypes.Decisions{projectedResource + ".fee": accesstypes.Denied()},
 			wantErr:   "cannot sort or filter on fee: (List) on projectionResources.fee is denied",
+			wantSaid:  "You may not sort or filter projection resources by the fee here.",
 		},
 	}
 
@@ -205,6 +210,9 @@ func TestQuerySet_stmt_visibleProjection(t *testing.T) {
 				if tt.wantErr != "" {
 					if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 						t.Fatalf("checkPermissions(%s) error = %v, want containing %q", dbType, err, tt.wantErr)
+					}
+					if tt.wantSaid != "" {
+						plainAnswer(t, err, httpio.HasForbidden, tt.wantSaid, "testDomain", "projectionResources")
 					}
 
 					continue

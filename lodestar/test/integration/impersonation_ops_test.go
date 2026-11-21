@@ -145,10 +145,18 @@ func TestImpersonationOperator(t *testing.T) {
 	t.Run("the cadet may not operate the desk", func(t *testing.T) {
 		cass := newBrowser(t, s, consoleAPI)
 		cass.signIn(ctx, "cadet")
+		// Each refusal is one plain sentence, as every refusal of a permission is: the
+		// list by its name in words, the method by none.
 		status, body := cass.do(ctx, http.MethodGet, watchDeskList, nil)
 		assertStatus(t, status, http.StatusForbidden, body)
+		if want := "You may not list crew session impersonations here."; !strings.Contains(string(body), want) {
+			t.Errorf("refusal of the desk's list = %s, want %q", body, want)
+		}
 		status, body = cass.do(ctx, http.MethodPost, watchDeskRevoke, revoke)
 		assertStatus(t, status, http.StatusForbidden, body)
+		if want := "You may not do this here."; !strings.Contains(string(body), want) {
+			t.Errorf("refusal of the revoke = %s, want %q", body, want)
+		}
 	})
 
 	t.Run("revocation refuses the revoked console's next request", func(t *testing.T) {

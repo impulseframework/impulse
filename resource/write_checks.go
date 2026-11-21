@@ -10,7 +10,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
-	"github.com/impulseframework/impulse/httpio"
 	"google.golang.org/api/iterator"
 )
 
@@ -169,8 +168,7 @@ func (p *PatchSet[Resource]) enforceWriteConditions(ctx context.Context, txn Rea
 			return errors.Wrap(err, "spanner.Row.Column()")
 		}
 		if !passed.Valid || !passed.Bool {
-			return httpio.NewForbiddenMessagef("scope (%s), user (%s): (%s) on %s is conditionally granted and the condition does not hold for this row",
-				q.scope, q.userPermissions.User(), q.requiredPermission, group.resources)
+			return q.conditionRefused(group.resources)
 		}
 	}
 

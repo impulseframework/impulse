@@ -251,6 +251,92 @@ func TestTemporalWindows(t *testing.T) {
 	}
 }
 
+// settledAttempts is how many times settled asks before it fails the test. A real clock
+// needs two at most: the boundaries these tests cross are hours apart, and a request takes
+// a moment.
+const settledAttempts = 3
+
+// settled makes the requests in ask and returns the side of a clock boundary they were
+// served on: the day shift or the night, a weekday or the weekend. The server reads the
+// clock for itself while it serves a request, so a test that reads the clock once and asks
+// afterwards expects the wrong answer whenever the boundary falls between the two. settled
+// reads the side before and after the requests: readings that agree are the side every
+// request between them was served on; readings that differ mean the requests straddled the
+// boundary, and it asks again. ask is given the number of the attempt, starting at one,
+// for a request that must differ from the one before it.
+func settled[Side comparable](t *testing.T, now func() time.Time, side func(time.Time) Side, ask func(attempt int)) Side {
+	t.Helper()
+
+	for attempt := 1; ; attempt++ {
+		before := side(now())
+		ask(attempt)
+		if after := side(now()); after == before {
+			return after
+		}
+		if attempt == settledAttempts {
+			t.Fatalf("the clock crossed a boundary during each of %d attempts; no request was served on one side of it", settledAttempts)
+		}
+	}
+}
+
+// onWeekend returns the side of the week an instant falls on in the zone: true on a
+// Saturday or a Sunday.
+func onWeekend(zone *time.Location) func(time.Time) bool {
+	return func(at time.Time) bool {
+		day := at.In(zone).Weekday()
+
+		return day == time.Saturday || day == time.Sunday
+	}
+}
+
+// TestSettledAsksAgainAcrossABoundary pins the helper the clock's tests stand on, with a
+// scripted clock: a request that begins on Friday and ends on Saturday is asked again, and
+// the side returned is the one the second request was served on.
+func TestSettledAsksAgainAcrossABoundary(t *testing.T) {
+	t.Parallel()
+
+	opsClock, err := time.LoadLocation("America/Denver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeMidnight := time.Date(2026, time.November, 20, 23, 59, 59, 0, opsClock)
+	afterMidnight := beforeMidnight.Add(2 * time.Second)
+
+	tests := []struct {
+		name string
+		// crossesDuring is the attempt during which the clock passes midnight; zero is never.
+		crossesDuring int
+		wantWeekend   bool
+		wantAsks      int
+	}{
+		{name: "a request served within one day is asked once", wantWeekend: false, wantAsks: 1},
+		{name: "a request that straddles midnight is asked again", crossesDuring: 1, wantWeekend: true, wantAsks: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			clock := beforeMidnight
+			now := func() time.Time {
+				return clock
+			}
+			asks := 0
+			weekend := settled(t, now, onWeekend(opsClock), func(attempt int) {
+				asks++
+				if attempt == tt.crossesDuring {
+					clock = afterMidnight
+				}
+			})
+			if weekend != tt.wantWeekend {
+				t.Errorf("settled() weekend = %t, want %t: the side must be the one the last request was served on", weekend, tt.wantWeekend)
+			}
+			if asks != tt.wantAsks {
+				t.Errorf("settled() asked %d times, want %d", asks, tt.wantAsks)
+			}
+		})
+	}
+}
+
 // TestShiftPairIsComplementary pins the shipped personas: at any hour exactly one of
 // Dockmaster Dara (06:00–18:00 local) and Night Watch Nadia (18:00–06:00 Denver) sees
 // the hangar deck.
@@ -265,16 +351,37 @@ func TestShiftPairIsComplementary(t *testing.T) {
 	provesGrant(t, crew.Roles(), "NightWatch", "List", "Refits", "timeOfDay(now, 'America/Denver') >= '18:00' OR timeOfDay(now, 'America/Denver') < '06:00'")
 	provesGrant(t, crew.Roles(), "NightWatch", "Read", "Refits", "timeOfDay(now, 'America/Denver') >= '18:00' OR timeOfDay(now, 'America/Denver') < '06:00'")
 
-	dara, daraBody := doRequestAs(t, h, "dock", http.MethodGet, sectorPath(anvil, "refits"), "")
-	nadia, nadiaBody := doRequestAs(t, h, "watch", http.MethodGet, sectorPath(anvil, "refits"), "")
+	opsClock, err := time.LoadLocation("America/Denver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both grants turn at 06:00 and 18:00 of the operations clock. A pair of requests with
+	// one of those between them would find both shifts on the deck, or neither, so each
+	// pair is asked through settled.
+	onDayShift := func(at time.Time) bool {
+		hour := at.In(opsClock).Hour()
+
+		return hour >= 6 && hour < 18
+	}
+
+	var dara, nadia int
+	var daraBody, nadiaBody []byte
+	settled(t, time.Now, onDayShift, func(int) {
+		dara, daraBody = doRequestAs(t, h, "dock", http.MethodGet, sectorPath(anvil, "refits"), "")
+		nadia, nadiaBody = doRequestAs(t, h, "watch", http.MethodGet, sectorPath(anvil, "refits"), "")
+	})
 	if (dara == http.StatusOK) == (nadia == http.StatusOK) {
 		t.Fatalf("dara = %d (%s), nadia = %d (%s): exactly one shift must see the deck", dara, daraBody, nadia, nadiaBody)
 	}
 
 	// The same pairing on a single refit: the row condition is row-free, so the read is
 	// admitted or not found by the clock alone.
-	daraRow, daraRowBody := doRequestAs(t, h, "dock", http.MethodGet, sectorPath(anvil, "refits/"+refitLanternID), "")
-	nadiaRow, nadiaRowBody := doRequestAs(t, h, "watch", http.MethodGet, sectorPath(anvil, "refits/"+refitLanternID), "")
+	var daraRow, nadiaRow int
+	var daraRowBody, nadiaRowBody []byte
+	settled(t, time.Now, onDayShift, func(int) {
+		daraRow, daraRowBody = doRequestAs(t, h, "dock", http.MethodGet, sectorPath(anvil, "refits/"+refitLanternID), "")
+		nadiaRow, nadiaRowBody = doRequestAs(t, h, "watch", http.MethodGet, sectorPath(anvil, "refits/"+refitLanternID), "")
+	})
 	if (daraRow == http.StatusOK) == (nadiaRow == http.StatusOK) {
 		t.Fatalf("dara = %d (%s), nadia = %d (%s): exactly one shift must read the Lantern's refit", daraRow, daraRowBody, nadiaRow, nadiaRowBody)
 	}
@@ -283,8 +390,8 @@ func TestShiftPairIsComplementary(t *testing.T) {
 // TestNightWatchWeekdayTasks pins the night watch's shipped write grant: notes on a task
 // whose refit is in the bay are admitted on a weekday of the operations clock and refused
 // on a weekend, and a task of a refit outside the bay is refused on any day. The expected
-// status is computed from the grant and the clock the suite runs under, never from an
-// observed answer.
+// status is computed from the grant and the clock the request was served under, never from
+// an observed answer.
 func TestNightWatchWeekdayTasks(t *testing.T) {
 	t.Parallel()
 
@@ -297,26 +404,46 @@ func TestNightWatchWeekdayTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	onWeekday := http.StatusOK
-	if day := time.Now().In(opsClock).Weekday(); day == time.Saturday || day == time.Sunday {
-		onWeekday = http.StatusForbidden
-	}
 
 	tests := []struct {
-		name       string
-		target     string
-		wantStatus int
+		name   string
+		target string
+		// wantStatus is the status the grant gives a request served on that side of the week.
+		wantStatus func(weekend bool) int
 	}{
-		{name: "a task of a ship in the refit bay follows the day of the week", target: "refit-tasks/" + refitSamaritanID + "/2", wantStatus: onWeekday},
-		{name: "a task of an inspected ship not yet in refit is refused on any day", target: "refit-tasks/" + refitMuleID + "/1", wantStatus: http.StatusForbidden},
+		{
+			name:   "a task of a ship in the refit bay follows the day of the week",
+			target: "refit-tasks/" + refitSamaritanID + "/2",
+			wantStatus: func(weekend bool) int {
+				if weekend {
+					return http.StatusForbidden
+				}
+
+				return http.StatusOK
+			},
+		},
+		{
+			name:   "a task of an inspected ship not yet in refit is refused on any day",
+			target: "refit-tasks/" + refitMuleID + "/1",
+			wantStatus: func(bool) int {
+				return http.StatusForbidden
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			status, body := doRequestAs(t, h, "watch", http.MethodPatch, "/console/api/resources",
-				fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"notes":"checked on watch"}}]`, opPath(anvil, tt.target)))
-			assertStatus(t, status, tt.wantStatus, body)
+			// The day is read around the request, never once before it: a request made
+			// just before midnight may be served just after. Each attempt writes a note of
+			// its own, so a second one is a change to make and not the first one repeated.
+			var status int
+			var body []byte
+			weekend := settled(t, time.Now, onWeekend(opsClock), func(attempt int) {
+				status, body = doRequestAs(t, h, "watch", http.MethodPatch, "/console/api/resources",
+					fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"notes":"checked on watch, attempt %d"}}]`, opPath(anvil, tt.target), attempt))
+			})
+			assertStatus(t, status, tt.wantStatus(weekend), body)
 		})
 	}
 }
