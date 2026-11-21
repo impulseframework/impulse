@@ -241,9 +241,14 @@ type Settings struct {
 	// path joined with /device, where the console mounts the library's device approval
 	// page.
 	DevicePage string
-	// Collection is the generated permission collection the role file validates against:
-	// the resources, fields and conditions the release declares. The router package
-	// generates it and imports this one, so the configuration passes it in.
+	// Collection is the generated permission collection: the resources, permissions and
+	// fields the release declares, which the permission engine holds every grant to. The
+	// role file validates against it when the engine opens, a grant written to a custom
+	// role is refused unless the collection lists what it names, and a stored grant that
+	// names anything else is skipped and reported each time the policy loads. The router
+	// package generates it (router.Collection()) and imports this one, so the
+	// configuration passes it in. Required; New refuses nil, a nil
+	// pointer of a collection's type included (access.IsNilCollection).
 	Collection access.PermissionCollection
 	// ChangeSignal carries the engine's policy-change hints between the application's
 	// instances (auth.PolicySignal over the live service): the engine announces after
@@ -271,6 +276,8 @@ type Settings struct {
 // saying what the missing piece is for.
 func (s *Settings) required() error {
 	switch {
+	case access.IsNilCollection(s.Collection):
+		return errors.New("crew.Settings.Collection is required: the permission engine holds every grant to the permission collection the release declares; pass the generated router's (router.Collection())")
 	case s.ChangeSignal == nil:
 		return errors.New("crew.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
 	case s.TenantDeclarations == nil:

@@ -20,6 +20,7 @@ import {
   FieldName,
   RESOURCE_META,
   ResourceMeta,
+  RPCFieldMeta,
 } from '@impulseframework/resource-angular/types';
 
 import { ResourceStore } from '../../../resource-store.service';
@@ -891,6 +892,13 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     isIndex: false,
     enumeratedResource: resource,
   });
+  // A request field that names a role declares the name a grant's condition reads it by.
+  const givenRole: RPCFieldMeta = {
+    fieldName: 'givenRole',
+    displayType: 'enumerated',
+    enumeratedResource: roles,
+    attribute: 'role',
+  };
   const metas: Record<string, ResourceMeta> = {
     [methods]: { route: 'methods', fields: [picker('domain', sectors), picker('role', roles)] },
     [sectors]: {
@@ -915,7 +923,7 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
       { id: anvil, name: 'Anvil' },
       { id: bastion, name: 'Bastion' },
     ],
-    roles: [{ name: 'Cadet' }, { name: 'Marshal' }],
+    roles: [{ name: 'Cadet' }, { name: 'SectorMarshal' }],
   };
 
   let fixture: ComponentFixture<EnumeratedFieldComponent>;
@@ -960,7 +968,9 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     fixture.componentRef.setInput('meta', metas[methods]);
     fixture.componentRef.setInput(
       'fieldMeta',
-      metas[methods].fields.find((candidate) => candidate.fieldName === fieldName),
+      fieldName === givenRole.fieldName
+        ? givenRole
+        : metas[methods].fields.find((candidate) => candidate.fieldName === fieldName),
     );
     fixture.componentRef.setInput('fieldConfig', field({ name: fieldName as FieldName, label: 'Picked' }));
     fixture.componentRef.setInput('editMode', 'view');
@@ -1008,7 +1018,24 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
         .map((option) => [option.id, option.display]),
     ).toEqual([
       ['Cadet', 'Cadet'],
-      ['Marshal', 'Marshal'],
+      ['SectorMarshal', 'SectorMarshal'],
+    ]);
+  });
+
+  it('over the roles, for a request field that names a role, shows each role in words and stores its key', async () => {
+    await pickerOver('givenRole', 'SectorMarshal');
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('Sector marshal');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(lastPage()).toBe('GET /api/roles?columns=name&count=true');
+    expect(
+      (fixture.componentInstance.availableEnumOptions() ?? [])
+        .filter((option) => option.id !== null)
+        .map((option) => [option.id, option.display]),
+    ).toEqual([
+      ['Cadet', 'Cadet'],
+      ['SectorMarshal', 'Sector marshal'],
     ]);
   });
 });

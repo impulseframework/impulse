@@ -184,7 +184,10 @@ DML what a later rule must read.
   are recorded by the library alone: `CompletePending` and `StartAuthenticatedSession`
   refuse an event under `email-code`, `trusted-device` or an attestation's method
   (`400`), whatever the factors, and an application reports its step under a name of
-  its own. A `RequireMFA` is
+  its own. They refuse an event under the name of a sign-in the library runs too
+  (`password`, `azure`, `google`, `workos`, `oidc`, and the method of every
+  registration on the `Auth`): a session's first event says how the person signed in,
+  and only a sign-in the library ran says it was a password's or a directory's. A `RequireMFA` is
   satisfied without a step by a second factor the sign-in already carries: the
   attestation its connection makes, or a trusted device of the user; see "The second
   factor". An application whose users belong to tenants sets the library's
@@ -797,6 +800,15 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
   providers in one browser, and two `Auth`s on one host with a registration of the same
   name never read each other's state, and a callback completes only the login its own
   registration began.
+- **A method named after a step the library runs**: a registration whose `Method` is
+  `email-code`, `trusted-device`, `attested-by-evidence` or `attested-by-declaration`.
+  A sign-in's first auth event carries its method's name, and the library's rules read
+  those events as its own proof, so a method of the application's own takes a name of
+  its own (`"partner"`). A registration also has one method name: one whose `Method` is
+  not the `Name` of the method it builds is refused. The identities a method verifies
+  are held to that name at every sign-in: one under another method's name, or under
+  one of those four, is refused as the server's error (`internal_error`), and nothing
+  is linked or held.
 - **A method registered once the `Auth` is in use**: after it has served a request
   through any of its handlers or middleware, or read its methods to check or hash a
   password through its API (`CreateSessionUser` before `PasswordSignIn(auth,
@@ -1274,7 +1286,8 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   application's own). `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
   application authenticated itself, recording its events, which name steps of its own
   (an event under `email-code`, `trusted-device` or an attestation's method, which the
-  library records itself, is refused); it is decided like a login:
+  library records itself, is refused, and so is one under the name of a sign-in the
+  library runs: a password's, a directory method's, a registration's); it is decided like a login:
   the sign-in policy answers, a Deny refuses it and a RequireMFA holds it as a pending
   identity. No session start skips the policy; a support session is an impersonation.
 - **Role synchronization** (Azure, Google) reconciles the roles of the user the
@@ -1670,8 +1683,12 @@ How an address gets onto a user:
   any address after it was mailed. A sign-in code never replaces an address the
   account holds, confirmed or not: a code mailed to an address the account no longer
   holds (replaced, taken off the account or moved to another account) is dead
-  (`code_expired`), and nothing is written. Nothing writes an address onto an account
-  unconfirmed after its creation.
+  (`code_expired`), and nothing is written. Taking an address off an account
+  (`AuthStore.SetUserEmail` with no address) ends, in the same transaction, the
+  sign-in codes mailed for the account's sign-ins before it, so a code mailed before
+  an administrator's change and entered after it is dead and writes nothing back; the
+  code for an address the person then gives at the step writes it. Nothing writes an
+  address onto an account unconfirmed after its creation.
 - **A directory keeps its people's**: the address of a person with an identity linked
   through an organization's directory (`signin.Directory.Organization()`) is changed in
   the directory. Their own add and verify, an administrator's request and the
@@ -1697,7 +1714,16 @@ How an address gets onto a user:
   address yet and no other user holds it. Google's word counts only where Google is
   the address's authority: a Gmail address (`gmail.com`, `googlemail.com`) and the
   address of a Workspace account (the token carries `hd`). A Google account made with
-  an address from anywhere else is treated as another provider's. No other method's
+  an address from anywhere else is treated as another provider's. Where another user
+  holds the address verified and the user the sign-in reaches holds no verified
+  address, the address would be written on nobody and the person signed in to an
+  account with no confirmed address, so the sign-in is refused (`identity_rejected`;
+  the cause in the log is `signin.ErrAddressHeldByAnother`, which names both users)
+  and links nothing. An account made ahead under the address as its sign-in name,
+  beside the account that holds the address, is reached so, and an administrator
+  settles which is the person's by removing the duplicate account or its sign-in name.
+  An address another user holds unconfirmed refuses nobody, and neither does a
+  registration that holds no sign-in for an address (the point above). No other method's
   word is kept, whatever it puts in `Identity.EmailVerified` and whatever it is
   named: the people who run a provider can mark any address verified, so an Entra
   user's address, or one an OpenID Connect provider calls verified, stays a prefill
@@ -2895,7 +2921,7 @@ table is the wire contract:
 | `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
 | `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
-| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, a password-less user who has never signed in and holds no email address was matched by a sign-in name the method does not vouch for, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
+| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, a password-less user who has never signed in and holds no email address was matched by a sign-in name the method does not vouch for, provisioned a new user for an identity whose verified address another user holds verified, a sign-in whose method vouches for its address reached a user who holds no verified address while another user holds that address verified, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
@@ -4103,7 +4129,10 @@ Everything an impersonated session touches names the actor and the principal:
 - **Identity operations.** A person's own account is theirs alone: every handler of the
   library's that writes to the signed-in person's account refuses a session that views
   as them, whatever its mask, with 403 and an `IdentityOperationBlocked` event, before it
-  reads its body. They are `ChangeUserPassword` and `RemoveUserPassword` (the password
+  reads its body. The person reads "You are acting as someone else, and this session
+  cannot change their account." (in a session that acts as a role, "cannot do this."):
+  the handler's name is the event's and the server's log's, never the sentence's. They are
+  `ChangeUserPassword` and `RemoveUserPassword` (the password
   method's), `ChangeName`, `ChangeLook`, `ForgetBrowser`, `Email().Add()` and
   `Email().Verify()` (the address the code of their second factor is mailed to),
   `ApplicationTokens().Create()` and `ApplicationTokens().Revoke()`, `Device().Approve()`
@@ -4162,7 +4191,8 @@ Everything an impersonated session touches names the actor and the principal:
   `ValidateSession`) refuses non-safe requests — anything but GET, HEAD, OPTIONS and
   TRACE — from a session whose mask is *read-only*: it names the kinds it keeps, and
   keeps nothing beyond `List` and `Read` (`PermissionMask.ReadOnly()`; a mask that keeps
-  every kind is not read-only, whatever it refuses inside them). The refusal is 403 with a `WriteBlocked` event naming the
+  every kind is not read-only, whatever it refuses inside them). The refusal is 403, "You are acting as someone else, and
+  this session cannot change anything.", with a `WriteBlocked` event naming the
   method and path. It is a backstop that keeps a read-only session away from
   every mutating handler whether or not that handler consults the mask; it does not
   replace honoring the mask in permission checks (`Execute` reaches handlers by POST, and

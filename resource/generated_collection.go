@@ -92,7 +92,7 @@ type SetData struct {
 // It diverges from the runtime Set in exactly one documented way: Update is stripped
 // from immutable tags. The grantable matrix is the enforcement matrix minus
 // Update-on-immutable — an immutable field's Update requirement must never be
-// satisfiable, so the Collection (and therefore MigrateRoles) never exposes it as
+// satisfiable, so the Collection (and therefore access.ValidateRoles) never exposes it as
 // grantable, while the runtime Set keeps requiring it (defense-in-depth behind the
 // decoder's 400-on-update).
 func NewSetData(fields []FieldTags, permissions ...accesstypes.Permission) (SetData, error) {
@@ -122,7 +122,9 @@ func NewSetData(fields []FieldTags, permissions ...accesstypes.Permission) (SetD
 // @manualAddResource annotation or WithManualResources.
 type ManualRegistration struct {
 	// Scope is empty when the declaration leaves the scope to the default
-	// (accesstypes.GlobalPermissionScope).
+	// (accesstypes.GlobalPermissionScope). A name is registered in one scope: the
+	// Resource Generator refuses a resource registered for the whole application and
+	// for a tenant, by hand in both or by hand under the name of a generated one.
 	Scope      accesstypes.PermissionScope
 	Permission accesstypes.Permission
 	Resource   accesstypes.Resource
@@ -142,6 +144,13 @@ type ManualRegistration struct {
 // internal representation.
 type CollectionData struct {
 	Resources []CollectionResource
+
+	// Permissions are the permissions the application declares with no resource
+	// (@manualAddPermission on an accesstypes.Permission constant), sorted: ones it
+	// checks for the whole of a scope (access.CheckUser, access.CheckRole) and gives a
+	// custom role with AddRolePermission. No resource registers such a permission, so
+	// the declaration is what makes it one the release has (List).
+	Permissions []accesstypes.Permission
 }
 
 // WriteClassData is the classes one write of a record carries
@@ -161,7 +170,7 @@ type CollectionResource struct {
 	// application's Go function, with no query of the library's for the database
 	// to judge a row's condition in. The library judges the rows the function
 	// yields, in Go, against the Attributes below (each one's Column is the row
-	// struct's Go field), and deploy-time grant validation (access.MigrateRoles)
+	// struct's Go field), and grant validation (access.ValidateRoles)
 	// uses the marker to name that declaration where a condition reads a field
 	// the resource has not declared.
 	Computed bool
@@ -241,8 +250,8 @@ type CollectionResource struct {
 	// fields every page sorts by when the request carries no sort; QueryKeys
 	// are the fields a request may name in a filter and sort by with an index
 	// behind it — the indexed and allow_filter fields — primary keys aside,
-	// which are exempt from masking. Deploy-time role validation
-	// (access.MigrateRoles) reads them with each tag's Masking to warn where a
+	// which are exempt from masking. Role validation (access.ValidateRoles,
+	// access.Client.CheckPolicy) reads them with each tag's Masking to warn where a
 	// conditional grant puts a CASE in the ORDER BY or the WHERE.
 	Order     []accesstypes.Tag
 	QueryKeys []accesstypes.Tag
@@ -250,8 +259,8 @@ type CollectionResource struct {
 	// RequiredTags are the fields a create of the resource must be given by the
 	// client, as wire tags: the column takes no NULL, and neither a column default
 	// nor the server fills it (no default_create_fn, no key, no field the server
-	// owns). A create that leaves one out is refused at commit, so deploy-time role
-	// validation (access.MigrateRoles) reads them to warn where a role's Create
+	// owns). A create that leaves one out is refused at commit, so role validation
+	// (access.ValidateRoles, access.Client.CheckPolicy) reads them to warn where a role's Create
 	// grants on the resource cover none of its grants' fields for one: no holder of
 	// that role alone can create a row. Each is a tag of the resource that carries
 	// Create.
@@ -360,6 +369,13 @@ func (b *CollectionBuilder) SetResourceQueryKeys(scope accesstypes.PermissionSco
 // Create by the time the data is read is left out of it: no grant could name it.
 func (b *CollectionBuilder) SetResourceRequiredTags(scope accesstypes.PermissionScope, res accesstypes.Resource, required []accesstypes.Tag) {
 	b.g.setResourceRequiredTags(scope, res, required)
+}
+
+// AddPermission declares a permission with no resource (CollectionData.Permissions):
+// one the application checks for the whole of a scope. Declaring one twice is declaring
+// it once.
+func (b *CollectionBuilder) AddPermission(permission accesstypes.Permission) error {
+	return b.g.addPermission(permission)
 }
 
 // AddResource registers a single resource permission, allowing duplicate registrations
@@ -472,6 +488,8 @@ type GeneratedCollection struct {
 	// writeClasses are the classes each write of a record carries, sorted, within
 	// scope.
 	writeClasses map[accesstypes.PermissionScope]map[accesstypes.Resource]map[accesstypes.Permission][]accesstypes.ActionClass
+	// permissions are the permissions declared with no resource, sorted.
+	permissions []accesstypes.Permission
 	// noRole are the actions no role is given, within scope.
 	noRole map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}
 }
@@ -570,6 +588,11 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	}
 	for i := range data.Resources {
 		if err := g.refuseClassFromOtherScope(&data.Resources[i]); err != nil {
+			return nil, err
+		}
+	}
+	for _, permission := range data.Permissions {
+		if err := g.addPermission(permission); err != nil {
 			return nil, err
 		}
 	}
@@ -1035,8 +1058,8 @@ func (g *GeneratedCollection) setResourceRequiredTags(scope accesstypes.Permissi
 
 // RequiredOnCreate reports the fields a create of res must be given by the client
 // within scope, as wire tags, sorted: each takes no NULL, nothing but the client fills
-// it, and a grant names it for Create. Deploy-time role validation (access.MigrateRoles)
-// warns where a role may create the resource and may set none of its grants' fields for
+// it, and a grant names it for Create. Role validation (access.ValidateRoles,
+// access.Client.CheckPolicy) warns where a role may create the resource and may set none of its grants' fields for
 // one of them. Empty for a resource every create of which the server can complete.
 func (g *GeneratedCollection) RequiredOnCreate(scope accesstypes.PermissionScope, res accesstypes.Resource) []accesstypes.Tag {
 	var required []accesstypes.Tag
@@ -1062,8 +1085,8 @@ func (g *GeneratedCollection) FieldMasking(scope accesstypes.PermissionScope, re
 
 // ConcealingKeys reports the fields a list of res orders or filters on whose
 // masked cells conceal: the declared default order, and the request-time
-// filter and sort keys, each less the positional fields. Deploy-time role
-// validation (access.MigrateRoles) warns where a conditional grant lands on
+// filter and sort keys, each less the positional fields. Role validation
+// (access.ValidateRoles, access.Client.CheckPolicy) warns where a conditional grant lands on
 // one of these and the row filter does not prove its condition, because the
 // CASE then stands in the ORDER BY or the WHERE and no index serves it.
 func (g *GeneratedCollection) ConcealingKeys(scope accesstypes.PermissionScope, res accesstypes.Resource) (order, keys []accesstypes.Tag) {
@@ -1096,12 +1119,31 @@ func MustNewGeneratedCollection(data CollectionData) *GeneratedCollection {
 	return g
 }
 
+// addPermission declares a permission with no resource, keeping the declared ones
+// sorted and each once.
+func (g *GeneratedCollection) addPermission(permission accesstypes.Permission) error {
+	if permission == accesstypes.NullPermission {
+		return errors.New("cannot declare a permission with no name")
+	}
+	if i, declared := slices.BinarySearch(g.permissions, permission); !declared {
+		g.permissions = slices.Insert(g.permissions, i, permission)
+	}
+
+	return nil
+}
+
 // List returns a map of permissions to the resources that have them: everything a
-// role's grant may name. An action no role is given (CollectionResource.NoRole) is not
-// in it, so a role file that names one is refused and no listing of what a role may be
-// given shows it; Scope, HasPermission and ActionClasses still answer for it.
+// role's grant may name. A permission declared with no resource
+// (CollectionData.Permissions) is in it with whatever resources also register it, none
+// when it is held for the whole of a scope alone. An action no role is given
+// (CollectionResource.NoRole) is not in it, so a role file that names one is refused
+// and no listing of what a role may be given shows it; Scope, HasPermission and
+// ActionClasses still answer for it.
 func (g *GeneratedCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
 	permissionResources := make(map[accesstypes.Permission][]accesstypes.Resource)
+	for _, permission := range g.permissions {
+		permissionResources[permission] = nil
+	}
 	for scope, store := range g.resourceStore {
 		for resource, permissions := range store {
 			if _, noRole := g.noRole[scope][resource]; noRole {
@@ -1274,7 +1316,7 @@ func (g *GeneratedCollection) TagsRequiring(res accesstypes.Resource, perm acces
 // within scope, and whether the method declares one. A targeted method's
 // Execute grants may carry row-referencing conditions — the generated handler
 // locates the row inside its transaction and evaluates them there — so
-// deploy-time grant validation (access.MigrateRoles) asks this to tell a
+// grant validation (access.ValidateRoles) asks this to tell a
 // targeted method from a plain one.
 func (g *GeneratedCollection) MethodTarget(scope accesstypes.PermissionScope, method accesstypes.Resource) (accesstypes.Resource, bool) {
 	target, ok := g.targets[scope][method]
@@ -1686,6 +1728,9 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 
 		data.Resources = append(data.Resources, res)
 	}
+	// The declared permissions are copied, and a collection that declares none hands
+	// back none: nil, as CollectionData holds it.
+	data.Permissions = slices.Clone(g.permissions)
 
 	return data
 }

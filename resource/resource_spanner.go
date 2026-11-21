@@ -208,14 +208,13 @@ func (q *optionsQuerier) Query(ctx context.Context, statement spanner.Statement)
 // plain words (recordNotFound): the statement's WHERE clause is kept for the server's
 // log and is never sent to the caller.
 func (c *spannerReader[Resource]) Read(ctx context.Context, stmt *Statement) (*Row[Resource], error) {
-	var res Resource
 	if envelopeScan(stmt) {
 		row, err := c.readEnvelope(ctx, stmt)
 		if err != nil {
 			return nil, err
 		}
 		if row == nil {
-			return nil, recordNotFound(res.Resource(), stmt.resolvedWhereClause)
+			return nil, recordNotFound[Resource](stmt.resolvedWhereClause)
 		}
 
 		return row, nil
@@ -224,7 +223,7 @@ func (c *spannerReader[Resource]) Read(ctx context.Context, stmt *Statement) (*R
 	row := new(Row[Resource])
 	if err := spxscan.Get(ctx, c.querier(stmt), &row.Data, stmt.SpannerStatement()); err != nil {
 		if errors.Is(err, spxapi.ErrNotFound) {
-			return nil, recordNotFound(res.Resource(), stmt.resolvedWhereClause)
+			return nil, recordNotFound[Resource](stmt.resolvedWhereClause)
 		}
 
 		return nil, errors.Wrap(err, "spxscan.Get()")

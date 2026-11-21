@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ettle/strcase"
@@ -155,6 +156,7 @@ func (r *resourceGenerator) generateDomainGuard() error {
 		LocalPackageImports: r.localPackageImports(),
 		ApplicationName:     r.applicationName,
 		ReceiverName:        r.receiverName,
+		Word:                strings.ToLower(r.domainWord.One),
 		ConcealedDomains:    r.concealedDomains,
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")

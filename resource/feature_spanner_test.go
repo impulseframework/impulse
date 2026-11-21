@@ -501,6 +501,7 @@ func TestSetFeatureHandler(t *testing.T) {
 			perms:      featureGrants(accesstypes.Execute),
 			body:       `{"name":"unknown","enabled":true}`,
 			wantStatus: http.StatusNotFound,
+			wantBody:   saysFlagNotFound("unknown"),
 		},
 		{
 			name:       "a dry run refuses as the real call would, then writes and signals nothing",
@@ -646,12 +647,14 @@ func TestFeatureFlagHandlers(t *testing.T) {
 		// row carries.
 		wantNames  []string
 		wantFields []string
+		// wantBody, where it is set, checks the body of an answer that is not 200.
+		wantBody func(t *testing.T, body []byte)
 	}{
 		{name: "the list, by name, every field to a List grant", perms: featureGrants(accesstypes.List), target: "/api/" + FeatureFlagsRoute, wantStatus: http.StatusOK, wantNames: []string{"beacons", "debriefs"}, wantFields: []string{"description", "enabled", "name", "updatedAt", "updatedBy"}},
 		{name: "the list with the columns asked for", perms: featureGrants(accesstypes.List), target: "/api/" + FeatureFlagsRoute + "?columns=name,enabled", wantStatus: http.StatusOK, wantNames: []string{"beacons", "debriefs"}, wantFields: []string{"enabled", "name"}},
 		{name: "the list without a List grant is forbidden", perms: featureGrants(accesstypes.Read), target: "/api/" + FeatureFlagsRoute, wantStatus: http.StatusForbidden},
 		{name: "one flag to a Read grant", perms: featureGrants(accesstypes.Read), target: "/api/" + FeatureFlagsRoute + "/beacons", wantStatus: http.StatusOK, wantNames: []string{"beacons"}, wantFields: []string{"description", "enabled", "name", "updatedAt", "updatedBy"}},
-		{name: "an unknown flag is not found", perms: featureGrants(accesstypes.Read), target: "/api/" + FeatureFlagsRoute + "/unknown", wantStatus: http.StatusNotFound},
+		{name: "an unknown flag is not found", perms: featureGrants(accesstypes.Read), target: "/api/" + FeatureFlagsRoute + "/unknown", wantStatus: http.StatusNotFound, wantBody: saysFlagNotFound("unknown")},
 		{name: "one flag without a Read grant is forbidden", perms: featureGrants(accesstypes.List), target: "/api/" + FeatureFlagsRoute + "/beacons", wantStatus: http.StatusForbidden},
 	}
 
@@ -664,6 +667,9 @@ func TestFeatureFlagHandlers(t *testing.T) {
 			handler.ServeHTTP(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, tt.target, http.NoBody))
 			if rr.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d (body %s)", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+			if tt.wantBody != nil {
+				tt.wantBody(t, rr.Body.Bytes())
 			}
 			if tt.wantStatus != http.StatusOK {
 				return
@@ -695,6 +701,55 @@ func TestFeatureFlagHandlers(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantNames, names); diff != "" {
 				t.Errorf("names mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// flagNotFoundWords is what a caller is told of a flag that is not there, whichever route
+// found it missing.
+const flagNotFoundWords = "This feature flag does not exist."
+
+// saysFlagNotFound checks the body of an answer for a flag that is not there: it says
+// flagNotFoundWords, and nothing of the name asked for, which the server's log keeps.
+func saysFlagNotFound(name string) func(t *testing.T, body []byte) {
+	return func(t *testing.T, body []byte) {
+		t.Helper()
+		if !strings.Contains(string(body), flagNotFoundWords) {
+			t.Errorf("the answer = %s, want it to say %q", body, flagNotFoundWords)
+		}
+		if strings.Contains(string(body), name) {
+			t.Errorf("the answer = %s, which carries the name asked for, %q", body, name)
+		}
+	}
+}
+
+// TestSetFeatureEnabled_aFlagThatIsNotThere pins the answer for a flip of a flag that is
+// not there, over the emulator: a name that is no valid flag name and a valid name the
+// table does not hold are each not found, say flagNotFoundWords, and keep the name asked
+// for in the error, which the server's log prints.
+func TestSetFeatureEnabled_aFlagThatIsNotThere(t *testing.T) {
+	t.Parallel()
+
+	_, client := featureDatabase(t, "set-feature-not-there")
+	ctx := sessionCtx("harbormaster", nil)
+	if err := MigrateFeatures(ctx, client, []FeatureDeclaration{{Name: "debriefs", Description: "Debriefs.", Constant: "Debriefs"}}); err != nil {
+		t.Fatalf("MigrateFeatures() error = %v", err)
+	}
+
+	for _, name := range []Feature{"Not A Flag", "unknown"} {
+		t.Run(string(name), func(t *testing.T) {
+			t.Parallel()
+
+			err := SetFeatureEnabled(ctx, client, name, true, "harbormaster (test)")
+			if err == nil || !httpio.HasNotFound(err) {
+				t.Fatalf("SetFeatureEnabled(%q) error = %v, want a not-found answer", name, err)
+			}
+			if got := httpio.Message(err); got != flagNotFoundWords {
+				t.Errorf("the caller is told %q, want %q", got, flagNotFoundWords)
+			}
+			if !strings.Contains(err.Error(), string(name)) {
+				t.Errorf("the error's text, which the server's log prints, is %q: it does not carry the name %q", err.Error(), name)
 			}
 		})
 	}

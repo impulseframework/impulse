@@ -3,6 +3,7 @@ package access
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"time"
 
@@ -33,12 +34,17 @@ type Client struct {
 // New creates a new Client over a policy store built by one of the store
 // subpackages (spannerstore, postgresstore) and the permission collection of
 // the running release: what the release declares, its permissions, resources
-// and fields. The collection is required, and New refuses a nil one. A stored
-// grant naming what the release does not declare (after a rollback, or once a
-// release drops a resource) is left out of the snapshot and reported as a
-// SkippedGrant instead of being carried as a grant nothing can check, the
-// writes that give a custom role a grant refuse a name the release does not
-// declare (UserManager.AddRoleGrant), and the role file validates against it.
+// and fields. The collection is required, and New refuses a nil one, a nil
+// pointer of a collection's type included. A stored grant naming what the
+// release does not declare (after a rollback, or once a release drops a
+// resource or a permission) is left out of the snapshot and reported as a
+// SkippedGrant instead of being carried as a grant nothing can check, a grant
+// that names a permission and no resource among them; the writes that give a
+// custom role a grant refuse a name the release does not declare
+// (UserManager.AddRoleGrant, UserManager.AddRolePermission), by the rule the
+// load skips by, and hold a grant on a resource to the rest of the role
+// file's rule as well, its scope and its condition; and the role file
+// validates against it.
 //
 // Permission checks are answered by the snapshot engine, compiled in-memory
 // from the release's default roles (WithDefaultRoles) and the policy store.
@@ -62,8 +68,8 @@ type Client struct {
 // New fails when the role file does not parse or does not validate against
 // the collection: a release whose default roles are wrong does not start.
 func New(store Store, collection PermissionCollection, opts ...Option) (*Client, error) {
-	if collection == nil {
-		return nil, errors.New("access.New(): the collection must not be nil: pass the permission collection the release declares (the generated router's Collection()), which every grant is held to")
+	if IsNilCollection(collection) {
+		return nil, errors.New("the collection must not be nil: pass the permission collection the release declares, which every grant is held to: the generated router's Collection(), or for an application with several sites the union of theirs (access.UnionCollection)")
 	}
 	options := defaultClientOptions()
 	for _, opt := range opts {
@@ -110,6 +116,28 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 		superMethods:         slices.Clone(options.superMethods),
 		tenantAdministrators: slices.Clone(options.tenantAdministrators),
 	}, nil
+}
+
+// IsNilCollection reports whether collection is no collection: the nil
+// interface, or a nil pointer of a collection's type, which a variable nothing
+// was assigned to hands over (var collection *resource.GeneratedCollection).
+// The interface that holds such a pointer is not nil, so a comparison with nil
+// lets it through, and the first question the engine asks it panics. New and
+// UnionCollection refuse what it reports, and an auth that takes the collection
+// as a setting asks it before it opens anything, so that its refusal names the
+// setting: this is the one place that decides what a nil collection is.
+//
+// A struct value that wraps a nil collection is not reported: nothing short of
+// asking it a question tells it from a collection. New asks its first question
+// of the collection, the actions it lists, before it reads the role file or the
+// store, so an application that hands one over stops when it starts.
+func IsNilCollection(collection PermissionCollection) bool {
+	if collection == nil {
+		return true
+	}
+	value := reflect.ValueOf(collection)
+
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 // WaitReady blocks until the first policy snapshot has loaded (or ctx
@@ -177,11 +205,11 @@ func (c *Client) CheckPolicy(ctx context.Context) ([]Warning, error) {
 // condition referencing an attribute the Environment does not carry is a
 // check error, never a silent allow or deny. The answer here is always
 // Granted or Denied: a scope-wide grant carries only row-free conditions
-// (row-referencing ones are rejected at snapshot load — no row exists for
-// them to see), and row-free conditions fold to a definite answer. A
-// condition folding leaves unsettled — a subject-attribute reference, which
-// is data only the database can compare — is a check error too: there is no
-// place to evaluate it on this path.
+// (a row-referencing one is left out at snapshot load and reported as a
+// SkippedGrant — no row exists for it to see), and row-free conditions fold
+// to a definite answer. A condition folding leaves unsettled — a
+// subject-attribute reference, which is data only the database can compare —
+// is a check error too: there is no place to evaluate it on this path.
 //
 // There is no scope validation: an unknown tenant simply holds no grants, so
 // the check fails closed. Callers wanting to distinguish "invalid tenant"

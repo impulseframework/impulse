@@ -187,6 +187,10 @@ func requiredFieldWarnings(store PermissionCollection, role *Role, scope accesst
 		if strings.ContainsRune(string(res), '.') {
 			continue
 		}
+		if _, all := set[accesstypes.Create][res.ResourceWithTag(allFields)]; all {
+			// A Create of all the resource's fields leaves none out.
+			continue
+		}
 		var missing []accesstypes.Tag
 		for _, tag := range store.RequiredOnCreate(scope, res) {
 			if _, granted := set[accesstypes.Create][res.ResourceWithTag(tag)]; !granted {
@@ -264,9 +268,29 @@ func quoteEach(conditions []string) string {
 	return strings.Join(quoted, " or ")
 }
 
+// keyConditions returns the conditions the role lists one field of res under,
+// sorted: the field's own and those of the role's List of all the resource's
+// fields (Resource.*), which covers the field as well. It is nil where the role
+// does not list the field, and where either carries no condition, since the
+// field is then a plain column.
+func keyConditions(set grantSet, res accesstypes.Resource, tag accesstypes.Tag) []string {
+	merged := make(map[string]struct{})
+	for _, name := range []accesstypes.Resource{res.ResourceWithTag(tag), res.ResourceWithTag(allFields)} {
+		for condition := range set[accesstypes.List][name] {
+			if condition == "" {
+				return nil
+			}
+			merged[condition] = struct{}{}
+		}
+	}
+
+	return sortedConditions(merged)
+}
+
 // listFieldGrants reads the role's List field rows on res out of the expanded
 // grant set: each field's conditions where every grant on it is conditional,
-// and whether any field is granted with no condition at all.
+// and whether any field is granted with no condition at all. A List of all the
+// resource's fields is read as one more field, "*".
 func listFieldGrants(set grantSet, res accesstypes.Resource) (conditional map[accesstypes.Tag][]string, unconditional bool) {
 	conditional = make(map[accesstypes.Tag][]string)
 	prefix := string(res) + "."
@@ -349,10 +373,11 @@ func concealingKeyWarnings(store PermissionCollection, role *Role, scope accesst
 			}
 			visited[key.tag] = struct{}{}
 
-			conditions, ok := conditional[key.tag]
-			if !ok {
+			conditions := keyConditions(set, res, key.tag)
+			if len(conditions) == 0 {
 				// Not granted to this role (a sort on it is refused), or granted
-				// with no condition: nothing masks.
+				// with no condition, by its name or with all the fields: nothing
+				// masks.
 				continue
 			}
 			own, err := disjunctsOf(conditions)

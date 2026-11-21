@@ -295,7 +295,7 @@ func (p *AuthAPI[S, U, Tx]) withdrawTakenBack(ctx context.Context, email string,
 		return nil, err
 	}
 	for _, inv := range stale {
-		if email != "" && strings.EqualFold(inv.Email, email) {
+		if email != "" && sameAddress(inv.Email, email) {
 			continue
 		}
 		// One that no longer stands, accepted or run out since it was read, needs no
@@ -357,7 +357,7 @@ func (p *AuthAPI[S, U, Tx]) firstAdministratorInvitations(ctx context.Context, e
 		}
 		inv := invitationOf(link)
 		switch {
-		case email == "" || !strings.EqualFold(inv.Email, email) || !slices.Equal(distinctRoleNames(inv.RoleNames), roles):
+		case email == "" || !sameAddress(inv.Email, email) || !slices.Equal(distinctRoleNames(inv.RoleNames), roles):
 			stale = append(stale, inv)
 		case standing == nil:
 			standing = inv

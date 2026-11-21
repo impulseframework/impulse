@@ -3438,8 +3438,10 @@ func entraIssuer(tid string) string {
 // confirmed address waits for. Google's method is the one session/google builds, known
 // by the library's mark and not by its name: a method of the application's own that
 // names itself and its identities google keeps no flag either. The word is Google's
-// only for an identity that says it came through Google: the marked method keeps none
-// for an identity of another method.
+// only for an identity that says it came through Google, and an identity that says it
+// came through another method than its registration's is not signed in at all
+// (ownMethod): another method's identity that says it is Google's, and the marked
+// method's identity that says it is another's, are each refused before the store.
 func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
 	t.Parallel()
 
@@ -3451,14 +3453,19 @@ func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
 		// mark is the library's mark the method carries: Google's on the method Google's
 		// package builds, none on any other.
 		mark vouch.Mark
+		// refused says the sign-in is refused before the store is asked.
+		refused bool
 	}{
 		{name: "an application's own method", registered: "bare", asserted: "bare"},
 		{name: "the generic OpenID Connect method", registered: sessioninfo.MethodOIDC, asserted: sessioninfo.MethodOIDC},
 		{name: "Microsoft Entra ID", registered: sessioninfo.MethodAzure, asserted: sessioninfo.MethodAzure},
 		{name: "WorkOS", registered: sessioninfo.MethodWorkOS, asserted: sessioninfo.MethodWorkOS},
-		{name: "another method whose identity says it is Google's", registered: "bare", asserted: sessioninfo.MethodGoogle},
+		{name: "another method whose identity says it is Google's", registered: "bare", asserted: sessioninfo.MethodGoogle, refused: true},
 		{name: "a method of the application's own that takes Google's name", registered: sessioninfo.MethodGoogle, asserted: sessioninfo.MethodGoogle},
-		{name: "Google's method, for an identity that says it came through another", registered: sessioninfo.MethodGoogle, asserted: sessioninfo.MethodOIDC, mark: vouch.Google()},
+		{
+			name:       "Google's method, for an identity that says it came through another",
+			registered: sessioninfo.MethodGoogle, asserted: sessioninfo.MethodOIDC, mark: vouch.Google(), refused: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3481,20 +3488,24 @@ func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
 					}, nil
 				},
 			})
-			f.expectSignIn(impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
-				if req.Identity.EmailVerified || req.Identity.Email != "pat@example.com" {
-					t.Errorf("SignIn() identity = %+v, want the address the method asserts without its word that the address is verified", req.Identity)
-				}
-			}, func(req *sessioninfo.NewSessionRequest) error {
-				req.UserID, req.Username = impulse.Must(impulse.NewUUID()), "pat"
+			want := "/login?code=internal_error"
+			if !tt.refused {
+				want = "/next"
+				f.expectSignIn(impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
+					if req.Identity.EmailVerified || req.Identity.Email != "pat@example.com" {
+						t.Errorf("SignIn() identity = %+v, want the address the method asserts without its word that the address is verified", req.Identity)
+					}
+				}, func(req *sessioninfo.NewSessionRequest) error {
+					req.UserID, req.Username = impulse.Must(impulse.NewUUID()), "pat"
 
-				return nil
-			})
+					return nil
+				})
+			}
 
 			rr := f.serve(h.Callback, http.MethodGet, "/provider/callback?code=c&state=s", nil, nil)
 
-			if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/next" {
-				t.Errorf("response = %d %q, want 302 /next", rr.Code, rr.Header().Get("Location"))
+			if rr.Code != http.StatusFound || rr.Header().Get("Location") != want {
+				t.Errorf("response = %d %q, want 302 %s", rr.Code, rr.Header().Get("Location"), want)
 			}
 		})
 	}

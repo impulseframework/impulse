@@ -2508,6 +2508,7 @@ const (
 	validateDeleteTypeKeyword   string = "validateDeleteType"   // Specifies a type to call "Validate()" on before a row of the resource is deleted: a delete rule no grant gets around
 	primarykeyKeyword           string = "primarykey"           // Designates a field as (part of) the primary key in a Computed or Virtual Resource
 	manualAddResourceKeyword    string = "manualAddResource"    // Declares a manual permission registration on an accesstypes.Resource constant
+	manualAddPermissionKeyword  string = "manualAddPermission"  // Declares a permission with no resource on an accesstypes.Permission constant: one checked for the whole of a scope
 	manualAddResourceSetKeyword string = "manualAddResourceSet" // Declares that hand-written handlers register this resource's permission Sets for the given handler types
 	permissionScopeKeyword      string = "permissionScope"      // Declares the permission scope (global or domain) all of a resource's registrations use
 	outletKeyword               string = "outlet"               // Declares the router outlets a resource's routes — or a manual registration's hand-written route — are registered under
@@ -2560,6 +2561,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		deleteCascadeKeyword:        {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		primarykeyKeyword:           {genlang.ScanField: genlang.NoArgs},
 		manualAddResourceKeyword:    {genlang.ScanConstant: genlang.ArgsRequired},
+		manualAddPermissionKeyword:  {genlang.ScanConstant: genlang.NoArgs | genlang.Exclusive},
 		manualAddResourceSetKeyword: {genlang.ScanStruct: genlang.ArgsRequired},
 		permissionScopeKeyword:      {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		outletKeyword:               {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},

@@ -86,11 +86,11 @@ func TestImpersonatedSessions_ownAccountRoutes(t *testing.T) {
 		{"Invitation().Accept()", "/user/invitation/accept", ``},
 	}
 	for _, route := range routes {
-		want := route.operation + " is not permitted in an impersonated session"
+		want := "You are acting as someone else, and this session cannot change their account."
 		if status, body := post(writing, route.path, route.body); status != http.StatusForbidden || !strings.Contains(body, want) {
 			t.Errorf("%s in a session that acts as the rigger: status %d, want 403 saying %q", route.operation, status, want)
 		}
-		if status, body := post(readOnly, route.path, route.body); status != http.StatusForbidden || !strings.Contains(body, "this session is read-only") {
+		if status, body := post(readOnly, route.path, route.body); status != http.StatusForbidden || !strings.Contains(body, "You are acting as someone else, and this session cannot change anything.") {
 			t.Errorf("%s in a read-only view: status %d, want 403 from the read-only mask", route.operation, status)
 		}
 	}

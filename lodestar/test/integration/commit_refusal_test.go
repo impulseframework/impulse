@@ -181,7 +181,7 @@ func TestCommitRefusal(t *testing.T) {
 			target:      "/console/api/clients",
 			ops:         fmt.Sprintf(`[{"op":"patch","path":"/%s","value":{"name":"Nobody's Freight"}}]`, missingID),
 			wantStatus:  http.StatusNotFound,
-			wantMessage: "Clients: this record does not exist.",
+			wantMessage: "This client does not exist.",
 		},
 		{
 			// The update path has no validator: the schema's CK_Missions_Hazard refuses

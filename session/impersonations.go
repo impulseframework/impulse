@@ -574,7 +574,7 @@ func (i *Impersonations) request(ctx context.Context, actor *ImpersonationActor,
 	// An impersonated session starts no other: refused here, before the grant is asked
 	// about under the impersonated person's permissions, as it is when a session starts.
 	if sessioncore.ImpersonatedContext(ctx) {
-		return nil, httpio.NewForbiddenMessage("an impersonated session cannot establish another impersonated session")
+		return nil, httpio.NewForbiddenMessage(sessioncore.NestedStartWords)
 	}
 	if holds == nil {
 		return nil, errors.New(
