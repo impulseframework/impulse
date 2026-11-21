@@ -308,6 +308,11 @@ func seamInvitedPasswordAccountByCode[Tx any](ctx context.Context, t *testing.T,
 	if handed := a.handed(); len(handed) != 1 || handed[0].ID != forSam.ID {
 		t.Fatalf("the hook was handed %+v, want the one invitation", handed)
 	}
+	// The right code took its place in the invitation's count of codes entered, as a
+	// wrong one would have.
+	if got := a.codesEntered(ctx, t, forSam.ID); got != 1 {
+		t.Errorf("the count of codes entered for the invitation after the acceptance = %d, want 1: the right code takes its place as every code does", got)
+	}
 
 	// Lee's account holds the invited address as an administrator entered it, never
 	// confirmed: the link does not confirm it either. The sign-in waits for the code,

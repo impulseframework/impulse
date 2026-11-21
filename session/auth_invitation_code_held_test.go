@@ -313,3 +313,98 @@ func TestAuth_invitationCodeIsHeldToTheAccountsAddress(t *testing.T) {
 		})
 	}
 }
+
+// TestAuth_signInTakesTheInvitationItsCodeWasMailedFor holds a sign-in that entered a
+// code mailed for an invitation to that invitation, by its id, as the sign-in takes the
+// invitation the browser carries to the store (invitationCarried). Where the browser
+// carries no live invitation, the code proves nothing else, and the sign-in is refused
+// as an invitation that ended before the store resolves or writes anything. Where it
+// carries another live invitation, that one goes to the store with its address unproven:
+// the code was not mailed for it. Where it carries the code's own invitation, the code
+// proves its address.
+func TestAuth_signInTakesTheInvitationItsCodeWasMailedFor(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		// before runs once the code is mailed, before the sign-in.
+		before func(t *testing.T, w *namedInvitedWait)
+		// carries is the context of the request whose sign-in entered the code.
+		carries func(w *namedInvitedWait) context.Context
+		// want is the invitation the store is asked to accept, nil for a sign-in refused
+		// as an invitation that ended; wantProven says the code proves its address.
+		want       func(w *namedInvitedWait) *sessioninfo.Invitation
+		wantProven bool
+	}{
+		{
+			name: "the browser carries no invitation, and the sign-in is refused as an invitation that ended",
+			carries: func(*namedInvitedWait) context.Context {
+				return t.Context()
+			},
+		},
+		{
+			name: "the browser carries the code's invitation, withdrawn since, and the sign-in is refused as an invitation that ended",
+			before: func(t *testing.T, w *namedInvitedWait) {
+				t.Helper()
+				if err := w.f.auth.API().RevokeInvitation(t.Context(), w.invited.ID); err != nil {
+					t.Fatalf("RevokeInvitation() error = %v", err)
+				}
+			},
+			carries: func(w *namedInvitedWait) context.Context {
+				return w.carriesInvited
+			},
+		},
+		{
+			name: "the browser carries another live invitation, which goes to the store with its address unproven",
+			carries: func(w *namedInvitedWait) context.Context {
+				return w.carriesOther
+			},
+			want: func(w *namedInvitedWait) *sessioninfo.Invitation {
+				return w.other
+			},
+		},
+		{
+			name: "the browser carries the code's own invitation, which goes to the store with its address proven",
+			carries: func(w *namedInvitedWait) context.Context {
+				return w.carriesInvited
+			},
+			want: func(w *namedInvitedWait) *sessioninfo.Invitation {
+				return w.invited
+			},
+			wantProven: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			w := newNamedInvitedWait(t)
+			if tt.before != nil {
+				tt.before(t, w)
+			}
+			at, err := w.f.auth.pendingAttempt(w.pending, sessioninfo.ReasonStepUp, sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode})
+			if err != nil {
+				t.Fatalf("pendingAttempt() error = %v", err)
+			}
+			at.codeInvitation = impulse.NullUUIDFromUUID(w.invited.ID)
+
+			_, err = w.f.auth.signIn(tt.carries(w), httptest.NewRecorder(), at)
+
+			if tt.want == nil {
+				if got := sessioninfo.LoginRefusalCodeOf(err); got != sessioninfo.RefusedInvitationExpired {
+					t.Errorf("signIn() error = %v (code %q), want the refusal %q", err, got, sessioninfo.RefusedInvitationExpired)
+				}
+				if len(w.signIns) != 0 {
+					t.Errorf("%d sign-in(s) reached the store, want none: the code proves nothing but its invitation's acceptance", len(w.signIns))
+				}
+
+				return
+			}
+			if len(w.signIns) != 1 {
+				t.Fatalf("signIn() error = %v with %d sign-in(s) at the store, want the one sign-in this test's store refuses", err, len(w.signIns))
+			}
+			want := tt.want(w)
+			if inv := w.signIns[0].Invitation; inv == nil || inv.ID != want.ID || inv.AddressProven != tt.wantProven {
+				t.Errorf("the sign-in carries the invitation %+v, want %s with its address proven = %t", inv, want.ID, tt.wantProven)
+			}
+		})
+	}
+}
