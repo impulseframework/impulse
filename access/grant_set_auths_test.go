@@ -31,12 +31,12 @@ func (c authSetsCollection) SubjectSetComparisonType(name string) (accesstypes.A
 
 // customRoleSetsRelease is the release the custom-role tests run against: crews
 // describes the people of crew, hazardBands the people of staff, and docks names no
-// auth.
-func customRoleSetsRelease() PermissionCollection {
+// auth. auths are the auths its generation knew.
+func customRoleSetsRelease(auths ...string) PermissionCollection {
 	return authSetsCollection{setsCollection{
 		sets:     map[string][]string{"docks": nil},
 		authSets: map[string]map[string][]string{"crew": {"crews": nil}, "staff": {"hazardBands": nil}},
-		auths:    []string{"crew", "staff"},
+		auths:    auths,
 	}}
 }
 
@@ -57,16 +57,20 @@ var customRoleSetGrants = []struct {
 }
 
 // customRoleEngines are the ways a Client is opened over customRoleSetsRelease: told the
-// auth crew, told no auth, and opened with no role file. Only the first holds a custom
-// role to its auth's sets.
+// auth crew where the release knows crew and staff, and, where it knows crew alone,
+// told no auth and opened with no role file. Only the first holds a custom role to its
+// auth's sets. Where the release knows several auths the other two do not open
+// (TestNew_authName).
 var customRoleEngines = []struct {
-	name   string
+	name string
+	// auths are the auths the engine's release knows.
+	auths  []string
 	opts   []Option
 	heldTo bool
 }{
-	{name: "the engine of crew", opts: []Option{WithDefaultRoles(crewsRoleFile, "crew")}, heldTo: true},
-	{name: "an engine told no auth", opts: []Option{WithDefaultRoles(crewsRoleFile, "")}},
-	{name: "an engine opened with no role file"},
+	{name: "the engine of crew", auths: []string{"crew", "staff"}, opts: []Option{WithDefaultRoles(crewsRoleFile, "crew")}, heldTo: true},
+	{name: "an engine told no auth", auths: []string{"crew"}, opts: []Option{WithDefaultRoles(crewsRoleFile, "")}},
+	{name: "an engine opened with no role file", auths: []string{"crew"}},
 }
 
 // crewRoleReadsStaffSet is the sentence a grant of Clerk, a role of crew, on Widgets is
@@ -111,7 +115,7 @@ func TestUserManager_customRoleGrantHeldToItsAuthsSets(t *testing.T) {
 					t.Parallel()
 					ctx := t.Context()
 
-					manager := newPolicyClient(t, newFakeStore(), customRoleSetsRelease(), engine.opts...).UserManager()
+					manager := newPolicyClient(t, newFakeStore(), customRoleSetsRelease(engine.auths...), engine.opts...).UserManager()
 					if err := manager.AddRole(ctx, tenant1Policy, clerk, aDescription); err != nil {
 						t.Fatalf("AddRole() error = %v", err)
 					}
@@ -157,7 +161,7 @@ func TestValidateRoles_customRoleWriteSaysTheRoleFilesSentence(t *testing.T) {
 			clerk := &Role{Name: "Clerk", Description: aDescription, Permissions: map[accesstypes.Permission][]Grant{
 				accesstypes.Read: {{Resource: "Widgets", Condition: grant.cond}},
 			}}
-			_, err := ValidateRoles(customRoleSetsRelease(), &RoleConfig{Roles: ScopedRoles{Domain: []*Role{clerk}}}, "crew")
+			_, err := ValidateRoles(customRoleSetsRelease("crew", "staff"), &RoleConfig{Roles: ScopedRoles{Domain: []*Role{clerk}}}, "crew")
 			if err == nil {
 				t.Fatal("ValidateRoles() error = nil, want the grant refused")
 			}
@@ -198,7 +202,7 @@ func TestClient_storedGrantHeldToItsAuthsSets(t *testing.T) {
 					}
 				}
 				hook := &reloadErrors{}
-				client := newPolicyClient(t, store, customRoleSetsRelease(), slices.Concat(engine.opts, []Option{WithReloadErrorHandler(hook.collect)})...)
+				client := newPolicyClient(t, store, customRoleSetsRelease(engine.auths...), slices.Concat(engine.opts, []Option{WithReloadErrorHandler(hook.collect)})...)
 
 				foothold, err := client.UserHasGrants(ctx, "dana", tenant1Scope)
 				if err != nil {

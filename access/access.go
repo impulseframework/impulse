@@ -80,7 +80,8 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 	// Every Client defines the Super Administrator role, with or without a role
 	// file: the file's roles are compiled beside it. A Client opened without a
 	// role file hands no configuration (nil), which declares no role and is asked
-	// nothing a role file is asked.
+	// nothing a role file is asked; it is told no auth's name, so it does not open
+	// where the collection knows several auths (validateEngineAuth).
 	var config *RoleConfig
 	if options.roleFileSet {
 		var err error
@@ -93,6 +94,8 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 		if err := validateAuthName(collection, options.auth); err != nil {
 			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
 		}
+	} else if err := validateEngineAuth(collection); err != nil {
+		return nil, errors.Wrap(err, "access.New()")
 	}
 	// The methods a super administrator always runs are the application's wiring, not
 	// the role file's content: one the release does not declare is refused as that,

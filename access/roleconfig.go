@@ -272,8 +272,9 @@ func (g Grant) expand() []accesstypes.Resource {
 // describe another auth's people are no business of this file, so the check
 // holds it to its own auth's sets alone: it flags none of another auth's (see
 // UnreadSetWarning) and refuses a grant whose condition reads one. An empty
-// auth looks at every set and refuses no grant for whose people its set
-// describes.
+// auth is refused where the collection knows several auths. Where it knows one
+// or none, an empty auth looks at every set and refuses no grant for whose
+// people its set describes.
 func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig, auth string) ([]Warning, error) {
 	if err := validateAuthName(store, auth); err != nil {
 		return nil, err
