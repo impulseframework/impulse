@@ -534,7 +534,7 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesAddressConfirmedFirst[Tx],
 		},
 		{
-			name: "another identity provider that says it verified the address confirms nothing: the person's first sign-in to an account with no confirmed address waits for the mailed code, nothing is mailed before they ask, the code confirms the address, and the next sign-in is the provider's alone",
+			name: "another identity provider that says it verified the address confirms nothing: the person's first sign-in to an account named by its address, which nobody has confirmed, waits for the mailed code, nothing is mailed before they ask, the code confirms the address, and the next sign-in is the provider's alone",
 			run:  seamRulesProviderConfirmsNothing[Tx],
 		},
 		{
@@ -877,25 +877,32 @@ func seamRulesAddressConfirmedFirst[Tx any](ctx context.Context, t *testing.T, b
 }
 
 // seamRulesProviderConfirmsNothing is the scenario "another identity provider that says
-// it verified the address confirms nothing".
+// it verified the address confirms nothing". The account is named by its address, and
+// the provider signs the person in under that name: were the provider's word for the
+// address kept, the name would be a vouched one, the link would be made at once and
+// the sign-in would not be held. So the wait this scenario sees stands on the rule
+// that no provider but Google vouches for an address, and on no other. The library
+// drops the word twice, and the scenario fails only with both gone: the generic method
+// fills none in on the identity it verifies, and the core takes it off whatever a
+// method fills in.
 func seamRulesProviderConfirmsNothing[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	shape := oneOrganization(inviteOnly)
 	shape.provider = true
 	a := newRulesApp(ctx, t, be, shape)
-	cadet := a.createUserAt(ctx, t, "cadet", "cadet@lakeside.edu")
+	cadet := a.createUserAt(ctx, t, "cadet@lakeside.edu", "cadet@lakeside.edu")
 
 	// The token says the address is verified (email_verified), and nobody has confirmed
 	// the address the account was created with: the sign-in waits for the code mailed
 	// there, and nothing was mailed before the person asks.
 	b := a.browser(t)
 	b.prime(ctx)
-	claims := gatewayClaims("p-cadet", "cadet", "cadet@lakeside.edu")
+	claims := gatewayClaims("p-cadet", "cadet@lakeside.edu", "cadet@lakeside.edu")
 	held := a.providerSignIn(ctx, b, claims)
 	if sent := a.mail.Messages(); len(sent) != 0 {
 		t.Fatalf("mail after the provider's sign-in = %d messages, want none: the provider's word for an address is not a confirmation", len(sent))
 	}
 	assertRedirect(t, a.confirmAddress(ctx, b, held, "cadet@lakeside.edu"), "/home", url.Values{})
-	if v := signedInAs(ctx, t, b, "cadet"); v.UserID != cadet.String() {
+	if v := signedInAs(ctx, t, b, "cadet@lakeside.edu"); v.UserID != cadet.String() {
 		t.Errorf("session user = %s, want the pre-created cadet %s", v.UserID, cadet)
 	}
 	if email, verified := b.authenticatedEmail(ctx); email != "cadet@lakeside.edu" || !verified {
@@ -906,7 +913,7 @@ func seamRulesProviderConfirmsNothing[Tx any](ctx context.Context, t *testing.T,
 	// alone.
 	next := a.browser(t)
 	assertRedirect(t, a.providerSignIn(ctx, next, claims), "/home", url.Values{})
-	signedInAs(ctx, t, next, "cadet")
+	signedInAs(ctx, t, next, "cadet@lakeside.edu")
 }
 
 // seamRulesHeldSignInKeepsNoProvidersWord is the scenario "a sign-in held while every
