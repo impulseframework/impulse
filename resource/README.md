@@ -4889,8 +4889,8 @@ own, outside any request, has no caller and is the application's act):
   generated route goes through. The session store's own `DeactivateUser`,
   `ActivateUser` and `DeleteUser` are the bare writes and are not held to it, so a
   route an application wrote calls the Manager or the session API, never the store.
-  They are refused the account they view as too ("you
-  cannot disable the account you are viewing as"): a session that views as a person
+  They are refused the account they view as too ("You
+  cannot disable the account you are viewing as."): a session that views as a person
   does no more than that person may, and nobody disables or deletes themselves.
 - In a session that acts as someone else, nobody is the subject of what they do. It is
   the rule above, widened for the person who impersonates to every change of their

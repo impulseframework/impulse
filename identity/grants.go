@@ -230,11 +230,16 @@ func lengthens(had, next accesstypes.Period, now time.Time) bool {
 // the caller that would make something the caller holds last longer than it was given
 // for is refused, and is done by someone else who may. own says the assignment is the
 // caller's own (their role, their place in a group, or a role of a group they are in),
-// and what names it in the refusal ("your own role").
+// and what names it in the refusal ("your own role"). The person is told that they
+// cannot, in one sentence; who does it instead is the refusal's cause, kept for the
+// server's log.
 func refuseLongerForOneself(own bool, had, next accesstypes.Period, what string) error {
 	if !own || !lengthens(had, next, time.Now()) {
 		return nil
 	}
 
-	return httpio.NewForbiddenMessagef("you cannot make %s last longer than it was given for: someone else who may give it gives it a new period", what)
+	return httpio.NewForbiddenMessageWithErrorf(
+		errors.Newf("you cannot make %s last longer than it was given for: someone else who may give it gives it a new period", what),
+		"You cannot make %s last longer than it was given for.", what,
+	)
 }

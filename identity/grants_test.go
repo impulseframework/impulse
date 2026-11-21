@@ -351,20 +351,20 @@ func TestManager_nobodyLengthensTheirOwnHolding(t *testing.T) {
 		// wantWrite is the one write of a change that goes through.
 		wantWrite string
 	}{
-		{name: "their own role, with no end", had: current, ctx: asDana, act: role(none), wantSays: "you cannot make your own role last longer"},
-		{name: "their own role, with a later end", had: current, ctx: asDana, act: role(longer), wantSays: "you cannot make your own role last longer"},
-		{name: "their own role that has not begun, from now", had: upcoming, ctx: asDana, act: role(none), wantSays: "you cannot make your own role last longer"},
-		{name: "their own role that has ended, again", had: ended, ctx: asDana, act: role(current), wantSays: "you cannot make your own role last longer"},
+		{name: "their own role, with no end", had: current, ctx: asDana, act: role(none), wantSays: "You cannot make your own role last longer than it was given for."},
+		{name: "their own role, with a later end", had: current, ctx: asDana, act: role(longer), wantSays: "You cannot make your own role last longer than it was given for."},
+		{name: "their own role that has not begun, from now", had: upcoming, ctx: asDana, act: role(none), wantSays: "You cannot make your own role last longer than it was given for."},
+		{name: "their own role that has ended, again", had: ended, ctx: asDana, act: role(current), wantSays: "You cannot make your own role last longer than it was given for."},
 		{name: "their own role, with an earlier end", had: current, ctx: asDana, act: role(shorter), wantWrite: "period of membership " + membershipText(&own) + ": " + periodText(shorter)},
 		{name: "somebody else gives the role a new period", had: current, ctx: asErin, act: role(none), wantWrite: "period of membership " + membershipText(&own) + ": none"},
 		{name: "the application's own act gives the role a new period", had: current, ctx: outside, act: role(none), wantWrite: "period of membership " + membershipText(&own) + ": none"},
 		{name: "a caller of another auth is nobody of this one", had: current, ctx: fromAnotherAuth, act: role(none), wantWrite: "period of membership " + membershipText(&own) + ": none"},
 
-		{name: "their own place in a group, with no end", had: current, ctx: asDana, act: inGroup(none), wantSays: "you cannot make your own place in a group last longer"},
+		{name: "their own place in a group, with no end", had: current, ctx: asDana, act: inGroup(none), wantSays: "You cannot make your own place in a group last longer than it was given for."},
 		{name: "their own place in a group, with an earlier end", had: current, ctx: asDana, act: inGroup(shorter), wantWrite: "period of group member " + string(place.Group) + " " + string(place.User) + ": " + periodText(shorter)},
 		{name: "somebody else gives the place a new period", had: current, ctx: asErin, act: inGroup(none), wantWrite: "period of group member " + string(place.Group) + " " + string(place.User) + ": none"},
 
-		{name: "a role of a group they are in, with no end", had: current, placed: &none, ctx: asDana, act: ofGroup(none), wantSays: "you cannot make a role of a group you are in last longer"},
+		{name: "a role of a group they are in, with no end", had: current, placed: &none, ctx: asDana, act: ofGroup(none), wantSays: "You cannot make a role of a group you are in last longer than it was given for."},
 		{name: "a role of a group they are in, with an earlier end", had: current, placed: &none, ctx: asDana, act: ofGroup(shorter), wantWrite: "period of group role " + groupRoleText(&groupRole) + ": " + periodText(shorter)},
 		{name: "somebody who is not in the group gives its role a new period", had: current, placed: &none, ctx: asErin, act: ofGroup(none), wantWrite: "period of group role " + groupRoleText(&groupRole) + ": none"},
 		{name: "a person whose place in the group has ended holds nothing through it", had: current, placed: &ended, ctx: asDana, act: ofGroup(none), wantWrite: "period of group role " + groupRoleText(&groupRole) + ": none"},
@@ -388,9 +388,7 @@ func TestManager_nobodyLengthensTheirOwnHolding(t *testing.T) {
 				return tt.act(tt.ctx(ctx), txn, m)
 			})
 			if tt.wantSays != "" {
-				if err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), tt.wantSays) || !strings.Contains(err.Error(), "someone else who may give it") {
-					t.Fatalf("error = %v, want Forbidden saying %q and who does it instead", err, tt.wantSays)
-				}
+				toldPlainly(t, err, tt.wantSays, "someone else who may give it")
 				if len(store.writes) != 0 {
 					t.Errorf("buffered writes = %v, want none", store.writes)
 				}

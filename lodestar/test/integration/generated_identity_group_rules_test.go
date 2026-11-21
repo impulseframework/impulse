@@ -379,7 +379,7 @@ func TestGeneratedIdentityNobodyLengthensTheirOwnHolding(t *testing.T) {
 	for name, endsAt := range map[string]time.Time{"with no end": {}, "until a later day": week.Add(24 * time.Hour)} {
 		status, body = assign("eve", eve, "Engineer", endsAt)
 		assertStatus(t, status, http.StatusForbidden, body)
-		if !strings.Contains(string(body), "you cannot make your own role last longer than it was given for") {
+		if !strings.Contains(string(body), "You cannot make your own role last longer than it was given for.") || strings.Contains(string(body), "someone else who may") {
 			t.Errorf("the refusal of eve's own role %s = %s, want it to say nobody lengthens their own", name, body)
 		}
 	}
