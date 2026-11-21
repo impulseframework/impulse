@@ -1,0 +1,268 @@
+package transition
+
+import (
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+
+	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
+)
+
+// partnersOutlet is the base with a second session outlet laid in for the staff auth and
+// a partners auth added and bound to it: what "impulse add outlet partners --prefix
+// partners/api --auth staff" and "impulse add auth partners --outlet partners" leave,
+// without the regeneration.
+func partnersOutlet(t *testing.T) (*app.App, *Change) {
+	t.Helper()
+
+	a := newBase(t, "staff")
+	if _, err := (Outlet{Name: "partners", Prefix: "partners/api", Sessions: true, Auth: "staff"}).Apply(t.Context(), a, &fakeExec{}); err != nil {
+		t.Fatalf("Outlet.Apply() error = %v", err)
+	}
+	ch := added(t, mustDiscover(t, a.Root), &Auth{Name: "partners", Outlet: "partners"})
+
+	return mustDiscover(t, a.Root), ch
+}
+
+// holds reports each fragment the text lacks.
+func holds(t *testing.T, rel, text string, fragments ...string) {
+	t.Helper()
+
+	for _, fragment := range fragments {
+		if !strings.Contains(text, fragment) {
+			t.Errorf("%s lacks %q", rel, fragment)
+		}
+	}
+}
+
+// TestAuth_Apply_wiresTheApp holds impulse add auth to an application that builds: the
+// regenerated router's Handlers requires BindAuth once two auths are declared, and the
+// generated contract asks the handlers for the added auth's identity client, so the
+// command writes both, with what the App is built from and what every test configurer
+// answers.
+func TestAuth_Apply_wiresTheApp(t *testing.T) {
+	t.Parallel()
+
+	a, ch := partnersOutlet(t)
+
+	holds(t, "app/app.go", read(t, a, "app/app.go"),
+		"\tPartners() *partners.Auth\n",
+		"\tPartnersIdentity() *partnersidentity.Client\n",
+		"\tpartnersHandlers *partners.Handlers\n",
+		"\tengines map[string]access.Controller\n",
+		"map[string]access.Controller{},\n",
+		"cfg.PartnersIdentity(),\n",
+		"\tif partnersAuth := cfg.Partners(); partnersAuth != nil {\n\t\ta.partnersHandlers = partnersAuth.Handlers()\n\t\ta.engines[partners.Name] = partnersAuth.Access()\n\t}\n",
+		"\tengine := a.engine(r.Context())\n\n\treturn resource.SessionPermissions(r.Context(), engine.ForUser, engine.ForRole, ",
+		`"example.com/acme/depot/pkg/auth/partners"`,
+		`"example.com/acme/depot/pkg/identity/partnersidentity"`,
+	)
+	holds(t, "app/partners_auth.go", read(t, a, "app/partners_auth.go"),
+		"func (a *App) BindAuth(name string) func(http.Handler) http.Handler {\n",
+		"next.ServeHTTP(w, r.WithContext(auth.Bind(r.Context(), name)))",
+		"func (a *App) engine(ctx context.Context) access.Controller {\n\tif engine, ok := a.engines[auth.Name(ctx)]; ok {\n\t\treturn engine\n\t}\n\n\treturn a.access\n}\n",
+		"func (a *App) PartnersIdentity() *partnersidentity.Client {\n\treturn a.partnersIdentity\n}\n",
+		`"example.com/acme/depot/pkg/auth"`,
+	)
+	holds(t, "pkg/auth/auth.go", read(t, a, "pkg/auth/auth.go"),
+		"package auth\n",
+		"func Bind(ctx context.Context, name string) context.Context {\n",
+		"func Name(ctx context.Context) string {\n",
+	)
+	holds(t, "pkg/config/partners.go", read(t, a, "pkg/config/partners.go"),
+		"func (c *DataConfiguration) PartnersIdentity() *partnersidentity.Client {\n\treturn c.partners.Identity()\n}\n",
+	)
+	holds(t, "test/authz/harness_test.go", read(t, a, "test/authz/harness_test.go"),
+		"func (c *testConfigurer) Partners() *partners.Auth {\n\treturn nil\n}\n",
+		"func (c *testConfigurer) PartnersIdentity() *partnersidentity.Client {\n\tclient, err := partnersidentity.NewClient(c.Access(), noSessionAPI{})\n",
+	)
+	holds(t, "test/integration/harness_test.go", read(t, a, "test/integration/harness_test.go"),
+		"func (c *servedConfigurer) Partners() *partners.Auth {\n\treturn nil\n}\n",
+		"func (c *servedConfigurer) PartnersIdentity() *partnersidentity.Client {\n\treturn nil\n}\n",
+	)
+	for _, rel := range []string{"app/app.go", "app/partners_auth.go", "pkg/auth/auth.go", "pkg/config/partners.go", "test/authz/harness_test.go", "test/integration/harness_test.go"} {
+		wellFormed(t, a, rel)
+	}
+	for _, line := range ch.Skipped {
+		if strings.Contains(line, "the application does not compile") || strings.Contains(line, "which the tool does not write") {
+			t.Errorf("the change leaves the build to the author: %s", line)
+		}
+	}
+}
+
+// TestAuth_Apply_outletServesTheAddedAuth holds the outlet an auth is added to: its
+// accessor on the App returns the added auth's session handlers, not the handlers of the
+// auth the outlet was laid in with, so the added auth's people sign in there and the
+// first auth's do not.
+func TestAuth_Apply_outletServesTheAddedAuth(t *testing.T) {
+	t.Parallel()
+
+	a, ch := partnersOutlet(t)
+
+	text := read(t, a, "app/partners_outlet.go")
+	holds(t, "app/partners_outlet.go", text,
+		"session handlers (router.PartnersSession): the partners auth's,\n",
+		"func (a *App) Partners() router.PartnersSession {\n\tif a.partnersHandlers == nil {\n\t\treturn nil\n\t}\n\n\treturn a.partnersHandlers\n}\n",
+	)
+	if strings.Contains(text, "return a.Handlers\n") {
+		t.Error("app/partners_outlet.go: Partners() still returns the staff auth's session handlers")
+	}
+	wellFormed(t, a, "app/partners_outlet.go")
+	want := "app/partners_outlet.go: Partners() returns the partners auth's session handlers, so the people of the partners auth sign in at the partners outlet and nobody else's session opens there"
+	if !didLine(ch, want) {
+		t.Errorf("Did lacks %q:\n%s", want, strings.Join(ch.Did, "\n"))
+	}
+}
+
+// didLine reports whether the change says the line among what it did.
+func didLine(ch *Change, want string) bool {
+	for _, line := range ch.Did {
+		if line == want {
+			return true
+		}
+	}
+
+	return false
+}
+
+// TestAuth_Apply_passesItsChecks holds the application impulse add auth leaves to the two
+// checks that read what the command wrote for the outlet: the outlet's browser
+// application asks for the added auth's pages and names its XSRF cookie (web-wired), and
+// the added auth mails its links to the outlet's own login page (login-pages).
+func TestAuth_Apply_passesItsChecks(t *testing.T) {
+	t.Parallel()
+
+	a, _ := partnersOutlet(t)
+
+	for _, name := range []string{"web-wired", "login-pages"} {
+		checks, err := check.Select([]string{name})
+		if err != nil {
+			t.Fatalf("check.Select(%s) error = %v", name, err)
+		}
+		for _, r := range check.Run(t.Context(), &check.Env{App: a, Exec: &fakeExec{}, SkipGenerate: true}, checks) {
+			if r.Status != check.Pass {
+				t.Errorf("%s = %v (%s), want a pass:\n%s", r.Name, r.Status, r.Summary, strings.Join(r.Details, "\n"))
+			}
+		}
+	}
+}
+
+// TestAuth_Apply_mailsToTheOutletsLoginPage holds where the added auth's mailed links
+// open: the login page of the outlet the auth is bound to, where its people sign in, and
+// not the first auth's, which refuses the added auth's invitation.
+func TestAuth_Apply_mailsToTheOutletsLoginPage(t *testing.T) {
+	t.Parallel()
+
+	a, ch := partnersOutlet(t)
+
+	data := read(t, a, "pkg/config/data.go")
+	if got := strings.Count(data, `MailLoginURL:   env.PublicURL + "/partners/login",`); got != 1 {
+		t.Errorf("pkg/config/data.go names the partners outlet's login page as a MailLoginURL %d times, want once", got)
+	}
+	want := "pkg/config/data.go: the partners auth's MailLoginURL is the partners outlet's login page (the application's public address, APP_PUBLIC_URL, and /partners/login), so every link the auth mails opens where its people sign in; its Mail is the application's one sender, as the staff auth's is"
+	if !didLine(ch, want) {
+		t.Errorf("Did lacks %q:\n%s", want, strings.Join(ch.Did, "\n"))
+	}
+	for _, line := range ch.Skipped {
+		if strings.Contains(line, "MailLoginURL") {
+			t.Errorf("the change leaves the login page to the author: %s", line)
+		}
+	}
+}
+
+// TestAuth_reportLoginPage_noPageOfItsOwn holds what the command says where the added
+// auth has no login page of its own: the line leads what is left, names the setting, and
+// says before the release that the invitation it mails will not open until it is set.
+func TestAuth_reportLoginPage_noPageOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	ch := &Change{Skipped: []string{"an earlier line"}}
+	settings := []byte(`MailLoginURL: env.PublicURL + "/console/login",`)
+	Auth{Name: "partners", Outlet: "machines"}.reportLoginPage("pkg/config/data.go", settings, settings, &authSource{Name: "staff", Pascal: "Staff"}, "", ch)
+
+	want := "pkg/config/data.go: the partners auth's Mail and MailLoginURL are the staff auth's (the application's one sender, and the staff auth's login page): the machines outlet serves no browser application, so the auth has no login page of its own. Set MailLoginURL in the partners auth's settings (partners.Settings.MailLoginURL) before the next release: the invitation that release mails to the auth's first administrator will not open until the setting names the page that signs the partners auth's people in, the application's public address (APP_PUBLIC_URL) and that page's path"
+	if len(ch.Skipped) != 2 || ch.Skipped[0] != want {
+		t.Errorf("Skipped = %q, want it led by %q", ch.Skipped, want)
+	}
+	if len(ch.Did) != 0 {
+		t.Errorf("Did = %q, want nothing", ch.Did)
+	}
+}
+
+// TestAuth_Apply_holdsTheMigrateTest holds the migrate command's test of the application
+// impulse add auth leaves, so the application passes its own tests. A release now invites
+// the added auth's first administrator and stops while nobody holds the role and no
+// address is named, which the test of either start said nothing of.
+func TestAuth_Apply_holdsTheMigrateTest(t *testing.T) {
+	t.Parallel()
+
+	left := func(ch *Change) []string {
+		return linesWith(ch.Skipped, "", []string{migrateTest + ":"})
+	}
+
+	t.Run("beside an auth that invites one, the cases with a holder give the added auth one too", func(t *testing.T) {
+		t.Parallel()
+
+		a, ch := partnersOutlet(t)
+
+		holds(t, migrateTest, read(t, a, migrateTest),
+			`= "Somebody holds the Super Administrator role in the staff auth: no first administrator invited\nSomebody holds the Super Administrator role in the partners auth: no first administrator invited\n"`,
+			"\n\twithPartnersHolder(t, db)\n}\n",
+			"func withPartnersHolder(t *testing.T, db *initiator.SpannerDB) {\n",
+			`spanner.Insert("PartnersSessionUsers", `,
+			"manager := openData(t).Partners().Access().UserManager()\n",
+		)
+		if unused := `"example.com/acme/depot/pkg/auth/partners"`; strings.Contains(read(t, a, migrateTest), unused) {
+			t.Errorf("%s imports %s, which none of its cases names: the test does not compile", migrateTest, unused)
+		}
+		wellFormed(t, a, migrateTest)
+		once(t, ch.Did, partnersTestHeld)
+		if got := left(ch); len(got) != 0 {
+			t.Errorf("the change leaves the migrate command's test to the author: %q", got)
+		}
+	})
+
+	t.Run("beside an auth whose directory gives every role, the two cases say what a release and the flag now do", func(t *testing.T) {
+		t.Parallel()
+
+		a := directoryRoles(t)
+		ch := added(t, a, &Auth{Name: "partners", Outlet: app.DefaultOutletName})
+
+		text := read(t, a, migrateTest)
+		holds(t, migrateTest, text,
+			"and the release stops for the partners auth's first administrator, whom nobody names\",\n\t\t\targs:      []string{\"-seed\"},\n\t\t\twantCode:  exitFailed,\n\t\t\twantErr:   \"no first administrator is named\",\n\t\t\twantAlso:  []string{partners.AdministratorVariable},\n",
+			"\t\t\targs:     []string{\"-reinvite-administrator\", staff.Name},\n\t\t\twantCode: exitRefused,\n\t\t\twantErr:  \"no auth of that name invites a first administrator; name one of partners\",\n",
+			`"example.com/acme/depot/pkg/auth/partners"`,
+			"// and -reinvite-administrator takes that auth's name alone.",
+		)
+		for _, gone := range []string{"flag provided but not defined: -reinvite-administrator", "the command has no -reinvite-administrator flag"} {
+			if strings.Contains(text, gone) {
+				t.Errorf("%s still says %q, and the command has the flag now", migrateTest, gone)
+			}
+		}
+		wellFormed(t, a, migrateTest)
+		once(t, ch.Did, partnersTestSaid)
+		if got := left(ch); len(got) != 0 {
+			t.Errorf("the change leaves the migrate command's test to the author: %q", got)
+		}
+	})
+
+	t.Run("a test somebody changed is left as it is, and listed", func(t *testing.T) {
+		t.Parallel()
+
+		a := newBase(t, "staff")
+		changed := strings.ReplaceAll(read(t, a, migrateTest), "withHolder", "withSomebody")
+		if err := os.WriteFile(a.Abs(migrateTest), []byte(changed), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		ch := added(t, a, &Auth{Name: "partners", Outlet: app.DefaultOutletName})
+
+		if got := read(t, a, migrateTest); got != changed {
+			t.Errorf("%s was written, and it is not as the command writes it (-want +got):\n%s", migrateTest, cmp.Diff(changed, got))
+		}
+		once(t, ch.Skipped, partnersTestLeft)
+	})
+}

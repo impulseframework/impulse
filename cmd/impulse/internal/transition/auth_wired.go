@@ -1,0 +1,466 @@
+package transition
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path"
+	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/go-playground/errors/v5"
+
+	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/names"
+)
+
+// defaultEngineRE finds the statement of the base's UserPermissions that answers a
+// session's permissions from the App's one engine.
+var defaultEngineRE = regexp.MustCompile(`(?m)^\treturn (\w+\.SessionPermissions\((\w+)\.Context\(\), )(\w+)\.(\w+)\.ForUser, \w+\.\w+\.ForRole, `)
+
+// authWiring is the Go side of an application that an added auth is wired into: what the
+// regenerated router and the generated contract ask of the App once an outlet names the
+// auth, written where the application is the base's still.
+type authWiring struct {
+	au     Auth
+	src    *authSource
+	outlet *app.Outlet
+	// authPath is the import path of the auth's package, and authsPath of the package the
+	// auths lie beneath, where the record of the auth a request came through is kept.
+	authPath, authsPath string
+	// identityDir is the tree the program generates the auth's management into, and
+	// identityPath the import path of the auth's package in it; both are empty where the
+	// program generates none.
+	identityDir, identityPath string
+}
+
+// wire gives the application's Go side what the regeneration asks of it for the added
+// auth, so the application the command leaves builds and serves the auth at its outlet.
+// The Configurer hands the App the auth and its identity client, the App holds the
+// auth's session handlers, its identity client and its permission engine, binds a session
+// group's requests to the auth that authenticated them (BindAuth) and answers a session's
+// permissions from that auth's engine, the outlet's accessor returns the added auth's
+// handlers in place of the auth the outlet served before, the data level answers the
+// identity client, and every test configurer answers both. An application whose App is
+// not the base's keeps what it has, and the change lists what is left to its author.
+func (au Auth) wire(a *app.App, choice *OutletChoice, src *authSource, spec *authpkg.Spec, ch *Change) error {
+	if !choice.Site.GeneratedRouter {
+		return nil
+	}
+	module := modulePath(a)
+	w := &authWiring{au: au, src: src, outlet: &choice.Outlet, authPath: path.Join(module, src.AuthDir, au.Name), authsPath: path.Join(module, src.AuthDir)}
+	if spec.IdentityDir != "" {
+		w.identityDir, w.identityPath = spec.IdentityDir, path.Join(module, spec.IdentityDir, au.Name+"identity")
+	}
+	rel, data, mode, err := findDeclaringFile(a, configurerType)
+	if err != nil {
+		return err
+	}
+	if rel == "" {
+		ch.skipf("no file declares a %[1]s interface, so the App is not given the %[2]s auth: the generated router's Handlers requires BindAuth(name string) func(http.Handler) http.Handler and the %[3]s outlet's session handlers from the %[2]s auth (%[2]s.Auth.Handlers())%[4]s; the application does not compile until the App holds them", configurerType, au.Name, au.Outlet, w.identityLeft())
+
+		return nil
+	}
+	previous := ""
+	if choice.Outlet.Auth != nil {
+		if previous, _, err = handlersField(rel, data, appType, choice.Outlet.Auth.ImportPath); err != nil {
+			return err
+		}
+	}
+	e := &sourceEdit{rel: rel, src: data}
+	methods, err := methodsOfType(a, path.Dir(rel), appType)
+	if err != nil {
+		return err
+	}
+	if err := w.ask(e); err != nil {
+		return err
+	}
+	engine, err := w.hold(e, methods)
+	if err != nil {
+		return err
+	}
+	if len(e.gained) > 0 {
+		if err := os.WriteFile(a.Abs(rel), e.src, mode); err != nil {
+			return errors.Wrap(err, "os.WriteFile()")
+		}
+		ch.didf("%s: %s, so the App serves the %s auth and answers its sessions from its own store", rel, joinAnd(e.gained), au.Name)
+	}
+	e.report(ch)
+	if err := w.declare(a, e, methods, engine, ch); err != nil {
+		return err
+	}
+	if err := w.serveOutlet(a, choice, path.Dir(rel), previous, ch); err != nil {
+		return err
+	}
+	if err := w.answerOnData(a, ch); err != nil {
+		return err
+	}
+
+	return w.answerInHarnesses(a, ch)
+}
+
+// identityLeft is the words a skipped line says the identity client's accessor in, or
+// nothing where the program generates no management of the auth.
+func (w *authWiring) identityLeft() string {
+	if w.identityPath == "" {
+		return ""
+	}
+
+	return fmt.Sprintf(", and the generated contract asks the handlers for %sIdentity() *%sidentity.Client (%s.Auth.Identity())", w.au.Pascal(), w.au.Name, w.au.Name)
+}
+
+// ask gives the Configurer the two accessors the App is built from: the auth, and its
+// identity client where the program generates the auth's management.
+func (w *authWiring) ask(e *sourceEdit) error {
+	name, pascal := w.au.Name, w.au.Pascal()
+	if err := e.apply(app.AddImport(e.rel, e.src, w.authPath)); err != nil {
+		return err
+	}
+	out, err := app.AddInterfaceLine(e.rel, e.src, configurerType, fmt.Sprintf("// %[1]s returns the %[2]s auth, whose session handlers the App serves the %[3]s outlet's\n// session group from and whose permission engine answers for the group's requests.\n%[1]s() *%[2]s.Auth", pascal, name, w.au.Outlet))
+	if err := e.gain(out, err, configurerType+" asks for "+pascal+"()", fmt.Sprintf("no %s interface to ask for %s() *%s.Auth on", configurerType, pascal, name)); err != nil {
+		return err
+	}
+	if w.identityPath == "" {
+		return nil
+	}
+	if err := e.apply(app.AddImport(e.rel, e.src, w.identityPath)); err != nil {
+		return err
+	}
+	out, err = app.AddInterfaceLine(e.rel, e.src, configurerType, fmt.Sprintf("// %[1]sIdentity is the %[2]s auth's identity client (%[3]s/%[2]sidentity, generated): what\n// the generated methods that manage the auth's people run over. The data level builds\n// it over the auth's permission engine and its session manager.\n%[1]sIdentity() *%[2]sidentity.Client", pascal, name, w.identityDir))
+
+	return e.gain(out, err, configurerType+" asks for "+pascal+"Identity()", fmt.Sprintf("no %s interface to ask for %sIdentity() *%sidentity.Client on", configurerType, pascal, name))
+}
+
+// hold gives the App the auth's session handlers, its identity client and its permission
+// engine, set where the App is built, and answers a session's permissions from the
+// engine of the auth the request came through. It returns the App's field for the
+// default auth's engine, empty where the App holds none the command can read.
+func (w *authWiring) hold(e *sourceEdit, methods []string) (engine string, err error) {
+	name, pascal := w.au.Name, w.au.Pascal()
+	if err := e.apply(app.AddImport(e.rel, e.src, accessImport)); err != nil {
+		return "", err
+	}
+	access, err := app.ImportName(e.rel, e.src, accessImport)
+	if err != nil {
+		return "", err
+	}
+	engine, err = app.StructFieldOfValueType(e.rel, e.src, appType, accessImport, "Controller")
+	if err != nil {
+		return "", err
+	}
+	out, err := app.AddStructField(e.rel, e.src, appType, fmt.Sprintf("// %[1]sHandlers is the %[1]s auth's session handlers, which the %[2]s outlet's session\n// group is served from.\n%[1]sHandlers *%[1]s.Handlers", name, w.au.Outlet))
+	if err := e.gain(out, err, appType+" holds "+name+"Handlers", fmt.Sprintf("no %s struct to hold the %s auth's session handlers in (*%s.Handlers)", appType, name, name)); err != nil {
+		return "", err
+	}
+	out, err = app.AddStructField(e.rel, e.src, appType, fmt.Sprintf("// engines holds the permission engine of every auth beside the default one, by the\n// auth's name, for the requests of a session group bound to that auth.\nengines map[string]%s.Controller", access))
+	if err := e.gain(out, err, appType+" holds engines", fmt.Sprintf("no %s struct to hold the %s auth's permission engine in", appType, name)); err != nil {
+		return "", err
+	}
+	if w.identityPath != "" {
+		out, err = app.AddStructField(e.rel, e.src, appType, fmt.Sprintf("// %[1]sIdentity is the %[1]s auth's identity client, which the generated handlers of\n// %[2]s read through %[3]sIdentity.\n%[1]sIdentity *%[1]sidentity.Client", name, w.identityDir, pascal))
+		if err := e.gain(out, err, appType+" holds "+name+"Identity", fmt.Sprintf("no %s struct to hold the %s auth's identity client in (*%sidentity.Client)", appType, name, name)); err != nil {
+			return "", err
+		}
+	}
+	cfg, err := parameterOfType(e.rel, e.src, appConstructor, configurerType)
+	if err != nil {
+		return "", err
+	}
+	built := regexp.MustCompile(`(?m)^\s*(\w+) := &` + appType + `\{`).FindSubmatch(e.src)
+	left := fmt.Sprintf("%[1]s builds no %[2]s literal from a %[3]s, so the App is not given the %[4]s auth; where it is built, set %[4]sHandlers to the auth's Handlers() and engines[%[4]s.Name] to its Access() when the %[3]s's %[5]s() is not nil%[6]s", appConstructor, appType, configurerType, name, pascal, w.identityLeft())
+	if cfg == "" || built == nil {
+		e.skipped = append(e.skipped, e.rel+": "+left)
+
+		return engine, nil
+	}
+	variable := string(built[1])
+	out, err = app.AddLiteralElement(e.rel, e.src, appConstructor, appType, fmt.Sprintf("engines: map[string]%s.Controller{}", access))
+	if err := e.gain(out, err, appConstructor+" makes engines", left); err != nil {
+		return "", err
+	}
+	if w.identityPath != "" {
+		out, err = app.AddLiteralElement(e.rel, e.src, appConstructor, appType, fmt.Sprintf("%sIdentity: %s.%sIdentity()", name, cfg, pascal))
+		if err := e.gain(out, err, fmt.Sprintf("%s sets %sIdentity (%s.%sIdentity())", appConstructor, name, cfg, pascal), left); err != nil {
+			return "", err
+		}
+	}
+	statements := fmt.Sprintf("if %[1]sAuth := %[2]s.%[3]s(); %[1]sAuth != nil {\n%[4]s.%[1]sHandlers = %[1]sAuth.Handlers()\n%[4]s.engines[%[1]s.Name] = %[1]sAuth.Access()\n}\n", name, cfg, pascal, variable)
+	out, err = app.AddStatementsBeforeCall(e.rel, e.src, "", appConstructor, cfg+"."+w.src.Pascal, statements)
+	if err == nil && bytes.Index(out, []byte("if "+name+"Auth := ")) < bytes.Index(out, built[0]) {
+		err = errors.Wrapf(app.ErrNoAnchor, "%s: %s reads %s.%s() before it builds the %s", e.rel, appConstructor, cfg, w.src.Pascal, appType)
+	}
+	if err := e.gain(out, err, fmt.Sprintf("%s takes the auth's handlers and its engine from %s.%s()", appConstructor, cfg, pascal), fmt.Sprintf("%[1]s reads the %[2]s auth from %[3]s.%[4]s() in no statement after it builds the %[5]s, so the %[6]s auth's handlers and engine are not set; set %[6]sHandlers to the auth's Handlers() and engines[%[6]s.Name] to its Access() when %[3]s.%[7]s() is not nil", appConstructor, w.src.Name, cfg, w.src.Pascal, appType, name, pascal)); err != nil {
+		return "", err
+	}
+
+	return engine, w.answerPermissions(e, methods, engine)
+}
+
+// answerPermissions makes the base's UserPermissions answer from the engine of the auth
+// the request came through, where it answers from the App's one engine and the App has,
+// or is about to gain, the method that finds the engine.
+func (w *authWiring) answerPermissions(e *sourceEdit, methods []string, engine string) error {
+	if engine == "" && !slices.Contains(methods, "engine") {
+		return nil
+	}
+	m := defaultEngineRE.FindSubmatch(e.src)
+	if len(m) != 5 || string(m[4]) != engine {
+		if !bytes.Contains(e.src, []byte(".engine(")) {
+			e.skipped = append(e.skipped, fmt.Sprintf("%s: no UserPermissions answers a session's permissions from the App's one engine as the base's does, so a session of the %s auth may be answered from the default auth's store; answer from the engine of the auth the request came through (engine(ctx))", e.rel, w.au.Name))
+		}
+
+		return nil
+	}
+	receiver, request := string(m[3]), string(m[2])
+	out := defaultEngineRE.ReplaceAll(e.src, []byte("\tengine := "+receiver+".engine("+request+".Context())\n\n\treturn ${1}engine.ForUser, engine.ForRole, "))
+
+	return e.gain(out, nil, "UserPermissions answers from the engine of the auth the request came through", "")
+}
+
+// declare writes the methods the App lacks for the auth into a file of its own beside
+// the App: BindAuth, which the generated router's Handlers requires once two auths are
+// declared, the engine a request's auth names, and the identity client's accessor the
+// generated contract asks for. BindAuth records the auth in the package the auths lie
+// beneath, which gains the record where it has none.
+func (w *authWiring) declare(a *app.App, e *sourceEdit, methods []string, engine string, ch *Change) error {
+	name, pascal, dir := w.au.Name, w.au.Pascal(), path.Dir(e.rel)
+	access, err := app.ImportName(e.rel, e.src, accessImport)
+	if err != nil {
+		return err
+	}
+	file := &appMethods{}
+	binds := !slices.Contains(methods, "BindAuth") && !slices.Contains(methods, "engine") && engine != "" && access != ""
+	switch {
+	case binds:
+		bound, err := w.record(a, ch)
+		if err != nil {
+			return err
+		}
+		if !bound {
+			break
+		}
+		file.imports = append(file.imports, "context", "net/http", accessImport, w.authsPath)
+		file.declare("BindAuth", fmt.Sprintf("\n// BindAuth is the middleware a session group carries to say which auth authenticated its\n// requests, so the permission checks and the tenant visibility of everything behind it\n// answer from that auth's store. A group that binds nothing gets the default auth.\nfunc (a *%[1]s) BindAuth(name string) func(http.Handler) http.Handler {\n\treturn func(next http.Handler) http.Handler {\n\t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\t\tnext.ServeHTTP(w, r.WithContext(%[2]s.Bind(r.Context(), name)))\n\t\t})\n\t}\n}\n", appType, path.Base(w.authsPath)))
+		file.declare("engine", fmt.Sprintf("\n// engine returns the permission engine of the auth the request came through.\nfunc (a *%[1]s) engine(ctx context.Context) %[2]s.Controller {\n\tif engine, ok := a.engines[%[3]s.Name(ctx)]; ok {\n\t\treturn engine\n\t}\n\n\treturn a.%[4]s\n}\n", appType, access, path.Base(w.authsPath), engine))
+	case !slices.Contains(methods, "BindAuth"):
+		ch.skipf("%s: %s holds no default permission engine the command can read, so BindAuth is not declared; declare BindAuth(name string) func(http.Handler) http.Handler, which the generated router's Handlers requires once two auths are declared, and answer a request from the engine of the auth it names", e.rel, appType)
+	}
+	if w.identityPath != "" && !slices.Contains(methods, pascal+"Identity") {
+		file.imports = append(file.imports, w.identityPath)
+		file.declare(pascal+"Identity", fmt.Sprintf("\n// %[1]sIdentity returns the %[2]s auth's identity client, the generated contract's\n// accessor: what the generated handlers of %[3]s manage the auth's people through.\nfunc (a *%[4]s) %[1]sIdentity() *%[2]sidentity.Client {\n\treturn a.%[2]sIdentity\n}\n", pascal, name, w.identityDir, appType))
+	}
+	if len(file.declared) == 0 {
+		return nil
+	}
+	rel := path.Join(dir, name+"_auth.go")
+	if exists(a, rel) {
+		ch.skipf("%s: the file is there already and %s declares no %s, so nothing was written; declare what is missing, which the regenerated router and the generated contract require for the %s auth", rel, appType, joinAnd(file.declared), name)
+
+		return nil
+	}
+	pkg, err := app.PackageName(e.rel, e.src)
+	if err != nil {
+		return err
+	}
+	slices.Sort(file.imports)
+	if err := writeGo(a, rel, goFile(pkg, slices.Compact(file.imports), file.body.String())); err != nil {
+		return err
+	}
+	ch.didf("%s: %s declares %s, which the regenerated router and the generated contract require of it for the %s auth", rel, appType, joinAnd(file.declared), name)
+
+	return nil
+}
+
+// record gives the package the auths lie beneath the record of the auth a request came
+// through (Bind and Name), where it has none, and reports whether the package holds it.
+func (w *authWiring) record(a *app.App, ch *Change) (bool, error) {
+	rel := path.Join(w.src.AuthDir, "auth.go")
+	if exists(a, rel) {
+		data, _, err := readFile(a, rel)
+		if err != nil {
+			return false, err
+		}
+		if bytes.Contains(data, []byte("func Bind(")) && bytes.Contains(data, []byte("func Name(")) {
+			return true, nil
+		}
+		ch.skipf("%s: the file declares no Bind and Name, so the App's BindAuth is not declared; record the auth a request came through there (Bind(ctx, name) and Name(ctx)), and declare BindAuth on the App over it, which the generated router's Handlers requires once two auths are declared", rel)
+
+		return false, nil
+	}
+	pkg := path.Base(w.src.AuthDir)
+	if err := writeNew(a, rel, fmt.Sprintf(`// Package %[1]s holds what the auths share: the request-scoped record of which auth a
+// request came through. Each auth is its own package beneath this one, owning its session
+// manager, its permission store, and its role file. A surface binds a request to an auth
+// in the session group that authenticated it, and everything that answers for that
+// request (permission checks, tenant visibility) answers from that auth's store.
+package %[1]s
+
+import "context"
+
+type ctxKey struct{}
+
+// Bind records the auth a request came through: the name of the auth package whose
+// session group authenticated it.
+func Bind(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, ctxKey{}, name)
+}
+
+// Name returns the auth the request came through, or "" when no session group bound it,
+// which every surface treats as its default auth.
+func Name(ctx context.Context) string {
+	name, _ := ctx.Value(ctxKey{}).(string)
+
+	return name
+}
+`, pkg)); err != nil {
+		return false, err
+	}
+	ch.didf("%s: the record of the auth a request came through (Bind, Name), which the App's BindAuth writes and its permission checks read", rel)
+
+	return true, nil
+}
+
+// serveOutlet makes the outlet's accessor on the App return the added auth's session
+// handlers, in place of the handlers of the auth the outlet served before: the accessor
+// impulse add outlet wrote is written again for the auth. An accessor somebody changed,
+// and the default outlet's session surface, which is the handlers the App embeds, are
+// left as they are, and the change says what to return.
+func (w *authWiring) serveOutlet(a *app.App, choice *OutletChoice, dir, previous string, ch *Change) error {
+	name := w.au.Name
+	o := Outlet{Name: choice.Outlet.Name}
+	file := outletFile(dir, o.Name)
+	left := fmt.Sprintf("the %[1]s outlet still serves the session handlers of the auth it served before, so the %[2]s auth's people cannot sign in there; serve the outlet's session group from the %[2]s auth's handlers (the App's %[2]sHandlers)", w.au.Outlet, name)
+	if choice.Outlet.Name == app.DefaultOutletName || choice.Outlet.Auth == nil || previous == "" || !exists(a, file) {
+		ch.skipf("%s: no accessor of the outlet's session handlers as impulse add outlet writes one, so %s", dir, left)
+
+		return nil
+	}
+	data, mode, err := readFile(a, file)
+	if err != nil {
+		return err
+	}
+	router, _ := routerQualifier(a, choice.Site.Generator, dir)
+	before := sessionAccessor(o.pascal(), o.Name, path.Base(choice.Outlet.Auth.ImportPath), previous, router)
+	if !bytes.Contains(data, []byte(before)) {
+		ch.skipf("%s: %s() is not as impulse add outlet writes it, so %s", file, o.pascal(), left)
+
+		return nil
+	}
+	after := sessionAccessor(o.pascal(), o.Name, name, name+"Handlers", router)
+	if err := os.WriteFile(a.Abs(file), bytes.Replace(data, []byte(before), []byte(after), 1), mode); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+	ch.didf("%s: %s() returns the %s auth's session handlers, so the people of the %s auth sign in at the %s outlet and nobody else's session opens there", file, o.pascal(), name, name, w.au.Outlet)
+
+	return nil
+}
+
+// answerOnData gives the data level the accessor of the auth's identity client, beside
+// the accessor of the auth: what the Configurer asks for.
+func (w *authWiring) answerOnData(a *app.App, ch *Change) error {
+	if w.identityPath == "" {
+		return nil
+	}
+	name, pascal := w.au.Name, w.au.Pascal()
+	rel, _, _, err := findDeclaringFile(a, "DataConfiguration")
+	if err != nil {
+		return err
+	}
+	file := path.Join(path.Dir(rel), name+".go")
+	if rel == "" || !exists(a, file) {
+		ch.skipf("no data level answers %[1]sIdentity() *%[2]sidentity.Client, which the %[3]s now asks for; return the %[2]s auth's identity client (%[2]s.Auth.Identity()) where the auth is held", pascal, name, configurerType)
+
+		return nil
+	}
+	data, mode, err := readFile(a, file)
+	if err != nil {
+		return err
+	}
+	if bytes.Contains(data, []byte(") "+pascal+"Identity() ")) {
+		return nil
+	}
+	accessor := fmt.Sprintf("\n// %[1]sIdentity returns the %[2]s auth's identity client, which the auth built when it\n// opened: what the generated methods that manage the auth's people run over.\nfunc (c *DataConfiguration) %[1]sIdentity() *%[2]sidentity.Client {\n\treturn c.%[2]s.Identity()\n}\n", pascal, name)
+	text, beside := string(data), fmt.Sprintf("func (c *DataConfiguration) %s() *%s.Auth {\n\treturn c.%s\n}\n", pascal, name, name)
+	if at := strings.Index(text, beside); at >= 0 {
+		text = text[:at+len(beside)] + accessor + text[at+len(beside):]
+	} else {
+		text = strings.TrimRight(text, "\n") + "\n" + accessor
+	}
+	out, err := app.AddImport(file, []byte(text), w.identityPath)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(a.Abs(file), out, mode); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+	ch.didf("%s: the data level answers %sIdentity(), the %s auth's identity client", file, pascal, name)
+
+	return nil
+}
+
+// answerInHarnesses gives every test configurer the two accessors the Configurer gained,
+// so every test package compiles. A harness opens the auths its suites sign in through,
+// and none opens the added auth, so each answers no auth. The identity client is built as
+// the harness builds the first auth's where it builds one without an auth, and is nil
+// where the harness reads it from the auth it opened. The router asks the App for the
+// outlet's session handlers as it mounts the outlet, so a suite that builds the router
+// over a harness that answers no auth stops there; the command does not open the auth in
+// the harness, and a Skipped line says which harness needs it.
+func (w *authWiring) answerInHarnesses(a *app.App, ch *Change) error {
+	name, pascal := w.au.Name, w.au.Pascal()
+	harnesses, err := starterWiring{}.harnessFiles(a)
+	if err != nil {
+		return err
+	}
+	var edited, unopened []string
+	for _, h := range harnesses {
+		if slices.Contains(h.methods, pascal) {
+			continue
+		}
+		src, mode, err := readFile(a, h.file)
+		if err != nil {
+			return err
+		}
+		built := regexp.MustCompile(`(?s)\nfunc \(` + regexp.QuoteMeta(h.receiver) + `\) ` + w.src.Pascal + `Identity\(\) [^\n]*\{\n.*?\n\}\n`).Find(src)
+		copied := w.identityPath != "" && bytes.Contains(built, []byte("NewClient("))
+		if copied {
+			src, err = app.CopyMethod(h.file, src, h.typeName, w.src.Pascal+"Identity", w.renamed)
+			if err != nil {
+				return err
+			}
+		}
+		text := strings.TrimRight(string(src), "\n") + fmt.Sprintf("\n\n// %[1]s answers no %[2]s auth: the harness opens none. The router asks the App for the\n// %[3]s outlet's session handlers as it mounts the outlet, so a suite that builds the\n// router needs the harness to open the %[2]s auth and answer it here.\nfunc (%[4]s) %[1]s() *%[2]s.Auth {\n\treturn nil\n}\n", pascal, name, w.au.Outlet, h.receiver)
+		if w.identityPath != "" && !copied {
+			text += fmt.Sprintf("\n// %[1]sIdentity answers no identity client: the harness opens no %[2]s auth to build one.\nfunc (%[3]s) %[1]sIdentity() *%[2]sidentity.Client {\n\treturn nil\n}\n", pascal, name, h.receiver)
+			unopened = append(unopened, fmt.Sprintf("%s (%s)", h.file, h.typeName))
+		}
+		out, err := app.AddImport(h.file, []byte(text), w.authPath)
+		if err != nil {
+			return err
+		}
+		if w.identityPath != "" {
+			if out, err = app.AddImport(h.file, out, w.identityPath); err != nil {
+				return err
+			}
+		}
+		if err := os.WriteFile(a.Abs(h.file), out, mode); err != nil {
+			return errors.Wrap(err, "os.WriteFile()")
+		}
+		edited = append(edited, fmt.Sprintf("%s (%s)", h.file, h.typeName))
+	}
+	if len(edited) > 0 {
+		ch.didf("the test configurers answer %s() with no auth, since no harness opens the %s auth, and its identity client as they build the %s auth's where they build one without an auth: %s", pascal, name, w.src.Name, strings.Join(edited, "; "))
+	}
+	if len(unopened) > 0 {
+		ch.skipf("%s: the harness opens the %s auth alone and answers no %s auth and no identity client for it, and the router asks the App for the %s outlet's session handlers as it mounts the outlet, so the suites there that build the router stop with a nil pointer until the harness opens the %s auth as the %s auth is opened and answers %s() and %sIdentity() from it", strings.Join(unopened, "; "), w.src.Name, name, w.au.Outlet, name, w.src.Name, pascal, pascal)
+	}
+
+	return nil
+}
+
+// renamed is a method written for the first auth as the added auth's copy reads.
+func (w *authWiring) renamed(text string) string {
+	return names.Rename(text, w.src.Name, w.au.Name)
+}

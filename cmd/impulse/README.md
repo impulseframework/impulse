@@ -1491,20 +1491,38 @@ so the regenerated router mounts the auth's session group under the outlet's pre
 Where the outlet's program generates each auth's management (`GenerateIdentity`), the
 package is rendered with the auth's identity client: `New` builds it from the tree's
 `<name>identity` package, over the auth's permission engine and session manager, and sets
-the hooks a sign-in gives roles through from it, and `Identity()` returns it. Handing it
-to the App (`<Name>Identity()` on the Configurer, on the App and on every test configurer)
-is the agent's, and the application does not compile until it holds. A program that
+the hooks a sign-in gives roles through from it, and `Identity()` returns it. The command
+hands the auth to the App where the App is the base's, so the application it leaves
+builds: the Configurer asks for the auth and its identity client (`<Name>()`,
+`<Name>Identity()`), which the data level answers and every test configurer answers too (a
+harness opens no added auth, so each answers none, and a suite that builds the router
+over such a harness stops until the harness opens the auth, which a Skipped line names);
+the App holds the auth's session
+handlers, its identity client and its permission engine, declares `BindAuth`, which the
+regenerated router's `Handlers` requires once two auths are declared, over the record of
+the auth a request came through (`pkg/auth`, `Bind` and `Name`), and answers a session's
+permissions from that auth's engine; and the accessor of an outlet `add outlet` laid in
+returns the new auth's session handlers in place of the handlers of the auth the outlet
+was laid in with, so the new auth's people sign in there and nobody else's session opens
+there. An App that is not the base's keeps what it has, and a Skipped line says what it
+still needs; the default outlet's session surface is the handlers the App embeds, which
+stays the agent's to change. A program that
 generates no management gains the option, with a tree beside its resources package, where
 the new auth is the only auth its outlets declare (a site `add site` laid in, bound to an
 auth of its own); where another outlet of the program declares an auth, the option would
 generate that auth's management too, so none is added, the auth is rendered without a
-client, and a Skipped line says what to add. In the sites layout the site's browser
-application is rebound with the outlet: its routes ask the library for the pages of the
+client, and a Skipped line says what to add. The outlet's browser application is rebound
+with the outlet, in the flat layout and in the sites layout: its routes ask the library for the pages of the
 new auth's management in place of the old one's (`identityRoutes` with `auth: '<Name>'`),
 or for none where the program generates none, and its HttpClient names the new auth's XSRF
 cookie; routes that asked for no pages are named for the agent with the request to spread.
-Checking its roles in the deploy, the App's handlers the generated router now requires for
-the outlet, its development identities, and the stranger tests are the agent's.
+The migrate command's test is brought to a release that invites the new auth's first
+administrator where the test is as the command writes it: the cases that give the first
+auth a holder of the Super Administrator role give the new auth one too, and the test of
+a start whose directory gives every role says that a release stops for the new auth's
+first administrator and that `-reinvite-administrator` takes that auth's name alone.
+Checking its roles in the deploy, its development identities, and the stranger tests are
+the agent's.
 
 Every auth mails, through the application's one sender and to the login page of the
 surface bound to it: an administrator invites a person by address with the roles the
@@ -1517,8 +1535,11 @@ Google Workspace SMTP relay where the deployment names a mailbox, `APP_MAIL_MAIL
 its app password `APP_MAIL_APP_PASSWORD` and, where the mail is from an alias of that
 account rather than the account itself, `APP_MAIL_FROM`) and the login page (`MailLoginURL`, the
 application's public address `APP_PUBLIC_URL` and the surface's login path); the settings
-copied from the source auth carry both, and the brief says to point the login page at the
-new auth's outlet. An accepted invitation gives its roles in the transaction that
+copied from the source auth carry both, and the command names the login page of the new
+auth's outlet in the copy (`<mount>/login`), so the invitation a release mails to the
+auth's first administrator opens where the auth's people sign in. Where the outlet serves
+no browser application the auth has no login page of its own: the first Skipped line says
+so, before any release, and names the setting to give. An accepted invitation gives its roles in the transaction that
 consumes it (`SetInvitationAccepted` over the identity client's `InvitationAccepted`, which
 the auth's `New` sets where it builds the client), so the invitation is spent and its roles
 given together, or neither.
