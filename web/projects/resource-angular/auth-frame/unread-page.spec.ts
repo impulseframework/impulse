@@ -1,6 +1,7 @@
 import { Location } from '@angular/common';
 import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { Router, Routes } from '@angular/router';
 import { Permission, PermissionDigest, Resource, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport } from '@impulseframework/resource/testing';
@@ -10,12 +11,15 @@ import { firstValueFrom } from 'rxjs';
 import { FrameComponent } from './frame.component';
 import { provideFrameTesting } from './frame-testing';
 import { Menu, page } from './menu';
+import { MenuBarComponent } from './menu-bar.component';
 import { homeGuard, outsideGuard } from './place.guard';
 
 // What a person sees where what they hold could not be read. A failed read is not a
 // person who holds nothing: the frame draws "This page could not be loaded" with Try
 // again where the page goes, and no page, whether the read at sign-in failed or a guard
-// could not decide the page that was asked for. Try again reads again and draws the page.
+// could not decide the page that was asked for. The bar draws no menus then: they would
+// be the menus of a person who holds nothing. Try again reads again and draws the page,
+// and the menus with it.
 
 @Component({ template: '<p class="spec-page">dashboard</p>' })
 class DashboardComponent {}
@@ -121,6 +125,12 @@ describe('a frame over permissions that could not be read', () => {
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const unread = (): string | undefined => element().querySelector('.impulse-frame-unread h1')?.textContent?.trim();
   const drawn = (): string | undefined => element().querySelector('.spec-page')?.textContent?.trim();
+  /** The menus the bar draws across the top, by their words: none where it draws no menu bar. */
+  const barMenus = (): string[] => {
+    const bar = fixture.debugElement.query(By.directive(MenuBarComponent))?.componentInstance as
+      MenuBarComponent | undefined;
+    return bar?.menus().map((menu) => menu.label) ?? [];
+  };
   const tryAgain = async (): Promise<void> => {
     (element().querySelector('.impulse-frame-unread .impulse-frame-try-again') as HTMLButtonElement).click();
     await settle();
@@ -133,16 +143,20 @@ describe('a frame over permissions that could not be read', () => {
     // No guard decides this page; drawn now, it would sit under the menus of a person who holds nothing.
     expect(unread()).toBe('This page could not be loaded');
     expect(drawn()).toBeUndefined();
+    // Nor are those menus drawn over the failure: Help alone is what a person who holds nothing sees.
+    expect(barMenus()).toEqual([]);
 
     // A read that fails again leaves the failure where it is.
     await tryAgain();
     expect(unread()).toBe('This page could not be loaded');
     expect(drawn()).toBeUndefined();
+    expect(barMenus()).toEqual([]);
 
     down.clear();
     await tryAgain();
     expect(unread()).toBeUndefined();
     expect(drawn()).toBe('notes');
+    expect(barMenus()).toEqual(['System', 'Help']);
     expect(asked).toEqual(['', '', '']);
   });
 

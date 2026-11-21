@@ -39,18 +39,22 @@ import {
   indexedFilterActive,
   isComplete,
   joinDateTime,
+  listValues,
   operatorOption,
   operatorsFor,
+  withChoice,
 } from './grid-filter.util';
 import {
   ColumnFilter,
   ColumnFilterability,
+  ColumnFilterChoices,
   ColumnFilterInputs,
   ColumnSearches,
+  FilterChoice,
   FilterControl,
-  FilterInput,
   FilterOperator,
   FilterOperatorOption,
+  FilterValueInput,
   GridPageState,
   PageTurn,
   RowKey,
@@ -286,6 +290,8 @@ export class AppGridComponent {
   searches = input<ColumnSearches>({});
   /** Which control each column's menu takes a value from, by column id, from the generated field metadata's display type: a date control on a `civildate` column, a date and a time on a `date` column. A column absent here takes typed text. */
   filterInputs = input<ColumnFilterInputs>({});
+  /** The values each column's field takes where it takes one of a fixed set, by column id, from the generated field metadata's `enumeration`: the column's menu offers their names, to pick one or tick several, and the filter carries the values. A column absent here takes its value from its control. */
+  filterChoices = input<ColumnFilterChoices>({});
   /** Whether the page's search box is in the request: it counts as the indexed filter a companion-only column waits for. */
   boxActive = input<boolean>(false);
   /** Where the rows sit in the server's list. The pager is drawn only when given. */
@@ -1088,9 +1094,19 @@ export class AppGridComponent {
     return operatorOption(this.draftFor(col).operator).takesValue;
   }
 
-  /** The control the column's menu takes a value from under the draft's operator: the column's own for one value, typed text for a list. */
-  valueInput(col: ColumnConfig): FilterInput {
-    return filterInputFor(col.id, this.filterInputs(), this.draftFor(col).operator);
+  /** The control the column's menu takes a value from under the draft's operator: the names of the field's values where it takes fixed ones, else the column's own for one value and typed text for a list. */
+  valueInput(col: ColumnConfig): FilterValueInput {
+    return filterInputFor(col.id, this.filterInputs(), this.draftFor(col).operator, this.filterChoices());
+  }
+
+  /** The values the column's field takes, as its menu offers them; none on a column whose field takes any value. */
+  choicesFor(col: ColumnConfig): readonly FilterChoice[] {
+    return this.filterChoices()[col.id] ?? [];
+  }
+
+  /** Whether the draft's list holds the value, so its name is drawn ticked. */
+  isTicked(col: ColumnConfig, choice: FilterChoice): boolean {
+    return listValues(this.draftFor(col).value).includes(choice.value);
   }
 
   /** What the text box says when empty: a list's shape, in the forms the server reads a date in on a date or timestamp column. */
@@ -1120,12 +1136,20 @@ export class AppGridComponent {
   setFilterOperator(col: ColumnConfig, event: Event): void {
     const operator = (event.target as HTMLSelectElement).value as FilterOperator;
     const current = this.draftFor(col);
-    const value = fitsInput(current.value, filterInputFor(col.id, this.filterInputs(), operator)) ? current.value : '';
+    const next = filterInputFor(col.id, this.filterInputs(), operator, this.filterChoices());
+    const value = fitsInput(current.value, next, this.choicesFor(col)) ? current.value : '';
     this.drafts.set({ ...this.drafts(), [col.id]: { ...current, operator, value } });
   }
 
+  /** The value from a text box, or the value behind the name picked on a column whose field takes fixed values. */
   setFilterValue(col: ColumnConfig, event: Event): void {
-    this.setDraftValue(col, (event.target as HTMLInputElement).value);
+    this.setDraftValue(col, (event.target as HTMLInputElement | HTMLSelectElement).value);
+  }
+
+  /** A name ticked or cleared under a list operator: the draft's list gains or loses the value behind it. */
+  tickFilterChoice(col: ColumnConfig, choice: FilterChoice, event: Event): void {
+    const ticked = (event.target as HTMLInputElement).checked;
+    this.setDraftValue(col, withChoice(this.draftFor(col).value, this.choicesFor(col), choice.value, ticked));
   }
 
   /** The day from a date control, kept with the time of day already given. */

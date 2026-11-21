@@ -107,6 +107,36 @@ func targetRefusedCause(method accesstypes.Resource, label string, key []any) er
 	return errors.Newf("%s may not run against %s %s", method, label, strings.Join(values, ", "))
 }
 
+// TargetNotFound is the answer to a caller whose method names a row that is not there for
+// it: NotFound, with one sentence a person can read. The sentence says the row by its
+// record's name in words and nothing else ("This mission does not exist."): no key, and
+// the same words whether no row has the key or the row is another tenant's, so the
+// caller is never told that a row is there. A record with no name is "this record". The
+// cause says the record by its struct's name and the row by its key's values in order,
+// or "this" record where there is no key to say; it is kept for the server's log and no
+// word of it reaches the caller. A generated method's frame answers a row it cannot
+// locate with TargetNotFound and its gate (ExecuteGate) answers with it too, so every
+// way a method finds no row reads the same. It answers the type httpio's own answers
+// do, and is returned as one of those is.
+func TargetNotFound(label string, key ...any) errors.Chain {
+	return httpio.NewNotFoundMessageWithError(targetNotFoundCause(label, key), doesNotExist(label))
+}
+
+// targetNotFoundCause is what the server's log keeps of a method whose row is not there:
+// the record's struct name and the row's key, in the words the answer itself said
+// before it was put in a person's.
+func targetNotFoundCause(label string, key []any) error {
+	if len(key) == 0 {
+		return errors.Newf("this %s does not exist", label)
+	}
+	values := make([]string, 0, len(key))
+	for _, value := range key {
+		values = append(values, fmt.Sprint(value))
+	}
+
+	return errors.Newf("%s %s does not exist", label, strings.Join(values, ", "))
+}
+
 // conditionRefused is the answer to a write whose grant holds for some rows and not for
 // the one written: the sentence says the person may do it to others.
 func (q *QuerySet[Resource]) conditionRefused(resources []accesstypes.Resource) error {
@@ -164,6 +194,17 @@ func mayNotDoThisTo(label string) string {
 	}
 
 	return "You may not do this to this " + thing + "."
+}
+
+// doesNotExist is the sentence for a method whose row is not there: "This mission does
+// not exist." The record is said by its struct's name in words.
+func doesNotExist(label string) string {
+	thing := inWords(label)
+	if thing == "" {
+		thing = "record"
+	}
+
+	return "This " + thing + " does not exist."
 }
 
 // flagHistoryWords is what a caller who may see none of the facts a flag's history tells

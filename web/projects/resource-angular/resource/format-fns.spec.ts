@@ -1,5 +1,11 @@
 import { ValidDisplayTypes } from '@impulseframework/resource-angular/types';
-import { base64ByteLength, formatByDisplayType, formatByteSize, OBJECT_CELL_LENGTH } from './format-fns';
+import {
+  base64ByteLength,
+  formatByDisplayType,
+  formatByteSize,
+  formatFieldValue,
+  OBJECT_CELL_LENGTH,
+} from './format-fns';
 
 // The cell formatter: one text per display type, so a grid shows a size for bytes, a
 // list for an array, a place in words for a position and a compact JSON for any other
@@ -47,6 +53,34 @@ describe('formatByDisplayType', () => {
   for (const tt of cases) {
     it(tt.name, () => {
       expect(formatByDisplayType(tt.displayType, tt.value)).toBe(tt.want);
+    });
+  }
+});
+
+// A list writes a field that takes one of a fixed set of values by the value's name: the
+// generated metadata lists each key beside its name.
+describe('formatFieldValue', () => {
+  const status = {
+    displayType: 'enumerated' as const,
+    enumeration: [
+      { id: 'on_hold', display: 'On hold' },
+      { id: 'open', display: 'Open' },
+      { id: '7', display: 'Seven' },
+    ],
+  };
+  const cases: { name: string; field: Parameters<typeof formatFieldValue>[0]; value: unknown; want: string }[] = [
+    { name: 'a fixed value is its name', field: status, value: 'on_hold', want: 'On hold' },
+    { name: 'a fixed value the row carries as a number is its name', field: status, value: 7, want: 'Seven' },
+    { name: 'a value the metadata does not list is itself', field: status, value: 'scrubbed', want: 'scrubbed' },
+    { name: 'a null is nothing', field: status, value: null, want: '' },
+    { name: "a key into another resource's rows is itself", field: { displayType: 'enumerated' }, value: 'p-1', want: 'p-1' },
+    { name: 'any other field is written by its display type', field: { displayType: 'civildate' }, value: '2026-02-03', want: '2/3/2026' },
+    { name: 'a value of no known field is its text', field: undefined, value: 42, want: '42' },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(formatFieldValue(tt.field, tt.value)).toBe(tt.want);
     });
   }
 });

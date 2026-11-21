@@ -6174,16 +6174,22 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 					{{- end }}
 					Read(ctx, txn)
 				if err != nil {
+					if httpio.HasNotFound(err) {
+						// No row has the key. Every row the method cannot reach is
+						// answered alike, so the words never say a row is there.
+						return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
+					}
+
 					return errors.Wrap(err, "{{ $.ResourcesPackage }}.{{ $t.RootStruct }}Query.Read()")
 				}
 				if row == nil {
-					return httpio.NewNotFoundMessagef("{{ $t.RootStruct }} {{ $t.KeyVerbs }} does not exist", {{ $t.KeyArgs "p" }})
+					return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
 				}
 				{{- if $t.TenantField }}
 				if ok, err := resource.TenantKeyEquals(row.Data.{{ $t.TenantField }}, domain); err != nil {
 					return errors.Wrap(err, "resource.TenantKeyEquals()")
 				} else if !ok {
-					return httpio.NewNotFoundMessagef("{{ $t.RootStruct }} {{ $t.KeyVerbs }} does not exist", {{ $t.KeyArgs "p" }})
+					return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
 				}
 				{{- end }}
 				{{- if $t.TenantByPath }}

@@ -91,15 +91,21 @@ func (a *App) ReleaseConsignment() http.HandlerFunc {
 				SetID(p.ConsignmentID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("Consignment", p.ConsignmentID)
+				}
+
 				return errors.Wrap(err, "resources.ConsignmentQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("Consignment %s does not exist", p.ConsignmentID)
+				return resource.TargetNotFound("Consignment", p.ConsignmentID)
 			}
 			if ok, err := resource.TenantKeyEquals(row.Data.SectorID, domain); err != nil {
 				return errors.Wrap(err, "resource.TenantKeyEquals()")
 			} else if !ok {
-				return httpio.NewNotFoundMessagef("Consignment %s does not exist", p.ConsignmentID)
+				return resource.TargetNotFound("Consignment", p.ConsignmentID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant

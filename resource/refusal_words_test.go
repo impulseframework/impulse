@@ -161,6 +161,34 @@ func TestTargetRefused_plainWords(t *testing.T) {
 	}
 }
 
+// TestTargetNotFound_plainWords holds the answer to a method whose row is not there: the
+// sentence says the record in words and nothing else, and the record's struct name and
+// the row's key stay in the words the server's log prints.
+func TestTargetNotFound_plainWords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		label     string
+		key       []any
+		wantSaid  string
+		wantCause string
+	}{
+		{name: "a row named by one key value", label: "HangarPass", key: []any{"pass-7"}, wantSaid: "This hangar pass does not exist.", wantCause: "HangarPass pass-7 does not exist"},
+		{name: "a row named by a compound key", label: "HeldRole", key: []any{"ann", "Armorer", 3}, wantSaid: "This held role does not exist.", wantCause: "HeldRole ann, Armorer, 3 does not exist"},
+		{name: "a row named by no key", label: "HeldRole", wantSaid: "This held role does not exist.", wantCause: "this HeldRole does not exist"},
+		{name: "a record with no name is a record", label: "", key: []any{"pass-7"}, wantSaid: "This record does not exist.", wantCause: " pass-7 does not exist"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := TargetNotFound(tt.label, tt.key...)
+			plainAnswer(t, err, httpio.HasNotFound, tt.wantSaid, tt.wantCause)
+		})
+	}
+}
+
 func TestRefusedCondition_plainWords(t *testing.T) {
 	t.Parallel()
 
