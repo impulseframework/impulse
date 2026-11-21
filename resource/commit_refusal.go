@@ -73,8 +73,7 @@ func (b *bufferedPatches) record(patch PatchSetMetadata) {
 	if labeler, ok := patch.(recordLabeler); ok && b.labels[res] == "" {
 		b.labels[res] = labeler.recordLabel()
 	}
-	switch patch.PatchType() {
-	case CreatePatchType, UpdatePatchType, CreateOrUpdatePatchType:
+	if patch.PatchType() != DeletePatchType {
 		b.written++
 	}
 }
