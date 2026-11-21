@@ -3424,7 +3424,9 @@ func entraIssuer(tid string) string {
 // method fills in Identity.EmailVerified, a provider's own claim or an application's own
 // method, the identity reaches the store without it: nothing confirms the address but
 // the code mailed to it, which the person's first sign-in to an account with no
-// confirmed address waits for.
+// confirmed address waits for. Google's method is the one session/google builds, known
+// by the library's mark and not by its name: a method of the application's own that
+// names itself and its identities google keeps no flag either.
 func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
 	t.Parallel()
 
@@ -3439,6 +3441,7 @@ func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
 		{name: "Microsoft Entra ID", registered: sessioninfo.MethodAzure, asserted: sessioninfo.MethodAzure},
 		{name: "WorkOS", registered: sessioninfo.MethodWorkOS, asserted: sessioninfo.MethodWorkOS},
 		{name: "another method whose identity says it is Google's", registered: "bare", asserted: sessioninfo.MethodGoogle},
+		{name: "a method of the application's own that takes Google's name", registered: sessioninfo.MethodGoogle, asserted: sessioninfo.MethodGoogle},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

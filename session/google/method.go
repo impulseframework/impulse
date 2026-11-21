@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/vouch"
 	"github.com/impulseframework/impulse/session/oidc"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -215,7 +216,9 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 // connection being what workspaces selects for the account's hd claim, and its sign-in
 // name the verified email. Google's word for the address is the identity's
 // (Identity.EmailVerified) only where Google is the address's authority (vouchesFor): a
-// Workspace account's address and a Gmail address. The authenticator checks the slot
+// Workspace account's address and a Gmail address. The method carries Google's mark
+// (signin.Method.AddressAuthority), by which the core knows it and keeps that word; a
+// method of any other package carries none. The authenticator checks the slot
 // and the verified email; the slot is checked here again, so an authenticator that did
 // not cannot admit an account outside it. When groups is set, the callback maps the
 // person's directory groups to role names using the access token, which is used once
@@ -232,6 +235,7 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 		},
 		AdmitsConnection: workspaces.admitsConnection,
 		ConnectionName:   workspaces.nameOf,
+		AddressAuthority: vouch.Google(),
 		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
 			hint, err := signin.LoginHint(r)
 			if err != nil {

@@ -25,6 +25,7 @@ import (
 
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/cookie"
+	"github.com/impulseframework/impulse/session/internal/vouch"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -146,6 +147,14 @@ type Method struct {
 	// It is nil when the method names no connection. The Auth answers a directory's
 	// name from it (session.AuthAPI.DirectoryName).
 	ConnectionName func(connection string) string
+	// AddressAuthority is the library's mark on the one method whose word that an
+	// address is verified the core keeps (sessioninfo.Identity.EmailVerified): Google's,
+	// which session/google builds. The core knows Google's method by this mark and never
+	// by its name. Only the session library can make a mark, so a method an
+	// application builds leaves the field as it is, the zero value, which is no mark:
+	// the core then takes the flag off every identity the method verifies, whatever the
+	// method is named.
+	AddressAuthority vouch.Mark
 }
 
 // Verified is the result of a method's completed round trip.

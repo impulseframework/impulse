@@ -1670,13 +1670,17 @@ How an address gets onto a user:
   the address's authority: a Gmail address (`gmail.com`, `googlemail.com`) and the
   address of a Workspace account (the token carries `hd`). A Google account made with
   an address from anywhere else is treated as another provider's. No other method's
-  word is kept, whatever it puts in `Identity.EmailVerified`: the people who run a
-  provider can mark any address verified, so an Entra user's address, or one an
-  OpenID Connect provider calls verified, stays a prefill until the person verifies
-  it. The other way round, a first Google sign-in by a person whose address a user
-  already holds verified is that user's, where Google vouches for the address: the
-  standard account rule matches the user by the address once no user is under the
-  sign-in name (see "Storage and schema" above).
+  word is kept, whatever it puts in `Identity.EmailVerified` and whatever it is
+  named: the people who run a provider can mark any address verified, so an Entra
+  user's address, or one an OpenID Connect provider calls verified, stays a prefill
+  until the person verifies it. Google's method is the one `session/google` registers,
+  which the library knows by a mark only its own packages can set
+  (`signin.Method.AddressAuthority`): a method of the application's own that names
+  itself `google` is not Google's, and its word is not kept. The other way round, a
+  first Google sign-in by a person whose address a user already holds verified is that
+  user's, where Google vouches for the address: the standard account rule matches the
+  user by the address once no user is under the sign-in name (see "Storage and schema"
+  above).
 - **An invitation or a sign-up proves it**: the account an invited person creates, or
   an existing account that accepts an invitation while holding no verified address,
   takes the invitation's address verified; a sign-up's account is created with its

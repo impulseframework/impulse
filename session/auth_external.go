@@ -52,12 +52,15 @@ func (a *Auth[S, U, Tx]) externalLogin(m *signin.Method) http.HandlerFunc {
 // sign-in to an account with no confirmed address waits for the mailed code. It holds
 // for every method whatever it fills in, the library's own and one an application
 // registers. Google's method keeps its word, which it gives only for an address Google
-// is the authority for: a Gmail address and a Workspace account's.
+// is the authority for: a Gmail address and a Workspace account's. Google's method is
+// the one that carries the library's mark (signin.Method.AddressAuthority), which only
+// session/google sets and no application's method can carry: a method that takes
+// Google's name is not Google's, and its word is taken from it like any other's.
 func onlyGoogleVouches(m *signin.Method, identity *sessioninfo.Identity) {
 	if identity == nil {
 		return
 	}
-	if m.Name != sessioninfo.MethodGoogle || identity.Method != sessioninfo.MethodGoogle {
+	if !m.AddressAuthority.IsGoogle() || identity.Method != sessioninfo.MethodGoogle {
 		identity.EmailVerified = false
 	}
 }
