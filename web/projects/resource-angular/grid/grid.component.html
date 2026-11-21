@@ -122,36 +122,38 @@
                           </mat-form-field>
                         }
                         @case ('datetime') {
-                          <mat-form-field
-                            appearance="outline"
-                            subscriptSizing="dynamic"
-                            class="filter-date"
-                            (click)="$event.stopPropagation()">
-                            <input
-                              matInput
-                              type="date"
-                              aria-label="Date"
-                              [value]="dateOf(col)"
-                              (input)="setFilterDate(col, $event)"
-                              (change)="setFilterDate(col, $event)"
-                              (keydown.enter)="commitFilter(col)"
-                              (keydown)="keepTyping($event)" />
-                          </mat-form-field>
-                          <mat-form-field
-                            appearance="outline"
-                            subscriptSizing="dynamic"
-                            class="filter-time"
-                            (click)="$event.stopPropagation()">
-                            <input
-                              matInput
-                              type="time"
-                              aria-label="Time of day"
-                              [value]="timeOf(col)"
-                              (input)="setFilterTime(col, $event)"
-                              (change)="setFilterTime(col, $event)"
-                              (keydown.enter)="commitFilter(col)"
-                              (keydown)="keepTyping($event)" />
-                          </mat-form-field>
+                          <div class="filter-date-time">
+                            <mat-form-field
+                              appearance="outline"
+                              subscriptSizing="dynamic"
+                              class="filter-date"
+                              (click)="$event.stopPropagation()">
+                              <input
+                                matInput
+                                type="date"
+                                aria-label="Date"
+                                [value]="dateOf(col)"
+                                (input)="setFilterDate(col, $event)"
+                                (change)="setFilterDate(col, $event)"
+                                (keydown.enter)="commitFilter(col)"
+                                (keydown)="keepTyping($event)" />
+                            </mat-form-field>
+                            <mat-form-field
+                              appearance="outline"
+                              subscriptSizing="dynamic"
+                              class="filter-time"
+                              (click)="$event.stopPropagation()">
+                              <input
+                                matInput
+                                type="time"
+                                aria-label="Time of day"
+                                [value]="timeOf(col)"
+                                (input)="setFilterTime(col, $event)"
+                                (change)="setFilterTime(col, $event)"
+                                (keydown.enter)="commitFilter(col)"
+                                (keydown)="keepTyping($event)" />
+                            </mat-form-field>
+                          </div>
                         }
                         @case ('choice') {
                           <select
@@ -203,8 +205,10 @@
                         }
                       }
                     }
-                    <button type="button" mat-button (click)="commitFilter(col)">Apply</button>
-                    <button type="button" mat-button (click)="clearFilter(col)">Clear</button>
+                    <div class="filter-actions">
+                      <button type="button" mat-button (click)="commitFilter(col)">Apply</button>
+                      <button type="button" mat-button (click)="clearFilter(col)">Clear</button>
+                    </div>
                   </div>
                 </mat-menu>
               </th>

@@ -19,9 +19,10 @@ import (
 
 func (a *App) Wings() http.HandlerFunc {
 	type wing struct {
-		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		SectorID impulse.UUID `json:"sectorId" index:"true"`
-		Name     string       `json:"name"     index:"true"`
+		ID         impulse.UUID `json:"id"         index:"true"      perm:"-"`
+		SectorID   impulse.UUID `json:"sectorId"   index:"true"`
+		Name       string       `json:"name"       index:"true"`
+		SectorName *string      `json:"sectorName" nameof:"SectorID"`
 	}
 
 	type response []map[string]any
@@ -60,7 +61,7 @@ func (a *App) Wings() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*wing)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -99,9 +100,10 @@ func (a *App) Wings() http.HandlerFunc {
 
 func (a *App) Wing() http.HandlerFunc {
 	type response struct {
-		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		SectorID impulse.UUID `json:"sectorId"`
-		Name     string       `json:"name"`
+		ID         impulse.UUID `json:"id"         index:"true"      perm:"-"`
+		SectorID   impulse.UUID `json:"sectorId"`
+		Name       string       `json:"name"`
+		SectorName *string      `json:"sectorName" nameof:"SectorID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Wing, response](a, accesstypes.Read)
@@ -128,7 +130,7 @@ func (a *App) Wing() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
