@@ -34,6 +34,33 @@ type authWiring struct {
 	// identityPath the import path of the auth's package in it; both are empty where the
 	// program generates none.
 	identityDir, identityPath string
+	// srcPath is the import path of the first auth's package, and appPath of the package
+	// that declares the Configurer: a harness that opens the first auth and builds the App
+	// over it imports both.
+	srcPath, appPath string
+	// page is the login page of the browser application the auth's outlet serves, empty
+	// where it serves none, and tenantSettings are the settings of the application's
+	// tenant record that the auth's New refuses nil.
+	page           string
+	tenantSettings []string
+}
+
+// tenantSettingsOf names the settings an auth's Settings carry over the application's
+// tenant record, each of which its New refuses nil: the reader of what a tenant
+// declares, the reader of the tenants' directories and what makes a tenant.
+func tenantSettingsOf(spec *authpkg.Spec) []string {
+	var settings []string
+	if spec.TenantPolicy != nil {
+		settings = append(settings, "TenantDeclarations")
+	}
+	if spec.DirectoryAdmission() {
+		settings = append(settings, "TenantDirectories")
+	}
+	if spec.MakesTenants() {
+		settings = append(settings, "TenantMaker")
+	}
+
+	return settings
 }
 
 // wire gives the application's Go side what the regeneration asks of it for the added
@@ -43,14 +70,20 @@ type authWiring struct {
 // group's requests to the auth that authenticated them (BindAuth) and answers a session's
 // permissions from that auth's engine, the outlet's accessor returns the added auth's
 // handlers in place of the auth the outlet served before, the data level answers the
-// identity client, and every test configurer answers both. An application whose App is
-// not the base's keeps what it has, and the change lists what is left to its author.
+// identity client, and every test configurer answers both, from the added auth where the
+// harness opens the first auth and serves the application (openInHarness). An application
+// whose App is not the base's keeps what it has, and the change lists what is left to its
+// author.
 func (au Auth) wire(a *app.App, choice *OutletChoice, src *authSource, spec *authpkg.Spec, ch *Change) error {
 	if !choice.Site.GeneratedRouter {
 		return nil
 	}
 	module := modulePath(a)
-	w := &authWiring{au: au, src: src, outlet: &choice.Outlet, authPath: path.Join(module, src.AuthDir, au.Name), authsPath: path.Join(module, src.AuthDir)}
+	w := &authWiring{
+		au: au, src: src, outlet: &choice.Outlet,
+		authPath: path.Join(module, src.AuthDir, au.Name), authsPath: path.Join(module, src.AuthDir),
+		srcPath: path.Join(module, src.Dir), page: outletLoginPage(&choice.Outlet), tenantSettings: tenantSettingsOf(spec),
+	}
 	if spec.IdentityDir != "" {
 		w.identityDir, w.identityPath = spec.IdentityDir, path.Join(module, spec.IdentityDir, au.Name+"identity")
 	}
@@ -69,6 +102,7 @@ func (au Auth) wire(a *app.App, choice *OutletChoice, src *authSource, spec *aut
 			return err
 		}
 	}
+	w.appPath = path.Join(module, path.Dir(rel))
 	e := &sourceEdit{rel: rel, src: data}
 	methods, err := methodsOfType(a, path.Dir(rel), appType)
 	if err != nil {
@@ -401,21 +435,27 @@ func (w *authWiring) answerOnData(a *app.App, ch *Change) error {
 }
 
 // answerInHarnesses gives every test configurer the two accessors the Configurer gained,
-// so every test package compiles. A harness opens the auths its suites sign in through,
-// and none opens the added auth, so each answers no auth. The identity client is built as
-// the harness builds the first auth's where it builds one without an auth, and is nil
-// where the harness reads it from the auth it opened. The router asks the App for the
-// outlet's session handlers as it mounts the outlet, so a suite that builds the router
-// over a harness that answers no auth stops there; the command does not open the auth in
-// the harness, and a Skipped line says which harness needs it.
+// so every test package compiles and its suites run. A harness whose configurer holds the
+// first auth serves what the application serves, the added auth's outlet with it, and the
+// router asks the App for that outlet's session handlers as it mounts the outlet: there
+// the command opens the added auth beside the first one (openInHarness), and the
+// configurer answers the auth and its identity client from it. A configurer that holds no
+// auth answers none (answerNone). A harness that holds the first auth where the command
+// cannot read how it is opened is left answering none too, and a Skipped line says what
+// its suites need.
 func (w *authWiring) answerInHarnesses(a *app.App, ch *Change) error {
 	name, pascal := w.au.Name, w.au.Pascal()
 	harnesses, err := starterWiring{}.harnessFiles(a)
 	if err != nil {
 		return err
 	}
-	var edited, unopened []string
-	for _, h := range harnesses {
+	accessors := pascal + "()"
+	if w.identityPath != "" {
+		accessors += " and " + pascal + "Identity()"
+	}
+	var answered []string
+	for i := range harnesses {
+		h := &harnesses[i]
 		if slices.Contains(h.methods, pascal) {
 			continue
 		}
@@ -423,41 +463,71 @@ func (w *authWiring) answerInHarnesses(a *app.App, ch *Change) error {
 		if err != nil {
 			return err
 		}
-		built := regexp.MustCompile(`(?s)\nfunc \(` + regexp.QuoteMeta(h.receiver) + `\) ` + w.src.Pascal + `Identity\(\) [^\n]*\{\n.*?\n\}\n`).Find(src)
-		copied := w.identityPath != "" && bytes.Contains(built, []byte("NewClient("))
-		if copied {
-			src, err = app.CopyMethod(h.file, src, h.typeName, w.src.Pascal+"Identity", w.renamed)
-			if err != nil {
-				return err
-			}
-		}
-		text := strings.TrimRight(string(src), "\n") + fmt.Sprintf("\n\n// %[1]s answers no %[2]s auth: the harness opens none. The router asks the App for the\n// %[3]s outlet's session handlers as it mounts the outlet, so a suite that builds the\n// router needs the harness to open the %[2]s auth and answer it here.\nfunc (%[4]s) %[1]s() *%[2]s.Auth {\n\treturn nil\n}\n", pascal, name, w.au.Outlet, h.receiver)
-		if w.identityPath != "" && !copied {
-			text += fmt.Sprintf("\n// %[1]sIdentity answers no identity client: the harness opens no %[2]s auth to build one.\nfunc (%[3]s) %[1]sIdentity() *%[2]sidentity.Client {\n\treturn nil\n}\n", pascal, name, h.receiver)
-			unopened = append(unopened, fmt.Sprintf("%s (%s)", h.file, h.typeName))
-		}
-		out, err := app.AddImport(h.file, []byte(text), w.authPath)
+		e := &sourceEdit{rel: h.file, src: src}
+		held, err := app.StructFieldOfType(h.file, src, h.typeName, w.srcPath, "Auth")
 		if err != nil {
 			return err
 		}
-		if w.identityPath != "" {
-			if out, err = app.AddImport(h.file, out, w.identityPath); err != nil {
+		opened := false
+		if held != "" {
+			if opened, err = w.openInHarness(h, e); err != nil {
 				return err
 			}
 		}
-		if err := os.WriteFile(a.Abs(h.file), out, mode); err != nil {
+		if !opened {
+			if err := w.answerNone(h, e); err != nil {
+				return err
+			}
+		}
+		if err := os.WriteFile(a.Abs(h.file), e.src, mode); err != nil {
 			return errors.Wrap(err, "os.WriteFile()")
 		}
-		edited = append(edited, fmt.Sprintf("%s (%s)", h.file, h.typeName))
+		switch {
+		case opened:
+			links := ""
+			if w.page != "" {
+				links = fmt.Sprintf(", and its links open the %s outlet's login page, %s", w.au.Outlet, w.page)
+			}
+			ch.didf("%s: the harness opens the %s auth beside the %s auth, over the same database and with its own settings (its mail goes to a recorder of its own, %sSent%s), and %s answers %s from it, so the suites serve the %s outlet's session group as the application does", h.file, name, w.src.Name, name, links, h.typeName, accessors, w.au.Outlet)
+		case held != "":
+			ch.skipf("%[1]s (%[2]s): the configurer holds the %[3]s auth, and the command does not read how the harness opens it: it reads a function that opens the auth with %[3]s.New(..., &%[3]s.Settings{...}) and then builds the App from a %[2]s literal, where every function that builds the App from one does so. It opened no %[4]s auth there and the configurer answers none. The router asks the App for the %[5]s outlet's session handlers as it mounts the outlet, so the suites there that build the router stop with a nil pointer until the harness opens the %[4]s auth as the %[3]s auth is opened, with its own Mail and MailLoginURL, and answers %[6]s from it", h.file, h.typeName, w.src.Name, name, w.au.Outlet, accessors)
+		default:
+			answered = append(answered, fmt.Sprintf("%s (%s)", h.file, h.typeName))
+		}
+		e.report(ch)
 	}
-	if len(edited) > 0 {
-		ch.didf("the test configurers answer %s() with no auth, since no harness opens the %s auth, and its identity client as they build the %s auth's where they build one without an auth: %s", pascal, name, w.src.Name, strings.Join(edited, "; "))
-	}
-	if len(unopened) > 0 {
-		ch.skipf("%s: the harness opens the %s auth alone and answers no %s auth and no identity client for it, and the router asks the App for the %s outlet's session handlers as it mounts the outlet, so the suites there that build the router stop with a nil pointer until the harness opens the %s auth as the %s auth is opened and answers %s() and %sIdentity() from it", strings.Join(unopened, "; "), w.src.Name, name, w.au.Outlet, name, w.src.Name, pascal, pascal)
+	if len(answered) > 0 {
+		ch.didf("the test configurers that hold no auth answer %s() with none, and its identity client as they build the %s auth's where they build one without an auth: %s", pascal, w.src.Name, strings.Join(answered, "; "))
 	}
 
 	return nil
+}
+
+// answerNone gives a test configurer the two accessors where its harness opens no added
+// auth: the auth is nil, and the identity client is built as the harness builds the
+// first auth's where it builds one without an auth, and is nil where the harness reads
+// it from an auth.
+func (w *authWiring) answerNone(h *harness, e *sourceEdit) error {
+	name, pascal := w.au.Name, w.au.Pascal()
+	built := regexp.MustCompile(`(?s)\nfunc \(` + regexp.QuoteMeta(h.receiver) + `\) ` + w.src.Pascal + `Identity\(\) [^\n]*\{\n.*?\n\}\n`).Find(e.src)
+	copied := w.identityPath != "" && bytes.Contains(built, []byte("NewClient("))
+	if copied {
+		if err := e.apply(app.CopyMethod(h.file, e.src, h.typeName, w.src.Pascal+"Identity", w.renamed)); err != nil {
+			return err
+		}
+	}
+	text := strings.TrimRight(string(e.src), "\n") + fmt.Sprintf("\n\n// %[1]s answers no %[2]s auth: the harness opens none. The router asks the App for the\n// %[3]s outlet's session handlers as it mounts the outlet, so a suite that builds the\n// router needs the harness to open the %[2]s auth and answer it here.\nfunc (%[4]s) %[1]s() *%[2]s.Auth {\n\treturn nil\n}\n", pascal, name, w.au.Outlet, h.receiver)
+	if w.identityPath != "" && !copied {
+		text += fmt.Sprintf("\n// %[1]sIdentity answers no identity client: the harness opens no %[2]s auth to build one.\nfunc (%[3]s) %[1]sIdentity() *%[2]sidentity.Client {\n\treturn nil\n}\n", pascal, name, h.receiver)
+	}
+	if err := e.apply(app.AddImport(h.file, []byte(text), w.authPath)); err != nil {
+		return err
+	}
+	if w.identityPath == "" {
+		return nil
+	}
+
+	return e.apply(app.AddImport(h.file, e.src, w.identityPath))
 }
 
 // renamed is a method written for the first auth as the added auth's copy reads.

@@ -1494,10 +1494,17 @@ package is rendered with the auth's identity client: `New` builds it from the tr
 the hooks a sign-in gives roles through from it, and `Identity()` returns it. The command
 hands the auth to the App where the App is the base's, so the application it leaves
 builds: the Configurer asks for the auth and its identity client (`<Name>()`,
-`<Name>Identity()`), which the data level answers and every test configurer answers too (a
-harness opens no added auth, so each answers none, and a suite that builds the router
-over such a harness stops until the harness opens the auth, which a Skipped line names);
-the App holds the auth's session
+`<Name>Identity()`), which the data level answers and every test configurer answers too.
+A harness that opens the first auth and builds the App over it (the served suites',
+`test/integration`) opens the added auth beside it, over the same database, in each
+function that opens the first: with the settings the application has one of as the first
+auth's opening writes them, a mail recorder of its own and its links to its outlet's
+login page, and with none of the first auth's directory registrations, so the suites
+serve the added auth's outlet as the application does. A configurer that holds no auth
+(the authorization harness, `test/authz`) answers none. A harness the command cannot
+read (one that opens the first auth otherwise, or builds the App over an auth handed to
+a function) is left answering none, and a Skipped line says what its suites need.
+The App holds the auth's session
 handlers, its identity client and its permission engine, declares `BindAuth`, which the
 regenerated router's `Handlers` requires once two auths are declared, over the record of
 the auth a request came through (`pkg/auth`, `Bind` and `Name`), and answers a session's
