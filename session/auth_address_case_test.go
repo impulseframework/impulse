@@ -89,7 +89,7 @@ func TestAuth_claimCodeAddress_tellsARenameByTheKelvinSign(t *testing.T) {
 	f, _, _ := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
 	user := &sessionstorage.SessionUser{ID: userID, Username: named, Email: strPtr(written)}
 	f.store.EXPECT().User(gomock.Any(), userID).Return(user, nil)
-	f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, written).Return(nil)
+	f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), userID, user.Email, written).Return(nil)
 	var renamed []string
 	f.auth.SetUserRenamed(func(_ context.Context, _ impulse.UUID, from, to string) error {
 		renamed = append(renamed, from+" -> "+to)
@@ -97,7 +97,7 @@ func TestAuth_claimCodeAddress_tellsARenameByTheKelvinSign(t *testing.T) {
 		return nil
 	})
 
-	if err := f.auth.claimCodeAddress(context.Background(), &pendingState{UserID: impulse.NullUUIDFromUUID(userID)}, written); err != nil {
+	if err := f.auth.claimCodeAddress(context.Background(), &pendingState{UserID: impulse.NullUUIDFromUUID(userID)}, user, written); err != nil {
 		t.Fatalf("claimCodeAddress() error = %v", err)
 	}
 	if len(renamed) != 1 || renamed[0] != named+" -> "+written {

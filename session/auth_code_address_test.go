@@ -100,7 +100,7 @@ func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 				f.store.EXPECT().ConsumePendingSignIn(gomock.Any(), pending.TokenHash).Return(httpio.NewNotFoundMessage("no live pending sign-in"))
 			}
 			if tt.wantWritten != "" {
-				f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, tt.wantWritten).Return(nil)
+				f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), userID, user.Email, tt.wantWritten).Return(nil)
 			}
 
 			_, err := f.auth.completeWithEmailCode(context.Background(), httptest.NewRecorder(), pending, "123456", false)

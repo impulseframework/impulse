@@ -364,6 +364,14 @@ type AuthStore[Tx any] interface {
 	// whose usernames are the addresses it is written as the username, renaming the
 	// user and its live sessions. An address another user holds is a Conflict.
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
+	// VerifyUserEmailIfHeld is VerifyUserEmail taken only while the user still holds
+	// held (nil: no address): the write of the address a mailed sign-in code proved,
+	// which is good only for the address the account held when the code was checked.
+	// The condition is part of the write itself, so a change of the address that
+	// commits between the check and the write is never written over. A user that
+	// holds another address by then, or none, or is gone, is a Conflict, as an
+	// address another user holds is, and nothing is written.
+	VerifyUserEmailIfHeld(ctx context.Context, id impulse.UUID, held *string, email string) error
 	// ClaimVerifiedEmail writes email on the user as verified when the user holds no
 	// verified address yet and no other user holds it, and reports whether it wrote:
 	// a Google sign-in's verified address. On a store whose usernames are the
@@ -769,6 +777,18 @@ func (a *Auth[Tx]) VerifyUserEmail(ctx context.Context, id impulse.UUID, email s
 
 	if err := a.db.VerifyUserEmail(ctx, id, email); err != nil {
 		return errors.Wrap(err, "db.VerifyUserEmail()")
+	}
+
+	return nil
+}
+
+// VerifyUserEmailIfHeld implements AuthStore.
+func (a *Auth[Tx]) VerifyUserEmailIfHeld(ctx context.Context, id impulse.UUID, held *string, email string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.VerifyUserEmailIfHeld(ctx, id, held, email); err != nil {
+		return errors.Wrap(err, "db.VerifyUserEmailIfHeld()")
 	}
 
 	return nil

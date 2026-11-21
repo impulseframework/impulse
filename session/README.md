@@ -1687,8 +1687,12 @@ How an address gets onto a user:
   (`AuthStore.SetUserEmail` with no address) ends, in the same transaction, the
   sign-in codes mailed for the account's sign-ins before it, so a code mailed before
   an administrator's change and entered after it is dead and writes nothing back; the
-  code for an address the person then gives at the step writes it. Nothing writes an
-  address onto an account unconfirmed after its creation.
+  code for an address the person then gives at the step writes it. A change that lands
+  while a code is being entered ends that code as well: the address a code confirms is
+  written only while the account still holds what it held before the code was used,
+  and a completion that finds it changed, or finds that another account took the
+  address, is refused (`code_expired`) with nothing written and nobody linked or
+  signed in. Nothing writes an address onto an account unconfirmed after its creation.
 - **A directory keeps its people's**: the address of a person with an identity linked
   through an organization's directory (`signin.Directory.Organization()`) is changed in
   the directory. Their own add and verify, an administrator's request and the
