@@ -965,6 +965,20 @@ func (r *rpcField) applyEnumeration(src enumerationSource) {
 	r.EnumerationValues = src.Values
 }
 
+// IsDecimal reports whether the request field is a decimal, or a list of decimals: the
+// metadata marks it beside its number display type, so a form sends what was typed as
+// text, which is what the field's JSON is.
+func (r *rpcField) IsDecimal() bool {
+	if r.IsEnumerated() {
+		return false
+	}
+	if r.wire != nil {
+		return r.wire.IsDecimal()
+	}
+
+	return isDecimalRow(r.typescriptType)
+}
+
 func (r *rpcField) TypescriptDisplayType() string {
 	if r.IsEnumerated() {
 		if r.isList() {
@@ -1180,6 +1194,19 @@ func (c *computedField) MirrorType() string {
 	}
 
 	return c.wire.MirrorType()
+}
+
+// IsDecimal reports whether the field is a decimal, or a list of decimals: the metadata
+// marks it beside its number display type, as a column's does (resourceField.IsDecimal).
+func (c *computedField) IsDecimal() bool {
+	if c.IsEnumerated {
+		return false
+	}
+	if c.wire != nil {
+		return c.wire.IsDecimal()
+	}
+
+	return isDecimalRow(c.typescriptType)
 }
 
 // TypescriptDisplayType is the field's display type in generated metadata: enumerated
@@ -1974,7 +2001,7 @@ func (f *resourceField) UnwrappedNullType() *string {
 // the NullBoolean value type), with [] for a list, or the final type a derived struct
 // or a declared type carries.
 func (f *resourceField) TypescriptDataType() string {
-	if f.typescriptDisplay != "" && !f.isDecimal() {
+	if f.typescriptDisplay != "" && !f.IsDecimal() {
 		return f.typescriptType
 	}
 	if f.IsNullable && f.typescriptType == booleanStr {
@@ -2002,11 +2029,19 @@ func (f *resourceField) TypescriptDisplayType() string {
 	return f.typescriptType
 }
 
-// isDecimal reports whether the column is the table's decimal row, or a list of it: the
+// IsDecimal reports whether the column is the table's decimal row, or a list of it: the
 // one built-in row that carries a display type of its own (number), where every other
-// field that carries one holds its final interface type already.
-func (f *resourceField) isDecimal() bool {
-	return f.tsImport == nil && strings.TrimSuffix(f.typescriptType, sliceSuffix) == decimalTSType
+// field that carries one holds its final interface type already. The metadata marks such
+// a field beside its display type, so a form sends what was typed as text and no digit
+// is lost to a floating-point number.
+func (f *resourceField) IsDecimal() bool {
+	return f.tsImport == nil && isDecimalRow(f.typescriptType)
+}
+
+// isDecimalRow reports whether a leaf, as the built-in table names it and with or without
+// the [] of a list, is the decimal row.
+func isDecimalRow(leaf string) bool {
+	return strings.TrimSuffix(leaf, sliceSuffix) == decimalTSType
 }
 
 // setColumnType records a column's resolved TypeScript type: the leaf's table type, or

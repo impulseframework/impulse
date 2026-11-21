@@ -69,6 +69,12 @@ export interface EnumerationOption {
 export interface RPCFieldMeta {
   fieldName: string;
   displayType: ValidRPCTypes;
+  /**
+   * Set on a decimal field, and on a list of decimals: its display type is number, which
+   * chooses the number control, and its value is text in JSON, so a form sends what the
+   * person typed as a string and no digit is lost.
+   */
+  decimal?: true;
   /** The resource whose rows a picker for this field lists; absent when the values are fixed (see enumeration). */
   enumeratedResource?: Resource;
   /** The fixed values of an enumeration table the field names; the picker renders them without a request. */
@@ -159,6 +165,15 @@ export interface FieldMeta {
   required: boolean;
   primaryKey?: { ordinalPosition: number };
   displayType: ValidDisplayTypes;
+  /**
+   * Set on a decimal field (a column of Spanner's NUMERIC type or PostgreSQL's numeric),
+   * and on a list of decimals. Its display type is number, which chooses the number
+   * control, and its value is text in JSON in both directions: a JavaScript number keeps
+   * about fifteen digits, and a decimal may hold more. A form sends what the person typed
+   * as a string, so no digit is lost. Absent on an integer and a float, which travel as
+   * JSON numbers. Emitted by the generator.
+   */
+  decimal?: true;
   /** The resource whose rows a picker for this key lists; absent when the values are fixed (see enumeration). */
   enumeratedResource?: Resource;
   /**

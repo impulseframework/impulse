@@ -362,10 +362,7 @@
           </mat-form-field>
         }
         @if (canEdit(mission, 'fee')) {
-          <mat-form-field appearance="outline">
-            <mat-label>Fee</mat-label>
-            <input matInput name="editFee" type="number" [(ngModel)]="editFee" />
-          </mat-form-field>
+          <impulse-resource-field [meta]="missionsMeta" [fieldConfig]="feeField" [form]="editFeeForm" />
         }
         @if (canEdit(mission, 'notes')) {
           <mat-form-field appearance="outline">

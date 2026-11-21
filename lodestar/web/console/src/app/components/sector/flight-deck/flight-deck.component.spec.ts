@@ -345,6 +345,15 @@ describe('FlightDeckComponent', () => {
     input.value = value;
     input.dispatchEvent(new Event('input'));
   };
+  /** The call sheet's Fee input: the library's number control, which carries no name of the deck's. */
+  const feeInput = (): HTMLInputElement | null =>
+    inDialog<HTMLInputElement>('impulse-resource-field impulse-number-field input[type="number"]');
+  /** Types into the call sheet's Fee field, as a person does. */
+  const typeFee = (value: string): void => {
+    const input = feeInput()!;
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+  };
   /** Opens one of the dialog's pickers and picks the option that reads `label`, as a person does. */
   const pick = async (name: string, label: string): Promise<void> => {
     inDialog(`mat-select[name="${name}"] .mat-mdc-select-trigger`)?.click();
@@ -998,13 +1007,44 @@ describe('FlightDeckComponent', () => {
     const before = reads('missions');
     await press('Edit call sheet');
 
-    expect(inDialog<HTMLInputElement>('input[name="editFee"]')?.value).toBe('900');
+    expect(feeInput()?.value).toBe('900');
 
-    type('editFee', '950.5');
+    typeFee('950.5');
     await send();
     await settle(() => !dialogOpen() && reads('missions') > before, 50);
 
     expect(writes()).toEqual([{ op: 'patch', path: `/sectors/${anvilID}/missions/m-1`, value: { fee: '950.5' } }]);
+  });
+
+  // The Fee field is the library's number control, and a fee is a decimal: what is sent is
+  // the text the person typed, not a number made from it. A number keeps about fifteen
+  // digits and drops a closing zero; the text keeps both.
+  it('Save sends a fee with every digit the person typed, more than a number holds', async () => {
+    await pageFor({ grants: marshal });
+    await openMission();
+    const before = reads('missions');
+    await press('Edit call sheet');
+
+    typeFee('12345678901234567.50');
+    await send();
+    await settle(() => !dialogOpen() && reads('missions') > before, 50);
+
+    expect(writes()).toEqual([
+      { op: 'patch', path: `/sectors/${anvilID}/missions/m-1`, value: { fee: '12345678901234567.50' } },
+    ]);
+  });
+
+  it('a Fee field emptied sends no fee', async () => {
+    await pageFor({ grants: marshal });
+    await openMission();
+    await press('Edit call sheet');
+
+    typeFee('');
+    await send();
+    await settle(() => !dialogOpen());
+
+    expect(dialogOpen()).toBe(false);
+    expect(writes()).toEqual([]);
   });
 
   it('Save with nothing changed closes the form and sends nothing', async () => {

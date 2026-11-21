@@ -10,23 +10,31 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { FormControl, FormGroup, FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
+import { MAT_FORM_FIELD_DEFAULT_OPTIONS, MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { MatTimepickerModule } from '@angular/material/timepicker';
-import { Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
+import { Methods, Missions as MissionNames, Permissions, Resources } from '@app/service/zz_gen_constants';
 import { MissionKind } from '@app/service/zz_gen_enums';
 import { CompleteMissionResult, methodMeta } from '@app/service/zz_gen_methods';
-import { MissionDocuments, Missions, Sorties, SortieExpenses, Workflows } from '@app/service/zz_gen_resources';
+import {
+  MissionDocuments,
+  Missions,
+  resourceMeta,
+  Sorties,
+  SortieExpenses,
+  Workflows,
+} from '@app/service/zz_gen_resources';
 import { ApiError, Method, MethodHandle, MethodMeta, Page, rowCapabilities } from '@impulseframework/resource';
-import { nameInWords } from '@impulseframework/resource-angular/types';
+import { ResourceFieldComponent } from '@impulseframework/resource-angular/resource';
+import { field, nameInWords } from '@impulseframework/resource-angular/types';
 import { openFormDialog } from '../form-dialog';
 import { SectorService, serverWords } from '../sector.service';
 import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.component';
@@ -165,10 +173,14 @@ const sortiesPerRead = 50;
     MatSelectModule,
     MatTableModule,
     MatTimepickerModule,
+    ResourceFieldComponent,
     WorkflowGraphComponent,
   ],
   templateUrl: './flight-deck.component.html',
   styleUrl: './flight-deck.component.scss',
+  // The deck's own fields are drawn outlined, and the library's control among them
+  // (the call sheet's Fee) is drawn the same way.
+  providers: [{ provide: MAT_FORM_FIELD_DEFAULT_OPTIONS, useValue: { appearance: 'outline' } }],
 })
 export class FlightDeckComponent {
   sectors = inject(SectorService);
@@ -290,7 +302,12 @@ export class FlightDeckComponent {
   editDeadlineDate: Date | null = null;
   editDeadlineTime: Date | null = null;
   editAssignedSquadronId = '';
-  editFee: number | null = null;
+  // The call sheet's Fee is the library's number control, drawn from the Missions
+  // metadata. A fee is a decimal, which the metadata marks: the control writes what the
+  // person typed into this form as text, so the save sends every digit of it.
+  missionsMeta = resourceMeta(Resources.Missions);
+  feeField = field({ name: MissionNames.fieldName.fee, label: 'Fee', cols: 12 });
+  editFeeForm = new FormGroup({ fee: new FormControl<string | null>(null) });
   // The server's refusal of the last call-sheet save, shown under the form.
   editRefusal = signal<string | undefined>(undefined);
   // The editable fields whose Update grant is conditional, named for the hint under the
@@ -460,7 +477,7 @@ export class FlightDeckComponent {
     this.editDeadlineDate = this.deadlineOf(mission);
     this.editDeadlineTime = this.deadlineOf(mission);
     this.editAssignedSquadronId = mission.assignedSquadronId ?? '';
-    this.editFee = this.feeOf(mission);
+    this.editFeeForm.reset({ fee: this.feeOf(mission) });
     this.open(form);
   }
 
@@ -758,11 +775,9 @@ export class FlightDeckComponent {
     return !('fee' in mission);
   }
 
-  /** The mission's fee as the Fee field holds it: a number, or nothing where the row carries no fee. */
-  private feeOf(mission: Missions): number | null {
-    if (this.feeMasked(mission)) return null;
-    const fee = Number(mission.fee);
-    return Number.isFinite(fee) ? fee : null;
+  /** The mission's fee as the Fee field holds it: the row's text, or nothing where the row carries no fee. */
+  private feeOf(mission: Missions): string | null {
+    return this.feeMasked(mission) ? null : (mission.fee ?? null);
   }
 
   overdue(mission: Missions): boolean {
@@ -889,10 +904,12 @@ export class FlightDeckComponent {
     ) {
       patch['assignedSquadronId'] = this.editAssignedSquadronId;
     }
-    // A fee is a decimal, and a decimal travels as a string that keeps every digit. The
-    // field opens with the mission's fee, so a fee is sent only when it was changed.
-    if (this.canEdit(mission, 'fee') && this.editFee !== null && this.editFee !== this.feeOf(mission)) {
-      patch['fee'] = String(this.editFee);
+    // A fee is a decimal, and a decimal travels as a string that keeps every digit: the
+    // text the Fee field holds. The field opens with the mission's fee, so a fee is sent
+    // only when it was changed.
+    const fee = this.editFeeForm.controls.fee.value;
+    if (this.canEdit(mission, 'fee') && fee !== null && fee !== this.feeOf(mission)) {
+      patch['fee'] = fee;
     }
     if (Object.keys(patch).length === 0) {
       // Nothing was changed, so nothing is sent.

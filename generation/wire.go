@@ -159,6 +159,12 @@ func (f *wireField) TypescriptDisplayType() string {
 	return base
 }
 
+// IsDecimal reports whether the field is the table's decimal row, or a list of it: a
+// string in the interface under the number display type, which the metadata marks.
+func (f *wireField) IsDecimal() bool {
+	return f.IsLeaf() && f.tsImport == nil && f.tsLeaf == decimalTSType
+}
+
 // sliceSuffix marks a TypeScript array type.
 const sliceSuffix = "[]"
 

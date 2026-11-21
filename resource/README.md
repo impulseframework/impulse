@@ -1653,9 +1653,14 @@ keeps every digit a floating-point number would round. So a decimal is `string` 
 generated interface, a row's, a write shape's (`MissionsCreate`, `MissionsPatch`), a
 method's request and result, a computed row's, and a struct nested in any of them, and a
 list of decimals is `string[]`. The metadata keeps the display type `number`, so a form
-draws the number control and a table prints the value as it arrives. A page that prints
-one formats the string, and a page that sends one sends the string: the quoted form is
-the one all three types read back.
+draws the number control and a table prints the value as it arrives, and it marks the
+field `decimal: true` beside the display type: on a column, a computed row's field and a
+method's request field, and on a list of decimals. An integer and a float carry no mark.
+The library's number control reads it: for a marked field it writes what the person typed
+into the form as text, so the string that is sent has every digit typed, and a field with
+no mark is written as a number. A page that prints a decimal formats the string, and a
+page of the application's own that sends one sends the string: the quoted form is the one
+all three types read back.
 
 **`json.RawMessage` on a Spanner column is refused.** The Spanner client types a named
 byte slice as `BYTES`, so a read of a `JSON` column through it fails with a type mismatch

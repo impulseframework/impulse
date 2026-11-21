@@ -131,6 +131,7 @@ export interface EnumerationOption {
 export interface RPCFieldMeta {
   fieldName: string;
   displayType: ValidRPCTypes;
+  decimal?: true;
   enumeratedResource?: Resource;
   enumeration?: EnumerationOption[];
 }
@@ -147,6 +148,7 @@ export interface FieldMeta {
   required: boolean;
   primaryKey?: { ordinalPosition: number };
   displayType: ValidDisplayTypes;
+  decimal?: true;
   enumeratedResource?: Resource;
   enumeration?: EnumerationOption[];
   isIndex: boolean;
