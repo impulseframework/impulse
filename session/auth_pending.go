@@ -102,7 +102,8 @@ func pendingTokenHash(ctx context.Context) ([]byte, bool) {
 
 // pending returns the browser's pending identity from ctx. It returns NotFound when
 // there is none, and a pending_expired refusal when its row is no longer live (expired,
-// completed, canceled or replaced).
+// completed, canceled or replaced). The identity it returns says an address is verified
+// only on the word the library keeps, whatever the row holds.
 func (a *Auth[S, U, Tx]) pending(ctx context.Context) (*pendingState, error) {
 	hash, ok := pendingTokenHash(ctx)
 	if !ok {
@@ -120,6 +121,9 @@ func (a *Auth[S, U, Tx]) pending(ctx context.Context) (*pendingState, error) {
 	if p.ConsumedAt != nil || !time.Now().Before(p.ExpiresAt) {
 		return nil, errPendingExpired()
 	}
+	// The row's identity is held to the answer a sign-in's is (onlyGoogleVouches): a
+	// row stored with another provider's word for the address is read without it.
+	p.Identity = *a.onlyGoogleVouches(p.Registration, &p.Identity)
 
 	return p, nil
 }
@@ -377,6 +381,13 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 // CompletePending finishes a pending identity after the application's MFA step. It
 // records the step-up events, links the identity if needed, starts the session, and
 // regenerates the session ID.
+//
+// stepUp names the application's own steps, each under a name of the application's
+// ("totp"). An event without a method, or under a method that records a step the
+// library runs itself (sessioninfo.MethodEmailCode, sessioninfo.MethodTrustedDevice,
+// an attestation's), is a BadRequest, and the pending identity stays as it was: the
+// mailed code is entered through Pending().VerifyCode() or VerifyEmailCode, which
+// record its event.
 //
 // The pending identity must wait for MFA (Conflict otherwise). It is consumed first, so
 // it completes once: a second completion finds it expired. The user is resolved again
