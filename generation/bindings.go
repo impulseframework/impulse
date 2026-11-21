@@ -1004,8 +1004,10 @@ func resolveSubjectSetAuths(resources []*resourceInfo, auths []string) error {
 			where := fmt.Sprintf("struct %s field %s: @%s(%s):", res.Name(), set.Anchor.Name(), subjectSetKeyword, set.Name)
 			switch {
 			case set.Auth == "" && len(auths) > 1:
-				errs = append(errs, errors.Newf("%s the application has several auths (%s), and a set describes the people of one; say whose people %s holds with %s: (%s: %s)",
-					where, strings.Join(auths, ", "), set.Anchor.Name(), subjectAuthArgKey, subjectAuthArgKey, auths[0]))
+				// The refusal lists the auths and picks none: a label pasted from it onto a
+				// set of another auth's people would pass generation.
+				errs = append(errs, errors.Newf("%s the application has several auths (%s), and a set describes the people of one; say whose people %s holds by adding %s: and that auth's name to the annotation",
+					where, strings.Join(auths, ", "), set.Anchor.Name(), subjectAuthArgKey))
 			case set.Auth != "" && len(auths) > 0 && !slices.Contains(auths, set.Auth):
 				errs = append(errs, errors.Newf("%s %s: names %s, which is no auth of the application; its auths are: %s", where, subjectAuthArgKey, set.Auth, strings.Join(auths, ", ")))
 			}

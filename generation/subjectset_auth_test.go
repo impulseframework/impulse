@@ -33,6 +33,9 @@ func TestResolveSubjectSetAuths(t *testing.T) {
 		want       map[string]string
 		wantRunErr []string
 		wantErr    []string
+		// notInErr are words the refusal must not say: a label it would pick for the
+		// author.
+		notInErr []string
 	}{
 		{
 			name:    "one auth and nothing written: the set names no auth",
@@ -58,8 +61,11 @@ func TestResolveSubjectSetAuths(t *testing.T) {
 			auths:   []string{"patrons", "staff"},
 			wantErr: []string{
 				"struct TeamMember field UserID: @subjectSet(teams): the application has several auths (patrons, staff), and a set describes the people of one",
-				"say whose people UserID holds with auth: (auth: patrons)",
+				"say whose people UserID holds by adding auth: and that auth's name to the annotation",
 			},
+			// The refusal lists the auths and picks none: a label pasted from the message
+			// onto a set of the other auth's people would pass generation.
+			notInErr: []string{"auth: patrons", "auth: staff"},
 		},
 		{
 			name:    "a name that is no auth of the application",
@@ -130,6 +136,11 @@ func TestResolveSubjectSetAuths(t *testing.T) {
 				for _, want := range tt.wantErr {
 					if !strings.Contains(err.Error(), want) {
 						t.Errorf("resolveSubjectSetAuths() error = %q, want it to contain %q", err.Error(), want)
+					}
+				}
+				for _, unwanted := range tt.notInErr {
+					if strings.Contains(err.Error(), unwanted) {
+						t.Errorf("resolveSubjectSetAuths() error = %q, want it not to contain %q", err.Error(), unwanted)
 					}
 				}
 
