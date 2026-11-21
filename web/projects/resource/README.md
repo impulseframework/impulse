@@ -260,7 +260,12 @@ or one per domain), loaded on demand and cached for the session.
   tenant; the handle's `can()` says whether the person may). `directoryOnlyState(api, tenant)`
   reads the switch as it stands (`GET <tenants>/<tenant>/directory-only`), asked under
   the grant of either method, which the tenant's administrator, who does not read the
-  tenant record, has no other way to see. Turning it on warns first: the method's
+  tenant record, has no other way to see. While the switch is off and the tenant has a
+  directory, the read says what turning it on takes of the person asking (`conditions`):
+  each in the sentence the server's refusal opens with (`sentence`), whether they meet it
+  (`met`), and what they do where they do not (`toDo`). A page shows these and writes
+  none of its own, so what it says before the person presses is what the server answers
+  a press with. Turning it on warns first: the method's
   metadata declares the word a person types (`warning: { typed: 'close' }`), and
   `make<Record>DirectoryOnly.warning({})` answers what it would do, in the server's
   words and with nothing saved: the sentence (`consequence`), the people who would lose

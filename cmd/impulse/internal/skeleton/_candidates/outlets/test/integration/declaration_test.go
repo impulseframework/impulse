@@ -179,10 +179,21 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 		return b.do(ctx, http.MethodPost, consoleAPI+"/tenants/"+tenant+"/"+method, []byte(`{}`))
 	}
+	// state reads the switch as it stands. What the read says turning it on takes of
+	// the reader (its conditions) is left out here: the library's own tests hold it.
 	state := func(b *browser, tenant string) (int, string) {
 		status, body := b.do(ctx, http.MethodGet, consoleAPI+"/tenants/"+tenant+"/directory-only", nil)
+		var read struct {
+			DirectoryOnly *bool `json:"directoryOnly"`
+		}
+		if status != http.StatusOK || json.Unmarshal(body, &read) != nil || read.DirectoryOnly == nil {
+			return status, strings.TrimSpace(string(body))
+		}
+		if *read.DirectoryOnly {
+			return status, `{"directoryOnly":true}`
+		}
 
-		return status, strings.TrimSpace(string(body))
+		return status, `{"directoryOnly":false}`
 	}
 	// warns asks the method that turns the switch on for its warning: what the call
 	// would do, in the server's words, with nothing saved.
