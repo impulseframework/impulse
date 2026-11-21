@@ -78,10 +78,16 @@ func (h *Handlers) UnlinkStaffSessionIdentity() http.HandlerFunc {
 				SetID(p.IdentityID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("StaffSessionIdentity", p.IdentityID)
+				}
+
 				return errors.Wrap(err, "staffresources.StaffSessionIdentityQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("StaffSessionIdentity %s does not exist", p.IdentityID)
+				return resource.TargetNotFound("StaffSessionIdentity", p.IdentityID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant

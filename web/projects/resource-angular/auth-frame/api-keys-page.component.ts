@@ -11,13 +11,13 @@ import { TokensComponent } from '@impulseframework/resource-angular/tokens';
   imports: [TokensComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="api-keys">
+    <section class="impulse-api-keys-page-content">
       <h1>Your API keys</h1>
       <impulse-tokens />
     </section>
   `,
   styles: `
-    .api-keys {
+    .impulse-api-keys-page-content {
       padding: 24px 8px;
     }
     h1 {
