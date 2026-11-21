@@ -60,7 +60,7 @@ const (
 	openSignUpRoute     = consoleAPI + "/open-crew-sign-up"
 	makeInviteOnlyRoute = consoleAPI + "/make-crew-invite-only"
 	// signUpClosed is the create-sector route's answer while every method is invite only.
-	signUpClosed = "sign-up is not open, so you cannot create a sector of your own: ask an administrator of the application to create one for you, or to invite you to one"
+	signUpClosed = "Sign-up is not open, so you cannot create a sector of your own. Ask an administrator of the application to create one for you, or to invite you to one."
 
 	// chartEmber is the create-sector body: the record's fields without its key, which
 	// the route generates.
@@ -69,7 +69,7 @@ const (
 	chartEmberAgain = `{"name":"Ember Two","region":"Near frontier","established":"2226-10-21"}`
 	// secondSectorRefused is the create-sector route's answer to a person who holds a
 	// sector already.
-	secondSectorRefused = "the session already holds a sector; a person creates one sector and becomes its administrator"
+	secondSectorRefused = "You already hold a role in a sector, so you cannot create a sector of your own."
 
 	// atOnceWithin bounds each wait of the test that sends two creations at once: for a
 	// request to reach its body, and for its answer once the body is let go, which waits

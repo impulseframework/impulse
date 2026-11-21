@@ -476,6 +476,9 @@ type domainGuardData struct {
 	LocalPackageImports string
 	ApplicationName     string
 	ReceiverName        string
+	// Word is what the guard's 404 calls one tenant: the tenant record's label where it
+	// declares one, else its name in words, in lower case ("sector", "ship class").
+	Word string
 	// ConcealedDomains adds the caller's foothold (HasGrants) to the guard's question
 	// after the roster and the session's reach, collapsing "unauthorized" into
 	// "nonexistent" (WithConcealedDomains).
