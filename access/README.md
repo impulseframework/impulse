@@ -400,15 +400,26 @@ separate roles. Grouping is the engine's job: within one
 `CheckUserResources` call, a Conditional decision's
 `ConditionGroup.Resources` lists every checked resource sharing that
 covering-grant set, the same group appearing in each member's Decision —
-deduplicate by sorted-Resources equality. Conditions never attach to
-scope-wide grants (there is no row for them to see — rejected at snapshot
-load; interim — this narrows to row-referencing conditions once the
-condition package classifies row-free, with environment/subject-only
-conditions folding at check time), so `CheckUser` never answers
-`Conditional`. Nothing authors
-conditions yet (the expression language is undesigned), so in practice every
-Decision is `Granted` or `Denied` and an empty `Environment` is the normal
-argument.
+deduplicate by sorted-Resources equality.
+
+A scope-wide grant has no row for a condition to see, so the only condition
+one can carry is about the time of the request (`now < '2027-03-01T00:00:00Z'`).
+No write gives a scope-wide grant a condition: `AddRolePermission` takes none,
+and a role file's grant always names a resource. One that has a condition is a
+row put straight in the store. At snapshot load, a scope-wide grant whose
+condition reads a row is left out and reported as a `*access.SkippedGrant`,
+like any other grant the release cannot use; one whose condition reads only the
+time is kept and settled at check time against the `Environment`. So
+`CheckUser` and `CheckRole` answer `Granted` or `Denied`, never `Conditional`.
+A scope-wide check that cannot settle a condition is a check error, never a
+guess: the condition reads `now` and the `Environment` carries no instant, or
+it compares the time to a subject value, which only the database can read.
+
+A role file's grant on a resource carries a condition (`Condition`), so
+`CheckUserResources` and `CheckRoleResources` do answer `Conditional`. A
+condition that reads `now` is settled against the instant the `Environment`
+carries (`accesstypes.EnvironmentAt`, or `WithNow`), sampled once per request;
+without one the check is an error.
 
 The role checks are the same seams evaluated against a role's effective
 grants — its own and, transitively, every role it inherits — with no member

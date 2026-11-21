@@ -197,11 +197,11 @@ func (c *Client) CheckPolicy(ctx context.Context) ([]Warning, error) {
 // condition referencing an attribute the Environment does not carry is a
 // check error, never a silent allow or deny. The answer here is always
 // Granted or Denied: a scope-wide grant carries only row-free conditions
-// (row-referencing ones are rejected at snapshot load — no row exists for
-// them to see), and row-free conditions fold to a definite answer. A
-// condition folding leaves unsettled — a subject-attribute reference, which
-// is data only the database can compare — is a check error too: there is no
-// place to evaluate it on this path.
+// (a row-referencing one is left out at snapshot load and reported as a
+// SkippedGrant — no row exists for it to see), and row-free conditions fold
+// to a definite answer. A condition folding leaves unsettled — a
+// subject-attribute reference, which is data only the database can compare —
+// is a check error too: there is no place to evaluate it on this path.
 //
 // There is no scope validation: an unknown tenant simply holds no grants, so
 // the check fails closed. Callers wanting to distinguish "invalid tenant"
