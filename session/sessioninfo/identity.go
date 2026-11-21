@@ -38,21 +38,25 @@ const (
 	MethodApplication AuthMethod = "application"
 	// MethodEmailCode records the library's own second factor: a one-time code mailed
 	// to the user's address and entered at the pending step (Pending().SendCode() and
-	// VerifyCode()). It has no connection.
+	// VerifyCode()). It has no connection. Only the library records it: an event under
+	// it that an application reports is refused.
 	MethodEmailCode AuthMethod = "email-code"
 	// MethodTrustedDevice records that a browser the person asked to be remembered
 	// after a second factor stood in for it: the trusted device cookie named a live
-	// device of the user. It has no connection.
+	// device of the user. It has no connection. Only the library records it: an event
+	// under it that an application reports is refused.
 	MethodTrustedDevice AuthMethod = "trusted-device"
 	// MethodAttestedByEvidence records that the identity provider attested to a second
 	// factor in the sign-in's token (an amr claim naming mfa): the provider ran one at
 	// this sign-in. Its connection is the sign-in's and IDPAMR what the provider
-	// asserted.
+	// asserted. Only the library records it: an event under it that an application
+	// reports is refused.
 	MethodAttestedByEvidence AuthMethod = "attested-by-evidence"
 	// MethodAttestedByDeclaration records that the registration declares the sign-in's
 	// connection as a directory that enforces a second factor (Attesting() on the
 	// Google and Entra organization slots): the application administers the directory
-	// and vouches for it. Its connection is the sign-in's.
+	// and vouches for it. Its connection is the sign-in's. Only the library records
+	// it: an event under it that an application reports is refused.
 	MethodAttestedByDeclaration AuthMethod = "attested-by-declaration"
 )
 

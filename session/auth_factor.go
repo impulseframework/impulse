@@ -871,13 +871,15 @@ func (p *AuthAPI[S, U, Tx]) EnrollEmail(ctx context.Context, email string) error
 	return nil
 }
 
-// VerifyEmailCode completes the pending identity when code is the one sent, as
-// CompletePending does with an email-code event, and returns the session's id; with
-// rememberDevice the browser is remembered as a trusted device of the user. A wrong
-// code is a *sessioninfo.LoginRefusal carrying RefusedInvalidCode and leaves the code
-// standing with one fewer attempt; a code that expired, was used or took its last
-// attempt, or entered before one was sent, is one carrying RefusedCodeExpired. If the
-// sign-in must wait again, the error is a *signin.PendingSignInError.
+// VerifyEmailCode completes the pending identity when code is the one sent, recording
+// the email-code event itself (CompletePending takes no such event from an
+// application), and returns the session's id; with rememberDevice the browser is
+// remembered as a trusted device of the user. A wrong code is a
+// *sessioninfo.LoginRefusal carrying RefusedInvalidCode and leaves the code standing
+// with one fewer attempt; a code that expired, was used, took its last attempt or was
+// mailed to an address the account no longer holds, or entered before one was sent, is
+// one carrying RefusedCodeExpired. If the sign-in must wait again, the error is a
+// *signin.PendingSignInError.
 func (p *AuthAPI[S, U, Tx]) VerifyEmailCode(ctx context.Context, w http.ResponseWriter, code string, rememberDevice bool) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

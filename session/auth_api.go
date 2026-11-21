@@ -55,6 +55,11 @@ func (p *AuthAPI[S, U, Tx]) ValidateCredentials(ctx context.Context, username, p
 // CompletePending to finish. There is no session start that skips the policy: a support
 // session is StartImpersonatedSession.
 //
+// events names the application's own steps, each under a name of the application's
+// ("magic-link"). An event without a method, or under a method that records a step the
+// library runs itself (sessioninfo.MethodEmailCode, sessioninfo.MethodTrustedDevice,
+// an attestation's), is a BadRequest, and nothing is started.
+//
 // An event with a zero At records the session's creation time. Optional customData
 // (at most one *S) is written atomically with the session insert, and the custom
 // session data resolver is not called for it; without it the resolver receives

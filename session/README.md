@@ -180,7 +180,11 @@ DML what a later rule must read.
   `signin.RequireMFA(factors...)`. The factors are the methods the step may record
   when it completes the sign-in: the library's own, `sessioninfo.MethodEmailCode`, or
   the application's (`"totp"`); the pending status and the `PendingHook` report them,
-  and `CompletePending` refuses any other; none accepts any. A `RequireMFA` is
+  and `CompletePending` refuses any other; none accepts any. The library's own steps
+  are recorded by the library alone: `CompletePending` and `StartAuthenticatedSession`
+  refuse an event under `email-code`, `trusted-device` or an attestation's method
+  (`400`), whatever the factors, and an application reports its step under a name of
+  its own. A `RequireMFA` is
   satisfied without a step by a second factor the sign-in already carries: the
   attestation its connection makes, or a trusted device of the user; see "The second
   factor". An application whose users belong to tenants sets the library's
@@ -1182,7 +1186,10 @@ the person reaches.
    (`enrollEmail`); the page posts to `Pending().SendCode()`, which mails the user a
    six-digit code good for `WithEmailCodeTimeout` (10 minutes), then
    `{"code", "rememberDevice"}` to `Pending().VerifyCode()`, which completes the
-   sign-in as `CompletePending` does with an `email-code` event, in a new session. A
+   sign-in in a new session and records the `email-code` event itself. Only the
+   library records that event: an application's `CompletePending` with an `email-code`
+   event is refused, since the event is the library's proof that the code it mailed
+   was entered. A
    wrong code is `401 {"code": "invalid_code"}` and the code stands with one fewer
    attempt; the fifth wrong code kills it, as its expiry does, and a code entered while
    none stands (none sent, or the one sent died) is `401 {"code": "code_expired"}`, so
@@ -1268,7 +1275,9 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   makes (`attested-by-evidence`, `attested-by-declaration`), then any
   `link-confirmation`, `trusted-device` and MFA steps (`email-code`, or the
   application's own). `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
-  application authenticated itself, recording its events; it is decided like a login:
+  application authenticated itself, recording its events, which name steps of its own
+  (an event under `email-code`, `trusted-device` or an attestation's method, which the
+  library records itself, is refused); it is decided like a login:
   the sign-in policy answers, a Deny refuses it and a RequireMFA holds it as a pending
   identity. No session start skips the policy; a support session is an impersonation.
 - **Role synchronization** (Azure, Google) reconciles the roles of the user the

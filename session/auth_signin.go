@@ -1097,15 +1097,32 @@ func identityEvents(identity *sessioninfo.Identity) []sessioninfo.AuthEvent {
 	return events
 }
 
-// validateEvents refuses an auth event without a method.
+// validateEvents refuses an auth event an application may not report: one without a
+// method, and one under a method that records a step the library runs itself
+// (recordsTheLibrarysStep). An application reports its own step under a name of its
+// own.
 func validateEvents(events []sessioninfo.AuthEvent) error {
 	for _, e := range events {
 		if e.Method == "" {
 			return httpio.NewBadRequestMessage("an auth event needs a method")
 		}
+		if recordsTheLibrarysStep(e.Method) {
+			return httpio.NewBadRequestMessagef("an auth event under %q reports a step the library runs and records itself: "+
+				"report the application's own step under a name of its own, and have the mailed code entered through Pending().VerifyCode() or AuthAPI.VerifyEmailCode()", e.Method)
+		}
 	}
 
 	return nil
+}
+
+// recordsTheLibrarysStep reports whether an event under method records a step the
+// library runs itself: the mailed code, a remembered browser standing in for it, or the
+// attestation of the sign-in's connection. The library's rules read those events as
+// its own proof: the mailed code's event is what links a first sign-in made on a name
+// alone and what answers the hold for an unconfirmed address, and each of them answers
+// a sign-in policy's second factor. Only the library records them.
+func recordsTheLibrarysStep(method sessioninfo.AuthMethod) bool {
+	return method == sessioninfo.MethodEmailCode || method == sessioninfo.MethodTrustedDevice || method.Attests()
 }
 
 // shared returns the API methods every session type shares, over this session's fields.
