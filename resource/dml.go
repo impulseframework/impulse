@@ -76,15 +76,7 @@ type Columns string
 
 // Config holds database-specific configuration for a resource.
 type Config struct {
-	ChangeTrackingTable string
-	TrackChanges        bool
-}
-
-// SetChangeTrackingTable returns a new Config with the change tracking table name set.
-func (c Config) SetChangeTrackingTable(changeTrackingTable string) Config {
-	c.ChangeTrackingTable = changeTrackingTable
-
-	return c
+	TrackChanges bool
 }
 
 // SetTrackChanges returns a new Config with the change tracking flag set.

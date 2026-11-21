@@ -731,9 +731,6 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context
 		EventSource: eventSource,
 		ChangeSet:   spanner.NullJSON{Valid: true, Value: changeSet},
 	}
-	if err != nil {
-		return errors.Wrap(err, "spanner.InsertStruct()")
-	}
 
 	if err := txn.BufferStruct(event); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.BufferStruct()")

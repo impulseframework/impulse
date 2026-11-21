@@ -438,10 +438,9 @@ func permissionsFromFieldTags(fields []FieldTags, perms []accesstypes.Permission
 
 // Metadata contains cached metadata about a resource, such as its database schema mapping and configuration.
 type Metadata[Resource Resourcer] struct {
-	dbMap               map[DBType]map[accesstypes.Field]dbFieldMetadata
-	dbFields            map[DBType][]accesstypes.Field
-	changeTrackingTable string
-	trackChanges        bool
+	dbMap        map[DBType]map[accesstypes.Field]dbFieldMetadata
+	dbFields     map[DBType][]accesstypes.Field
+	trackChanges bool
 	// fileKeys are the fields holding a stored file's key (the generated FileKeys):
 	// the patch machinery reads their old values on a delete and on a write that sets
 	// one, and records the released objects on the transaction.
@@ -477,15 +476,14 @@ func NewMetadata[Resource Resourcer]() *Metadata[Resource] {
 	c := resMetadataCache.get(res)
 
 	return &Metadata[Resource]{
-		dbMap:               c.dbMap,
-		dbFields:            c.dbFields,
-		changeTrackingTable: c.cfg.ChangeTrackingTable,
-		trackChanges:        c.cfg.TrackChanges,
-		fileKeys:            c.fileKeys,
-		searchBranches:      c.searchBranches,
-		secrets:             c.secrets,
-		secretContext:       c.secretContext,
-		deleteTree:          c.deleteTree,
+		dbMap:          c.dbMap,
+		dbFields:       c.dbFields,
+		trackChanges:   c.cfg.TrackChanges,
+		fileKeys:       c.fileKeys,
+		searchBranches: c.searchBranches,
+		secrets:        c.secrets,
+		secretContext:  c.secretContext,
+		deleteTree:     c.deleteTree,
 	}
 }
 
