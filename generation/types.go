@@ -1354,7 +1354,8 @@ type resourceInfo struct {
 	ValidateDeleteType string
 	// deleteCascade is the resource's @deleteCascade as written, nil where it declares
 	// none, and DeleteTree the description resolved from it once every resource is
-	// extracted (resolveDeleteTrees), which the tenant record has with no declaration.
+	// extracted (resolveDeleteTrees), which the tenant record has with no declaration,
+	// and so has any record with a kind of row under it that refuses its plain delete.
 	deleteCascade *deleteCascadeDecl
 	DeleteTree    *deleteTree
 	// EnumerationType names the @enumerate type whose table this struct backs. Such a

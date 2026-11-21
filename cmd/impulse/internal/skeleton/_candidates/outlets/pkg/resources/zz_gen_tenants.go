@@ -68,6 +68,19 @@ func (Tenant) DeleteTree() *resource.DeleteTree {
 				},
 			},
 		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "TenantDirectories",
+				Words:    resource.DeleteWords{One: "tenant directory", Many: "tenant directories"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+			},
+		},
 	}
 }
 

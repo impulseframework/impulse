@@ -44,8 +44,10 @@ func link(column, table string) deleteLink {
 
 // Test_deleteCascade_description pins the description the generator writes for a record
 // that declares what its delete takes: the kinds taken in delete order, deepest first,
-// each with its ways up to the record and what a row's delete costs, and the kinds that
-// refuse the delete.
+// each with its ways up to the record and what a row's delete costs, the kinds that
+// refuse the delete, and the kinds with a row directly under the record that the
+// database does not remove with it. A record that declares nothing has a description
+// of those last kinds alone, and a record with no such kind has none.
 func Test_deleteCascade_description(t *testing.T) {
 	t.Parallel()
 
@@ -78,14 +80,43 @@ func Test_deleteCascade_description(t *testing.T) {
 				Paths: [][]deleteLink{{link("ClientId", "Clients")}},
 			},
 		},
+		Under: []*deleteKind{
+			{
+				Name: "Invoice", Table: "Invoices", One: "invoice", Many: "invoices", Key: []string{"Id"},
+				Paths: [][]deleteLink{{link("ClientId", "Clients")}},
+			},
+			{
+				Name: "Project", Table: "Projects", One: "project", Many: "projects", Key: []string{"Id"},
+				Paths: [][]deleteLink{{link("ClientId", "Clients")}},
+			},
+		},
 	}
 	if diff := cmp.Diff(want, client.DeleteTree); diff != "" {
 		t.Fatalf("Client's description mismatch (-want +got):\n%s", diff)
 	}
 
-	for _, name := range []string{"Project", "Invoice", "Supplier"} {
+	// A project declares nothing: its description is the kinds that refuse its plain
+	// delete, its tasks and the notes interleaved in it with no delete declared.
+	wantProject := &deleteTree{
+		Record: &deleteKind{Name: "Project", Table: "Projects", One: "project", Many: "projects", Key: []string{"Id"}},
+		Under: []*deleteKind{
+			{
+				Name: "ProjectNote", Table: "ProjectNotes", One: "project note", Many: "project notes", Key: []string{"Id", "Sequence"},
+				Paths: [][]deleteLink{{link("Id", "Projects")}},
+			},
+			{
+				Name: "Task", Table: "Tasks", One: "task", Many: "tasks", Key: []string{"Id"}, IndexEntries: 1,
+				Paths: [][]deleteLink{{link("ProjectId", "Projects")}},
+			},
+		},
+	}
+	if diff := cmp.Diff(wantProject, byName["Project"].DeleteTree); diff != "" {
+		t.Errorf("Project's description mismatch (-want +got):\n%s", diff)
+	}
+
+	for _, name := range []string{"Invoice", "Supplier", "Ledger", "TaskComment"} {
 		if byName[name].DeleteTree != nil {
-			t.Errorf("%s has a description, though it declares no @%s and is no tenant record", name, deleteCascadeKeyword)
+			t.Errorf("%s has a description, though it declares no @%s, is no tenant record and has no kind of row under it", name, deleteCascadeKeyword)
 		}
 	}
 
@@ -108,6 +139,7 @@ func Test_deleteCascade_description(t *testing.T) {
 		`{Columns: []string{"TaskId"}, Table: "Tasks", References: []string{"Id"}},`,
 		`{Columns: []string{"Id"}, Table: "Projects", References: []string{"Id"}},`,
 		"RefusedBy: []resource.DeleteKind{",
+		"Under: []resource.DeleteKind{",
 	} {
 		if !strings.Contains(rendered, wantLine) {
 			t.Errorf("rendered Client is missing %q", wantLine)
@@ -120,6 +152,141 @@ func Test_deleteCascade_description(t *testing.T) {
 	project := strings.Index(rendered, `Resource: "Projects",`)
 	if comment < 0 || task < comment || project < task {
 		t.Errorf("rendered Client lists its taken kinds out of delete order: TaskComments at %d, Tasks at %d, Projects at %d", comment, task, project)
+	}
+}
+
+// Test_kindsUnder pins which kinds refuse a record's plain delete, over a schema where
+// the database removes some rows itself: a kind the database removes with the record is
+// not one, whether by a foreign key that says so or by an interleave that does while a
+// foreign key on the same columns says nothing; a kind under the record by a link the
+// database does not follow is one, and carries the tables its rows go with at the
+// database; a row under a row of its own kind is one, unless the database follows a
+// link of the table to itself; a table no resource declares is left out; and a
+// read-only table (@enumerate) gets no description, whatever is under it.
+func Test_kindsUnder(t *testing.T) {
+	t.Parallel()
+
+	c, byName := deleteFixtureResources(t)
+	for _, res := range byName {
+		res.deleteCascade, res.DeleteTree = nil, nil
+	}
+	byName["Supplier"].EnumerationType = "SupplierKind"
+
+	to := func(column, table, rule string) foreignKeyMeta {
+		return foreignKeyMeta{Name: "FK_" + column, Columns: []string{column}, ReferencedTable: table, ReferencedColumns: []string{"Id"}, DeleteRule: rule}
+	}
+	const refuses = "NO ACTION"
+	tables := deleteFixtureTables()
+	// A project names its client and its supplier, and the database follows neither.
+	tables["Projects"].ForeignKeys = []foreignKeyMeta{to("ClientId", "Clients", refuses), to("SupplierId", "Suppliers", refuses)}
+	// A task goes with its project and with the task it is a part of, and names a task
+	// that blocks it.
+	tables["Tasks"].ForeignKeys = []foreignKeyMeta{
+		to("ProjectId", "Projects", cascadeDeleteAction), to("ParentTaskId", "Tasks", cascadeDeleteAction), to("BlockedById", "Tasks", refuses),
+	}
+	// A note is interleaved in its project with the delete declared, and holds a
+	// foreign key on the same column that says nothing of one.
+	tables["ProjectNotes"].OnDeleteCascade = true
+	tables["ProjectNotes"].ForeignKeys = []foreignKeyMeta{to("Id", "Projects", refuses)}
+	// An invoice names its client, and goes with its project.
+	tables["Invoices"].ForeignKeys = []foreignKeyMeta{to("ClientId", "Clients", refuses), to("ProjectId", "Projects", cascadeDeleteAction)}
+	// A ledger can be under another ledger.
+	tables["Ledgers"].ForeignKeys = []foreignKeyMeta{to("ParentId", "Ledgers", refuses)}
+	// Receipts name a client, and no resource declares the table.
+	tables["Receipts"] = &tableMetadata{PkCount: 1, ForeignKeys: []foreignKeyMeta{to("ClientId", "Clients", refuses)}, Columns: map[string]columnMeta{"Id": {IsPrimaryKey: true}}}
+	c.tableMap = tables
+
+	if err := c.resolveDeleteTrees(resourceList(byName)); err != nil {
+		t.Fatalf("resolveDeleteTrees() error = %v", err)
+	}
+
+	type kindUnder struct {
+		Table       string
+		Paths       [][]deleteLink
+		RemovedWith []string
+	}
+	want := map[string][]kindUnder{
+		"Client": {
+			{Table: "Invoices", Paths: [][]deleteLink{{link("ClientId", "Clients")}}, RemovedWith: []string{"Projects"}},
+			{Table: "Projects", Paths: [][]deleteLink{{link("ClientId", "Clients")}}},
+		},
+		"Task":   {{Table: "TaskComments", Paths: [][]deleteLink{{link("TaskId", "Tasks")}}}},
+		"Ledger": {{Table: "Ledgers", Paths: [][]deleteLink{{link("ParentId", "Ledgers")}}}},
+	}
+	got := make(map[string][]kindUnder)
+	for name, res := range byName {
+		if res.DeleteTree == nil {
+			continue
+		}
+		if len(res.DeleteTree.Taken)+len(res.DeleteTree.RefusedBy) != 0 {
+			t.Errorf("%s declares nothing, and its description lists kinds taken or refusing", name)
+		}
+		for _, kind := range res.DeleteTree.Under {
+			got[name] = append(got[name], kindUnder{Table: kind.Table, Paths: kind.Paths, RemovedWith: kind.RemovedWith})
+		}
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("the kinds under each record mismatch (-want +got):\n%s", diff)
+	}
+
+	r := &resourceGenerator{client: c}
+	output, err := r.generateTemplateOutput("resourceFileTemplate", resourceFileTemplate, &resourceFileData{
+		Source:   "fixture",
+		Package:  "resources",
+		Resource: byName["Client"],
+	})
+	if err != nil {
+		t.Fatalf("generateTemplateOutput() error = %v", err)
+	}
+	rendered := string(output)
+	for _, wantLine := range []string{
+		"// DeleteTree describes what keeps a Client from being deleted:",
+		"func (Client) DeleteTree() *resource.DeleteTree {",
+		"Under: []resource.DeleteKind{",
+		`RemovedWith: []string{"Projects"},`,
+	} {
+		if !strings.Contains(rendered, wantLine) {
+			t.Errorf("rendered Client is missing %q", wantLine)
+		}
+	}
+	for _, unwanted := range []string{"Taken: []resource.DeleteKind{", "RefusedBy: []resource.DeleteKind{"} {
+		if strings.Contains(rendered, unwanted) {
+			t.Errorf("rendered Client holds %q, though it declares nothing", unwanted)
+		}
+	}
+}
+
+// Test_removedWith pins the tables whose row's delete makes the database remove a
+// table's rows: every table up from it by links the database follows, however many
+// steps, the table itself where a row goes with the row of its own kind it is under,
+// and no table reached by a link the database does not follow.
+func Test_removedWith(t *testing.T) {
+	t.Parallel()
+
+	followed := func(column, table string) deleteLink {
+		l := link(column, table)
+		l.Cascades = true
+
+		return l
+	}
+	cascading := map[string][]deleteLink{
+		"Expenses": {followed("SortieId", "Sorties")},
+		"Sorties":  {followed("MissionId", "Missions")},
+		"Missions": {followed("SectorId", "Sectors")},
+	}
+	self := map[string][]deleteLink{
+		"Expenses": {followed("SplitFromId", "Expenses")},
+		"Sorties":  {link("RepeatsId", "Sorties")},
+	}
+
+	if diff := cmp.Diff([]string{"Expenses", "Missions", "Sectors", "Sorties"}, removedWith(cascading, self, "Expenses")); diff != "" {
+		t.Errorf("removedWith(Expenses) mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"Missions", "Sectors"}, removedWith(cascading, self, "Sorties")); diff != "" {
+		t.Errorf("removedWith(Sorties) mismatch (-want +got):\n%s", diff)
+	}
+	if got := removedWith(cascading, self, "Sectors"); len(got) != 0 {
+		t.Errorf("removedWith(Sectors) = %v, want none", got)
 	}
 }
 
@@ -320,7 +487,8 @@ func Test_tenantDeleteTree(t *testing.T) {
 // Test_tableMetadata_foreignKeys pins how the schema read keeps a table's foreign keys
 // whole: a key of two columns is one key with its columns in order, two keys to one
 // table stay two, and a key whose referenced columns the read could not match has no
-// referenced table, so nothing follows it.
+// referenced table, so nothing follows it. A key declared ON DELETE CASCADE is a step
+// the database follows.
 func Test_tableMetadata_foreignKeys(t *testing.T) {
 	t.Parallel()
 
@@ -356,7 +524,7 @@ func Test_tableMetadata_foreignKeys(t *testing.T) {
 	c := &client{tableMap: map[string]*tableMetadata{"Ships": table, "Hangars": {Columns: map[string]columnMeta{}}}}
 	wantLinks := []deleteLink{
 		{Columns: []string{"AwayHangarId"}, Table: "Hangars", References: []string{"Id"}},
-		{Columns: []string{"TenantId", "HomeHangarId"}, Table: "Hangars", References: []string{"TenantId", "Id"}},
+		{Columns: []string{"TenantId", "HomeHangarId"}, Table: "Hangars", References: []string{"TenantId", "Id"}, Cascades: true},
 	}
 	if diff := cmp.Diff(wantLinks, c.schemaLinks()["Ships"]); diff != "" {
 		t.Errorf("schemaLinks() mismatch (-want +got):\n%s", diff)

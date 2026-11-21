@@ -577,6 +577,7 @@ func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTran
 	if err := txn.BufferMap(p, patch); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.Buffer()")
 	}
+	p.recordWrittenRow(txn)
 
 	if p.querySet.rMeta.trackChanges {
 		if err := p.bufferUpdateWithDataChangeEvent(ctx, txn, event); err != nil {
@@ -615,6 +616,7 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 	if err := txn.BufferMap(p, patch); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.Buffer()")
 	}
+	p.recordWrittenRow(txn)
 
 	if p.querySet.rMeta.trackChanges {
 		if err := p.bufferInsertOrUpdateWithDataChangeEvent(ctx, txn, event); err != nil {
@@ -669,6 +671,8 @@ func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTran
 	if err := txn.BufferMap(p, nil); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.Buffer()")
 	}
+	// What is under the record is counted before the commit (recordDelete).
+	p.recordDelete(ctx, txn)
 
 	if p.querySet.rMeta.trackChanges {
 		if err := p.bufferDeleteWithDataChangeEvent(ctx, txn, event); err != nil {

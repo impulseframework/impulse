@@ -825,27 +825,32 @@ export class ResourceListComponent implements OnInit {
   /**
    * Asks before a row leaves the list, then deletes it through the write resource. The
    * question names the row by its own name where the config reads one off the row
-   * (`rowTitle`), and the list by its title.
+   * (`rowTitle`), and the list by its title. The dialog is handed the delete and runs it
+   * when the person says so, so a delete the server refuses is answered in the dialog, in
+   * the server's words.
    */
   confirmDeleteRow(row: RecordData): void {
     const config = this.config();
-    const data: DeleteConfirmation = { name: config.rowTitle?.(row), from: config.title, inList: true };
-    const dialogRef = this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
-    dialogRef.afterClosed().subscribe((confirmed) => {
-      if (confirmed === true) {
-        this.deleteRow(row);
-      }
-    });
+    const data: DeleteConfirmation = {
+      name: config.rowTitle?.(row),
+      from: config.title,
+      inList: true,
+      delete: () => this.deleteRow(row),
+    };
+    this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
   }
 
   /**
    * Deletes one row through the write resource, lifting the key fields the row carries
-   * under the table's names — the compound key an association view carries whole.
+   * under the table's names — the compound key an association view carries whole. The
+   * list's page is read again once the row is gone. A delete the server refuses rejects
+   * with the client's `ApiError`, for whoever asked to show.
    */
-  deleteRow(row: RecordData): void {
+  deleteRow(row: RecordData): Promise<void> {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(row));
-    void this.store.apply([operation], `${this.store.resourceName()} deleted successfully`).then(() => {
+
+    return this.store.apply([operation], `${this.store.resourceName()} deleted successfully`).then(() => {
       this.store.reloadPage();
     });
   }

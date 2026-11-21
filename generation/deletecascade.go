@@ -3,6 +3,7 @@ package generation
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -73,6 +74,10 @@ type deleteLink struct {
 	Columns    []string
 	Table      string
 	References []string
+	// Cascades marks a step the database follows on a delete: the row goes with the
+	// row it is under (a foreign key or an interleave declared ON DELETE CASCADE).
+	// It is no part of what makes two links the same step (equal).
+	Cascades bool
 }
 
 // from spells the link from the table it leaves: "Tasks.ProjectId to Projects.Id".
@@ -96,6 +101,9 @@ type deleteKind struct {
 	// the delete itself.
 	IndexEntries int
 	Files        int
+	// RemovedWith is the tables whose row's delete makes the database remove rows of
+	// the kind (removedWith). It is written for the kinds under Under alone.
+	RemovedWith []string
 }
 
 // depth is the kind's longest way up to the record, in steps. A kind is always deeper
@@ -117,6 +125,9 @@ type deleteTree struct {
 	// Taken is in delete order: deepest first.
 	Taken     []*deleteKind
 	RefusedBy []*deleteKind
+	// Under is the kinds whose rows refuse a plain delete of the record (kindsUnder),
+	// by table name.
+	Under []*deleteKind
 }
 
 // deleteWords is the one place a kind of record gets its words for a sentence about a
@@ -171,7 +182,9 @@ func (t *tableMetadata) secondaryIndexes() int {
 // schemaLinks is every table's steps up to the tables its rows are under: one for each
 // foreign key the schema read resolved, and one for an interleave, whose rows open
 // their key with their parent's. Two foreign keys on the same columns to the same table
-// are one step.
+// are one step, and so are an interleave and a foreign key on its columns: the one step
+// cascades when any of them does, since the database then removes the row. A table's
+// foreign keys to itself are not among them (selfLinks).
 func (c *client) schemaLinks() map[string][]deleteLink {
 	links := make(map[string][]deleteLink, len(c.tableMap))
 	for name, table := range c.tableMap {
@@ -179,17 +192,14 @@ func (c *client) schemaLinks() map[string][]deleteLink {
 		if table.ParentTable != "" {
 			if parent, ok := c.tableMap[table.ParentTable]; ok {
 				key := parent.keyColumns()
-				up = append(up, deleteLink{Columns: key, Table: table.ParentTable, References: key})
+				up = append(up, deleteLink{Columns: key, Table: table.ParentTable, References: key, Cascades: table.OnDeleteCascade})
 			}
 		}
 		for _, foreignKey := range table.ForeignKeys {
 			if foreignKey.ReferencedTable == "" || foreignKey.ReferencedTable == name {
 				continue
 			}
-			link := deleteLink{Columns: foreignKey.Columns, Table: foreignKey.ReferencedTable, References: foreignKey.ReferencedColumns}
-			if !slices.ContainsFunc(up, link.equal) {
-				up = append(up, link)
-			}
+			up = addDeleteLink(up, foreignKey.link())
 		}
 		if len(up) > 0 {
 			links[name] = up
@@ -197,6 +207,123 @@ func (c *client) schemaLinks() map[string][]deleteLink {
 	}
 
 	return links
+}
+
+// selfLinks is every table's foreign keys to itself: a row under a row of its own kind
+// (a folder in a folder). No way up to a record is walked through one, so schemaLinks
+// leaves them out; a plain delete of a row counts the rows that name it (kindsUnder).
+func (c *client) selfLinks() map[string][]deleteLink {
+	links := make(map[string][]deleteLink)
+	for name, table := range c.tableMap {
+		for _, foreignKey := range table.ForeignKeys {
+			if foreignKey.ReferencedTable == name {
+				links[name] = addDeleteLink(links[name], foreignKey.link())
+			}
+		}
+	}
+
+	return links
+}
+
+// link is the foreign key as a step up to the table it references.
+func (f *foreignKeyMeta) link() deleteLink {
+	return deleteLink{Columns: f.Columns, Table: f.ReferencedTable, References: f.ReferencedColumns, Cascades: f.DeleteRule == cascadeDeleteAction}
+}
+
+// addDeleteLink adds a step to a table's steps, folding it into the same step where
+// that is there already: the step cascades when either does.
+func addDeleteLink(up []deleteLink, link deleteLink) []deleteLink {
+	if i := slices.IndexFunc(up, link.equal); i >= 0 {
+		up[i].Cascades = up[i].Cascades || link.Cascades
+
+		return up
+	}
+
+	return append(up, link)
+}
+
+// cascadingLinks is the steps the database follows on a delete, of every table's steps.
+func cascadingLinks(links map[string][]deleteLink) map[string][]deleteLink {
+	cascading := make(map[string][]deleteLink, len(links))
+	for table, up := range links {
+		for _, link := range up {
+			if link.Cascades {
+				cascading[table] = append(cascading[table], link)
+			}
+		}
+	}
+
+	return cascading
+}
+
+// removedWith is the tables whose row's delete makes the database remove rows of the
+// table: every table up from it by steps the database follows on a delete, the table
+// itself among them where a row goes with the row of its own kind it is under. In name
+// order.
+func removedWith(cascading, self map[string][]deleteLink, table string) []string {
+	reached := make(map[string]bool)
+	var walk func(from string)
+	walk = func(from string) {
+		for _, link := range slices.Concat(cascading[from], self[from]) {
+			if !link.Cascades || reached[link.Table] {
+				continue
+			}
+			reached[link.Table] = true
+			walk(link.Table)
+		}
+	}
+	walk(table)
+
+	return slices.Sorted(maps.Keys(reached))
+}
+
+// kindsUnder is the kinds whose rows refuse a plain delete of the record, by table
+// name: each kind with a step straight up to the record that the database does not
+// follow, and no way up to the record that the database follows all along, since the
+// database removes that kind's rows with the record. The record's own kind is one
+// where a row names another row of its kind and no such link is followed by the
+// database. Each kind carries those steps alone, one path each, and the tables its rows
+// go with at the database (removedWith). A table no resource declares has no words and
+// no grant to ask of, and is left to the database's refusal.
+func (c *client) kindsUnder(res *resourceInfo, byTable map[string]*resourceInfo, links, self, cascading map[string][]deleteLink) []*deleteKind {
+	record := c.pluralize(res.Name())
+	swept := pathsUnder(cascading, record, nil)
+
+	straight := func(up []deleteLink) [][]deleteLink {
+		var paths [][]deleteLink
+		for _, link := range up {
+			if link.Table == record && !link.Cascades {
+				paths = append(paths, []deleteLink{link})
+			}
+		}
+
+		return paths
+	}
+
+	var kinds []*deleteKind
+	for table, up := range links {
+		paths := straight(up)
+		kind, ok := byTable[table]
+		if len(paths) == 0 || len(swept[table]) > 0 || !ok {
+			continue
+		}
+		under := c.deleteKindOf(kind, paths)
+		under.RemovedWith = removedWith(cascading, self, table)
+		kinds = append(kinds, under)
+	}
+	followed := slices.ContainsFunc(self[record], func(link deleteLink) bool {
+		return link.Cascades
+	})
+	if paths := straight(self[record]); len(paths) > 0 && !followed {
+		under := c.deleteKindOf(res, paths)
+		under.RemovedWith = removedWith(cascading, self, record)
+		kinds = append(kinds, under)
+	}
+	slices.SortFunc(kinds, func(a, b *deleteKind) int {
+		return cmp.Compare(a.Table, b.Table)
+	})
+
+	return kinds
 }
 
 // equal reports whether two links are the same step.
@@ -262,6 +389,9 @@ func pathWords(table string, path []deleteLink) string {
 // resolveDeleteTrees writes each record's description of its delete once every
 // resource is extracted: a record that declares one (@deleteCascade), held to what the
 // schema puts under it, and the tenant record, whose description the library declares.
+// Every record, with a declaration or without, is also given the kinds whose rows
+// refuse a plain delete of it (kindsUnder), and a description to carry them where it
+// had none. A read-only table (@enumerate) is never deleted from, and gets none.
 func (c *client) resolveDeleteTrees(resources []*resourceInfo) error {
 	byTable := make(map[string]*resourceInfo, len(resources))
 	byName := make(map[string]*resourceInfo, len(resources))
@@ -270,6 +400,8 @@ func (c *client) resolveDeleteTrees(resources []*resourceInfo) error {
 		byName[res.Name()] = res
 	}
 	links := c.schemaLinks()
+	self := c.selfLinks()
+	cascading := cascadingLinks(links)
 
 	for _, res := range resources {
 		switch {
@@ -289,6 +421,21 @@ func (c *client) resolveDeleteTrees(resources []*resourceInfo) error {
 			}
 			res.DeleteTree = tree
 		}
+
+		if res.IsEnumeration() {
+			continue
+		}
+		if _, ok := c.tableMap[c.pluralize(res.Name())]; !ok {
+			continue
+		}
+		under := c.kindsUnder(res, byTable, links, self, cascading)
+		if len(under) == 0 {
+			continue
+		}
+		if res.DeleteTree == nil {
+			res.DeleteTree = &deleteTree{Record: c.deleteKindOf(res, nil)}
+		}
+		res.DeleteTree.Under = under
 	}
 
 	return nil
@@ -463,6 +610,12 @@ func (r *resourceInfo) HasDeleteTree() bool {
 	return r.DeleteTree != nil
 }
 
+// DeclaresDeleteCascade reports whether the record declares what its delete takes with
+// it and what refuses it (@deleteCascade).
+func (r *resourceInfo) DeclaresDeleteCascade() bool {
+	return r.deleteCascade != nil
+}
+
 // DeleteTreeLiteral is the record's description as the Go value its file returns
 // (resource.DeleteTree).
 func (r *resourceInfo) DeleteTreeLiteral() string {
@@ -476,6 +629,7 @@ func (r *resourceInfo) DeleteTreeLiteral() string {
 	fmt.Fprintf(&b, "Cost: resource.DeleteCost{IndexEntries: %d, Files: %d},\n", tree.Record.IndexEntries, tree.Record.Files)
 	writeDeleteKinds(&b, "Taken", tree.Taken)
 	writeDeleteKinds(&b, "RefusedBy", tree.RefusedBy)
+	writeDeleteKinds(&b, "Under", tree.Under)
 	b.WriteString("}")
 
 	return b.String()
@@ -504,6 +658,9 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 			b.WriteString("},\n")
 		}
 		b.WriteString("},\n")
+		if len(kind.RemovedWith) > 0 {
+			fmt.Fprintf(b, "RemovedWith: %s,\n", stringsLiteral(kind.RemovedWith))
+		}
 		b.WriteString("},\n")
 	}
 	b.WriteString("},\n")

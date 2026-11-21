@@ -25,7 +25,8 @@ func (Client) DefaultConfig() resource.Config {
 // DeleteTree describes what a delete of a Client takes with it and what refuses
 // it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
 // first, each with its ways up to the Client and what the delete of one of its
-// rows costs.
+// rows costs. The kinds under Under are the ones with a row directly under a Client
+// that the database does not remove with it.
 func (Client) DeleteTree() *resource.DeleteTree {
 	return &resource.DeleteTree{
 		Record: "Clients",
@@ -67,6 +68,43 @@ func (Client) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
 					},
 				},
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "ClientContacts",
+				Words:    resource.DeleteWords{One: "client contact", Many: "client contacts"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Consignments",
+				Words:    resource.DeleteWords{One: "consignment", Many: "consignments"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+				RemovedWith: []string{"Sectors"},
+			},
+			{
+				Resource: "Missions",
+				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+				RemovedWith: []string{"Sectors"},
 			},
 		},
 	}

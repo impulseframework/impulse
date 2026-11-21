@@ -569,12 +569,16 @@ holds ships). Rows the database removes this way are removed past their own reso
 Delete grant and row condition: whoever may delete the hangar deletes its ships. They
 leave no change event, and a document's stored file is the orphaned-file cleanup's, as
 the audit pass says below. The references on no table's way to its sector say nothing
-of a delete, and that is where the referential refusal is now
-(`commit.referential-refusal`): a sortie and a droid's report name a ship, and a mission
-the squadron it is assigned to, so a ship that has flown or been reported on is not
-deleted by itself, nor the hangar that would take it along, nor a squadron a mission is
-assigned to. A hangar pass is the exception among those references: it goes with its
-hangar and with the squadron it is issued to.
+of a delete, and that is where a delete is refused: a sortie and a droid's report name a
+ship, and a mission the squadron it is assigned to, so a ship that has flown or been
+reported on is not deleted by itself, nor the hangar that would take it along, nor a
+squadron a mission is assigned to. The ship and the squadron are refused before the
+commit, with a sentence that counts what is in the way and that the person may list
+(`delete.rows-under-refusal`, `test/integration/delete_refusal_test.go`: "This squadron
+has 8 missions. Delete them first."). The hangar that would take such a ship along, and
+the wing that would take such a squadron, are refused by the database at the commit
+(`commit.referential-refusal`). A hangar pass is the exception among those references:
+it goes with its hangar and with the squadron it is issued to.
 
 How it is wired:
 

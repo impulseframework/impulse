@@ -22,6 +22,33 @@ func (Squadron) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what keeps a Squadron from being deleted: the kinds with a
+// row directly under a Squadron that the database does not remove with it, each
+// with the columns that name the Squadron. A delete of a Squadron with
+// such a row is refused in a sentence that says what is in the way.
+func (Squadron) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Squadrons",
+		Words:  resource.DeleteWords{One: "squadron", Many: "squadrons"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "Missions",
+				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+					},
+				},
+				RemovedWith: []string{"Sectors"},
+			},
+		},
+	}
+}
+
 // squadronRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; squadronReadSets holds one Set per read operation.

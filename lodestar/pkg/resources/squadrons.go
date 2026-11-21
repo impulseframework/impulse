@@ -26,9 +26,12 @@ type (
 	// on each link of their way to the sector: the database removes them with the row
 	// they reach, past their own Delete grants. A mission names the squadron it is
 	// assigned to from outside that way and says nothing of a delete, so a squadron a
-	// mission is assigned to is not deleted, nor the wing that would take it along.
+	// mission is assigned to is not deleted, nor the wing that would take it along. The
+	// squadron's own delete is refused before the commit, counting what is in the way
+	// ("This squadron has 8 missions. Delete them first."); the wing's is refused by
+	// the database at the commit.
 	//
-	// Demonstrates: @domain.join-path, @attribute, decode.nullable-slice.
+	// Demonstrates: @domain.join-path, @attribute, decode.nullable-slice, delete.rows-under-refusal.
 	//
 	// @resource
 	// @permissionScope(domain)

@@ -94,12 +94,21 @@ type DeleteKind struct {
 	Paths []DeletePath
 	// Cost is what deleting one row of the kind costs.
 	Cost DeleteCost
+	// RemovedWith are the tables whose row's delete makes the database remove rows of
+	// the kind with it: every table up from the kind's by links declared ON DELETE
+	// CASCADE. The generator writes it for the kinds under Under. A transaction that
+	// deletes a row of one of those tables may take the kind's rows from under the
+	// record, so the kind is then not counted, and the commit answers.
+	RemovedWith []string
 }
 
 // DeleteTree describes what a delete of a record takes with it and what refuses it. The
-// generator writes one for a resource that declares it (@deleteCascade) and for the
-// tenant record, whose description the library declares: every kind of the
-// application's rows that are under the tenant goes with it.
+// generator writes one for a resource that declares it (@deleteCascade), for the
+// tenant record, whose description the library declares (every kind of the
+// application's rows that are under the tenant goes with it), and for every other
+// record with a kind of row directly under it that the database does not remove with
+// it (Under): a plain delete of such a record is refused while it has one of those
+// rows, in a sentence that says what is in the way (delete_refusal.go).
 type DeleteTree struct {
 	// Record is the resource the description is of.
 	Record accesstypes.Resource
@@ -115,6 +124,20 @@ type DeleteTree struct {
 	// RefusedBy are the kinds whose rows refuse the delete while one of them is under
 	// the record.
 	RefusedBy []DeleteKind
+	// Under are the kinds with a row directly under the record that the database does
+	// not remove with it: a foreign key to the record with no delete rule, or an
+	// interleave that does not cascade, from a kind no cascading way leads up to the
+	// record from. The record's own kind is among them where a row names another row
+	// of its kind (a folder in a folder). Each kind's Paths are those links alone, one
+	// step each. A delete of the record is refused while one of these rows is there.
+	Under []DeleteKind
+}
+
+// RowName is what a sentence calls the row a delete is asked of, opening the sentence:
+// "This client". It is the one place a row gets its name in a sentence about a
+// delete: a record that comes to name its rows changes this function alone.
+func (t *DeleteTree) RowName() string {
+	return "This " + t.Words.One
 }
 
 // Mutations is the one count of what a delete of the record and everything it takes

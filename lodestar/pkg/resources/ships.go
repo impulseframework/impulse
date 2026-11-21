@@ -62,7 +62,7 @@ type (
 	// typed, and the ship's log, which serves every change of a ship, names a change of
 	// the key without the old value or the new one (test/integration/secret_test.go).
 	//
-	// Demonstrates: @domain.join-path, @attribute.join-path, @attribute.join-path-global, immutable, output_only_update_fn, transition-owned-timestamp, change-tracking, commit.referential-refusal, commit.constraint-refusal, warning.join-path-list, decode.value-limit, typescript.array-column, secret.
+	// Demonstrates: @domain.join-path, @attribute.join-path, @attribute.join-path-global, immutable, output_only_update_fn, transition-owned-timestamp, change-tracking, commit.referential-refusal, commit.constraint-refusal, warning.join-path-list, decode.value-limit, typescript.array-column, secret, delete.rows-under-refusal.
 	//
 	// @resource
 	// @permissionScope(domain)

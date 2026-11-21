@@ -27,7 +27,8 @@ func (Mission) DefaultConfig() resource.Config {
 // DeleteTree describes what a delete of a Mission takes with it and what refuses
 // it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
 // first, each with its ways up to the Mission and what the delete of one of its
-// rows costs.
+// rows costs. The kinds under Under are the ones with a row directly under a Mission
+// that the database does not remove with it.
 func (Mission) DeleteTree() *resource.DeleteTree {
 	return &resource.DeleteTree{
 		Record: "Missions",

@@ -49,7 +49,7 @@ type (
 	// documents are under a client only through the mission, so they need no place in
 	// the list.
 	//
-	// Demonstrates: pii, pii.filter-placement, allow_filter, @attribute.bool, @attribute.nullable-bool, consolidation.exclusion, commit.constraint-refusal, nullboolean, search.box, search.match, @searchAlso, search.pii-posts, search.denied-field, search.conditional-field, search.quoted-value, metadata.search, @deleteCascade.
+	// Demonstrates: pii, pii.filter-placement, allow_filter, @attribute.bool, @attribute.nullable-bool, consolidation.exclusion, commit.constraint-refusal, nullboolean, search.box, search.match, @searchAlso, search.pii-posts, search.denied-field, search.conditional-field, search.quoted-value, metadata.search, @deleteCascade, delete.rows-under-refusal.
 	//
 	// @resource
 	// @deleteCascade(ClientContact, refusedBy: Mission, Consignment)

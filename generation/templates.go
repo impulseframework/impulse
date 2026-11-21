@@ -69,11 +69,17 @@ func ({{ .Resource.Name }}) FileKeys() []resource.FileKey {
 // goes with it, and nothing refuses it. The kinds are in the order their rows are
 // deleted, deepest first, each with its ways up to the {{ .Resource.Name }} and what the delete
 // of one of its rows costs.
-{{- else }}
+{{- else if .Resource.DeclaresDeleteCascade }}
 // DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it and what refuses
 // it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
 // first, each with its ways up to the {{ .Resource.Name }} and what the delete of one of its
-// rows costs.
+// rows costs. The kinds under Under are the ones with a row directly under a {{ .Resource.Name }}
+// that the database does not remove with it.
+{{- else }}
+// DeleteTree describes what keeps a {{ .Resource.Name }} from being deleted: the kinds with a
+// row directly under a {{ .Resource.Name }} that the database does not remove with it, each
+// with the columns that name the {{ .Resource.Name }}. A delete of a {{ .Resource.Name }} with
+// such a row is refused in a sentence that says what is in the way.
 {{- end }}
 func ({{ .Resource.Name }}) DeleteTree() *resource.DeleteTree {
 	return {{ .Resource.DeleteTreeLiteral }}

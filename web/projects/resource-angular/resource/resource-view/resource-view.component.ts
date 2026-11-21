@@ -611,29 +611,29 @@ export class ResourceViewComponent implements OnInit {
   /**
    * Asks before the page's row is deleted, then deletes it. The question names the row
    * by its own name where the config reads one off the row (`rowTitle`), and the list
-   * the row is in by the config's title.
+   * the row is in by the config's title. The dialog is handed the delete and runs it
+   * when the person says so, so a delete the server refuses is answered in the dialog, in
+   * the server's words. While the question is open, asking again opens no second one.
    */
   confirmDeleteResource(): void {
-    const existingDialog = this.dialog.openDialogs.find(
+    const asking = this.dialog.openDialogs.some(
       (d) => d.componentInstance instanceof DeleteResourceConfirmationModalComponent,
     );
+    if (asking) {
+      return;
+    }
 
     const config = this.config();
-    const data: DeleteConfirmation = { name: config.rowTitle?.(this.store.viewData()), from: config.title };
-    const dialogRef =
-      existingDialog ?? this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
+    const data: DeleteConfirmation = {
+      name: config.rowTitle?.(this.store.viewData()),
+      from: config.title,
+      delete: () => {
+        console.debug('Deleting resource | ', this.config().title, '|', this.relatedId());
 
-    const result = dialogRef.afterClosed().pipe(
-      tap((value) => {
-        if (value === true) {
-          console.debug('Deleting resource | ', this.config().title, '|', this.relatedId());
-          this.deleteResource();
-        }
-      }),
-      takeUntilDestroyed(this.destroyRef),
-    );
-
-    result.subscribe();
+        return this.deleteResource();
+      },
+    };
+    this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
   }
 
   /**
@@ -642,13 +642,14 @@ export class ResourceViewComponent implements OnInit {
    * to its list, and the list says what the config has to say of the row. A live page
    * reads the row again after the write, and that read may find the row gone before the
    * write is answered here or after: the page leaves once either way. A row page told not
-   * to leave (`navAfterDelete` false) offers its create form in the row's place.
+   * to leave (`navAfterDelete` false) offers its create form in the row's place. A delete
+   * the server refuses rejects with the client's `ApiError`, for whoever asked to show.
    */
-  deleteResource(): void {
+  deleteResource(): Promise<void> {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(this.store.viewData()));
 
-    void this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
+    return this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
       this.leaveGoneRow();
       if (this.compoundResourceView() && this.navAfterDelete() === false) {
         this.showCreateForm.set(true);

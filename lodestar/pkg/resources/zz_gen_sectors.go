@@ -274,6 +274,19 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 				},
 			},
 		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "SectorDirectories",
+				Words:    resource.DeleteWords{One: "sector directory", Many: "sector directories"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+		},
 	}
 }
 
