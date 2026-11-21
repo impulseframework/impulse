@@ -1098,7 +1098,8 @@ func permissionFixtureConstants(t *testing.T) func(names ...string) []*parser.Co
 // resource: @manualAddPermission on an accesstypes.Permission constant declares the
 // constant's value, in the constants' order; a constant without it declares nothing; and
 // the declarations that say nothing an application could mean are refused where they
-// are written, each with what to do.
+// are written, each with what to do. An annotation of a resource's constant on a
+// permission's constant is one of them, with the declaration beside it or without.
 func Test_manualPermissionsFromConstants(t *testing.T) {
 	t.Parallel()
 
@@ -1141,6 +1142,21 @@ func Test_manualPermissionsFromConstants(t *testing.T) {
 			name:      "a constant that is no permission's",
 			constants: []string{"Untyped"},
 			wantErr:   `constant "Untyped": @manualAddPermission declares the constant's value as a permission, and the constant's type is untyped string, so it declares nothing: give the constant the type accesstypes.Permission`,
+		},
+		{
+			name:      "a resource's registration on a permission's constant that declares nothing",
+			constants: []string{"Strayed"},
+			wantErr:   `constant "Strayed": @manualAddResource registers a permission on a resource, and this constant is a permission, so it says nothing here: write it on the resource's constant, one of type accesstypes.Resource, or remove it (a permission that no resource registers is declared with @manualAddPermission alone)`,
+		},
+		{
+			name:      "an outlet on a permission's constant that declares nothing",
+			constants: []string{"Outside"},
+			wantErr:   `constant "Outside": @outlet names the outlets a route registered by hand is mounted under, and this constant is a permission, so it says nothing here: write it on the resource's constant, one of type accesstypes.Resource, or remove it (a permission that no resource registers is declared with @manualAddPermission alone)`,
+		},
+		{
+			name:      "a class on a permission's constant that declares nothing",
+			constants: []string{"Marked"},
+			wantErr:   `constant "Marked": @class marks an action registered by hand, and this constant is a permission, so it says nothing here: write it on the resource's constant, one of type accesstypes.Resource, or remove it (a permission that no resource registers is declared with @manualAddPermission alone)`,
 		},
 		{
 			name:      "a resource registered on a permission's constant",

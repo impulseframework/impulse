@@ -49,6 +49,22 @@ const Mounted accesstypes.Permission = "Mounted"
 // @manualAddResource(Execute)
 const Registered accesstypes.Permission = "Registered"
 
+// Strayed carries a resource's registration on a permission's constant that declares
+// nothing.
+//
+// @manualAddResource(Execute)
+const Strayed accesstypes.Permission = "Strayed"
+
+// Outside names an outlet on a permission's constant that declares nothing.
+//
+// @outlet(portal)
+const Outside accesstypes.Permission = "Outside"
+
+// Marked puts a class on a permission's constant that declares nothing.
+//
+// @class(credential)
+const Marked accesstypes.Permission = "Marked"
+
 // Untyped carries the declaration on a constant that is no permission's.
 //
 // @manualAddPermission

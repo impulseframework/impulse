@@ -56,9 +56,13 @@ func (r *resourceGenerator) readManualDeclarations(constants []*parser.Constant)
 // permission the release has. The annotation takes no argument and stands alone: a
 // permission is mounted under no outlet and is no action to class, and a resource is
 // registered on a resource's constant, so @outlet, @class or @manualAddResource beside
-// it is refused. A constant that declares the same permission as an earlier one is
-// refused too, and so is the annotation on a constant of another type, which would
-// declare nothing and leave every check of the permission denied.
+// it is refused. One of the three on a permission's constant that does not carry
+// @manualAddPermission is refused as well: the constant declares nothing, so the
+// annotation would be read by nothing and the registration, the outlet or the class its
+// author meant would be missing without a word. A constant that declares the same
+// permission as an earlier one is refused too, and so is the annotation on a constant
+// of another type, which would declare nothing and leave every check of the permission
+// denied.
 func manualPermissionsFromConstants(constants []*parser.Constant) ([]accesstypes.Permission, error) {
 	var permissions []accesstypes.Permission
 	for _, c := range constants {
@@ -79,16 +83,25 @@ func manualPermissionsFromConstants(constants []*parser.Constant) ([]accesstypes
 		if err != nil {
 			return nil, errors.Wrapf(err, "scanning annotations on constant %q", c.Name())
 		}
-		if !annotations.Const.Has(manualAddPermissionKeyword) {
-			continue
-		}
-		for _, other := range []string{manualAddResourceKeyword, outletKeyword, classKeyword} {
-			if annotations.Const.Has(other) {
+		declares := annotations.Const.Has(manualAddPermissionKeyword)
+		for _, other := range resourceConstantAnnotations {
+			if !annotations.Const.Has(other.keyword) {
+				continue
+			}
+			if declares {
 				return nil, errors.Newf(
 					"constant %q: @%s declares a permission with no resource and stands alone, so @%s beside it says nothing: remove it (a resource is registered with @%s on an accesstypes.Resource constant)",
-					c.Name(), manualAddPermissionKeyword, other, manualAddResourceKeyword,
+					c.Name(), manualAddPermissionKeyword, other.keyword, manualAddResourceKeyword,
 				)
 			}
+
+			return nil, errors.Newf(
+				"constant %q: @%s %s, and this constant is a permission, so it says nothing here: write it on the resource's constant, one of type accesstypes.Resource, or remove it (a permission that no resource registers is declared with @%s alone)",
+				c.Name(), other.keyword, other.does, manualAddPermissionKeyword,
+			)
+		}
+		if !declares {
+			continue
 		}
 
 		permission := accesstypes.Permission(c.Value())
@@ -102,6 +115,17 @@ func manualPermissionsFromConstants(constants []*parser.Constant) ([]accesstypes
 	}
 
 	return permissions, nil
+}
+
+// resourceConstantAnnotations are the annotations a resource's constant takes, each with
+// what it does there, in the words a refusal of it on a permission's constant says.
+var resourceConstantAnnotations = []struct {
+	keyword string
+	does    string
+}{
+	{keyword: manualAddResourceKeyword, does: "registers a permission on a resource"},
+	{keyword: outletKeyword, does: "names the outlets a route registered by hand is mounted under"},
+	{keyword: classKeyword, does: "marks an action registered by hand"},
 }
 
 // permissionDeclarationLine matches a comment line that starts with
