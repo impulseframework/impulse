@@ -700,6 +700,14 @@ finds no row itself answers the same way:
 return resource.TargetNotFound("Mission", p.MissionID)
 ```
 
+The library says the same sentence where it finds the row missing itself: a read of a
+row that is not there for the caller, and an update or a delete whose row it looks for
+and does not find, are answered "This mission does not exist.", by the record's struct
+name in words. What it looked for (the statement's `WHERE` clause with its values, or
+the row's key) is kept for the log and never sent. A write whose record names another
+that is not there for the caller is answered "A record this one refers to does not
+exist."
+
 ## 6. Impersonated sessions
 
 The `session` package can establish a session that operates as another user or as a role

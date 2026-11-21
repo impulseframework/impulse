@@ -155,7 +155,7 @@ func (p *PatchSet[Resource]) enforceWriteConditions(ctx context.Context, txn Rea
 		if errors.Is(err, iterator.Done) {
 			// Update and delete locate the target row; no row is NotFound,
 			// kept distinguishable from a failing condition's Forbidden.
-			return recordNotFound(p.Resource(), p.PrimaryKey().RowID())
+			return recordNotFound[Resource](p.PrimaryKey().RowID())
 		}
 
 		return errors.Wrap(err, "spanner.RowIterator.Next()")
