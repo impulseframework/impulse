@@ -481,6 +481,7 @@ func (t *tableMetadata) addSchemaResult(result *informationSchemaResult) {
 
 	column.IsNullable = result.IsNullable
 	column.HasDefault = result.HasDefault
+	column.Default = valueOrEmpty(result.ColumnDefault)
 	column.SpannerType = result.SpannerType
 	column.GenerationExpression = valueOrEmpty(result.GenerationExpression)
 

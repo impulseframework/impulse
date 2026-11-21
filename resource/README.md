@@ -685,6 +685,18 @@ itself answers the same way:
 return resource.TargetRefused("HoldMission", "Mission", p.MissionID)
 ```
 
+A method whose row is not there for the caller is answered 404 by the same rule: "This
+mission does not exist.", the record's name in words and nothing else. The sentence is
+the same whether no row has the key or the row is another tenant's, so the caller is
+never told that a row is there. The log line keeps the struct's name and the key
+(`Mission 8f0c… does not exist`). The generated handler and the method's gate both
+answer with `resource.TargetNotFound`, which takes the record's struct name and the
+row's key values; a handler that finds no row itself answers the same way:
+
+```go
+return resource.TargetNotFound("Mission", p.MissionID)
+```
+
 ## 6. Impersonated sessions
 
 The `session` package can establish a session that operates as another user or as a role

@@ -4185,7 +4185,7 @@ const resourceMap = defineResourceMap({
       {{- if not $field.IsFileKey }}
       { fieldName: '{{ Camel $field.Name }}', 
        {{- if $field.IsPrimaryKey }} primaryKey: { ordinalPosition: {{ $field.KeyOrdinalPosition }} }, 
-       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}'{{ if $field.IsDecimal }}, decimal: true{{ end }}, required: {{ $field.IsRequired }}, isIndex: {{ $field.IsIndex }}{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}{{ if $field.IsPositional }}, masking: 'positional'{{ end }}{{ if $field.TypescriptMaxLength }}, maxLength: {{ $field.TypescriptMaxLength }}{{ end -}}
+       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}'{{ if $field.IsDecimal }}, decimal: true{{ end }}, required: {{ $field.IsRequired }}{{ if $field.YesOrNoDefault }}, schemaDefault: {{ $field.YesOrNoDefault }}{{ end }}, isIndex: {{ $field.IsIndex }}{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}{{ if $field.IsPositional }}, masking: 'positional'{{ end }}{{ if $field.TypescriptMaxLength }}, maxLength: {{ $field.TypescriptMaxLength }}{{ end -}}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}{{ if or $field.IsOutputOnly $resource.IsEnumeration }}, readOnly: true{{ end }}{{ if $field.IsInputOnly }}, writeOnly: true{{ end }}{{ if $field.IsSecret }}, secret: true{{ end }}{{ if $field.FeatureName }}, feature: '{{ $field.FeatureName }}'{{ end }} },
       {{- end }}
@@ -6204,16 +6204,22 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 					{{- end }}
 					Read(ctx, txn)
 				if err != nil {
+					if httpio.HasNotFound(err) {
+						// No row has the key. Every row the method cannot reach is
+						// answered alike, so the words never say a row is there.
+						return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
+					}
+
 					return errors.Wrap(err, "{{ $.ResourcesPackage }}.{{ $t.RootStruct }}Query.Read()")
 				}
 				if row == nil {
-					return httpio.NewNotFoundMessagef("{{ $t.RootStruct }} {{ $t.KeyVerbs }} does not exist", {{ $t.KeyArgs "p" }})
+					return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
 				}
 				{{- if $t.TenantField }}
 				if ok, err := resource.TenantKeyEquals(row.Data.{{ $t.TenantField }}, domain); err != nil {
 					return errors.Wrap(err, "resource.TenantKeyEquals()")
 				} else if !ok {
-					return httpio.NewNotFoundMessagef("{{ $t.RootStruct }} {{ $t.KeyVerbs }} does not exist", {{ $t.KeyArgs "p" }})
+					return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
 				}
 				{{- end }}
 				{{- if $t.TenantByPath }}

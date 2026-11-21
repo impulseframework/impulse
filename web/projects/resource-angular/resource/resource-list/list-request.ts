@@ -1,5 +1,11 @@
 import { ApiError, Resource, ResourceMeta } from '@impulseframework/resource';
-import { ColumnFilterability, ColumnFilterInputs, ColumnSearches, PageTurn } from '@impulseframework/resource-angular/grid';
+import {
+  ColumnFilterability,
+  ColumnFilterChoices,
+  ColumnFilterInputs,
+  ColumnSearches,
+  PageTurn,
+} from '@impulseframework/resource-angular/grid';
 import { ColumnConfig, keyFields, ListViewConfig } from '@impulseframework/resource-angular/types';
 
 // The list page's pure parts around the server's page: which columns the server filters,
@@ -127,6 +133,27 @@ export function filterInputKinds(meta: ResourceMeta | undefined, columns: readon
     }
   }
   return inputs;
+}
+
+/**
+ * The values each of the table's columns filters by where its field takes one of a fixed
+ * set: the generated metadata's `enumeration` for the field each column shows, each value
+ * beside the name the list writes for it, by column id, in the metadata's order, which is
+ * the order a sort by the column puts the rows in. The column's menu offers the names and
+ * the filter carries the values. A column whose field lists none (a key into another
+ * resource's rows among them), or whose id is not a field of the listed resource, is
+ * absent.
+ */
+export function filterChoiceLists(meta: ResourceMeta | undefined, columns: readonly { id: string }[]): ColumnFilterChoices {
+  const byField = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field.enumeration]));
+  const choices: Record<string, ColumnFilterChoices[string]> = {};
+  for (const column of columns) {
+    const enumeration = byField.get(column.id);
+    if (enumeration !== undefined && enumeration.length > 0) {
+      choices[column.id] = enumeration.map((option) => ({ value: option.id, label: option.display }));
+    }
+  }
+  return choices;
 }
 
 /** Where a page sits: the rows before it, and the total the first page answered. */

@@ -1,5 +1,6 @@
 import { ApplicationRef, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { ActivatedRoute } from '@angular/router';
 import {
   ApiDescriptor,
@@ -14,6 +15,7 @@ import {
   TransportResponse,
 } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
+import { AppGridComponent } from '@impulseframework/resource-angular/grid';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { registerResourcePage, registerRowPage } from '@impulseframework/resource-angular/resource-nav';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
@@ -80,6 +82,18 @@ const metas: Record<string, ResourceMeta> = {
       field('clientId', { isIndex: true, filterable: 'always' }),
       field('homePort', { isIndex: true, filterable: 'always' }),
       field('registry', { isIndex: true, filterable: 'always' }),
+      // A field that takes one of a fixed set of values: the metadata lists each stored
+      // key beside its name.
+      field('statusId', {
+        displayType: 'enumerated',
+        isIndex: true,
+        filterable: 'always',
+        enumeration: [
+          { id: 'docked', display: 'Docked' },
+          { id: 'in_refit', display: 'In refit' },
+          { id: 'on_patrol', display: 'On patrol' },
+        ],
+      }),
     ],
   } as ResourceMeta,
   [calls]: {
@@ -287,6 +301,65 @@ describe('ResourceListComponent', () => {
       ).map((td) => td.textContent?.trim());
       expect(cells).toEqual(['Kestrel', '60, 60, 30', '32 B', '9/21/2026']);
       expect((fixture.nativeElement as HTMLElement).textContent).not.toContain(digest32);
+    });
+  });
+
+  describe('writes a field that takes fixed values by the name of each value', () => {
+    const listRequests = (): string[] => transport.requests.map((request) => `${request.method} ${request.url}`);
+
+    it('in the cell and in the filter menu, never the stored key, and asks the server by the key', async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [{ id: 'name' as FieldName }, { id: 'statusId' as FieldName, header: 'Status' }],
+        },
+        [
+          { id: 's-1', name: 'Kestrel', statusId: 'in_refit' },
+          { id: 's-2', name: 'Osprey', statusId: 'on_patrol' },
+          { id: 's-3', name: 'Heron', statusId: 'mothballed' },
+          { id: 's-4', name: 'Tern', statusId: null },
+        ],
+      );
+      fixture.detectChanges();
+      await settle();
+      const element = fixture.nativeElement as HTMLElement;
+      const cells = Array.from(element.querySelectorAll('tr.impulse-row')).map((row) =>
+        Array.from(row.querySelectorAll('td.data-col')).map((td) => td.textContent?.trim()),
+      );
+
+      // A value the metadata does not list is written as it is, and a row with none is empty.
+      expect(cells).toEqual([
+        ['Kestrel', 'In refit'],
+        ['Osprey', 'On patrol'],
+        ['Heron', 'mothballed'],
+        ['Tern', ''],
+      ]);
+
+      // The table is handed the same names for the column's filter menu, each beside the
+      // key the server filters by, in the metadata's order.
+      const grid = fixture.debugElement.query(By.directive(AppGridComponent)).componentInstance as AppGridComponent;
+      expect(grid.filterChoices()).toEqual({
+        statusId: [
+          { value: 'docked', label: 'Docked' },
+          { value: 'in_refit', label: 'In refit' },
+          { value: 'on_patrol', label: 'On patrol' },
+        ],
+      });
+
+      // What the menu emits for two names ticked is asked of the server by their keys, and
+      // the heading still asks for a sort by the field.
+      fixture.componentInstance.onFilterChange([{ field: 'statusId', operator: 'in', value: 'docked,in_refit' }]);
+      await settle();
+      expect(listRequests().at(-1)).toBe(
+        'GET /api/ships?filter=statusId%3Ain%3A%28docked%2Cin_refit%29&columns=name%2CstatusId%2Cid&count=true',
+      );
+      const headings = Array.from(element.querySelectorAll('th.data-col'))
+        .filter((th) => th.querySelector('.col-header'))
+        .map(
+          (th) =>
+            `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.header-label') ? 'a button' : 'words'}`,
+        );
+      expect(headings).toEqual(['Name: a button', 'Status: a button']);
     });
   });
 
