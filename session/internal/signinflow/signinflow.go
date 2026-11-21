@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -423,12 +424,14 @@ func InvitedAddressMessage(inv *sessioninfo.Invitation) string {
 	return fmt.Sprintf("This invitation is for %s. Sign in with that account.", inv.Email)
 }
 
-// sameAddress reports whether two addresses are one, without regard to case and
-// surrounding space; an empty address is nobody's and matches nothing.
+// sameAddress reports whether two addresses are one, without regard to the case of
+// their ASCII letters and surrounding space; an empty address is nobody's and matches
+// nothing. A letter from outside ASCII equals only itself: Unicode's case folding takes
+// the Kelvin sign (U+212A) for k, and an address written with one is another mailbox.
 func sameAddress(a, b string) bool {
 	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
 
-	return a != "" && strings.EqualFold(a, b)
+	return a != "" && util.EqualASCIIFold(a, b)
 }
 
 // trustedDevice asks check, nil for none, whether the browser is a trusted device of
@@ -1652,7 +1655,7 @@ func addressHeld[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *ses
 func invitedAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, insert *dbtype.InsertSessionUser) error {
 	inv := req.Invitation
 	if d.UsernameIsEmail() {
-		insert.EmailVerified = strings.EqualFold(strings.TrimSpace(insert.Username), strings.TrimSpace(inv.Email))
+		insert.EmailVerified = util.EqualASCIIFold(strings.TrimSpace(insert.Username), strings.TrimSpace(inv.Email))
 
 		return nil
 	}

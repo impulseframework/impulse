@@ -208,7 +208,7 @@ func (a *Auth[S, U, Tx]) factorAddress(ctx context.Context, p *pendingState) (st
 // consumed and before its address is written, is not seen here.
 func (a *Auth[S, U, Tx]) codeStands(ctx context.Context, p *pendingState, user *sessionstorage.SessionUser, email string) (bool, error) {
 	if user.Email != nil {
-		return strings.EqualFold(*user.Email, email), nil
+		return sameAddress(*user.Email, email), nil
 	}
 	theirs, err := a.signInIsTheUsers(ctx, p)
 	if err != nil || !theirs {
@@ -542,7 +542,7 @@ func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, p *pendingState, 
 		return nil
 	}
 	logger.FromCtx(ctx).Infof("user %s verified the email address %s by the sign-in code", user.ID, email)
-	if a.registered().usernameIsEmail() && !strings.EqualFold(user.Username, email) && a.userRenamed != nil {
+	if a.registered().usernameIsEmail() && !sameAddress(user.Username, email) && a.userRenamed != nil {
 		if err := a.userRenamed(ctx, user.ID, user.Username, email); err != nil {
 			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by the sign-in code, and the rename hook failed; run the hook's work by hand: %v", user.ID, user.Username, email, err)
 		}
