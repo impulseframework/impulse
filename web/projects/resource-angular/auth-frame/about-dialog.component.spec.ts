@@ -11,7 +11,7 @@ import {
   openAboutDialog,
 } from './about-dialog.component';
 import { FrameConfig } from './frame';
-import { provideFrameTesting } from './frame-testing';
+import { notNamedFor, provideFrameTesting } from './frame-testing';
 
 // About is a pop-up: the application's name, the release the server runs with the build
 // this tab runs when the two differ, and the environment wherever the server names one,
@@ -72,29 +72,36 @@ describe('AboutDialogComponent', () => {
 
     expect(words('[mat-dialog-title]')).toBe('About Lodestar');
     expect(terms()).toEqual(['Release', 'Environment']);
-    expect(words('.about-release')).toBe('v0.3.1');
-    expect(words('.about-environment')).toBe('tst');
-    expect(words('.about-note')).toBe('When you report a problem, include the release.');
+    expect(words('.impulse-about-dialog-release')).toBe('v0.3.1');
+    expect(words('.impulse-about-dialog-environment')).toBe('tst');
+    expect(words('.impulse-about-dialog-note')).toBe('When you report a problem, include the release.');
   });
 
   it('names no environment in production, where the server names none', async () => {
     await open({ release: 'v0.3.1' });
 
     expect(terms()).toEqual(['Release']);
-    expect(element().querySelector('.about-environment')).toBeNull();
+    expect(element().querySelector('.impulse-about-dialog-environment')).toBeNull();
     expect(element().textContent).not.toContain('Environment');
   });
 
   it("still says which build the tab runs when that is not the server's", async () => {
     await open({ release: 'v0.3.1', environment: 'tst' }, 'v0.3.0');
 
-    expect(words('.about-release')).toBe('v0.3.1 (this tab runs v0.3.0)');
+    expect(words('.impulse-about-dialog-release')).toBe('v0.3.1 (this tab runs v0.3.0)');
   });
 
   it('shows an environment whose name the server sent encoded as the name itself', async () => {
     await open({ release: 'v0.3.1', environment: 'Morgan%20Wells%20demo' });
 
-    expect(words('.about-environment')).toBe('Morgan Wells demo');
+    expect(words('.impulse-about-dialog-environment')).toBe('Morgan Wells demo');
+  });
+
+  it("names every element for the pop-up: an application's rule for its own .about or .about-note lands on none", async () => {
+    await open({ release: 'v0.3.1', environment: 'tst' });
+
+    expect(notNamedFor('impulse-about-dialog-', element())).toEqual([]);
+    expect(element().querySelector('dl.impulse-about-dialog-facts')).not.toBeNull();
   });
 
   it('is headed About alone where the application gives no name', async () => {
@@ -107,14 +114,14 @@ describe('AboutDialogComponent', () => {
     const writeText = vi.fn(async () => undefined);
     await withClipboard({ writeText }, async () => {
       await open({ release: 'v0.3.1', environment: 'tst' }, 'v0.3.0');
-      expect(element().querySelector('.about-copied')).toBeNull();
+      expect(element().querySelector('.impulse-about-dialog-copied')).toBeNull();
 
-      element().querySelector<HTMLButtonElement>('button.about-copy')?.click();
+      element().querySelector<HTMLButtonElement>('button.impulse-about-dialog-copy')?.click();
       await settle();
 
       expect(writeText.mock.calls).toEqual([['Lodestar, release v0.3.1 (this tab runs v0.3.0), environment tst']]);
-      expect(words('.about-copied')).toBe('Copied.');
-      expect(element().querySelector('.about-by-hand')).toBeNull();
+      expect(words('.impulse-about-dialog-copied')).toBe('Copied.');
+      expect(element().querySelector('.impulse-about-dialog-by-hand')).toBeNull();
     });
   });
 
@@ -123,7 +130,7 @@ describe('AboutDialogComponent', () => {
     await withClipboard({ writeText }, async () => {
       await open({ release: 'v0.3.1' });
 
-      element().querySelector<HTMLButtonElement>('button.about-copy')?.click();
+      element().querySelector<HTMLButtonElement>('button.impulse-about-dialog-copy')?.click();
       await settle();
 
       expect(writeText.mock.calls).toEqual([['Lodestar, release v0.3.1']]);
@@ -145,14 +152,14 @@ describe('AboutDialogComponent', () => {
       await withClipboard(tt.clipboard, async () => {
         await open({ release: 'v0.3.1', environment: 'tst' });
 
-        element().querySelector<HTMLButtonElement>('button.about-copy')?.click();
+        element().querySelector<HTMLButtonElement>('button.impulse-about-dialog-copy')?.click();
         await settle();
         await settle();
 
-        const field = element().querySelector<HTMLInputElement>('.about-by-hand input');
+        const field = element().querySelector<HTMLInputElement>('.impulse-about-dialog-by-hand input');
         expect(field?.value).toBe('Lodestar, release v0.3.1, environment tst');
         expect(field?.readOnly).toBe(true);
-        expect(element().querySelector('.about-copied')).toBeNull();
+        expect(element().querySelector('.impulse-about-dialog-copied')).toBeNull();
       });
     });
   }

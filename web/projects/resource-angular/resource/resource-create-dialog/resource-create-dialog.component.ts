@@ -1,4 +1,4 @@
-import { Component, inject, Injector, viewChild } from '@angular/core';
+import { afterNextRender, Component, ElementRef, inject, Injector, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
@@ -39,8 +39,12 @@ export class ResourceCreateDialogComponent {
   private readonly dialogRef = inject<MatDialogRef<ResourceCreateDialogComponent, boolean>>(MatDialogRef);
   readonly data = inject<ResourceCreateDialogData>(MAT_DIALOG_DATA);
 
+  private readonly injector = inject(Injector);
+
   /** The create form the dialog draws. */
   private readonly form = viewChild(ResourceCreateComponent);
+  /** The sentence about a create the form did not send, while the dialog shows it. */
+  private readonly said = viewChild<ElementRef<HTMLElement>>('said');
   /** Set once Cancel or Escape leaves the dialog, so its closing says no row was created. */
   private canceled = false;
 
@@ -66,10 +70,13 @@ export class ResourceCreateDialogComponent {
     return this.form()?.saving() ?? false;
   }
 
-  /** Whether the create was asked for while a field was missing or wrong. */
-  incomplete(): boolean {
+  /**
+   * What the form says about a create asked for while a field was missing or wrong, a
+   * refused field that is not on the form named in it; empty once every field holds.
+   */
+  incomplete(): string {
     const form = this.form();
-    return form !== undefined && form.submitted() && !form.form().valid;
+    return form !== undefined && form.submitted() && !form.form().valid ? form.incomplete() : '';
   }
 
   /** The server's refusal of the last create, in its words; empty while there is none. */
@@ -77,12 +84,26 @@ export class ResourceCreateDialogComponent {
     return this.form()?.refusal() ?? '';
   }
 
-  /** Sends the create. The form closes the dialog once the row is created. */
+  /**
+   * Sends the create. The form closes the dialog once the row is created. Where the form
+   * does not send it and has no refused field to bring into view (each one it refuses is
+   * not on the form), the sentence that names them is what the person must see: it sits
+   * under the fields, so it is brought into view in what the dialog scrolls.
+   */
   create(): void {
     if (this.saving()) {
       return;
     }
-    this.form()?.saveForm();
+    const form = this.form();
+    form?.saveForm();
+    if (form?.nothingRefusedIsDrawn() && this.incomplete() !== '') {
+      afterNextRender(
+        () => {
+          this.said()?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        },
+        { injector: this.injector },
+      );
+    }
   }
 
   /** Leaves the dialog with no row created; what was typed is dropped. */

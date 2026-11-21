@@ -153,6 +153,40 @@
                               (keydown)="keepTyping($event)" />
                           </mat-form-field>
                         }
+                        @case ('choice') {
+                          <select
+                            class="filter-choice"
+                            (change)="setFilterValue(col, $event)"
+                            (click)="$event.stopPropagation()"
+                            (keydown)="keepTyping($event)"
+                            aria-label="Value">
+                            <option value="" [selected]="draftFor(col).value === ''">Choose a value</option>
+                            @for (choice of choicesFor(col); track choice.value) {
+                              <option [value]="choice.value" [selected]="draftFor(col).value === choice.value">
+                                {{ choice.label }}
+                              </option>
+                            }
+                          </select>
+                        }
+                        @case ('choices') {
+                          <div
+                            class="filter-choices"
+                            role="group"
+                            aria-label="Values"
+                            (click)="$event.stopPropagation()"
+                            (keydown)="keepTyping($event)">
+                            @for (choice of choicesFor(col); track choice.value) {
+                              <label class="filter-choice-option">
+                                <input
+                                  type="checkbox"
+                                  class="impulse-checkbox"
+                                  [checked]="isTicked(col, choice)"
+                                  (change)="tickFilterChoice(col, choice, $event)" />
+                                <span>{{ choice.label }}</span>
+                              </label>
+                            }
+                          </div>
+                        }
                         @default {
                           <mat-form-field
                             appearance="outline"

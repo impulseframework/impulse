@@ -318,13 +318,32 @@ $held-header-layer: 6;
     width: 118px;
   }
 
-  .filter-operator {
+  .filter-operator,
+  .filter-choice {
     font: inherit;
     font-size: 13px;
     padding: 4px;
     border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
     border-radius: 4px;
     background: var(--mat-sys-surface, #fff);
+  }
+
+  // The names of a field's fixed values, each with its tick, one under another: a long
+  // set scrolls inside the menu, so Apply and Clear stay where they are.
+  .filter-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 13px;
+  }
+
+  .filter-choice-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
   }
 }
 
