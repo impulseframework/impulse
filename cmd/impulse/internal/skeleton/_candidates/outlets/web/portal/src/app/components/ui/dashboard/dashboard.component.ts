@@ -1,29 +1,27 @@
 import { Component, computed, inject } from '@angular/core';
-import { MatCardModule } from '@angular/material/card';
 import { Resources } from '@app/service/zz_gen_constants';
 import { ResourceScopes } from '@app/service/zz_gen_resources';
 import { PlaceService, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import {
+  PermissionsCardComponent,
+  PermissionsCardResource,
+} from '@impulseframework/resource-angular/ui-permissions-card';
 import { Permission, PermissionDigestState, Resource } from '@impulseframework/resource';
-
-/** One row of the permissions card: a resource and the digest state of each permission on it. */
-interface PermissionRow {
-  resource: string;
-  scope: string;
-  states: Record<string, PermissionDigestState | undefined>;
-}
 
 /**
  * The dashboard is every place's first page: who is signed in and what the session holds
  * there, per generated resource, the digest state of each permission — in the tenant the
- * page is open in for tenant-scoped resources, globally for global ones. It lives outside
+ * page is open in for tenant-scoped resources, globally for global ones — drawn by the
+ * library's card for what a person may do, which lays itself out by its own width: a table
+ * where its columns fit, each resource as a block where they do not. It lives outside
  * the tenant segment and under it: Configuration's first page, and the tenant's. The
  * person's email address and the look of the application are theirs, not a place's: the
  * account page and Appearance in the person's menu, which the frame draws.
  */
 @Component({
   selector: 'app-dashboard',
-  imports: [MatCardModule],
+  imports: [PermissionsCardComponent],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
 })
@@ -38,20 +36,22 @@ export class DashboardComponent {
    */
   readonly tenantName = computed(() => (this.tenants.current() ? this.places.current().label : ''));
 
+  /** The permissions the card answers for: reading and writing a resource, and running a method. */
   readonly permissionNames = ['List', 'Read', 'Create', 'Update', 'Delete', 'Execute'] as Permission[];
 
-  rows = computed<PermissionRow[]>(() => {
-    const rows: PermissionRow[] = [];
+  /** The card's rows: every generated resource the session holds something on, where the page is open. */
+  rows = computed<PermissionsCardResource[]>(() => {
+    const rows: PermissionsCardResource[] = [];
     for (const resource of Object.values(Resources)) {
-      const states: PermissionRow['states'] = {};
-      let held = false;
+      const held: Record<string, PermissionDigestState | undefined> = {};
+      let any = false;
       for (const permission of this.permissionNames) {
         const state = this.tenants.state(permission, resource);
-        states[permission] = state;
-        held ||= state !== undefined;
+        held[permission] = state;
+        any ||= state !== undefined;
       }
-      if (held) {
-        rows.push({ resource, scope: this.scopeOf(resource), states });
+      if (any) {
+        rows.push({ name: resource, scope: this.scopeOf(resource), held });
       }
     }
     return rows;

@@ -1,6 +1,9 @@
+// The bays stand side by side, all six, where the page gives each its 120 pixels; where it
+// does not they wrap, in the route's order, into as many columns as fit: two on a phone.
+// Nothing scrolls sideways and no bay is cut.
 .bays {
   display: grid;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
   margin: 8px 0 16px;
 }
@@ -18,6 +21,8 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--mat-sys-on-surface-variant);
+    // A bay's name breaks before it runs under the next bay.
+    overflow-wrap: anywhere;
   }
 
   &.scrapyard {
@@ -68,13 +73,37 @@
   margin: 8px 0;
 }
 
+// What the open refit's card says of its estimate and its notes, as text: the form that
+// changes them opens from the button under it.
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 12px 0 4px;
+
+  .estimate {
+    font-weight: 500;
+  }
+
+  .notes {
+    color: var(--mat-sys-on-surface-variant);
+    overflow-wrap: anywhere;
+  }
+}
+
+// A task, its note and the button that writes the note, on one line where they fit and
+// under one another where they do not.
 .task-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
   padding: 4px 0;
 
   .task-notes {
-    margin-left: 12px;
     font-size: 12px;
     color: var(--mat-sys-on-surface-variant);
+    overflow-wrap: anywhere;
   }
 }
 
@@ -116,6 +145,7 @@ h3 {
 
   .subsystem {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: baseline;
     margin: 4px 0;
@@ -127,4 +157,11 @@ h3 {
     font-family: 'Roboto Mono', monospace;
     background: var(--mat-sys-surface-container-high);
   }
+}
+
+// The card the deck draws where it could not be loaded: its sentence, and under it the
+// button that reads it again, as wide as its words.
+.unread .try-again {
+  align-self: flex-start;
+  margin: 0 16px 16px;
 }

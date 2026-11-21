@@ -427,6 +427,9 @@ func (p *RefitCreatePatch) registerDefaultFuncs() {
 	})
 	p.patchSet.RegisterDefaultCreateFunc("OpenedByUserID", currentUser)
 	p.patchSet.RegisterDefaultCreateFunc("OpenedByName", currentUserName)
+	p.patchSet.RegisterValidateCreateFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return new(RefitCreateValidator).Validate(ctx, txn, p)
+	})
 }
 
 func (p *RefitCreatePatch) ID() impulse.UUID {

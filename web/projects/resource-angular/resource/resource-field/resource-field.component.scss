@@ -5,3 +5,12 @@
 .dirty-input {
   background-color: var(--impulse-dirty);
 }
+
+// What a write-only field says under its input: small, in the color of secondary text,
+// drawn up under the input it speaks of.
+.never-shown-again {
+  margin: -12px 0 12px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6));
+}

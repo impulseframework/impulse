@@ -5,7 +5,7 @@ import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { firstValueFrom } from 'rxjs';
 import { FrameConfig } from './frame';
 import { FrameComponent } from './frame.component';
-import { provideFrameTesting, specTransport } from './frame-testing';
+import { provideFrameTesting, SpecServer, specTransport } from './frame-testing';
 import { TenantService } from './tenant.service';
 
 // The frame draws an application's banner above the bar on every signed-in page, and
@@ -24,10 +24,13 @@ describe('FrameComponent', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => localStorage.clear());
 
-  const draw = async (config: Partial<FrameConfig>): Promise<ComponentFixture<FrameComponent>> => {
+  const draw = async (
+    config: Partial<FrameConfig>,
+    server: SpecServer = {},
+  ): Promise<ComponentFixture<FrameComponent>> => {
     await TestBed.configureTestingModule({
       imports: [FrameComponent],
-      providers: [provideFrameTesting(specTransport({}), config)],
+      providers: [provideFrameTesting(specTransport(server), config)],
     }).compileComponents();
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     const fixture = TestBed.createComponent(FrameComponent);
@@ -237,7 +240,18 @@ describe('FrameComponent', () => {
 
   it('has the place its page is in remembered as where the person works, and no longer once it is gone', async () => {
     const remembered = (): string | null => localStorage.getItem('impulse-place:/:gale');
-    const fixture = await draw({});
+    // The person holds something in both tenants: a tenant whose digest reads empty and
+    // that the list does not name is one the session cannot reach, and is not entered.
+    const fixture = await draw(
+      {},
+      {
+        domains: [
+          { domain: 'a-id', name: 'A' },
+          { domain: 'b-id', name: 'B' },
+        ],
+        digests: { 'a-id': { Users: { List: 'granted' } }, 'b-id': { Users: { List: 'granted' } } },
+      },
+    );
     const tenants = TestBed.inject(TenantService);
     tenants.enter('a-id');
     await fixture.whenStable();

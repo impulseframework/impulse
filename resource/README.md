@@ -638,11 +638,15 @@ read, the same in every application:
 | a permission on a field alone | "You may not change the budget of hangar passes here." |
 | on several fields | "You may not change the budget, the due date or the notes of hangar passes here." |
 | a method, or a permission the application declares | "You may not do this here." |
+| a method that may not run against the row it names | "You may not do this to this mission." |
 | a sort or filter by a field the caller may not see | "You may not sort or filter hangar passes by the budget here." |
 | a search of a computed resource by such a field | "You may not search hangar passes by the budget here." |
 | a write whose grant holds for some rows and not for this one | "You may change some hangar passes here, but not this one." |
 | the same, where the grant is on a field | "You may change the budget of some hangar passes here, but not of this one." |
 | a column, a sort or a filter no tenant of a list across tenants grants | the same sentences, ending "anywhere." |
+| the history of a feature flag none of whose facts the caller may list | "You may not see this flag's history here." |
+| an act the mask of a session that acts as someone refuses | "You are acting as someone else, and this session cannot create a tenant." |
+| an answer a session that acts as a role the application runs no sessions as cannot give | "You are acting as a role, and this session cannot do this." |
 
 The verb is the permission's: Create is "add", Read is "see", Update is "change", Delete
 is "delete" and List is "list". The resource is its name split into lower-case words
@@ -664,6 +668,20 @@ if !decisions[resources.ShipsLogEntries].IsGranted() {
 		accesstypes.List, resources.ShipsLogEntries,
 	))
 }
+```
+
+A method that names a row (`@target`, `@transition`) and may not run against it says
+the record and nothing else: the struct's name split into lower-case words (`Mission` is
+"this mission", `SectorPilot` is "this sector pilot"), with no method's name and no id.
+The sentence is the same whether the row's state or the grant's condition refused, so
+the caller is never told which. The log line keeps the rest, in the words the refusal
+used to say (`HoldMission may not run against Mission 8f0c…`). The generated handler
+and the method's gate both answer with `resource.TargetRefused`, which takes the
+method, the record's struct name and the row's key values; a handler that refuses a row
+itself answers the same way:
+
+```go
+return resource.TargetRefused("HoldMission", "Mission", p.MissionID)
 ```
 
 ## 6. Impersonated sessions
@@ -3416,11 +3434,11 @@ carries an action's name instead, `Create<Record>` (Lodestar's `CreateSector`), 
 the generated collection registers in the global scope with the class `access`
 (`accesstypes.ClassAccess`), and asks the session's mask about it before anything else
 (`resource.RefuseActionUnderMask`). A session whose mask refuses the class `access`,
-refuses the action by name or keeps no Execute is refused with nothing written ("you
-are acting as someone else, and this session cannot create a sector: the mask refuses
-the class access. ..."), the denial is logged as the mask's, in the line the masked
-check writes for a denial of its own, and the route's `GET` answers that none is
-offered (`resource.MaskRefusesAction`). A session that acts as a person with no mask
+refuses the action by name or keeps no Execute is refused with nothing written ("You
+are acting as someone else, and this session cannot create a sector."; why the mask
+refuses it is said in the server's log alone), the denial is logged as the mask's, in
+the line the masked check writes for a denial of its own, and the route's `GET` answers
+that none is offered (`resource.MaskRefusesAction`). A session that acts as a person with no mask
 makes the tenant, and the person acted as is its administrator: to let someone act as
 a person with no mask is to give them what the person holds. One tenant per person holds
 in such a session as in the person's own, whatever its mask shows: a mask that keeps the

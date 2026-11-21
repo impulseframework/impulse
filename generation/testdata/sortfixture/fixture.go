@@ -26,6 +26,15 @@ type Hold struct {
 	Bays int64
 }
 
+// Words is a named text type whose value is not the value its column holds, as a mask
+// read as words is declared: it carries the mark the server refuses a sort by.
+type Words string
+
+// Unordered marks Words as no value a list is ordered by.
+func (Words) Unordered() {
+	// A marker: nothing calls it.
+}
+
 // Shapes carries the field shapes. The orders tag is yes on a field the server orders a
 // list by and no on one whose sort it refuses.
 type Shapes struct {
@@ -58,4 +67,6 @@ type Shapes struct {
 	NestedList    []Hold                 `orders:"no"`
 	Fixed         [4]int64               `orders:"no"`
 	Document      spanner.NullJSON       `orders:"no"`
+	Marked        Words                  `orders:"no"`
+	MarkedPointer *Words                 `orders:"no"`
 }
