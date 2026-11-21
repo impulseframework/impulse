@@ -442,7 +442,8 @@ type authCookies struct {
 
 // newAuthCookies builds the clients of the pending, invitation and trusted device
 // cookies under the session's cookie key and options, refusing a name that is empty
-// or that another of the four cookies has.
+// or that another of the four cookies has, or that the invitation cookie's companion
+// takes (seatedCookie).
 func newAuthCookies(cookieKey, sessionCookie string, opts []internalcookie.Option, settings *authSettings) (*authCookies, error) {
 	names := []struct {
 		what, name string
@@ -463,6 +464,14 @@ func newAuthCookies(cookieKey, sessionCookie string, opts []internalcookie.Optio
 			return nil, errors.Wrap(err, "cookie.NewCookieClient()")
 		}
 		clients = append(clients, client)
+	}
+	// The tenant an accepted invitation leads to rides in a cookie named after the
+	// invitation cookie (seatedCookie), which no other cookie may be named.
+	if seated := settings.invitationCookie + seatedCookieSuffix; taken[seated] {
+		return nil, errors.Newf(
+			"the cookie name %q is the one the invitation cookie %q keeps for the tenant an accepted invitation leads to: give the other cookie another name",
+			seated, settings.invitationCookie,
+		)
 	}
 
 	return &authCookies{pending: clients[0], invitation: clients[1], trusted: clients[2]}, nil
@@ -604,7 +613,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 }
 
 // Authenticated answers {"authenticated", "username", "name", "look",
-// "passwordChangeRequired", "email", "emailVerified", "emailHint", "impersonation"}. A session whose user is
+// "passwordChangeRequired", "email", "emailVerified", "emailHint", "invitedTenant", "impersonation"}. A session whose user is
 // missing or disabled is reported as not authenticated. passwordChangeRequired is set
 // while the user must change a password an operator set (see "Users and the forced
 // password change" in the README): the session read is answered under the mark, so the
@@ -621,6 +630,10 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 // tenant by its tenant id), present for a sign-in through one and absent for a
 // password, for a personal account, which is no organization's directory, and for an
 // impersonated session: what a page offers the person to make a tenant's directory.
+// invitedTenant is the tenant an invitation the person has just accepted seated them
+// in, by this sign-in or by hand since: present on the first session read after the
+// acceptance and on no later one, and never on an impersonated session. It is where
+// the application opens for the person, whatever else they hold.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 	type directory struct {
 		Method     sessioninfo.AuthMethod `json:"method"`
@@ -643,6 +656,9 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 		// Directory is the organization's directory the session was established
 		// through, nil for any other session.
 		Directory *directory `json:"directory,omitempty"`
+		// InvitedTenant is the tenant an invitation the person has just accepted seated
+		// them in, told once (takeSeated).
+		InvitedTenant string `json:"invitedTenant,omitempty"`
 	}
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -666,6 +682,10 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 				through = &directory{Method: d.Method, Connection: d.Connection}
 			}
 		}
+		var invited string
+		if imp == nil && user != nil {
+			invited = a.takeSeated(w, r, user.ID)
+		}
 
 		return httpio.NewEncoder(w).Ok(response{
 			Authenticated:          true,
@@ -679,6 +699,7 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 			Impersonation:          basesession.NewImpersonationResponse(imp),
 			BrowserRemembered:      imp == nil && user != nil && browserRemembered(ctx, user.ID),
 			Directory:              through,
+			InvitedTenant:          invited,
 		})
 	}))
 }

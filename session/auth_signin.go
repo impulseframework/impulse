@@ -186,6 +186,10 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		if wait.Reason == sessioninfo.PendingMFA {
 			a.dropTrustedEntry(ctx, w, wait.UserID)
 		}
+		// The store accepts an invitation before the policy decides, so a sign-in that
+		// waits may have accepted one already: the tenant it seated the person in is
+		// carried to the session the waiting step ends in.
+		a.noteSeated(w, wait.UserID.UUID, req.Invitation)
 
 		return &signInOutcome{pending: pending}, nil
 	}
@@ -196,6 +200,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	events := signedInEvents(at, req)
 	a.endPending(ctx, w, at)
 	a.endInvitation(ctx, w, req.Invitation)
+	a.noteSeated(w, req.UserID, req.Invitation)
 	a.touchTrustedDevice(ctx, req.UserID, events)
 	sessioncore.LogSessionStarted(ctx, req.Username, id)
 	a.notifySignedIn(ctx, &SignedIn{SessionID: id, UserID: req.UserID, Username: req.Username, Reason: at.reason, Events: events})

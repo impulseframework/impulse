@@ -1153,6 +1153,11 @@ application, the account is managed from the whole application's side. In each t
 person is in, that tenant's administrator still controls the person's role there and can
 remove them from the tenant.
 
+A person who is in several tenants lands, after signing in, in the tenant they last
+worked in on that browser. A person who accepts an invitation into a tenant lands in
+that tenant, whatever other tenants they are in. The next time they sign in, they land
+where they last worked again.
+
 ### 7. Global users, invite only
 
 `--shape global-users-invite-only`, taken by `impulse new` and `impulse add tenancy`.

@@ -80,6 +80,7 @@ export class AuthService {
   private featuresSnapshot = storeSignal(this.features.snapshot);
   private authenticatedSignal = signal(false);
   private sessionInfoSignal = signal({} as SessionInfo);
+  private invitedTenantSignal = signal('');
   private permissionsLoaded = false;
 
   /**
@@ -91,6 +92,16 @@ export class AuthService {
   redirectUrl = inject(LOGIN_REDIRECT_URL);
   authenticated = this.authenticatedSignal.asReadonly();
   sessionInfo = this.sessionInfoSignal.asReadonly();
+
+  /**
+   * The tenant an invitation the person has just accepted seated them in, until they have
+   * landed; empty otherwise. The server names it on one session read only (the session
+   * info's `invitedTenant`), and the sign-in page reads the session more than once before
+   * it hands the person on, so the service keeps it: through later reads that name none,
+   * until `invitationLanded` or the end of the session. PlaceService lands the person
+   * there.
+   */
+  invitedTenant = this.invitedTenantSignal.asReadonly();
 
   /**
    * The domains where the session user holds at least one grant, sorted — the tenant
@@ -266,9 +277,19 @@ export class AuthService {
           }
           this.authenticatedSignal.set(false);
           this.sessionInfoSignal.set({} as SessionInfo);
+          this.invitedTenantSignal.set('');
           this.clearPermissions();
         }),
       );
+  }
+
+  /**
+   * Says the person has landed after the invitation they accepted: a page under the top
+   * bar is open, so the invitation's tenant is no longer where they land, and the next
+   * landing is where they last worked.
+   */
+  invitationLanded(): void {
+    this.invitedTenantSignal.set('');
   }
 
   /**
@@ -281,7 +302,8 @@ export class AuthService {
    * server's expiry ends the subscriptions. An authenticated
    * answer carrying `passwordChangeRequired` loads nothing: the server refuses every
    * request but the password change until the person sets a password of their own, and
-   * the first check after the change loads them.
+   * the first check after the change loads them. An answer naming the tenant an accepted
+   * invitation seated the person in is kept (`invitedTenant`).
    *
    * @returns Observable with the user session info
    */
@@ -290,6 +312,11 @@ export class AuthService {
       tap((sessionInfo) => {
         this.authenticatedSignal.set(!!sessionInfo?.authenticated);
         this.sessionInfoSignal.set(sessionInfo);
+        if (!sessionInfo?.authenticated) {
+          this.invitedTenantSignal.set('');
+        } else if (sessionInfo.invitedTenant) {
+          this.invitedTenantSignal.set(sessionInfo.invitedTenant);
+        }
       }),
       switchMap((sessionInfo) => {
         if (!sessionInfo?.authenticated) {
