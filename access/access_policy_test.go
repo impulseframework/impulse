@@ -17,6 +17,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // grammarRoleFile is a role file over grammarCollection: Steward executes the
@@ -644,19 +645,34 @@ func TestClient_CheckPolicy_storeError(t *testing.T) {
 // load skips it as the write that would add it is refused, so the role's
 // holder is not given the permission, the role's listing does not show it, the
 // grant alone is no foothold in the tenant, and the hook is told. The same
-// rows under a release that has the permission are carried.
+// rows under a release that has the permission are carried. Each release is a
+// collection as the generator writes one: the one that has the permission
+// declares it with no resource, which is the only way a generated collection
+// lists a permission no resource registers.
 func TestClient_storedScopeWideGrantIsHeldToTheCollection(t *testing.T) {
 	t.Parallel()
 
 	const exportLedger accesstypes.Permission = "ExportLedger"
+	ledgers := resource.CollectionResource{Name: "Ledgers", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read}}
 	tests := []struct {
 		name       string
 		collection PermissionCollection
 		wantHeld   bool
 	}{
-		{name: "a release that has the permission carries the grant", collection: declaring(map[accesstypes.Permission][]accesstypes.Resource{exportLedger: nil}), wantHeld: true},
-		{name: "a release that dropped the permission skips the grant", collection: declaring(map[accesstypes.Permission][]accesstypes.Resource{"Read": {"Ledgers"}}), wantHeld: false},
-		{name: "a release that declares nothing skips the grant", collection: declaring(nil), wantHeld: false},
+		{name: "a release that declares the permission carries the grant", collection: generated(t, resource.CollectionData{
+			Permissions: []accesstypes.Permission{exportLedger},
+			Resources:   []resource.CollectionResource{ledgers},
+		}), wantHeld: true},
+		{name: "a release that dropped the declaration skips the grant", collection: generated(t, resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}), wantHeld: false},
+		{name: "a release that declares nothing skips the grant", collection: generated(t, resource.CollectionData{}), wantHeld: false},
+		{name: "a release of two sites, one of which declares the permission, carries the grant", collection: unionOf(t,
+			generated(t, resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}),
+			generated(t, resource.CollectionData{Permissions: []accesstypes.Permission{exportLedger}}),
+		), wantHeld: true},
+		{name: "a release of two sites, neither of which declares the permission, skips the grant", collection: unionOf(t,
+			generated(t, resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}),
+			generated(t, resource.CollectionData{}),
+		), wantHeld: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1067,3 +1067,164 @@ func Test_requiredOnCreate(t *testing.T) {
 		})
 	}
 }
+
+// permissionFixtureConstants loads the fixture of permissions declared with no resource
+// and returns a function handing over the constants named, in the fixture's order: each
+// test reads the constants it names alone, since the fixture holds the declarations the
+// generator refuses beside the ones it takes.
+func permissionFixtureConstants(t *testing.T) func(names ...string) []*parser.Constant {
+	t.Helper()
+
+	pkg := loadFixture(t, "permissionfixture")
+
+	return func(names ...string) []*parser.Constant {
+		t.Helper()
+
+		var constants []*parser.Constant
+		for _, c := range pkg.Constants {
+			if slices.Contains(names, c.Name()) {
+				constants = append(constants, c)
+			}
+		}
+		if len(constants) != len(names) {
+			t.Fatalf("the fixture holds %d of the constants %v", len(constants), names)
+		}
+
+		return constants
+	}
+}
+
+// Test_manualPermissionsFromConstants pins the declaration of a permission with no
+// resource: @manualAddPermission on an accesstypes.Permission constant declares the
+// constant's value, in the constants' order; a constant without it declares nothing; and
+// the declarations that say nothing an application could mean are refused where they
+// are written, each with what to do.
+func Test_manualPermissionsFromConstants(t *testing.T) {
+	t.Parallel()
+
+	named := permissionFixtureConstants(t)
+
+	got, err := manualPermissionsFromConstants(named("ExportReports", "Dormant", "ApproveBudgets", "Worded", "Reports"))
+	if err != nil {
+		t.Fatalf("manualPermissionsFromConstants() error = %v", err)
+	}
+	if diff := cmp.Diff([]accesstypes.Permission{"ExportReports", "ApproveBudgets"}, got); diff != "" {
+		t.Errorf("manualPermissionsFromConstants() mismatch (-want +got):\n%s", diff)
+	}
+
+	refused := []struct {
+		name      string
+		constants []string
+		wantErr   string
+	}{
+		{
+			name:      "the permission another constant declares",
+			constants: []string{"ExportReports", "ExportAgain"},
+			wantErr:   `constant "ExportAgain": @manualAddPermission declares the permission ExportReports, which an earlier constant already declares: remove one of the two`,
+		},
+		{
+			name:      "a permission with no name",
+			constants: []string{"Nameless"},
+			wantErr:   `constant "Nameless": @manualAddPermission declares the constant's value as a permission, and the value is empty: give the constant the permission's name`,
+		},
+		{
+			name:      "a class beside the declaration",
+			constants: []string{"Classed"},
+			wantErr:   `constant "Classed": @manualAddPermission declares a permission with no resource and stands alone, so @class beside it says nothing: remove it (a resource is registered with @manualAddResource on an accesstypes.Resource constant)`,
+		},
+		{
+			name:      "an outlet beside the declaration",
+			constants: []string{"Mounted"},
+			wantErr:   `constant "Mounted": @manualAddPermission declares a permission with no resource and stands alone, so @outlet beside it says nothing: remove it (a resource is registered with @manualAddResource on an accesstypes.Resource constant)`,
+		},
+		{
+			name:      "a constant that is no permission's",
+			constants: []string{"Untyped"},
+			wantErr:   `constant "Untyped": @manualAddPermission declares the constant's value as a permission, and the constant's type is untyped string, so it declares nothing: give the constant the type accesstypes.Permission`,
+		},
+		{
+			name:      "a resource registered on a permission's constant",
+			constants: []string{"Registered"},
+			wantErr:   `constant "Registered": @manualAddPermission declares a permission with no resource and stands alone, so @manualAddResource beside it says nothing: remove it (a resource is registered with @manualAddResource on an accesstypes.Resource constant)`,
+		},
+	}
+	for _, tt := range refused {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := manualPermissionsFromConstants(named(tt.constants...))
+			if err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Fatalf("manualPermissionsFromConstants() = %v, error = %v, want the error %q", got, err, tt.wantErr)
+			}
+		})
+	}
+
+	// The declaration on a resource's constant is refused where the resources'
+	// registrations are read, which is where a resource's constant is scanned.
+	wantErr := `constant "Ledgers": @manualAddPermission declares a permission with no resource, and this constant is a resource: put it on a constant of type accesstypes.Permission, or register a permission on this resource with @manualAddResource(<permission>)`
+	if got, err := manualRegistrationsFromConstants(named("Ledgers")); err == nil || !strings.HasSuffix(err.Error(), wantErr) {
+		t.Errorf("manualRegistrationsFromConstants() = %v, error = %v, want the error %q", got, err, wantErr)
+	}
+}
+
+// Test_computeCollectionData_declaredPermissions pins where a declared permission goes,
+// from the annotation on: the generator reads it off the resources package's constants
+// beside the resources registered by hand, computes it into the collection, sorted, so
+// the generated collection lists it with no resource, and writes it into the collection
+// file, which an application that declares none is written without.
+func Test_computeCollectionData_declaredPermissions(t *testing.T) {
+	t.Parallel()
+
+	r := &resourceGenerator{client: &client{}}
+	if err := r.readManualDeclarations(permissionFixtureConstants(t)("ExportReports", "Dormant", "ApproveBudgets", "Reports")); err != nil {
+		t.Fatalf("readManualDeclarations() error = %v", err)
+	}
+
+	data, err := r.computeCollectionData()
+	if err != nil {
+		t.Fatalf("computeCollectionData() error = %v", err)
+	}
+	if diff := cmp.Diff([]accesstypes.Permission{"ApproveBudgets", "ExportReports"}, data.Permissions); diff != "" {
+		t.Errorf("computeCollectionData() permissions mismatch (-want +got):\n%s", diff)
+	}
+
+	collection, err := resource.NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("resource.NewGeneratedCollection() error = %v", err)
+	}
+	want := map[accesstypes.Permission][]accesstypes.Resource{"ApproveBudgets": nil, "ExportReports": nil, accesstypes.Read: {"Reports"}}
+	if diff := cmp.Diff(want, collection.List()); diff != "" {
+		t.Errorf("the generated collection's List() mismatch (-want +got):\n%s", diff)
+	}
+
+	render := func(t *testing.T, data resource.CollectionData) string {
+		t.Helper()
+
+		output, err := r.generateTemplateOutput("collectionTemplate", collectionTemplate, &collectionFileData{Source: "pkg/resources", Package: "router", Data: data})
+		if err != nil {
+			t.Fatalf("generateTemplateOutput() error = %v", err)
+		}
+		formatted, err := format.Source(output)
+		if err != nil {
+			t.Fatalf("rendered collection file is not valid Go: %v\n%s", err, output)
+		}
+
+		return strings.Join(strings.Fields(string(formatted)), " ")
+	}
+	// The declared permissions are the collection data's last entry, after the
+	// resources, and the one thing a collection file that declares some holds beyond
+	// the file of the same application declaring none.
+	const (
+		declared = ` Permissions: []accesstypes.Permission{accesstypes.Permission("ApproveBudgets"), accesstypes.Permission("ExportReports")},`
+		closing  = ` }) }`
+	)
+	with := render(t, data)
+	data.Permissions = nil
+	without := render(t, data)
+	if !strings.HasSuffix(without, closing) || strings.Contains(without, "ApproveBudgets") {
+		t.Fatalf("a collection file with no declared permission names one, or does not end with %q:\n%s", closing, without)
+	}
+	if want := strings.TrimSuffix(without, closing) + declared + closing; with != want {
+		t.Errorf("rendered collection file mismatch (-want +got):\n%s", cmp.Diff(want, with))
+	}
+}

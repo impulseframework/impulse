@@ -68,6 +68,15 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 			}
 		}
 	}
+	// A permission a collection lists with no resource, one held for the whole of a
+	// scope alone, is one the release has in every site.
+	for _, c := range collections {
+		for perm := range c.List() {
+			if _, listed := u.merged[perm]; !listed {
+				u.merged[perm] = nil
+			}
+		}
+	}
 	for perm := range u.merged {
 		slices.Sort(u.merged[perm])
 	}

@@ -444,6 +444,23 @@ decisions, err = client.CheckRoleResources(ctx, env, role, scope, "Update", "doc
 decision, err = client.CheckRole(ctx, env, role, scope, "ExportReports")
 ```
 
+`ExportReports` here is a permission no resource registers: the application
+checks it for the whole of a scope and for nothing else. A release has such a
+permission because the application declares it, with `@manualAddPermission` on
+a constant of type `accesstypes.Permission` in its resources package, and the
+generated collection then lists it with no resource:
+
+```go
+// ExportReports is checked for the whole of a tenant.
+//
+// @manualAddPermission
+const ExportReports accesstypes.Permission = "ExportReports"
+```
+
+A scope-wide grant of a permission the collection does not list is refused
+when it is written and skipped when the policy is loaded, so a check of a
+permission the application never declared answers `Denied` for everyone.
+
 A request binds its principal once: `client.ForUser(user)` returns a
 `*UserChecker` and `client.ForRole(role)` a `*RoleChecker`, each carrying
 `Check`, `PermissionDigest` and `HasGrants` over the bound subject — the
@@ -717,7 +734,9 @@ mgr.DeleteRolePermissionResources(ctx, tenant1, "Editor", "Read", "documents.*")
 
 // A scope-wide permission (not tied to any resource) is granted through the
 // base-name method — there is no resource value that means it. The
-// permission is one the release has: one its collection lists.
+// permission is one the release has: one its collection lists, because a
+// resource registers it or because the application declares it with
+// @manualAddPermission on a constant of type accesstypes.Permission.
 mgr.AddRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 mgr.DeleteRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 

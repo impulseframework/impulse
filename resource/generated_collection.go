@@ -142,6 +142,13 @@ type ManualRegistration struct {
 // internal representation.
 type CollectionData struct {
 	Resources []CollectionResource
+
+	// Permissions are the permissions the application declares with no resource
+	// (@manualAddPermission on an accesstypes.Permission constant), sorted: ones it
+	// checks for the whole of a scope (access.CheckUser, access.CheckRole) and gives a
+	// custom role with AddRolePermission. No resource registers such a permission, so
+	// the declaration is what makes it one the release has (List).
+	Permissions []accesstypes.Permission
 }
 
 // WriteClassData is the classes one write of a record carries
@@ -362,6 +369,13 @@ func (b *CollectionBuilder) SetResourceRequiredTags(scope accesstypes.Permission
 	b.g.setResourceRequiredTags(scope, res, required)
 }
 
+// AddPermission declares a permission with no resource (CollectionData.Permissions):
+// one the application checks for the whole of a scope. Declaring one twice is declaring
+// it once.
+func (b *CollectionBuilder) AddPermission(permission accesstypes.Permission) error {
+	return b.g.addPermission(permission)
+}
+
 // AddResource registers a single resource permission, allowing duplicate registrations
 // (the hand-written registration path).
 func (b *CollectionBuilder) AddResource(scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) error {
@@ -472,6 +486,8 @@ type GeneratedCollection struct {
 	// writeClasses are the classes each write of a record carries, sorted, within
 	// scope.
 	writeClasses map[accesstypes.PermissionScope]map[accesstypes.Resource]map[accesstypes.Permission][]accesstypes.ActionClass
+	// permissions are the permissions declared with no resource, sorted.
+	permissions []accesstypes.Permission
 	// noRole are the actions no role is given, within scope.
 	noRole map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}
 }
@@ -570,6 +586,11 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	}
 	for i := range data.Resources {
 		if err := g.refuseClassFromOtherScope(&data.Resources[i]); err != nil {
+			return nil, err
+		}
+	}
+	for _, permission := range data.Permissions {
+		if err := g.addPermission(permission); err != nil {
 			return nil, err
 		}
 	}
@@ -1096,12 +1117,31 @@ func MustNewGeneratedCollection(data CollectionData) *GeneratedCollection {
 	return g
 }
 
+// addPermission declares a permission with no resource, keeping the declared ones
+// sorted and each once.
+func (g *GeneratedCollection) addPermission(permission accesstypes.Permission) error {
+	if permission == accesstypes.NullPermission {
+		return errors.New("cannot declare a permission with no name")
+	}
+	if i, declared := slices.BinarySearch(g.permissions, permission); !declared {
+		g.permissions = slices.Insert(g.permissions, i, permission)
+	}
+
+	return nil
+}
+
 // List returns a map of permissions to the resources that have them: everything a
-// role's grant may name. An action no role is given (CollectionResource.NoRole) is not
-// in it, so a role file that names one is refused and no listing of what a role may be
-// given shows it; Scope, HasPermission and ActionClasses still answer for it.
+// role's grant may name. A permission declared with no resource
+// (CollectionData.Permissions) is in it with whatever resources also register it, none
+// when it is held for the whole of a scope alone. An action no role is given
+// (CollectionResource.NoRole) is not in it, so a role file that names one is refused
+// and no listing of what a role may be given shows it; Scope, HasPermission and
+// ActionClasses still answer for it.
 func (g *GeneratedCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
 	permissionResources := make(map[accesstypes.Permission][]accesstypes.Resource)
+	for _, permission := range g.permissions {
+		permissionResources[permission] = nil
+	}
 	for scope, store := range g.resourceStore {
 		for resource, permissions := range store {
 			if _, noRole := g.noRole[scope][resource]; noRole {
@@ -1686,6 +1726,9 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 
 		data.Resources = append(data.Resources, res)
 	}
+	// The declared permissions are copied, and a collection that declares none hands
+	// back none: nil, as CollectionData holds it.
+	data.Permissions = slices.Clone(g.permissions)
 
 	return data
 }

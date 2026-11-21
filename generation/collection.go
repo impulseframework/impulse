@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"iter"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -24,6 +25,96 @@ type ManualRegistration = resource.ManualRegistration
 // accesstypesResourceType is the fully qualified type of the constants
 // @manualAddResource annotations apply to.
 const accesstypesResourceType = "github.com/impulseframework/impulse/accesstypes.Resource"
+
+// accesstypesPermissionType is the fully qualified type of the constants
+// @manualAddPermission annotations apply to.
+const accesstypesPermissionType = "github.com/impulseframework/impulse/accesstypes.Permission"
+
+// readManualDeclarations reads what the resources package's constants declare by hand:
+// the registrations of @manualAddResource, added to the ones the application passed
+// with WithManualResources, and the permissions of @manualAddPermission.
+func (r *resourceGenerator) readManualDeclarations(constants []*parser.Constant) error {
+	registrations, err := manualRegistrationsFromConstants(constants)
+	if err != nil {
+		return err
+	}
+	r.manualRegistrations = append(r.manualRegistrations, registrations...)
+
+	r.manualPermissions, err = manualPermissionsFromConstants(constants)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// manualPermissionsFromConstants extracts @manualAddPermission annotations from the
+// resources package's accesstypes.Permission constants: each declares the constant's
+// value as a permission of the application that no resource registers, one it checks for
+// the whole of a scope (access.CheckUser, access.CheckRole) and gives a custom role with
+// AddRolePermission. The generated collection lists it, which is what makes it a
+// permission the release has. The annotation takes no argument and stands alone: a
+// permission is mounted under no outlet and is no action to class, and a resource is
+// registered on a resource's constant, so @outlet, @class or @manualAddResource beside
+// it is refused. A constant that declares the same permission as an earlier one is
+// refused too, and so is the annotation on a constant of another type, which would
+// declare nothing and leave every check of the permission denied.
+func manualPermissionsFromConstants(constants []*parser.Constant) ([]accesstypes.Permission, error) {
+	var permissions []accesstypes.Permission
+	for _, c := range constants {
+		if c.TypeName() != accesstypesPermissionType {
+			// A resource's constant is refused where the resources' registrations are
+			// read (manualRegistrationsFromConstants), with what a resource does instead.
+			if c.TypeName() != accesstypesResourceType && commentDeclaresPermission(c.Comments()) {
+				return nil, errors.Newf(
+					"constant %q: @%s declares the constant's value as a permission, and the constant's type is %s, so it declares nothing: give the constant the type accesstypes.Permission",
+					c.Name(), manualAddPermissionKeyword, c.TypeName(),
+				)
+			}
+
+			continue
+		}
+
+		annotations, err := genlang.NewScanner(resourceKeywords()).ScanConstant(c)
+		if err != nil {
+			return nil, errors.Wrapf(err, "scanning annotations on constant %q", c.Name())
+		}
+		if !annotations.Const.Has(manualAddPermissionKeyword) {
+			continue
+		}
+		for _, other := range []string{manualAddResourceKeyword, outletKeyword, classKeyword} {
+			if annotations.Const.Has(other) {
+				return nil, errors.Newf(
+					"constant %q: @%s declares a permission with no resource and stands alone, so @%s beside it says nothing: remove it (a resource is registered with @%s on an accesstypes.Resource constant)",
+					c.Name(), manualAddPermissionKeyword, other, manualAddResourceKeyword,
+				)
+			}
+		}
+
+		permission := accesstypes.Permission(c.Value())
+		if permission == accesstypes.NullPermission {
+			return nil, errors.Newf("constant %q: @%s declares the constant's value as a permission, and the value is empty: give the constant the permission's name", c.Name(), manualAddPermissionKeyword)
+		}
+		if slices.Contains(permissions, permission) {
+			return nil, errors.Newf("constant %q: @%s declares the permission %s, which an earlier constant already declares: remove one of the two", c.Name(), manualAddPermissionKeyword, permission)
+		}
+		permissions = append(permissions, permission)
+	}
+
+	return permissions, nil
+}
+
+// permissionDeclarationLine matches a comment line that starts with
+// @manualAddPermission, the way the scanner reads an annotation.
+var permissionDeclarationLine = regexp.MustCompile(`(?m)^\s*@` + manualAddPermissionKeyword + `\b`)
+
+// commentDeclaresPermission reports whether a constant's comments hold a line that
+// starts with @manualAddPermission. It reads the text alone, for a constant whose type
+// has its comments scanned for nothing: such a constant is not held to the annotation
+// grammar, only told that the declaration it carries declares nothing there.
+func commentDeclaresPermission(comments string) bool {
+	return permissionDeclarationLine.MatchString(comments)
+}
 
 // manualRegistrationsFromConstants extracts @manualAddResource annotations from the
 // resources package's accesstypes.Resource constants. The registered resource name is
@@ -46,6 +137,13 @@ func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualReg
 		annotations, err := genlang.NewScanner(resourceKeywords()).ScanConstant(c)
 		if err != nil {
 			return nil, errors.Wrapf(err, "scanning annotations on constant %q", c.Name())
+		}
+
+		if annotations.Const.Has(manualAddPermissionKeyword) {
+			return nil, errors.Newf(
+				"constant %q: @%s declares a permission with no resource, and this constant is a resource: put it on a constant of type accesstypes.Permission, or register a permission on this resource with @%s(<permission>)",
+				c.Name(), manualAddPermissionKeyword, manualAddResourceKeyword,
+			)
 		}
 
 		if !annotations.Const.Has(manualAddResourceKeyword) {
@@ -224,6 +322,12 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 
 	if err := r.collectManualRegistrations(b); err != nil {
 		return resource.CollectionData{}, err
+	}
+
+	for _, permission := range r.manualPermissions {
+		if err := b.AddPermission(permission); err != nil {
+			return resource.CollectionData{}, errors.Wrapf(err, "declared permission %q", permission)
+		}
 	}
 
 	if err := r.collectFeatureRegistrations(b); err != nil {

@@ -2,10 +2,41 @@ package access
 
 import (
 	"slices"
+	"testing"
 
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
+
+// generated is the permission collection of a release as the generator writes one:
+// resource.NewGeneratedCollection over the data a generated collection file holds. A
+// test that holds a rule to what a release declares hands the engine this, so the rule
+// is proven against the answers a generated application gives, a permission declared
+// with no resource among them (CollectionData.Permissions).
+func generated(t *testing.T, data resource.CollectionData) PermissionCollection {
+	t.Helper()
+
+	collection, err := resource.NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("resource.NewGeneratedCollection() error = %v", err)
+	}
+
+	return collection
+}
+
+// unionOf is the permission collection of a release of several sites: UnionCollection
+// over each site's collection.
+func unionOf(t *testing.T, collections ...PermissionCollection) PermissionCollection {
+	t.Helper()
+
+	union, err := UnionCollection(collections...)
+	if err != nil {
+		t.Fatalf("UnionCollection() error = %v", err)
+	}
+
+	return union
+}
 
 // declaring is the permission collection of a release that declares the resources listed
 // (a field as Resource.field) under their permissions, and nothing else: what a test that
