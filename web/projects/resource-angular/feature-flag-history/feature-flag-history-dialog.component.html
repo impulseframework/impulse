@@ -1,12 +1,12 @@
 <h2 mat-dialog-title>History of {{ flag.words }}</h2>
 <mat-dialog-content>
   @if (error(); as message) {
-    <p class="feature-flag-history-error" role="alert">{{ message }}</p>
+    <p class="impulse-feature-flag-history-dialog-error" role="alert">{{ message }}</p>
   }
   @if (history()) {
     <impulse-grid [rowData]="rows()" [columnDefs]="columns()" [sortable]="false" [emptyMessage]="empty" />
     @if (leftOut(); as note) {
-      <p class="feature-flag-history-note">{{ note }}</p>
+      <p class="impulse-feature-flag-history-dialog-note">{{ note }}</p>
     }
   }
 </mat-dialog-content>
