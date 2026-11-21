@@ -7,6 +7,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // beaconPulse is a beacon's answer: the sector it stands in and when it answered.
@@ -16,7 +17,9 @@ type beaconPulse struct {
 }
 
 // SectorBeacon answers a droid asking whether a sector is charted: 200 with the pulse
-// for a sector the tenant roster holds, 404 for any other. The route sits outside every
+// for a sector the tenant roster holds, 404 for any other, in the sentence every handler
+// answers for a record that is not there (resource.TargetNotFound), which carries no id:
+// the id asked for is the cause's, kept for the server's log. The route sits outside every
 // outlet (hooks.Root), with no session and no key, since a beacon tells a droid where it
 // is before it holds anything else, and it is asked all day by every droid in the sky.
 // That is why the generator program declares the prefix quiet: a pulse answered 200
@@ -29,7 +32,7 @@ func (a *App) SectorBeacon() http.HandlerFunc {
 		ctx := r.Context()
 		sector := httpio.Param[accesstypes.Domain](r, router.Domain)
 		if !a.tenants.Has(sector) {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("no beacon stands in sector %s", sector))
+			return httpio.NewEncoder(w).ClientMessage(ctx, resource.TargetNotFound("Sector", sector))
 		}
 
 		return httpio.NewEncoder(w).Ok(beaconPulse{Sector: sector, At: time.Now().UTC()})
