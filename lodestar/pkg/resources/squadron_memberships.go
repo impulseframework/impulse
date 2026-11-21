@@ -16,7 +16,7 @@ type (
 	// leaks authority into Anvil. A user with no memberships gets the empty set, which
 	// fails IN conditions closed for free.
 	//
-	// Demonstrates: @subjectSet.domain, @subjectSet.dotted-value, @domain.join-path.
+	// Demonstrates: @subjectSet.domain, @subjectSet.dotted-value, @subjectSet.auth, @domain.join-path.
 	//
 	// @resource
 	// @permissionScope(domain)
@@ -25,8 +25,8 @@ type (
 	SquadronMembership struct {
 		// @domain(via: WingID.SectorID)
 		SquadronID impulse.UUID `spanner:"SquadronId"`
-		// @subjectSet(squadrons, value: SquadronID)
-		// @subjectSet(wings, value: SquadronID.WingID)
+		// @subjectSet(squadrons, value: SquadronID, auth: crew)
+		// @subjectSet(wings, value: SquadronID.WingID, auth: crew)
 		// @enumerate(CrewSectorUsers)
 		UserID string `spanner:"UserId"`
 	}

@@ -431,7 +431,6 @@ type dataConfig struct {
 func (env *dataConfig) staffSettings(collection access.PermissionCollection, signals staff.Signals, cookieKey string, sender mail.Sender, tenants identity.TenantMaker) *staff.Settings {
 	return &staff.Settings{
 		Collection:         collection,
-		OtherRoles:         []access.RoleFile{members.Roles()},
 		Signals:            signals,
 		CookieKey:          cookieKey,
 		SessionTimeout:     env.SessionTimeout,
@@ -453,7 +452,6 @@ func (env *dataConfig) staffSettings(collection access.PermissionCollection, sig
 func (env *dataConfig) membersSettings(collection access.PermissionCollection, signals members.Signals, cookieKey string, sender mail.Sender) *members.Settings {
 	return &members.Settings{
 		Collection:     collection,
-		OtherRoles:     []access.RoleFile{staff.Roles()},
 		Signals:        signals,
 		CookieKey:      cookieKey,
 		SessionTimeout: env.SessionTimeout,

@@ -846,3 +846,34 @@ type (
 		OwnerID string `spanner:"OwnerId"`
 	}
 )
+
+// The sets that say whose people they describe (auth:), each on a table that holds the
+// people of one auth, and a subject value that writes the part, which takes none.
+type (
+	// BayKeeper names the staff who keep a bay.
+	//
+	// @resource
+	BayKeeper struct {
+		BayID impulse.UUID `spanner:"BayId"`
+		// @subjectSet(bays, value: BayID, auth: staff)
+		UserID string `spanner:"UserId"`
+	}
+
+	// LoungeGuest names the patrons a lounge admits.
+	//
+	// @resource
+	LoungeGuest struct {
+		LoungeID impulse.UUID `spanner:"LoungeId"`
+		// @subjectSet(lounges, value: LoungeID, auth: patrons)
+		UserID string `spanner:"UserId"`
+	}
+
+	// AuthOnValue writes an auth: on a subject value.
+	//
+	// @resource
+	AuthOnValue struct {
+		// @subjectValue(homeBay, value: BayID, auth: staff)
+		UserID string       `spanner:"UserId"`
+		BayID  impulse.UUID `spanner:"BayId"`
+	}
+)

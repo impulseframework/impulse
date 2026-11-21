@@ -97,7 +97,7 @@ func TestValidateRoles_requiredFieldWarnings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ValidateRoles(requiredCollection{}, &RoleConfig{Roles: tt.roles})
+			got, err := ValidateRoles(requiredCollection{}, &RoleConfig{Roles: tt.roles}, fixtureAuth)
 			if err != nil {
 				t.Fatalf("ValidateRoles() error = %v", err)
 			}

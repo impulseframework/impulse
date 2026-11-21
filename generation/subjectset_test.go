@@ -49,6 +49,9 @@ func subjectSetFixtureClient(t *testing.T, structs map[string]*parser.Struct) *c
 		"DepotKeeper":         {"DepotId", "UserId"},
 		"RackKeeper":          {"RackId", "UserId"},
 		"StaffGroupMember":    {"GroupId", "UserId"},
+		"BayKeeper":           {"BayId", "UserId"},
+		"LoungeGuest":         {"LoungeId", "UserId"},
+		"AuthOnValue":         {"UserId"},
 	}
 	parents := map[string]string{"PoolId": "Pools", "DepotId": "Depots", "RackId": "Racks", "RealmId": "Realms", "GroupId": "StaffGroups"}
 	index := func(name string, nullFiltered bool, columns ...string) indexMeta {
@@ -179,6 +182,13 @@ func TestResolveSubjectSetParts(t *testing.T) {
 			structName: "TeamMember",
 			want: []resource.SubjectBindingData{
 				{Name: "teams", UserColumn: "UserId", Column: "TeamId", Type: resource.AttributeTypeString},
+			},
+		},
+		{
+			name:       "a set that says whose people it describes carries the auth's name",
+			structName: "BayKeeper",
+			want: []resource.SubjectBindingData{
+				{Name: "bays", UserColumn: "UserId", Column: "BayId", Type: resource.AttributeTypeString, Auth: "staff"},
 			},
 		},
 		{
@@ -500,6 +510,11 @@ func TestResolveSubjectSetParts_refusals(t *testing.T) {
 			name:       "a domain: on a subject value",
 			structName: "DomainOnValue",
 			want:       []string{"@subjectValue(homePool)", "@subjectValue takes the name and value: alone; domain: is a part of a @subjectSet"},
+		},
+		{
+			name:       "an auth: on a subject value",
+			structName: "AuthOnValue",
+			want:       []string{"@subjectValue(homeBay)", "@subjectValue takes the name and value: alone; auth: is a part of a @subjectSet"},
 		},
 	}
 

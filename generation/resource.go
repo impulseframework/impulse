@@ -113,6 +113,23 @@ func (r *resourceGenerator) allOutlets() []*routerOutlet {
 	return outlets
 }
 
+// authNames lists the application's auths by name, as their packages name them: one
+// for each auth an outlet declares, in name order.
+func (r *resourceGenerator) authNames() []string {
+	var names []string
+	for _, outlet := range r.allOutlets() {
+		if outlet.auth == nil {
+			continue
+		}
+		if name := outlet.auth.packageName(); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+
+	return names
+}
+
 // memberOutlets returns the declared outlets the membership joins, in declaration order.
 func (r *resourceGenerator) memberOutlets(m *outletMembership) []*routerOutlet {
 	var outlets []*routerOutlet
@@ -583,6 +600,9 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 	}
 
 	if err := r.resolveRunSubjectSets(r.resources); err != nil {
+		return err
+	}
+	if err := resolveSubjectSetAuths(r.resources, r.authNames()); err != nil {
 		return err
 	}
 	r.attachSubjectReadThroughs()

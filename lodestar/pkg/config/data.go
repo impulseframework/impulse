@@ -355,7 +355,6 @@ func openCrewAuth(ctx context.Context, db *database.Driver, env *dataConfig, coo
 		SessionTimeout: env.SessionTimeout,
 		LoginURL:       "/console/login",
 		Collection:     router.Collection(),
-		OtherRoles:     []access.RoleFile{members.Roles()},
 		Directory: auth.Directory{
 			ClientID:     env.CrewClientID,
 			ClientSecret: env.CrewClientSecret,
@@ -399,7 +398,6 @@ func openMembersAuth(ctx context.Context, db *database.Driver, env *dataConfig, 
 		SessionTimeout: env.SessionTimeout,
 		LoginURL:       "/portal/login",
 		Collection:     router.Collection(),
-		OtherRoles:     []access.RoleFile{crew.Roles()},
 		Directory: auth.Directory{
 			ClientID:     env.MembersClientID,
 			ClientSecret: env.MembersClientSecret,

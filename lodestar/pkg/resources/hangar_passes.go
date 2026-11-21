@@ -85,10 +85,10 @@ type (
 		// @domain
 		SectorID impulse.UUID `spanner:"SectorId"`
 		HangarID impulse.UUID `spanner:"HangarId"`
-		// @subjectSet(hangarsOpen, value: HangarID,
+		// @subjectSet(hangarsOpen, value: HangarID, auth: crew,
 		//     who:   UserID = subject OR SquadronID IN subject.squadrons OR GroupID IN subject.groups,
 		//     where: LevelID IN ('visit', 'run') AND (ExpiresAt IS NULL OR ExpiresAt > now))
-		// @subjectSet(hangarsRun, value: HangarID,
+		// @subjectSet(hangarsRun, value: HangarID, auth: crew,
 		//     who:   UserID = subject OR SquadronID IN subject.squadrons OR GroupID IN subject.groups,
 		//     where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))
 		// @enumerate(CrewSectorUsers)

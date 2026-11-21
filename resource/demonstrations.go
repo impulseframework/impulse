@@ -54,6 +54,7 @@ var Demonstrations = []Demonstration{
 	{"@subjectSet.where", "@subjectSet(name, value: Column, where: …): which of the requester's rows count, a condition over the row's own columns, so one table yields a set for each level and an expired row drops out."},
 	{"@subjectSet.on-set", "A subject set that follows another: its who: tests a column against a set another table declares, each set under its own tenant filter."},
 	{"@subjectSet.on-groups", "A subject set that follows the library's groups: its who: tests a column against subject.groups, the set the generated group members table declares, so a row that names a group is every member's while their place in the group counts; in a tenant's request the set holds that tenant's own groups alone (the set's domain: part), and the library refuses to write a tenant's row that names any other group."},
+	{"@subjectSet.auth", "@subjectSet(name, value: Column, auth: crew): in an application with several auths, the auth whose people the set describes, so the role-file check of an auth looks at its own sets and at no other auth's."},
 	{"@subjectValue", "@subjectValue(name, value: Column): a scalar attribute of the requesting user."},
 	{"@subjectValue.two-per-anchor", "Two subject values bound on one unique-indexed user column."},
 	{"@subjectValue.second-anchor", "A second @subjectValue anchor, so a condition can compare a foreign key to the subject's company."},

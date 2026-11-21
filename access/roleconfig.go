@@ -34,12 +34,15 @@ type PermissionCollection interface {
 	SubjectSetComparisonType(name string) (accesstypes.AttributeType, bool)
 
 	// SubjectSets lists the subject sets the application declares (@subjectSet)
-	// by name, each with the names of the sets its who: part builds on
-	// (Column IN subject.<set>). A set the generator declares for an auth, the
-	// set of a person's groups, is left out: nobody wrote it, so leaving it
-	// unread is no oversight. A set listed here that no grant reads is flagged
-	// (see UnreadSetWarning).
-	SubjectSets() map[string][]string
+	// that describe the people of one auth, by name, each with the names of the
+	// sets its who: part builds on (Column IN subject.<set>). auth is the auth's
+	// name, as its package names it. A set that names no auth, as every set of
+	// an application with one auth does, is listed for every auth, and an empty
+	// auth lists every set. A set the generator declares for an auth, the set of
+	// a person's groups, is left out: nobody wrote it, so leaving it unread is no
+	// oversight. A set listed here that no grant reads is flagged (see
+	// UnreadSetWarning).
+	SubjectSets(auth string) map[string][]string
 	SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool)
 
 	// IsComputedResource reports whether res is a computed resource: one whose
@@ -221,12 +224,12 @@ func (g Grant) expand() []accesstypes.Resource {
 // condition against the collection's vocabulary, each grant at its role's
 // declared scope — and returns the warnings the configuration raises (see
 // Warning), with no store client involved. A project test or a tool gets
-// the answer the release's start would. others are the role configurations of
-// the application's other auths, for an application with more than one: a
-// subject set one of them reads is read (see UnreadSetWarning), and nothing
-// else of them is validated here.
-func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig, others ...*RoleConfig) ([]Warning, error) {
-	defaults, err := compileDefaultRoles(store, roleConfig, nil, others)
+// the answer the release's start would. auth is the name of the auth whose
+// roles these are, as its package names it (its Name): the subject sets that
+// describe another auth's people are no business of this file, so the check
+// holds it to its own auth's sets alone (see UnreadSetWarning).
+func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig, auth string) ([]Warning, error) {
+	defaults, err := compileDefaultRoles(store, roleConfig, nil, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -261,9 +264,9 @@ type defaultRole struct {
 // global role holding Execute on methods, the methods that give and take the
 // auth's roles (WithSuperAdministratorMethods). store may be nil for a
 // configuration that declares no role, a Client built without a role file.
-// others are the role configurations of the application's other auths, read
-// only for the subject sets their grants name.
-func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, methods []accesstypes.Resource, others []*RoleConfig) (*defaultRoles, error) {
+// auth names the auth whose roles these are: the subject sets held to them are
+// that auth's own.
+func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, methods []accesstypes.Resource, auth string) (*defaultRoles, error) {
 	if err := validateRoleNames(roleConfig.Roles); err != nil {
 		return nil, err
 	}
@@ -289,7 +292,7 @@ func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, met
 	if err != nil {
 		return nil, err
 	}
-	unread, err := unreadSetWarnings(store, append([]*RoleConfig{roleConfig}, others...)...)
+	unread, err := unreadSetWarnings(store, auth, roleConfig)
 	if err != nil {
 		return nil, err
 	}

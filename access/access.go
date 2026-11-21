@@ -79,15 +79,7 @@ func New(store Store, opts ...Option) (*Client, error) {
 	if _, err := superAdministratorRole(options.collection, options.superMethods); err != nil {
 		return nil, errors.Wrap(err, "access.New()")
 	}
-	others := make([]*RoleConfig, 0, len(options.otherRoleFiles))
-	for _, file := range options.otherRoleFiles {
-		other, err := file.Parse()
-		if err != nil {
-			return nil, errors.Wrap(err, "access.WithDefaultRoles(): the role file of another auth")
-		}
-		others = append(others, other)
-	}
-	defaults, err := compileDefaultRoles(options.collection, config, options.superMethods, others)
+	defaults, err := compileDefaultRoles(options.collection, config, options.superMethods, options.auth)
 	if err != nil {
 		if !options.roleFileSet {
 			return nil, errors.Wrap(err, "access.New()")

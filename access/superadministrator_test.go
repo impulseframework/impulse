@@ -19,7 +19,7 @@ import (
 func superClient(t *testing.T, opts ...Option) (*Client, *fakeStore) {
 	t.Helper()
 	store := newFakeStore()
-	opts = append([]Option{WithDefaultRoles(grammarCollection{}, grammarRoleFile), WithHeartbeatInterval(time.Hour)}, opts...)
+	opts = append([]Option{WithDefaultRoles(grammarCollection{}, grammarRoleFile, fixtureAuth), WithHeartbeatInterval(time.Hour)}, opts...)
 	client := newPolicyClient(t, store, opts...)
 	if err := client.WaitReady(context.Background()); err != nil {
 		t.Fatalf("Client.WaitReady() error = %v", err)
@@ -58,14 +58,14 @@ func TestSuperAdministrator_reservedInTheRoleFile(t *testing.T) {
 			if _, err := tt.file.Parse(); err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("RoleFile.Parse() error = %v, want one containing %q", err, tt.want)
 			}
-			if _, err := New(newFakeStore(), WithDefaultRoles(grammarCollection{}, tt.file)); err == nil || !strings.Contains(err.Error(), tt.want) {
+			if _, err := New(newFakeStore(), WithDefaultRoles(grammarCollection{}, tt.file, fixtureAuth)); err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("New() error = %v, want one containing %q", err, tt.want)
 			}
 		})
 	}
 
 	config := &RoleConfig{Roles: ScopedRoles{Global: []*Role{{Name: accesstypes.SuperAdministrator, Description: "Takes the name."}}}}
-	if _, err := ValidateRoles(grammarCollection{}, config); err == nil || !strings.Contains(err.Error(), "the name is reserved") {
+	if _, err := ValidateRoles(grammarCollection{}, config, fixtureAuth); err == nil || !strings.Contains(err.Error(), "the name is reserved") {
 		t.Errorf("ValidateRoles() error = %v, want the reserved name refused", err)
 	}
 }
@@ -300,7 +300,7 @@ func TestSuperAdministrator_methods(t *testing.T) {
 	t.Run("a method the release does not declare for the global scope is refused", func(t *testing.T) {
 		t.Parallel()
 		for _, method := range []accesstypes.Resource{"NoSuchMethod", "Widgets", ""} {
-			_, err := New(newFakeStore(), WithDefaultRoles(grammarCollection{}, grammarRoleFile), WithSuperAdministratorMethods(method))
+			_, err := New(newFakeStore(), WithDefaultRoles(grammarCollection{}, grammarRoleFile, fixtureAuth), WithSuperAdministratorMethods(method))
 			if err == nil || !strings.Contains(err.Error(), "WithSuperAdministratorMethods names") {
 				t.Errorf("New(WithSuperAdministratorMethods(%q)) error = %v, want the method refused", method, err)
 			}

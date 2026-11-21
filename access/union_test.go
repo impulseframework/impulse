@@ -1,6 +1,7 @@
 package access
 
 import (
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -27,6 +28,8 @@ type stubCollection struct {
 	subjectSets   map[string]accesstypes.AttributeType
 	subjectValues map[string]accesstypes.AttributeType
 	declaredSets  map[string][]string
+	// authSets are the sets that describe one auth's people, by the auth's name.
+	authSets map[string]map[string][]string
 }
 
 func (s *stubCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
@@ -79,8 +82,18 @@ func (s *stubCollection) SubjectSetComparisonType(name string) (accesstypes.Attr
 	return typ, ok
 }
 
-func (s *stubCollection) SubjectSets() map[string][]string {
-	return s.declaredSets
+// SubjectSets lists the stub's sets for one auth: those that name no auth, and those of
+// the auth asked for.
+func (s *stubCollection) SubjectSets(auth string) map[string][]string {
+	sets := maps.Clone(s.declaredSets)
+	for name, builds := range s.authSets[auth] {
+		if sets == nil {
+			sets = make(map[string][]string)
+		}
+		sets[name] = builds
+	}
+
+	return sets
 }
 
 func (s *stubCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
@@ -382,18 +395,26 @@ func (s *stubCollection) RequiredOnCreate(_ accesstypes.PermissionScope, res acc
 }
 
 // TestUnionCollection_subjectSets pins that the union lists every collection's declared
-// subject sets, and joins what two collections say a shared set builds on.
+// subject sets for the auth it is asked about, and joins what two collections say a
+// shared set builds on: a set that describes another auth's people is in no
+// collection's answer, so it is not in the union's.
 func TestUnionCollection_subjectSets(t *testing.T) {
 	t.Parallel()
 
-	first := &stubCollection{declaredSets: map[string][]string{"crews": nil, "docks": {"crews"}}}
-	second := &stubCollection{declaredSets: map[string][]string{"docks": {"watches"}, "watches": nil}}
+	first := &stubCollection{
+		declaredSets: map[string][]string{"crews": nil, "docks": {"crews"}},
+		authSets:     map[string]map[string][]string{"members": {"accounts": nil}},
+	}
+	second := &stubCollection{
+		declaredSets: map[string][]string{"docks": {"watches"}, "watches": nil},
+		authSets:     map[string]map[string][]string{"crew": {"berths": {"docks"}}},
+	}
 	union, err := UnionCollection(first, second)
 	if err != nil {
 		t.Fatalf("UnionCollection() error = %v", err)
 	}
-	want := map[string][]string{"crews": nil, "docks": {"crews", "watches"}, "watches": nil}
-	if got := union.SubjectSets(); !reflect.DeepEqual(got, want) {
-		t.Errorf("SubjectSets() = %v, want %v", got, want)
+	want := map[string][]string{"berths": {"docks"}, "crews": nil, "docks": {"crews", "watches"}, "watches": nil}
+	if got := union.SubjectSets("crew"); !reflect.DeepEqual(got, want) {
+		t.Errorf("SubjectSets(crew) = %v, want %v", got, want)
 	}
 }

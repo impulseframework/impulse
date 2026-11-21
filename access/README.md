@@ -103,7 +103,7 @@ func main() {
     }
 
     // An application that ships default roles adds
-    // access.WithDefaultRoles(collection, roles.File); see Default Roles.
+    // access.WithDefaultRoles(collection, roles.File, auth); see Default Roles.
     client, err := access.New(store)
     if err != nil {
         log.Fatal(err)
@@ -203,7 +203,7 @@ client, err := access.New(store,
     // permission, resource or field this release does not have, instead of
     // carrying it. An application with no role file passes
     // access.WithPermissionCollection(router.Collection()) for that check.
-    access.WithDefaultRoles(router.Collection(), roles.File),
+    access.WithDefaultRoles(router.Collection(), roles.File, auth),
     // Recommended: propagate changes between instances in near-realtime over
     // the application's signal channel (see Change signal).
     access.WithChangeSignal(policySignal),
@@ -791,7 +791,7 @@ Hand it to `New` with the collection it validates against:
 
 ```go
 client, err := access.New(store,
-    access.WithDefaultRoles(router.Collection(), roles.File),
+    access.WithDefaultRoles(router.Collection(), roles.File, auth),
     access.WithChangeSignal(policySignal), // see Change signal
 )
 if err != nil {
@@ -801,6 +801,11 @@ if err != nil {
 
 `WithDefaultRoles` also gives the client the collection `WithPermissionCollection`
 would, so an application with a role file passes only `WithDefaultRoles`.
+
+The third argument, `auth`, is the name of the auth whose roles the file holds, as the
+auth's package names it (`Name` in a package `impulse add auth` renders). It says whose
+subject sets the file is held to: see `access.UnreadSetWarning` below.
+`ValidateRoles` takes the same name.
 
 The deploy's migrate step calls `CheckPolicy`. It reads the store once and
 returns the role file's warnings (see Warnings) beside what the store holds that
@@ -838,15 +843,21 @@ never a refusal: a set may be declared one change before its first grant, and
 the role-file test accepts the warning until then. The set of a person's groups
 that the generator declares for an auth is not flagged, since nobody wrote it.
 
-An application with more than one auth hands each auth the others' role files,
-because a set one auth's roles read is read:
+A set describes the people of one auth: its user column holds that auth's
+people, so only that auth's roles can give anybody anything through it. An
+application with more than one auth says so on each set (`auth: staff` in the
+`@subjectSet`, the auth's name as its package names it; generation refuses a set
+that says none), and each auth hands its own name with its role file:
 
 ```go
-access.WithDefaultRoles(collection, staff.Roles(), members.Roles())
-warnings, err := access.ValidateRoles(collection, staffRoles, membersRoles)
+access.WithDefaultRoles(collection, staff.Roles(), staff.Name)
+warnings, err := access.ValidateRoles(collection, membersRoles, members.Name)
 ```
 
-The other files are read for the sets their grants name and for nothing else.
+The check of an auth looks at that auth's sets and at the sets that name no
+auth, and never at another auth's, so no role file is handed from one auth to
+another. An application with one auth writes no `auth:`, and every set is that
+auth's. An empty name looks at every set.
 
 ### Behavior
 
@@ -1019,7 +1030,7 @@ config, err := roles.File.Parse()
 if err != nil {
     return err
 }
-warnings, err := access.ValidateRoles(router.Collection(), config)
+warnings, err := access.ValidateRoles(router.Collection(), config, auth)
 if err != nil {
     return err // the refusals that would fail New
 }
@@ -1048,7 +1059,7 @@ if err != nil {
     return err
 }
 
-client, err := access.New(store, access.WithDefaultRoles(collection, roles.File))
+client, err := access.New(store, access.WithDefaultRoles(collection, roles.File, auth))
 ```
 
 ### JSON Configuration

@@ -93,7 +93,7 @@ func (c superAdministratorsTold) Run(_ context.Context, env *Env) Result {
 func (superAdministratorsTold) judge(a *app.App, p *app.AuthPackage, auth *app.Auth) (finding, warning string) {
 	at := fmt.Sprintf("%s:%d", auth.File, auth.Line)
 	told := &auth.SuperAdministrators
-	own := fmt.Sprintf("pass %s over the engine %s.New opens with access.WithDefaultRoles(collection, Roles())", superAdministratorsForm, p.Name)
+	own := fmt.Sprintf("pass %s over the engine %s.New opens with access.WithDefaultRoles(collection, Roles(), Name)", superAdministratorsForm, p.Name)
 	switch told.Form {
 	case app.SuperAdministratorsNone:
 		return fmt.Sprintf("%s: the %s auth has a role file (%s), so its people hold roles and the Super Administrator role is among them, and its Auth is built with session.NoSuperAdministrators(), which leaves a holder to the sign-in rule alone, with no second factor of the library's own; %s",
@@ -116,7 +116,7 @@ func (superAdministratorsTold) judge(a *app.App, p *app.AuthPackage, auth *app.A
 		return "", fmt.Sprintf("%s: the check the %s auth's Auth is handed does not lead to a permission engine opened in the same function (access.New), so whose roles it reads is not judged here; %s",
 			at, p.Name, own)
 	case told.RolesPackage == "":
-		return "", fmt.Sprintf("%s: the check the %s auth's Auth is handed is built over the engine opened at %s:%d, and the role file that engine is handed does not read there (no access.WithDefaultRoles(collection, Roles()) among its arguments), so whose engine it is is not judged here; %s",
+		return "", fmt.Sprintf("%s: the check the %s auth's Auth is handed is built over the engine opened at %s:%d, and the role file that engine is handed does not read there (no access.WithDefaultRoles(collection, Roles(), Name) among its arguments), so whose engine it is is not judged here; %s",
 			at, p.Name, auth.File, told.EngineLine, own)
 	case told.RolesPackage == p.Path:
 		return "", ""

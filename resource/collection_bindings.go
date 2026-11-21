@@ -106,6 +106,13 @@ type DomainBindingData struct {
 // Offered marks a set the generator declares for an auth, the set of a
 // person's groups: nobody wrote it, so the role-file check does not flag it
 // when no role reads it (GeneratedCollection.SubjectSets).
+//
+// Auth names the auth whose people the set describes, as the auth's package
+// names it (auth: in the @subjectSet): the user column holds that auth's
+// people, so only that auth's roles can give anybody anything through the
+// set, and only that auth's role-file check looks at it
+// (GeneratedCollection.SubjectSets). It is empty in an application with one
+// auth, where every set is that auth's, and on a subject value.
 type SubjectBindingData struct {
 	Name       string
 	UserColumn string
@@ -116,6 +123,7 @@ type SubjectBindingData struct {
 	Where      *SubjectWhereData
 	Domain     *DomainBindingData
 	Offered    bool
+	Auth       string
 }
 
 // SubjectWhoData is one test of a subject set's who: part. Column is the
@@ -261,18 +269,23 @@ func (g *GeneratedCollection) SubjectSetComparisonType(name string) (accesstypes
 	return anchor.Binding.Type, true
 }
 
-// SubjectSets lists the subject sets the application declares (@subjectSet) by
-// name, each with the names of the sets its who: part builds on (Column IN
-// subject.<set>). A set the generator declares for an auth (Offered) is left
-// out: the role-file check flags a listed set that no role reads
+// SubjectSets lists the subject sets the application declares (@subjectSet)
+// that describe the people of one auth, by name, each with the names of the
+// sets its who: part builds on (Column IN subject.<set>). auth is the auth's
+// name, as its package names it. A set that names another auth is left out:
+// only that auth's roles can read it, so its role-file check is the one that
+// looks at it. A set that names no auth, as every set of an application with
+// one auth does, is listed for every auth, and an empty auth lists every set.
+// A set the generator declares for an auth (Offered) is left out: the
+// role-file check flags a listed set that no role reads
 // (access.UnreadSetWarning), and a set nobody wrote is no oversight.
-func (g *GeneratedCollection) SubjectSets() map[string][]string {
+func (g *GeneratedCollection) SubjectSets(auth string) map[string][]string {
 	sets := make(map[string][]string)
 	for _, store := range g.bindings {
 		for _, bindings := range store {
 			for i := range bindings.SubjectSets {
 				set := &bindings.SubjectSets[i]
-				if set.Offered {
+				if set.Offered || (auth != "" && set.Auth != "" && set.Auth != auth) {
 					continue
 				}
 				var builds []string

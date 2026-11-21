@@ -231,7 +231,7 @@ func openEngineWith(db *initiator.SpannerDB, prefix string, roles access.RoleFil
 		return nil, fmt.Errorf("spannerstore.New(): %w", err)
 	}
 	built := []access.Option{
-		access.WithDefaultRoles(router.Collection(), roles),
+		access.WithDefaultRoles(router.Collection(), roles, authName(prefix)),
 		access.WithSuperAdministratorMethods(superAdministratorMethods(prefix)...),
 		access.WithTenantAdministratorRoles(sectorAdministratorRoles(prefix)...),
 	}
@@ -264,6 +264,16 @@ func superAdministratorMethods(prefix string) []accesstypes.Resource {
 	}
 
 	return crewidentity.SuperAdministratorMethods()
+}
+
+// authName is the name of the auth a store's prefix belongs to: an engine validates its
+// role file as that auth's, against the subject sets that describe its people.
+func authName(prefix string) string {
+	if prefix == members.TablePrefix {
+		return members.Name
+	}
+
+	return crew.Name
 }
 
 // provisionDemoAccess assigns the personas and the droid their roles in the crew store and

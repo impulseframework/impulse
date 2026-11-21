@@ -13,13 +13,15 @@ import (
 // subject.hangarsOpen). A set no grant reads does nothing: the people it gathers hold
 // nothing through it, and nobody is told. A set is read when a grant's condition names
 // it, or when a set that is read builds on it in its who: part (GroupID IN
-// subject.groups), since the first set then holds what the second yields. The role files
-// of every auth of the application count together: a set one auth's roles read is read.
-// It is a warning and never a refusal, because a set may be declared one change before
-// the first grant that reads it.
+// subject.groups), since the first set then holds what the second yields. A set describes
+// the people of one auth, and only that auth's roles can give them anything through it:
+// an application with several auths says which on each set (auth: in the @subjectSet), the
+// collection lists each auth its own, and one auth's check never looks at another's. It
+// is a warning and never a refusal, because a set may be declared one change before the
+// first grant that reads it.
 
-// UnreadSetWarning is one subject set the application declares that no grant of its role
-// files reads, directly or through another set's who: part.
+// UnreadSetWarning is one subject set the application declares for an auth's people that
+// no grant of the auth's role file reads, directly or through another set's who: part.
 type UnreadSetWarning struct {
 	// Set is the set's name, as a condition writes it after "subject.".
 	Set string
@@ -30,18 +32,18 @@ func (UnreadSetWarning) warning() {}
 // String renders the warning as one line: what is declared, that nothing reads it, and
 // what closes it.
 func (w UnreadSetWarning) String() string {
-	return fmt.Sprintf("subject set %s is declared (@subjectSet) and no role reads it: no grant's condition names subject.%s, and no set a grant reads builds on it in its who: part, so nobody holds anything through it. Write the grant that reads it, or accept this warning where the role file is validated until that grant is written. If another auth's role file reads it, hand that file to WithDefaultRoles and to ValidateRoles beside this one.",
+	return fmt.Sprintf("subject set %s is declared (@subjectSet) and no role reads it: no grant's condition names subject.%s, and no set a grant reads builds on it in its who: part, so nobody holds anything through it. Write the grant that reads it, or accept this warning where the role file is validated until that grant is written. If the set describes another auth's people, say so on the set (auth: in its @subjectSet) and hand this auth's name to WithDefaultRoles and to ValidateRoles, and this auth's check no longer looks at it.",
 		w.Set, w.Set)
 }
 
-// unreadSetWarnings flags each subject set the collection declares that no grant of the
-// role configurations reads, in name order. A set is read when a condition names it, and
-// so is every set a read set builds on, however long the chain.
-func unreadSetWarnings(store PermissionCollection, configs ...*RoleConfig) ([]Warning, error) {
-	if store == nil {
+// unreadSetWarnings flags each subject set the collection declares for the auth's people
+// that no grant of the auth's role configuration reads, in name order. A set is read when
+// a condition names it, and so is every set a read set builds on, however long the chain.
+func unreadSetWarnings(store PermissionCollection, auth string, config *RoleConfig) ([]Warning, error) {
+	if store == nil || config == nil {
 		return nil, nil
 	}
-	declared := store.SubjectSets()
+	declared := store.SubjectSets(auth)
 	if len(declared) == 0 {
 		return nil, nil
 	}
@@ -55,23 +57,18 @@ func unreadSetWarnings(store PermissionCollection, configs ...*RoleConfig) ([]Wa
 		read[name] = struct{}{}
 		follow = append(follow, name)
 	}
-	for _, config := range configs {
-		if config == nil {
-			continue
-		}
-		for _, role := range slices.Concat(config.Roles.Global, config.Roles.Domain) {
-			for _, grants := range role.Permissions {
-				for _, grant := range grants {
-					if grant.Condition == "" {
-						continue
-					}
-					expr, err := condition.Parse(grant.Condition)
-					if err != nil {
-						return nil, errors.Wrapf(err, "role %s: condition %q", role.Name, grant.Condition)
-					}
-					for _, name := range condition.SubjectSets(expr) {
-						mark(name)
-					}
+	for _, role := range slices.Concat(config.Roles.Global, config.Roles.Domain) {
+		for _, grants := range role.Permissions {
+			for _, grant := range grants {
+				if grant.Condition == "" {
+					continue
+				}
+				expr, err := condition.Parse(grant.Condition)
+				if err != nil {
+					return nil, errors.Wrapf(err, "role %s: condition %q", role.Name, grant.Condition)
+				}
+				for _, name := range condition.SubjectSets(expr) {
+					mark(name)
 				}
 			}
 		}

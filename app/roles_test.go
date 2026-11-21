@@ -25,7 +25,7 @@ var roleFile access.RoleFile
 func Roles() access.RoleFile { return roleFile }
 
 func New(store access.Store, collection access.PermissionCollection) (*access.Client, error) {
-	return access.New(store, access.WithDefaultRoles(collection, Roles()))
+	return access.New(store, access.WithDefaultRoles(collection, Roles(), Name))
 }
 `
 	const data = `package config
@@ -38,10 +38,10 @@ import (
 )
 
 func engines(store access.Store) error {
-	if _, err := access.New(store, access.WithDefaultRoles(router.Collection(), crewauth.Roles())); err != nil {
+	if _, err := access.New(store, access.WithDefaultRoles(router.Collection(), crewauth.Roles(), crewauth.Name)); err != nil {
 		return err
 	}
-	if _, err := access.New(store, access.WithDefaultRoles(router.Collection(), loadRoles())); err != nil {
+	if _, err := access.New(store, access.WithDefaultRoles(router.Collection(), loadRoles(), Name)); err != nil {
 		return err
 	}
 	_, err := access.New(store, access.WithDefaultRoles(router.Collection()))
@@ -49,7 +49,7 @@ func engines(store access.Store) error {
 	return err
 }
 `
-	const others = `package crew
+	const variable = `package crew
 
 import (
 	_ "embed"
@@ -62,8 +62,8 @@ var roleFile access.RoleFile
 
 func Roles() access.RoleFile { return roleFile }
 
-func New(store access.Store, collection access.PermissionCollection, otherRoles []access.RoleFile) (*access.Client, error) {
-	return access.New(store, access.WithDefaultRoles(collection, Roles(), otherRoles...))
+func New(store access.Store, collection access.PermissionCollection, auth string) (*access.Client, error) {
+	return access.New(store, access.WithDefaultRoles(collection, Roles(), auth))
 }
 `
 	const deploy = `package deploy
@@ -109,8 +109,8 @@ func run(ctx context.Context, data *Data) error {
 			},
 		},
 		{
-			name:  "the role file handed over beside the other auths' files",
-			files: map[string]string{"pkg/auth/crew/crew.go": others},
+			name:  "the role file handed over with the auth's name in a variable",
+			files: map[string]string{"pkg/auth/crew/crew.go": variable},
 			wantRoles: []DefaultRoles{
 				{File: "pkg/auth/crew/crew.go", Line: 15, RolesPackage: "example.com/harbor/pkg/auth/crew"},
 			},

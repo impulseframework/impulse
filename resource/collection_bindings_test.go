@@ -263,9 +263,10 @@ func TestNewGeneratedCollection_bindingValidation(t *testing.T) {
 	}
 }
 
-// TestGeneratedCollection_SubjectSets pins what the role-file check is told of the
-// application's subject sets: each set the application declares, with the sets its who:
-// part builds on, and no set the generator declares for an auth.
+// TestGeneratedCollection_SubjectSets pins what the role-file check of one auth is told
+// of the application's subject sets: each set the application declares for that auth's
+// people or for no auth, with the sets its who: part builds on, no set that describes
+// another auth's people, and no set the generator declares for an auth.
 func TestGeneratedCollection_SubjectSets(t *testing.T) {
 	t.Parallel()
 
@@ -274,7 +275,7 @@ func TestGeneratedCollection_SubjectSets(t *testing.T) {
 			Name:  "CrewMembers",
 			Scope: accesstypes.GlobalPermissionScope,
 			SubjectSets: []SubjectBindingData{
-				{Name: "crews", UserColumn: "UserId", Column: "CrewId", Type: AttributeTypeString},
+				{Name: "crews", UserColumn: "UserId", Column: "CrewId", Type: AttributeTypeString, Auth: "crew"},
 				{Name: "groups", UserColumn: "UserId", Column: "GroupId", Type: AttributeTypeString, Offered: true},
 			},
 		},
@@ -282,17 +283,62 @@ func TestGeneratedCollection_SubjectSets(t *testing.T) {
 			Name:  "DockPasses",
 			Scope: accesstypes.GlobalPermissionScope,
 			SubjectSets: []SubjectBindingData{{
-				Name: "docks", UserColumn: "UserId", Column: "DockId", Type: AttributeTypeString,
+				Name: "docks", UserColumn: "UserId", Column: "DockId", Type: AttributeTypeString, Auth: "crew",
 				Who: []SubjectWhoData{{Column: "UserId"}, {Column: "CrewId", Set: "crews"}, {Column: "GroupId", Set: "groups"}},
 			}},
+		},
+		{
+			Name:  "AccountHolders",
+			Scope: accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{
+				{Name: "accounts", UserColumn: "UserId", Column: "AccountId", Type: AttributeTypeString, Auth: "members"},
+			},
+		},
+		{
+			Name:  "Watches",
+			Scope: accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{
+				{Name: "watches", UserColumn: "UserId", Column: "WatchId", Type: AttributeTypeString},
+			},
 		},
 	}}
 	g, err := NewGeneratedCollection(data)
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection() error = %v", err)
 	}
-	want := map[string][]string{"crews": nil, "docks": {"crews", "groups"}}
-	if diff := cmp.Diff(want, g.SubjectSets(), cmpopts.EquateEmpty()); diff != "" {
-		t.Errorf("SubjectSets() mismatch (-want +got):\n%s", diff)
+
+	tests := []struct {
+		name string
+		auth string
+		want map[string][]string
+	}{
+		{
+			name: "an auth is listed its own sets and the sets that name no auth",
+			auth: "crew",
+			want: map[string][]string{"crews": nil, "docks": {"crews", "groups"}, "watches": nil},
+		},
+		{
+			name: "another auth is listed its own, and none of the first's",
+			auth: "members",
+			want: map[string][]string{"accounts": nil, "watches": nil},
+		},
+		{
+			name: "an auth no set names is listed the sets that name no auth",
+			auth: "partners",
+			want: map[string][]string{"watches": nil},
+		},
+		{
+			name: "an empty auth is listed every set",
+			want: map[string][]string{"accounts": nil, "crews": nil, "docks": {"crews", "groups"}, "watches": nil},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, g.SubjectSets(tt.auth), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("SubjectSets(%q) mismatch (-want +got):\n%s", tt.auth, diff)
+			}
+		})
 	}
 }

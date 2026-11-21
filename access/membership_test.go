@@ -212,7 +212,7 @@ func TestClient_PolicyChanged(t *testing.T) {
 	ctx := context.Background()
 
 	store := newFakeStore()
-	client := newPolicyClient(t, store, WithDefaultRoles(grammarCollection{}, grammarRoleFile), WithHeartbeatInterval(time.Hour))
+	client := newPolicyClient(t, store, WithDefaultRoles(grammarCollection{}, grammarRoleFile, fixtureAuth), WithHeartbeatInterval(time.Hour))
 	if err := client.WaitReady(ctx); err != nil {
 		t.Fatalf("Client.WaitReady() error = %v", err)
 	}

@@ -109,8 +109,8 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 		roles        access.RoleFile
 		wantWarnings []access.Warning
 	}{
-		{name: "staff", roles: staff.Roles()},
-		{name: "members", roles: members.Roles()},
+		{name: staff.Name, roles: staff.Roles()},
+		{name: members.Name, roles: members.Roles()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -121,21 +121,9 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 				t.Fatalf("access.RoleFile.Parse() error = %v", err)
 			}
 
-			// The role files of the other auths count beside this one: a subject set
-			// any auth's roles read is read.
-			var others []*access.RoleConfig
-			for _, other := range tests {
-				if other.name == tt.name {
-					continue
-				}
-				config, err := other.roles.Parse()
-				if err != nil {
-					t.Fatalf("access.RoleFile.Parse() error = %v: the %s roles", err, other.name)
-				}
-				others = append(others, config)
-			}
-
-			warnings, err := access.ValidateRoles(router.Collection(), roles, others...)
+			// The file is validated as its auth's: the check looks at the subject sets
+			// that describe that auth's people, and at no other auth's.
+			warnings, err := access.ValidateRoles(router.Collection(), roles, tt.name)
 			if err != nil {
 				t.Fatalf("access.ValidateRoles() error = %v", err)
 			}

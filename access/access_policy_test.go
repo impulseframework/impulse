@@ -237,7 +237,7 @@ func TestNew_withDefaultRoles_refusals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			client, err := New(newFakeStore(), WithDefaultRoles(tt.collection, tt.file))
+			client, err := New(newFakeStore(), WithDefaultRoles(tt.collection, tt.file, fixtureAuth))
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("New() error = %v, want one containing %q", err, tt.wantErr)
 			}
@@ -257,7 +257,7 @@ func TestClient_WithDefaultRoles(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client := newPolicyClient(t, newFakeStore(), WithDefaultRoles(grammarCollection{}, grammarRoleFile))
+	client := newPolicyClient(t, newFakeStore(), WithDefaultRoles(grammarCollection{}, grammarRoleFile, fixtureAuth))
 	if err := client.WaitReady(ctx); err != nil {
 		t.Fatalf("WaitReady() error = %v", err)
 	}
@@ -460,7 +460,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 					t.Fatalf("seeding fake store: %v", err)
 				}
 			}
-			client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile))
+			client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile, fixtureAuth))
 			before, err := store.ReadPolicy(ctx)
 			if err != nil {
 				t.Fatalf("ReadPolicy() before error = %v", err)
@@ -518,7 +518,7 @@ func TestClient_CheckPolicy_findingsAreErrors(t *testing.T) {
 			t.Fatalf("seeding fake store: %v", err)
 		}
 	}
-	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile))
+	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile, fixtureAuth))
 
 	warnings, err := client.CheckPolicy(ctx)
 	if err != nil {
@@ -601,7 +601,7 @@ func TestClient_CheckPolicy_storeError(t *testing.T) {
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile))
+	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile, fixtureAuth))
 	store.setFail(errors.New("store down"))
 
 	warnings, err := client.CheckPolicy(ctx)
@@ -653,7 +653,7 @@ func TestClient_CheckPolicy_findingsReachReloadHook(t *testing.T) {
 		}
 	}
 	hook := &reloadErrors{}
-	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile), WithReloadErrorHandler(hook.collect))
+	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile, fixtureAuth), WithReloadErrorHandler(hook.collect))
 
 	warnings, err := client.CheckPolicy(ctx)
 	if err != nil {

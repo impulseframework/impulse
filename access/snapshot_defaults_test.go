@@ -60,7 +60,7 @@ func (defaultsCollection) SubjectSetComparisonType(string) (accesstypes.Attribut
 	return "", false
 }
 
-func (defaultsCollection) SubjectSets() map[string][]string {
+func (defaultsCollection) SubjectSets(string) map[string][]string {
 	return nil
 }
 
@@ -106,7 +106,7 @@ func readerRunnerFile() *RoleConfig {
 // compileDefaults compiles a role file against defaultsCollection.
 func compileDefaults(t *testing.T, config *RoleConfig) *defaultRoles {
 	t.Helper()
-	defaults, err := compileDefaultRoles(defaultsCollection{}, config, nil, nil)
+	defaults, err := compileDefaultRoles(defaultsCollection{}, config, nil, fixtureAuth)
 	if err != nil {
 		t.Fatalf("compileDefaultRoles() error = %v", err)
 	}

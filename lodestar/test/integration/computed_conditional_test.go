@@ -92,7 +92,7 @@ func TestComputedRowConditionRefused(t *testing.T) {
 			accesstypes.List: {{Resource: "SectorHazardBoards", Fields: []accesstypes.Tag{"shipName"}, Condition: "worstReading > 0.5"}},
 		},
 	}}}}
-	if _, err := access.ValidateRoles(router.Collection(), conf); err == nil {
+	if _, err := access.ValidateRoles(router.Collection(), conf, crew.Name); err == nil {
 		t.Fatal("access.ValidateRoles() accepted a row-bearing condition on a computed resource; want a refusal")
 	}
 }

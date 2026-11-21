@@ -219,12 +219,13 @@ func (u *unionCollection) SubjectSetComparisonType(name string) (accesstypes.Att
 	return "", false
 }
 
-// SubjectSets merges the collections' declared subject sets: the subject namespace is
-// application-wide, and a set two collections declare builds on what either says.
-func (u *unionCollection) SubjectSets() map[string][]string {
+// SubjectSets merges the subject sets the collections declare for one auth's people:
+// the subject namespace is application-wide, and a set two collections declare builds
+// on what either says.
+func (u *unionCollection) SubjectSets(auth string) map[string][]string {
 	sets := make(map[string][]string)
 	for _, c := range u.collections {
-		for name, builds := range c.SubjectSets() {
+		for name, builds := range c.SubjectSets(auth) {
 			merged := sets[name]
 			for _, built := range builds {
 				if !slices.Contains(merged, built) {
