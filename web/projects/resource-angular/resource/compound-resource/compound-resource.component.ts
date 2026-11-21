@@ -158,10 +158,26 @@ export class CompoundResourceComponent implements OnInit {
   });
 
   /**
+   * Whether the page has a title at all, by its config alone: one the config names, or
+   * the row's own name, which is not there until the row has been read. What the page
+   * keeps room for is settled by this and never by the title's text, so that nothing is
+   * given room, or denied it, that changes once the row arrives.
+   */
+  titled = computed(() => {
+    return this.rowTitle() !== undefined || this.title() !== '';
+  });
+
+  /**
    * Whether the page's own row view draws the page's title, in the row it shares with
-   * its buttons: wherever the page has such a view and the view is not folded into a
-   * panel, which has a title of its own. The page draws the title itself everywhere else
-   * (a page of lists alone, a page whose first part is a component of the application's).
+   * its buttons: wherever the page has a title or is headed by its row's name, draws such
+   * a view, and the view is not folded into a panel, which has a title of its own. The
+   * view is drawn for every page that holds anything, a field or a part under the row, so
+   * the view draws the title of a page of lists alone, having no field to show, and of a
+   * page whose first part is a component of the application's. The page draws the title
+   * itself in the three cases left: the view of its row is folded into a panel; the page
+   * holds nothing, no field and no part under the row, so no view is drawn; the page's
+   * configuration is not a row view's (an array's), which draws no view. A page with no
+   * title (a row of an array, a component of the application's) draws none.
    *
    * Who draws the title is settled by the config alone, never by whether the row has been
    * read. A page headed by its row's name has no title until the row is there, and the
@@ -171,8 +187,7 @@ export class CompoundResourceComponent implements OnInit {
    */
   viewDrawsTitle = computed(() => {
     const config = this.primaryConfig();
-    const titled = this.rowTitle() !== undefined || this.title() !== '';
-    if (!titled || !(this.hasElements() || this.configs().length > 0)) {
+    if (!this.titled() || !(this.hasElements() || this.configs().length > 0)) {
       return false;
     }
     return (config.type === 'View' || config.type === 'ListView') && !viewUsesExpansionPanel(config, true);

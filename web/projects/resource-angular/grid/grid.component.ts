@@ -3,8 +3,10 @@ import {
   afterRenderEffect,
   Component,
   computed,
+  DestroyRef,
   effect,
   ElementRef,
+  inject,
   input,
   output,
   signal,
@@ -72,7 +74,9 @@ const EXPAND_COLUMN_WIDTH = 40;
  * characters of the list's 14 pixel type, which is a person's first and last name. It is
  * also the widest that still shows one more column whole beside the held first one on a
  * phone 390 pixels wide, on a page and in a pop-up, in a list with no select or expand
- * column.
+ * column: two columns of this width are 320 of the 336 pixels a list has there, and a
+ * list holds its first column only while its widest other column can be seen whole
+ * beside it (`holdsFirstColumn`).
  */
 export const MIN_TEXT_COLUMN_WIDTH = 160;
 
@@ -84,10 +88,94 @@ export const MIN_TEXT_COLUMN_WIDTH = 160;
  */
 const SPARE_WIDTH = 2;
 
-/** How wide what an element holds is drawn, cut short or not: its text's own line, the box of an icon. */
-function drawnWidth(element: Element, range: Range): number {
+/**
+ * The room a heading a person can sort by keeps after its words for the sort's arrow, in
+ * pixels, whether or not the arrow is drawn: the arrow's 14 and the gap of 2 before it, as
+ * the stylesheet draws them (`.sort-icon`, `.header-label`). The room is kept from the
+ * start, so a column as wide as its heading needs does not grow when a person first sorts
+ * by it.
+ */
+const SORT_ARROW_ROOM = 16;
+
+/**
+ * A length as the page lays it out, from one read off what is drawn: the length divided by
+ * how much the page draws the list larger or smaller than it lays it out (`scale`, see
+ * `drawnScale`). A browser hands back what it draws, so a list inside something that is
+ * drawn smaller for a moment (a dialog that grows open) would be read as needing less
+ * than it does once that has ended. Where nothing scales the list the length is the read
+ * itself. Where something does, it is kept to a thousandth of a pixel, so that what the
+ * division leaves over never carries a whole number of pixels on to the next.
+ */
+function laidOut(drawn: number, scale: number): number {
+  return scale === 1 ? drawn : Math.round((drawn / scale) * 1000) / 1000;
+}
+
+/** How wide what an element holds is laid out, cut short or not: its text's own line. */
+function contentWidth(element: Element, range: Range, scale: number): number {
   range.selectNodeContents(element);
-  return range.getBoundingClientRect().width;
+  return laidOut(range.getBoundingClientRect().width, scale);
+}
+
+/**
+ * How wide what a cell of a row holds is laid out, cut short or not. An icon is read by
+ * its box, which the stylesheet fixes, and never as a line of text: an icon is written as
+ * the word that names it, and where the icons' font is not there (still on its way when
+ * the wait for it ran out, or failed) that word is laid out in other letters, wider than
+ * the box that clips it, so the column would be read as needing the word's room and keep
+ * it. A list drawn a line each is read by its longest line, each by its own text: a
+ * line's box is as wide as its cell whatever the line says, so read by its box the column
+ * would need whatever it happened to be drawn at. Anything else is its text's own line.
+ */
+function cellContentWidth(cell: Element, range: Range, scale: number): number {
+  const icon = cell.querySelector(':scope > mat-icon');
+  if (icon) {
+    return laidOut(icon.getBoundingClientRect().width, scale);
+  }
+  const lines = Array.from(cell.querySelectorAll(':scope > .cell-line'));
+  if (lines.length === 0) {
+    return contentWidth(cell, range, scale);
+  }
+  return lines.reduce((widest, line) => Math.max(widest, contentWidth(line, range, scale)), 0);
+}
+
+/**
+ * How long the lists of a page wait for the fonts the page asked for, in milliseconds,
+ * counted from when one of them first found a font on its way: the three seconds a browser
+ * itself gives a font before it draws other letters in its place. A list that has not been
+ * read is not drawn while it waits, so the wait has an end: a font that never arrives must
+ * not keep a list off the screen.
+ */
+const FONT_WAIT = 3000;
+
+/** Since when a list has known the fonts of its page to be on their way, by the page's set of fonts. */
+const fontsAwaitedSince = new WeakMap<FontFaceSet, number>();
+
+/**
+ * How much longer a list waits for the fonts of its page, in milliseconds: undefined where
+ * the page has no font on its way (one it asked for that has neither arrived nor failed),
+ * and where its browser keeps no account of its fonts; nothing once the wait has run its
+ * length (FONT_WAIT). The wait is the page's, not one list's: it starts when the first of
+ * its lists finds a font on its way and ends for all of them together, so a font that never
+ * arrives holds back the lists on the screen then, once, and no list opened after that.
+ */
+function fontWaitLeft(page: Document): number | undefined {
+  const fonts = page.fonts as FontFaceSet | undefined;
+  if (fonts === undefined) {
+    return undefined;
+  }
+  if (fonts.status !== 'loading') {
+    fontsAwaitedSince.delete(fonts);
+    return undefined;
+  }
+  let since = fontsAwaitedSince.get(fonts);
+  if (since === undefined) {
+    since = Date.now();
+    fontsAwaitedSince.set(fonts, since);
+    // The next fonts to be on their way are waited for from their own start, whether or
+    // not a list is on the screen when these arrive.
+    fonts.addEventListener('loadingdone', () => fontsAwaitedSince.delete(fonts), { once: true });
+  }
+  return Math.max(0, since + FONT_WAIT - Date.now());
 }
 
 /** What a cell takes of its column beside its content: its padding and its lines. */
@@ -142,7 +230,8 @@ export const COMPANION_FILTER_HINT =
  * columns sharing it equally but for one that needs more than its share; where they do not
  * fit, each is as narrow as it goes, the table stays as wide as that and the frame scrolls
  * sideways, the page never. The first column is then held at the left edge, with the
- * select and expand columns, while the others scroll under it.
+ * select and expand columns, while the others scroll under it, as long as the widest of
+ * the others can be seen whole beside it; no second column is ever held.
  */
 @Component({
   selector: 'impulse-grid',
@@ -235,12 +324,37 @@ export class AppGridComponent {
    * column is here once it has been measured, between the least a column goes and
    * MIN_TEXT_COLUMN_WIDTH, and its entry only grows while the list keeps its columns, so
    * a page of shorter values, a sort or a filter narrows nothing under a person's eyes. A
-   * font that arrives changes how wide every text is drawn, and the list then reads what
-   * it shows afresh.
+   * font that arrives changes how wide every text is drawn: the list is read again then,
+   * and a column grows where its text needs more in the font's letters and narrows nowhere.
+   * Nothing is read while a font is on its way, so no column is held as wide as the
+   * letters drawn in a font's place, until the wait for it has run its length (FONT_WAIT).
    */
   private readonly needs = signal<ReadonlyMap<string, number>>(new Map());
   /** The columns `needs` was measured for, by id and heading, in order: other columns start again. */
   private measuredColumns = '';
+  /**
+   * Whether the list is held back: its columns have not been read, so how wide each is
+   * drawn is not known yet, and nothing of the list is drawn till it is. Not its headings,
+   * its rows or its pager, and no loading cover over them: a column drawn at the library's
+   * width now would narrow under a person's eyes once it is read. Three things hold a
+   * list back. It is loading and has never been read with the columns it has: its first
+   * load, whose rows are what its columns are read from. Or a font its page asked for is
+   * on its way, loading or not, since a text is not drawn in its own letters till the font
+   * arrives. Or something around it draws it at no size at all, so nothing can be read off
+   * it. It stays held back until it is read: once it has loaded, once the font has arrived
+   * or failed, or the wait for it has run its length (FONT_WAIT), and at the first frame
+   * that draws it at some size. It is then drawn whole. A list that has been read with its
+   * columns is never held back: it keeps what it shows while it loads again (a page turn,
+   * a sort, a filter), under the loading cover, and a font on its way or a moment at no
+   * size only keeps it from being read again. A list that cannot be read at all (one that
+   * is not laid out, a browser that measures nothing) is not held back either, so nothing
+   * holds a list back without an end.
+   */
+  readonly heldBack = signal(false);
+  /** The end of the wait for a font, where the list has one coming: it is read then, font or no font. */
+  private fontWait: ReturnType<typeof setTimeout> | undefined;
+  /** The next frame the list is read at, where it was drawn at no size when it was last to be read. */
+  private nextFrame: { view: Window; id: number } | undefined;
   /** Whether the frame was not laid out when the columns were last to be read, so its first width reads them. */
   private unlaid = true;
   /** How far the frame was scrolled sideways when it last scrolled. */
@@ -268,11 +382,15 @@ export class AppGridComponent {
   private readonly scrollContainer = viewChild<ElementRef<HTMLDivElement>>('scrollContainer');
   private readonly table = viewChild<ElementRef<HTMLTableElement>>('table');
   private readonly tableBody = viewChild<ElementRef<HTMLTableSectionElement>>('tableBody');
+  /** A length the stylesheet sets, drawn with the list: what the page scales the list by is read off it. */
+  private readonly rule = viewChild<ElementRef<HTMLElement>>('rule');
 
   /**
-   * How wide the frame around the table is, as the browser lays it out. Undefined until
-   * the browser has measured it, and where nothing is laid out (a spec under jsdom, a
-   * list inside something hidden): the table then fills its frame and nothing is held.
+   * How wide the frame around the table is, as the browser lays it out: read when the
+   * columns are read, which is before the list's first drawing is shown, and whenever the
+   * browser reports another size. Undefined where nothing is laid out (a spec under
+   * jsdom, a list inside something hidden): the table then fills its frame and nothing is
+   * held.
    */
   private readonly frameWidth = signal<number | undefined>(undefined);
 
@@ -352,16 +470,29 @@ export class AppGridComponent {
   });
 
   /**
+   * The widest of the columns that scroll under the held one: every column after the
+   * first, a button's column too, each as wide as it is drawn while the list scrolls
+   * sideways. Nothing in a list of one column.
+   */
+  private readonly widestScrollingColumn = computed(() =>
+    this.columnDefs()
+      .slice(1)
+      .reduce((widest, col) => Math.max(widest, this.narrowestFor(col)), 0),
+  );
+
+  /**
    * Whether the first column stays at the left edge while the others scroll under it,
-   * with the select and expand columns: so while the list scrolls sideways, unless the
-   * held columns would leave less room beside them than the narrowest a column goes (a
-   * first column dragged as wide as the frame, a list of one column), where holding
-   * them would keep every other column, and the handle that drags the first one back,
-   * out of reach.
+   * with the select and expand columns: so while the list scrolls sideways and the widest
+   * of the columns that scroll can be seen whole beside the held part, which is every one
+   * of them then, each in its turn. With less room than that beside the held part (a
+   * narrow frame, a first column dragged wide, a list of one column) nothing is held and
+   * every column scrolls: a column that could never be seen whole is worse than a first
+   * column that scrolls away. One column is held and never two: the first, which is the
+   * one that names the row.
    */
   holdsFirstColumn = computed(() => {
     const frame = this.frameWidth();
-    return frame !== undefined && this.scrollsSideways() && this.heldWidth() + MIN_COLUMN_WIDTH <= frame;
+    return frame !== undefined && this.scrollsSideways() && this.heldWidth() + this.widestScrollingColumn() <= frame;
   });
 
   /**
@@ -400,6 +531,13 @@ export class AppGridComponent {
   });
 
   constructor() {
+    // A list that leaves while it waits, for a font or to be drawn at some size, is not read
+    // when the wait ends.
+    inject(DestroyRef).onDestroy(() => {
+      clearTimeout(this.fontWait);
+      this.nextFrame?.view.cancelAnimationFrame(this.nextFrame.id);
+    });
+
     // Falls back to a measured rowHeight from the initial probe batch (INITIAL_PROBE_ROW_COUNT)
     afterRenderEffect(() => {
       if (!this.enableVirtualScroll() || this.virtualScroll.rowHeight() !== undefined) {
@@ -469,10 +607,10 @@ export class AppGridComponent {
       const page = container.ownerDocument;
       look.observe(page.documentElement, { attributes: true });
       look.observe(page.body, { attributes: true });
-      // A font that arrives after the list was drawn changes how wide every text is: what
-      // was read in the letters drawn before it is read again, afresh.
+      // A font that arrives changes how wide every text is drawn. A list that waited for it
+      // is read now, for the first time, and drawn; one that was read before is read again,
+      // and what a column needs only grows, so nothing a person has seen narrows.
       const lettered = (): void => {
-        this.measuredColumns = '';
         this.measureColumns();
       };
       const fonts = page.fonts as FontFaceSet | undefined;
@@ -556,16 +694,34 @@ export class AppGridComponent {
   /**
    * Reads what each column of no width of its own needs: the widest of its heading, with
    * the marks beside it, and the values the list is showing, with the cell's padding and
-   * lines. It is read off what is drawn (the text's own line, an icon's box), not worked
+   * lines. It is read off what is drawn (the text's own line, an icon's box, the longest
+   * line of a list drawn a line each: `cellContentWidth`), not worked
    * out from the type, so it holds for whatever a cell draws and however the page styles
-   * it. Every read comes before the one write, so the browser lays the list out once; a
+   * it, and each read is brought back to what the page lays out (`drawnScale`), so it also
+   * holds while something around the list is drawn smaller or larger than it is: a dialog
+   * that grows open draws the list it holds at nine tenths of its size at first, and a
+   * column read at that would cut its widest value once the dialog has opened. Nothing has
+   * to be read again when it has, and no column moves then. A list drawn at no size at all
+   * has nothing to read: it is read at the next frame that draws it at some size, and one
+   * that has never been read is not drawn until then (`heldBack`).
+   * Every read comes before the one write, so the browser lays the list out once; a
    * column already at the widest its narrowest goes is not read at all, and a value the
    * column has shown in this pass is not read twice. A need only grows: see `needs`. A
    * list that is not laid out (inside something hidden, a spec that lays nothing out) has
    * nothing to read. Nor has a list that is loading: what it draws under the loading cover
    * is not yet what it shows (a related record not yet read is drawn as its key, longer
    * than the name that replaces it), and a need read from it would never come down. It is
-   * read once the list has loaded.
+   * read once the list has loaded. Nor has a list whose page has a font on its way: a text
+   * is drawn in other letters until its font arrives, and a need read from those would
+   * never come down either (an icon is read by its box, whatever is drawn in it, so the
+   * word that names it counts for nothing then or after). Laying a text out is what
+   * starts its font's load, so a pass of reads that leaves a font on its way is not kept.
+   * The list is read when the font has arrived, or has failed to (`loadingdone`), and a
+   * list that has never been read with its columns is not drawn until then (`heldBack`).
+   * The wait has an end (FONT_WAIT): from then on the list is read in the letters the
+   * screen shows, and a font that arrives later only grows a column, as a longer value does.
+   * A list that is loading and has never been read with its columns is not drawn either,
+   * until it has loaded and is read: its first load shows nothing of it, and then all of it.
    */
   private measureColumns(): void {
     const frame = this.scrollContainer()?.nativeElement;
@@ -574,17 +730,50 @@ export class AppGridComponent {
     if (!frame || !table || !view) {
       return;
     }
-    this.unlaid = frame.clientWidth === 0;
-    if (this.unlaid || this.loading()) {
-      return;
-    }
+    const width = frame.clientWidth;
+    this.unlaid = width === 0;
+    // How wide the frame is decides which columns are drawn at their narrowest, and the
+    // browser reports a frame's size only after it has drawn it once: a list drawn with
+    // its rows from the start (a list in a dialog) would be drawn for one frame as if it
+    // had all the room, and then again. The width is read here, with the columns, so the
+    // list's first drawing has both.
+    this.frameWidth.set(width > 0 ? width : undefined);
     const range = frame.ownerDocument.createRange();
     if (typeof range.getBoundingClientRect !== 'function') {
       return;
     }
     const columns = this.columnDefs();
     const these = columns.map((col) => `${col.id}\n${col.header ?? ''}`).join('\n\n');
-    const known = these === this.measuredColumns ? this.needs() : new Map<string, number>();
+    const readBefore = these === this.measuredColumns;
+    // The wait for the page's fonts is counted from the first a list knows of them, and a
+    // list not read yet is held back from then, though it is still loading: its headings
+    // are not drawn under the loading cover only to be taken away when its rows arrive.
+    const wait = fontWaitLeft(frame.ownerDocument);
+    if (wait !== undefined && wait > 0) {
+      this.awaitFont(wait, readBefore);
+      return;
+    }
+    if (this.unlaid) {
+      return;
+    }
+    if (this.loading()) {
+      // A first load: what the columns need is read from the rows it brings.
+      if (!readBefore) {
+        this.heldBack.set(true);
+      }
+      return;
+    }
+    const scale = this.drawnScale();
+    if (scale === undefined) {
+      // Drawn at no size: nothing can be read off it now, and a list never read is not
+      // drawn at the size it comes to until it has been.
+      if (!readBefore) {
+        this.heldBack.set(true);
+      }
+      this.readAtNextFrame(view);
+      return;
+    }
+    const known = readBefore ? this.needs() : new Map<string, number>();
     const next = new Map(known);
     // The select and expand columns come before the first of `columns`.
     const before =
@@ -598,7 +787,7 @@ export class AppGridComponent {
       }
       const heading = headings?.[before + index];
       if (heading) {
-        need = Math.max(need, this.headingNeeds(heading, range, view));
+        need = Math.max(need, this.headingNeeds(heading, range, view, scale));
       }
       let around: number | undefined;
       const read = new Set<string>();
@@ -613,16 +802,76 @@ export class AppGridComponent {
         }
         read.add(words);
         around ??= aroundContent(cell, view);
-        need = Math.max(need, Math.ceil(drawnWidth(cell, range) + around) + SPARE_WIDTH);
+        need = Math.max(need, Math.ceil(cellContentWidth(cell, range, scale) + around) + SPARE_WIDTH);
       }
       next.set(col.id, Math.min(MIN_TEXT_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, need)));
     });
+    // The reads laid the list out, and that started the load of a font it had not asked
+    // for before: what was read is in the letters drawn in the font's place.
+    const started = wait === undefined ? fontWaitLeft(frame.ownerDocument) : undefined;
+    if (started !== undefined && started > 0) {
+      this.awaitFont(started, readBefore);
+      return;
+    }
     const same =
       next.size === this.needs().size && Array.from(next).every(([id, need]) => this.needs().get(id) === need);
     this.measuredColumns = these;
     if (!same) {
       this.needs.set(next);
     }
+    clearTimeout(this.fontWait);
+    this.fontWait = undefined;
+    this.heldBack.set(false);
+  }
+
+  /**
+   * How much the page draws the list larger or smaller than it lays it out, across: what
+   * the rule is drawn at over the length the stylesheet gives it. It is 1 for a list
+   * nothing scales, and where the rule has no length to compare (a spec that lays nothing
+   * out). It is undefined where the list is drawn at no width at all, scaled to nothing by
+   * something around it: nothing can be read off it then. It is the size across of a list
+   * drawn smaller or larger as a whole; a list that is turned or slanted is not read to
+   * the pixel.
+   */
+  private drawnScale(): number | undefined {
+    const rule = this.rule()?.nativeElement;
+    const laid = rule?.offsetWidth ?? 0;
+    if (!rule || laid <= 0) {
+      return 1;
+    }
+    const drawn = rule.getBoundingClientRect().width;
+    return drawn > 0 ? drawn / laid : undefined;
+  }
+
+  /**
+   * Reads the list at the next frame: it is drawn at no size now, by something around it
+   * that no change of the list's own tells of, so it is asked again each frame until it is
+   * drawn at some size, loads again or leaves.
+   */
+  private readAtNextFrame(view: Window): void {
+    if (this.nextFrame !== undefined) {
+      return;
+    }
+    const id = view.requestAnimationFrame(() => {
+      this.nextFrame = undefined;
+      this.measureColumns();
+    });
+    this.nextFrame = { view, id };
+  }
+
+  /**
+   * Leaves the list unread until the fonts its page asked for arrive, or the wait for them
+   * runs out in `left` milliseconds, whichever is first. A list never read with the columns
+   * it has now (`readBefore` false) is not drawn from now until it is read.
+   */
+  private awaitFont(left: number, readBefore: boolean): void {
+    if (!readBefore) {
+      this.heldBack.set(true);
+    }
+    this.fontWait ??= setTimeout(() => {
+      this.fontWait = undefined;
+      this.measureColumns();
+    }, left);
   }
 
   /**
@@ -630,9 +879,12 @@ export class AppGridComponent {
    * arrow and its number, the filter's button) with the gaps between, and the cell's
    * padding and line. The words are measured as they would be drawn whole, and the marks
    * from where the words end to where the last mark ends, which is the same however much
-   * room the heading has now.
+   * room the heading has now. A heading a person can sort by, which is drawn as a button,
+   * needs the room of the sort's arrow whether or not the arrow is drawn
+   * (SORT_ARROW_ROOM), and more only where what is drawn after its words takes more: the
+   * number of a second sort. Every length is as the page lays it out (`laidOut`).
    */
-  private headingNeeds(heading: HTMLElement, range: Range, view: Window): number {
+  private headingNeeds(heading: HTMLElement, range: Range, view: Window, scale: number): number {
     const cell = heading.querySelector(':scope > .header-cell');
     const label = cell?.querySelector(':scope > .header-label');
     if (!cell || !label) {
@@ -641,13 +893,15 @@ export class AppGridComponent {
     const words = label.querySelector(':scope > .col-header');
     const lastOfLabel = label.lastElementChild;
     const lastOfCell = cell.lastElementChild;
-    let need = words ? drawnWidth(words, range) : 0;
+    let need = words ? contentWidth(words, range, scale) : 0;
+    let marks = 0;
     if (lastOfLabel && lastOfLabel !== words) {
       const from = words ? words.getBoundingClientRect().right : label.getBoundingClientRect().left;
-      need += lastOfLabel.getBoundingClientRect().right - from;
+      marks = laidOut(lastOfLabel.getBoundingClientRect().right - from, scale);
     }
+    need += label.tagName === 'BUTTON' ? Math.max(SORT_ARROW_ROOM, marks) : marks;
     if (lastOfCell && lastOfCell !== label) {
-      need += lastOfCell.getBoundingClientRect().right - label.getBoundingClientRect().right;
+      need += laidOut(lastOfCell.getBoundingClientRect().right - label.getBoundingClientRect().right, scale);
     }
     return Math.ceil(need + aroundContent(heading, view)) + SPARE_WIDTH;
   }

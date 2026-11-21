@@ -580,8 +580,8 @@ func Test_typescriptTemplates_secret(t *testing.T) {
 		t.Fatalf("generateTemplateOutput(typescriptResourcesTemplate) error = %v", err)
 	}
 	for _, want := range []string{
-		"{ fieldName: 'combination', displayType: 'string', required: true, isIndex: false, maxLength: 64, writeOnly: true, secret: true },",
-		"{ fieldName: 'hint', displayType: 'string', required: false, isIndex: false, writeOnly: true, secret: true },",
+		"{ fieldName: 'combination', displayType: 'string', required: true, isIndex: false, sortable: false, maxLength: 64, writeOnly: true, secret: true },",
+		"{ fieldName: 'hint', displayType: 'string', required: false, isIndex: false, sortable: false, writeOnly: true, secret: true },",
 		"{ fieldName: 'manifest', displayType: 'string', required: false, isIndex: false, writeOnly: true },",
 		"{ fieldName: 'name', displayType: 'string', required: true, isIndex: false, maxLength: 64 },",
 	} {
