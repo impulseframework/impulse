@@ -63,12 +63,12 @@ func nullableBase(t types.Type) types.Type {
 	if !ok {
 		return t
 	}
-	valid, _, _ := types.LookupFieldOrMethod(t, false, nil, "Valid")
+	valid, _, _ := types.LookupFieldOrMethod(t, false, nil, validField)
 	if field, isField := valid.(*types.Var); !isField || !isBoolean(field.Type()) {
 		return t
 	}
 	for field := range wrapper.Fields() {
-		if field.Name() != "Valid" {
+		if field.Name() != validField {
 			return nullableBase(field.Type())
 		}
 	}

@@ -1951,7 +1951,7 @@ func (f *resourceField) UnwrappedNullType() *string {
 
 	var hasValidColumn bool
 	for i := range fields {
-		if fields[i].Name() == "Valid" && fields[i].DerefUnqualifiedType() == boolGoType {
+		if fields[i].Name() == validField && fields[i].DerefUnqualifiedType() == boolGoType {
 			hasValidColumn = true
 		}
 	}
@@ -1961,7 +1961,7 @@ func (f *resourceField) UnwrappedNullType() *string {
 	}
 
 	for i := range fields {
-		if fields[i].Name() != "Valid" {
+		if fields[i].Name() != validField {
 			return new(fields[i].DerefResolvedType())
 		}
 	}
