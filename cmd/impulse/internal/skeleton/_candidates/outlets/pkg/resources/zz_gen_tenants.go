@@ -22,6 +22,68 @@ func (Tenant) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what a delete of a Tenant takes with it, as the library
+// declares for the tenant record: every kind of the application's rows under the tenant
+// goes with it, and nothing refuses it. The kinds are in the order their rows are
+// deleted, deepest first, each with its ways up to the Tenant and what the delete
+// of one of its rows costs.
+func (Tenant) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Tenants",
+		Words:  resource.DeleteWords{One: "tenant", Many: "tenants"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "Announcements",
+				Words:    resource.DeleteWords{One: "announcement", Many: "announcements"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Readings",
+				Words:    resource.DeleteWords{One: "reading", Many: "readings"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "TenantDirectories",
+				Words:    resource.DeleteWords{One: "tenant directory", Many: "tenant directories"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "TenantDirectories",
+				Words:    resource.DeleteWords{One: "tenant directory", Many: "tenant directories"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
 // tenantRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; tenantReadSets holds one Set per read operation.

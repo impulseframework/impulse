@@ -20,6 +20,7 @@ import (
 // @rpc
 // @outlet(portal, default)
 // @answers(204)
+// @class(credential)
 type RenameMembersUser struct {
 	// @target(MembersSessionUser)
 	UserID   impulse.UUID

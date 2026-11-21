@@ -22,6 +22,11 @@ type ArgSpec struct {
 	// included: a keyword whose one positional value has a default.
 	OptionalPositional bool
 
+	// AnyPositional admits any number of positional values, Positional of them
+	// at the least: a keyword that takes a list of names
+	// (`Project, Task, TaskComment`).
+	AnyPositional bool
+
 	// Keys is the set of accepted named-argument keys.
 	Keys []string
 
@@ -159,6 +164,10 @@ func parseInvocation(invocation string, spec *ArgSpec) (NamedArgs, error) {
 	}
 
 	switch {
+	case spec.AnyPositional && len(args.Positional) < spec.Positional:
+		return NamedArgs{}, errors.Newf("expected at least %d positional argument(s), found %d in %q", spec.Positional, len(args.Positional), invocation)
+	case spec.AnyPositional:
+		// Any number from the least is taken.
 	case spec.OptionalPositional && len(args.Positional) > spec.Positional:
 		return NamedArgs{}, errors.Newf("expected at most %d positional argument(s), found %d in %q", spec.Positional, len(args.Positional), invocation)
 	case !spec.OptionalPositional && len(args.Positional) != spec.Positional:

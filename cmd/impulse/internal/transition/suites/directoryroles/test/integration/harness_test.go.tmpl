@@ -34,6 +34,12 @@ const (
 	// organization is the one organization whose directory signs the suites' people in and
 	// gives them their roles: a Google Workspace, by its domain.
 	organization = "fleet.example"
+[[- else if .Provider]]
+	// organization is the domain of the suites' people, and directoryIssuer the one
+	// organization whose directory signs them in and gives them their roles: an identity
+	// provider, by its issuer.
+	organization    = "fleet.example"
+	directoryIssuer = "https://id.fleet.example"
 [[- else]]
 	// organization is the domain of the suites' people, and directoryTenant the one
 	// organization whose directory signs them in and gives them their roles: a Microsoft
@@ -156,6 +162,8 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		// the browser straight there (browser.directoryRoundTrip).
 [[- if .Google]]
 		[[.Field]]: staff.[[.Field]]Settings{HostedDomain: organization, RedirectURL: "http://" + server.Listener.Addr().String() + "/api/user/[[.Method]]/callback", GroupPrefix: "staff-"},
+[[- else if .Provider]]
+		[[.Field]]: staff.[[.Field]]Settings{Issuer: directoryIssuer, RedirectURL: "http://" + server.Listener.Addr().String() + "/api/user/[[.Method]]/callback"},
 [[- else]]
 		[[.Field]]: staff.[[.Field]]Settings{TenantID: directoryTenant, RedirectURL: "http://" + server.Listener.Addr().String() + "/api/user/[[.Method]]/callback"},
 [[- end]]

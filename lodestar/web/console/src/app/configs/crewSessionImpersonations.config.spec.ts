@@ -40,6 +40,8 @@ const read = new Date('2026-10-02T14:30:00Z');
 const cadet = 'b0000000-0000-4000-8000-000000000001';
 const gone = 'b0000000-0000-4000-8000-00000000dead';
 const ends = 'EndCrewSessionImpersonation';
+/** What a session that acts as a person may do, as the server says it. */
+const acting = 'everything except access actions (still allowed: writing HangarPasses) and credential actions';
 
 const sessions = [
   {
@@ -47,6 +49,7 @@ const sessions = [
     actorUsername: 'marshal',
     principalKind: 'User',
     principalUserId: cadet,
+    mask: 'reading only',
     reason: 'watch desk walkthrough',
     startedAt: '2026-10-02T14:05:00Z',
     expiresAt: '2026-10-02T16:05:00Z',
@@ -57,6 +60,7 @@ const sessions = [
     actorUsername: 'governor',
     principalKind: 'Role',
     principalRole: 'Dispatcher',
+    mask: 'everything',
     reason: 'checking the call log',
     startedAt: '2026-10-02T13:00:00Z',
     expiresAt: '2026-10-02T15:00:00Z',
@@ -68,6 +72,7 @@ const sessions = [
     actorUsername: 'marshal',
     principalKind: 'User',
     principalUserId: cadet,
+    mask: 'reading only',
     reason: 'left open over the morning',
     startedAt: '2026-10-02T10:00:00Z',
     expiresAt: '2026-10-02T12:00:00Z',
@@ -79,6 +84,7 @@ const sessions = [
     actorUsername: 'marshal',
     principalKind: 'User',
     principalUserId: gone,
+    mask: acting,
     reason: 'support call',
     startedAt: '2026-10-01T09:00:00Z',
     expiresAt: '2026-10-01T11:00:00Z',
@@ -200,13 +206,14 @@ describe('the watch desk', () => {
       RowAction[] | undefined) ?? [];
   const at = (moment: string): string => format(new Date(moment), dayAndMinuteFormat);
 
-  it('draws who holds each session, as whom, why, since when, until when, and when and how it ended', async () => {
+  it('draws who holds each session, as whom, what it may do, why, since when, until when, and when and how it ended', async () => {
     await create(sessions);
 
     expect(element().querySelector('h1.title')?.textContent?.trim()).toBe('Watch desk (4)');
     expect(Array.from(element().querySelectorAll('th .col-header')).map((h) => h.textContent?.trim())).toEqual([
       'Established by',
       'As',
+      'May do',
       'Reason',
       'Started',
       'Must end by',
@@ -218,6 +225,7 @@ describe('the watch desk', () => {
       [
         'marshal',
         'cadet',
+        'reading only',
         'watch desk walkthrough',
         at('2026-10-02T14:05:00Z'),
         at('2026-10-02T16:05:00Z'),
@@ -228,6 +236,7 @@ describe('the watch desk', () => {
       [
         'governor',
         'the Dispatcher role',
+        'everything',
         'checking the call log',
         at('2026-10-02T13:00:00Z'),
         at('2026-10-02T15:00:00Z'),
@@ -238,6 +247,7 @@ describe('the watch desk', () => {
       [
         'marshal',
         'cadet',
+        'reading only',
         'left open over the morning',
         at('2026-10-02T10:00:00Z'),
         at('2026-10-02T12:00:00Z'),
@@ -248,6 +258,7 @@ describe('the watch desk', () => {
       [
         'marshal',
         gone,
+        acting,
         'support call',
         at('2026-10-01T09:00:00Z'),
         at('2026-10-01T11:00:00Z'),

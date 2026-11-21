@@ -1,9 +1,9 @@
 package integration
 
 // impersonation_ops_test (design plan §9): the watch desk lists a minted session with its
-// two-hour cap, revocation refuses its next request, a forged write on a read-only
-// session is refused by the middleware before any handler runs, and the desk itself is
-// gated by the grants on what it reads and runs: the command staff hold them, so the
+// two-hour cap and its mask in words, revocation refuses its next request, a forged write
+// on a read-only session is refused by the middleware before any handler runs, and the
+// desk itself is gated by the grants on what it reads and runs: the command staff hold them, so the
 // marshal keeps the desk as the governor does, and a cadet does not. The desk is the
 // library's list over the crew auth's generated impersonation records, and its Revoke
 // the generated method that ends one, so the suite asks what the page asks. A revoke
@@ -94,6 +94,10 @@ func TestImpersonationOperator(t *testing.T) {
 		}
 		if found["endedAt"] != nil {
 			t.Errorf("endedAt = %v, want none while the session stands", found["endedAt"])
+		}
+		// The desk says what the session may do, in words.
+		if mask := cell[string](t, found, "mask"); mask != "reading only" {
+			t.Errorf("mask = %q, want it in words: reading only", mask)
 		}
 		// StartedAt is the database's commit time and ExpiresAt the mint route's own
 		// deadline, two hours from its clock a moment before the commit, so the

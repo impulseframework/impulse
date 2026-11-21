@@ -19,6 +19,18 @@ const (
 	Name = "impulse"
 )
 
+// OwnModules are the modules the framework's repository holds: Module, which every
+// application requires, and the two of the framework's own test application, its Go
+// module and the module that bounds its browser side. No other module whose path is
+// under Module's is the framework's, whatever its path says.
+var OwnModules = []string{Module, Module + "/lodestar", Module + "/lodestar/web"}
+
+// Under reports whether an import path or a module path is under the framework's own:
+// Module itself is not under it.
+func Under(path string) bool {
+	return strings.HasPrefix(path, Module+"/")
+}
+
 // WebPackages are the browser packages a release publishes beside the module, at the
 // module's version without its v: the client, its Angular components and its Firestore
 // live transport. Every web root's package.json pins them at the release the application

@@ -30,6 +30,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type TakeStaffRole struct {
 	// Role is the role taken, picked from the roles the caller may take
 	// (StaffTakeableRoles). A grant's condition reads it as new.role, so a role

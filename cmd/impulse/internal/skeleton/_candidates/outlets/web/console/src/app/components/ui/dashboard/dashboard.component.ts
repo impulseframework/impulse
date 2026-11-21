@@ -49,7 +49,7 @@ export class DashboardComponent {
    * Whether the server would let the person create a tenant of their own now. The server
    * says so where it creates one (GET on the generated create-your-tenant route, the
    * `createTenantRoute` constant): yes for a person who holds no tenant while an
-   * administrator has a sign-in method open to sign-up, by the two facts the creation
+   * administrator has a sign-in method open to sign-up, by the facts the creation
    * itself refuses on. The route is no resource or method of the client, so the page asks
    * with the application's HttpClient. It is false until the server answers and where it
    * does not answer, so the card never shows on a guess.

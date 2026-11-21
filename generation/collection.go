@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"fmt"
 	"iter"
 	"reflect"
 	"slices"
@@ -30,7 +31,11 @@ const accesstypesResourceType = "github.com/impulseframework/impulse/accesstypes
 // scope: @manualAddResource(Execute) or @manualAddResource(Read, domain). An @outlet
 // annotation beside it names the outlets the hand-written route is mounted under, with
 // the same meaning it has on a struct; every registration the constant declares
-// shares it.
+// shares it. A @class annotation beside it names the classes the registered action
+// carries, as it does on a method; a @class on a constant that registers nothing is
+// refused, since it would mark no action, and so is one on a constant that registers
+// a permission other than Execute, since a class is carried by an action alone
+// (classOnNoAction).
 func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualRegistration, error) {
 	var registrations []ManualRegistration
 	for _, c := range constants {
@@ -44,6 +49,10 @@ func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualReg
 		}
 
 		if !annotations.Const.Has(manualAddResourceKeyword) {
+			if annotations.Const.Has(classKeyword) {
+				return nil, errors.Newf("constant %q: @%s marks a registration made by hand, and the constant registers nothing; add @%s(<permission>) beside it or remove it", c.Name(), classKeyword, manualAddResourceKeyword)
+			}
+
 			continue
 		}
 
@@ -51,13 +60,21 @@ func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualReg
 		if err := resolveOutlets(annotations.Const, &outlets); err != nil {
 			return nil, errors.Wrapf(err, "constant %q", c.Name())
 		}
+		classes, err := resolveClasses(annotations.Const, "constant "+c.Name())
+		if err != nil {
+			return nil, err
+		}
 
 		for arg := range annotations.Const.Get(manualAddResourceKeyword).Seq() {
 			registration, err := parseManualAddResourceArgs(c, arg)
 			if err != nil {
 				return nil, err
 			}
+			if err := classOnNoAction(fmt.Sprintf("constant %q", c.Name()), registration.Permission, classes); err != nil {
+				return nil, err
+			}
 			registration.Outlets = outlets.OutletNames
+			registration.Classes = classes
 
 			registrations = append(registrations, registration)
 		}
@@ -217,13 +234,25 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 		return resource.CollectionData{}, err
 	}
 
+	if err := r.collectTenantCreationRegistration(b); err != nil {
+		return resource.CollectionData{}, err
+	}
+
 	r.collectBindingRegistrations(b)
+	r.collectWriteClassRegistrations(b)
 	r.collectWorkflowMemberRegistrations(b)
 	r.collectRequiredRegistrations(b)
 	r.collectAcrossTenantsRegistrations(b)
 
 	data := b.Data()
 	if err := r.validateStateEnumTables(data); err != nil {
+		return resource.CollectionData{}, err
+	}
+	if err := classesOnActionsAlone(data); err != nil {
+		return resource.CollectionData{}, err
+	}
+	// Each class in use is declared as a constant of the collection file.
+	if _, err := actionClassConstants(data); err != nil {
 		return resource.CollectionData{}, err
 	}
 
@@ -294,6 +323,20 @@ func requiredOnCreate(res *resourceInfo) []accesstypes.Tag {
 func (r *resourceGenerator) collectBindingRegistrations(b *resource.CollectionBuilder) {
 	for _, res := range r.resources {
 		b.SetResourceBindings(scopeOrGlobal(res.PermissionScope), accesstypes.Resource(r.pluralize(res.Name())), collectionBindings(res))
+	}
+}
+
+// collectWriteClassRegistrations gives the class access to the writes of every record
+// that decides what a person may do (writesThatDecideAccess). Like bindings, the
+// classes describe the data model and not the generated handlers: a write the
+// generated routes do not offer carries its class all the same, so a route written by
+// hand that registers it is refused by the same mask.
+func (r *resourceGenerator) collectWriteClassRegistrations(b *resource.CollectionBuilder) {
+	for _, write := range r.writesThatDecideAccess() {
+		b.SetWriteClasses(
+			scopeOrGlobal(write.Record.PermissionScope), accesstypes.Resource(r.pluralize(write.Record.Name())),
+			write.Permission, []accesstypes.ActionClass{accesstypes.ClassAccess},
+		)
 	}
 }
 
@@ -478,13 +521,25 @@ func (r *resourceGenerator) collectComputedRegistrations(b *resource.CollectionB
 }
 
 func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilder) error {
-	// RPC handlers only register when the generated routes invoke them.
+	// RPC handlers only register when the generated routes invoke them. A method's
+	// classes ride its registration, so a method that carries a class and registers
+	// nothing here is refused: its class would be lost without a word.
 	if !r.hasRPC() || !r.genRoutes {
+		for _, method := range r.rpcMethods {
+			if err := classWithoutRegistration(method, "this generation writes no routes (GenerateRoutes), so the method registers no action"); err != nil {
+				return err
+			}
+		}
+
 		return nil
 	}
 
 	for _, method := range r.rpcMethods {
 		if method.SuppressHandler {
+			if err := classWithoutRegistration(method, "@"+suppressKeyword+" leaves the method without the generated handler that registers its action"); err != nil {
+				return err
+			}
+
 			continue
 		}
 
@@ -494,6 +549,7 @@ func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilde
 		if method.Formerly != "" {
 			b.SetMethodFormerName(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), accesstypes.Resource(method.Formerly))
 		}
+		b.SetActionClasses(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), method.Classes)
 
 		if t := method.Transition; t != nil {
 			b.SetMethodTransition(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), resource.TransitionData{
@@ -521,9 +577,18 @@ func (r *resourceGenerator) collectManualRegistrations(b *resource.CollectionBui
 			scope = accesstypes.GlobalPermissionScope
 		}
 
+		if err := classOnNoAction(fmt.Sprintf("manual registration for resource %q", reg.Resource), reg.Permission, reg.Classes); err != nil {
+			return err
+		}
 		if err := b.AddResource(scope, reg.Permission, reg.Resource); err != nil {
 			return errors.Wrapf(err, "manual registration for resource %q", reg.Resource)
 		}
+		for _, class := range reg.Classes {
+			if !class.Valid() {
+				return errors.Newf("manual registration for resource %q: the class %q is not a class's name; a class is named by a lowercase letter, then lowercase letters, digits and underscores", reg.Resource, string(class))
+			}
+		}
+		b.SetActionClasses(scope, reg.Resource, reg.Classes)
 	}
 
 	return nil

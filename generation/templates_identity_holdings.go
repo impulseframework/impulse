@@ -619,7 +619,7 @@ import (
 //
 // @rpc
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type {{ .TakeRoleMethod }} struct {
 	{{- if .HasTenant }}
 	// Domain is the {{ .TenantWord }} the role is taken in{{ if .TenantPicker }}, picked from the

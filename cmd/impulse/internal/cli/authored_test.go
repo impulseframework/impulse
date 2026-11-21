@@ -780,6 +780,35 @@ func TestAuthoredApplication(t *testing.T) {
 			"2 browser application(s) bound to their outlets' auths",
 		})
 	})
+
+	t.Run("an auth added to a second browser application", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
+		made := author(t, checkout, "wharf", "", []string{"--outlet", "partners=partners/api"}, nil)
+		// The outlet is laid in for the staff auth; the author then gives it an auth of
+		// its own, with the base's password sign-in.
+		var said bytes.Buffer
+		add := newAddAuth()
+		add.SetOut(&said)
+		add.SetErr(&said)
+		add.SetArgs([]string{"partners", "--outlet", "partners", "--app", made.dir})
+		if err := add.Execute(); err != nil {
+			t.Fatalf("impulse add auth partners --outlet partners error = %v\n%s", err, said.String())
+		}
+		for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "checkpoint: the partners auth"}} {
+			if out, err := made.run(t, "git", args...); err != nil {
+				t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+			}
+		}
+		// The command wrote what the regenerated router and the generated contract ask
+		// of the App for the auth, so the application builds, passes its own tests and
+		// passes its check as the command left it: the outlet's browser application asks
+		// for the partners auth's pages, the auth mails to the outlet's login page, and
+		// the module builds outside any workspace.
+		vetsAsMade(t, made)
+		testsAsMade(t, made)
+		everyStepAsMade(t, made, []string{
+			"2 browser application(s) bound to their outlets' auths",
+		})
+	})
 }
 
 // readShape reads the staff auth of the application as impulse audit does.

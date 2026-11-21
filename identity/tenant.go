@@ -113,6 +113,9 @@ func (t *Tenant) RemoveRole(ctx context.Context, txn resource.ReadWriteTransacti
 	if role == "" {
 		return httpio.NewBadRequestMessage("the role to take away is empty")
 	}
+	if err := t.manager.refuseImpersonatorAsSubject(ctx, userID, "take a role from yourself"); err != nil {
+		return err
+	}
 	username, found, err := t.manager.store.Username(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")

@@ -70,14 +70,15 @@ export function revokeQuestion(row: RecordData): string {
 // drawn by the library's list over the crew auth's generated impersonation records,
 // newest first as the resource orders them. Each row says who established the session,
 // as whom (the person's username, read from the accounts by the id the record keeps, or
-// "the Dispatcher role" for a role), why, when it began, when its two-hour cap ends it,
-// and when and why it ended; a session that has not ended reads "Still open", and one
-// whose cap passed with no end written reads "Time ran out". A row's menu offers Revoke
-// while the session is open and the server's Execute answer for the row lists the
-// generated method that ends it: the revoked console's next request is refused and its
-// banner explains. The page shows under List on the records and the menu under Execute
-// on the method, both the role file's to give (the command staff hold them, so the
-// marshal keeps the desk as the governor does).
+// "the Dispatcher role" for a role), what it may do (its mask, in the server's words),
+// why, when it began, when its two-hour cap ends it, and when and why it ended; a
+// session that has not ended reads "Still open", and one whose cap passed with no end
+// written reads "Time ran out". A row's menu offers Revoke while the session is open
+// and the server's Execute answer for the row lists the generated method that ends it:
+// the revoked console's next request is refused and its banner explains. The page shows
+// under List on the records and the menu under Execute on the method, both the role
+// file's to give (the command staff hold them, so the marshal keeps the desk as the
+// governor does).
 //
 // The list is live, and a revoke from a desk reaches every desk that is open, since the
 // generated method publishes the record it wrote. A session started elsewhere, and one
@@ -114,6 +115,9 @@ export const crewSessionImpersonationsConfig = rootConfig({
       }),
       // The role rides along unseen: the As column says it where the session is held as a role.
       { id: record.principalRole, hidden: true },
+      // The session's mask as the server says it: "reading only", "everything", or what a
+      // session that acts as a person is refused.
+      { id: record.mask, header: 'May do' },
       { id: record.reason, header: 'Reason' },
       { id: record.startedAt, header: 'Started', formatType: dayAndMinuteFormat },
       { id: record.expiresAt, header: 'Must end by', formatType: dayAndMinuteFormat },

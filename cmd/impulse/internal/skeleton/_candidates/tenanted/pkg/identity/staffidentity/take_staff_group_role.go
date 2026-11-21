@@ -29,6 +29,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type TakeStaffGroupRole struct {
 	GroupID     impulse.UUID
 	Role        string `validate:"required"`

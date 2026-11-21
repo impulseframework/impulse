@@ -62,6 +62,29 @@ func ({{ .Resource.Name }}) FileKeys() []resource.FileKey {
 	}
 }
 {{- end }}
+{{- if .Resource.HasDeleteTree }}
+{{ if .Resource.IsTenant }}
+// DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it, as the library
+// declares for the tenant record: every kind of the application's rows under the tenant
+// goes with it, and nothing refuses it. The kinds are in the order their rows are
+// deleted, deepest first, each with its ways up to the {{ .Resource.Name }} and what the delete
+// of one of its rows costs.
+{{- else if .Resource.DeclaresDeleteCascade }}
+// DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the {{ .Resource.Name }} and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a {{ .Resource.Name }}
+// that the database does not remove with it.
+{{- else }}
+// DeleteTree describes what keeps a {{ .Resource.Name }} from being deleted: the kinds with a
+// row directly under a {{ .Resource.Name }} that the database does not remove with it, each
+// with the columns that name the {{ .Resource.Name }}. A delete of a {{ .Resource.Name }} with
+// such a row is refused in a sentence that says what is in the way.
+{{- end }}
+func ({{ .Resource.Name }}) DeleteTree() *resource.DeleteTree {
+	return {{ .Resource.DeleteTreeLiteral }}
+}
+{{- end }}
 {{- if .Resource.SearchBranches }}
 
 // SearchBranches names the child text the resource's search box also searches
@@ -754,7 +777,14 @@ patchSet *resource.PatchSet[{{ .Resource.Name }}]) *{{ .Resource.Name }}DeletePa
 	{{ end }}
 		SetPatchType(resource.DeletePatchType)
 
+{{ if .Resource.HasValidateDeleteType }}
+	patch := &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
+
+	return patch
+{{- else }}
 	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+{{- end }}
 }
 
 func New{{ .Resource.Name }}DeletePatch(
@@ -770,9 +800,27 @@ func New{{ .Resource.Name }}DeletePatch(
 {{- end }}
 		SetPatchType(resource.DeletePatchType)
 
-	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
-}
+{{ if .Resource.HasValidateDeleteType }}
+	patch := &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
 
+	return patch
+{{- else }}
+	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+{{- end }}
+}
+{{ if .Resource.HasValidateDeleteType }}
+// registerValidateFunc hands the patch set the resource's delete rule
+// (@validateDeleteType): {{ .Resource.ValidateDeleteType }}.Validate is asked about the
+// row before it is deleted, by the delete of the one row and by a delete that takes the
+// row with a record it is under. An error it returns refuses the delete, and nothing
+// is deleted.
+func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
+	p.patchSet.RegisterValidateDeleteFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return new({{ .Resource.ValidateDeleteType }}).Validate(ctx, txn, p)
+	})
+}
+{{ end }}
 func (p *{{ .Resource.Name }}DeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
@@ -908,6 +956,85 @@ const (
 					if err := {{ .DirectoryRules }}.Remove(ctx, txn, domain); err != nil {
 						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
 					}`
+
+	// subjectGuarded is spliced into the generated write of a record that decides what
+	// a person may do (resourceInfo.SubjectGuarded), once the operation is decoded and
+	// before its create, update or delete is built (op, patchSet and $subjectReq, the
+	// request that carries the row's key, which the splice's place sets). In a session
+	// that acts as someone else nobody is the subject of what they do, so the write is
+	// refused when the row gives something to the real person behind the session, by
+	// each road a row reaches a person. A row that names them
+	// (identity.RefuseImpersonatorAsRowSubject, for resourceInfo.SubjectUserFields): the
+	// person the stored row names, read by the key the operation's path carries, and
+	// the person the write names, read from the decoded fields and the key. A row that
+	// names a set they are in (identity.RefuseImpersonatorAsSetSubject, once for each
+	// of resourceInfo.SubjectSetTests): the splice names the column and the set, and
+	// the library asks the set by its own declaration. The row a fact of theirs is read
+	// through (identity.RefuseImpersonatorAsReadThroughSubject, once for each of
+	// resourceInfo.SubjectReadThroughs), asked only of a change that sets the column.
+	// The splice sits ahead of the three arms so that none of them can be reached
+	// around it. A create under a generated id has no key in its path, and no stored
+	// row. The splice reads the resource as its dot.
+	//
+	// The generated comment says, where a reader of the handler meets the rule, which of
+	// the three questions the record is asked and that they hold whatever the session's
+	// mask keeps. It names the two limits that remain, a row removed with its parent and
+	// a column that records who made a row, and where each is described.
+	subjectGuarded = `// This record's rows decide what a person may do, so nobody writes the
+					// row that decides it for themselves while they act as someone else,
+					// whatever the session's mask keeps, an exception that keeps this
+					// record's writes included. The caller's grants answer first.
+					{{- if .SubjectUserFields }}
+					//
+					// A row that names a person: the rule is asked about the person the
+					// row names before the write and the person it names after it.
+					{{- end }}
+					{{- if .SubjectSetTests }}
+					//
+					// A row that names a set of people reaches every person in the set:
+					// the rule is asked whether the real person is in the set the row
+					// names, before the write and after it. The set is asked by its own
+					// declaration, so the rule and the policy agree on who is in it.
+					{{- end }}
+					{{- if .SubjectReadThroughs }}
+					//
+					// A row a person's set or value is read through: a change that sets
+					// the column it is read from is refused on the row the real person's
+					// own is read through, and a change that leaves the column alone
+					// asks nothing.
+					{{- end }}
+					//
+					// A row removed with its parent, and a column that records who made a
+					// row, are the rule's stated limits:
+					// identity.RefuseImpersonatorAsRowSubject says what closes each.
+					{{- $subjectRecord := .SubjectRecordWords }}
+					subjectKey := resource.KeySet{}
+					{{- if .PrimaryKeyIsGeneratedUUID }}
+					if op.Type != resource.OperationCreate {
+						subjectKey = subjectKey.Add("{{ .PrimaryKey.Name }}", httpio.Param[{{ .PrimaryKeyType }}]({{ $subjectReq }}, "id"))
+					}
+					{{- else if .HasCompoundPrimaryKey }}
+					{{- range $i, $field := .PrimaryKeys }}
+					subjectKey = subjectKey.Add("{{ $field.Name }}", httpio.Param[{{ $field.Type }}]({{ $subjectReq }}, "id{{ Add $i 1 }}"))
+					{{- end }}
+					{{- else }}
+					subjectKey = subjectKey.Add("{{ .PrimaryKey.Name }}", httpio.Param[{{ .PrimaryKeyType }}]({{ $subjectReq }}, "id"))
+					{{- end }}
+					{{- if .SubjectUserFields }}
+					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}"{{ range .SubjectUserFields }}, "{{ .Name }}"{{ end }}); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+					}
+					{{- end }}
+					{{- range .SubjectSetTests }}
+					if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}", "{{ .Field.Name }}", "{{ .Set }}"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
+					}
+					{{- end }}
+					{{- range .SubjectReadThroughs }}
+					if err := identity.RefuseImpersonatorAsReadThroughSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}", "{{ .Field.Name }}", "{{ .Fact }}"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsReadThroughSubject()")
+					}
+					{{- end }}`
 
 	// permissionsTemplate emits the application's permission endpoints — the
 	// PermissionDigest and UserDomains handlers — as one-line delegations to the
@@ -1875,6 +2002,7 @@ import (
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/logger"
 	{{- if .Directory }}
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -1896,9 +2024,23 @@ var _ interface {
 // a sign-in method of the {{ .Auth }} auth open to sign-up. No grant admits the call. The session
 // must be established, which the router's session group holds it to, and must hold a
 // grant in no {{ .RecordLower }}: a person creates one {{ .RecordLower }}, and the member or administrator of
-// one is refused (403). Whether sign-up is open is read in the transaction that writes
-// the row, from the auth's sign-in methods table: while every method is invite only the
-// call is refused (403) and nothing is written. The row is written first, in
+// one is refused (403). The rule is asked twice. The request's permissions answer it
+// before a body is read: every {{ .RecordLower }} the person holds a grant in, whatever the
+// session's mask shows of it (resource.UserPermissions.HeldDomains). The {{ .Auth }} auth's
+// tables answer it again in the transaction that writes the row: a role the person
+// holds in a {{ .RecordLower }} ({{ .IdentityAccessor }}().HoldsTenant), so of two creations by one
+// person at once one is written and the other refused. The route is the action {{ .Action }} of the permission collection,
+// classed access, so that a permission mask decides it: in a session that acts as a
+// person the creator is the person acted as, and a session whose mask refuses the class,
+// the action by name or every action is refused before anything is read (403,
+// resource.RefuseActionUnderMask, logged as the mask's denial), while a session that
+// acts with no mask creates the {{ .RecordLower }} as the person would. Nobody is the subject of what
+// they do while they act as someone else: in a session that acts as a role the person
+// who would become the administrator is the real person behind it, who is refused
+// whatever the mask keeps (403, identity.RefuseImpersonatorAsSubject). Whether sign-up
+// is open is read in the transaction that writes the row, from the auth's sign-in
+// methods table: while every method is invite only the call is refused (403) and
+// nothing is written. The row is written first, in
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // {{ .Auth }} auth's generated identity client, so the {{ .RecordLower }} and its administrator are
@@ -1935,15 +2077,38 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 	if len(roles) == 0 {
 		panic("{{ .RolesAccessor }}() names no role: the person who creates a {{ .Record }} holds its administrator role, which the application names there")
 	}
-	identity := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
+	identityClient := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
+	collection := {{ .RouterPackage }}.Collection()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
+		// The mask decides: no grant admits the route, so no permission check runs here
+		// for a mask to deny, and the route asks the session's mask about its action. A
+		// session that acts as someone under a mask that refuses the action is told so
+		// before anything is read or written.
+		if err := resource.RefuseActionUnderMask(ctx, collection, {{ printf "%q" .Action }}, {{ printf "%q" .Act }}); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		userPermissions := {{ .ReceiverName }}.UserPermissions(r)
-		// One {{ .RecordLower }} per person: a session holding a grant in any {{ .RecordLower }} is refused.
-		held, err := userPermissions.Domains(ctx)
+		// Nobody is the subject of what they do while they act as someone else: the
+		// creator becomes the {{ .RecordLower }}'s administrator, and in a session that acts as a
+		// role the creator is the real person behind it, who is told so before anything
+		// is read or written.
+		if creator, ok := identity.UserID(userPermissions.User()); ok {
+			if err := identity.RefuseImpersonatorAsSubject(ctx, creator, "{{ .OwnCreation }}"); err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+		}
+		// One {{ .RecordLower }} per person: a person holding a grant in any {{ .RecordLower }} is refused. Every
+		// {{ .RecordLower }} they hold counts, read around the session's mask and its admission: a
+		// session that acts as a person under a mask that hides the person's {{ .RecordLower }}
+		// creates no second one. The permissions answer it themselves, whatever the
+		// application wrapped them in: what a person holds is a method of
+		// resource.UserPermissions, and there is no list of the session's to read in its
+		// place.
+		held, err := userPermissions.HeldDomains(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -1962,11 +2127,24 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 		var id {{ .Key.Type }}
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			// One {{ .RecordLower }} per person, decided where the {{ .RecordLower }} is written: what the
+			// creator holds is read again, in this transaction, from the {{ .Auth }} auth's
+			// tables. The answer above is the permission engine's, which cannot show a
+			// creation that has not committed, or one this instance has not heard of yet.
+			// Of two creations by one person at once, one commits and the other reads
+			// its membership here and is refused.
+			holds, err := identityClient.HoldsTenant(ctx, txn, userPermissions.User())
+			if err != nil {
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().HoldsTenant()")
+			}
+			if holds {
+				return httpio.NewForbiddenMessage("{{ .Refusal }}")
+			}
 			// Who is admitted: a person who signed up, which is a person with no {{ .RecordLower }}
 			// while an administrator has a sign-in method open to sign-up. A person who
 			// holds an invitation to create a {{ .RecordLower }} is the next admission, and is
 			// decided here, before the refusal, when that invitation exists.
-			open, err := identity.AnySignInMethodOpen(ctx, txn)
+			open, err := identityClient.AnySignInMethodOpen(ctx, txn)
 			if err != nil {
 				return errors.Wrap(err, "{{ .IdentityAccessor }}().AnySignInMethodOpen()")
 			}
@@ -2002,7 +2180,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			// The first administrator: the person's membership of each role, in the row's
 			// transaction.
 			for _, role := range roles {
-				if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
+				if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
 					return errors.Wrap(err, "{{ .IdentityAccessor }}().AssignRole()")
 				}
 			}
@@ -2041,30 +2219,46 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 // their own now. A page offers a person only what they may do, so the page that offers
 // the create-your-{{ .RecordLower }} card asks this first and hides the card on a no. The answer is
 // the one {{ .HandlerFunc }} would reach for the same caller before it reads a body, by the
-// same two facts: the session holds a grant in no {{ .RecordLower }}, and an administrator has a
-// sign-in method of the {{ .Auth }} auth open to sign-up, read as committed. No grant admits the
-// call, which any signed-in person makes, and nothing is written. The POST decides again
-// in its own transaction: what is offered here may be refused there a moment later.
+// same four facts: the session's permission mask does not refuse the action {{ .Action }}
+// (resource.MaskRefusesAction), the creator would not be the real person behind a
+// session that acts as someone else (identity.ImpersonatorIs), the session holds a
+// grant in no {{ .RecordLower }}, and an administrator has a sign-in method of the {{ .Auth }} auth open to
+// sign-up, read as committed. No grant admits the call, which any signed-in person
+// makes, and nothing is written or logged. The POST decides again in its own
+// transaction: what is offered here may be refused there a moment later.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .OfferedHandlerFunc }}() http.HandlerFunc {
 	type offer struct {
 		Offered bool ` + "`json:\"offered\"`" + `
 	}
 
-	identity := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
+	identityClient := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
+	collection := {{ .RouterPackage }}.Collection()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		// One {{ .RecordLower }} per person: a session holding a grant in any {{ .RecordLower }} is offered none.
-		held, err := {{ .ReceiverName }}.UserPermissions(r).Domains(ctx)
+		// A session whose permission mask refuses the action is offered none: the POST
+		// refuses it.
+		if _, refused := resource.MaskRefusesAction(ctx, collection, {{ printf "%q" .Action }}); refused {
+			return httpio.NewEncoder(w).Ok(offer{Offered: false})
+		}
+		userPermissions := {{ .ReceiverName }}.UserPermissions(r)
+		// The real person behind a session that acts as someone else is offered none: the
+		// POST refuses them.
+		if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {
+			return httpio.NewEncoder(w).Ok(offer{Offered: false})
+		}
+		// One {{ .RecordLower }} per person: a person holding a grant in any {{ .RecordLower }} is offered none,
+		// by every {{ .RecordLower }} they hold, as the POST judges it before it reads a body.
+		held, err := userPermissions.HeldDomains(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if len(held) > 0 {
 			return httpio.NewEncoder(w).Ok(offer{Offered: false})
 		}
-		open, err := identity.AnySignInMethodOpen(ctx, {{ .ReceiverName }}.ResourceClient())
+		open, err := identityClient.AnySignInMethodOpen(ctx, {{ .ReceiverName }}.ResourceClient())
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "{{ .IdentityAccessor }}().AnySignInMethodOpen()"))
 		}
@@ -2960,6 +3154,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -3312,6 +3507,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 				{{- if .Resource.SignalsTenants }}
 				tenantsWritten = true
 				{{- end }}
+				{{- if .Resource.SubjectGuarded }}
+				{{- with .Resource }}
+				{{- $subjectReq := "op.Req" }}
+
+				` + subjectGuarded + `
+				{{- end }}
+				{{- end }}
 
 				switch op.Type {
 				case resource.OperationCreate:
@@ -3424,6 +3626,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -3611,6 +3814,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
 						}
+						{{- if .SubjectGuarded }}
+						{{- $subjectReq := "req" }}
+
+						` + subjectGuarded + `
+						{{- end }}
 
 						switch op.Type {
 						case resource.OperationCreate:
@@ -4601,6 +4809,19 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+{{ with .Classes -}}
+// The classes the application's actions carry (@class) and the ones the generator
+// gives the writes of its records, each under the name a permission mask refuses it
+// by: accesstypes.RefuseClass({{ (index . 0).Name }}). A mask written against a class
+// nothing carries any more does not compile, since its constant is gone from this file.
+const (
+	{{- range . }}
+	// {{ .Name }} is the class {{ .Class }}.
+	{{ .Name }} accesstypes.ActionClass = "{{ .Class }}"
+	{{- end }}
+)
+
+{{ end -}}
 // Collection returns the application's permission collection, computed by the Resource
 // Generator from the resource definitions and generated routes, for deployment tooling
 // such as role migration and bootstrap.
@@ -4622,6 +4843,19 @@ func Collection() *resource.GeneratedCollection {
 				{{- end }}
 				{{- with .Permissions }}
 				Permissions: []accesstypes.Permission{ {{- range $i, $p := . }}{{ if $i }}, {{ end }}{{ PermissionConstant $p }}{{ end -}} },
+				{{- end }}
+				{{- with .Classes }}
+				Classes: []accesstypes.ActionClass{ {{- range $i, $c := . }}{{ if $i }}, {{ end }}{{ ClassConstant $c }}{{ end -}} },
+				{{- end }}
+				{{- with .WriteClasses }}
+				WriteClasses: []resource.WriteClassData{
+					{{- range . }}
+					{Permission: {{ PermissionConstant .Permission }}, Classes: []accesstypes.ActionClass{ {{- range $i, $c := .Classes }}{{ if $i }}, {{ end }}{{ ClassConstant $c }}{{ end -}} }},
+					{{- end }}
+				},
+				{{- end }}
+				{{- if .NoRole }}
+				NoRole: true,
 				{{- end }}
 				{{- with .Tags }}
 				Tags: []resource.TagData{

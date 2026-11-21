@@ -1004,7 +1004,7 @@
       },
       {
         "name": "CommandStaff",
-        "description": "Views the application as another user and assumes any role, for support and demonstrations, and keeps the watch desk: sees every session held as someone else and ends one.",
+        "description": "Views the application as another user, reading only, and assumes any role, for support and demonstrations, and keeps the watch desk: sees every session held as someone else and ends one.",
         "permissions": {
           "List": [
             {
@@ -1059,6 +1059,17 @@
             },
             {
               "resource": "EndCrewSessionImpersonation"
+            }
+          ]
+        }
+      },
+      {
+        "name": "StandIn",
+        "description": "Acts as another crew member: does what they may do, except change how they sign in or who may do what.",
+        "permissions": {
+          "Execute": [
+            {
+              "resource": "ActAsUser"
             }
           ]
         }

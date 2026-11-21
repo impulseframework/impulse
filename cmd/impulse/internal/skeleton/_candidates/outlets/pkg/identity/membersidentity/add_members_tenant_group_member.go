@@ -43,6 +43,7 @@ import (
 // @permissionScope(domain)
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type AddMembersTenantGroupMember struct {
 	// @target(MembersTenantGroup)
 	GroupID impulse.UUID

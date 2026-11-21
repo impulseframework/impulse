@@ -10,16 +10,24 @@ import (
 )
 
 // TestSchemaWarnings pins the schema warnings the generator raises over this
-// application: none. A warning is a performance finding about the schema (an index a
-// listed tenant-scoped resource wants, a tenant resolved through a join path, an
-// enumeration table too large to bake), printed by every generation and never a
-// refusal; this test makes the accepted set explicit, so a new one fails CI until it
-// is either fixed in the schema (add the index the line names, carry the tenant key on
-// the row) or accepted by adding its typed value (generation.IndexWarning,
-// generation.JoinPathWarning, generation.EnumerationSizeWarning) to want, which
-// records the acceptance in code. Runs the generator in-process, so it regenerates the
-// tree like go generate does. Requires the Spanner emulator (podman/docker), like the
-// rest of this module's tests.
+// application: none. A warning is a finding about the schema, printed by every
+// generation and never a refusal. Most are about performance: an index a listed
+// tenant-scoped resource wants (generation.IndexWarning), a list across tenants wants
+// (generation.AcrossTenantsIndexWarning) or a subject set's lookup wants
+// (generation.SubjectSetIndexWarning), a tenant resolved through a join path
+// (generation.JoinPathWarning), a search index that is not partitioned by the tenant
+// (generation.SearchPartitionWarning) or that does not store the key a search of a
+// child's rows joins through (generation.SearchBranchStoringWarning), an enumeration
+// table too large to bake (generation.EnumerationSizeWarning). One is about access: a
+// table a fact about people is read through that no resource declares, so nothing
+// generated guards its changes (generation.SubjectPathWarning). And one is about what a
+// virtual resource's changes are published from: a @changedBy declaration that differs
+// from the tables its query reads (generation.ChangedByWarning). This test makes the
+// accepted set explicit, so a new one fails CI until it is either fixed as its line
+// says (add the index it names, carry the tenant key on the row, declare the table) or
+// accepted by adding its typed value to want, which records the acceptance in code.
+// Runs the generator in-process, so it regenerates the tree like go generate does.
+// Requires the Spanner emulator (podman/docker), like the rest of this module's tests.
 func TestSchemaWarnings(t *testing.T) {
 	if testing.Short() {
 		t.Skip("generation requires the Spanner emulator")

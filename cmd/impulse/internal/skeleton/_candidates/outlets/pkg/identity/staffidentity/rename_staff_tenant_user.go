@@ -27,6 +27,7 @@ import (
 // @permissionScope(domain)
 // @outlet(default)
 // @answers(204)
+// @class(credential)
 type RenameStaffTenantUser struct {
 	// @target(StaffTenantUser)
 	UserID   impulse.UUID

@@ -551,7 +551,9 @@ the members' alike, and the sector's directory, whether the sector is directory 
 not, so the directory is free for another sector; a person who held roles in that sector
 alone goes with it, while one who holds a role elsewhere stays and signs in as before.
 No role Lodestar ships holds Delete on `Sectors`; the suite gives the governor one to
-prove it (`test/integration/tenant_delete_skipauth_test.go`). The sector's rows go with
+prove it (`test/integration/tenant_delete_skipauth_test.go`). The delete carries the
+class `access`, so a person who acts as the governor under the `act` kind is refused it
+(`TestImpersonation_sectorDeletedActingAsAPerson`). The sector's rows go with
 it by the schema: each of the seven tables that carry a sector's key (Wings, Hangars,
 HangarPasses, Missions, Consignments, DroidReports, DistressCalls) references `Sectors`
 with `ON DELETE CASCADE`, as the skeletons' sample tenant table does, and `impulse check`
@@ -569,12 +571,18 @@ holds ships). Rows the database removes this way are removed past their own reso
 Delete grant and row condition: whoever may delete the hangar deletes its ships. They
 leave no change event, and a document's stored file is the orphaned-file cleanup's, as
 the audit pass says below. The references on no table's way to its sector say nothing
-of a delete, and that is where the referential refusal is now
-(`commit.referential-refusal`): a sortie and a droid's report name a ship, and a mission
-the squadron it is assigned to, so a ship that has flown or been reported on is not
-deleted by itself, nor the hangar that would take it along, nor a squadron a mission is
-assigned to. A hangar pass is the exception among those references: it goes with its
-hangar and with the squadron it is issued to.
+of a delete, and that is where a delete is refused: a sortie and a droid's report name a
+ship, and a mission the squadron it is assigned to, so a ship that has flown or been
+reported on is not deleted by itself, nor the hangar that would take it along, nor a
+squadron a mission is assigned to. The ship and the squadron are refused before the
+commit, with a sentence that counts what is in the way and that the person may list
+(`delete.rows-under-refusal`, `test/integration/delete_refusal_test.go`: "This ship has
+2 sorties. Delete them first."; and "This squadron has 8 missions. Move or delete them
+first.", since a mission's assigned squadron may be empty and the missions can be given
+to another squadron). The hangar that would take such a ship along, and
+the wing that would take such a squadron, are refused by the database at the commit
+(`commit.referential-refusal`). A hangar pass is the exception among those references:
+it goes with its hangar and with the squadron it is issued to.
 
 How it is wired:
 
@@ -1097,15 +1105,130 @@ over the auth's people (`@enumerate(CrewSessionUsers)` on a pilot's account, the
 accounts; `@enumerate(CrewSectorUsers)` on a squadron member, the sector's people), which
 whoever may add the record may list. The marshal views the console as the cadet with
 `POST /console/api/impersonate` and
-`{"kind":"user","principal":"f0000000-0000-4000-8000-000000000003"}`, the id of the
+`{"kind":"view","principal":"f0000000-0000-4000-8000-000000000003"}`, the id of the
 cadet's account (a username there is refused, 400); the session route and the watch
 desk then name the cadet by username; and
 `{"kind":"role","principal":"Dispatcher"}` operates the session as a role.
 
+Impersonation is granted with a mask: to let someone impersonate a person with no mask
+is to give them what that person holds, and the mask is the control. The console
+declares three kinds (`app/impersonate.go`, `session.NewImpersonations`), each with the
+grant that allows it and the widest mask that grant gives, and the role file gives each
+grant on purpose. The declaration is the only way to start an impersonated session: the
+mint route takes its request from it (`Impersonations.Request`), and a request written
+out by hand does not compile:
+
+| Kind | Grant | Role | The widest mask |
+| --- | --- | --- | --- |
+| `view`: view as a person | Execute on `ViewAsUser` | `CommandStaff` (the governor, the marshal) | Reading only |
+| `act`: act as a person | Execute on `ActAsUser` | `StandIn` (the governor) | Everything except the actions classed `credential`, the actions classed `access` and the writes of the records that decide what a person may do: the session cannot set, require or remove a password, send a reset link, unlink a sign-in identity, or change a username or an address; it cannot give or remove a role, change a group or what it holds, invite anyone, make an account, change who may sign in (a sign-in method opened or made invite only, a sector opened to its directory, a sector's directory-only switch, the crew's reset link at the sign-in page), create a sector of the person's own (`CreateSector`), or rate a pilot (`SetSectorPilotClearance`, which Lodestar classes `access`); and it cannot add, change or remove a pilot's registry row, a certification, a client's contact or a place in a squadron, change a squadron, whose row says which wing its members are in, or delete a sector, which takes every role held in it. It keeps one of those records, the hangar passes: it gives, changes and withdraws a pass, for anyone but the real person and the squadrons they are in |
+| `role`: act as a role | Execute on `AssumeRole` | `CommandStaff` | Everything the role holds |
+
+A request may ask for less than its kind gives: permission kinds to keep
+(`"mask":["List","Read","Execute"]`), classes to refuse beside the kind's
+(`"refuseClasses":["irreversible"]`, the class Lodestar marks `ScrapShip` with) and
+actions to refuse by name (`"refuseActions":["ScrapShip"]`). A request for more than its
+kind gives (`"kind":"view"` with `Execute` in its mask) is refused, 403, with nothing
+started, and so is `"kind":"act"` from a holder of `CommandStaff` alone: the grant to
+view is not the grant to act. The answer, the session route's `impersonation.maskWords`,
+the banner and the watch desk say the session's mask in words ("reading only", and for
+the `act` kind "everything except access actions (still allowed: writing HangarPasses)
+and credential actions"), and so does the generated list of
+the impersonation records (`crew-session-impersonations`), whose `mask` column reads the
+stored text as words.
+
+Whatever the kind and its mask, nobody is the subject of what they do in such a session.
+The marshal who acts as the `Headquarters` role holds, for the length of the session,
+everything headquarters may do to the crew's accounts, and is refused each of those
+things on her own account ("you are acting as someone else, so you cannot give yourself
+a role: while you act as another person, nothing you do is done to your own account.
+Stop acting as them first"): a role, a place in a group, a password, an address, an
+enable, the unlock of her own name, an invitation to her own address. The same act on
+anyone else goes through, and her own row is still listed. The rule is the identity
+library's and needs no line in the application. An action of Lodestar's own that names a
+person asks it too: `SetSectorPilotClearance` reads the pilot's account off the registry
+and calls `identity.RefuseImpersonatorAsSubject`, so nobody raises their own clearance
+through someone else's grant.
+
+The rule covers the records that decide what a person may do, and again Lodestar writes
+no line for it. A `Pilots` row carries the clearance and the fee limit the policy reads
+as `subject.clearance` and `subject.feeLimit`; a `PilotCertifications` row, a
+`SquadronMemberships` row, a `HangarPasses` row and a `ClientContacts` row each put a
+value in one of a person's subject sets. Each carries a `@subjectValue` or a
+`@subjectSet`, so its generated write asks the rule about the person the row names,
+before the write and after it. The cadet who acts as the `Headquarters` role, whose
+mask refuses nothing, is refused a higher clearance on their own row ("you are acting
+as someone else, so you cannot change your own pilot record"), that row handed to
+someone else or removed, a certification of their own, and a veteran's row moved onto
+their account ("make another pilot record your own"); the same write for another pilot
+goes through, and in a session of their own a person writes their own row as they
+always could.
+
+The `act` kind goes further than the rule, which holds the real person alone. Its mask
+refuses the class `access`, for what the rule cannot see (a role that reaches a person
+through a group or a colleague), and the generator gives that class to the writes of
+those five records, to the writes of a place in a group of the crew (a record the
+application offers no write of, since the identity library's own actions write it)
+and to the change of a squadron, whose row says which wing each
+member is in, and to the delete of a sector, which takes every role held in it, so the
+kind names no record and a record that gains a subject value is
+covered when Lodestar is generated again. A stand-in therefore changes no role, no
+group and no record that decides what a person may do, but for a hangar pass, which
+the kind keeps, and that is what the `StandIn`
+role's description promises: everything the person may do, except change how they sign
+in or who may do what. Two things stay outside it, each stated where the kind is
+declared: a stand-in can still disable, enable and delete another person's account,
+which carry no class, and delete a hangar, which removes its passes with it. `SetSectorPilotClearance` carries the class `access` for the
+same reason, so the kind refuses the action as it refuses the record's write. A mask
+names a record's permission and not one plain field of it, so the squadron's name and
+callsigns are refused with its wing.
+
+Creating a sector is among what the kind refuses. The generated `create-sector` route
+takes no grant, so in a session that acts as a person it would make the person acted
+as a new sector's marshal, with no permission checked for a mask to deny. The route
+carries an action's name for that, `CreateSector`, classed `access`, and asks the
+session's mask before anything else: the stand-in who acts as the pioneer is refused
+("you are acting as someone else, and this session cannot create a sector: the mask
+refuses the class access. ...") with nothing written and the denial logged as the
+mask's, and the route's `GET` answers that none is offered. The `role` kind is refused
+the same route by the rule and not by a mask, since it has none: the marshal behind a
+session that acts as a role would become the sector's marshal herself ("you are acting
+as someone else, so you cannot create a sector of your own"). An application that
+declares a kind of acting as a person with no mask allows the creation, and the person
+acted as is the sector's marshal: that is what no mask means. `CreateSector` is an
+action no role is given: nothing asks a role for it, so the generated collection marks
+it (`NoRole: true`), a role file that grants it is refused, with the reason, by the
+permission engine and by `impulse check`, and the console's generated `Methods`
+constants leave it out.
+
+The rule also sees a row that reaches a person without naming them. The marshal who
+acts as the `Headquarters` role is refused a role, a pass or a place in a squadron
+given to her own account, and she is refused a hangar pass given to a squadron she is
+in, and her own squadron moved to another wing ("you are acting as someone else, so you
+cannot add a hangar pass record for one of your own squadrons"). The generated writes
+of `HangarPasses` and `Squadrons` name the column and the set, and the library asks the
+set by its own declaration, so the rule and the policy agree on who is in a squadron.
+A squadron's new name asks nothing: only a change that sets the wing does. The `act`
+kind keeps the writes of `HangarPasses` out of its refusal of the class `access`
+(`accesstypes.RefuseClassExcept`), because giving passes is the marshal's daily work:
+a person standing in for the marshal gives a pass to another person or another
+squadron, is refused one for themselves or a squadron they are in, and is refused
+everything else the class holds. The banner and the watch desk say the exception in
+words ("everything except access actions (still allowed: writing HangarPasses) and
+credential actions"), a request to start the session may drop it (`refuseClasses:
+["access"]` with no `exceptWrites`), and a request that names a record the kind does
+not keep is refused with nothing started. What the rule cannot see is a role given to
+a group she is in: that stays open to a session whose mask does not refuse the class
+`access`, and it is a stated limit of the rule. A hangar pass also goes with its hangar,
+its squadron or its sector when one is deleted, whoever the pass names. No write of the
+pass is made, so neither the rule nor the `act` kind's mask is asked, and neither kind
+refuses those deletes: every pass gives something, so such a delete only takes away.
+An application whose rows restrict refuses the parent's delete in the kind's mask.
+
 | Login | Who | What their view proves |
 | --- | --- | --- |
-| `governor` | Governor Greer, headquarters | The fleet's super administrator (`SuperAdministrator`, the role the framework defines in every auth): the one person no sector's sign-in settings shut out, who gives any role of the crew to anyone and whose role and account stay while he is the last who can sign in. Beside it, every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Keeps the watch desk over every session held as someone else and can revoke one, as the marshal does (the command staff's grants). On the console's Break glass page he takes a role in a sector for a set time (1 hour, 4 hours, 8 hours or 1 day) and says why (`take-crew-role`): the role is his from then until the time is over, the sector's Marshal reads the reason beside it, and whoever may take the role away ends it early; "Held right now" and "Ended" list the roles held that way. Headquarters holds the grants, and taking needs what giving himself the role would. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, computed.pushdown, auth.reasons. |
-| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); keeps the watch desk with the governor, on the command staff's grants: lists every session held as someone else, reads who each is held as from the crew's accounts by username alone, and revokes one; releases cargo on a grant that carries no condition, so the method's own rule is what refuses her a second release (409, with the day the cargo left bond); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant). Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
+| `governor` | Governor Greer, headquarters | The fleet's super administrator (`SuperAdministrator`, the role the framework defines in every auth): the one person no sector's sign-in settings shut out, who gives any role of the crew to anyone and whose role and account stay while he is the last who can sign in. Beside it, every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Keeps the watch desk over every session held as someone else, which says what each may do, and can revoke one, as the marshal does (the command staff's grants). Holds each grant to impersonate on purpose: `CommandStaff` (view as a person, reading only; act as a role) and `StandIn` (act as a person: everything they may do, except change how anyone signs in or who may do what). On the console's Break glass page he takes a role in a sector for a set time (1 hour, 4 hours, 8 hours or 1 day) and says why (`take-crew-role`): the role is his from then until the time is over, the sector's Marshal reads the reason beside it, and whoever may take the role away ends it early; "Held right now" and "Ended" list the roles held that way. Headquarters holds the grants, and taking needs what giving himself the role would. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, impersonation.act-as-user, impersonation.grant-mask, computed.pushdown, auth.reasons. |
+| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); keeps the watch desk with the governor, on the command staff's grants: lists every session held as someone else, reads who each is held as from the crew's accounts by username alone, and revokes one; releases cargo on a grant that carries no condition, so the method's own rule is what refuses her a second release (409, with the day the cargo left bond); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant); views the console as another crew member, reading only (`CommandStaff`), and is refused acting as one, which is a grant of its own. Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
 | `cadet` | Cadet Cass | `hazard IN (1, 2)`; the flight deck with only Claim lit; the two-input distress-call form (create-form narrowing). Demonstrates: execute-condition, create-form-narrowing, capability-envelope. |
 | `pilot` | Pilot Pax, clearance 3 | `hazard <= subject.clearance AND (requiredCert IS NULL OR requiredCert IN subject.certifications)`; `hangarZone != 'quarantine'` on ships and on HailShip, the touch that answers No Content. Demonstrates: @subjectValue, @subjectSet.global, @attribute.nullable-fk, @attribute.join-path, touch, @answers.no-content. |
 | `veteran` | Veteran Vela | `NOT (hazard IN (1, 2) OR fee < 5000)`. Demonstrates: condition.prefix-not. |
@@ -1338,7 +1461,7 @@ desk then name the cadet by username; and
   (`LODESTAR_LOG` names the file the server's output goes to, where the walkthrough reads the
   sign-in code each password sign-in waits for: `overmind start 2>&1 | tee stack.log`), including the
   droid channel, the portal through the simulated directory, the dry runs, the watch desk,
-  both impersonation moments, the feature flag's flip with a second server process built
+  the three kinds of impersonation and their masks, the feature flag's flip with a second server process built
   from the tree on `LODESTAR_SECOND_PORT` (default 8091), and the three-minute wait for
   the overdue flip (`LODESTAR_SKIP_FLIP=1` to skip). Export the `.envrc` variables before
   running it.

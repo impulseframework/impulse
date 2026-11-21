@@ -24,6 +24,7 @@ type (
 	//
 	// @rpc
 	// @outlet(portal)
+	// @class(credential)
 	SetMembersUserEmail struct {
 		// @target(MembersSessionUser)
 		UserID impulse.UUID

@@ -293,7 +293,7 @@ func (q *QuerySet[Resource]) checkResourcePermission(ctx context.Context) error 
 	if q.resourceSet == nil {
 		return nil
 	}
-	decisions, err := q.userPermissions.Check(ctx, q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
+	decisions, err := q.userPermissions.Check(q.checkContext(ctx), q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
 	if err != nil {
 		return errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
@@ -304,9 +304,30 @@ func (q *QuerySet[Resource]) checkResourcePermission(ctx context.Context) error 
 	return nil
 }
 
+// checkContext is the context an armed set asks for its permission on the resource
+// with. A create or an update says which fields it sets (withWrittenFields), all of
+// them, so a session whose mask keeps one field of a record out of a refused class is
+// kept the write that sets that field alone and refused every other. Any other check
+// says nothing.
+func (q *QuerySet[Resource]) checkContext(ctx context.Context) context.Context {
+	if q.resourceSet == nil || (q.requiredPermission != accesstypes.Create && q.requiredPermission != accesstypes.Update) {
+		return ctx
+	}
+	fields := q.Fields()
+	if len(fields) == 0 {
+		return ctx
+	}
+	written := make([]accesstypes.Resource, len(fields))
+	for i, field := range fields {
+		written[i] = q.resourceSet.Resource(field)
+	}
+
+	return withWrittenFields(ctx, q.resourceSet.BaseResource(), written)
+}
+
 func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DBType) error {
 	if q.resourceSet != nil {
-		decisions, err := q.userPermissions.Check(ctx, q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
+		decisions, err := q.userPermissions.Check(q.checkContext(ctx), q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
 		if err != nil {
 			return errors.Wrap(err, "resource.UserPermissions.Check()")
 		}
