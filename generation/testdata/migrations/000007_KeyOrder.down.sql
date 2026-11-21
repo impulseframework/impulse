@@ -1,0 +1,5 @@
+DROP TABLE Fenders;
+DROP TABLE Hawsers;
+DROP TABLE Lines;
+DROP TABLE Moorings;
+DROP TABLE Berths;

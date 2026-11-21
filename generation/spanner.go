@@ -164,6 +164,14 @@ func valueOrEmpty(s *string) string {
 	return *s
 }
 
+// tableMapQuery reads every column of every table with what it is in a key: whether it
+// is part of the primary key or of a foreign key, and the table and column it
+// references. A foreign key column is paired with the column it references by its
+// POSITION_IN_UNIQUE_CONSTRAINT, which the information schema defines as the column's
+// position within the constraint the foreign key references, so the pairing does not
+// depend on the order the foreign key lists its own columns in. Where the referenced
+// column is itself part of a foreign key, the read goes one step on, to what that column
+// references, paired by that column's position in the same way.
 const tableMapQuery string = `WITH DEPENDENCIES AS (
 		SELECT
 			kcu1.TABLE_NAME, 
@@ -196,12 +204,13 @@ const tableMapQuery string = `WITH DEPENDENCIES AS (
 		JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc ON tc.CONSTRAINT_NAME = kcu1.CONSTRAINT_NAME -- Identify whether column is Primary Key or Foreign Key
 		-- All unique constraints (e.g. PK_Persons) referenced by foreign key constraints (e.g. FK_PersonPhones_PersonId)
 		LEFT JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc ON rc.CONSTRAINT_NAME = kcu1.CONSTRAINT_NAME 
+		-- A foreign key column pairs with the column at its POSITION_IN_UNIQUE_CONSTRAINT of the constraint it references, not at its own position in the foreign key
 		LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu2 ON kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME -- Table & Column belonging to referenced unique constraint
-			AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION
+			AND kcu2.ORDINAL_POSITION = kcu1.POSITION_IN_UNIQUE_CONSTRAINT
 		LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu3 ON kcu3.TABLE_NAME = kcu2.TABLE_NAME AND kcu3.COLUMN_NAME = kcu2.COLUMN_NAME
 		LEFT JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc2 ON rc2.CONSTRAINT_NAME = kcu3.CONSTRAINT_NAME
 		LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu4 ON kcu4.CONSTRAINT_NAME = rc2.UNIQUE_CONSTRAINT_NAME -- Table & Column belonging to 1-jump referenced unique constraint
-			AND kcu4.ORDINAL_POSITION = kcu1.ORDINAL_POSITION
+			AND kcu4.ORDINAL_POSITION = kcu3.POSITION_IN_UNIQUE_CONSTRAINT -- by the referenced column's place in its own foreign key
 		WHERE
 			kcu1.CONSTRAINT_SCHEMA != 'INFORMATION_SCHEMA'
 			AND tc.CONSTRAINT_TYPE IN ('PRIMARY KEY', 'FOREIGN KEY')
