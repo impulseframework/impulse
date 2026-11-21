@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -64,16 +63,16 @@ type signInAttempt struct {
 	// fromPending reports a completion of the browser's pending identity, consumed
 	// before the sign-in; only its cookie remains, to delete or replace.
 	fromPending bool
-	// codeEmail is the address the code this sign-in entered was mailed to, "" for a
-	// sign-in that entered none: what an invitation's acceptance rests on where the
-	// identity answers for no address, asserting none or one its method did not verify
-	// (sessioninfo.Invitation.AddressProven).
-	codeEmail string
-	// acceptsInvitation reports a completion of a wait of an invitation's acceptance
-	// that named no user (signinflow's invitedCodeWait, a sign-up through an
-	// invitation): the code it entered was mailed for the invitation, so the sign-in is
-	// that invitation's acceptance or it is nothing.
-	acceptsInvitation bool
+	// codeInvitation is the invitation the code this sign-in entered was mailed for,
+	// null for a sign-in that entered none or the account's own code: what an
+	// invitation's acceptance rests on where the identity answers for no address,
+	// asserting none or one its method did not verify
+	// (sessioninfo.Invitation.AddressProven). It is set by the completion of a wait of
+	// an invitation's acceptance: one that named no user (signinflow's invitedCodeWait,
+	// a sign-up through an invitation), or one that named an account which holds no
+	// address (signinflow's namedCodeWait). The sign-in is that invitation's acceptance
+	// or it is nothing.
+	codeInvitation impulse.NullUUID
 	// signUp is what a sign-up through an invitation keeps until its code is entered,
 	// for the attempt that holds it as a pending identity (invitationSignUp); nil for
 	// every other attempt.
@@ -230,7 +229,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 
 // invitationCarried returns the live invitation the browser carries as the sign-in at
 // takes it to the store, nil for none: told whether the person entered, in this
-// sign-in, the code mailed to the invited address (Invitation.AddressProven). A sign-in
+// sign-in, the code mailed for that invitation (Invitation.AddressProven). A sign-in
 // that completes the wait of an invitation's acceptance and finds the invitation gone
 // is refused before anything is resolved or written.
 func (a *Auth[S, U, Tx]) invitationCarried(ctx context.Context, at *signInAttempt) (*sessioninfo.Invitation, error) {
@@ -239,7 +238,7 @@ func (a *Auth[S, U, Tx]) invitationCarried(ctx context.Context, at *signInAttemp
 		return nil, err
 	}
 	if inv == nil {
-		if at.acceptsInvitation {
+		if at.codeInvitation.Valid {
 			// The code was mailed for an invitation that no longer stands (used, withdrawn
 			// or run out since the wait began). It proves nothing else: not the address of
 			// an account the sign-in would otherwise make or find, and no second factor
@@ -249,9 +248,9 @@ func (a *Auth[S, U, Tx]) invitationCarried(ctx context.Context, at *signInAttemp
 
 		return nil, nil
 	}
-	// The code the person entered was mailed to the invited address, or it proves
-	// nothing about the invitation.
-	inv.AddressProven = at.codeEmail != "" && strings.EqualFold(strings.TrimSpace(at.codeEmail), strings.TrimSpace(inv.Email))
+	// The code the person entered was mailed for this invitation, or it proves nothing
+	// about the invitation.
+	inv.AddressProven = at.codeInvitation.Valid && at.codeInvitation.UUID == inv.ID
 
 	return inv, nil
 }

@@ -15,25 +15,31 @@ import (
 )
 
 // factorCodeColumns are the factor codes table's columns, in factorCodeRow's order.
-const factorCodeColumns = `"Id", "PendingId", "Email", "CodeHash", "Attempts", "CreatedAt", "ExpiresAt", "ConsumedAt"`
+const factorCodeColumns = `"Id", "PendingId", "Email", "CodeHash", "Attempts", "CreatedAt", "ExpiresAt", "ConsumedAt", "InvitationId"`
 
 // factorCodeRow is a factor code as the table holds it.
 type factorCodeRow struct {
-	ID         impulse.UUID `db:"Id"`
-	PendingID  impulse.UUID `db:"PendingId"`
-	Email      string       `db:"Email"`
-	CodeHash   []byte       `db:"CodeHash"`
-	Attempts   int          `db:"Attempts"`
-	CreatedAt  time.Time    `db:"CreatedAt"`
-	ExpiresAt  time.Time    `db:"ExpiresAt"`
-	ConsumedAt *time.Time   `db:"ConsumedAt"`
+	ID           impulse.UUID  `db:"Id"`
+	PendingID    impulse.UUID  `db:"PendingId"`
+	Email        string        `db:"Email"`
+	CodeHash     []byte        `db:"CodeHash"`
+	Attempts     int           `db:"Attempts"`
+	CreatedAt    time.Time     `db:"CreatedAt"`
+	ExpiresAt    time.Time     `db:"ExpiresAt"`
+	ConsumedAt   *time.Time    `db:"ConsumedAt"`
+	InvitationID *impulse.UUID `db:"InvitationId"`
 }
 
 func (r *factorCodeRow) code() *dbtype.FactorCode {
-	return &dbtype.FactorCode{
+	c := &dbtype.FactorCode{
 		ID: r.ID, PendingID: r.PendingID, Email: r.Email, CodeHash: r.CodeHash, Attempts: r.Attempts,
 		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, ConsumedAt: r.ConsumedAt,
 	}
+	if r.InvitationID != nil {
+		c.InvitationID = impulse.NullUUIDFromUUID(*r.InvitationID)
+	}
+
+	return c
 }
 
 // trustedDeviceColumns are the trusted devices table's columns, in trustedDeviceRow's
@@ -90,8 +96,12 @@ func (s *SessionStorageDriver) InsertFactorCode(ctx context.Context, c *dbtype.F
 		if _, err := tx.Exec(ctx, consume, c.PendingID, now); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
-		insert := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, 0, now(), $5, NULL)`, s.factorCodesTable(), factorCodeColumns)
-		if _, err := tx.Exec(ctx, insert, c.ID, c.PendingID, c.Email, c.CodeHash, c.ExpiresAt); err != nil {
+		var invitationID *impulse.UUID
+		if c.InvitationID.Valid {
+			invitationID = &c.InvitationID.UUID
+		}
+		insert := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, 0, now(), $5, NULL, $6)`, s.factorCodesTable(), factorCodeColumns)
+		if _, err := tx.Exec(ctx, insert, c.ID, c.PendingID, c.Email, c.CodeHash, c.ExpiresAt, invitationID); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 

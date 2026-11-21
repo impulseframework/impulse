@@ -5,7 +5,9 @@
 // acceptance waits for the code mailed to that address, and until the code is entered
 // nothing is written. The codes of an invitation are counted under the invitation, so
 // whoever holds a forwarded link uses up nothing of the invited person's own sign-in,
-// and an invitation takes twenty-five codes and no more, however long it stands.
+// and an invitation takes twenty-five codes and no more, however long it stands. A code
+// is held to the invitation it was mailed for, whatever the browser that enters it
+// carries.
 
 package e2e
 
@@ -13,10 +15,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -65,6 +70,10 @@ func runInvitationByMailedCodeSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "a right code before the invitation is spent still accepts: after twenty-four wrong codes the code mailed makes the account and accepts the invitation",
 			run:  seamInvitationRightCodeWithinBudget[Tx],
+		},
+		{
+			name: "the code mailed for an invitation is held to that invitation: entered in a browser that dropped the invitation's cookie, or that carries another invitation's, the right code is refused, takes its place in its own invitation's count and writes nothing, and the code of an invitation that is spent or was withdrawn accepts nothing",
+			run:  seamInvitationCodeHeldToItsInvitation[Tx],
 		},
 	}
 	for _, tt := range tests {
@@ -610,4 +619,152 @@ func seamInvitationRightCodeWithinBudget[Tx any](ctx context.Context, t *testing
 	if handed := a.handed(); len(handed) != 1 || handed[0].ID != inv.ID {
 		t.Errorf("the hook was handed %+v, want the one invitation accepted", handed)
 	}
+}
+
+// withoutCookie is a user agent that holds every cookie b holds but the one named name,
+// which b must hold.
+func (b *browser) withoutCookie(name string) *browser {
+	b.t.Helper()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		b.t.Fatalf("cookiejar.New() error = %v", err)
+	}
+	held := b.client.Jar.Cookies(b.base)
+	kept := make([]*http.Cookie, 0, len(held))
+	for _, c := range held {
+		if c.Name != name {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) != len(held)-1 {
+		b.t.Fatalf("the browser holds %d cookie(s), %d of them not named %s; want it to hold that one", len(held), len(kept), name)
+	}
+	jar.SetCookies(b.base, kept)
+	client := *b.client
+	client.Jar = jar
+
+	return &browser{t: b.t, client: &client, base: b.base}
+}
+
+// codesEntered is the count of the codes entered for the invitation id.
+func (a *tenantInvitationApp[Tx]) codesEntered(ctx context.Context, t *testing.T, id impulse.UUID) int64 {
+	t.Helper()
+
+	record, err := a.store.SignInAttempts(ctx, attempts.OwnKey(attempts.KindInvitationGuess, id.String()))
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return 0
+		}
+		t.Fatalf("SignInAttempts() of the invitation's codes entered error = %v", err)
+	}
+	if record == nil {
+		return 0
+	}
+
+	return record.Failures
+}
+
+// seamInvitationCodeHeldToItsInvitation is the scenario "the code mailed for an
+// invitation is held to that invitation".
+func seamInvitationCodeHeldToItsInvitation[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newTenantInvitationApp(ctx, t, be)
+
+	// Sam's account has a password and holds no address. Its person holds the link of
+	// an invitation mailed to Pat, opens it and signs in: the sign-in waits for the
+	// code mailed to Pat's address, which Sam's person does not read and can only guess.
+	a.seed(ctx, t, "sam")
+	const invited = "pat@lakeside.edu"
+	forPat, err := a.api.Invite(ctx, &session.InvitationRequest{Email: invited})
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	a.openInvitation(ctx, t, b)
+	if status, mfa := b.loginAs(ctx, "sam"); status != http.StatusOK || !mfa {
+		t.Fatalf("the password sign-in from the invitation = %d (mfaIsRequired %v), want 200 held for the code mailed to the invited address", status, mfa)
+	}
+	forLee, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "lee@lakeside.edu"})
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	leesToken := lastInvitationToken(t, a.mail)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	code := a.lastCode(t, invited)
+
+	// refused enters the code mailed for Pat's invitation, the right one, in br, which
+	// must be refused with want and sign nobody in. Nothing is written by it: both
+	// invitations stand, nothing was handed to the hook and the account holds no
+	// address. Pat's invitation must then count wantEntered codes entered, and Lee's
+	// none.
+	refused := func(br *browser, want string, wantEntered int64, when string) {
+		t.Helper()
+
+		if status, body := br.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"`+want+`"`) {
+			t.Fatalf("the right code %s = %d %s, want 401 %s", when, status, body, want)
+		}
+		br.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+		a.assertStanding(ctx, t, "after the code "+when, forPat, forLee)
+		if email, _ := a.address(ctx, t, "sam"); email != "" {
+			t.Fatalf("the account's address after the code %s = %q, want none: the invited address is written by the acceptance alone", when, email)
+		}
+		if handed := a.handed(); len(handed) != 0 {
+			t.Fatalf("the hook was handed %d invitation(s) after the code %s, want none", len(handed), when)
+		}
+		if got := a.codesEntered(ctx, t, forPat.ID); got != wantEntered {
+			t.Fatalf("the count of codes entered for the invitation the code was mailed for, after the code %s = %d, want %d", when, got, wantEntered)
+		}
+		if got := a.codesEntered(ctx, t, forLee.ID); got != 0 {
+			t.Fatalf("the count of codes entered for the other invitation, after the code %s = %d, want none: no code was mailed for it", when, got)
+		}
+	}
+
+	// The code is entered in a browser that dropped the invitation's cookie, and then in
+	// one that carries the cookie of Lee's invitation instead. Each time it is refused
+	// unjudged and takes a place in the count of Pat's invitation, never of Lee's.
+	dropped := b.withoutCookie("auth-invitation")
+	refused(dropped, "invitation_expired", 1, "entered without the invitation's cookie")
+	other := dropped.clone()
+	other.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": leesToken}, other.xsrfToken())
+	refused(other, "pending_expired", 2, "entered with another invitation's cookie")
+
+	// Twenty-three more, and Pat's invitation has taken its twenty-five. It takes no
+	// more: not in a browser without its cookie, and not in the one that carries it,
+	// where the code still stands and is the right one.
+	for entered := int64(3); entered <= 25; entered++ {
+		refused(dropped, "invitation_expired", entered, "entered again without the invitation's cookie")
+	}
+	refused(dropped, "invitation_spent", 25, "of a spent invitation, entered without its cookie")
+	refused(b, "invitation_spent", 25, "of a spent invitation, entered in the browser that carries it")
+
+	// Kit's account waits the same way for the code of an invitation mailed to Kim, and
+	// the invitation is withdrawn before the code is entered: the code accepts nothing
+	// and is no second factor of Kit's account, in the browser that still carries the
+	// invitation's cookie.
+	a.seed(ctx, t, "kit")
+	const withdrawn = "kim@lakeside.edu"
+	forKim, err := a.api.Invite(ctx, &session.InvitationRequest{Email: withdrawn})
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	k := a.browser(t)
+	k.prime(ctx)
+	a.openInvitation(ctx, t, k)
+	if status, mfa := k.loginAs(ctx, "kit"); status != http.StatusOK || !mfa {
+		t.Fatalf("the password sign-in from the second invitation = %d (mfaIsRequired %v), want 200 held for the code", status, mfa)
+	}
+	k.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	kimsCode := a.lastCode(t, withdrawn)
+	if err := a.api.RevokeInvitation(ctx, forKim.ID); err != nil {
+		t.Fatalf("RevokeInvitation() error = %v", err)
+	}
+	if status, body := k.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": kimsCode}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"invitation_expired"`) {
+		t.Fatalf("the right code of a withdrawn invitation = %d %s, want 401 invitation_expired", status, body)
+	}
+	k.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if email, _ := a.address(ctx, t, "kit"); email != "" {
+		t.Errorf("the account's address after the code of a withdrawn invitation = %q, want none", email)
+	}
+	a.assertStanding(ctx, t, "after the code of a withdrawn invitation", forPat, forLee)
 }

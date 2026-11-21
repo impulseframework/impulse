@@ -681,7 +681,7 @@ func (a *Auth[S, U, Tx]) invitedSignUpAttempt(ctx context.Context, p *pendingSta
 	at.reason = sessioninfo.ReasonStepUp
 	at.events = append(pendingEvents(p), sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode})
 	at.returnURL, at.fromPending = p.ReturnURL, true
-	at.codeEmail, at.acceptsInvitation = email, true
+	at.codeInvitation = impulse.NullUUIDFromUUID(inv.ID)
 
 	return at, nil
 }
