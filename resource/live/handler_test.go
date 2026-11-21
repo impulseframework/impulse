@@ -81,6 +81,9 @@ func longName(n int) string {
 	return strings.Repeat("a", n-len(crewAuth+AuthSeparator))
 }
 
+// overLimitWords is what a person whose principal id is over the uid limit is told.
+const overLimitWords = "Pages do not update on their own for your sign-in. Reload a page to see what has changed."
+
 // gateFunc is a Gate answering through a function.
 type gateFunc func(ctx context.Context) (bool, error)
 
@@ -873,7 +876,7 @@ func TestPrincipalID(t *testing.T) {
 		{
 			name:        "an id one byte over the uid limit is refused, never shortened",
 			ctx:         withSession(context.Background(), crewAuth, longName(MaxPrincipalIDLength+1)),
-			wantErr:     "129 bytes, over Firebase's uid limit of 128",
+			wantErr:     fmt.Sprintf("the principal id %q is 129 bytes, over Firebase's uid limit of 128", crewAuth+AuthSeparator+longName(MaxPrincipalIDLength+1)),
 			wantRefusal: true,
 		},
 		{

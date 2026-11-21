@@ -2545,8 +2545,9 @@ sets, and a logout through one auth ends that person's subscriptions and identit
 The id is the Firebase user id (uid) the browser signs in as, and Firebase allows a uid
 of at most 128 bytes (`live.MaxPrincipalIDLength`). Nothing is truncated or hashed: a
 person whose id is longer uses the application as always while the live pages refuse
-them. The token, renew and unsubscribe routes answer 403 naming the length and the
-limit, and a subscribing list or read registers nothing, each with the reason logged.
+them. The token, renew and unsubscribe routes answer 403 ("Pages do not update on their
+own for your sign-in. Reload a page to see what has changed."), and a subscribing list or
+read registers nothing, each with the reason, the id's length and the limit logged.
 The refusal sits in the live routes because the sign-in belongs to the session library
 and the auth package, which the generated code does not configure. The session library
 sets no length on a user name (its username columns are `STRING(MAX)`), so nothing is
