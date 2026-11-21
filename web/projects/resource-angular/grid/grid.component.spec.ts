@@ -4,7 +4,7 @@ import { provideResourceTesting } from '@impulseframework/resource-angular/testi
 import { ColumnConfig, iconCellKey, RecordData } from '@impulseframework/resource-angular/types';
 
 import { AppGridComponent, MIN_TEXT_COLUMN_WIDTH } from './grid.component';
-import { ColumnFilter, ColumnFilterInputs, RowKey } from './grid-types';
+import { ColumnFilter, ColumnFilterChoices, ColumnFilterInputs, RowKey } from './grid-types';
 
 // The grid identifies a row by `rowKey`, the caller's function from a row to its identity,
 // or by the row's position in the page when the caller passes none. The track expression,
@@ -281,18 +281,38 @@ describe("the filter menu's value control", () => {
   let fixture: ComponentFixture<AppGridComponent>;
   let emitted: ColumnFilter[] | undefined;
 
-  const create = async (filterInputs: ColumnFilterInputs): Promise<void> => {
+  /** The statuses a mission takes, as the generated metadata lists them: the stored key and the name a person reads. */
+  const statuses: ColumnFilterChoices = {
+    statusId: [
+      { value: 'claimed', label: 'Claimed' },
+      { value: 'on_hold', label: 'On hold' },
+      { value: 'open', label: 'Open' },
+    ],
+  };
+
+  const create = async (filterInputs: ColumnFilterInputs, filterChoices: ColumnFilterChoices = {}): Promise<void> => {
     await TestBed.configureTestingModule({
       imports: [AppGridComponent],
       providers: [provideResourceTesting()],
     }).compileComponents();
     fixture = TestBed.createComponent(AppGridComponent);
     fixture.componentRef.setInput('rowData', [
-      { deadline: '2026-12-15T09:30:00Z', expiresOn: '2026-12-20', title: 'Survey' },
+      { deadline: '2026-12-15T09:30:00Z', expiresOn: '2026-12-20', title: 'Survey', statusId: 'On hold' },
     ]);
-    fixture.componentRef.setInput('columnDefs', [{ id: 'deadline' }, { id: 'expiresOn' }, { id: 'title' }]);
-    fixture.componentRef.setInput('filterability', { deadline: 'always', expiresOn: 'always', title: 'always' });
+    fixture.componentRef.setInput('columnDefs', [
+      { id: 'deadline' },
+      { id: 'expiresOn' },
+      { id: 'title' },
+      { id: 'statusId' },
+    ]);
+    fixture.componentRef.setInput('filterability', {
+      deadline: 'always',
+      expiresOn: 'always',
+      title: 'always',
+      statusId: 'always',
+    });
     fixture.componentRef.setInput('filterInputs', filterInputs);
+    fixture.componentRef.setInput('filterChoices', filterChoices);
     emitted = undefined;
     fixture.componentInstance.filterChange.subscribe((filters) => {
       emitted = filters;
@@ -448,6 +468,98 @@ describe("the filter menu's value control", () => {
     const menu = await openMenu(2);
     expect(controls(menu)).toEqual(['text']);
     expect(menu.querySelector<HTMLInputElement>('input')?.placeholder).toBe('Value');
+  });
+
+  /** The names the menu's pick offers, the first being what it says with nothing chosen. */
+  const picked = (menu: HTMLElement): { offered: string[]; chosen: string } => {
+    const select = menu.querySelector<HTMLSelectElement>('select.filter-choice');
+    if (!select) {
+      throw new Error('no pick of names');
+    }
+    return {
+      offered: Array.from(select.options).map((option) => option.textContent?.trim() ?? ''),
+      chosen: select.selectedOptions[0]?.textContent?.trim() ?? '',
+    };
+  };
+  const pick = (menu: HTMLElement, name: string): void => {
+    const select = menu.querySelector<HTMLSelectElement>('select.filter-choice');
+    const option = Array.from(select?.options ?? []).find((candidate) => candidate.textContent?.trim() === name);
+    if (!select || !option) {
+      throw new Error(`no ${name} to pick`);
+    }
+    select.value = option.value;
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+  };
+  /** The names the menu offers to tick, each with whether it is ticked. */
+  const ticks = (menu: HTMLElement): string[] =>
+    Array.from(menu.querySelectorAll<HTMLLabelElement>('.filter-choices label')).map(
+      (label) => `${label.textContent?.trim()}: ${label.querySelector('input')?.checked ? 'ticked' : 'clear'}`,
+    );
+  const tick = (menu: HTMLElement, name: string): void => {
+    const label = Array.from(menu.querySelectorAll<HTMLLabelElement>('.filter-choices label')).find(
+      (candidate) => candidate.textContent?.trim() === name,
+    );
+    const box = label?.querySelector('input');
+    if (!box) {
+      throw new Error(`no ${name} to tick`);
+    }
+    box.checked = !box.checked;
+    box.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+  };
+
+  it("a column whose field takes fixed values offers their names to pick, and sends the picked name's value", async () => {
+    await create({}, statuses);
+    const menu = await openMenu(3);
+    expect(controls(menu)).toEqual([]);
+    expect(picked(menu)).toEqual({
+      offered: ['Choose a value', 'Claimed', 'On hold', 'Open'],
+      chosen: 'Choose a value',
+    });
+    pick(menu, 'On hold');
+    expect(emitted).toBeUndefined();
+    await apply(menu);
+    expect(emitted).toEqual([{ field: 'statusId', operator: 'eq', value: 'on_hold' }]);
+  });
+
+  it('a list on such a column is ticked by name, and sends the values in the order the menu offers them', async () => {
+    await create({}, statuses);
+    const menu = await openMenu(3);
+    choose(menu, 'in');
+    expect(controls(menu)).toEqual(['checkbox', 'checkbox', 'checkbox']);
+    expect(ticks(menu)).toEqual(['Claimed: clear', 'On hold: clear', 'Open: clear']);
+    tick(menu, 'Open');
+    tick(menu, 'Claimed');
+    expect(ticks(menu)).toEqual(['Claimed: ticked', 'On hold: clear', 'Open: ticked']);
+    await apply(menu);
+    expect(emitted).toEqual([{ field: 'statusId', operator: 'in', value: 'claimed,open' }]);
+  });
+
+  it('a new operator keeps a picked name where the next control can show it, and starts over where it cannot', async () => {
+    await create({}, statuses);
+    const menu = await openMenu(3);
+    pick(menu, 'Open');
+    choose(menu, 'ne');
+    expect(picked(menu).chosen).toBe('Open');
+    choose(menu, 'notin');
+    expect(ticks(menu)).toEqual(['Claimed: clear', 'On hold: clear', 'Open: ticked']);
+    tick(menu, 'Claimed');
+    choose(menu, 'eq');
+    expect(picked(menu).chosen).toBe('Choose a value');
+    await apply(menu);
+    expect(emitted).toBeUndefined();
+  });
+
+  it('a pick shows the name of the filter the list was asked with, and Choose a value takes it away', async () => {
+    await create({}, statuses);
+    fixture.componentRef.setInput('filters', [{ field: 'statusId', operator: 'eq', value: 'open' }]);
+    fixture.detectChanges();
+    const menu = await openMenu(3);
+    expect(picked(menu).chosen).toBe('Open');
+    pick(menu, 'Choose a value');
+    await apply(menu);
+    expect(emitted).toEqual([]);
   });
 });
 
