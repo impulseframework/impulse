@@ -13,11 +13,11 @@ import { environment } from '@env';
 import { clientsConfig } from './clients.config';
 import { shipClassesConfig } from './shipClasses.config';
 
-// A create form starts a yes or no field from the value its page gives it. A page that
-// gives none leaves the box neither checked nor unchecked, and the library's form says so
-// in the console each time it is opened. The two forms of the console that hold such a
-// field give it one: a new client is not trusted and a new ship class is not hardened
-// until the form says so, which is what an empty box already read as.
+// A create form starts a yes or no field its resource requires unchecked, with nothing
+// written in the page's config, and writes nothing about it to the console. The two forms
+// of the console that hold such a field say nothing of where it starts: a new client is
+// not trusted and a new ship class is not hardened until the form says so, which is what
+// an empty box reads as.
 
 function server(request: TransportRequest): TransportResponse {
   const url = new URL(request.url, 'http://lodestar.test');
@@ -45,7 +45,7 @@ describe("the console's create forms", () => {
   });
 
   for (const [page, config, yesOrNo] of forms) {
-    it(`${page}: the yes or no field starts unchecked, and the form writes nothing about it to the console`, async () => {
+    it(`${page}: the yes or no field starts unchecked, and the form writes nothing to the console`, async () => {
       const written: string[] = [];
       vi.spyOn(console, 'error').mockImplementation((...said: unknown[]) => {
         written.push(said.map(String).join(' '));
@@ -70,7 +70,7 @@ describe("the console's create forms", () => {
       // Both at once, so that a form that fails says what it started the field at and what it wrote.
       expect({
         startsAt: fixture.componentInstance.form().get(yesOrNo)?.value as unknown,
-        written: written.filter((line) => line.includes('Default value for boolean field')),
+        written,
       }).toEqual({ startsAt: false, written: [] });
     });
   }

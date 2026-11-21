@@ -49,6 +49,14 @@ type PatchSet[Resource Resourcer] struct {
 	validateCreateFunc    ValidateFunc
 	validateUpdateFunc    ValidateFunc
 	validateDeleteFunc    ValidateFunc
+	// everythingUnder says a delete takes the rows the record's description lists as
+	// going with it (DeleteEverythingUnder).
+	everythingUnder bool
+	// underAnswered marks a delete whose rows under the record were answered for when it
+	// was buffered, so nothing is counted under it before the commit: a record whose rows
+	// to take were walked (deleteTaken), and a row a record's delete takes with it
+	// (bufferTaken).
+	underAnswered bool
 	// fork is set on an update-or-create (OrCreate) and on a create-unless-there
 	// (OrSkip) patch, and nil on every other (patch_fork.go).
 	fork *patchFork[Resource]
@@ -634,30 +642,69 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 // The rule is asked last, so a caller the grants refuse gets their Forbidden whatever
 // the rule would have said, and learns nothing from its sentence. It writes nothing. A
 // delete of one row runs it (bufferDelete), and so does whatever must know that a row
-// may go before it removes any, so the two never disagree about a row.
-func (p *PatchSet[Resource]) checkDelete(ctx context.Context, txn ReadWriteTransaction) error {
+// may go before it removes any, so the two never disagree about a row: a delete that
+// takes the row with a record it is under (deleteTaken). byRule says a refusal is the
+// rule's, whose sentence is the row's own reason, and not the grants'.
+func (p *PatchSet[Resource]) checkDelete(ctx context.Context, txn ReadWriteTransaction) (byRule bool, err error) {
 	if err := p.checkPermissions(ctx, txn.DBType()); err != nil {
-		return err
+		return false, err
 	}
 
 	if err := p.enforceWriteConditions(ctx, txn); err != nil {
-		return err
+		return false, err
 	}
 
 	if p.validateDeleteFunc != nil {
 		if err := p.validateDeleteFunc(ctx, txn); err != nil {
-			return errors.Wrap(err, "validateDeleteFunc()")
+			return true, errors.Wrap(err, "validateDeleteFunc()")
 		}
 	}
 
-	return nil
+	return false, nil
 }
 
+// DeleteEverythingUnder says the delete the patch carries takes the rows the record
+// lists as going with it (@deleteCascade), every one checked first as its own delete
+// would be. Without it a delete of a record that has such rows deletes nothing and is
+// answered with the question a person is asked first, a 428: "Delete this client and
+// everything under it: 2 client contacts. This can't be undone." A request says it in
+// the remove operation's value, as "everythingUnder": true. It changes nothing for a
+// record that lists no rows to take.
+func (p *PatchSet[Resource]) DeleteEverythingUnder() *PatchSet[Resource] {
+	p.everythingUnder = true
+
+	return p
+}
+
+// bufferDelete buffers the delete of the patch's row: the row's check, then the rows
+// the record's delete takes with it (deleteTaken), then the row itself.
 func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
-	if err := p.checkDelete(ctx, txn); err != nil {
+	if _, err := p.checkDelete(ctx, txn); err != nil {
 		return err
 	}
 
+	answered, err := p.deleteTaken(ctx, txn, eventSource...)
+	if err != nil {
+		return err
+	}
+	p.underAnswered = p.underAnswered || answered
+
+	return p.bufferCheckedDelete(ctx, txn, eventSource...)
+}
+
+// bufferTaken buffers the delete of a row that a record's delete takes with it. That
+// delete checked the row already (checkDelete) and takes what is under it too, so
+// nothing is counted under the row before the commit.
+func (p *PatchSet[Resource]) bufferTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+	p.underAnswered = true
+
+	return p.bufferCheckedDelete(ctx, txn, eventSource...)
+}
+
+// bufferCheckedDelete buffers the delete of a row that passed its check: its stored
+// files are released, the row is deleted and noted on the transaction, and its change
+// record is written where the resource's changes are tracked.
+func (p *PatchSet[Resource]) bufferCheckedDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
 	event, err := p.validateEventSource(eventSource)
 	if err != nil {
 		return err

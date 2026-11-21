@@ -31,44 +31,46 @@ export const findFrom = 8;
     @if (listed()) {
       <button
         type="button"
-        class="switcher"
+        class="impulse-place-switcher-place"
         [cdkMenuTriggerFor]="list"
         (cdkMenuOpened)="opened()"
         [attr.aria-label]="
           inPlace() ? 'In ' + place().label + '. Switch to another ' + lower(word.one) : 'Choose a ' + lower(word.one)
         ">
         @if (inPlace()) {
-          <mat-icon class="kind">{{ place().id ? 'domain' : outside.icon }}</mat-icon>
-          <span class="lines">
+          <mat-icon class="impulse-place-switcher-kind">{{ place().id ? 'domain' : outside.icon }}</mat-icon>
+          <span class="impulse-place-switcher-lines">
             @if (place().id) {
-              <span class="caption">{{ word.one }}</span>
+              <span class="impulse-place-switcher-caption">{{ word.one }}</span>
             }
-            <span class="name">{{ place().label }}</span>
+            <span class="impulse-place-switcher-name">{{ place().label }}</span>
           </span>
         } @else {
-          <mat-icon class="kind">swap_horiz</mat-icon>
-          <span class="lines">
-            <span class="name">Choose a {{ lower(word.one) }}</span>
+          <mat-icon class="impulse-place-switcher-kind">swap_horiz</mat-icon>
+          <span class="impulse-place-switcher-lines">
+            <span class="impulse-place-switcher-name">Choose a {{ lower(word.one) }}</span>
           </span>
         }
-        <mat-icon class="chevron">expand_more</mat-icon>
+        <mat-icon class="impulse-place-switcher-chevron">expand_more</mat-icon>
       </button>
     } @else if (places.places().length === 1) {
-      <span class="switcher alone" [attr.aria-label]="(place().id ? word.one + ': ' : '') + place().label">
-        <mat-icon class="kind">{{ place().id ? 'domain' : outside.icon }}</mat-icon>
-        <span class="lines">
+      <span
+        class="impulse-place-switcher-place impulse-place-switcher-alone"
+        [attr.aria-label]="(place().id ? word.one + ': ' : '') + place().label">
+        <mat-icon class="impulse-place-switcher-kind">{{ place().id ? 'domain' : outside.icon }}</mat-icon>
+        <span class="impulse-place-switcher-lines">
           @if (place().id) {
-            <span class="caption">{{ word.one }}</span>
+            <span class="impulse-place-switcher-caption">{{ word.one }}</span>
           }
-          <span class="name">{{ place().label }}</span>
+          <span class="impulse-place-switcher-name">{{ place().label }}</span>
         </span>
       </span>
     }
 
     <ng-template #list>
-      <impulse-menu-list class="places" [groups]="groups()">
+      <impulse-menu-list class="impulse-place-switcher-places" [groups]="groups()">
         @if (findable()) {
-          <div class="find">
+          <div class="impulse-place-switcher-find">
             <mat-icon>search</mat-icon>
             <input
               #find
@@ -81,17 +83,17 @@ export const findFrom = 8;
               (keydown)="findKey($event)" />
           </div>
           @if (!groups().length && !closed().length) {
-            <div class="none">No {{ lower(word.one) }} has that name</div>
+            <div class="impulse-place-switcher-none">No {{ lower(word.one) }} has that name</div>
           }
         }
         @if (closed().length) {
-          <div menuListEnd class="closed" role="group" aria-label="Closed to this sign-in">
-            <div class="closed-heading">Closed to this sign-in</div>
+          <div menuListEnd class="impulse-place-switcher-closed" role="group" aria-label="Closed to this sign-in">
+            <div class="impulse-place-switcher-closed-heading">Closed to this sign-in</div>
             @for (place of closed(); track place.id) {
-              <div class="closed-place">
-                <mat-icon class="closed-icon">lock</mat-icon>
-                <span class="closed-name">{{ place.label }}</span>
-                <span class="closed-reason">{{ place.reason }}</span>
+              <div class="impulse-place-switcher-closed-place">
+                <mat-icon class="impulse-place-switcher-closed-icon">lock</mat-icon>
+                <span class="impulse-place-switcher-closed-name">{{ place.label }}</span>
+                <span class="impulse-place-switcher-closed-reason">{{ place.reason }}</span>
               </div>
             }
           </div>
