@@ -128,10 +128,15 @@ func (m *Manager) judged(ctx context.Context) (bool, error) {
 // each role directly needs: every person named is asked for every role named, and the
 // first the caller may not give refuses the change. act says what was asked, as a
 // sentence a person reads completes ("putting a person in the group Night shift gives
-// them").
+// them"). The person is told the act and that it gives a role they may not give, in one
+// sentence that names no role. Which role it is, and who gives it, is the refusal's
+// cause, kept for the server's log.
 func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWriteTransaction, kept accesstypes.PolicyScope, roles []access.GroupRoleKey, users []accesstypes.User, act string) error {
 	return m.judgeThrough(ctx, txn, kept, roles, users, m.grants.MayGive, func(role accesstypes.Role) error {
-		return httpio.NewForbiddenMessagef("%s the role %s, which you may not give them: someone who may give the role does it", act, string(role))
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf("%s the role %s, which you may not give them: someone who may give the role does it", act, string(role)),
+			sentenceStart(act)+" a role you may not give them.",
+		)
 	})
 }
 
@@ -140,7 +145,10 @@ func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWrit
 // them.
 func (m *Manager) refuseTakingThrough(ctx context.Context, txn resource.ReadWriteTransaction, kept accesstypes.PolicyScope, roles []access.GroupRoleKey, users []accesstypes.User, act string) error {
 	return m.judgeThrough(ctx, txn, kept, roles, users, m.grants.MayTake, func(role accesstypes.Role) error {
-		return httpio.NewForbiddenMessagef("%s the role %s, which you may not take from them: someone who may take the role away does it", act, string(role))
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf("%s the role %s, which you may not take from them: someone who may take the role away does it", act, string(role)),
+			sentenceStart(act)+" a role you may not take from them.",
+		)
 	})
 }
 

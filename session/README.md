@@ -3775,6 +3775,14 @@ offer (400), a request with no principal (400), and a person who does not hold t
 kind's grant (403). `RequestFor` does the same for a server-side caller, which names
 the actor and passes its own check ("Establishing a session").
 
+A person refused through `Request` reads one plain sentence: "You may not start this
+kind of session." where they do not hold the kind's grant, and "This kind of session
+gives less than you asked for." where the mask they asked for is wider than the kind's.
+The kind's name, its grant and what the two masks say are in the server's log and never
+in the answer. A server-side caller of `RequestFor` is answered in full, with the kind,
+the grant its check refused and what the request asks for beyond the kind: a program
+reads that answer, or its operator.
+
 #### What a mask says
 
 A mask (`accesstypes.PermissionMask`) says which permission kinds the session keeps

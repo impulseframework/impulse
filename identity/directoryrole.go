@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -13,10 +14,16 @@ import (
 	"github.com/impulseframework/impulse/tracer"
 )
 
-// directoryRoleNotGiven refuses a role the caller could not give by hand as the role
-// everyone from a tenant's directory gets: the role, then the word for a tenant.
-const directoryRoleNotGiven = "you may not give the role %s in this %s, so you cannot make it the role everyone from its directory gets: " +
-	"choose a role you may give, or ask someone who may give this one"
+// The refusal of a role the caller could not give by hand as the role everyone from a
+// tenant's directory gets. directoryRoleNotGiven is the one sentence the caller is told,
+// with the word for a tenant: it names no role, so it reads the same of a role the
+// tenant holds and of one it does not. directoryRoleNotGivenCause is the refusal's
+// cause, kept for the server's log: the role, then the word for a tenant.
+const (
+	directoryRoleNotGiven      = "You may not give this role in this %s, so you cannot make it the role everyone from its directory gets."
+	directoryRoleNotGivenCause = "you may not give the role %s in this %s, so you cannot make it the role everyone from its directory gets: " +
+		"choose a role you may give, or ask someone who may give this one"
+)
 
 // DirectoryRole holds the role a tenant is opened to its directory's people with to its
 // rules, in the caller's transaction, and writes nothing. The role is given to every
@@ -53,7 +60,10 @@ func (m *Manager) DirectoryRole(ctx context.Context, txn resource.ReadWriteTrans
 			return errors.Wrap(err, "identity.RoleGrants.MayGive()")
 		}
 		if !may {
-			return httpio.NewForbiddenMessagef(directoryRoleNotGiven, string(role), m.tenantWord)
+			return httpio.NewForbiddenMessageWithError(
+				errors.Newf(directoryRoleNotGivenCause, string(role), m.tenantWord),
+				fmt.Sprintf(directoryRoleNotGiven, m.tenantWord),
+			)
 		}
 	}
 	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{scope})

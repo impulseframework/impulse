@@ -626,7 +626,7 @@ func TestImpersonation_ownSetActingAsAPerson(t *testing.T) {
 	}
 	before = standing(ctx, t, s)
 	status, answer := writeRecords(ctx, asRole, move(squadronTongsID))
-	if want := actingAsSomeoneElse + "change the WingID of the squadron record that decides your own wings:"; status != http.StatusForbidden || !strings.Contains(answer, want) {
+	if want := actingAsSomeoneElse + "change the wing id of the squadron record that decides your own wings:"; status != http.StatusForbidden || !strings.Contains(answer, want) {
 		t.Errorf("acting as the Sector Marshal, their own squadron moved to another wing: status %d, want 403 saying %q: %s", status, want, answer)
 	}
 	status, answer = writeRecords(ctx, asRole, pass("squadronId", squadronTongsID, "run"))

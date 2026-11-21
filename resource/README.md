@@ -4749,8 +4749,9 @@ Auth's assign method with the role as the new value (the judge that already hold
 role given to a group to what its giver may give, `identity.RoleGrants`, written to the
 client's `grants.go`), so a role file that conditions the assign method's grant on the
 role (`"when": "new.role in [...]"`) holds the default role to the same list. Opening a
-method with a role the caller may not give is refused with 403 naming the role, at the
-warning as at the save, and `CrewSignUpRoles` lists only the roles the caller may give.
+method with a role the caller may not give is refused with 403, in one sentence that
+names no role, at the warning as at the save, and `CrewSignUpRoles` lists only the roles
+the caller may give.
 The grant answers before the role is looked for, so the refusal is the same for a role
 the application holds and one it does not, and tells nobody of a role the grant keeps
 from them.
@@ -5048,8 +5049,9 @@ own, outside any request, has no caller and is the application's act):
     the team's own row. The write of that record asks
     `identity.RefuseImpersonatorAsReadThroughSubject` for each such column: a change
     that sets the column is refused on the row the real person's own value is read
-    through ("change the DivisionID of the team record that decides your own
-    divisions"). A change that leaves the column alone asks nothing and reads nothing,
+    through ("change the division id of the team record that decides your own
+    divisions"; the column is said by its name in words, and the server's log has it
+    by its own). A change that leaves the column alone asks nothing and reads nothing,
     and neither does an add or a removal.
 
   The generated code names the column and the set, and nothing else. The library builds

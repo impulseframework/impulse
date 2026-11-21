@@ -322,7 +322,9 @@ func (m *Manager) startingRole(ctx context.Context, txn resource.ReadWriteTransa
 // mayStartWith answers whether the request's caller could give the role to a person in
 // a tenant, nil when they could. A call outside any request is the application's own
 // act and is not judged; a request that reaches a manager built without the grants
-// cannot be judged, which is an error and never a pass.
+// cannot be judged, which is an error and never a pass. A caller who could not is told
+// so in one sentence that names no role; the role is named in the refusal's cause, kept
+// for the server's log.
 func (m *Manager) mayStartWith(ctx context.Context, txn resource.ReadWriteTransaction, role accesstypes.Role) error {
 	if resource.CallerFrom(ctx).IsZero() {
 		return nil
@@ -340,7 +342,10 @@ func (m *Manager) mayStartWith(ctx context.Context, txn resource.ReadWriteTransa
 		return errors.Wrap(err, "identity.RoleGrants.MayGive()")
 	}
 	if !may {
-		return httpio.NewForbiddenMessagef("the people of the new %s's directory would start with the role %s, which you may not give: name a role you may give, or none", m.tenantWord, string(role))
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf("the people of the new %s's directory would start with the role %s, which you may not give: name a role you may give, or none", m.tenantWord, string(role)),
+			fmt.Sprintf("The people of the new %s's directory would start with a role you may not give.", m.tenantWord),
+		)
 	}
 
 	return nil

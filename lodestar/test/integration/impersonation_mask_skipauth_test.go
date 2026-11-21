@@ -363,19 +363,19 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 			name:       "the grant to view is not the grant to act",
 			body:       actAs(t, "cadet", "no grant", ""),
 			wantStatus: http.StatusForbidden,
-			says:       "takes Execute on ActAsUser, which you do not hold",
+			says:       "You may not start this kind of session.",
 		},
 		{
 			name:       "a view with more than the grant gives is refused, not trimmed",
 			body:       fmt.Sprintf(`{"kind":"view","principal":%q,"reason":"more","mask":["List","Read","Execute"]}`, account(t, "cadet")),
 			wantStatus: http.StatusForbidden,
-			says:       "gives reading only, and the request asks for Execute as well",
+			says:       "This kind of session gives less than you asked for.",
 		},
 		{
 			name:       "a view with one kind the grant gives and one it does not",
 			body:       fmt.Sprintf(`{"kind":"view","principal":%q,"reason":"more","mask":["Read","Update"]}`, account(t, "cadet")),
 			wantStatus: http.StatusForbidden,
-			says:       "the request asks for Update as well",
+			says:       "This kind of session gives less than you asked for.",
 		},
 		{
 			name:       "a kind the console does not offer",
