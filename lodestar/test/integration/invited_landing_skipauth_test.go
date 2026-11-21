@@ -42,7 +42,11 @@ func invitedSectorOf(ctx context.Context, b *browser) (sector string, named bool
 //     at Cinder is invited into Anvil, follows the link and signs in through the
 //     directory;
 //   - as they are: the pilot, signed in, follows a link into Cinder and accepts it
-//     without signing in again.
+//     without signing in again;
+//   - into a sector the invitation makes: the veteran, seated at Anvil, is invited to
+//     found a sector, follows the link and signs in with her password. The invitation
+//     names no sector, since none exists until she accepts, so the read names the
+//     sector her acceptance made.
 //
 // Demonstrates: auth.invitation.
 func TestInvitedLanding(t *testing.T) {
@@ -148,5 +152,33 @@ func TestInvitedLanding(t *testing.T) {
 		want := append(slices.Clone(held), cinder)
 		slices.Sort(want)
 		toldOnce(t, pilot, "the pilot", cinder, want)
+	})
+
+	t.Run("into a sector the invitation makes", func(t *testing.T) {
+		t.Parallel()
+
+		const veteran = "veteran"
+		status, body, _ := inviteSector(ctx, t, hq, map[string]any{"email": factorAddress(veteran), "sectorName": "Drydock", "sectorRegion": "Near frontier", "sectorEstablished": "2226-11-20"})
+		assertStatus(t, status, http.StatusOK, body)
+		_, token := lastMailTo(t, s, factorAddress(veteran), "invitation")
+
+		invited := newBrowser(t, s, consoleAPI)
+		openInvitation(ctx, t, invited, token)
+		status, body = invited.login(ctx, veteran, personaPassword)
+		if status != http.StatusOK {
+			t.Fatalf("the veteran's password sign-in at the invitation: status %d: %s", status, body)
+		}
+		if !heldForFactor(t, body) {
+			t.Fatal("the veteran's sign-in on a browser nobody remembered did not wait for the sign-in code")
+		}
+		invited.secondFactor(ctx, veteran)
+		made := sectorNamed(ctx, t, hq, "Drydock")
+		if made == nil {
+			t.Fatal("no sector Drydock after its invitation was accepted")
+		}
+		drydock := cell[string](t, made, "id")
+		want := []string{anvil, drydock}
+		slices.Sort(want)
+		toldOnce(t, invited, "the veteran", drydock, want)
 	})
 }

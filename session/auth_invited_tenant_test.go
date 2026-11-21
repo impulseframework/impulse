@@ -26,7 +26,9 @@ func TestAuth_InvitedTenant(t *testing.T) {
 
 	t.Run("a sign-in that accepts an invitation into a tenant has the first session read name the tenant, and no later one", authInvitedTenantSignIn)
 	t.Run("a signed-in person who accepts an invitation into a tenant is told the tenant by the next session read", authInvitedTenantByHand)
-	t.Run("an invitation into the application, and one a sign-in did not accept, name no tenant", authInvitedTenantNone)
+	t.Run("a sign-in that accepts an invitation that makes a tenant has the first session read name the tenant it made", authInvitedTenantMade)
+	t.Run("a signed-in person who accepts an invitation that makes a tenant is told the tenant it made", authInvitedTenantMadeByHand)
+	t.Run("an invitation into the application, one a sign-in did not accept and one whose hook named no tenant it made name no tenant", authInvitedTenantNone)
 	t.Run("another person's session is told nothing, and the browser stops carrying the tenant", authInvitedTenantOtherPerson)
 	t.Run("an impersonated session is told nothing, and the tenant is left for the person's own session", authInvitedTenantImpersonated)
 }
@@ -113,22 +115,95 @@ func authInvitedTenantByHand(t *testing.T) {
 	}
 }
 
+// authInvitedTenantMade holds the landing of an invitation that makes a tenant: it
+// names no tenant, so the application's acceptance hook says which tenant it made
+// (Invitation.MadeTenantID), and the first session read names that tenant.
+func authInvitedTenantMade(t *testing.T) {
+	t.Parallel()
+	userID, sessionID := newIDs()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", NewTenant: &sessioninfo.NewTenant{Name: "Lakeside"}}); err != nil {
+		t.Fatal(err)
+	}
+	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
+	created := &sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}
+	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(created, nil)
+	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
+		// What the store and the application's hook leave on the invitation: accepted,
+		// and the tenant the hook made.
+		req.Invitation.Accepted = true
+		req.Invitation.MadeTenantID = lakesideTenant
+	}, nil)
+
+	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("SignUp() = %d %s, want a session", rr.Code, rr.Body.String())
+	}
+	if c := cookieNamed(rr, invitedTenantCookie); c == nil || c.Value == "" || !c.HttpOnly {
+		t.Fatalf("SignUp() set the cookie %+v, want the tenant the invitation made carried to the session read, out of the page's reach", c)
+	}
+
+	f.expectSession(sessionID, created)
+	read := sessionRead(f, sessionID, carried(rr))
+	if got := decoded(t, read)["invitedTenant"]; got != lakesideTenant {
+		t.Errorf("the first session read answers invitedTenant = %v, want %s, the tenant the invitation made", got, lakesideTenant)
+	}
+	if got, told := decoded(t, sessionRead(f, sessionID, carried(read)))["invitedTenant"]; told {
+		t.Errorf("a later session read answers invitedTenant = %v, want none", got)
+	}
+}
+
+// authInvitedTenantMadeByHand is authInvitedTenantMade for a person who accepts while
+// signed in.
+func authInvitedTenantMadeByHand(t *testing.T) {
+	t.Parallel()
+	userID, sessionID := newIDs()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	f.expectSession(sessionID, &sessionstorage.SessionUser{ID: userID, Username: "pat"})
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", NewTenant: &sessioninfo.NewTenant{Name: "Lakeside"}}); err != nil {
+		t.Fatal(err)
+	}
+	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
+	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ impulse.UUID, _, _ string, inv *sessioninfo.Invitation, _ signinflow.InvitationAcceptor[mockTx]) error {
+			inv.Accepted = true
+			inv.MadeTenantID = lakesideTenant
+
+			return nil
+		})
+
+	rr := f.asUser(f.auth.Invitation().Accept(), sessionID, nil, cookies)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Accept() = %d %s, want accepted", rr.Code, rr.Body.String())
+	}
+	read := sessionRead(f, sessionID, carried(rr))
+	if got := decoded(t, read)["invitedTenant"]; got != lakesideTenant {
+		t.Errorf("the session read after Accept() answers invitedTenant = %v, want %s, the tenant the invitation made", got, lakesideTenant)
+	}
+}
+
 func authInvitedTenantNone(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
 		name     string
-		tenant   string
+		request  InvitationRequest
 		accepted bool
 	}{
-		{name: "an invitation into the application", accepted: true},
-		{name: "an invitation that had died by the sign-in", tenant: lakesideTenant},
+		{name: "an invitation into the application", request: InvitationRequest{RoleNames: []string{"Teacher"}}, accepted: true},
+		{name: "an invitation that had died by the sign-in", request: InvitationRequest{TenantID: lakesideTenant, RoleNames: []string{"Teacher"}}},
+		{
+			name:    "an invitation that makes a tenant, accepted by a hook that named none",
+			request: InvitationRequest{NewTenant: &sessioninfo.NewTenant{Name: "Lakeside"}}, accepted: true,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			userID, sessionID := newIDs()
 			f, recorder, links := newMailFixture(t, gomock.NewController(t))
-			if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: tt.tenant, RoleNames: []string{"Teacher"}}); err != nil {
+			request := tt.request
+			request.Email = "pat@lakeside.edu"
+			if _, err := f.auth.API().Invite(context.Background(), &request); err != nil {
 				t.Fatal(err)
 			}
 			cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))

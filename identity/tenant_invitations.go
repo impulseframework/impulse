@@ -386,6 +386,10 @@ func (m *Manager) refuseInvitedWithATenant(ctx context.Context, txn resource.Rea
 // directory whatever called the hook. A directory another tenant has is the maker's
 // refusal (sessioninfo.RefusedOrganizationHasTenant), and a person who already belongs to
 // a tenant, where a person belongs to one, is the membership's (AssignRole).
+//
+// The tenant made is noted on the invitation (sessioninfo.Invitation.MadeTenantID),
+// which is how the session library learns where to open the application for the
+// person: the invitation itself names no tenant. A refusal notes none.
 func (m *Manager) acceptTenantInvitation(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (accesstypes.Domain, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -419,6 +423,9 @@ func (m *Manager) acceptTenantInvitation(ctx context.Context, txn resource.ReadW
 			return "", errors.Wrapf(err, "the invitation to %s seats %q as the new %s's administrator with the role %s", inv.Email, username, m.tenantWord, role)
 		}
 	}
+	// The session library opens the application for the person in the tenant their
+	// invitation made: it is told which here, once everything is buffered.
+	inv.MadeTenantID = string(domain)
 
 	return domain, nil
 }

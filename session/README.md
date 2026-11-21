@@ -1839,9 +1839,11 @@ read the mailbox, and the account takes the address.
   hand (empty for a session that records no events).
 - **Where the application opens afterwards**: a person who accepts an invitation into a
   tenant came for that tenant, so the application opens in it, whatever other tenants
-  the person holds a seat in and wherever they last worked. The library says which
-  tenant, once: the first session read (`Authenticated`) after the acceptance answers
-  `invitedTenant`, the invitation's tenant, and no later read does. The acceptance (a
+  the person holds a seat in and wherever they last worked. A person whose invitation
+  makes a tenant came for the tenant it made, and the application opens there. The
+  library says which tenant, once: the first session read (`Authenticated`) after the
+  acceptance answers `invitedTenant`, the invitation's tenant or the one its acceptance
+  made, and no later read does. The acceptance (a
   sign-in that accepts the invitation, one that waits for a step first, or
   `Invitation().Accept()`) sets an encrypted, HttpOnly cookie named after the
   invitation cookie with `-seated` after it (`auth-invitation-seated`), holding the
@@ -1849,10 +1851,13 @@ read the mailbox, and the account takes the address.
   that user's own session answers the tenant and deletes the cookie. A read of another
   user's session deletes it and is told nothing, and an impersonated session reads
   none. The browser library lands the person there (`PlaceService`); an application
-  with pages of its own reads the field. An invitation into the application names no
-  tenant, and neither does one that makes a tenant: the library is not told the key of
-  the tenant the hook made, so that person lands as any sign-in does. `NewAuth` refuses
-  another cookie of the Auth configured under the name.
+  with pages of its own reads the field. An invitation that makes a tenant names none,
+  since the tenant does not exist until the acceptance: the acceptance hook tells the
+  library the key of the tenant it made (`Invitation.MadeTenantID`, which the generated
+  user management sets), and a hook of the application's own that leaves it empty
+  lands the person as any sign-in does. An invitation into the application names no
+  tenant, and lands the same way. `NewAuth` refuses another cookie of the Auth
+  configured under the name.
 - **An invitation that makes a tenant**: staff bring an organization into a tenanted
   application by inviting one person, and that person's first sign-in makes the tenant.
   The request carries `NewTenant` (`sessioninfo.NewTenant{Name, DirectoryOnly,

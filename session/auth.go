@@ -577,6 +577,13 @@ func (a *Auth[SessionData, UserData, Tx]) SetUserRenamed(hook UserRenamedHook) {
 // buffered in it and is not readable until the commit, so the hook writes under the id
 // it is given and looks nobody up.
 //
+// For an invitation that makes a tenant (inv.NewTenant), the hook makes the tenant and
+// seats the user in it, and sets inv.MadeTenantID to the key of the tenant it made,
+// each time it runs. The library reads the field once the acceptance has committed,
+// and the application opens for the person in that tenant, as it opens in the tenant
+// an invitation names (Authenticated's invitedTenant). A hook that leaves it empty
+// lands the person as any sign-in does.
+//
 // The hook reads and writes through tx alone. The Spanner emulator allows one
 // read-write transaction at a time, so a second transaction, or a read through another
 // client, inside the hook waits on the transaction the hook runs in and never returns.
@@ -631,9 +638,10 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 // password, for a personal account, which is no organization's directory, and for an
 // impersonated session: what a page offers the person to make a tenant's directory.
 // invitedTenant is the tenant an invitation the person has just accepted seated them
-// in, by this sign-in or by hand since: present on the first session read after the
-// acceptance and on no later one, and never on an impersonated session. It is where
-// the application opens for the person, whatever else they hold.
+// in, by this sign-in or by hand since, the tenant the invitation names or the one its
+// acceptance made: present on the first session read after the acceptance and on no
+// later one, and never on an impersonated session. It is where the application opens
+// for the person, whatever else they hold.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 	type directory struct {
 		Method     sessioninfo.AuthMethod `json:"method"`

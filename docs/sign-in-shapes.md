@@ -1155,8 +1155,9 @@ remove them from the tenant.
 
 A person who is in several tenants lands, after signing in, in the tenant they last
 worked in on that browser. A person who accepts an invitation into a tenant lands in
-that tenant, whatever other tenants they are in. The next time they sign in, they land
-where they last worked again.
+that tenant, whatever other tenants they are in, and a person whose invitation makes a
+tenant lands in the tenant it made. The next time they sign in, they land where they
+last worked again.
 
 ### 7. Global users, invite only
 

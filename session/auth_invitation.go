@@ -171,16 +171,19 @@ func (a *Auth[S, U, Tx]) seatedCookie() string {
 // noteSeated has the browser carry the tenant the accepted invitation inv seated
 // userID in, so that the first session read after the acceptance names it
 // (Authenticated's invitedTenant) and the application opens for the person in the
-// tenant they were invited to, whatever else they hold. Nothing is written for an
-// invitation that was not accepted, or that names no tenant: one into the
-// application's global surface, and one that makes a tenant, whose key the library is
-// never told. The cookie is the server's alone to read, and lives as long as a
-// pending sign-in may wait, since an acceptance can come a step before its session.
+// tenant they were invited to, whatever else they hold. The tenant is the one the
+// invitation names, or the one its acceptance made, which the application's
+// acceptance hook tells the library (sessioninfo.Invitation.MadeTenantID). Nothing is
+// written for an invitation that was not accepted, or that seated the person in no
+// tenant the library knows: one into the application's global surface, and one that
+// makes a tenant whose hook did not say which. The cookie is the server's alone to
+// read, and lives as long as a pending sign-in may wait, since an acceptance can come
+// a step before its session.
 func (a *Auth[S, U, Tx]) noteSeated(w http.ResponseWriter, userID impulse.UUID, inv *sessioninfo.Invitation) {
-	if inv == nil || !inv.Accepted || inv.TenantID == "" || userID == impulse.NilUUID {
+	if inv == nil || !inv.Accepted || inv.SeatedTenantID() == "" || userID == impulse.NilUUID {
 		return
 	}
-	cval := cookie.NewValues().SetString(seatedTenantKey, inv.TenantID).SetString(seatedUserKey, userID.String())
+	cval := cookie.NewValues().SetString(seatedTenantKey, inv.SeatedTenantID()).SetString(seatedUserKey, userID.String())
 	a.invitationCookies.Cookie().WritePersistentCookie(w, a.seatedCookie(), a.invitationCookies.Domain, true, http.SameSiteLaxMode, a.settings.pendingTimeout, cval)
 }
 
