@@ -233,8 +233,8 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 		t.Fatalf("GET Bastion's wings as the pilot, Headquarters signed in with a password: status %d, want 404: Bastion keeps the fleet's own people out: %s", status, body)
 	}
 	const (
-		roleKept    = "SectorMarshal is a role that administers a sector, and this sector admits only people who sign in through its own directory, which your sign-in does not enter. Who holds the role there is changed by one of its administrators, or by a super administrator"
-		accountKept = "This person administers a sector that admits only people who sign in through its own directory, which your sign-in does not enter. Their account is changed by one of that sector's administrators, or by a super administrator"
+		roleKept    = "Sector marshal is a role that administers a sector, and this sector admits only people who sign in through its own directory, which your sign-in does not enter. Who holds the role there is changed by one of its administrators, or by a super administrator."
+		accountKept = "This person administers a sector that admits only people who sign in through its own directory, which your sign-in does not enter. Their account is changed by one of that sector's administrators, or by a super administrator."
 	)
 	for _, refused := range []struct {
 		what   string

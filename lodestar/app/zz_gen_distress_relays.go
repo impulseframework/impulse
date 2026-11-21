@@ -20,13 +20,14 @@ import (
 
 func (a *App) DistressRelays() http.HandlerFunc {
 	type distressRelay struct {
-		ID             impulse.UUID     `json:"id"             index:"true" perm:"-"`
+		ID             impulse.UUID     `json:"id"             index:"true"      perm:"-"`
 		SectorID       impulse.UUID     `json:"sectorId"       index:"true"`
 		CaseNumber     string           `json:"caseNumber"     index:"true"`
 		AnswersRelayID impulse.NullUUID `json:"answersRelayId" index:"true"`
 		Message        string           `json:"message"`
 		RelayedByName  string           `json:"relayedByName"`
 		RelayedAt      time.Time        `json:"relayedAt"      index:"true"`
+		SectorName     *string          `json:"sectorName"     nameof:"SectorID"`
 	}
 
 	type response []map[string]any
@@ -65,7 +66,7 @@ func (a *App) DistressRelays() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*distressRelay)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -120,13 +121,14 @@ func (a *App) DistressRelays() http.HandlerFunc {
 
 func (a *App) DistressRelay() http.HandlerFunc {
 	type response struct {
-		ID             impulse.UUID     `json:"id"             index:"true" perm:"-"`
+		ID             impulse.UUID     `json:"id"             index:"true"      perm:"-"`
 		SectorID       impulse.UUID     `json:"sectorId"`
 		CaseNumber     string           `json:"caseNumber"`
 		AnswersRelayID impulse.NullUUID `json:"answersRelayId"`
 		Message        string           `json:"message"`
 		RelayedByName  string           `json:"relayedByName"`
 		RelayedAt      time.Time        `json:"relayedAt"`
+		SectorName     *string          `json:"sectorName"     nameof:"SectorID"`
 	}
 
 	decoder := NewQueryDecoder[resources.DistressRelay, response](a, accesstypes.Read)
@@ -153,7 +155,7 @@ func (a *App) DistressRelay() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {

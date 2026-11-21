@@ -1428,6 +1428,12 @@ type resourceInfo struct {
 	// people know it; nil where the record marks none, and the tenant list names each
 	// tenant by its key.
 	TenantNameField *resourceField
+	// RowNameField is the field the resource's rows are known by (@name); nil where it
+	// declares none, and a field pointing to one of its rows shows the stored value.
+	RowNameField *resourceField
+	// NameFields are the name fields the generator adds beside the resource's id fields
+	// that point to a row with a name (resolveNameFields), in field order.
+	NameFields []*nameField
 	// DirectoryOnlyField is the tenant record's @directoryOnly column, the BOOL saying
 	// the tenant's people enter through its directories only; nil when the record
 	// declares none, and every tenant admits a password.
@@ -2526,6 +2532,7 @@ const (
 	tenantKeyword               string = "tenant"               // Declares the tenant record: the global, table-backed @resource whose rows are the tenants and whose key is the domain in every tenant-scoped URL
 	directoryOnlyKeyword        string = "directoryOnly"        // Marks the tenant record's BOOL column saying the tenant's people enter through its directories only, so a password does not reach it
 	tenantNameKeyword           string = "tenantName"           // Marks the tenant record's string column holding a tenant's name, which the session's tenant list carries for the tenant's own people to see
+	nameKeyword                 string = "name"                 // Marks the string field a resource's rows are known by: a field pointing to one of its rows gains a name field beside it, read-only and stored nowhere
 	tenantDirectoryKeyword      string = "tenantDirectory"      // Declares the directories record: the tenant-scoped @resource whose rows are the directories a tenant admits its people through, one per declaration
 	directoryMethodKeyword      string = "directoryMethod"      // Marks the directories record's string column holding the sign-in method a directory is reached through (google, azure, workos)
 	directoryConnectionKeyword  string = "directoryConnection"  // Marks the directories record's string column holding the connection a directory's identities carry (a Google Workspace by its domain, a Microsoft Entra tenant by its tenant id)
@@ -2577,6 +2584,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		tenantKeyword:               {genlang.ScanStruct: genlang.Exclusive},
 		directoryOnlyKeyword:        {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantNameKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		nameKeyword:                 {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantDirectoryKeyword:      {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
 		directoryMethodKeyword:      {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		directoryConnectionKeyword:  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},

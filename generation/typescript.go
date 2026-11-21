@@ -417,7 +417,13 @@ func (t *typescriptGenerator) resolveParsedEnumerations(resources []*resourceInf
 	t.resources = resources
 	t.computedResources = computedResources
 
-	return t.resolveFieldEnumerations(resources, computedResources)
+	if err := t.resolveFieldEnumerations(resources, computedResources); err != nil {
+		return err
+	}
+
+	// The name fields read the enumerations resolved above, as the Go target's do, so
+	// the row types and the metadata name the fields the handlers serve.
+	return t.resolveNameFields(resources)
 }
 
 func (t *typescriptGenerator) runTypescriptEnumGeneration(namedTypes []*parser.NamedType) error {
@@ -465,12 +471,31 @@ func (t *typescriptGenerator) runTypescriptPermissionGeneration() error {
 		}
 	}
 
+	// A name field whose pointed-to name is PII is PII itself: its constant joins the
+	// resource's PII names, so a filter by it travels as one by that name does.
+	nameFields := make(tsNameFields)
+	for _, res := range t.resources {
+		resourceName := accesstypes.Resource(t.pluralize(res.Name()))
+		for _, name := range res.NameFields {
+			tag := accesstypes.Tag(name.WireName())
+			nameFields[resourceName] = append(nameFields[resourceName], tag)
+			if !name.IsPII() {
+				continue
+			}
+			if _, ok := piiResourceFields[resourceName]; !ok {
+				piiResourceFields[resourceName] = make(map[accesstypes.Tag]bool)
+			}
+			piiResourceFields[resourceName][tag] = true
+		}
+	}
+
 	templateData := tsConstantsData{
 		File:          t,
 		Data:          routerData,
 		RPCMethods:    t.rpcMethods,
 		ManualMethods: t.manualMethods(routerData.Methods),
 		PIIMap:        piiResourceFields,
+		NameFields:    nameFields,
 	}
 
 	output, err := t.generateTemplateOutput(typescriptConstantsTemplate, typescriptConstantsTemplate, templateData)
