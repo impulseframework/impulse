@@ -24,9 +24,11 @@ import (
 // target's @domain binding is a join path, the frame's tenancy check itself
 // rides the gate (VerifyTenancy): the located row carries no tenant key of
 // its own, so the gate walks the binding hops in the same transaction.
-// Methods without a target row keep the decode-time posture: MigrateRoles
-// rejects row-referencing conditions on them, and a Conditional decision
-// reaching their decode is a 500-class invariant breach.
+// Methods without a target row keep the decode-time posture: a grant of one
+// under a row-referencing condition is refused in a role file
+// (access.ValidateRoles), refused as a write to a custom role and left out of
+// the policy when the store holds one, and a Conditional decision reaching
+// their decode is a 500-class invariant breach.
 //
 // A target may be a row of a view (a @virtual struct). A view's row is one row
 // of the view's query, and in a tenant-scoped view its key names a row in each

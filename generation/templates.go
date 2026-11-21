@@ -4937,6 +4937,9 @@ func Collection() *resource.GeneratedCollection {
 			},
 			{{- end }}
 		},
+		{{- with .Data.Permissions }}
+		Permissions: []accesstypes.Permission{ {{- range $i, $p := . }}{{ if $i }}, {{ end }}{{ PermissionConstant $p }}{{ end -}} },
+		{{- end }}
 	})
 }
 `

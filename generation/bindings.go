@@ -83,7 +83,7 @@ type attributeBinding struct {
 	Anchor *resourceField
 
 	// Type is the attribute's comparison type — the closed vocabulary
-	// MigrateRoles validates condition literals against — derived from the
+	// access.ValidateRoles validates condition literals against — derived from the
 	// bound column's Go type (the terminal of a join path).
 	Type string
 

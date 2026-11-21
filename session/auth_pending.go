@@ -383,11 +383,13 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 // regenerates the session ID.
 //
 // stepUp names the application's own steps, each under a name of the application's
-// ("totp"). An event without a method, or under a method that records a step the
+// ("totp"). An event without a method, under a method that records a step the
 // library runs itself (sessioninfo.MethodEmailCode, sessioninfo.MethodTrustedDevice,
-// an attestation's), is a BadRequest, and the pending identity stays as it was: the
+// an attestation's), or under the name of a sign-in method the library runs (a
+// password, a directory's method the library ships, the method of a registration on
+// the Auth), is a BadRequest, and the pending identity stays as it was: the
 // mailed code is entered through Pending().VerifyCode() or VerifyEmailCode, which
-// record its event.
+// record its event, and a sign-in is recorded by the method the person signs in through.
 //
 // The pending identity must wait for MFA (Conflict otherwise). It is consumed first, so
 // it completes once: a second completion finds it expired. The user is resolved again
@@ -421,6 +423,9 @@ func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.Response
 		return impulse.NilUUID, err
 	}
 	if err := acceptedFactors(pending.Factors, stepUp); err != nil {
+		return impulse.NilUUID, err
+	}
+	if err := p.auth.reportsNoSignIn(stepUp); err != nil {
 		return impulse.NilUUID, err
 	}
 	if err := p.auth.consumePending(ctx, pending); err != nil {

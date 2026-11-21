@@ -185,3 +185,245 @@ func TestUserManager_grantsHeldToTheCollection(t *testing.T) {
 		})
 	}
 }
+
+// immutablePriceCollection is the fixture's collection listing Update on a field the
+// release marks immutable, as a collection written by hand can: the generated one
+// takes Update off an immutable field.
+type immutablePriceCollection struct{ markedActionCollection }
+
+func (immutablePriceCollection) IsResourceImmutable(_ accesstypes.PermissionScope, res accesstypes.Resource) bool {
+	return res == "Widgets.price"
+}
+
+// scopelessGadgetsCollection is the fixture's collection listing a resource it holds
+// in no scope, as a collection written by hand can.
+type scopelessGadgetsCollection struct{ markedActionCollection }
+
+func (c scopelessGadgetsCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
+	listed := c.markedActionCollection.List()
+	listed[accesstypes.Read] = append(listed[accesstypes.Read], "Gadgets")
+
+	return listed
+}
+
+// TestUserManager_grantsHeldToTheRoleFilesRule pins that a grant written to a custom
+// role is held to the whole of the rule the role file's grants are held to, past the
+// names: the grant is of the role's own scope, its condition parses and reads only
+// what the release declares, and Update is not given on what the release marks
+// immutable. Each is refused as a bad request in the role file's own sentence, on
+// each of the four writes that add a grant on a resource, and nothing of the call is
+// written. A removal is held to nothing.
+func TestUserManager_grantsHeldToTheRoleFilesRule(t *testing.T) {
+	t.Parallel()
+
+	const tester accesstypes.Role = "Tester"
+	const (
+		globalResource = "role Tester is a domain role but grants Execute on DoThing, a global-scoped resource — a role's grants live at its declared scope; move the grant to a global role"
+		domainResource = "role Tester is a global role but grants Read on Widgets, a domain-scoped resource — a role's grants live at its declared scope; move the grant to a domain role"
+		ghost          = `role Tester: Read grant on Widgets: condition references "ghost", which is not an attribute of Widgets`
+	)
+	_, parseErr := accesstypes.NewCondition("owner = ")
+	if parseErr == nil {
+		t.Fatal(`accesstypes.NewCondition("owner = ") error = nil, want the condition refused`)
+	}
+	row := func(permission accesstypes.Permission, res accesstypes.Resource, condition string) GrantRow {
+		return GrantRow{Permission: permission, Resource: res, Condition: condition}
+	}
+
+	tests := []struct {
+		name string
+		// collection is what the release declares; nil is the fixture's own.
+		collection PermissionCollection
+		// held is where the role is held.
+		held  accesstypes.PolicyScope
+		write func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error
+		// wantRefused is the bad request's message; empty when the write is made.
+		wantRefused string
+		// want are the grants the role holds afterwards, as
+		// "permission resource.field under condition".
+		want []string
+	}{
+		{
+			name: "AddRoleGrant: a condition that reads what the resource declares",
+			held: tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrant(ctx, held, tester, accesstypes.Read, "Widgets", "owner = subject")
+			},
+			want: []string{"Read Widgets. under owner = subject"},
+		},
+		{
+			name: "AddRoleGrant: a condition naming an attribute the resource does not declare",
+			held: tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrant(ctx, held, tester, accesstypes.Read, "Widgets", "ghost = subject")
+			},
+			wantRefused: ghost,
+		},
+		{
+			name: "AddRoleGrant: a condition that does not parse",
+			held: tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrant(ctx, held, tester, accesstypes.Read, "Widgets", "owner = ")
+			},
+			wantRefused: "role Tester: Read grant on Widgets: " + plainText(parseErr),
+		},
+		{
+			name: "AddRoleGrant: a field's condition is held to the resource's attributes",
+			held: tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrant(ctx, held, tester, accesstypes.Read, "Widgets.name", "ghost = subject")
+			},
+			wantRefused: ghost,
+		},
+		{
+			name: "AddRoleGrants: one row whose condition names an undeclared attribute refuses the call, and nothing is written",
+			held: tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrants(ctx, held, tester, row(accesstypes.Read, "Widgets", "owner = subject"), row(accesstypes.Read, "Widgets.name", "ghost = subject"))
+			},
+			wantRefused: ghost,
+		},
+		{
+			name: "ChangeRoleGrants: an addition whose condition names an undeclared attribute refuses the call",
+			held: tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.ChangeRoleGrants(ctx, held, tester, nil, []GrantRow{row(accesstypes.Read, "Widgets", "ghost = subject")})
+			},
+			wantRefused: ghost,
+		},
+		{
+			name: "ChangeRoleGrants: a removal is held to nothing",
+			held: tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				removals := []GrantRow{row(accesstypes.Read, "Widgets", "ghost = subject"), row(accesstypes.Execute, "DoThing", "")}
+
+				return manager.ChangeRoleGrants(ctx, held, tester, removals, []GrantRow{row(accesstypes.Read, "Widgets", "")})
+			},
+			want: []string{"Read Widgets. under "},
+		},
+		{
+			name: "AddRoleGrant: a domain role given a global resource",
+			held: tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrant(ctx, held, tester, accesstypes.Execute, "DoThing", "")
+			},
+			wantRefused: globalResource,
+		},
+		{
+			name: "AddRoleGrants: a domain role given a global resource refuses the call, and nothing is written",
+			held: tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrants(ctx, held, tester, row(accesstypes.Read, "Widgets", ""), row(accesstypes.Execute, "DoThing", ""))
+			},
+			wantRefused: globalResource,
+		},
+		{
+			name: "AddRolePermissionResources: a domain role given a global resource refuses the call, and nothing is written",
+			held: tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRolePermissionResources(ctx, held, tester, accesstypes.Execute, "DoThing")
+			},
+			wantRefused: globalResource,
+		},
+		{
+			name: "ChangeRoleGrants: an addition that gives a domain role a global resource refuses the call",
+			held: tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.ChangeRoleGrants(ctx, held, tester, nil, []GrantRow{row(accesstypes.Read, "Widgets", ""), row(accesstypes.Execute, "DoThing", "")})
+			},
+			wantRefused: globalResource,
+		},
+		{
+			name: "AddRoleGrant: a role held in every domain given a global resource",
+			held: everyDomainPolicy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrant(ctx, held, tester, accesstypes.Execute, "DoThing", "")
+			},
+			wantRefused: globalResource,
+		},
+		{
+			name: "AddRoleGrant: a role held in every domain given a domain's resource",
+			held: everyDomainPolicy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrant(ctx, held, tester, accesstypes.Read, "Widgets.*", "")
+			},
+			want: []string{"Read Widgets.* under "},
+		},
+		{
+			name: "AddRoleGrant: a global role given a global resource",
+			held: globalPolicy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrant(ctx, held, tester, accesstypes.Execute, "DoThing", "")
+			},
+			want: []string{"Execute DoThing. under "},
+		},
+		{
+			name: "AddRoleGrant: a global role given a domain's resource",
+			held: globalPolicy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrant(ctx, held, tester, accesstypes.Read, "Widgets", "")
+			},
+			wantRefused: domainResource,
+		},
+		{
+			name:       "AddRoleGrant: Update on a field the release marks immutable",
+			collection: immutablePriceCollection{},
+			held:       tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrant(ctx, held, tester, accesstypes.Update, "Widgets.price", "")
+			},
+			wantRefused: "role Tester cannot have update permission on immutable resource Widgets.price",
+		},
+		{
+			name:       "AddRoleGrant: a resource the collection lists and holds in no scope",
+			collection: scopelessGadgetsCollection{},
+			held:       tenant1Policy,
+			write: func(ctx context.Context, manager UserManager, held accesstypes.PolicyScope) error {
+				return manager.AddRoleGrant(ctx, held, tester, accesstypes.Read, "Gadgets", "")
+			},
+			wantRefused: "resource Gadgets does not require a permission or does not exist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			store := newFakeStore()
+			collection := tt.collection
+			if collection == nil {
+				collection = markedActionCollection{}
+			}
+			manager := newPolicyClient(t, store, collection).UserManager()
+			if err := manager.AddRole(ctx, tt.held, tester, aDescription); err != nil {
+				t.Fatalf("AddRole() error = %v", err)
+			}
+
+			err := tt.write(ctx, manager, tt.held)
+			switch {
+			case tt.wantRefused == "" && err != nil:
+				t.Fatalf("the write error = %v, want it made", err)
+			case tt.wantRefused != "" && !httpio.HasBadRequest(err):
+				t.Fatalf("the write error = %v, want a bad request", err)
+			case tt.wantRefused != "":
+				if diff := cmp.Diff(tt.wantRefused, httpio.Message(err)); diff != "" {
+					t.Errorf("the refusal's message mismatch (-want +got):\n%s", diff)
+				}
+			}
+
+			records, err := store.ReadPolicy(ctx)
+			if err != nil {
+				t.Fatalf("ReadPolicy() error = %v", err)
+			}
+			var got []string
+			for _, grant := range records.Grants {
+				got = append(got, string(grant.Perm)+" "+grant.Resource+"."+grant.Field+" under "+grant.Condition)
+			}
+			slices.Sort(got)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("the role's grants mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

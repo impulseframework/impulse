@@ -174,6 +174,8 @@ func Test_computeCollectionData_classes(t *testing.T) {
 
 	// A registration made by hand through the option carries a class under the same
 	// rules as the annotation's: its name is a class's, and its permission is Execute.
+	// A record's permission registered in the scope the classed action is not of is
+	// refused as a name of two scopes, before its class is asked about.
 	registered := slices.Clone(r.manualRegistrations)
 	for name, tt := range map[string]struct {
 		add     []ManualRegistration
@@ -199,11 +201,11 @@ func Test_computeCollectionData_classes(t *testing.T) {
 		},
 		"a record's permission for a tenant under the name of an action classed for the whole application": {
 			add:     []ManualRegistration{{Permission: accesstypes.Read, Resource: "ResetLogin", Scope: accesstypes.DomainPermissionScope}},
-			wantErr: `"ResetLogin" carries the class credential and registers Read beside Execute`,
+			wantErr: `"ResetLogin" is registered for the whole application (Execute) and for a tenant (Read): a name is of one scope`,
 		},
 		"a record's permission for the whole application under the name of a method classed for a tenant": {
 			add:     []ManualRegistration{{Permission: accesstypes.List, Resource: "WireFunds"}},
-			wantErr: `"WireFunds" carries the class money_movement, sensitive and registers List beside Execute`,
+			wantErr: `"WireFunds" is registered for the whole application (List) and for a tenant (Execute): a name is of one scope`,
 		},
 	} {
 		r.manualRegistrations = append(slices.Clone(registered), tt.add...)

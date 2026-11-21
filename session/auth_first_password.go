@@ -386,7 +386,7 @@ func (a *Auth[S, U, Tx]) proveFirstPasswordCode(ctx context.Context, userID impu
 	}
 	// The newest is the one the person was sent last.
 	standing := codes[len(codes)-1]
-	if !strings.EqualFold(standing.Email, confirmed) {
+	if !sameAddress(standing.Email, confirmed) {
 		if err := a.endFirstPasswordCodes(ctx, codes); err != nil {
 			return nil, err
 		}

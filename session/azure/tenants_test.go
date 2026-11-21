@@ -369,6 +369,7 @@ func TestTenantSet_admitsAddress(t *testing.T) {
 		{name: "one tenant refuses live.com", tenants: Tenant(tenantLake), domain: "live.com"},
 		{name: "one tenant refuses msn.com", tenants: Tenant(tenantLake), domain: "msn.com"},
 		{name: "the personal domains are matched without regard to case", tenants: Tenants(Tenant(tenantLake), AnyTenant()), domain: "Outlook.COM"},
+		{name: "a domain written with the Kelvin sign, which Unicode folds to k, is not the personal domain", tenants: Tenants(Tenant(tenantLake), AnyTenant()), domain: "outloo\u212A.com", want: true},
 		{name: "any tenant refuses a personal account", tenants: AnyTenant(), domain: "outlook.com"},
 		{name: "personal accounts admit a personal account", tenants: PersonalAccounts(), domain: "outlook.com", want: true},
 		{name: "personal accounts admit a work address too, whose tenant they cannot tell", tenants: PersonalAccounts(), domain: "lakeside.edu", want: true},

@@ -355,7 +355,9 @@ type AuthStore[Tx any] interface {
 	// SetUserEmail puts an address on a user by hand, unverified, or takes it off
 	// (nil): an administrator's entry, which reserves the address. An address another
 	// user holds is a Conflict; on a store whose usernames are the addresses the
-	// entry is refused.
+	// entry is refused. Taking the address off ends, in the same transaction, the
+	// sign-in codes mailed for the user's pending sign-ins, so a code mailed before
+	// the change and entered after it is dead and writes nothing back.
 	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
 	// VerifyUserEmail writes the address the person has just proven they read,
 	// verified at the database's time, replacing whatever the user held; on a store
