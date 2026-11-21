@@ -139,7 +139,7 @@ type Settings struct {
 	// role is refused unless the collection lists what it names, and a stored grant that
 	// names anything else is skipped and reported each time the policy loads. The router
 	// package generates it (router.Collection()) and imports this one, so the
-	// configuration passes it in.
+	// configuration passes it in. Required; New refuses nil.
 	Collection access.PermissionCollection
 	// ChangeSignal carries the engine's policy-change hints between the application's
 	// instances (auth.PolicySignal over the live service): the engine announces after
@@ -263,6 +263,9 @@ func (h *Handlers) PendingEnrollEmail() http.HandlerFunc {
 // blocks until its first policy snapshot is loaded. It announces its policy writes and
 // watches the other instances' through the change signal, which is required.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
+	if settings.Collection == nil {
+		return nil, errors.New("members.Settings.Collection is required: the permission engine holds every grant to the permission collection the release declares; pass the generated router's (router.Collection())")
+	}
 	if settings.ChangeSignal == nil {
 		return nil, errors.New("members.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
 	}
