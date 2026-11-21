@@ -3,6 +3,7 @@ package access
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"time"
 
@@ -33,14 +34,15 @@ type Client struct {
 // New creates a new Client over a policy store built by one of the store
 // subpackages (spannerstore, postgresstore) and the permission collection of
 // the running release: what the release declares, its permissions, resources
-// and fields. The collection is required, and New refuses a nil one. A stored
-// grant naming what the release does not declare (after a rollback, or once a
-// release drops a resource or a permission) is left out of the snapshot and
-// reported as a SkippedGrant instead of being carried as a grant nothing can
-// check, a grant that names a permission and no resource among them; the
-// writes that give a custom role a grant refuse a name the release does not
-// declare (UserManager.AddRoleGrant, UserManager.AddRolePermission), by the
-// rule the load skips by; and the role file validates against it.
+// and fields. The collection is required, and New refuses a nil one, a nil
+// pointer of a collection's type included. A stored grant naming what the
+// release does not declare (after a rollback, or once a release drops a
+// resource or a permission) is left out of the snapshot and reported as a
+// SkippedGrant instead of being carried as a grant nothing can check, a grant
+// that names a permission and no resource among them; the writes that give a
+// custom role a grant refuse a name the release does not declare
+// (UserManager.AddRoleGrant, UserManager.AddRolePermission), by the rule the
+// load skips by; and the role file validates against it.
 //
 // Permission checks are answered by the snapshot engine, compiled in-memory
 // from the release's default roles (WithDefaultRoles) and the policy store.
@@ -64,7 +66,7 @@ type Client struct {
 // New fails when the role file does not parse or does not validate against
 // the collection: a release whose default roles are wrong does not start.
 func New(store Store, collection PermissionCollection, opts ...Option) (*Client, error) {
-	if collection == nil {
+	if isNilCollection(collection) {
 		return nil, errors.New("access.New(): the collection must not be nil: pass the permission collection the release declares (the generated router's Collection()), which every grant is held to")
 	}
 	options := defaultClientOptions()
@@ -112,6 +114,20 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 		superMethods:         slices.Clone(options.superMethods),
 		tenantAdministrators: slices.Clone(options.tenantAdministrators),
 	}, nil
+}
+
+// isNilCollection reports whether collection is no collection: the nil
+// interface, or a nil pointer of a collection's type, which a variable nothing
+// was assigned to hands over (var collection *resource.GeneratedCollection).
+// The interface that holds such a pointer is not nil, so a comparison with nil
+// lets it through, and the first question the engine asks it panics.
+func isNilCollection(collection PermissionCollection) bool {
+	if collection == nil {
+		return true
+	}
+	value := reflect.ValueOf(collection)
+
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 // WaitReady blocks until the first policy snapshot has loaded (or ctx

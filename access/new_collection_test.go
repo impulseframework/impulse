@@ -8,24 +8,30 @@ import (
 )
 
 // TestNew_refusesANilCollection pins that no value stands for "no collection": a nil one
-// is refused, with or without options, and the refusal says what to pass.
+// is refused, with or without options, and the refusal says what to pass. A nil pointer
+// of a collection's type is a nil collection too: the interface that holds it is not
+// nil, and the first question the engine asked it used to panic.
 func TestNew_refusesANilCollection(t *testing.T) {
 	t.Parallel()
 
 	const want = "access.New(): the collection must not be nil: pass the permission collection the release declares (the generated router's Collection()), which every grant is held to"
+	var unassigned *stubCollection
 	tests := []struct {
-		name string
-		opts []Option
+		name       string
+		collection PermissionCollection
+		opts       []Option
 	}{
 		{name: "nothing beside it"},
 		{name: "beside a role file", opts: []Option{WithDefaultRoles(grammarRoleFile)}},
 		{name: "beside the super administrator's methods", opts: []Option{WithSuperAdministratorMethods("Restore")}},
+		{name: "a nil pointer of a collection's type", collection: unassigned},
+		{name: "a nil pointer of a collection's type beside a role file", collection: unassigned, opts: []Option{WithDefaultRoles(grammarRoleFile)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			client, err := New(newFakeStore(), nil, tt.opts...)
+			client, err := New(newFakeStore(), tt.collection, tt.opts...)
 			if err == nil || !strings.HasSuffix(err.Error(), want) {
 				t.Fatalf("New() error = %v, want one ending %q", err, want)
 			}

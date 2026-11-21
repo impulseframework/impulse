@@ -275,8 +275,9 @@ by one rule for a grant's names, so the grants a load skips by name are the
 ones another release wrote or that were written straight to the store, never
 ones this release was asked for and took. A removal is held to nothing: a grant
 the release no longer declares can always be taken away. No client is without
-the collection: `New` takes it as an argument and refuses a nil one, so there
-is no client that checks no name.
+the collection: `New` takes it as an argument and refuses a nil one, a nil
+pointer of a collection's type included, so there is no client that checks no
+name.
 
 ### Change signal
 
