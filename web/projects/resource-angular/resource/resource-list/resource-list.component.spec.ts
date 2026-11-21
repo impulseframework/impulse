@@ -767,18 +767,21 @@ describe('ResourceListComponent', () => {
       const line = element.querySelector('.notice[role="status"]');
 
       // Another order brings another row, so another client to read: the read is on its
-      // way again, and the line it left stands where it was, the same line.
+      // way again, and the line it left stands where it was, the same line. The row the
+      // list drew stays until the new one can be drawn with what its column shows.
       fixture.componentInstance.onSortChange([{ field: 'name', direction: 'desc' }]);
       await turns();
-      expect(cellsOf(element)).toEqual([['Vega', 'Client c-2']]);
+      expect(cellsOf(element)).toEqual([['Kestrel', 'Client c-1']]);
       expect([clientsAsked, answer.length, read()]).toEqual([2, 1, 'loading']);
       expect(noticesOf(element)).toEqual([sentence]);
       expect(element.querySelector('.notice[role="status"]')).toBe(line);
 
-      // Refused too: still the one line, never taken away in between.
+      // Refused too: still the one line, never taken away in between, and the new row is
+      // drawn with what the page gives for a row whose record is not read.
       answer[0](refused);
       await turns();
       expect(read()).toBe('error');
+      expect(cellsOf(element)).toEqual([['Vega', 'Client c-2']]);
       expect(noticesOf(element)).toEqual([sentence]);
       expect(element.querySelector('.notice[role="status"]')).toBe(line);
 
@@ -907,6 +910,79 @@ describe('ResourceListComponent', () => {
       ]);
       expect(noticesOf(element)).toEqual([]);
       expect(written(consoleError)).toEqual([]);
+    });
+
+    it('draws a row once the name its column shows is known: never the key first, on opening or when a row arrives', async () => {
+      const rows = [
+        { id: 's-1', name: 'Kestrel', clientId: 'c-1' },
+        { id: 's-2', name: 'Vega', clientId: '' },
+      ];
+      const names: Record<string, string> = { 'c-1': 'Corvid Lines', 'c-2': 'Dray and Sons' };
+      // The read of the clients waits until the spec lets it go, each time it is asked.
+      let release = (): void => undefined;
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            multiColumnConfig({
+              id: 'clientId' as FieldName,
+              header: 'Client',
+              additionalIds: [{ resource: clients, id: 'id' as FieldName, field: 'name' as FieldName }],
+              concatFn: 'hyphen-concat',
+              fallback: (row: Record<string, unknown>) =>
+                row['clientId'] ? `Client ${String(row['clientId'])}` : 'Nobody',
+              filterable: false,
+            }),
+          ],
+        },
+        rows,
+        async (request) => {
+          if (request.url.split('?')[0] !== '/api/clients') {
+            return { status: 200, body: [...rows], headers: { 'total-count': String(rows.length) } };
+          }
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          const asked = decodeURIComponent(request.url);
+          const body = Object.entries(names)
+            .filter(([id]) => asked.includes(id))
+            .map(([id, name]) => ({ id, name }));
+          return { status: 200, body, headers: { 'total-count': String(body.length) } };
+        },
+      );
+      /** What the table has drawn under Client, a row at a time. */
+      const drawn = (): string[] =>
+        Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row')).map(
+          (row) => row.querySelectorAll('td.data-col')[1]?.textContent?.trim() ?? '',
+        );
+
+      fixture.detectChanges();
+      await settle();
+      await turns();
+      // The page's rows are in and their clients are asked for, not yet answered: no row
+      // is drawn, and the table is told it is still loading.
+      expect(clientReads()).toHaveLength(1);
+      expect(fixture.componentInstance.store.page().rows).toHaveLength(2);
+      expect(drawn()).toEqual([]);
+      expect(fixture.componentInstance.loadingRowData()).toBe(true);
+
+      release();
+      await turns();
+      expect(drawn()).toEqual(['Corvid Lines', 'Nobody']);
+
+      // A row arrives whose client the page has not read: the table keeps the rows it
+      // had until that client's name is in, then draws the new row by name.
+      rows.push({ id: 's-3', name: 'Dishner', clientId: 'c-2' });
+      fixture.componentInstance.reloadListData();
+      await turns();
+      expect(clientReads()).toHaveLength(2);
+      expect(fixture.componentInstance.store.page().rows).toHaveLength(3);
+      expect(drawn()).toEqual(['Corvid Lines', 'Nobody']);
+
+      release();
+      await turns();
+      expect(drawn()).toEqual(['Corvid Lines', 'Nobody', 'Dray and Sons']);
     });
 
     describe('says in its own words that the list itself could not be read', () => {
@@ -1585,17 +1661,33 @@ describe('ResourceListComponent', () => {
     let domain: ReturnType<typeof signal<Domain | undefined>>;
     /** The tenant whose digest the server fails to answer, when a spec names one. */
     let digestFails: string | undefined;
+    /** The tenant whose digest the server refuses to read, when a spec names one. */
+    let digestRefused: string | undefined;
+    /** The tenant whose digest the server answers only once the spec lets it, when a spec names one. */
+    let digestHeld: { domain: string; until: Promise<void> } | undefined;
     /** What the server waits for before it answers a tenant's digest, when a spec holds the digests. */
     let digestsHeld: Promise<void> | undefined;
 
-    const server = (request: TransportRequest): TransportResponse => {
+    const server = (request: TransportRequest): TransportResponse | Promise<TransportResponse> => {
       const url = new URL(request.url, 'http://missions.test');
+      const held = digestHeld;
+      if (url.pathname === '/api/permission-digest' && held && url.searchParams.get('domain') === held.domain) {
+        digestHeld = undefined;
+        return held.until.then(() => server(request));
+      }
       if (
         url.pathname === '/api/permission-digest' &&
         digestFails !== undefined &&
         url.searchParams.get('domain') === digestFails
       ) {
         return { status: 500, body: { message: 'the digest could not be read' } };
+      }
+      if (
+        url.pathname === '/api/permission-digest' &&
+        digestRefused !== undefined &&
+        url.searchParams.get('domain') === digestRefused
+      ) {
+        return { status: 404, body: { message: 'no such sector' } };
       }
       if (url.pathname === '/api/user-domains') {
         return {
@@ -1640,6 +1732,8 @@ describe('ResourceListComponent', () => {
       });
       warnings = [];
       digestFails = undefined;
+      digestRefused = undefined;
+      digestHeld = undefined;
       digestsHeld = undefined;
       domain = signal<Domain | undefined>(undefined);
       transport = scriptedTransport(async (request: TransportRequest): Promise<TransportResponse> => {
@@ -1746,6 +1840,71 @@ describe('ResourceListComponent', () => {
         `/api/permission-digest?domain=${bastion}`,
       ]);
       expect(rowLinks()).toEqual([null, null]);
+    });
+
+    it('says the links could not be loaded where a digest does not answer, and draws them once Try again reads it', async () => {
+      await page(missions);
+      digestFails = anvil;
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      // Both rows are drawn, Anvil's without a link. Nothing says the person may read no
+      // mission there, so the list says what happened, above its rows.
+      const element = fixture.nativeElement as HTMLElement;
+      expect(rowLinks()).toEqual([null, null]);
+      expect(element.querySelector('.links-unread .notice-words')?.textContent?.trim()).toBe(
+        'The links to open some rows could not be loaded.',
+      );
+
+      digestFails = undefined;
+      element.querySelector<HTMLButtonElement>('.links-unread button.try-again')!.click();
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      expect(element.querySelector('.links-unread')).toBeNull();
+      expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
+      // The tenant that answered is not asked again.
+      expect(digestRequests()).toEqual([
+        `/api/permission-digest?domain=${anvil}`,
+        `/api/permission-digest?domain=${bastion}`,
+        `/api/permission-digest?domain=${anvil}`,
+      ]);
+    });
+
+    it('says nothing where every digest answers, and nothing for a tenant the server refuses', async () => {
+      await page(missions);
+      digestRefused = bastion;
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      // Bastion is not there for this session: its row has no link, and that is an answer.
+      expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
+      expect((fixture.nativeElement as HTMLElement).querySelector('.links-unread')).toBeNull();
+    });
+
+    it('draws no row before the digest of every tenant on the page has answered: no link arrives on a row already drawn', async () => {
+      await page(missions);
+      let answerAnvil: () => void = () => undefined;
+      digestHeld = { domain: anvil, until: new Promise<void>((resolve) => (answerAnvil = resolve)) };
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      // The page of rows has arrived and Bastion has answered; Anvil has not. Neither
+      // mission is drawn yet.
+      const drawn = (): string => (fixture.nativeElement as HTMLElement).querySelector('tbody')?.textContent ?? '';
+      expect(listRequests()).toHaveLength(1);
+      expect(digestRequests()).toHaveLength(2);
+      expect(drawn()).not.toContain('Hauler');
+      expect(drawn()).not.toContain('Beacon');
+
+      answerAnvil();
+      await settle();
+      await settle();
+      expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
     });
 
     it('draws a row and its link together: the page waits for the digests its links are drawn from', async () => {

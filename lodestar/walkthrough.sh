@@ -1168,7 +1168,7 @@ r=$(req cadet GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "cadet's
 r=$(req cadet PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/distress-calls","value":{"summary":"Debris on the approach","severity":2}}]'); check "cadet files a two-field call" 200 "$r"
 r=$(req cadet GET "$ANVIL/distress-calls?limit=100"); assert_py "the cadet's call log holds her own calls alone, the seeded one and the one just filed: filedBy = subject compares the id of her account, which the seed wrote and the server stamped" "$r" "sorted(c['summary'] for c in rows)==['Debris field reported on the approach lane','Debris on the approach']"
 r=$(req marshal GET "$ANVIL/distress-calls?limit=100"); assert_py "the marshal's log says who filed the new call by the id of the cadet's account, with her username beside it for the page" "$r" "[(c['filedByUserId'],c['filedByName']) for c in rows if c['summary']=='Debris on the approach']==[('$CADET_ID','cadet')]"
-# The Update envelope speaks for every field the caller may write, projected or not: the marshal's grant covers the write-only transcript, which no read returns, and the envelope on a seeded call names it, so the Calls page's edit form draws its blank input. Demonstrates: field.write-only.
+# The Update envelope speaks for every field the caller may write, projected or not: the marshal's grant covers the write-only transcript, which no read returns, and the envelope on a seeded call names it, so the call log's edit form draws its blank input. Demonstrates: field.write-only.
 r=$(req marshal GET "$ANVIL/distress-calls/$BEACON_CALL?capabilities=Update"); assert_py "the marshal's Update envelope on a seeded call names the write-only transcript the read never returns" "$r" "'transcript' in rows['zzCapabilities']['Update'] and 'transcript' not in rows and rows['zzCapabilities']['Update']==sorted(rows['zzCapabilities']['Update'])"
 
 # ---- droid channel ----
@@ -1229,8 +1229,9 @@ r=$(req cadet POST "$API/issue-bulletin" '{"announcement":"unauthorized"}'); che
 # A view-as session names the person to view as by the id of their account, which is how
 # the permission store names a person, and the session library refuses a principal that
 # is no id. What a person reads stays a name: the session answers the cadet's username,
-# the watch desk lists both people by username, and a change written under a role is
-# signed with the actor's username and the id of their account.
+# the watch desk (the list of the crew auth's impersonation records) names the actor by
+# username and reads the cadet's from the account the record names by id, and a change
+# written under a role is signed with the actor's username and the id of their account.
 r=$(req marshal POST "$API/impersonate" '{"kind":"view","principal":"cadet","reason":"walkthrough"}'); check "a view-as session names the person by the id of their account: a username as the principal is refused" 400 "$r"
 r=$(req marshal GET "$API/user/session"); assert_py "and the console is still Maren's" "$r" "rows['username']=='marshal' and not rows.get('impersonation')"
 r=$(req marshal POST "$API/impersonate" "{\"kind\":\"view\",\"principal\":\"$CADET_ID\",\"reason\":\"walkthrough\",\"mask\":[\"List\",\"Read\",\"Execute\"]}"); check "a view is reading only at most: a request for more than the grant gives is refused, not trimmed" 403 "$r"
@@ -1243,15 +1244,18 @@ r=$(req marshal GET "$API/user/session"); assert_py "the console is now Cass's" 
 r=$(req marshal GET "$ANVIL/missions?capabilities=Execute&limit=200"); assert_py "every edge unlit under the mask" "$r" "rows and all(not m['zzCapabilities']['Execute'] for m in rows)"
 r=$(req marshal POST "$ANVIL/claim-mission" "{\"missionId\":\"$HAULER\",\"squadronId\":\"$TONGS\"}"); check "a forged write on the read-only session is stopped at the door by EnforceReadOnlyMask" 403 "$r"
 r=$(req marshal POST "$API/impersonate" "{\"kind\":\"view\",\"principal\":\"$PILOT_ID\"}"); check "chaining is refused" 403 "$r"
-r=$(req governor GET "$API/impersonations"); check "the governor's watch desk lists the live sessions" 200 "$r"
-assert_py "the minted session is listed with its two-hour cap, both people by username, and its mask in words: the desk reads the cadet's name from the account the record names by id" "$r" "any(s['sessionId']=='$MINTED' and s['actor']=='marshal' and s['kind']=='user' and s['principal']=='cadet' and s['mask']=='reading only' for s in rows)"
-r=$(req cadet GET "$API/impersonations"); check "the cadet may not operate the desk" 403 "$r"
+r=$(req governor GET "$API/crew-session-impersonations?limit=200"); check "the governor's watch desk lists the sessions held as someone else" 200 "$r"
+assert_py "the minted session is listed, still open, with its mask in words: the marshal by username, the cadet by the id of the account the desk reads the name from" "$r" "any(s['sessionId']=='$MINTED' and s['actorUsername']=='marshal' and s['principalKind']=='User' and s['principalUserId']=='$CADET_ID' and s['mask']=='reading only' and not s.get('endedAt') for s in rows)"
+r=$(req governor GET "$API/crew-session-users?limit=200"); assert_py "and the list of the crew's accounts answers that id as the cadet's" "$r" "any(u['id']=='$CADET_ID' and u['username']=='cadet' for u in rows)"
+r=$(req cadet GET "$API/crew-session-impersonations"); check "the cadet may not operate the desk" 403 "$r"
 r=$(req marshal POST "$API/impersonate/end" '{}'); assert_py "marshal returns to self" "$r" "rows['restored'] is True"
 r=$(req marshal GET "$API/user/session"); assert_py "the console is Maren's again, no record" "$r" "rows['username']=='marshal' and not rows.get('impersonation')"
 r=$(req marshal POST "$API/impersonate" "{\"kind\":\"view\",\"principal\":\"$CADET_ID\",\"reason\":\"to be revoked\"}"); check "marshal mints another view-as session" 200 "$r"
 MINTED=$(body "$r" | py "print(rows['sessionId'])")
-r=$(req governor DELETE "$API/impersonations/$MINTED"); check "the governor revokes it from the watch desk" 204 "$r"
+r=$(req cadet POST "$API/end-crew-session-impersonation" "{\"sessionId\":\"$MINTED\"}"); check "the cadet may not revoke it" 403 "$r"
+r=$(req governor POST "$API/end-crew-session-impersonation" "{\"sessionId\":\"$MINTED\"}"); check "the governor revokes it from the watch desk" 204 "$r"
 r=$(req marshal GET "$ANVIL/missions"); check "the revoked console's next request is refused" 401 "$r"
+r=$(req governor GET "$API/crew-session-impersonations/$MINTED"); assert_py "the desk keeps the record, ended as revoked" "$r" "rows['endedAt'] and rows['endReason']=='Revoked'"
 login marshal
 # Act as a person: the governor holds the StandIn role, the grant to act (ActAsUser), and
 # acts as the marshal. The session does what the marshal may do, except the actions
@@ -1287,7 +1291,7 @@ r=$(req governor PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/$A
 r=$(req governor POST "$ANVIL/disable-crew-sector-user" "{\"userId\":\"$GUS_ID\"}"); check "an account disabled carries no class: the session that acts as her disables the person's account, as she may" 204 "$r"
 r=$(req governor POST "$ANVIL/enable-crew-sector-user" "{\"userId\":\"$GUS_ID\"}"); check "and enables it again" 204 "$r"
 r=$(req governor GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the session's digest leaves the credential and the access methods out and keeps their neighbors, the account's switches among them" "$r" "'RequireCrewSectorPasswordChange' not in rows and 'SetCrewSectorTemporaryPassword' not in rows and 'AssignCrewSectorRole' not in rows and 'Execute' in rows.get('SetCrewSectorUserName',{}) and 'Execute' in rows.get('DisableCrewSectorUser',{}) and 'Execute' in rows.get('EnableCrewSectorUser',{})"
-r=$(req marshal GET "$API/impersonations"); assert_py "the watch desk says what the session may do, in words" "$r" "any(s['sessionId']=='$ACTING' and s['actor']=='governor' and s['principal']=='marshal' and s['mask']=='$ACT_MASK' for s in rows)"
+r=$(req marshal GET "$API/crew-session-impersonations?limit=200"); assert_py "the watch desk says what the session may do, in words" "$r" "any(s['sessionId']=='$ACTING' and s['actorUsername']=='governor' and s['principalUserId']=='$MARSHAL_ID' and s['mask']=='$ACT_MASK' for s in rows)"
 r=$(req governor POST "$API/impersonate/end" '{}'); assert_py "governor returns to self" "$r" "rows['restored'] is True"
 
 # The act kind keeps the writes of hangar passes, so a person who stands in for the

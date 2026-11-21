@@ -17,8 +17,9 @@ type AppHandlers interface {
 	Handlers
 
 	// The console's hand-written routes: the sector-scoped ship's log over the
-	// change-tracking table (registered through @manualAddResource(List, domain)), the
-	// impersonation mint route and the watch desk over the live impersonated sessions.
+	// change-tracking table (registered through @manualAddResource(List, domain)) and
+	// the impersonation mint route. The watch desk has none: it lists the crew auth's
+	// generated impersonation records and ends one with the generated method.
 	// EndImpersonation is the session library's own, on the crew auth's session the App
 	// embeds; the generated router names the rest of that session (DefaultSession) and
 	// does not mount it, so the application names it here and mounts it inside the
@@ -31,8 +32,6 @@ type AppHandlers interface {
 	EndImpersonation() http.HandlerFunc
 	ShipsLogEntries() http.HandlerFunc
 	Impersonate() http.HandlerFunc
-	ActiveImpersonations() http.HandlerFunc
-	RevokeImpersonation() http.HandlerFunc
 
 	// The portal's hand-written route: a company's statement over the change log
 	// (registered through @manualAddResource(List, domain) with @outlet(portal)).
@@ -47,9 +46,6 @@ type AppHandlers interface {
 // console's browser application at /console, and the outlet's API sits under that mount
 // path, as the portal's sits under /portal.
 const consoleAPI = "/console/api"
-
-// ImpersonationRoute names one live impersonated session on the watch desk.
-const ImpersonationRoute = consoleAPI + "/impersonations/{impersonationID}"
 
 // ShipsLogEntriesRoute is the console's ship's log route under the sector segment.
 const ShipsLogEntriesRoute = consoleAPI + "/sectors/{sectorID}/ships-log-entries"
@@ -97,14 +93,12 @@ func AppHooks(h AppHandlers) Hooks {
 			r.Post(consoleAPI+"/impersonate/end", h.EndImpersonation())
 
 			// The console's own routes sit behind the same mask: a read-only view starts
-			// no view of its own and revokes none.
+			// no view of its own.
 			r.Group(func(r chi.Router) {
 				r.Use(h.EnforceReadOnlyMask)
 
 				r.Get(ShipsLogEntriesRoute, h.DomainGuard()(h.ShipsLogEntries()))
 				r.Post(consoleAPI+"/impersonate", h.Impersonate())
-				r.Get(consoleAPI+"/impersonations", h.ActiveImpersonations())
-				r.Delete(ImpersonationRoute, h.RevokeImpersonation())
 			})
 
 			generated(r)

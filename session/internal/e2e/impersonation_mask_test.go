@@ -854,7 +854,7 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 
 			continue
 		}
-		says, want := "you are acting as someone else, and this session cannot create a tenant", tt.creation
+		says, want := "You are acting as someone else, and this session cannot create a tenant.", tt.creation
 		if tt.readOnly {
 			says, want = "this session is read-only", "impersonation: POST /create-tenant refused for"
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
@@ -24,12 +25,16 @@ type (
 	// path runs both a defaults type and a validator type. Change tracking is on, feeding
 	// the ship's log.
 	//
+	// A ship is in one bay at a time: the create path's validator refuses to open a refit
+	// on a ship that has one still open.
+	//
 	// Demonstrates: @state, @domain.join-path, @transition.join-path-root, transition-owned-timestamp, @defaultsUpdateType, @validateUpdateType, change-tracking, condition.day-of-week, condition.time-of-day, condition.local-zone.
 	//
 	// @resource
 	// @permissionScope(domain)
 	// @order(StatusID asc)
 	// @page(default: 10, max: 100)
+	// @validateCreateType(RefitCreateValidator)
 	// @defaultsUpdateType(RefitUpdateDefaults)
 	// @validateUpdateType(RefitUpdateValidator)
 	Refit struct {
@@ -53,6 +58,36 @@ type (
 // same transaction.
 func (Refit) Config() resource.Config {
 	return defaultConfig().SetTrackChanges(true)
+}
+
+// RefitCreateValidator is wired in by the @validateCreateType annotation; the generated
+// create patch calls Validate inside the mutation transaction.
+//
+// Demonstrates: @validateCreateType.
+type RefitCreateValidator struct{}
+
+// Validate refuses to dock a ship that is already in a bay. A ship is in a bay while a
+// refit of it is still open, which is every state but the two the workflow ends in:
+// cleared and scrapped. The read runs inside the create's own transaction, so two
+// people docking the same ship at once cannot both succeed.
+func (v *RefitCreateValidator) Validate(ctx context.Context, txn resource.ReadWriteTransaction, p *RefitCreatePatch) error {
+	open := NewRefitQuery().
+		AddColumns(NewRefitColumns().StatusID()).
+		Where(NewRefitQueryClause().ShipID().Equal(p.ShipID()).
+			And().StatusID().NotEqual(string(ClearedRefitStatus), string(ScrappedRefitStatus))).
+		Limit(1)
+	inBay := false
+	for _, err := range open.List(ctx, txn) {
+		if err != nil {
+			return errors.Wrap(err, "RefitQuery.List()")
+		}
+		inBay = true
+	}
+	if inBay {
+		return httpio.NewConflictMessage("This ship is already in a bay: its refit is still open. Finish that refit before you dock the ship again.")
+	}
+
+	return nil
 }
 
 // RefitUpdateDefaults is wired in by the @defaultsUpdateType annotation; the generated

@@ -235,6 +235,9 @@ func TestHeldDomains_everyPermissions(t *testing.T) {
 				if httpio.HasForbidden(err) != tt.wantForbidden {
 					t.Errorf("HeldDomains() error = %v, want a refusal: %v", err, tt.wantForbidden)
 				}
+				if tt.wantForbidden {
+					plainAnswer(t, err, httpio.HasForbidden, "You are acting as a role, and this session cannot do this.", "Auditor", "runs no sessions as")
+				}
 
 				return
 			}

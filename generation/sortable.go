@@ -19,9 +19,14 @@ var orderedNamedTypes = map[string]struct{}{
 // package) read off the declared type instead of the running one: text, numbers,
 // booleans, moments, dates, decimals, a type that marshals to text and back (a UUID),
 // and a pointer to or a Null wrapper of any of them order; a slice, a map, a plain
-// struct and a plain array do not. The two rules are held to one fixture
-// (testdata/sortfixture), which each package's test reads.
+// struct and a plain array do not, and neither does a type that says its value is not
+// the value its column holds (it has the resource package's Unordered method, as a mask
+// read as words has). The two rules are held to one fixture (testdata/sortfixture),
+// which each package's test reads.
 func ordersType(t types.Type) bool {
+	if types.Implements(types.Unalias(t), unordered) {
+		return false
+	}
 	t = nullableBase(t)
 	if named, ok := t.(*types.Named); ok && named.Obj().Pkg() != nil {
 		if _, ordered := orderedNamedTypes[named.Obj().Pkg().Path()+"."+named.Obj().Name()]; ordered {
@@ -87,12 +92,16 @@ func isBoolean(t types.Type) bool {
 // encoding.TextUnmarshaler, built here so a type is asked for them without the encoding
 // package having been loaded beside it.
 var (
-	textMarshaler   = textInterface("MarshalText", nil, []types.Type{types.NewSlice(types.Typ[types.Byte]), types.Universe.Lookup("error").Type()})
-	textUnmarshaler = textInterface("UnmarshalText", []types.Type{types.NewSlice(types.Typ[types.Byte])}, []types.Type{types.Universe.Lookup("error").Type()})
+	textMarshaler   = methodInterface("MarshalText", nil, []types.Type{types.NewSlice(types.Typ[types.Byte]), types.Universe.Lookup("error").Type()})
+	textUnmarshaler = methodInterface("UnmarshalText", []types.Type{types.NewSlice(types.Typ[types.Byte])}, []types.Type{types.Universe.Lookup("error").Type()})
 )
 
-// textInterface builds an interface of one method with the given parameter and result types.
-func textInterface(method string, params, results []types.Type) *types.Interface {
+// unordered is the resource package's Unordered interface, built here so a type is asked
+// for its mark without the resource package having been loaded beside it.
+var unordered = methodInterface("Unordered", nil, nil)
+
+// methodInterface builds an interface of one method with the given parameter and result types.
+func methodInterface(method string, params, results []types.Type) *types.Interface {
 	signature := types.NewSignatureType(nil, nil, nil, tuple(params), tuple(results), false)
 	iface := types.NewInterfaceType([]*types.Func{types.NewFunc(token.NoPos, nil, method, signature)}, nil)
 	iface.Complete()

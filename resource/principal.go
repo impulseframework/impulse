@@ -823,9 +823,10 @@ func MaskRefusesAction(ctx context.Context, classes ActionClasses, action access
 // the context refuses it (MaskRefusesAction), for a handler whose action no grant
 // admits. The refusal is logged as the masked check logs its own, so one line says a
 // mask denied something whichever of the two asked, and the person is answered 403
-// with what the session cannot do: act is the end of "this session cannot", as in
-// "create a tenant". It returns nil outside a masked session and for an action the
-// mask keeps.
+// with what the session cannot do, in one sentence: act is the end of "this session
+// cannot", as in "create a tenant". Why the mask refuses it (a class, a permission, an
+// action's name) is the cause's, kept for the server's log, and no word of it reaches
+// the person. It returns nil outside a masked session and for an action the mask keeps.
 //
 //	if err := resource.RefuseActionUnderMask(ctx, router.Collection(), "CreateTenant", "create a tenant"); err != nil {
 //		return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -842,8 +843,11 @@ func RefuseActionUnderMask(ctx context.Context, classes ActionClasses, action ac
 		logMaskKindDenied(ctx, accesstypes.Execute, mask, maskedSessionUser(ctx), action)
 	}
 
-	return httpio.NewForbiddenMessagef(
-		"you are acting as someone else, and this session cannot %s: %s. What a session that acts as someone may do is set when it starts; start one that may, or stop acting as them first", act, why,
+	return httpio.NewForbiddenMessageWithError(
+		errors.Newf(
+			"you are acting as someone else, and this session cannot %s: %s. What a session that acts as someone may do is set when it starts; start one that may, or stop acting as them first", act, why,
+		),
+		actingAsSomeoneCannot(act),
 	)
 }
 

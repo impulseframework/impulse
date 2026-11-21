@@ -65,6 +65,20 @@
   white-space: pre-line;
 }
 
+// The links of a list across tenants that could not be worked out: the same notice, with
+// the way to try again at its end.
+.links-unread {
+  align-items: center;
+
+  .notice-words {
+    flex: 1;
+  }
+
+  .try-again {
+    flex: none;
+  }
+}
+
 .create-button {
   margin-top: auto;
   margin-bottom: auto;

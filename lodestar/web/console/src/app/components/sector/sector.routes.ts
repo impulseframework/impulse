@@ -5,23 +5,21 @@ import { DomainRoutePath } from '@app/service/zz_gen_resources';
 import { frameRoutes, page, pageRoute, tenantGuard } from '@impulseframework/resource-angular/auth-frame';
 import { DashboardComponent } from '@components/ui/dashboard/dashboard.component';
 import { BriefingComponent } from './briefing/briefing.component';
-import { CallLogComponent } from './call-log/call-log.component';
 import { FlightDeckComponent } from './flight-deck/flight-deck.component';
 import { HangarDeckComponent } from './hangar-deck/hangar-deck.component';
-import { HazardBoardComponent } from './hazard-board/hazard-board.component';
 import { RosterComponent } from './roster/roster.component';
-import { SalvageHoldComponent } from './salvage-hold/salvage-hold.component';
 import { SectorSignInComponent } from './sector-sign-in/sector-sign-in.component';
 import { ShipsLogComponent } from './ships-log/ships-log.component';
-import { WatchDeskComponent } from './watch-desk/watch-desk.component';
 
 const list = Permissions.List;
 
 /**
- * The sector's decks, Lodestar's own pages (see SectorService for why they are
- * hand-written), in the order the Decks menu lists them. Each lives under the sector
- * segment and shows under the List grant its deck reads, asked of the sector's digest;
- * the briefing under Execute on the method that compiles it.
+ * The sector's decks that are Lodestar's own pages (see SectorService for why they are
+ * hand-written), in the order the Decks menu lists them; the salvage hold, the call log
+ * and the hazard board are the library's lists (their configs), placed in the same menu.
+ * Each lives under the sector segment and shows under the List grant its deck reads,
+ * asked of the sector's digest; the briefing under Execute on the method that compiles
+ * it.
  */
 export const deckPages = {
   flightDeck: page({
@@ -36,29 +34,11 @@ export const deckPages = {
     route: [DomainRoutePath, 'hangar-deck'],
     permission: { resource: Resources.Refits, permission: list },
   }),
-  salvageHold: page({
-    label: 'Salvage hold',
-    icon: 'inventory_2',
-    route: [DomainRoutePath, 'salvage-hold'],
-    permission: { resource: Resources.Consignments, permission: list },
-  }),
-  callLog: page({
-    label: 'Call log',
-    icon: 'call',
-    route: [DomainRoutePath, 'call-log'],
-    permission: { resource: Resources.DistressCalls, permission: list },
-  }),
   roster: page({
     label: 'Squadron roster',
     icon: 'groups',
     route: [DomainRoutePath, 'roster'],
     permission: { resource: Resources.Squadrons, permission: list },
-  }),
-  hazardBoard: page({
-    label: 'Hazard board',
-    icon: 'warning',
-    route: [DomainRoutePath, 'hazard-board'],
-    permission: { resource: Resources.SectorHazardBoards, permission: list },
   }),
   shipsLog: page({
     label: "Ship's log",
@@ -80,14 +60,6 @@ export const sectorSignInPage = page({
   icon: 'login',
   route: [DomainRoutePath, 'sign-in'],
   permission: { resource: Resources.SectorDirectories, permission: list },
-});
-
-/** The watch desk: every live impersonation in the service, a page of Headquarters. */
-export const watchDeskPage = page({
-  label: 'Watch desk',
-  icon: 'visibility',
-  route: ['watch-desk'],
-  permission: { resource: Methods.ViewAsUser, permission: Permissions.Execute },
 });
 
 /**
@@ -129,25 +101,10 @@ export const sectorRoute = (pages: Route[]): Route => {
         loadComponent: (): Promise<Type<HangarDeckComponent>> =>
           import('./hangar-deck/hangar-deck.component').then((comp) => comp.HangarDeckComponent),
       }),
-      pageRoute(deckPages.salvageHold, {
-        path: 'salvage-hold',
-        loadComponent: (): Promise<Type<SalvageHoldComponent>> =>
-          import('./salvage-hold/salvage-hold.component').then((comp) => comp.SalvageHoldComponent),
-      }),
-      pageRoute(deckPages.callLog, {
-        path: 'call-log',
-        loadComponent: (): Promise<Type<CallLogComponent>> =>
-          import('./call-log/call-log.component').then((comp) => comp.CallLogComponent),
-      }),
       pageRoute(deckPages.roster, {
         path: 'roster',
         loadComponent: (): Promise<Type<RosterComponent>> =>
           import('./roster/roster.component').then((comp) => comp.RosterComponent),
-      }),
-      pageRoute(deckPages.hazardBoard, {
-        path: 'hazard-board',
-        loadComponent: (): Promise<Type<HazardBoardComponent>> =>
-          import('./hazard-board/hazard-board.component').then((comp) => comp.HazardBoardComponent),
       }),
       pageRoute(deckPages.shipsLog, {
         path: 'ships-log',
@@ -170,11 +127,3 @@ export const sectorRoute = (pages: Route[]): Route => {
     ],
   };
 };
-
-/** watchDeskRoute is the watch desk, a page of Headquarters (every live impersonation in the service). */
-export const watchDeskRoute = (): Route =>
-  pageRoute(watchDeskPage, {
-    path: 'watch-desk',
-    loadComponent: (): Promise<Type<WatchDeskComponent>> =>
-      import('./watch-desk/watch-desk.component').then((comp) => comp.WatchDeskComponent),
-  });

@@ -138,8 +138,9 @@ const (
 	// flow keep.
 	tokensTable      = "CrewSessionTokens"
 	deviceCodesTable = "CrewSessionDeviceCodes"
-	// ImpersonationsTable is exported: the watch desk names it.
-	ImpersonationsTable = "CrewSessionImpersonations"
+	// The records of the sessions held as someone else, which the watch desk lists
+	// through the auth's generated resource.
+	impersonationsTable = "CrewSessionImpersonations"
 
 	// DroidsOutlet is the machine outlet the auth issues tokens for: the droids'
 	// telemetry channel (/droids), which the generator program declares Tokens of this
@@ -693,7 +694,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The impersonation record rides beside the sessions, so StartImpersonatedSession
 	// can mint view-as and act-as-role sessions, and the auth events table records how
 	// each session was authenticated.
-	impersonation, err := sessionstorage.NewImpersonationTable(ImpersonationsTable)
+	impersonation, err := sessionstorage.NewImpersonationTable(impersonationsTable)
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.NewImpersonationTable()")
 	}
