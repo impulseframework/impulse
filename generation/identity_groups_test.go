@@ -110,7 +110,7 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"WHERE r.Role != 'SuperAdministrator'\n  AND (g.Kind = 'global' OR (r.Kind = g.Kind AND r.Axis = g.Axis AND r.DomainId = g.DomainId))",
 		},
 		"crewidentity/create_crew_group.go": {
-			"// @rpc\n\t// @outlet(default)\n\tCreateCrewGroup struct {", "Domain      *string", "identity.Scope(m.Domain, false)",
+			"// @rpc\n\t// @outlet(default)\n\t// @class(access)\n\tCreateCrewGroup struct {", "Domain      *string", "identity.Scope(m.Domain, false)",
 			"client.manager.CreateGroup(ctx, txn, scope, m.Name, m.Description)", "return &CreateCrewGroupResult{ID: id}, nil",
 		},
 		"crewidentity/describe_crew_group.go": {"// @answers(204)\ntype DescribeCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID     impulse.UUID", "client.manager.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
@@ -130,7 +130,7 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		},
 		// The whole application's method names no row: a role is held in a scope whose
 		// columns are empty for the whole application, so a page fills it from a row.
-		"crewidentity/take_crew_group_role.go": {"// @answers(204)\ntype TakeCrewGroupRole struct {\n\tGroupID     impulse.UUID", "client.manager.TakeGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role))"},
+		"crewidentity/take_crew_group_role.go": {"// @answers(204)\n// @class(access)\ntype TakeCrewGroupRole struct {\n\tGroupID     impulse.UUID", "client.manager.TakeGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role))"},
 		"crewidentity/store.go": {
 			"var _ identity.Store = store{}",
 			"func (store) InsertGroup(ctx context.Context, txn resource.ReadWriteTransaction, group *access.GroupRow) (impulse.UUID, error) {",
@@ -282,7 +282,7 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 			"WHERE gm.UserId = u.Id AND gg.Kind = 'global'\n      AND " + standingSQL("gm") + "\n  )) AS HeldGlobally",
 		},
 		"crewidentity/create_crew_ship_group.go": {
-			"// @rpc\n\t// @permissionScope(domain)\n\t// @outlet(default)\n\tCreateCrewShipGroup struct {", "tenant.CreateGroup(ctx, txn, m.Name, m.Description)",
+			"// @rpc\n\t// @permissionScope(domain)\n\t// @outlet(default)\n\t// @class(access)\n\tCreateCrewShipGroup struct {", "tenant.CreateGroup(ctx, txn, m.Name, m.Description)",
 		},
 		"crewidentity/describe_crew_ship_group.go": {"// @permissionScope(domain)", "// @target(CrewShipGroup)\n\tGroupID     impulse.UUID", "tenant.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
 		"crewidentity/delete_crew_ship_group.go":   {"// @permissionScope(domain)", "// @target(CrewShipGroup)\n\tGroupID impulse.UUID", "tenant.DeleteGroup(ctx, txn, m.GroupID)"},

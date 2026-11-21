@@ -1,8 +1,19 @@
 <div mat-dialog-title>Delete</div>
 <mat-dialog-content>
   <p class="question">{{ question }}</p>
+  @if (refusal()) {
+    <p class="refusal" role="alert">{{ refusal() }}</p>
+  }
 </mat-dialog-content>
 <mat-dialog-actions align="end">
-  <button mat-raised-button type="button" color="warn" class="cancel" [mat-dialog-close]="false">Cancel</button>
-  <button mat-raised-button type="button" color="accent" class="delete" [mat-dialog-close]="true">Delete</button>
+  @if (refusal()) {
+    <button mat-raised-button type="button" color="accent" class="close" [mat-dialog-close]="false">Close</button>
+  } @else {
+    <button mat-raised-button type="button" color="warn" class="cancel" [mat-dialog-close]="false" [disabled]="busy()">
+      Cancel
+    </button>
+    <button mat-raised-button type="button" color="accent" class="delete" (click)="confirm()" [disabled]="busy()">
+      Delete
+    </button>
+  }
 </mat-dialog-actions>

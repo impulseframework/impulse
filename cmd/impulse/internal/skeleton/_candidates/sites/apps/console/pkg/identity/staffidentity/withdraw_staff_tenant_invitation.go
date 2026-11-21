@@ -24,6 +24,7 @@ import (
 // @permissionScope(domain)
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type WithdrawStaffTenantInvitation struct {
 	// @target(StaffTenantInvitation)
 	InvitationID impulse.UUID

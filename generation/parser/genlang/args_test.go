@@ -16,6 +16,7 @@ func TestArg_ParseInvocations(t *testing.T) {
 	typescriptSpec := &ArgSpec{Positional: 1, Keys: []string{"from"}}
 	fileSpec := &ArgSpec{Positional: 1, OptionalPositional: true, Keys: []string{"name", "type"}}
 	setSpec := &ArgSpec{Positional: 1, Keys: []string{"value", "who", "where"}, Required: []string{"value"}, Expressions: []string{"who", "where"}}
+	listSpec := &ArgSpec{Positional: 1, AnyPositional: true, Keys: []string{"refusedBy"}, Multi: []string{"refusedBy"}}
 
 	tests := []struct {
 		name        string
@@ -47,6 +48,24 @@ func TestArg_ParseInvocations(t *testing.T) {
 			arg:         Arg("thumbnail, small"),
 			spec:        fileSpec,
 			wantContain: "expected at most 1 positional argument(s), found 2",
+		},
+		{
+			name: "any number of positionals is taken where the spec admits it",
+			arg:  Arg("Project, Task, TaskComment"),
+			spec: listSpec,
+			want: []NamedArgs{{Positional: []string{"Project", "Task", "TaskComment"}, named: map[string][]string{}}},
+		},
+		{
+			name: "any number of positionals is followed by a named list",
+			arg:  Arg("Project, Task, refusedBy: Invoice, Payment"),
+			spec: listSpec,
+			want: []NamedArgs{{Positional: []string{"Project", "Task"}, named: map[string][]string{"refusedBy": {"Invoice", "Payment"}}}},
+		},
+		{
+			name:        "any number of positionals still has its least",
+			arg:         Arg("refusedBy: Invoice"),
+			spec:        listSpec,
+			wantContain: "expected at least 1 positional argument(s), found 0",
 		},
 		{
 			name: "positional with named",

@@ -1235,8 +1235,9 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   whose asserted roles the application recognizes none of is refused (`no_roles`)
   before anything is resolved or written, so an invitation it carried stands; a role
   store that fails once the session stands expires the session.
-- **Impersonation** is established through `auth.API().StartImpersonatedSession` (see
-  "Impersonated sessions"). A user principal's session belongs to the impersonated
+- **Impersonation** is established through `auth.API().StartImpersonatedSession`, from
+  a request the application's declaration made (see "Impersonated sessions"). A user
+  principal's session belongs to the impersonated
   user; a role principal's belongs to none. The session records an `impersonation`
   event whose connection is the actor.
 - **A request on a machine outlet** is bound to the person whose bearer token it
@@ -1299,7 +1300,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`: the password replaced and the sessions ended, or neither). |
 | `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`), so no failure leaves the temporary password in place and a session alive, on the act meant to end them. |
 | `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). A password shorter than eight characters is refused, as on every path that sets one. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
-| `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
+| `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. The first three read the session off the context they are called with: in a session that acts as someone else each refuses the account of the person who started the session (403, "you are acting as someone else, so you cannot disable your own account: …"), so a route an application wrote that calls one is held to the rule the generated user management has. The store's own `DeactivateUser`, `ActivateUser` and `DeleteUser` beneath them are the bare writes and are not held to it: they are handed no session to read, so a route calls the session API's three, never the store's. In a session of the person's own, the caller guards against the person disabling or deleting themselves. |
 
 One rule holds a password's shape on every path that sets one: it is at least eight
 characters, counted as characters and not as bytes, and a shorter one is 400 saying so.
@@ -3210,7 +3211,8 @@ An impersonated session operates as a principal other than the person who
 authenticated: as another **user** (support staff seeing the application exactly as
 that user does, usually read-only) or as a **role** (an administrator working under a
 role chosen for the session). Every session type supports both, `Auth` and `Preauth`,
-through the same `ImpersonationRequest` on each `API()`.
+through the same request on each `API()`, which only the application's declaration of
+the impersonation it offers makes.
 
 The model rests on two identities that are never conflated:
 
@@ -3257,53 +3259,553 @@ impersonation APIs return a configuration error.
 
 ### Establishing a session
 
-The establishing call runs in the *target* application's session API, typically from a
-server-to-server handoff (an admin application minting a session in a partner portal):
+An impersonated session starts from a request, and **the declaration is the only way
+to make one**. An application declares the kinds of impersonation it offers, each with
+the grant that allows it and the widest mask that grant gives (the next section), and
+the declaration turns what is asked into the request: `Request` for a person signed in
+here, `RequestFor` for a server-side caller. `ImpersonationRequest` has no field an
+application can set, so a request written out by hand does not compile, and the zero
+value, which no declaration made, is refused when a session is started from it. So
+the session API starts no session that no declared kind allows, and none without a
+mask somebody chose: a kind that gives everything the person holds says so where the
+application is read, with `accesstypes.AllowAll()`.
+
+**The storage beneath is sealed.** The write the session library makes once it has
+decided writes a session and its record with whatever principal, mask and actor it is
+handed, and asks nothing. So it is made by the session library alone, through its API,
+and the library hands it to no application code. It is a method of the store's interface
+(`sessionstorage.BaseStore`) that is not exported, and its name belongs to a package
+inside the library (`session/internal/sealed`), which the go command lets no package
+outside the session library's directory import. Go lets no other package call a method
+named there, or declare one.
+
+**So are the reads that decide one.** Who is recorded as the actor, whom the session
+acts as, what its mask keeps and whether it has ended are read through methods of the
+same kind, which `sessionstorage.BaseStore` and `sessionstorage.UserStore` carry beside
+the write: the actor's own session and the account acted as when a session is started,
+and the session and its user on every later request. So:
+
+- **A direct call does not compile**, on the library's stores or on the store's
+  interface, under any name.
+- **A store that wraps the library's keeps working, and decides no impersonated
+  session.** It embeds the library's store (`*sessionstorage.Auth`,
+  `*sessionstorage.Preauth`, or the interface over one) and has the write and those
+  reads from it. It cannot replace them: a method of the same name in the wrapper's own
+  package is another method, which the library never calls. And its own `Session`,
+  `User` and `UserByUserName` are never asked what a session that acts as someone else
+  is, because the library reads the stored rows itself. A wrapper that changes what
+  `Session` answers changes no such session's mask, actor or principal, and a read
+  cache in front of it keeps none alive after it ended. A wrapper does decide an
+  ordinary session: its `Session` is asked for every session the library's own read
+  does not find impersonated, and its `User` for that session's user. An answer of its
+  own that carries an impersonation record is refused as an invalid session. So is an
+  answer that is not the session the request's cookie names: one that carries another
+  session's id, and, where the library's own store holds the session, one that names
+  another account or another username than that row. A wrapper adds to an ordinary
+  session and does not change whose it is, so a cache that answers one person's cookie
+  with another person's session has the request refused, and no session is started as
+  that person. The same holds for the two other things a request is known by. Its
+  `User` answer is held to the account the session names: it carries the id that was
+  asked for and, where the library's own store holds the account, the username of that
+  row, or the request is refused as an invalid session, so the routes for a person's
+  own account never act on another person's. An account that row holds disabled is
+  disabled whatever the wrapper answers, as one the wrapper answers disabled is, so a
+  store that keeps the accounts it has read keeps no disabled account signed in. The
+  account of an application token is held the same way: the wrapper's `User` answer
+  carries the id the token names and, where the library's own store holds the account,
+  the username of that row, or the request is refused as an invalid token, and the token
+  of an account that row holds disabled is refused whatever the wrapper answers. So no
+  program's request runs as another person, and no disabled account's token keeps
+  working. The issue of an application token (`CreateApplicationToken`) is held too: an
+  account either one holds disabled is refused a new token as a disabled account is,
+  and a `User` answer that is another account than the one asked for fails the issue,
+  with no token made for either person. A password is not accepted for an account
+  either one holds disabled: the
+  sign-in is refused as a disabled account's is (`user_disabled`), and so are the check
+  of the credentials alone (`ValidateCredentials`) and the password confirmation of a
+  pending identity, before anything is linked to the account. A `Principal` its
+  `Session` answer carries is not taken: an ordinary session's checks are made for whom
+  the principal resolver chose, or for the session's own user. And where the library's
+  own store holds the session, the session is expired when that row is and was last used
+  when that row says, so a cache keeps no signed-out or idle session working (a wrapper
+  may still end a session early, by answering it expired or with an error). The rest of
+  an ordinary session is the wrapper's: its custom data and the account's other columns.
+  So is the row of an application token (which token it is, the account it names and the
+  outlet it is for), and a token starts no session that acts as someone else. A session
+  that acts as someone else starts from the session the request's cookie names, which
+  must be held under the same account in the library's store as the session the request
+  was validated as, or nothing is started. Over a wrapper the library reads an ordinary
+  session twice on each request, once itself and once through the wrapper.
+- **A store written from nothing is no session store.** It cannot declare the methods,
+  so a program that hands one to `NewAuth` or `NewPreauth` does not compile. A test
+  double written by hand embeds `sessionstorage.NoImpersonatedSessions`, which gives it
+  the methods with a write that refuses and no read: its `Session` answers for an
+  ordinary session and never for an impersonated one.
+- **The mocks write nothing.** `mock_sessionstorage.NewMockBaseStore`,
+  `NewMockPreauthStore`, `NewMockUserStore` and `NewMockAuthStore` mock every other
+  method of the store. Their write refuses, and a `Session` of theirs that answers an
+  impersonation record is refused as an invalid session. A test in which a session is
+  impersonated runs over a store the library made (`sessionstorage.NewPostgresAuth` and
+  the others, on a test database).
+
+A write the library did not make is refused with `sessionstorage.ErrImpersonationSealed`
+before anything is written: that is what a mock, a store that embeds
+`NoImpersonatedSessions` and a store value nobody built answer. An application starts an
+impersonated session through the session API, from a request its declaration made, and
+through the library's API there is no other way.
+
+The seal is the library's API and no more. These are outside it:
+
+- **The tables.** The application owns them, so SQL of its own writes any row, and the
+  store's `NewSession` and `CreateSession` write an ordinary session for any username,
+  by design.
+- **The resolver of custom session data.** An application that keeps custom session
+  data registers a resolver (`sessionstorage.NewCustomSessionData`), and the library
+  calls it inside the write's own transaction, once the session and its record are
+  written there, with the request and the transaction. It is the application's code.
+  What it changes in the request reaches no row the library writes; what it can do to
+  the session and its record is a write of its own on those tables in that transaction,
+  which is the limit above.
+- **The connection the application hands the store.** The store writes through the
+  connection it was made with, and that connection is the application's. For PostgreSQL
+  it is any value that answers the store's `postgres.Queryer`: a pool, or a type of the
+  application's own that wraps one, which is handed every statement the library sends,
+  with its arguments, and could send another. For Spanner it is the client the
+  application dialed, and the gRPC interceptors it was dialed with are handed every
+  request and could change it. Both see and could rewrite what the library writes. It is
+  the tables again, one step before the database.
+- **What a store that wraps the library's still carries.** It answers for ordinary
+  sessions, as said above: what it adds to one is the application's, and a session the
+  library's own store does not hold is its to answer whole, under the id that was asked
+  for. And the writes that end or extend an impersonated session
+  pass through it (`DestroySession`, `DestroyImpersonatedSession`,
+  `DestroyImpersonatedSessions`, `EndImpersonation`, `UpdateSessionActivity`), as does
+  the listing of the live ones (`ActiveImpersonations`). A wrapper that drops one of
+  those writes leaves the session to its idle timeout and its hard cap, both of which
+  the library reads from its own store.
+- **Code the type checker does not read.** The seal is the type checker's, and a
+  program that imports `unsafe`, or brings assembly or C of its own, steps around what
+  the type checker refuses, here as anywhere in Go. The plainest form is a
+  `//go:linkname` directive in a file that imports `unsafe`: it links to a function or
+  a variable of the library by its symbol's name, the sealed write among them, and the
+  linker accepts it. `impulse check` refuses the directive (`framework-linkname`): a
+  `//go:linkname` that names a package of the library in any Go file under the
+  application's root, a test file, a generated file and a vendored file included, and
+  a file in a directory the tree reaches through a symbolic link. It refuses nothing
+  else of this kind: `unsafe` reaches the memory of a value a program holds with no
+  directive at all.
+- **A module under the library's import path.** The go command opens an internal
+  directory to every package whose import path is under the directory's parent, and it
+  goes by the path, not by where the code is kept. A module whose path is under the
+  library's is inside the library to it: a `replace` in `go.mod` or a workspace gives
+  a directory of the application's own such a path, and its packages may then import
+  the internal package and make the write themselves. `impulse check` refuses it
+  (`framework-modules`): a module path under the library's that is not one of the
+  library's own modules, as the application's own module path, a requirement or a
+  replace in `go.mod`, as a used directory's module or a replace in a `go.work` at the
+  application's root, and as a requirement or a replace in the `go.mod` of each
+  directory that `go.work` uses, since in a workspace the go command applies the
+  replaces of every module it uses.
+- **A copy of the library the application changed.** An application that builds against
+  a copy of the library with a change of its own in it, through a `replace` of the
+  library's module or a vendor directory edited by hand, builds another library, and
+  nothing this one refuses holds there. `impulse check` warns of the replace (`pins`);
+  nothing compares a vendor directory with the release.
+
+The two checks read the application's own tree as it stands: its Go files, its `go.mod`,
+a `go.work` at its root and the `go.mod` of each directory that `go.work` uses. They do
+not read the code of the modules the application requires, or a build told to read
+files from elsewhere: the `-modfile` flag names another module file, the `-overlay`
+flag replaces or adds source files from anywhere, and the `GOFLAGS` variable carries
+either with nothing on the command line. They do not read a workspace file that is
+not at the application's root either: the go command takes a `go.work` from any
+directory above the one it runs in, and the file the `GOWORK` variable names, and
+either can use a directory whose module path is under the library's. An application
+that must rule those out reads its dependencies, its build's commands and the
+environment they run in, in its own review.
+
+The application's principal resolver (`WithPrincipalResolver`) is not on this list: it
+is never asked about a session that acts as someone else ("Choosing the principal").
+
+**No option opens the session.** The session the library builds inside `NewAuth`,
+`NewPreauth` and the other constructors is the one thing that starts that write, so
+nothing hands it to a program. The options that configure it (`session.WithSessionTimeout`,
+`WithImpersonationTimeout`, `WithImpersonationAudit`, `WithPrincipalResolver`,
+`WithLogHandler` and the table names) are opaque values: `session.BaseSessionOption` is
+a struct with no exported field and no method, which a program passes to a constructor
+and can do nothing else with. It is not a function, so a generic function instantiated
+with it learns nothing of the session it configures, and a program can neither call
+one, read one nor write one of its own; each of those does not compile. The zero value,
+the one option a program can still declare, sets nothing and is refused by every
+constructor. Reflection can find the type of the session inside and make a value of it;
+that value was not built by the library, and it starts no impersonated session: it is
+refused with `sessionstorage.ErrImpersonationSealed` before the store is asked anything.
 
 ```go
-// Support views bob's portal, read-only, for an hour at most. A user principal names
-// the person as the permission store does, by the id of their account.
-id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-    Actor:      "alice@example.com",
-    ActorRealm: "admin-portal",
-    Principal:  accesstypes.UserPrincipal(accesstypes.User(bob.ID.String())),
-    Mask:       accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
-    Reason:     "ticket JRN-123",
-})
+// A person signed in here views bob's pages. The route is behind ValidateSession: the
+// actor is the validated session's user, acting from that session.
+req, err := impersonations.Request(ctx, &session.ImpersonationAsk{
+    Kind:      "view",
+    Principal: bob.ID.String(), // a person is named as the permission store names them: by the id of their account
+    Reason:    "ticket JRN-123",
+}, resource.HoldsAction(a.UserPermissions(r), accesstypes.GlobalScope()))
+if err != nil {
+    return httpio.NewEncoder(w).ClientMessage(ctx, err) // 400 or 403, a sentence the person can act on
+}
+id, err := auth.API().StartImpersonatedSession(ctx, w, req)
 
-// An administrator of the admin application works the partner portal under a role.
-id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-    Actor:      "alice@example.com",
-    ActorRealm: "admin-portal",
-    Principal:  accesstypes.RolePrincipal("PartnerViewer"),
-}, &MyData{PartnerID: partnerID}) // custom session data rides along as usual
-
-// A user of this application acts under a narrower role for a while — their own
-// session, narrowed. The actor is local: no realm, and their own session as the source.
-// The call arrives on their validated session, so SourceSessionID may be omitted: it
-// defaults to that session, and Actor must be that session's user.
-info := sessioninfo.FromCtx(ctx)
-id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-    Actor:     info.Username,
-    Principal: accesstypes.RolePrincipal("Auditor"),
-})
+// A server-side caller: the administration application signed alice in and hands her
+// over to this portal, to work under a role. The call arrives on no session of this
+// application, so it names the actor, and the portal's own check of the calling system
+// answers for the kind's grant.
+req, err := impersonations.RequestFor(ctx,
+    session.ImpersonationActor{Name: "alice@example.com", Realm: "admin-portal"},
+    &session.ImpersonationAsk{Kind: "partner", Principal: "PartnerViewer"},
+    func(ctx context.Context, grant accesstypes.Resource) (bool, error) {
+        return handOff.MayStart(ctx, grant) // which kinds the system this handler authenticated may start
+    })
+if err != nil {
+    return httpio.NewEncoder(w).ClientMessage(ctx, err)
+}
+id, err := auth.API().StartImpersonatedSession(ctx, w, req, &MyData{PartnerID: partnerID}) // custom session data rides along as usual
 ```
+
+| The call | Makes the request with | The actor | The check of the kind's grant |
+| --- | --- | --- | --- |
+| Arrives on a person's validated session of this application | `Request` | That session's user, acting from that session. A call that carries no validated session is refused as a mistake in the program | Whether the person holds the grant: `resource.HoldsAction` over the request's permissions |
+| A server-side caller: a hand-off from the system that signed the actor in, or any call that arrives on no session here | `RequestFor`, with an `ImpersonationActor` | Named by the call. With a `Realm`, an actor another system signed in, recorded under the name given. With none, a person of this application, whose own live session the call names in `SessionID`. A call that does carry a validated session, and an actor with neither a `Realm` nor a `SessionID`, are refused as mistakes in the program | The caller's own: what the calling system, which the handler has authenticated, may start. A caller it refuses is answered 403, "this caller may not start a session of the kind…" |
+
+`AuthAPI.StartImpersonatedSession` and `PreauthAPI.StartImpersonatedSession` take the
+same request: a session type that keeps no accounts declares its kinds as any other
+does. A declaration is held to the application's actions, which the generated
+permission collection lists (`router.Collection()`). An application that has none, a
+session type used on its own, names the grants of its kinds itself:
+
+```go
+// A partner portal on Preauth, with no generated collection. Its kinds' grants are
+// names its own check answers for; no action carries a class, so its masks keep or
+// drop permission kinds.
+impersonations, err := session.NewImpersonations(session.NamedActions("ViewAsUser", "WorkAsPartner"),
+    session.ImpersonatesUser("view", "ViewAsUser",
+        accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
+    session.ImpersonatesRole("partner", "WorkAsPartner", accesstypes.AllowAll()),
+)
+```
+
+What a request carries is read through its methods (`Kind`, `Actor`, `ActorRealm`,
+`ActorSessionID`, `Principal`, `Mask`, `Reason`, `MaxDuration`), so a route can answer
+the person with what their session may do (`req.Mask().Words()`). None hands out
+anything that can be written to.
+
+A request starts one session. It is for the call that follows it: the grant was checked
+once, when the request was made, and that check stands for one start. The first
+`StartImpersonatedSession` a request is handed spends it, whether or not the session
+came to be, and a second start from the same request, or from a copy of it, is refused
+before anything is written, with an error that says so (a mistake in the program, so no
+client message). A handler takes a new request from the declaration for each session it
+starts, which checks the grant again.
 
 The session row and the record are written in one transaction; the cookie is set only
 after the `Started` event has been delivered (a failing audit hook destroys the session
-and fails the call). Refused everywhere: a missing actor or principal, a caller that is
-itself an impersonated session (no chaining), and a local actor whose `SourceSessionID`
-is missing or is not their own live session here.
+and fails the call). Refused everywhere: a request no declaration made, a request that
+has started a session already, a missing actor or principal, a caller that is itself an
+impersonated session (no chaining, refused when the request is asked for and again when
+a session starts), and a person of this application whose own session is not their live
+session here.
 
-When the call arrives on a validated session of this application (the context has passed
-`ValidateSession`), the request is bound to that session: `Actor` must be its user,
-`SourceSessionID` must be it (and defaults to it when omitted), and `ActorRealm` must be
-empty — an actor logged in here is local. The binding keeps a caller from minting a
-session as another user by naming them and one of their session IDs, which appear in
-logs, spans and `ActiveImpersonations`. A call with no session in its context (a
-server-to-server handoff) is taken at its word, so its handler must authenticate the
-caller. *Who may impersonate whom* is the application's guard — the library records what
-happened.
+A call that arrives on a validated session of this application (the context has passed
+`ValidateSession`) is bound to that session twice. The declaration names nobody but its
+user: `Request` reads the actor off it, and `RequestFor` refuses a call that carries
+one. And the library binds again as it establishes: the actor must be the session's
+user, acting from it, and never an actor of another system, since a person signed in
+here is local. The binding keeps a caller from minting a session as another user by
+naming them and one of their session IDs, which appear in logs, spans and
+`ActiveImpersonations`. A call with no session in its context (a server-side caller) is
+taken at its word about the actor, so its handler must authenticate the caller, and its
+check of the grant is where it says what that caller may start.
+
+*Who may start which kind* is what the declaration holds every request to: the kind's
+grant, asked of the application's check. *Whom* a person may impersonate under a kind
+(which people, which roles) is not something a kind says: the check is asked about the
+grant, never about the principal. An application that limits it makes that check
+itself, before it asks for the request or inside the check it passes, which it writes.
+The library records what happened.
+
+### Impersonation is granted with a mask
+
+The rule, in the words it was given in: **"If you allow them to impersonate without a
+mask, then you're giving them those privileges."** To let someone impersonate a person
+with no mask is to give them everything that person holds, their ways of changing how
+other people sign in among it. Nothing else stands in the way: no action refuses an
+impersonated session by a rule of its own because of what the action does. **The mask is
+the control.**
+
+So the grant to impersonate carries a mask, and an application says both in one place.
+It declares each *kind* of impersonation it offers with the grant that allows it and the
+widest mask that grant gives:
+
+```go
+// Built once, where the application is constructed. The generated collection
+// (router.Collection()) is what the declaration is held to.
+impersonations, err := session.NewImpersonations(collection,
+    // View as a person: reading only.
+    session.ImpersonatesUser("view", resources.ViewAsUser,
+        accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
+    // Act as a person: everything they may do, except the credential actions and the
+    // actions that change who may do what.
+    session.ImpersonatesUser("act", resources.ActAsUser,
+        accesstypes.AllowAll().Refusing(
+            accesstypes.RefuseClass(router.ClassCredential), accesstypes.RefuseClass(router.ClassAccess))),
+    // Act as a role: what the role holds. The kind says in so many words that it is unmasked.
+    session.ImpersonatesRole("role", resources.AssumeRole, accesstypes.AllowAll()),
+)
+```
+
+- **The grant** is an action the application registers by hand
+  (`@manualAddResource(Execute)` on a constant), which its role file gives on purpose.
+  Each kind has a grant of its own, since a grant carries one widest mask: the grant to
+  view as a person is not the grant to act as them.
+- **The widest mask is not optional.** A kind that gives everything the person holds
+  says so, `accesstypes.AllowAll()`, where the application is read.
+- **The declaration is checked when the application starts.** `NewImpersonations`
+  refuses a kind with no name, a name or a grant two kinds share, a grant that is no
+  Execute action of the application, and a mask that names something the application
+  does not have (below): a kind or a refusal that names nothing would keep or refuse
+  nothing, and whoever wrote it would believe otherwise. A mask written with the
+  collection file's own constant (`router.ClassCredential`, one per class in use) does
+  not compile once no action carries the class.
+
+A mask, the declaration's or a request's, is held to the application's actions. It may
+keep only the six permission kinds, spelled as they are (`Read`, not `read`). What it
+refuses must be something to refuse:
+
+| A refusal of | Is accepted when |
+| --- | --- |
+| A class | Some action carries it |
+| Execute on a name | The name is an action |
+| List, Read, Create, Update or Delete on a name | The name is a record, whether or not the application offers that permission on it: `RefuseWrites` of a record that is never deleted holds as it reads |
+| A permission on `Record.field` | The field carries that permission itself (`perm` on the field), which is when a check asks about the field by name; any other field is refused with its record |
+
+What a mask keeps out of a class it refuses (`accesstypes.RefuseClassExcept`, "What a
+mask says") must be something the exception keeps. An exception that keeps nothing is
+refused, because whoever wrote it would believe otherwise:
+
+| An exception | Is refused when |
+| --- | --- |
+| Names what the application does not have | No action, record or field of that name carries the permission (the rules of the table above) |
+| Names what the class does not cover | The action does not carry the class, or that write of the record does not (a field is judged by its record) |
+| Names what the same mask refuses all the same | The mask refuses it by name, does not keep its kind, or refuses another class it carries without the same exception |
+
+A request names the kind and may name a narrower mask. `Request` turns it into the
+`ImpersonationRequest` a session starts from, or refuses it with nothing started:
+
+```go
+req, err := impersonations.Request(ctx, &session.ImpersonationAsk{
+    Kind:      body.Kind,      // "view", "act" or "role"
+    Principal: body.Principal, // the id of the person's account, or the role's name
+    Mask:      asked,          // the zero mask asks for none: the session takes what the kind gives
+    Reason:    body.Reason,
+}, resource.HoldsAction(a.UserPermissions(r), accesstypes.GlobalScope()))
+if err != nil {
+    return httpio.NewEncoder(w).ClientMessage(ctx, err) // 400 or 403, a sentence the person can act on
+}
+id, err := auth.API().StartImpersonatedSession(ctx, w, req)
+```
+
+The session's mask is the grant's, narrowed by the request and never widened
+(`accesstypes.PermissionMask.Narrow`):
+
+| The request | The session's mask |
+| --- | --- |
+| Names no mask | The kind's widest |
+| Names permission kinds, each of which the kind gives | Those kinds, and everything the kind refuses inside them |
+| Refuses a class, an action or a record's permission beside what the kind refuses | The kind's kinds (or the ones it named), with both sets of refusals: refusals are joined |
+| Does not refuse a class the kind refuses with exceptions | The class refused as the kind has it, exceptions and all |
+| Refuses a class the kind refuses with exceptions, naming some of the kind's exceptions or none | The class refused with the exceptions the request named: a request drops an exception by leaving it out |
+| Refuses by name something the kind keeps out of a class | The exception is dropped and the name is refused |
+| Keeps something out of a class that the kind does not keep out of it | **Refused (403), never trimmed** |
+| Names a kind of permission the grant does not give | **Refused (403), never trimmed**: nobody is left believing they hold what they do not |
+| Names a kind that is no permission kind (`read` for `Read`) | Refused (400), with the kinds there are: a session that kept a kind nobody checks would keep nothing |
+| Refuses a class no action carries, or names an action, a record or a field the application does not have | Refused (400) |
+
+Letting the person choose a narrower mask is a safety precaution, theirs to take, and
+not a permission: a support engineer who means only to look asks for reading only under
+a grant that would let them act. `Request` also refuses a kind the application does not
+offer (400), a request with no principal (400), and a person who does not hold the
+kind's grant (403). `RequestFor` does the same for a server-side caller, which names
+the actor and passes its own check ("Establishing a session").
+
+#### What a mask says
+
+A mask (`accesstypes.PermissionMask`) says which permission kinds the session keeps
+(List, Read, Create, Update, Delete, Execute) and, inside a kind it keeps, what it
+refuses:
+
+| Built with | Refuses |
+| --- | --- |
+| `MaskPermissions(DenyAll(), List, Read)` | Every kind but the ones named |
+| `.Refusing(RefuseClass(class))` | Every action that carries the class, the ones declared after the mask was written among them |
+| `.Refusing(RefuseClassExcept(class, exceptions...))` | The class, except what is named: an action (`ExceptAction`), a record's three writes (`ExceptWrites`), or one permission on a record or on one of its fields (`ExceptPermission`). A name beats its class, and the rest of the class stays refused, whatever is added to it later |
+| `.Refusing(RefuseAction(action))` | One action by name (Execute on it), and nothing else |
+| `.Refusing(RefusePermission(perm, record))`, `.Refusing(RefuseWrites(record)...)` | One permission on one record and its fields (or on one field, named `Record.field`, and nothing else); the three writes of a record |
+
+An action carries its **classes** where it is declared: `@class(name)` on a generated
+method's struct or on the constant that registers the action by hand
+(`@manualAddResource(Execute)`), or `ManualRegistration.Classes` (the resource package's
+"Annotation reference"). A class is an action's alone: a registration of another
+permission is a record's, and the generator refuses a class on it. The library
+names two classes and marks its own actions with them. `accesstypes.ClassCredential`,
+`credential`, is on every generated identity method that changes how a person signs in
+(a temporary password set, a new password required, a password removed, a reset link
+sent, a sign-in identity unlinked, a username or an address changed).
+`accesstypes.ClassAccess`, `access`, is on every one that gives or takes away what
+someone may do (a role given or removed, a role a person takes themselves for a set
+time, a person put in a group or taken out, a role
+given to a group or taken from it, a group made or deleted, an invitation sent or
+withdrawn, an account made, which is made with the roles its person holds, and what a
+sign-in method or a tenant's directory gives everyone who arrives through it), and on the
+settings that say
+who may sign in at all: the switch that makes a tenant sign in with its directory
+alone, and the one that lets people ask at the sign-in page for a link that resets
+their own password. The making of a tenant of one's own carries it too: the generated
+create-your-tenant route, which no grant admits, has an action's name for the mask to
+refuse, and asks the mask itself (the resource package's "How a tenant comes to
+exist", "The first administrator"). An account disabled, enabled or deleted carries
+neither class: that is the work a person who stands in for an administrator is there to
+do, so a mask that refuses both classes leaves it to them. An application marks its own
+actions with either or with a class it names. The generated permission collection
+carries each action's classes, which is where a check reads them.
+
+**What no mask decides.** In an impersonated session nobody is the subject of what they
+do: the generated user management refuses every change to the account of the person who
+started the session, whatever the mask keeps and whether or not the kind was declared,
+since the rule reads the session's record alone (the actor it names). A person who acts
+as an administrator would otherwise give their own account a role and keep it after the
+session ends, or enable their own account again after it was disabled. Disabling,
+enabling and deleting the real person's own account are refused the same way, in one
+sentence form and with one log line, and the session API's own three switches
+(`DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`) ask the rule
+themselves of the session they are called in, for a route an application wrote. That
+is where the rule lives. The store's own three beneath them (`DeactivateUser`,
+`ActivateUser`, `DeleteUser`) are bare writes that read no session and ask nothing, so
+a route an application wrote that calls the store's method makes the switch unasked:
+it calls the session API's. The rule covers a record that decides what a person may do as well: the
+generated write of a record the policy reads as a subject value or a subject set (a
+clearance, a place in a team) refuses the real person a row that names them, asked
+before the write and after it, so they neither raise their own clearance nor move
+someone else's row onto themselves. An application's own action that names a person
+asks the same rule (`identity.RefuseImpersonatorAsSubject`; the resource package's "User
+management", "The rules on who is asking"). The class `access` is for what that rule
+cannot see: a role that reaches the person through a group they are in, through another
+account or through a colleague. That is the rule's stated limit: a session whose mask
+does not refuse the class gives such a role. A row of the application's own that
+reaches the person without naming them is not a limit: the generated write refuses the
+real person a pass given to a team they are in
+(`identity.RefuseImpersonatorAsSetSubject`) and their own team moved to another
+division (`identity.RefuseImpersonatorAsReadThroughSubject`), under every mask. The
+generated code names the column and the set, and the library asks the set by its own
+declaration, so the rule and the policy agree on who is in it. The generator also gives
+the class to the create, the change and the delete of every record that decides what a
+person may do (one that carries `@subjectValue` or `@subjectSet`) and to the change of
+a record such a value is read through, so no application lists those records by hand,
+and a kind that is to keep one of them names it as an exception to the class
+(`accesstypes.RefuseClassExcept`): the session then writes the record for other people,
+and never for the real person, a set they are in, or the row their own standing is read
+through. To let someone act as a person with no mask is to give them what the person
+holds, and an application closes the limit through its mask.
+A row removed with its parent, which may name the person, is a limit of its own: the
+database removes a pass with the place it opens, no write of the pass is made, and so
+neither the rule nor a mask that refuses the writes of passes is asked. An application
+closes it under the mask by refusing each request that removes a row above the pass:
+the parent's delete (`accesstypes.RefusePermission(accesstypes.Delete, parent)`), the
+delete of each record further up while the cascade goes on (the grandparent's delete
+removes the parent and the pass with it), and an action that removes one of them in its
+own body, by name (`accesstypes.RefuseAction`). Where a foreign key changes the row
+instead of removing it (`ON DELETE SET NULL` or `SET DEFAULT`, and `ON UPDATE CASCADE`,
+which follows a change of the parent's key; PostgreSQL has them), the same refusals and
+the refusal of the parent's update close it. A column that records who
+made a row, which a grant compares to `subject`, is another: the row names a person and
+decides what they may do, and the rule does not read the column. While the application
+stamps the column from the session and people cannot write it, no write moves a row
+onto the real person, and a row made acting as a person is stamped with that person. A
+row made in a session that acts as a role is the stated case: a role is not anyone, so
+the row is stamped with the person who started the session, and what the grants give
+the row's author is theirs after the session too, for a row the role's powers made. An
+application that does not want that refuses the record's create in the role kind's mask
+(`accesstypes.RefusePermission(accesstypes.Create, record)`), or stamps the column with
+nobody in such a session. Where people can write the column, the application refuses
+the record's writes under the mask.
+One limit no class closes: the rule knows the real person by the account they signed in
+with, so a second account of their own is someone else's to it, and a person who acts
+as an administrator can enable that account again, or disable or delete it, as the
+administrator can. An application that must hold this refuses the three actions by name
+in the kind's mask (`accesstypes.RefuseAction`).
+An application that lets people act as a person and
+does not mean them to change who may do what refuses both classes, as the declaration
+above does. The class `access` holds the writes of its own records that decide what a
+person may do, so the kind names none of them; a record the kind is to keep is named
+as an exception to the class (`accesstypes.RefuseClassExcept(class,
+accesstypes.ExceptWrites(record)...)`), and the session then writes it for everyone
+but the real person, the sets they are in and the row their own standing is read
+through. The kind refuses by name the delete of a record such rows are removed with
+(`accesstypes.RefusePermission(accesstypes.Delete, parent)`): the rule holds the real
+person alone, and the mask is what keeps such a session from changing anyone else's.
+
+A masked check is refused when the mask does not keep its kind, refuses one of its
+resource's classes, or refuses the permission on the resource by name. The refusal comes
+before any policy is read and is logged as the mask's, naming the mask, the person the
+session acts as, the resource and the reason:
+
+```
+impersonation: Execute denied by mask (*;-class:credential) for f0000000-0000-4000-8000-000000000002 on SetStaffTemporaryPassword: the mask refuses the class credential
+```
+
+The permission digest leaves the same things out, so no page offers them
+(`resource.Masked`, which `resource.SessionPermissions` applies for every request).
+
+What a refused class keeps (`RefuseClassExcept`) is left to policy like anything the
+mask does not refuse, and stays in the digest, so the pages offer it. An excepted
+record is kept with its fields, and an excepted action by its name. An excepted field
+is kept to a write that sets that field and no other: an armed write tells the check
+every field it sets, so the update of the excepted field alone goes through, and the
+digest keeps the field and its record's permission while it drops the record's other
+fields. A write that sets any other field is refused the record, and so is a check
+that names no fields: a hand-written check of the record's permission, and a
+patch-or-add, which is asked for its grant before its fields are read.
+
+A refusal holds wherever the permission is asked: the generated routes, a method's
+handler, and a write a method's body arms against the caller (`Enforce`). It does not
+reach inside a method that is kept: a body's writes run trusted unless the body arms
+them, so a method whose body writes a record trusted, or arms the write against a
+role's permissions (`Caller.As`), still writes it in a session whose mask refuses the
+record's writes. Such a method is refused by its own name (`RefuseAction`) or by a
+class it carries, which is what a class is for.
+
+The mask is kept on the impersonation record in its text form, in the table's one
+`Mask` column on both databases: the kinds it keeps, sorted and joined with commas (`*`
+for every kind), then each refusal after a semicolon, `-class:<class>` or
+`-on:<Permission>:<Resource>`, and each exception of a class after its class, as
+`+class:<class>:<Permission>:<Resource>`. A read-only mask is `List,Read`; everything except the
+credential actions is `*;-class:credential`, and everything except those and the actions
+that change who may do what is `*;-class:access;-class:credential`; an unrestricted
+session's column is NULL. The record so keeps what the session was given out of a
+class, for as long as the record is kept.
+A column that does not read as a mask holds the session to nothing: a mask is never
+read wider than it was written, and each time the record is read the log says which
+session's column does not read and why (`impersonation: the mask stored for session
+... does not read, so the session is held to nothing`). For people the mask is said in words
+(`PermissionMask.Words()`): "reading only", "everything except credential actions",
+"everything except the action ScrapShip", and "everything except writing Invoices" for
+a record refused its three writes; what a refused class keeps is said beside it,
+"everything except access actions (still allowed: writing Passes)". The session endpoint carries them
+(`impersonation.maskWords`, beside `mask`, `refusedClasses`, `refused` and `excepted`,
+which lists what each refused class keeps), and a list
+of impersonated sessions shows them for each: `ActiveImpersonations` returns each
+record with its mask, and the generated user management's list of the impersonation
+records (`<Auth>SessionImpersonations`) reads the column as words itself, through the
+type of its `mask` field (`accesstypes.NullMaskWords`: "everything" for NULL, and
+"nothing (the stored mask does not read)" for a column that is no mask's text), so the
+list never shows the text form.
 
 #### Identity by session type
 
@@ -3336,13 +3838,14 @@ other (see "Every session").
 
 #### Local and foreign actors
 
-`ActorRealm` says where the actor was authenticated, and it decides what the actor's name
-means in this application's session table:
+The record's `ActorRealm` says where the actor was authenticated, and it decides what
+the actor's name means in this application's session table. It is empty for a request
+`Request` made, and `ImpersonationActor.Realm` for one `RequestFor` made:
 
 | | Local actor (`ActorRealm` empty) | Foreign actor (`ActorRealm` set) |
 | --- | --- | --- |
 | Who | A user of this application, logged in here | Authenticated by another application or IdP |
-| `SourceSessionID` | Required and verified: the actor's own live, non-impersonated session here, carrying their username. Defaults to the request's own session when the call arrives on one | Optional; the session in the source application, for correlation |
+| The actor's own session (the record's `SourceSessionID`) | Required and verified: the actor's own live, non-impersonated session here, carrying their username. `Request` names the session the call arrives on; a server-side caller names it in `ImpersonationActor.SessionID` | Optional (`ImpersonationActor.SessionID`); the session in the source application, for correlation |
 | The actor's account | The record carries its id (`Impersonation.ActorID`, the table's `ActorUserId` column), read from the source session: the permission store names the actor by it (`ActorUser`), so the actor's own roles are found under it and a row condition's `subject` binds to it in a role principal's session | None here: `ActorID` is null, the permission store names the actor by the name the record carries, and the actor holds nothing in this application |
 | The actor's name | The username of the source session | Any name that does not read as the id of an account: an Auth refuses a foreign actor whose name parses as one (400, in every form the id parser reads), since a text that reads as an id names an account here |
 | A role principal's session | The actor's own session, narrowed to the role | A session under a borrowed name |
@@ -3366,21 +3869,27 @@ mask      := sessioninfo.MaskFromCtx(ctx)      // unrestricted unless impersonat
 imp, ok   := sessioninfo.ImpersonationFromCtx(ctx)
 ```
 
-A permission check honors the mask by asking it before asking policy —
-`sessioninfo.MaskFromCtx(ctx).Allows(perm)` — and picks the check by the principal's
-kind (`Role()` → `CheckRoleResources`, otherwise `CheckUserResources`). Forgetting the
-mask fails *open*, so prefer a shared implementation over hand-rolling it per
-application.
+A permission check honors the mask by asking it before asking policy, and picks the
+check by the principal's kind (`Role()` → `CheckRoleResources`, otherwise
+`CheckUserResources`). The shared implementation is `resource.SessionPermissions`, which
+the generated handlers go through: it asks the mask of each resource
+(`PermissionMask.Refuses(perm, resource, classes...)`, with the classes the generated
+collection gives the action), so a class or a named action refused inside a kept kind is
+refused. `PermissionMask.Allows(perm)` answers for the kind alone. Forgetting the mask
+fails *open*, so a check written by hand goes through the shared implementation, never
+around it.
 
 ### Choosing the principal
 
 By default a session's principal is its user, or the impersonation record's principal,
 and for almost every application that is the end of the story: put role membership in
 the permission store, check with `ForUser`, and a role change is enforced on the user's
-next request. `WithPrincipalResolver` exists for the narrow case where a session's
-subject genuinely is not a user. The resolver runs inside session validation, with the
-session, its custom data and its impersonation record in the context, and returns the
-principal `PrincipalFromCtx` reports for the request.
+next request. `WithPrincipalResolver` exists for the narrow case where an ordinary
+session's subject genuinely is not a user. The resolver runs inside the validation of
+an ordinary session, with the session and its custom data in the context, and returns
+the principal `PrincipalFromCtx` reports for the request. A session that acts as
+someone else never asks it: whom such a session acts as is what its kind declares and
+its record names, and no code of the application's decides it.
 
 **The resolver chooses *which subject*, never *which grants*.** Grants always come from
 the permission store at check time. The moment a resolver reads role membership from
@@ -3435,9 +3944,13 @@ auth, err := session.NewPreauth[APIKeySession](storage, cookieKey,
 
 - The choice is made per request at validation and never stored; nothing changes in the
   schema and no impersonation record is written.
-- The resolver runs for ordinary sessions and for user-principal impersonations — an
-  impersonated user's session acts as that user's session would. A role-principal
-  impersonation already names its subject and skips the resolver.
+- The resolver runs for ordinary sessions alone. A session that acts as someone else,
+  as a person or as a role, skips it, and `PrincipalFromCtx` answers the principal its
+  record names. So a session that acts as a person whose own sessions the resolver
+  gives another subject acts as the person: under the grants the permission store
+  holds for their account, not under the subject the resolver would have chosen. An
+  application that wants a session to act as that subject declares a kind that acts
+  as the role.
 - Returning the zero `Principal` keeps the default. An error fails the request as a
   server error, not an unauthorized one: the session is valid; the application could not
   decide what it acts as.
@@ -3457,7 +3970,7 @@ Everything an impersonated session touches names the actor and the principal:
 | `Started` / `Ended` / `IdentityOperationBlocked` / `WriteBlocked` events | Structured log lines, span events (`impersonation.Started`, …) on the current trace span, plus the `WithImpersonationAudit` hook |
 | `enduser.id` (the session's username), the same `impersonation.*` attributes, and `principal.*` when a resolver changed the subject | The request's server span from the `ValidateSession` middleware (the caller's current span from `ValidateSessionAPI`), impersonation attributes set before any refusal so a refused request's trace still names the actor; the establishing call's own span on the source side |
 | The establishing call's own log entry | The source application's request log |
-| `impersonation` object in the `Authenticated()` response | For the frontend to banner the session and render read-only affordances |
+| `impersonation` object in the `Authenticated()` response: the actor, the principal, the mask (`mask`, the kinds it keeps; `refusedClasses` and `refused`, what it refuses inside them; `maskWords`, the whole of it as a person would say it), the reason and the hard cap | For the frontend to banner the session, say what it may do, and render read-only affordances |
 
 ### Lifecycle and guards
 
@@ -3556,8 +4069,9 @@ Everything an impersonated session touches names the actor and the principal:
   ```
 - **Read-only middleware.** `EnforceReadOnlyMask` (on every session type, after
   `ValidateSession`) refuses non-safe requests — anything but GET, HEAD, OPTIONS and
-  TRACE — from a session whose mask is *read-only*: restricted, and allowing nothing
-  beyond `List` and `Read`. The refusal is 403 with a `WriteBlocked` event naming the
+  TRACE — from a session whose mask is *read-only*: it names the kinds it keeps, and
+  keeps nothing beyond `List` and `Read` (`PermissionMask.ReadOnly()`; a mask that keeps
+  every kind is not read-only, whatever it refuses inside them). The refusal is 403 with a `WriteBlocked` event naming the
   method and path. It is a backstop that keeps a read-only session away from
   every mutating handler whether or not that handler consults the mask; it does not
   replace honoring the mask in permission checks (`Execute` reaches handlers by POST, and

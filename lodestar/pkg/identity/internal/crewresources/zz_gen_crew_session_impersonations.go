@@ -27,20 +27,20 @@ func (CrewSessionImpersonation) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewSessionImpersonationReadSets holds one Set per read operation.
 type crewSessionImpersonationRead struct {
-	SessionID       impulse.UUID  `json:"sessionId"       perm:"-"`
-	ActorUsername   string        `json:"actorUsername"`
-	ActorUserID     *impulse.UUID `json:"actorUserId"`
-	ActorRealm      *string       `json:"actorRealm"`
-	SourceSessionID *impulse.UUID `json:"sourceSessionId"`
-	PrincipalKind   string        `json:"principalKind"`
-	PrincipalUserID *string       `json:"principalUserId"`
-	PrincipalRole   *string       `json:"principalRole"`
-	Mask            *string       `json:"mask"`
-	Reason          *string       `json:"reason"`
-	StartedAt       time.Time     `json:"startedAt"`
-	ExpiresAt       time.Time     `json:"expiresAt"`
-	EndedAt         *time.Time    `json:"endedAt"`
-	EndReason       *string       `json:"endReason"`
+	SessionID       impulse.UUID              `json:"sessionId"       perm:"-"`
+	ActorUsername   string                    `json:"actorUsername"`
+	ActorUserID     *impulse.UUID             `json:"actorUserId"`
+	ActorRealm      *string                   `json:"actorRealm"`
+	SourceSessionID *impulse.UUID             `json:"sourceSessionId"`
+	PrincipalKind   string                    `json:"principalKind"`
+	PrincipalUserID *string                   `json:"principalUserId"`
+	PrincipalRole   *string                   `json:"principalRole"`
+	Mask            accesstypes.NullMaskWords `json:"mask"`
+	Reason          *string                   `json:"reason"`
+	StartedAt       time.Time                 `json:"startedAt"`
+	ExpiresAt       time.Time                 `json:"expiresAt"`
+	EndedAt         *time.Time                `json:"endedAt"`
+	EndReason       *string                   `json:"endReason"`
 }
 
 var crewSessionImpersonationReadSets resource.SetCache[CrewSessionImpersonation, crewSessionImpersonationRead]
@@ -49,20 +49,20 @@ var crewSessionImpersonationReadSets resource.SetCache[CrewSessionImpersonation,
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; crewSessionImpersonationWriteSets holds one Set per mutation.
 type crewSessionImpersonationWrite struct {
-	SessionID       impulse.UUID  `json:"-"`
-	ActorUsername   string        `json:"actorUsername"`
-	ActorUserID     *impulse.UUID `json:"actorUserId"`
-	ActorRealm      *string       `json:"actorRealm"`
-	SourceSessionID *impulse.UUID `json:"sourceSessionId"`
-	PrincipalKind   string        `json:"principalKind"   sqltype:"STRING(16)"`
-	PrincipalUserID *string       `json:"principalUserId"`
-	PrincipalRole   *string       `json:"principalRole"`
-	Mask            *string       `json:"mask"`
-	Reason          *string       `json:"reason"`
-	StartedAt       time.Time     `json:"startedAt"`
-	ExpiresAt       time.Time     `json:"expiresAt"`
-	EndedAt         *time.Time    `json:"endedAt"`
-	EndReason       *string       `json:"endReason"       sqltype:"STRING(16)"`
+	SessionID       impulse.UUID              `json:"-"`
+	ActorUsername   string                    `json:"actorUsername"`
+	ActorUserID     *impulse.UUID             `json:"actorUserId"`
+	ActorRealm      *string                   `json:"actorRealm"`
+	SourceSessionID *impulse.UUID             `json:"sourceSessionId"`
+	PrincipalKind   string                    `json:"principalKind"   sqltype:"STRING(16)"`
+	PrincipalUserID *string                   `json:"principalUserId"`
+	PrincipalRole   *string                   `json:"principalRole"`
+	Mask            accesstypes.NullMaskWords `json:"mask"`
+	Reason          *string                   `json:"reason"`
+	StartedAt       time.Time                 `json:"startedAt"`
+	ExpiresAt       time.Time                 `json:"expiresAt"`
+	EndedAt         *time.Time                `json:"endedAt"`
+	EndReason       *string                   `json:"endReason"       sqltype:"STRING(16)"`
 }
 
 var crewSessionImpersonationWriteSets resource.SetCache[CrewSessionImpersonation, crewSessionImpersonationWrite]
@@ -639,18 +639,14 @@ func (p *CrewSessionImpersonationCreatePatch) PrincipalRoleIsSet() bool {
 	return p.patchSet.IsSet("PrincipalRole")
 }
 
-func (p *CrewSessionImpersonationCreatePatch) SetMask(v *string) *CrewSessionImpersonationCreatePatch {
-	if v != nil {
-		p.patchSet.Set("Mask", v)
-	} else {
-		p.patchSet.Set("Mask", nil)
-	}
+func (p *CrewSessionImpersonationCreatePatch) SetMask(v accesstypes.NullMaskWords) *CrewSessionImpersonationCreatePatch {
+	p.patchSet.Set("Mask", v)
 
 	return p
 }
 
-func (p *CrewSessionImpersonationCreatePatch) Mask() *string {
-	v, _ := p.patchSet.Get("Mask").(*string)
+func (p *CrewSessionImpersonationCreatePatch) Mask() accesstypes.NullMaskWords {
+	v, _ := p.patchSet.Get("Mask").(accesstypes.NullMaskWords)
 
 	return v
 }
@@ -975,18 +971,14 @@ func (p *CrewSessionImpersonationUpdatePatch) PrincipalRoleIsSet() bool {
 	return p.patchSet.IsSet("PrincipalRole")
 }
 
-func (p *CrewSessionImpersonationUpdatePatch) SetMask(v *string) *CrewSessionImpersonationUpdatePatch {
-	if v != nil {
-		p.patchSet.Set("Mask", v)
-	} else {
-		p.patchSet.Set("Mask", nil)
-	}
+func (p *CrewSessionImpersonationUpdatePatch) SetMask(v accesstypes.NullMaskWords) *CrewSessionImpersonationUpdatePatch {
+	p.patchSet.Set("Mask", v)
 
 	return p
 }
 
-func (p *CrewSessionImpersonationUpdatePatch) Mask() *string {
-	v, _ := p.patchSet.Get("Mask").(*string)
+func (p *CrewSessionImpersonationUpdatePatch) Mask() accesstypes.NullMaskWords {
+	v, _ := p.patchSet.Get("Mask").(accesstypes.NullMaskWords)
 
 	return v
 }

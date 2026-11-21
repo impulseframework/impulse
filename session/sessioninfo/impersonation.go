@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 // Impersonation is the record of an impersonated session: who established it
@@ -42,8 +44,9 @@ type Impersonation struct {
 	// principal names the impersonated person as the permission store does: by the id
 	// of their account, for a session type whose users are accounts.
 	Principal accesstypes.Principal
-	// Mask is the permission allowlist the session is attenuated by; the zero
-	// mask is unrestricted.
+	// Mask is what the session is attenuated by: the permission kinds it keeps and
+	// what it refuses inside them, a class of actions or a named action or record.
+	// The zero mask is unrestricted.
 	Mask accesstypes.PermissionMask
 	// Reason is the free-text justification supplied when the session was
 	// established (a ticket reference, a support note); empty when none was.
@@ -113,7 +116,8 @@ const (
 	AttrImpersonationPrincipalKind = "impersonation.principal_kind"
 	// AttrImpersonationPrincipal is the impersonated user or role name.
 	AttrImpersonationPrincipal = "impersonation.principal"
-	// AttrImpersonationMask is the permission allowlist, "unrestricted" when none.
+	// AttrImpersonationMask is the session's mask as its record keeps it
+	// (accesstypes.PermissionMask.Text), "unrestricted" when it has none.
 	AttrImpersonationMask = "impersonation.mask"
 	// AttrImpersonationSessionID is the impersonated session's ID — the record's key.
 	AttrImpersonationSessionID = "impersonation.session_id"
@@ -241,23 +245,23 @@ func ImpersonationFromCtx(ctx context.Context) (*Impersonation, bool) {
 }
 
 // PrincipalFromCtx returns the authorization subject of the session in the
-// context: the principal a configured resolver chose for this request when it
-// did; otherwise the impersonation record's principal for an impersonated
-// session; otherwise the session user's own principal, the id of their account
-// (SessionData.User). Callers never branch on
-// whether the session is impersonated, or on whether a resolver is configured,
-// to obtain the subject. It panics when no session is in the context, like
-// FromCtx.
+// context: the impersonation record's principal for a session that acts as
+// someone else, whatever else the session carries; otherwise the principal a
+// configured resolver chose for this request when it did; otherwise the session
+// user's own principal, the id of their account (SessionData.User). Callers
+// never branch on whether the session is impersonated, or on whether a resolver
+// is configured, to obtain the subject. It panics when no session is in the
+// context, like FromCtx.
 func PrincipalFromCtx(ctx context.Context) accesstypes.Principal {
 	sess, ok := ctx.Value(CtxSessionInfo).(*SessionData)
 	if !ok {
 		panic(fmt.Sprintf("failed to find %s in request context", CtxSessionInfo))
 	}
-	if sess.Principal != (accesstypes.Principal{}) {
-		return sess.Principal
-	}
 	if sess.Impersonation != nil {
 		return sess.Impersonation.Principal
+	}
+	if sess.Principal != (accesstypes.Principal{}) {
+		return sess.Principal
 	}
 
 	return accesstypes.UserPrincipal(sess.User())
@@ -310,4 +314,45 @@ type ImpersonationQuery struct {
 	// Principal limits the listing to sessions operating as this principal (a user or
 	// a role). The zero Principal matches any.
 	Principal accesstypes.Principal
+}
+
+// ImpersonatorRefusal is the refusal of the rule that nobody is the subject of what
+// they do in a session that acts as someone else, for every place that refuses by it:
+// the line the refusal is logged with, and the refusal the person reads, a 403. actor
+// is the account of the person who started the session, and act says what was asked,
+// as the end of "you cannot" ("disable your own account", "give yourself a role").
+//
+// The sentence speaks to the person. The line speaks of them, in the third person
+// throughout ("asked to disable their own account"), and opens the same way wherever
+// the refusal was given, so one search of the log finds every refusal of the rule.
+func ImpersonatorRefusal(actor impulse.UUID, act string) (line string, refusal error) {
+	line = fmt.Sprintf(
+		"impersonation: the person who started this impersonated session (%s) asked to %s: refused, since nobody is the subject of what they do while they act as someone else",
+		actor, ofThePerson(act),
+	)
+	refusal = httpio.NewForbiddenMessagef(
+		"you are acting as someone else, so you cannot %s: while you act as another person, nothing you do is done to your own account. Stop acting as them first", act,
+	)
+
+	return line, refusal
+}
+
+// secondPerson matches the words an act is said to the person with.
+var secondPerson = regexp.MustCompile(`\b(yourself|yours|your|you)\b`)
+
+// ofThePerson says an act of the person, as the log does, in place of to them:
+// "give yourself a role" is "give themselves a role".
+func ofThePerson(act string) string {
+	return secondPerson.ReplaceAllStringFunc(act, func(word string) string {
+		switch word {
+		case "yourself":
+			return "themselves"
+		case "yours":
+			return "theirs"
+		case "your":
+			return "their"
+		default:
+			return "them"
+		}
+	})
 }

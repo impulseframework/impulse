@@ -51,6 +51,11 @@ func TestDeriveEnumerationResource(t *testing.T) {
 			},
 			wantErr: "remove @" + validateUpdateTypeKeyword + ", @" + manualAddResourceSetKeyword + "(" + string(PatchHandler) + ")",
 		},
+		{
+			name:    "a delete rule contradicts a read-only table",
+			mutate:  func(res *resourceInfo) { res.ValidateDeleteType = "WidgetKindDeleteRule" },
+			wantErr: "remove @" + validateDeleteTypeKeyword,
+		},
 	}
 
 	structs := fixtureStructs(loadCollectionFixture(t))

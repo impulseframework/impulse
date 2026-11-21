@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -19,18 +19,18 @@ func TestNewPreauth_CustomUserDataRejected(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		prepare func(storage *mock_sessionstorage.MockPreauthStore)
+		prepare func(storage *mockstore.PreauthStore)
 		wantErr bool
 	}{
 		{
 			name: "clean storage constructs",
-			prepare: func(storage *mock_sessionstorage.MockPreauthStore) {
+			prepare: func(storage *mockstore.PreauthStore) {
 				storage.EXPECT().CustomUserDataType().Return(nil)
 			},
 		},
 		{
 			name: "custom user data config is rejected",
-			prepare: func(storage *mock_sessionstorage.MockPreauthStore) {
+			prepare: func(storage *mockstore.PreauthStore) {
 				storage.EXPECT().CustomUserDataType().Return(reflect.TypeFor[testUserProfile]())
 			},
 			wantErr: true,
@@ -40,7 +40,7 @@ func TestNewPreauth_CustomUserDataRejected(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			storage := mock_sessionstorage.NewMockPreauthStore(ctrl)
+			storage := mockstore.NewPreauthStore(ctrl)
 			tt.prepare(storage)
 
 			if _, err := NewPreauth[NoCustomData](storage, cookieKey); (err != nil) != tt.wantErr {

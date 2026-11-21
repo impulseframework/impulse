@@ -12,9 +12,9 @@ import (
 	"github.com/impulseframework/impulse/session/cookie"
 	"github.com/impulseframework/impulse/session/internal/basesession"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/mock/mock_cookie"
 	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -25,14 +25,14 @@ func TestPreauthAPI_Login(t *testing.T) {
 		name       string
 		username   string
 		customData []*testData
-		prepare    func(*mock_sessionstorage.MockPreauthStore, *mock_cookie.MockHandler)
+		prepare    func(*mockstore.PreauthStore, *mock_cookie.MockHandler)
 		wantErr    bool
 		expectedID impulse.UUID
 	}{
 		{
 			name:     "successful session creation and cookie set",
 			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockHandler) {
+			prepare: func(mockStorage *mockstore.PreauthStore, mockCookies *mock_cookie.MockHandler) {
 				// Mock the session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user", gomock.Nil()).
@@ -66,7 +66,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 			name:       "successful session creation with caller-supplied custom data",
 			username:   "test_user",
 			customData: []*testData{{Tenant: "tenant-1"}},
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockHandler) {
+			prepare: func(mockStorage *mockstore.PreauthStore, mockCookies *mock_cookie.MockHandler) {
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user", gomock.Any()).
 					DoAndReturn(func(_ context.Context, _ string, customData any) (impulse.UUID, error) {
@@ -95,7 +95,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 		{
 			name:     "failed session creation",
 			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
+			prepare: func(mockStorage *mockstore.PreauthStore, _ *mock_cookie.MockHandler) {
 				// Simulate a failure in session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user", gomock.Nil()).
@@ -168,12 +168,12 @@ func TestPreauthAPI_UpdateCustomSessionData(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		prepare func(*mock_sessionstorage.MockPreauthStore)
+		prepare func(*mockstore.PreauthStore)
 		wantErr bool
 	}{
 		{
 			name: "success mutating through the erased callback",
-			prepare: func(storage *mock_sessionstorage.MockPreauthStore) {
+			prepare: func(storage *mockstore.PreauthStore) {
 				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).
 					DoAndReturn(func(_ context.Context, _ impulse.UUID, mutate func(data any) error) error {
 						data := &testData{Tenant: "tenant-1"}
@@ -190,7 +190,7 @@ func TestPreauthAPI_UpdateCustomSessionData(t *testing.T) {
 		},
 		{
 			name: "fails on storage error",
-			prepare: func(storage *mock_sessionstorage.MockPreauthStore) {
+			prepare: func(storage *mockstore.PreauthStore) {
 				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).Return(errors.New("db error"))
 			},
 			wantErr: true,

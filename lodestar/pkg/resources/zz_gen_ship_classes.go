@@ -22,6 +22,33 @@ func (ShipClass) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what keeps a ShipClass from being deleted: the kinds with a
+// row directly under a ShipClass that the database does not remove with it, each
+// with the columns that name the ShipClass. A delete of a ShipClass with
+// such a row is refused in a sentence that says what is in the way.
+func (ShipClass) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "ShipClasses",
+		Words:  resource.DeleteWords{One: "ship class", Many: "ship classes"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "Ships",
+				Words:    resource.DeleteWords{One: "ship", Many: "ships"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClassId"}, Table: "ShipClasses", References: []string{"Id"}},
+					},
+				},
+				RemovedWith: []string{"Hangars", "Sectors"},
+			},
+		},
+	}
+}
+
 // shipClassRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; shipClassReadSets holds one Set per read operation.

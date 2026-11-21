@@ -670,7 +670,7 @@ func Test_userManager_holdAnnouncement(t *testing.T) {
 		t.Parallel()
 
 		store := engineFakeStore(t)
-		manager := newUserManager(newStoreManager(store), nil, testEngine(t, store, nil), nil)
+		manager := newUserManager(newStoreManager(store), nil, testEngine(t, store, nil), nil, nil)
 		held, announce := manager.holdAnnouncement()
 		if held != manager {
 			t.Error("holdAnnouncement() returned a manager of its own where nothing is announced, want its receiver")

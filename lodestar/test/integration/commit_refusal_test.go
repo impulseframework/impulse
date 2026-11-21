@@ -10,10 +10,13 @@ package integration
 // refusal (409) is reproduced by the references that are on no table's way to its sector
 // and say nothing of a delete: a sortie names the ship that flew it and a droid's report
 // the ship it read, each a row of one sector named from outside its own way, and a mission
-// names the squadron it is assigned to. So a ship that has flown or been reported on is not deleted, nor the
-// hangar that would take it along, nor a squadron a mission is assigned to; and the
-// combined deletes of a squadron and its mission prove that detecting at commit keeps a
-// child-and-parent delete legal in either order. A
+// names the squadron it is assigned to. A ship or a squadron named so is refused before
+// the commit, in a sentence that counts what names it (TestDeleteRefusal). The commit's
+// own refusal is what a delete reaches when the row in the way is under a row the
+// database removes with the one deleted: the hangar that would take along a ship that
+// has flown, and the wing that would take along a squadron a mission is assigned to. The
+// combined deletes of a squadron and its mission prove that a child-and-parent delete
+// stays legal in either order. A
 // refit task created under a task number the refit already holds (a client-supplied compound
 // key) and a ship created under a seeded registry (ShipsByRegistry) are the duplicate-key and
 // duplicate-unique-value refusals on a create (409); a client renamed to another client's name
@@ -46,7 +49,7 @@ func TestCommitRefusal(t *testing.T) {
 	}
 
 	h := newTestApp(db, grants{
-		accesstypes.Delete: {"Hangars", "Ships", "Squadrons", missionsResource},
+		accesstypes.Delete: {"Hangars", "Wings", "Squadrons", missionsResource},
 		accesstypes.Create: append(
 			append(
 				withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"),
@@ -92,31 +95,26 @@ func TestCommitRefusal(t *testing.T) {
 			wantMessage: "Hangars: this record cannot be deleted while other records still reference it.",
 		},
 		{
-			// Ship is change-tracked: the delete buffers a DataChangeEvents row beside
-			// it, which the message must not name. The Stubborn Mule's refit would go
-			// with it; the two sorties it flew, and the droids' reports of it, name it
-			// and say nothing of a delete.
-			name:        "a delete of a tracked ship that has flown and been reported on names the ship alone",
+			// Forge Wing's squadrons would go with it, by the delete rule on a squadron's
+			// way to its sector, and missions are assigned to both of them: a mission
+			// names its squadron from outside its own way, so the commit is refused, and
+			// the message names the wing, never the squadrons or the missions.
+			name:        "a delete of a wing whose squadrons have missions assigned answers 409 naming Wings",
 			target:      "/console/api/resources",
-			ops:         "[" + remove("ships/"+shipStubbornMuleID) + "]",
+			ops:         "[" + remove("wings/"+wingForgeID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Ships: this record cannot be deleted while other records still reference it.",
+			wantMessage: "Wings: this record cannot be deleted while other records still reference it.",
 		},
 		{
-			// Hammer's memberships and the passes in its name would go with it; the
-			// missions assigned to it name it from outside their own way to the sector.
-			name:        "a delete of a squadron a mission is assigned to answers 409 naming Squadrons",
+			// Mission is change-tracked: its delete buffers a DataChangeEvents row beside
+			// it, which the message must not name. The stood-down bullion run has nothing
+			// under it and is assigned to no squadron; the wing beside it is what the
+			// commit refuses.
+			name:        "deletes on two resources in a refused commit list both in buffering order",
 			target:      "/console/api/resources",
-			ops:         "[" + remove("squadrons/"+squadronHammerID) + "]",
+			ops:         "[" + remove("wings/"+wingForgeID) + "," + remove("missions/"+missionBullionID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Squadrons: this record cannot be deleted while other records still reference it.",
-		},
-		{
-			name:        "refused deletes on two resources list both in buffering order",
-			target:      "/console/api/resources",
-			ops:         "[" + remove("squadrons/"+squadronHammerID) + "," + remove("ships/"+shipKingfisherID) + "]",
-			wantStatus:  http.StatusConflict,
-			wantMessage: "Squadrons, Ships: a record cannot be deleted while other records still reference it.",
+			wantMessage: "Wings, Missions: a record cannot be deleted while other records still reference it.",
 		},
 		{
 			// Mission is change-tracked too; its client is not its tenancy hop, so the
@@ -130,7 +128,7 @@ func TestCommitRefusal(t *testing.T) {
 		{
 			name:        "a batch mixing a write and a delete answers the sentence covering both causes",
 			target:      "/console/api/resources",
-			ops:         "[" + mission(missingClientID, "Booked beside a refused delete", 1) + "," + remove("squadrons/"+squadronHammerID) + "]",
+			ops:         "[" + mission(missingClientID, "Booked beside a refused delete", 1) + "," + remove("wings/"+wingForgeID) + "]",
 			wantStatus:  http.StatusConflict,
 			wantMessage: "The request could not be applied: a deleted record is still referenced, or a referenced record does not exist.",
 		},

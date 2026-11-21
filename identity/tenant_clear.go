@@ -32,9 +32,23 @@ import (
 // anywhere else stays, and so does a role held in every tenant, which is no one
 // tenant's.
 //
+// In a session that acts as someone else, the account of the person who started the
+// session is not one of those: nobody is the subject of what they do there, so a tenant
+// whose going would delete the real person's own account is not cleared, and the
+// delete of the tenant is refused with the rule's sentence and its log line
+// (refuseImpersonatorAsSubject), as RemoveRole and RemoveFromGroup refuse the removal
+// that would delete it. The rule is asked once everything is read and before anything
+// is buffered. It is asked of the account alone: a clear that leaves the real person's
+// account standing, because they hold a role elsewhere, takes their own roles and their
+// own places in groups in that tenant with everyone else's, though RemoveRole and
+// RemoveFromGroup refuse each of those one at a time. They lose what they held there
+// and gain nothing.
+//
 // The generated delete of the tenant record calls it for each auth whose management the
 // program generates, before the transaction commits; the permission engine is told once
-// it has. Everything is read before anything is buffered. A tenant the auth holds
+// it has. That delete carries the class of the actions that change who may do what
+// (accesstypes.ClassAccess), which the generator gives it, so a session whose mask
+// refuses the class does not reach this. Everything is read before anything is buffered. A tenant the auth holds
 // nothing for is no error.
 func (m *Manager) ClearTenant(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) error {
 	ctx, span := tracer.Start(ctx)
@@ -54,6 +68,11 @@ func (m *Manager) ClearTenant(ctx context.Context, txn resource.ReadWriteTransac
 	leaving, err := m.leftWithNothing(ctx, txn, held, groups)
 	if err != nil {
 		return err
+	}
+	for _, person := range leaving {
+		if err := m.refuseImpersonatorAsSubject(ctx, person.id, "delete the only tenant your own account holds a role in"); err != nil {
+			return err
+		}
 	}
 	invitations, err := m.store.TenantInvitations(ctx, txn, domain)
 	if err != nil {

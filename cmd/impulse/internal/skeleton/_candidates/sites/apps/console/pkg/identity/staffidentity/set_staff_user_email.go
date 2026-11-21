@@ -24,6 +24,7 @@ type (
 	//
 	// @rpc
 	// @outlet(default)
+	// @class(credential)
 	SetStaffUserEmail struct {
 		// @target(StaffSessionUser)
 		UserID impulse.UUID

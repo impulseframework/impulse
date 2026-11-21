@@ -41,6 +41,7 @@ import (
 // @permissionScope(domain)
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type GiveCrewSectorGroupRole struct {
 	// @target(CrewSectorGroup)
 	GroupID impulse.UUID

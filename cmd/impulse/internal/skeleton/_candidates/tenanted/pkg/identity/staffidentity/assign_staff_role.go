@@ -35,6 +35,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type AssignStaffRole struct {
 	UserID impulse.UUID
 	// Role is the role the person is given. A grant's condition reads it as new.role, so a

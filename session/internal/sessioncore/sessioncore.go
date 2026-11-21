@@ -31,12 +31,14 @@ const DefaultSessionTimeout = 10 * time.Minute
 // BaseSessionOptions and CookieOptions among options. Other options are left to the
 // caller. The cookie client is also returned, for the OIDC authenticators that write
 // their state cookie through it.
+//
+// An option nobody made is refused: the zero BaseSessionOption, which a program can
+// declare and which sets nothing, is a mistake in the program, said here before the
+// session type exists.
 func NewBaseSession[O any](storage sessionstorage.BaseStore, cookieKey string, options []O) (*basesession.BaseSession, *internalcookie.Client, error) {
-	baseSession := &basesession.BaseSession{
-		Handle:         httpio.Log,
-		SessionTimeout: DefaultSessionTimeout,
-		Storage:        storage,
-	}
+	baseSession := basesession.New(storage)
+	baseSession.Handle = httpio.Log
+	baseSession.SessionTimeout = DefaultSessionTimeout
 
 	var cookieOpts []internalcookie.Option
 	for _, opt := range options {
@@ -44,7 +46,12 @@ func NewBaseSession[O any](storage sessionstorage.BaseStore, cookieKey string, o
 		case CookieOption:
 			cookieOpts = append(cookieOpts, internalcookie.Option(o))
 		case BaseSessionOption:
-			o(baseSession)
+			if !o.apply(baseSession) {
+				return nil, nil, errors.New(
+					"a session option was made by no With function (it is the zero session.BaseSessionOption, which sets nothing): " +
+						"pass the options the session package's With functions return, such as session.WithSessionTimeout, and remove the one declared without them",
+				)
+			}
 		}
 	}
 	// The table-name options are applied here, through the store's setters, so a name

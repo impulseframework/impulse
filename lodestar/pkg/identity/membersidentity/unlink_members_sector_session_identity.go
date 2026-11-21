@@ -29,6 +29,7 @@ import (
 // @permissionScope(domain)
 // @outlet(portal, default)
 // @answers(204)
+// @class(credential)
 type UnlinkMembersSectorSessionIdentity struct {
 	// @target(MembersSectorIdentity)
 	IdentityID impulse.UUID

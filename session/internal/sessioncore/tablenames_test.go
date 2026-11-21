@@ -13,9 +13,9 @@ import (
 
 // tableOption builds a table-name option the way the root package's options do.
 func tableOption(option, name string, set func(b *basesession.BaseSession) func(string) error) BaseSessionOption {
-	return func(b *basesession.BaseSession) {
+	return NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.TableNames = append(b.TableNames, basesession.TableName{Option: option, Name: name, Set: set(b)})
-	}
+	})
 }
 
 func TestNewBaseSession_TableNames(t *testing.T) {

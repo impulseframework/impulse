@@ -3,17 +3,113 @@ package session
 import (
 	"context"
 	"net/http"
+	"sync/atomic"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/internal/basesession"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
-// ImpersonationRequest describes the impersonated session to establish. It is a
-// struct so future fields can be added without breaking callers.
-type ImpersonationRequest = sessioncore.ImpersonationRequest
+// ImpersonationRequest is the request an impersonated session starts from: who acts,
+// as whom or as what, and under which mask. Only the declaration of the impersonation
+// an application offers makes one (Impersonations.Request for a person signed in here,
+// Impersonations.RequestFor for a server-side caller), once it has checked the kind's
+// grant and computed the session's mask, and StartImpersonatedSession takes nothing
+// else. The request has no field an application can set, so one built by hand does not
+// compile; the zero value, which no declaration made, is refused when a session is
+// started from it. What a request carries is read through its methods, none of which
+// hands out anything that can be written to.
+//
+// A request starts one session. It is for the call that follows it: the grant was
+// checked once, when the request was made, and that check stands for one start. The
+// first StartImpersonatedSession a request is handed spends it, whether or not the
+// session came to be, and a second start from the same request (or from a copy of it)
+// is refused before anything is written. A program that wants another session, or
+// another try, takes a new request from the declaration, which checks the grant again.
+type ImpersonationRequest struct {
+	// kind names the declared kind the request was made for. It is empty on a value
+	// no declaration made.
+	kind string
+	// core is the request as the session library establishes it.
+	core sessioncore.ImpersonationRequest
+	// spent is set by the first start made from the request. The declaration makes it
+	// with the request, and a copy of the request shares it, so a copy starts nothing
+	// the original has started. It is nil on a value no declaration made.
+	spent *atomic.Bool
+}
+
+// Kind returns the name of the declared kind of impersonation the request was made for.
+func (r *ImpersonationRequest) Kind() string {
+	return r.kind
+}
+
+// Actor returns the real person the session acts on behalf of, by name.
+func (r *ImpersonationRequest) Actor() string {
+	return r.core.Actor
+}
+
+// ActorRealm returns the application or identity provider that signed the actor in,
+// empty for a person of this application.
+func (r *ImpersonationRequest) ActorRealm() string {
+	return r.core.ActorRealm
+}
+
+// ActorSessionID returns the actor's own session: for a person of this application,
+// the session they act from, which the library verifies; for an actor another system
+// signed in, their session there, when the call named one.
+func (r *ImpersonationRequest) ActorSessionID() impulse.NullUUID {
+	return r.core.SourceSessionID
+}
+
+// Principal returns whom or what the session acts as: a person or a role.
+func (r *ImpersonationRequest) Principal() accesstypes.Principal {
+	return r.core.Principal
+}
+
+// Mask returns the mask the session gets: the kind's widest, narrowed by what the
+// person asked for.
+func (r *ImpersonationRequest) Mask() accesstypes.PermissionMask {
+	return r.core.Mask
+}
+
+// Reason returns the justification recorded on the impersonation record.
+func (r *ImpersonationRequest) Reason() string {
+	return r.core.Reason
+}
+
+// MaxDuration returns the cap the request puts on the session's lifetime, zero for the
+// configured impersonation timeout.
+func (r *ImpersonationRequest) MaxDuration() time.Duration {
+	return r.core.MaxDuration
+}
+
+// established spends the request and returns it as the session library establishes
+// it. It refuses a value no declaration made (the nil request and the zero one) and a
+// request a start has been made from already: a request starts one session. Either
+// refusal is a mistake in the program, never a person's, so it is no client message,
+// and each is made before the storage is asked for anything.
+func (r *ImpersonationRequest) established() (*sessioncore.ImpersonationRequest, error) {
+	if r == nil || r.kind == "" || r.spent == nil {
+		return nil, errors.New(
+			"the impersonation request was made by no declaration, so nothing checked a grant or set a mask for it: " +
+				"declare the kinds of impersonation the application offers (session.NewImpersonations) and take the request from its Request or RequestFor",
+		)
+	}
+	if !r.spent.CompareAndSwap(false, true) {
+		return nil, errors.Newf(
+			"the impersonation request (kind %q, %s acting as %s) has been used to start a session already, and a request starts one session: "+
+				"its grant was checked once, for that start. Nothing was written. Take a new request from the declaration's Request or RequestFor for each session the application starts",
+			r.kind, r.core.Actor, r.core.Principal,
+		)
+	}
+	core := r.core
+
+	return &core, nil
+}
 
 // ImpersonationQuery narrows an ActiveImpersonations listing; see
 // sessioninfo.ImpersonationQuery. The zero query lists every active impersonation.
@@ -31,22 +127,24 @@ type ImpersonationAuditHook = func(ctx context.Context, event sessioninfo.Impers
 // renewal never extends past it. The idle session timeout applies independently. The
 // default is one hour.
 func WithImpersonationTimeout(d time.Duration) BaseSessionOption {
-	return func(b *basesession.BaseSession) {
+	return sessioncore.NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.ImpersonationTimeout = d
-	}
+	})
 }
 
 // WithImpersonationAudit registers the hook that receives impersonation lifecycle
 // events (see ImpersonationAuditHook). Events are logged with the canonical evidence
 // attributes whether or not a hook is registered.
 func WithImpersonationAudit(hook ImpersonationAuditHook) BaseSessionOption {
-	return func(b *basesession.BaseSession) {
+	return sessioncore.NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.ImpersonationAudit = hook
-	}
+	})
 }
 
-// StartImpersonatedSession establishes a session that operates as req.Principal on
-// behalf of req.Actor; see AuthAPI.StartImpersonatedSession for the model.
+// StartImpersonatedSession establishes a session that operates as the request's
+// principal on behalf of its actor; see AuthAPI.StartImpersonatedSession for the model.
+// The request is one the application's declaration made (Impersonations.Request or
+// RequestFor): a request built by hand does not compile, and the zero value is refused.
 //
 // Preauth has no user record, so a user principal is taken as given: the session's
 // username is the principal's name and its user ID is zero, exactly as Login trusts
@@ -56,7 +154,12 @@ func WithImpersonationAudit(hook ImpersonationAuditHook) BaseSessionOption {
 // calling context is itself an impersonated session (no chaining). Optional customData
 // (at most one *T) follows Login's semantics.
 func (p *PreauthAPI[T]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*T) (impulse.UUID, error) {
-	return p.shared().StartImpersonatedSession(ctx, w, req, customData, sessioncore.IdentityAsGiven)
+	established, err := req.established()
+	if err != nil {
+		return impulse.NilUUID, err
+	}
+
+	return p.shared().StartImpersonatedSession(ctx, w, established, customData, sessioncore.IdentityAsGiven)
 }
 
 // DestroyImpersonatedSessions expires every live impersonated session established by

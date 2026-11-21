@@ -559,7 +559,7 @@ func Test_patchTemplate_tenant(t *testing.T) {
 				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
 			},
 			// The creator's seat went with the direct create.
-			wantNotContains: []string{"AdministratorRoles", "AssignRole", "AwaitFirstAdministrator", "identity := a.StaffIdentity()", "var created", "created = "},
+			wantNotContains: []string{"AdministratorRoles", "AssignRole", "AwaitFirstAdministrator", "identityClient := a.StaffIdentity()", "var created", "created = "},
 		},
 		{
 			name:   "a record the generator writes no invitation for says the application makes its tenants",

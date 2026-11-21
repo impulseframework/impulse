@@ -39,10 +39,13 @@ var simulatedVarRE = regexp.MustCompile(`"APP_(?:[A-Z0-9_]+_)?(?:USERNAME|ROLES)
 var buildFileRE = regexp.MustCompile(`^(?:Dockerfile.*|.*\.Dockerfile|cloudbuild.*\.ya?ml|Makefile|Taskfile.*\.ya?ml|skaffold.*\.ya?ml)$`)
 
 // skipped are the directories a build-file walk never enters.
-var skipped = map[string]bool{".git": true, "node_modules": true, ".angular": true, distDir: true, ".yalc": true}
+var skipped = map[string]bool{gitDir: true, "node_modules": true, ".angular": true, distDir: true, ".yalc": true}
 
 // distDir is a browser app's build output directory.
 const distDir = "dist"
+
+// gitDir is the directory version control keeps its own files in.
+const gitDir = ".git"
 
 func (c skipAuth) Run(_ context.Context, env *Env) Result {
 	a := env.App

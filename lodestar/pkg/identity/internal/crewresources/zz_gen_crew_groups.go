@@ -23,6 +23,43 @@ func (CrewGroup) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what keeps a CrewGroup from being deleted: the kinds with a
+// row directly under a CrewGroup that the database does not remove with it, each
+// with the columns that name the CrewGroup. A delete of a CrewGroup with
+// such a row is refused in a sentence that says what is in the way.
+func (CrewGroup) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "CrewGroups",
+		Words:  resource.DeleteWords{One: "crew group", Many: "crew groups"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "CrewGroupMembers",
+				Words:    resource.DeleteWords{One: "crew group member", Many: "crew group members"},
+				Key:      []string{"GroupId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "CrewGroupRoles",
+				Words:    resource.DeleteWords{One: "crew group role", Many: "crew group roles"},
+				Key:      []string{"GroupId", "Kind", "Axis", "DomainId", "Role"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
 // crewGroupRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewGroupReadSets holds one Set per read operation.

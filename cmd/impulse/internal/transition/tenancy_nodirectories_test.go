@@ -85,7 +85,7 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 		"pkg/config/data.go":              {"app.NewTenantDeclarationReader()", "app.NewTenantMaker(tenants, liveService)"},
 		"pkg/config/tenancy.go":           {"func (c *DataConfiguration) TenantDeclarations() resource.TenantDeclarations {\n\treturn c.tenants.Declarations\n}"},
 		"app/tenancy.go":                  {"\tTenantDeclarations() resource.TenantDeclarations\n", "func (a *App) TenantAdministratorRoles() []accesstypes.Role {"},
-		"app/app.go":                      {"\treturn resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations)\n"},
+		"app/app.go":                      {"\treturn resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations, a.collection)\n"},
 		src + "configs/tenants.config.ts": {"export const tenantsConfig = rootConfig({", "listColumns: [{ id: Tenants.fieldName.name }"},
 		src + "components/ui/new-tenant/new-tenant-dialog.component.ts": {"export function openNewTenantDialog("},
 		src + "app.menus.ts":  {"resourcePage(tenantsConfig, resourceMeta)", "scope: 'domain'"},
