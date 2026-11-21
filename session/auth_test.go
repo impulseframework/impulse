@@ -1702,14 +1702,16 @@ func TestAuth_GoogleCallback(t *testing.T) {
 		workspaces func() google.WorkspaceSet
 		prepare    func(f *authFixture)
 		// wantIdentity is the identity the method's rule decodes from the claims, when
-		// the sign-in reached the store.
+		// the sign-in reached the store. Its EmailVouched says to the rule what the
+		// identity's EmailVerified says to the core: whether Google answers for the
+		// address.
 		wantIdentity *google.Identity
 		wantLocation string
 	}{
 		{
 			name:         "a Google identity is keyed by the registration's name for its Workspace and sub",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`,
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "example.com", Workspace: "lakeside"},
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", EmailVouched: true, HostedDomain: "example.com", Workspace: "lakeside"},
 			prepare:      expectIdentity("lakeside", "example.com", "pat@example.com", true),
 			wantLocation: "/home",
 		},
@@ -1719,7 +1721,7 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			workspaces: func() google.WorkspaceSet {
 				return google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org"))
 			},
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "Example.ORG", Workspace: "riverside"},
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", EmailVouched: true, HostedDomain: "Example.ORG", Workspace: "riverside"},
 			prepare:      expectIdentity("riverside", "Example.ORG", "pat@example.com", true),
 			wantLocation: "/home",
 		},
@@ -1732,7 +1734,7 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			name:         "any Workspace: the account's domain is the connection, lowercased",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"Elsewhere.Example"}`,
 			workspaces:   google.AnyWorkspace,
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "Elsewhere.Example", Workspace: "elsewhere.example"},
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", EmailVouched: true, HostedDomain: "Elsewhere.Example", Workspace: "elsewhere.example"},
 			prepare:      expectIdentity("elsewhere.example", "Elsewhere.Example", "pat@example.com", true),
 			wantLocation: "/home",
 		},
@@ -1748,15 +1750,23 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			name:         "any Google account: Google vouches for a Gmail address, whose token carries no hd",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"Pat@Gmail.com","email_verified":true}`,
 			workspaces:   google.AnyGoogleAccount,
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "Pat@Gmail.com", Workspace: google.AnyAccountConnection},
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "Pat@Gmail.com", EmailVouched: true, Workspace: google.AnyAccountConnection},
 			prepare:      expectIdentity(google.AnyAccountConnection, "", "Pat@Gmail.com", true),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: Google vouches for an address of its own mail under its other domain, googlemail.com",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@googlemail.com","email_verified":true}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@googlemail.com", EmailVouched: true, Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "pat@googlemail.com", true),
 			wantLocation: "/home",
 		},
 		{
 			name:         "any Google account: Google vouches for a Workspace account's address, whatever its domain",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@elsewhere.example","email_verified":true,"hd":"elsewhere.example"}`,
 			workspaces:   google.AnyGoogleAccount,
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@elsewhere.example", HostedDomain: "elsewhere.example", Workspace: google.AnyAccountConnection},
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@elsewhere.example", EmailVouched: true, HostedDomain: "elsewhere.example", Workspace: google.AnyAccountConnection},
 			prepare:      expectIdentity(google.AnyAccountConnection, "elsewhere.example", "pat@elsewhere.example", true),
 			wantLocation: "/home",
 		},

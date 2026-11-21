@@ -2667,7 +2667,9 @@ The identity's sign-in name is the verified `email` claim (`email_verified` is
 enforced), so the standard account rule provisions and matches users
 under it. The claim confirms the address itself (`Identity.EmailVerified`) only where
 Google is the address's authority: a Gmail address, or a Workspace account's (a token
-with `hd`). A Google account made with an address from anywhere else signs in under
+with `hd`). A registration's own rule reads the same answer on the identity it is given
+(`google.Identity.EmailVouched`), and chooses no user by an address Google does not
+vouch for. A Google account made with an address from anywhere else signs in under
 that name all the same, and Google's word for the name counts no more than another
 provider's: its first sign-in to an account created ahead under that name waits for
 the code mailed to the address the account holds (see "A first link on a name alone"),
