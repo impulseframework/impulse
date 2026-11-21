@@ -118,9 +118,10 @@ describe('ResourceViewComponent row methods', () => {
   /**
    * Draws the row's page. Given `at`, the page is the one a row route opened at that
    * address (the list at /accounts, a row at /accounts/:uuid); without it the page is no
-   * route's own.
+   * route's own. Given `from`, the router came to that address from the page at `from`;
+   * without it the page is the first this document opened.
    */
-  const create = async (options: Partial<ViewConfigOptions> = {}, uuid = 'a-1', at = ''): Promise<void> => {
+  const create = async (options: Partial<ViewConfigOptions> = {}, uuid = 'a-1', at = '', from = ''): Promise<void> => {
     transport = scriptedTransport(server);
     wentBack = 0;
     await TestBed.configureTestingModule({
@@ -140,9 +141,11 @@ describe('ResourceViewComponent row methods', () => {
               path: 'accounts',
               children: [
                 { path: '', component: Blank },
-                { path: ':uuid', component: Blank },
+                { path: ':uuid', component: Blank, data: { config: { parentConfig: { primaryResource: accounts } } } },
               ],
             },
+            // A page of one row that is no row route's: its address names no row.
+            { path: 'account', component: Blank, data: { config: { parentConfig: { primaryResource: accounts } } } },
           ],
         },
         // The page is the one of the route the test opened: the innermost.
@@ -161,6 +164,9 @@ describe('ResourceViewComponent row methods', () => {
     TestBed.inject(Location).back = (): void => {
       wentBack++;
     };
+    if (from) {
+      await TestBed.inject(Router).navigateByUrl(from);
+    }
     if (at) {
       await TestBed.inject(Router).navigateByUrl(at);
     }
@@ -479,6 +485,43 @@ describe('ResourceViewComponent row methods', () => {
     expect(wentBack).toBe(1);
     expect(gone).toEqual([true]);
     expect(notices).toEqual(['Accounts deleted successfully', 'ada is no longer here.']);
+  });
+
+  it('goes to the list by the route from its Back button where the page was opened by its address, with no page before it', async () => {
+    await create({ showBackButton: true }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+
+    (element().querySelector('.close-button button') as HTMLButtonElement).click();
+    await settle(() => router.url === '/accounts');
+
+    expect(router.url).toBe('/accounts');
+    // The list is a page after the row's, never in its place: the browser's own Back returns to the row.
+    expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', '/accounts']);
+    expect(wentBack).toBe(0);
+  });
+
+  it('goes back by the history from its Back button where the router came to the page from another page', async () => {
+    await create({ showBackButton: true }, 'a-1', '/accounts/a-1', '/accounts');
+    const router = TestBed.inject(Router);
+
+    (element().querySelector('.close-button button') as HTMLButtonElement).click();
+    await settle(() => wentBack > 0);
+
+    expect(wentBack).toBe(1);
+    // Nothing was sent by the route: the history, which these tests hold still, is what moves the page.
+    expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts', '/accounts/a-1']);
+    expect(router.url).toBe('/accounts/a-1');
+  });
+
+  it("goes back by the history from its Back button where the page is no row route's own, though it was opened by its address: its route names no list", async () => {
+    await create({ showBackButton: true }, 'a-1', '/account');
+    const router = TestBed.inject(Router);
+
+    (element().querySelector('.close-button button') as HTMLButtonElement).click();
+    await settle(() => wentBack > 0);
+
+    expect(wentBack).toBe(1);
+    expect(router.url).toBe('/account');
   });
 
   it("stays on the row's page when the server refuses the delete, and hands the refusal to whoever asked", async () => {

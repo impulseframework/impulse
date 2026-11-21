@@ -1,8 +1,10 @@
-import { Component } from '@angular/core';
+import { Location } from '@angular/common';
+import { provideLocationMocks, SpyLocation } from '@angular/common/testing';
+import { Component, inject } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router, ROUTES } from '@angular/router';
 import {
   ApiDescriptor,
   createClient,
@@ -989,5 +991,96 @@ describe("CompoundResourceComponent: the page's title", () => {
 
     expect(element(fixture).querySelectorAll('h1').length).toBe(0);
     expect(element(fixture).querySelector(':scope > .page-container > .header-container')).not.toBeNull();
+  });
+});
+
+// The row page's way back, for a button of the application's own: by the history where
+// the router came to the page from another page, and to the list by the route where the
+// page was opened by its address and no page of the application is before it.
+describe('CompoundResourceComponent: the way back', () => {
+  /** What the routes of these tests draw: nothing, since no outlet is on the page. */
+  @Component({ template: '' })
+  class Blank {}
+
+  let wentBack: number;
+
+  /** The page of the row route at /squadrons/sq-1, which the router came to from the page at `from`, or opened first. */
+  const pageAt = async (from = ''): Promise<CompoundResourceComponent> => {
+    const root = rootConfig({
+      parentConfig: listViewConfig({ primaryResource: 'Squadrons' as Resource, elements: [], listColumns: [] }),
+      routeData: { route: 'squadrons', hasViewRoute: true },
+    });
+    await TestBed.configureTestingModule({
+      imports: [CompoundResourceComponent],
+      providers: [
+        provideResourceTesting({
+          transport: scripted().transport,
+          client: (transport: Transport) => createClient(descriptor, { baseUrl: '/api', transport }),
+        }),
+        provideNoopAnimations(),
+        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metadata[resource] },
+        { provide: METHOD_META, useValue: (): MethodMeta => ({}) as MethodMeta },
+        provideLocationMocks(),
+        {
+          provide: ROUTES,
+          multi: true,
+          useValue: [
+            {
+              path: 'squadrons',
+              children: [
+                { path: '', component: Blank },
+                { path: ':uuid', component: Blank, data: { config: root } },
+              ],
+            },
+          ],
+        },
+        // The page is the one of the route the test opened: the innermost.
+        {
+          provide: ActivatedRoute,
+          useFactory: (): ActivatedRoute => {
+            let route = inject(Router).routerState.root;
+            while (route.firstChild) {
+              route = route.firstChild;
+            }
+            return route;
+          },
+        },
+      ],
+    }).compileComponents();
+    wentBack = 0;
+    TestBed.inject(Location).back = (): void => {
+      wentBack++;
+    };
+    if (from) {
+      await TestBed.inject(Router).navigateByUrl(from);
+    }
+    await TestBed.inject(Router).navigateByUrl('/squadrons/sq-1');
+    const fixture = TestBed.createComponent(CompoundResourceComponent);
+    fixture.componentRef.setInput('uuid', 'sq-1');
+    fixture.detectChanges();
+    return fixture.componentInstance;
+  };
+
+  it('goes to the list by the route where the page was opened by its address, with no page before it', async () => {
+    const page = await pageAt();
+    const router = TestBed.inject(Router);
+
+    page.goBack();
+    await settle(() => router.url === '/squadrons');
+
+    expect(router.url).toBe('/squadrons');
+    expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/squadrons/sq-1', '/squadrons']);
+    expect(wentBack).toBe(0);
+  });
+
+  it('goes back by the history where the router came to the page from another page', async () => {
+    const page = await pageAt('/squadrons');
+    const router = TestBed.inject(Router);
+
+    page.goBack();
+    await settle(() => wentBack > 0);
+
+    expect(wentBack).toBe(1);
+    expect(router.url).toBe('/squadrons/sq-1');
   });
 });

@@ -14,7 +14,7 @@ import {
 } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { ActivatedRoute, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import {
   ChildResourceConfig,
   ParentResourceConfig,
@@ -34,6 +34,7 @@ import { ResourceListCreateComponent } from '../resource-list-create/resource-li
 import { ResourceResolverComponent } from '../resource-resolver/resource-resolver.component';
 import { ResourceStore } from '../resource-store.service';
 import { ResourceViewComponent, viewUsesExpansionPanel } from '../resource-view/resource-view.component';
+import { backFromRowPage } from '../row-page-back';
 import { RowStoreDirective } from '../row-store.directive';
 
 @Component({
@@ -66,6 +67,7 @@ import { RowStoreDirective } from '../row-store.directive';
  */
 export class CompoundResourceComponent implements OnInit {
   location = inject(Location);
+  router = inject(Router);
   route = inject(ActivatedRoute);
   store = inject(ResourceStore);
   injector = inject(Injector);
@@ -277,7 +279,12 @@ export class CompoundResourceComponent implements OnInit {
     });
   }
 
+  /**
+   * Leaves the page as its Back button does, for a button of the application's own: back
+   * by the history where the router came to the page from another page, and to the list
+   * by the route where the page was opened by its address.
+   */
   goBack(): void {
-    this.location.back();
+    backFromRowPage(this.router, this.location, this.route);
   }
 }

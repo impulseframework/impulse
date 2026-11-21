@@ -61,6 +61,7 @@ import { civildateCoercion, flattenElements } from '../gui-constants';
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
 import { ResourceLayoutComponent } from '../resource-layout/resource-layout.component';
 import { ResourceStore } from '../resource-store.service';
+import { backFromRowPage } from '../row-page-back';
 import { patchFromForm } from '@impulseframework/resource-angular/resource-client';
 import { maxLengthValidator, metadataTypeCoercion, unchangedFieldWarning } from '../resources-helpers';
 import { rowMessage, rowWordsOf } from '../row-words';
@@ -343,6 +344,15 @@ export class ResourceViewComponent implements OnInit {
       return;
     }
     this.location.back();
+  }
+
+  /**
+   * The Back button of the page's own row: back by the history where the router came to
+   * the page from another page, and to the list by the route where the page was opened by
+   * its address, so the button always leaves the row for a page of the application.
+   */
+  goBack(): void {
+    backFromRowPage(this.router, this.location, this.activatedRoute);
   }
 
   inlineRpcConfigs = computed(() => {
