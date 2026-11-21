@@ -1415,7 +1415,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'principalKind', displayType: 'string', required: true, isIndex: false, maxLength: 16 },
       { fieldName: 'principalUserId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'principalRole', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'mask', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'mask', displayType: 'string', required: false, isIndex: false, sortable: false },
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'startedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },

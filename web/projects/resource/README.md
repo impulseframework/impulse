@@ -163,10 +163,12 @@ are scarce and one is enough to narrow the rows — and absent on a field a filt
 name. A table draws a filter control from it, so what it offers is what the server answers.
 
 A sort may name only a field the server orders: text, numbers, yes or no, moments, dates,
-decimals and UUIDs. A list, a map and a nested object have no order, and a request that
-sorts by one is refused (400). The generated field metadata says which: `FieldMeta.sortable`
-is `false` on a field the server does not order and absent on every other. A table draws
-such a column's heading as words, so it offers no sort the server refuses.
+decimals and UUIDs. A list, a map and a nested object have no order, and neither has a
+value the server writes in other words than its column holds (a mask read as words): a
+request that sorts by one is refused (400). The generated field metadata says which:
+`FieldMeta.sortable` is `false` on a field the server does not order and absent on every
+other. A table draws such a column's heading as words, so it offers no sort the server
+refuses.
 
 A text field answers `startswith`, `endswith` and `contains` where the schema states a
 fact for it, and `FieldMeta.search` lists the matches it answers: a stored `LOWER(col)`
