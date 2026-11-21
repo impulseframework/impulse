@@ -185,7 +185,7 @@ func authInvitedTenantMadeByHand(t *testing.T) {
 func authInvitedTenantNone(t *testing.T) {
 	t.Parallel()
 
-	for _, tt := range []struct {
+	tests := []struct {
 		name     string
 		request  InvitationRequest
 		accepted bool
@@ -196,7 +196,9 @@ func authInvitedTenantNone(t *testing.T) {
 			name:    "an invitation that makes a tenant, accepted by a hook that named none",
 			request: InvitationRequest{NewTenant: &sessioninfo.NewTenant{Name: "Lakeside"}}, accepted: true,
 		},
-	} {
+	}
+	for i := range tests {
+		tt := &tests[i]
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			userID, sessionID := newIDs()
