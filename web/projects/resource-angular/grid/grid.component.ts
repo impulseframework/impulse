@@ -386,9 +386,11 @@ export class AppGridComponent {
   private readonly rule = viewChild<ElementRef<HTMLElement>>('rule');
 
   /**
-   * How wide the frame around the table is, as the browser lays it out. Undefined until
-   * the browser has measured it, and where nothing is laid out (a spec under jsdom, a
-   * list inside something hidden): the table then fills its frame and nothing is held.
+   * How wide the frame around the table is, as the browser lays it out: read when the
+   * columns are read, which is before the list's first drawing is shown, and whenever the
+   * browser reports another size. Undefined where nothing is laid out (a spec under
+   * jsdom, a list inside something hidden): the table then fills its frame and nothing is
+   * held.
    */
   private readonly frameWidth = signal<number | undefined>(undefined);
 
@@ -728,7 +730,14 @@ export class AppGridComponent {
     if (!frame || !table || !view) {
       return;
     }
-    this.unlaid = frame.clientWidth === 0;
+    const width = frame.clientWidth;
+    this.unlaid = width === 0;
+    // How wide the frame is decides which columns are drawn at their narrowest, and the
+    // browser reports a frame's size only after it has drawn it once: a list drawn with
+    // its rows from the start (a list in a dialog) would be drawn for one frame as if it
+    // had all the room, and then again. The width is read here, with the columns, so the
+    // list's first drawing has both.
+    this.frameWidth.set(width > 0 ? width : undefined);
     const range = frame.ownerDocument.createRange();
     if (typeof range.getBoundingClientRect !== 'function') {
       return;

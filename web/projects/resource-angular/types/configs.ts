@@ -1043,7 +1043,10 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
   /** The sorts the list is requested in until a header is clicked; none, and the resource's declared order applies. */
   sorts?: FieldSort[];
   shouldRenderActions?: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
-  /** Show the server's total row count in the title. */
+  /**
+   * Show the server's total row count in the title. The count comes with the list's first
+   * answer, so a title that carries it is drawn with the rows and not before.
+   */
   showRowCount?: boolean;
   /**
    * Further lists drawn under this one on its page, in order, each a list of its own

@@ -195,6 +195,20 @@ export class ResourceStore {
   /** The reload of a live page in flight: the page it repeats, the version it asked by, and its place among the requests. */
   private liveReload: { page: Page<RecordData>; version: string; seq: number } | undefined;
   pageStatus = signal<ListPageStatus>('idle');
+  /**
+   * Whether the list's first request has been answered, with a page or with a refusal.
+   * From then on the list knows what it has, and what it draws from that (its rows, its
+   * empty line, the count in its title) stands on an answer. It stays true through every
+   * request that follows.
+   */
+  readonly firstPageAnswered = signal(false);
+  /**
+   * What a page that has landed still needs before it is the list's page, where a list
+   * draws a row from more than the row: a list across tenants reads each tenant's digest
+   * to know whether a row links to its own page. The request stays in flight until this
+   * settles, so a row is drawn once, with everything it is drawn from. It never rejects.
+   */
+  pageNeeds: ((page: Page<RecordData>) => Promise<void>) | undefined;
   /** The page request's error when it failed — an ApiError for a server refusal — else undefined. */
   pageError = signal<unknown>(undefined);
   page = computed<ListPage>(() => {
@@ -414,12 +428,19 @@ export class ResourceStore {
       if (seq !== this.pageRequestSeq) {
         return;
       }
+      if (this.pageNeeds) {
+        await this.pageNeeds(landed);
+        if (seq !== this.pageRequestSeq) {
+          return;
+        }
+      }
       this.position.set(
         positionAfter(this.position(), turn, leftRows, { rows: landed.rows.length, total: landed.total }),
       );
       this.currentPage.set(landed);
       this.pageError.set(undefined);
       this.pageStatus.set('resolved');
+      this.firstPageAnswered.set(true);
     } catch (error) {
       if (seq !== this.pageRequestSeq) {
         return;
@@ -428,6 +449,7 @@ export class ResourceStore {
       this.position.set({ offset: 0 });
       this.pageError.set(error);
       this.pageStatus.set('error');
+      this.firstPageAnswered.set(true);
     }
   }
 

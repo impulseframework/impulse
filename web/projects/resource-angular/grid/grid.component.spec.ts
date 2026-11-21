@@ -1316,6 +1316,46 @@ describe('a list and the width of its frame', () => {
     });
   });
 
+  describe('a list drawn with its rows from the start, as a list in a dialog is', () => {
+    it('is drawn for the width of its frame at its first drawing, before the browser reports any size', async () => {
+      // The browser lays the frame out as wide as a phone leaves it, and reports a frame's
+      // size only once it has drawn it: what is drawn before that report is what a person
+      // sees for a frame.
+      const laid = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+        configurable: true,
+        get(this: HTMLElement): number {
+          return this.classList.contains('impulse-grid-scroll') ? phone : 0;
+        },
+      });
+      try {
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', rows);
+        fixture.componentRef.setInput('columnDefs', columns);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        fixture.detectChanges();
+
+        // Its first drawing: the frame is too narrow for the columns, so the first is held
+        // and each column that would cut a value is at its narrowest.
+        const first = headers().map((th) => th.style.width);
+        expect(held()).toBe(true);
+        expect(first).toEqual([`${text}px`, `${text}px`, '64px', `${text}px`, '66px']);
+
+        // The browser's report of the size it drew changes nothing.
+        frameIs(phone);
+        expect(headers().map((th) => th.style.width)).toEqual(first);
+        expect(held()).toBe(true);
+      } finally {
+        if (laid) {
+          Object.defineProperty(HTMLElement.prototype, 'clientWidth', laid);
+        } else {
+          delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+        }
+      }
+    });
+  });
+
   describe('a frame narrower than the columns', () => {
     it('is what scrolls sideways: the table keeps its width inside the frame, which scrolls whatever does not fit', async () => {
       await plain();

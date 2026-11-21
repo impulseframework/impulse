@@ -17,6 +17,18 @@
   box-sizing: border-box;
 }
 
+// A heading whose words are not known yet (a title that carries the count of the list's
+// rows, before the list's first answer) is not drawn, and neither is what stands between it
+// and the rows, whose place the heading's height decides. Each keeps its room, as the rows'
+// frame does while it is held back, and all of the list is drawn at once.
+.page-container.heading-held {
+  > .header-container,
+  > .notice,
+  > .search-container {
+    visibility: hidden;
+  }
+}
+
 // The page's own title where the list is the page, a section's where the list is one of
 // the things under a row.
 .title {

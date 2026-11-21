@@ -34,6 +34,7 @@ import {
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
 import { Domain, TenantProperty } from '@impulseframework/resource';
+import { firstValueFrom } from 'rxjs';
 import {
   AlertType,
   ChildResourceConfig,
@@ -207,6 +208,22 @@ export class ResourceListComponent implements OnInit {
     }
 
     return this.resourceMeta(this.config().primaryResource).route;
+  });
+
+  /**
+   * Whether the list knows what its heading says. A title that carries the count of the
+   * list's rows (`showRowCount`) is not known until the list's first request has been
+   * answered, and the heading is not drawn until then: a title drawn without its count
+   * would grow when the rows arrive, and push the Create button along or onto a line of
+   * its own. Every other heading is known from the start. A list with nothing to ask for
+   * (no column the person may see) has its heading at once, as its table has its sentence.
+   */
+  headingKnown = computed(() => {
+    const config = this.config();
+    if (!config.showRowCount || config.collapsible || !config.title) {
+      return true;
+    }
+    return this.store.firstPageAnswered() || this.noListableColumns();
   });
 
   listTitle = computed(() => {
@@ -1124,6 +1141,27 @@ export class ResourceListComponent implements OnInit {
     return newId;
   }
 
+  /**
+   * Reads the digest of every tenant the rows are in that has not been asked for, each
+   * once, where a row of a list across tenants links to its own page: the tenant's digest
+   * says whether the person may read the record there, and so whether the row draws its
+   * link. The page waits for them, so a row and its link are drawn together. A digest that
+   * could not be read is kept as one that grants nothing, and its rows draw no link.
+   */
+  private async readTenantDigests(rows: readonly RecordData[]): Promise<void> {
+    if (!this.acrossRowRoute()) {
+      return;
+    }
+    const tenants = new Set<Domain>();
+    for (const row of rows) {
+      const tenant = row[TenantProperty];
+      if (typeof tenant === 'string' && tenant !== '' && !this.auth.hasDigest(tenant as Domain)) {
+        tenants.add(tenant as Domain);
+      }
+    }
+    await Promise.all(Array.from(tenants, (tenant) => firstValueFrom(this.auth.loadDigest(tenant))));
+  }
+
   ngOnInit(): void {
     // A key-less resource's page is the whole list, identified by position: a page size
     // or a row expansion asked of it is a configuration error, raised here naming the
@@ -1226,21 +1264,6 @@ export class ResourceListComponent implements OnInit {
       });
 
       effect(() => {
-        // A row of a list across tenants links to its own page where its tenant's digest
-        // lets the person read it: the digests of the tenants on the page are loaded as
-        // the page arrives, each once.
-        if (!this.acrossRowRoute()) {
-          return;
-        }
-        for (const row of this.store.page().rows) {
-          const tenant = row[TenantProperty];
-          if (typeof tenant === 'string' && tenant !== '' && !this.auth.hasDigest(tenant as Domain)) {
-            this.auth.loadDigest(tenant as Domain).subscribe();
-          }
-        }
-      });
-
-      effect(() => {
         this.filter();
         this.relatedData();
         const columns = this.listColumns();
@@ -1256,6 +1279,9 @@ export class ResourceListComponent implements OnInit {
         this.store.listSuspended.set(this.noListableColumns());
       });
 
+      // A page across tenants is the list's once the digests its rows' links are drawn
+      // from have been read.
+      this.store.pageNeeds = (page): Promise<void> => this.readTenantDigests(page.rows);
       // From here the store holds the server's page: a change to the filter, the columns,
       // the sorts, or the column filters asks for a first page; the pager turns it.
       this.store.buildStorePage();

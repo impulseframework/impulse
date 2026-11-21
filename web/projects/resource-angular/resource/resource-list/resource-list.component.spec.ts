@@ -329,6 +329,105 @@ describe('ResourceListComponent', () => {
     });
   });
 
+  describe('draws its heading once it knows what the heading says', () => {
+    /** Answers the list's request, which the server holds until the spec lets it go. */
+    let answer: (response: TransportResponse) => void;
+    const held = (): Promise<TransportResponse> =>
+      new Promise((resolve) => {
+        answer = resolve;
+      });
+    const twoShips: TransportResponse = {
+      status: 200,
+      body: [
+        { id: 's-1', name: 'Kestrel' },
+        { id: 's-2', name: 'Merlin' },
+      ],
+      headers: { 'total-count': '2' },
+    };
+    const container = (): HTMLElement =>
+      (fixture.nativeElement as HTMLElement).querySelector('.page-container') as HTMLElement;
+    const title = (): string | undefined =>
+      (fixture.nativeElement as HTMLElement).querySelector('h1.title')?.textContent?.trim();
+    /** What the list's stylesheet declares in the rules whose selector names every one of `names`. */
+    const declares = (names: string[]): string => {
+      const sheet = Array.from(document.querySelectorAll('style'))
+        .map((style) => style.textContent ?? '')
+        .join('\n');
+      return Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+        .filter(([, selector]) => names.every((name) => selector.includes(name)))
+        .map(([, , declarations]) => declarations)
+        .join('\n');
+    };
+    /** The list as its page opens it, with its request out and not answered. */
+    const open = async (options: Partial<ListViewConfigOptions>): Promise<void> => {
+      await create(
+        { primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }], ...options },
+        [],
+        held,
+      );
+      fixture.detectChanges();
+      await TestBed.inject(ApplicationRef).whenStable();
+      fixture.detectChanges();
+      expect(transport.requests.length).toBe(1);
+    };
+
+    it('holds a title that carries the count of the rows until the first answer, and draws it once, with its count', async () => {
+      await open({ showRowCount: true });
+
+      // Nothing has been answered: the heading is not drawn, and it keeps its room.
+      expect(container().classList.contains('heading-held')).toBe(true);
+      expect(declares(['.heading-held', '.header-container'])).toMatch(/visibility:\s*hidden/);
+      expect(declares(['.heading-held', '.search-container'])).toMatch(/visibility:\s*hidden/);
+
+      answer(twoShips);
+      await settle();
+
+      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(title()).toBe('Ships (2)');
+    });
+
+    it('draws it without a count once the list is refused: a refusal is an answer too', async () => {
+      await open({ showRowCount: true });
+      expect(container().classList.contains('heading-held')).toBe(true);
+
+      answer({ status: 403, body: { message: 'the caller may not list ships' } });
+      await settle();
+
+      expect(fixture.componentInstance.store.pageStatus()).toBe('error');
+      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(title()).toBe('Ships');
+    });
+
+    it('draws a title that carries no count from the start: nothing of it waits for the rows', async () => {
+      await open({ showRowCount: false });
+
+      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(title()).toBe('Ships');
+
+      answer(twoShips);
+      await settle();
+      expect(title()).toBe('Ships');
+    });
+
+    it('keeps a heading a person has seen while the list is asked again', async () => {
+      await open({ showRowCount: true });
+      answer(twoShips);
+      await settle();
+      expect(title()).toBe('Ships (2)');
+
+      // A sort asks for the rows again, and the answer is held.
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'desc' }]);
+      fixture.detectChanges();
+      await TestBed.inject(ApplicationRef).whenStable();
+      fixture.detectChanges();
+
+      expect(transport.requests.length).toBe(2);
+      expect(fixture.componentInstance.store.pageStatus()).toBe('loading');
+      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(title()).toBe('Ships (2)');
+    });
+  });
+
   describe('hands a yes-or-no value to the table as it is', () => {
     const fleet = [
       { id: 's-1', name: 'Kestrel', decommissioned: true, flagged: null },
@@ -1408,6 +1507,8 @@ describe('ResourceListComponent', () => {
     let domain: ReturnType<typeof signal<Domain | undefined>>;
     /** The tenant whose digest the server fails to answer, when a spec names one. */
     let digestFails: string | undefined;
+    /** What the server waits for before it answers a tenant's digest, when a spec holds the digests. */
+    let digestsHeld: Promise<void> | undefined;
 
     const server = (request: TransportRequest): TransportResponse => {
       const url = new URL(request.url, 'http://missions.test');
@@ -1461,8 +1562,14 @@ describe('ResourceListComponent', () => {
       });
       warnings = [];
       digestFails = undefined;
+      digestsHeld = undefined;
       domain = signal<Domain | undefined>(undefined);
-      transport = scriptedTransport(server);
+      transport = scriptedTransport(async (request: TransportRequest): Promise<TransportResponse> => {
+        if (digestsHeld && request.url.includes('permission-digest')) {
+          await digestsHeld;
+        }
+        return server(request);
+      });
       await TestBed.configureTestingModule({
         imports: [ResourceListComponent],
         providers: [
@@ -1561,6 +1668,36 @@ describe('ResourceListComponent', () => {
         `/api/permission-digest?domain=${bastion}`,
       ]);
       expect(rowLinks()).toEqual([null, null]);
+    });
+
+    it('draws a row and its link together: the page waits for the digests its links are drawn from', async () => {
+      await page(missions);
+      let release = (): void => undefined;
+      digestsHeld = new Promise((resolve) => {
+        release = resolve;
+      });
+      fixture.detectChanges();
+      // The list is answered, and the digests of its rows' tenants are asked and held.
+      for (let i = 0; i < 50 && digestRequests().length < 2; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        fixture.detectChanges();
+      }
+      expect(listRequests().length).toBe(1);
+      expect(digestRequests().length).toBe(2);
+
+      // No row is drawn before what its link is drawn from is known: the list is loading.
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.querySelectorAll('tbody tr.impulse-row').length).toBe(0);
+      expect(fixture.componentInstance.loadingRowData()).toBe(true);
+
+      release();
+      await settle();
+      await settle();
+
+      // Each row is drawn once, the first with its link.
+      expect(element.querySelectorAll('tbody tr.impulse-row').length).toBe(2);
+      expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
+      expect(fixture.componentInstance.loadingRowData()).toBe(false);
     });
 
     it('draws no link, and asks no digest, for a record the application mounts no row route', async () => {
