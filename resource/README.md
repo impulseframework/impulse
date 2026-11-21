@@ -3444,8 +3444,8 @@ within ten seconds is logged and the request answered, since the rows are commit
 In a session that acts as a role, the caller is the real person behind it, who would
 become the tenant's administrator: nobody is the subject of what they do while they act
 as someone else (section 21), so the route refuses them before it reads the body, with
-nothing written ("you are acting as someone else, so you cannot create a sector of your
-own"), and its `GET` answers that none is offered. In a session that acts as a person,
+nothing written ("You are acting as someone else, so you cannot create a sector of your
+own."), and its `GET` answers that none is offered. In a session that acts as a person,
 the person acted as would become the tenant's administrator, and the mask decides. No
 grant admits the route, so no permission is checked there for a mask to deny; the route
 carries an action's name instead, `Create<Record>` (Lodestar's `CreateSector`), which
@@ -4899,9 +4899,8 @@ own, outside any request, has no caller and is the application's act):
   the end of their own sessions, their remembered browsers, a sign-in identity and a
   token of theirs, the
   unlock of the counts kept for their account, and an invitation to the address their
-  account has confirmed. The refusal says so: "you are acting as someone else, so you
-  cannot give yourself a role: while you act as another person, nothing you do is done
-  to your own account. Stop acting as them first". The rule reads the session's record
+  account has confirmed. The refusal says so, in one sentence: "You are acting as
+  someone else, so you cannot give yourself a role." The rule reads the session's record
   and nothing else, so it holds whatever the session's mask keeps and whether or not
   the application declared the kind of impersonation. It is for changes: the person's
   own row is still listed and read. The same act on anyone else goes through, and the

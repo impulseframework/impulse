@@ -235,8 +235,7 @@ func TestManager_ClearTenant_theImpersonatorsOwnAccount(t *testing.T) {
 		danaAlpha = access.NewMembershipKey(alphaScope, User(danaID), "Reader")
 		danaBeta  = access.NewMembershipKey(accesstypes.DomainPolicyScope("beta"), User(danaID), "Reader")
 	)
-	const refusal = "you are acting as someone else, so you cannot delete the only tenant your own account holds a role in: " +
-		"while you act as another person, nothing you do is done to your own account. Stop acting as them first"
+	const refusal = "You are acting as someone else, so you cannot delete the only tenant your own account holds a role in."
 	cleared := []string{
 		"delete membership " + membershipText(&miraAlpha),
 		"delete membership " + membershipText(&danaAlpha),
