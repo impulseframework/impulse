@@ -1,4 +1,4 @@
-import { EnumeratedConfig } from '@impulseframework/resource-angular/types';
+import { EnumeratedConfig, nameInWords } from '@impulseframework/resource-angular/types';
 import {
   ApiError,
   matchesSearch,
@@ -34,16 +34,21 @@ export function optionColumns(
 
 /**
  * What an option shows: the display fields the page configured, concatenated, or the
- * key itself where the page configured none (a form drawn from the metadata alone),
- * which reads well where the key is the row's name (a role).
+ * key where the page configured none (a form drawn from the metadata alone). The key
+ * of a role is then shown in words, "Sector marshal" for `SectorMarshal`, as the
+ * server's sentences name a role; any other key is shown as it is stored.
  */
 export function optionDisplay(
   row: Record<string, string>,
   key: string,
   displayFields: readonly string[],
   concat: (row: Record<string, string>, ...fields: string[]) => string,
+  role = false,
 ): string {
-  return displayFields.length > 0 ? concat(row, ...displayFields) : key;
+  if (displayFields.length > 0) {
+    return concat(row, ...displayFields);
+  }
+  return role ? nameInWords(key) : key;
 }
 
 /**

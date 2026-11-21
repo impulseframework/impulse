@@ -659,7 +659,8 @@ func SuperAdministratorMethods() []accesstypes.Resource {
 // user is the person as the permission store names them, the id of their account: a
 // request's caller is its resource.UserPermissions.User(). A role is held by an account,
 // so a user that is no account's id (a session that acts for nobody with an account
-// here) is refused, and nothing is written. The call reads no account: a user created
+// here) is refused, in a sentence that names no role by its code name, and nothing is
+// written. The call reads no account: a user created
 // earlier in the same transaction is one the database cannot yet show it, and such a
 // user is what a Go caller often gives a role to. The caller names an account it knows
 // exists, its request's caller or one it created; a role method served to a person who
@@ -667,7 +668,7 @@ func SuperAdministratorMethods() []accesstypes.Resource {
 func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
 	userID, ok := identity.UserID(user)
 	if !ok {
-		return httpio.NewForbiddenMessagef("the role %s is given to a person with an account, and this session acts for none", role)
+		return httpio.NewForbiddenMessageWithError(errors.Newf("the role %s is given to a person with an account, and %q is no account's id", role, user), "A role is given to a person with an account, and this session acts for none.")
 	}
 	if err := c.manager.AssignRole(ctx, txn, scope, userID, role); err != nil {
 		return errors.Wrap(err, "identity.Manager.AssignRole()")

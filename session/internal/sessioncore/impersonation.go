@@ -110,7 +110,7 @@ func StartImpersonatedSession[T any](
 		return impulse.NilUUID, httpio.NewBadRequestMessage("impersonation requires an actor")
 	}
 	if ImpersonatedContext(ctx) {
-		return impulse.NilUUID, httpio.NewForbiddenMessage("an impersonated session cannot establish another impersonated session")
+		return impulse.NilUUID, httpio.NewForbiddenMessage(NestedStartWords)
 	}
 
 	username, userID, err := impersonatedIdentity(ctx, req, resolve)
@@ -160,6 +160,27 @@ func StartImpersonatedSession[T any](
 
 	return id, nil
 }
+
+const (
+	// NestedStartWords is what a person in a session that acts as someone else is told
+	// when they ask to start another: such a session starts no other, and ending it is
+	// the person's own next step.
+	NestedStartWords = "You are acting as someone else, and this session cannot start another one. End it first."
+
+	// shadowedActorWords is what a person another system signed in is told when the name
+	// they act under there is the username of an account here.
+	shadowedActorWords = "An account of this application has your username, so a session that acts as a role cannot be started for you from another system. Sign in to this application instead."
+
+	// ownAccountWords is what the person behind a session that views as a person is told
+	// when they ask for something that person's own-account routes write.
+	ownAccountWords = "You are acting as someone else, and this session cannot change their account."
+
+	// refusedOperationWords is what the own-account guard tells the person behind any
+	// other session it refuses: one that acts as a role, whose account is the actor's
+	// own, and one whose mask refuses an operation that is nobody's own. The guard knows
+	// the operation by its handler's name alone, so the sentence says no act.
+	refusedOperationWords = "You are acting as someone else, and this session cannot do this."
+)
 
 // impersonatedIdentity resolves the session's effective identity for req: the actor
 // with the zero UUID for a role principal (once the type's guard allows a foreign
@@ -248,12 +269,17 @@ func impersonatedUser(ctx context.Context, storage sealed.UserReader, user acces
 // username is already a user in SessionUsers. The session row would carry that
 // name, and the store's username-keyed operations could not tell the two apart; the
 // actor logs in as that user or impersonates it as a user principal instead. A local
-// actor's name is their own user and is never checked here.
+// actor's name is their own user and is never checked here. The person reads one
+// sentence with nobody's name in it, and the name is the refusal's cause, which the
+// server's log prints.
 func refuseShadowedActor(ctx context.Context, storage sealed.UserReader, actor string) error {
 	_, err := sealed.UserByUserName(ctx, storage, actor)
 	switch {
 	case err == nil:
-		return httpio.NewForbiddenMessagef("%q is a user of this application: log in as that user or impersonate it as a user principal", actor)
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf("%q is a user of this application: the actor logs in as that user, or is impersonated as a user principal", actor),
+			shadowedActorWords,
+		)
 	case httpio.HasNotFound(err):
 		return nil
 	default:
@@ -270,7 +296,9 @@ func refuseShadowedActor(ctx context.Context, storage sealed.UserReader, actor s
 // asks no finer question of it. No handler of the library passes one today; the
 // generated management of people answers to the mask itself, through the permission
 // check (resource.Masked), which refuses what the mask refuses and nothing more.
-// Refusals are evidenced as IdentityOperationBlocked events.
+// Refusals are evidenced as IdentityOperationBlocked events. The person reads one
+// sentence that says no handler's name: the operation is the event's and the refusal's
+// cause, which the server's log prints.
 func RefuseImpersonated(ctx context.Context, base *basesession.BaseSession, operation string, selfOperation bool) error {
 	imp, ok := ImpersonationInCtx(ctx)
 	if !ok {
@@ -284,7 +312,12 @@ func RefuseImpersonated(ctx context.Context, base *basesession.BaseSession, oper
 		logger.FromCtx(ctx).Error(err)
 	}
 
-	return httpio.NewForbiddenMessagef("%s is not permitted in an impersonated session", operation)
+	words := ownAccountWords
+	if !selfOperation || imp.Principal.IsRole() {
+		words = refusedOperationWords
+	}
+
+	return httpio.NewForbiddenMessageWithError(errors.Newf("%s is not permitted in an impersonated session", operation), words)
 }
 
 // ImpersonationInCtx returns the impersonation record of the validated session in

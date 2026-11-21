@@ -107,6 +107,8 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 		wantErr        bool
 		wantBadRequest bool
 		wantForbidden  bool
+		// wantSays is the sentence a refused person reads, where the case pins it.
+		wantSays string
 	}{
 		{
 			name: "refused when impersonation is not configured on the storage",
@@ -143,6 +145,7 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 			},
 			wantErr:       true,
 			wantForbidden: true,
+			wantSays:      "You are acting as someone else, and this session cannot start another one. End it first.",
 		},
 		{
 			name: "a user principal is taken as given: no record lookup, zero user ID, masked, with custom data",
@@ -267,6 +270,9 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 				t.Fatalf("StartImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assertErrorShape(t, err, tt.wantBadRequest, tt.wantForbidden, false)
+			if tt.wantSays != "" && httpio.Message(err) != tt.wantSays {
+				t.Errorf("StartImpersonatedSession() said %q, want %q", httpio.Message(err), tt.wantSays)
+			}
 			if tt.wantErr {
 				return
 			}

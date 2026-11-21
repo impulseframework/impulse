@@ -36,7 +36,7 @@ func TestSpannerClient_notFound_saysNoQuery(t *testing.T) {
 		q.AddField("ID")
 		q.AddField("Title")
 		_, err := q.Read(ctx, client)
-		plainAnswer(t, err, httpio.HasNotFound, "This record was not found.", "WHERE", "TrackedForkRows", "Id", "row-9")
+		plainAnswer(t, err, httpio.HasNotFound, "This tracked fork row does not exist.", "WHERE", "TrackedForkRows", "Id", "row-9")
 	})
 
 	t.Run("a read of a row that is not there, with what the caller may do with the row beside it", func(t *testing.T) {
@@ -46,14 +46,14 @@ func TestSpannerClient_notFound_saysNoQuery(t *testing.T) {
 		// The read that scans a row's envelope: any statement with a capability plan.
 		stmt.capabilityPlan = &capabilityPlan{}
 		_, err := newReader[trackedForkRow](client).Read(ctx, stmt)
-		plainAnswer(t, err, httpio.HasNotFound, "This record was not found.", "WHERE", "TrackedForkRows", "Id", "row-9")
+		plainAnswer(t, err, httpio.HasNotFound, "This tracked fork row does not exist.", "WHERE", "TrackedForkRows", "Id", "row-9")
 	})
 
 	t.Run("an update of a row that is not there", func(t *testing.T) {
 		t.Parallel()
 
 		err := tracked(UpdatePatchType, "row-8", "asked").Apply(ctx, client, "test")
-		plainAnswer(t, err, httpio.HasNotFound, "This record was not found.", "TrackedForkRows", "row-8")
+		plainAnswer(t, err, httpio.HasNotFound, "This tracked fork row does not exist.", "TrackedForkRows", "row-8")
 	})
 
 	t.Run("a low-level insert-or-update that changes nothing", func(t *testing.T) {

@@ -1012,9 +1012,9 @@ r=$(warning governor "$MAKE_ONLY" '{}'); check "asked what turning it on would d
 assert_py "and says so, naming neither Bastion's directory nor its people" "$r" "rows['message']=='This sector is directory only already: only people who sign in through its directory enter it. There is nothing to turn on.'"
 r=$(warning governor "$END_ONLY" '{}'); check "turning it off declares no warning: a request for one is refused, and runs nothing" 400 "$r"
 r=$(req governor POST "$END_ONLY" '{}'); check "the governor turns Bastion's directory only off with the sector's method, which is plain and held to no rule: while the switch is on Bastion answers the people it admits, and no sector's sign-in settings shut a super administrator out (Execute on EndSectorDirectoryOnly in the sector)" 200 "$r"
-r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "and the switch reads off" "$r" "rows=={'directoryOnly': False}"
+r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "and the switch reads off" "$r" "rows['directoryOnly'] is False"
 r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/'"$BASTION_ID"'","value":{"directoryOnly":true}}]'); check "the Sectors record shows the flag and never writes it: a patch of the record that carries it is refused, a super administrator's included" 400 "$r"
-r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "and nothing was written" "$r" "rows=={'directoryOnly': False}"
+r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "and nothing was written" "$r" "rows['directoryOnly'] is False"
 r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at once, with nothing closed" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $CLOSED == {}"
 r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "and no row of Bastion's people says anything while it is off" "$r" "all(u.get('cannotEnter') is None for u in rows)"
 r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"lodestar"}' -w '\n%{http_code}' "$API/user/password/login")
@@ -1325,17 +1325,17 @@ login pilot
 give_pass() { echo "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/hangar-passes\",\"value\":{\"hangarId\":\"$QUARANTINE_BAY\",\"$1\":\"$2\",\"levelId\":\"visit\"}}]"; } # give_pass <userId|squadronId> <id>: a visiting pass to the Quarantine Bay, as one operation of the consolidated patch
 move() { echo "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/squadrons/$1\",\"value\":{\"wingId\":\"$2\"}}]"; } # move <squadron> <wing>
 TONGS_PASS=61000000-0000-4000-8000-000000000001   # the pass Tongs runs Anvil Dock One by
-ACTING_AS='you are acting as someone else, so you cannot'
+ACTING_AS='You are acting as someone else, so you cannot'
 r=$(req pilot POST "$API/impersonate" "{\"kind\":\"act\",\"principal\":\"$MARSHAL_ID\",\"reason\":\"walkthrough\"}"); check "the pilot mints a session that acts as the marshal" 200 "$r"
 assert_py "whose mask keeps the writes of hangar passes" "$r" "rows['mask']=='$ACT_MASK'"
 r=$(req pilot PATCH "$API/resources" "$(give_pass userId "$CADET_ID")"); check "acting as the marshal, he gives the cadet a pass: the kind keeps the record's writes out of the class access" 200 "$r"
 r=$(req pilot PATCH "$API/resources" "$(give_pass squadronId "$HAMMER")"); check "and gives one to Hammer, a squadron he does not fly with" 200 "$r"
 r=$(req pilot PATCH "$API/resources" "$(give_pass userId "$PILOT_ID")"); check "a pass for his own account is refused" 403 "$r"
-assert_py "he is told that he is acting as someone else" "$r" "'$ACTING_AS add your own hangar pass record:' in json.dumps(rows)"
+assert_py "he is told that he is acting as someone else" "$r" "'$ACTING_AS add your own hangar pass record.' in json.dumps(rows)"
 r=$(req pilot PATCH "$API/resources" "$(give_pass squadronId "$TONGS")"); check "so is a pass for Tongs, which he flies with: a pass given to a squadron is given to its people" 403 "$r"
-assert_py "for the same reason" "$r" "'$ACTING_AS add a hangar pass record for one of your own squadrons:' in json.dumps(rows)"
+assert_py "for the same reason" "$r" "'$ACTING_AS add a hangar pass record for one of your own squadrons.' in json.dumps(rows)"
 r=$(req pilot PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/hangar-passes/$TONGS_PASS\",\"value\":{\"levelId\":\"visit\"}}]"); check "and so is a change to the pass Tongs holds" 403 "$r"
-assert_py "for the same reason" "$r" "'$ACTING_AS change a hangar pass record of one of your own squadrons:' in json.dumps(rows)"
+assert_py "for the same reason" "$r" "'$ACTING_AS change a hangar pass record of one of your own squadrons.' in json.dumps(rows)"
 r=$(req pilot GET "$ANVIL/hangar-passes"); assert_py "the two passes he gave are there, and the pass Tongs holds is as it was" "$r" "len([p for p in rows if p['hangarId']=='$QUARANTINE_BAY' and p['levelId']=='visit' and (p.get('userId')=='$CADET_ID' or p.get('squadronId')=='$HAMMER')])==2 and [p['levelId'] for p in rows if p['id']=='$TONGS_PASS']==['run']"
 for given in $(body "$r" | py "print(' '.join(p['id'] for p in rows if p['hangarId']=='$QUARANTINE_BAY' and p['levelId']=='visit' and (p.get('userId')=='$CADET_ID' or p.get('squadronId')=='$HAMMER')))"); do
   r=$(req pilot PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/hangar-passes/$given\"}]"); check "he takes a pass he gave back: the kind keeps a removal with the other writes" 200 "$r"
@@ -1355,9 +1355,9 @@ r=$(req pilot GET "$ANVIL/wings")
 RESERVE=$(body "$r" | py "print([w['id'] for w in rows if w['name']=='Reserve Wing'][0])")
 FORGE=$(body "$r" | py "print([w['id'] for w in rows if w['name']=='Forge Wing'][0])")
 r=$(req pilot PATCH "$API/resources" "$(move "$TONGS" "$RESERVE")"); check "Tongs moved to the new wing is refused: the wings he is in are read through the row of the squadron he flies with" 403 "$r"
-assert_py "he is told that he is acting as someone else" "$r" "'$ACTING_AS change the WingID of the squadron record that decides your own wings:' in json.dumps(rows)"
+assert_py "he is told that he is acting as someone else" "$r" "'$ACTING_AS change the wing id of the squadron record that decides your own wings.' in json.dumps(rows)"
 r=$(req pilot PATCH "$API/resources" "$(give_pass squadronId "$TONGS")"); check "the pass for Tongs is refused under a role as it is under the mask" 403 "$r"
-assert_py "for the same reason as before" "$r" "'$ACTING_AS add a hangar pass record for one of your own squadrons:' in json.dumps(rows)"
+assert_py "for the same reason as before" "$r" "'$ACTING_AS add a hangar pass record for one of your own squadrons.' in json.dumps(rows)"
 r=$(req pilot PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/squadrons/$TONGS\",\"value\":{\"name\":\"Tongs Reforged\"}}]"); check "Tongs renamed goes through: a change that leaves the wing alone moves nobody's standing, so the rule is not asked" 200 "$r"
 r=$(req pilot PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/squadrons/$TONGS\",\"value\":{\"name\":\"Tongs\"}}]"); check "and it takes its name back" 200 "$r"
 r=$(req pilot PATCH "$API/resources" "$(move "$HAMMER" "$RESERVE")"); check "Hammer, which he does not fly with, moves to the new wing" 200 "$r"

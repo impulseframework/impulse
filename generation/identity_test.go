@@ -564,6 +564,11 @@ func Test_prepareIdentity(t *testing.T) {
 	if strings.Contains(string(members), "c.manager.RequireUser(") {
 		t.Errorf("membersidentity/client.go's AssignRole reads the account, which a user created in the same transaction is not yet:\n%s", members)
 	}
+	// A user that is no account's id is refused in a sentence that names no role by its
+	// code name; the role and the user stay the cause, for the server's log.
+	if refusal := `return httpio.NewForbiddenMessageWithError(errors.Newf("the role %s is given to a person with an account, and %q is no account's id", role, user), "A role is given to a person with an account, and this session acts for none.")`; !strings.Contains(string(members), refusal) {
+		t.Errorf("membersidentity/client.go lacks %q:\n%s", refusal, members)
+	}
 	// And the Go call that reads whether a person holds a role in some tenant, in the
 	// caller's transaction, which the create of a tenant asks where it writes the row. A
 	// user that is no account's id holds none.

@@ -172,7 +172,7 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		{
 			name:    "a read-only view",
 			browser: start("read-only", viewAs(t, "governor", "read-only"), "reading only"),
-			says:    "this session is read-only",
+			says:    "You are acting as someone else, and this session cannot change anything.",
 			logged: func(action accesstypes.Resource) []string {
 				return []string{"impersonation: POST " + methodRoute(action) + " refused for", "impersonation.event=WriteBlocked", "impersonation.mask=List,Read"}
 			},
