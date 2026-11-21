@@ -25,7 +25,7 @@ var roleFile access.RoleFile
 func Roles() access.RoleFile { return roleFile }
 
 func New(store access.Store, collection access.PermissionCollection) (*access.Client, error) {
-	return access.New(store, access.WithDefaultRoles(collection, Roles()))
+	return access.New(store, collection, access.WithDefaultRoles(Roles()))
 }
 `
 	const data = `package config
@@ -38,13 +38,13 @@ import (
 )
 
 func engines(store access.Store) error {
-	if _, err := access.New(store, access.WithDefaultRoles(router.Collection(), crewauth.Roles())); err != nil {
+	if _, err := access.New(store, router.Collection(), access.WithDefaultRoles(crewauth.Roles())); err != nil {
 		return err
 	}
-	if _, err := access.New(store, access.WithDefaultRoles(router.Collection(), loadRoles())); err != nil {
+	if _, err := access.New(store, router.Collection(), access.WithDefaultRoles(loadRoles())); err != nil {
 		return err
 	}
-	_, err := access.New(store, access.WithDefaultRoles(router.Collection()))
+	_, err := access.New(store, router.Collection(), access.WithDefaultRoles())
 
 	return err
 }

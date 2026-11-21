@@ -90,6 +90,8 @@ import (
     "github.com/impulseframework/impulse/access/postgresstore"
     "github.com/impulseframework/impulse/accesstypes"
     "github.com/jackc/pgx/v5/pgxpool"
+
+    "example.com/harbor/pkg/router" // the application's generated router
 )
 
 func main() {
@@ -102,9 +104,11 @@ func main() {
         log.Fatal(err)
     }
 
-    // An application that ships default roles adds
-    // access.WithDefaultRoles(collection, roles.File); see Default Roles.
-    client, err := access.New(store)
+    // The collection is what the release declares, here Read on documents and
+    // their fields: the application's generated router answers it. An
+    // application that ships default roles adds
+    // access.WithDefaultRoles(roles.File); see Default Roles.
+    client, err := access.New(store, router.Collection())
     if err != nil {
         log.Fatal(err)
     }
@@ -197,13 +201,14 @@ tenant, and a thousand tenants share one compiled copy of the defaults.
 
 ```go
 client, err := access.New(store,
-    // The release's default roles: the role file embedded in the binary,
-    // validated against what the release declares (see Default Roles). The
-    // collection also lets a load skip and report a stored grant naming a
+    // What the release declares: the generated router's collection. Every
+    // grant is held to it: a load skips and reports a stored grant naming a
     // permission, resource or field this release does not have, instead of
-    // carrying it. An application with no role file passes
-    // access.WithPermissionCollection(router.Collection()) for that check.
-    access.WithDefaultRoles(router.Collection(), roles.File),
+    // carrying it, and a write refuses one. A client is not built without it.
+    router.Collection(),
+    // The release's default roles: the role file embedded in the binary,
+    // validated against the collection (see Default Roles).
+    access.WithDefaultRoles(roles.File),
     // Recommended: propagate changes between instances in near-realtime over
     // the application's signal channel (see Change signal).
     access.WithChangeSignal(policySignal),
@@ -226,9 +231,8 @@ defer client.Close()
 ```
 
 A grant the running release cannot use — a condition that does not parse, a
-row-referencing condition on a scope-wide grant, or, with the collection from
-`WithDefaultRoles` or `WithPermissionCollection`, a permission, resource or
-field the release does not declare — does not stop the load: it is left out of
+row-referencing condition on a scope-wide grant, or a permission, resource or
+field the release's collection does not declare — does not stop the load: it is left out of
 the snapshot and reported to the reload-error hook as a `*access.SkippedGrant`.
 The permission it would grant is denied, the rest of the policy loads, and the
 instance becomes ready. That is what makes a stored grant safe to outlive the
@@ -249,7 +253,7 @@ A custom role's grant set changes through `ChangeRoleGrants`, one store write
 for the removals and the additions together, so a reader never sees a role
 with neither its old grant nor its new one.
 
-With the same collection, the writes that give a custom role a grant
+By the same collection, the writes that give a custom role a grant
 (`AddRoleGrant`, `AddRoleGrants`, `AddRolePermissionResources`, the additions
 of `ChangeRoleGrants`, and `AddRolePermission` for a grant that names no
 resource) refuse a grant the release cannot use by its name: a
@@ -260,8 +264,9 @@ this release declares no List on Ledgers. ...`), and nothing of the call is
 written, the rows beside the refused one included. So the grants a load skips
 by name are the ones another release wrote, never ones this release was asked
 for and took. A removal is held to nothing: a grant the release no longer
-declares can always be taken away. A client handed no collection checks no
-name on a write, as it checks none on a load.
+declares can always be taken away. No client is without the collection: `New`
+takes it as an argument and refuses a nil one, so there is no client that
+checks no name.
 
 ### Change signal
 
@@ -333,7 +338,7 @@ policySignal := access.ChangeSignalFunc(
     },
 )
 
-client, err := access.New(store, access.WithChangeSignal(policySignal))
+client, err := access.New(store, router.Collection(), access.WithChangeSignal(policySignal))
 ```
 
 Any channel that publishes a kind to every instance's subscribers adapts the
@@ -787,11 +792,11 @@ import (
 var File access.RoleFile
 ```
 
-Hand it to `New` with the collection it validates against:
+Hand it to `New`, which validates it against the collection it is given:
 
 ```go
-client, err := access.New(store,
-    access.WithDefaultRoles(router.Collection(), roles.File),
+client, err := access.New(store, router.Collection(),
+    access.WithDefaultRoles(roles.File),
     access.WithChangeSignal(policySignal), // see Change signal
 )
 if err != nil {
@@ -799,8 +804,8 @@ if err != nil {
 }
 ```
 
-`WithDefaultRoles` also gives the client the collection `WithPermissionCollection`
-would, so an application with a role file passes only `WithDefaultRoles`.
+The collection is given once, to `New`: the role file validates against it, and
+every grant the store holds or a write adds is held to it.
 
 The deploy's migrate step calls `CheckPolicy`. It reads the store once and
 returns the role file's warnings (see Warnings) beside what the store holds that
@@ -860,8 +865,8 @@ defines it too.
   auth's roles, which the auth's generated management names
   (`<auth>identity.SuperAdministratorMethods()`). The role then holds Execute on each,
   under no condition, whatever the role file grants anybody, so a super administrator
-  gives and takes any role of the auth for any person. With a collection, `New` refuses a
-  method the release does not declare at the global scope with Execute.
+  gives and takes any role of the auth for any person. `New` refuses a method the
+  release's collection does not declare at the global scope with Execute.
   `Client.SuperAdministratorMethods` answers what the client was built with, and the
   identity library refuses an engine built without the methods its auth names
 - `Client.UserIsSuperAdministrator` and `UserChecker.SuperAdministrator` answer whether a
@@ -1014,7 +1019,7 @@ for _, w := range warnings {
 A deployment whose sites each generate their own collection over one schema shares one
 policy store: a login is one identity and a role is one set of powers across the
 application. `UnionCollection` presents the sites' collections as one registry for
-`WithDefaultRoles`: the registries merge, the subject namespace is the union of the sites'
+`New`: the registries merge, the subject namespace is the union of the sites'
 declarations, and every other question about a resource is answered by the first
 collection registering it. A resource several sites serve must be declared identically
 in each; `UnionCollection` refuses collections that disagree on a shared resource's
@@ -1029,7 +1034,7 @@ if err != nil {
     return err
 }
 
-client, err := access.New(store, access.WithDefaultRoles(collection, roles.File))
+client, err := access.New(store, collection, access.WithDefaultRoles(roles.File))
 ```
 
 ### JSON Configuration

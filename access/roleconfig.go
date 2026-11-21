@@ -95,9 +95,10 @@ func isNoRoleAction(store PermissionCollection, action accesstypes.Resource) boo
 
 // RoleFile is the bytes of a role file: the release's default roles, authored
 // as JSON in the RoleConfig shape and embedded in the application binary
-// (//go:embed roles.json). It is handed to New through WithDefaultRoles,
-// which parses and validates it, so a release whose file is malformed or
-// names what its collection does not declare does not start.
+// (//go:embed roles.json). It is handed to New through WithDefaultRoles, and
+// New parses it and validates it against the collection it is given, so a
+// release whose file is malformed or names what its collection does not
+// declare does not start.
 type RoleFile []byte
 
 // Parse decodes the file into its configuration and checks its shape: the
@@ -248,8 +249,8 @@ type defaultRole struct {
 // compileDefaultRoles validates and expands the configuration, and adds the
 // role the framework defines beside the file's: Super Administrator, a
 // global role holding Execute on methods, the methods that give and take the
-// auth's roles (WithSuperAdministratorMethods). store may be nil for a
-// configuration that declares no role, a Client built without a role file.
+// auth's roles (WithSuperAdministratorMethods). A Client built without a role
+// file compiles a configuration that declares no role.
 func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, methods []accesstypes.Resource) (*defaultRoles, error) {
 	if err := validateRoleNames(roleConfig.Roles); err != nil {
 		return nil, err
@@ -389,23 +390,18 @@ func isSuperAdministratorName(name accesstypes.Role) bool {
 // auth: Super Administrator, a global role whose one fixed power is Execute,
 // under no condition, on methods, the methods that give and take the auth's
 // roles, so no role file takes from its holder the means to give any role to
-// anyone. With a collection, each method must be one the release declares at
-// the global scope with Execute: the methods give a role wherever it is held,
-// and the role is held in the global partition alone.
+// anyone. Each method must be one the release declares at the global scope
+// with Execute: the methods give a role wherever it is held, and the role is
+// held in the global partition alone.
 func superAdministratorRole(store PermissionCollection, methods []accesstypes.Resource) (defaultRole, error) {
 	role := defaultRole{description: superAdministratorDescription, grants: make(grantSet)}
-	var executable []accesstypes.Resource
-	if store != nil {
-		executable = store.List()[accesstypes.Execute]
-	}
+	executable := store.List()[accesstypes.Execute]
 	for _, method := range methods {
 		if method == "" {
 			return defaultRole{}, errors.New("WithSuperAdministratorMethods names an empty method: pass the methods that give and take the auth's roles")
 		}
-		if store != nil {
-			if scope := store.Scope(method); scope != accesstypes.GlobalPermissionScope || !slices.Contains(executable, method) {
-				return defaultRole{}, errors.Newf("WithSuperAdministratorMethods names %s, which the release does not declare as a method of the global scope: pass the methods that give and take the auth's roles for the whole application, as the auth's generated management names them", method)
-			}
+		if scope := store.Scope(method); scope != accesstypes.GlobalPermissionScope || !slices.Contains(executable, method) {
+			return defaultRole{}, errors.Newf("WithSuperAdministratorMethods names %s, which the release does not declare as a method of the global scope: pass the methods that give and take the auth's roles for the whole application, as the auth's generated management names them", method)
 		}
 		role.grants.add(accesstypes.Execute, method, "")
 	}

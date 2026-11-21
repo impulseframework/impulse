@@ -85,6 +85,7 @@ func idleEngine(t *testing.T, store Store) (e *snapshotEngine, clock *movedClock
 
 	reported = new(atomic.Int64)
 	opts := defaultClientOptions()
+	opts.collection = fixtureCollection
 	opts.heartbeatInterval = idleBound
 	opts.onReloadError = func(error) { reported.Add(1) }
 	clock = newMovedClock(noon)
@@ -514,6 +515,7 @@ func Test_snapshotEngine_servingInstance(t *testing.T) {
 
 		store := newCountedStore(engineFakeStore(t))
 		opts := defaultClientOptions()
+		opts.collection = fixtureCollection
 		opts.heartbeatInterval = 20 * time.Millisecond
 		e := newSnapshotEngine(store, nil, opts)
 		// The engine's clock does not move, so the snapshot never passes its bound:
