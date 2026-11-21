@@ -328,6 +328,12 @@ func (p *PatchSet[Resource]) Resource() accesstypes.Resource {
 	return p.querySet.Resource()
 }
 
+// recordLabel is the record's struct name (labelOf), which the refusal of a commit says
+// the record by (recordLabeler).
+func (p *PatchSet[Resource]) recordLabel() string {
+	return labelOf[Resource]()
+}
+
 // Apply applies the patch within a new read-write transaction.
 //
 // An update or insert-or-update patch with no fields set is a silent no-op:

@@ -83,6 +83,18 @@ func TestUserIdentity_theAccountIsTheStoredOne(t *testing.T) {
 		}
 	})
 
+	t.Run("an actor whose name is the username of an account here is refused, in a sentence that carries nobody's name", func(t *testing.T) {
+		t.Parallel()
+		inner := mockstore.NewAuthStore[struct{}](gomock.NewController(t))
+		inner.EXPECT().UserByUserName(gomock.Any(), "alice").Return(&sessionstorage.SessionUser{Username: "alice"}, nil)
+
+		err := UserIdentity(inner).Actor(context.Background(), "alice")
+		const want = "An account of this application has your username, so a session that acts as a role cannot be started for you from another system. Sign in to this application instead."
+		if !httpio.HasForbidden(err) || httpio.Message(err) != want {
+			t.Errorf("IdentityResolver.Actor() error = %v, want it refused (403) saying %q", err, want)
+		}
+	})
+
 	t.Run("a store with none of the library's reads resolves nobody", func(t *testing.T) {
 		t.Parallel()
 		storage := mock_sessionstorage.NewMockAuthStore[struct{}](gomock.NewController(t))

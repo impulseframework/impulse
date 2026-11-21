@@ -36,15 +36,17 @@ func TestWriteTenancy(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		body       string
-		wantStatus int
-		verify     func(t *testing.T)
+		name        string
+		body        string
+		wantStatus  int
+		wantMessage string
+		verify      func(t *testing.T)
 	}{
 		{
-			name:       "update via another sector's route is NotFound",
-			body:       fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"hazard":5}}]`, opPath(bastion, "missions/"+missionHaulerID)),
-			wantStatus: http.StatusNotFound,
+			name:        "update via another sector's route is NotFound",
+			body:        fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"hazard":5}}]`, opPath(bastion, "missions/"+missionHaulerID)),
+			wantStatus:  http.StatusNotFound,
+			wantMessage: "This mission does not exist.",
 			verify: func(t *testing.T) {
 				t.Helper()
 				if hazard := readColumn[int64](ctx, t, db, "Missions", spanner.Key{missionHaulerID}, "Hazard"); hazard != 2 {
@@ -53,9 +55,10 @@ func TestWriteTenancy(t *testing.T) {
 			},
 		},
 		{
-			name:       "delete via another sector's route is NotFound",
-			body:       fmt.Sprintf(`[{"op":"remove","path":%q}]`, opPath(anvil, "missions/"+missionBeaconID)),
-			wantStatus: http.StatusNotFound,
+			name:        "delete via another sector's route is NotFound",
+			body:        fmt.Sprintf(`[{"op":"remove","path":%q}]`, opPath(anvil, "missions/"+missionBeaconID)),
+			wantStatus:  http.StatusNotFound,
+			wantMessage: "This mission does not exist.",
 			verify: func(t *testing.T) {
 				t.Helper()
 				if _, err := db.Single().ReadRow(ctx, "Missions", spanner.Key{missionBeaconID}, []string{"Title"}); err != nil {
@@ -64,9 +67,10 @@ func TestWriteTenancy(t *testing.T) {
 			},
 		},
 		{
-			name:       "create under another sector's parent, two hops deep, is NotFound",
-			body:       fmt.Sprintf(`[{"op":"add","path":%q,"value":{"sortieId":%q,"category":"fuel","amount":1}}]`, opPath(bastion, "sortie-expenses"), sortieConvoyID),
-			wantStatus: http.StatusNotFound,
+			name:        "create under another sector's parent, two hops deep, is NotFound",
+			body:        fmt.Sprintf(`[{"op":"add","path":%q,"value":{"sortieId":%q,"category":"fuel","amount":1}}]`, opPath(bastion, "sortie-expenses"), sortieConvoyID),
+			wantStatus:  http.StatusNotFound,
+			wantMessage: "A record this one refers to does not exist.",
 			verify: func(t *testing.T) {
 				t.Helper()
 				iter := db.Single().Query(ctx, spanner.Statement{SQL: "SELECT COUNT(*) FROM SortieExpenses WHERE SortieId = @s AND Category = 'fuel' AND Amount = 1", Params: map[string]any{"s": sortieConvoyID}})
@@ -105,8 +109,8 @@ func TestWriteTenancy(t *testing.T) {
 
 			status, body := doRequest(t, h, http.MethodPatch, "/console/api/resources", tt.body)
 			assertStatus(t, status, tt.wantStatus, body)
-			if tt.wantStatus == http.StatusNotFound && !strings.Contains(string(body), "not found") {
-				t.Errorf("expected a not-found message, got: %s", body)
+			if tt.wantMessage != "" && !strings.Contains(string(body), fmt.Sprintf(`"message":%q`, tt.wantMessage)) {
+				t.Errorf("body = %s, want the message %q", body, tt.wantMessage)
 			}
 			tt.verify(t)
 		})

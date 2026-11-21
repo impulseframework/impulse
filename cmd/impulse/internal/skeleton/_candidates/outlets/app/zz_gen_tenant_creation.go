@@ -120,7 +120,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if len(held) > 0 {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage("the session already holds a tenant; a person creates one tenant and becomes its administrator"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage("You already hold a role in a tenant, so you cannot create a tenant of your own."))
 		}
 		req, err := decoder.Decode(r)
 		if err != nil {
@@ -145,7 +145,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 				return errors.Wrap(err, "StaffIdentity().HoldsTenant()")
 			}
 			if holds {
-				return httpio.NewForbiddenMessage("the session already holds a tenant; a person creates one tenant and becomes its administrator")
+				return httpio.NewForbiddenMessage("You already hold a role in a tenant, so you cannot create a tenant of your own.")
 			}
 			// Who is admitted: a person who signed up, which is a person with no tenant
 			// while an administrator has a sign-in method open to sign-up. A person who
@@ -156,7 +156,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 				return errors.Wrap(err, "StaffIdentity().AnySignInMethodOpen()")
 			}
 			if !open {
-				return httpio.NewForbiddenMessage("sign-up is not open, so you cannot create a tenant of your own: ask an administrator of the application to create one for you, or to invite you to one")
+				return httpio.NewForbiddenMessage("Sign-up is not open, so you cannot create a tenant of your own. Ask an administrator of the application to create one for you, or to invite you to one.")
 			}
 			patch, err := resources.NewTenantCreatePatch()
 			if err != nil {

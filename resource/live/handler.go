@@ -381,7 +381,7 @@ func PrincipalID(ctx context.Context) (string, error) {
 	if len(id) > MaxPrincipalIDLength {
 		cause := errors.Newf("live.PrincipalID(): the principal id %q is %d bytes, over Firebase's uid limit of %d", id, len(id), MaxPrincipalIDLength)
 
-		return "", httpio.NewForbiddenMessageWithErrorf(cause, "live pages are not served to this sign-in: its principal id is %d bytes, over the limit of %d", len(id), MaxPrincipalIDLength)
+		return "", httpio.NewForbiddenMessageWithError(cause, "Pages do not update on their own for your sign-in. Reload a page to see what has changed.")
 	}
 
 	return id, nil

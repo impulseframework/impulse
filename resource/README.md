@@ -700,6 +700,14 @@ finds no row itself answers the same way:
 return resource.TargetNotFound("Mission", p.MissionID)
 ```
 
+The library says the same sentence where it finds the row missing itself: a read of a
+row that is not there for the caller, and an update or a delete whose row it looks for
+and does not find, are answered "This mission does not exist.", by the record's struct
+name in words. What it looked for (the statement's `WHERE` clause with its values, or
+the row's key) is kept for the log and never sent. A write whose record names another
+that is not there for the caller is answered "A record this one refers to does not
+exist."
+
 ## 6. Impersonated sessions
 
 The `session` package can establish a session that operates as another user or as a role
@@ -1631,7 +1639,8 @@ or a count:
 | | Nothing buffered | 409 | `The request could not be applied: a record with this key or a unique value already exists.` |
 | `OutOfRange` (a violated `CHECK` constraint) | Any write | 400 | `Missions: a value is outside the range the record allows.` |
 | | Nothing buffered | 400 | `The request could not be applied: a value is outside the range the record allows.` |
-| `NotFound` (an update of a row that does not exist; an interleaved child whose parent does not exist) | Updates only | 404 | `Clients: this record does not exist.` |
+| `NotFound` (an update of a row that does not exist; an interleaved child whose parent does not exist) | One update | 404 | `This client does not exist.` |
+| | Several updates | 404 | `One of the clients or pilots this request changes does not exist.` |
 | | Any create | 409 | `RefitTasks: a referenced record does not exist.` |
 | | Nothing buffered | 409 | `The request could not be applied: a record to update does not exist, or a referenced record does not exist.` |
 | anything else (`InvalidArgument`, `Internal`, `Aborted`, …) | | 500 | passes through unchanged |
@@ -1640,7 +1649,9 @@ or a count:
 code but `FailedPrecondition`, so deletes buffered beside writes do not change the other
 codes' sentences. A tracked resource's change-event rows do not count among the buffered
 patches. An error the transaction function itself returns passes through unchanged, whatever
-its code.
+its code. The 404 is said as every record that is not there is said: where one update was
+buffered, the record by its struct's name in words ("this record" for a patch that is not a
+`PatchSet`); where several were, the resources by their names in words.
 
 ### A delete with rows under the record
 
@@ -2537,8 +2548,9 @@ sets, and a logout through one auth ends that person's subscriptions and identit
 The id is the Firebase user id (uid) the browser signs in as, and Firebase allows a uid
 of at most 128 bytes (`live.MaxPrincipalIDLength`). Nothing is truncated or hashed: a
 person whose id is longer uses the application as always while the live pages refuse
-them. The token, renew and unsubscribe routes answer 403 naming the length and the
-limit, and a subscribing list or read registers nothing, each with the reason logged.
+them. The token, renew and unsubscribe routes answer 403 ("Pages do not update on their
+own for your sign-in. Reload a page to see what has changed."), and a subscribing list or
+read registers nothing, each with the reason, the id's length and the limit logged.
 The refusal sits in the live routes because the sign-in belongs to the session library
 and the auth package, which the generated code does not configure. The session library
 sets no length on a user name (its username columns are `STRING(MAX)`), so nothing is

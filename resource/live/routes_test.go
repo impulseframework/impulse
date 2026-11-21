@@ -119,7 +119,7 @@ func TestRenewHandler(t *testing.T) {
 			user:       longName(MaxPrincipalIDLength + 1),
 			body:       `{"tab":"tab-1","subscriptions":[{"resource":"Clients"}]}`,
 			wantStatus: http.StatusForbidden,
-			wantBody:   "over the limit of 128",
+			wantBody:   overLimitWords,
 		},
 	}
 
@@ -457,6 +457,8 @@ func TestTokenHandler(t *testing.T) {
 		wantStatus int
 		want       *TokenPayload
 		wantBody   string
+		// notInBody are words the body must not carry.
+		notInBody []string
 	}{
 		{
 			name:       "the payload names the session principal, qualified by its auth",
@@ -480,7 +482,8 @@ func TestTokenHandler(t *testing.T) {
 			name:       "a principal id over the uid limit is refused before anything is minted",
 			ctx:        withSession(context.Background(), crewAuth, longName(MaxPrincipalIDLength+1)),
 			wantStatus: http.StatusForbidden,
-			wantBody:   "live pages are not served to this sign-in: its principal id is 129 bytes, over the limit of 128",
+			wantBody:   overLimitWords,
+			notInBody:  []string{"129", "128", "bytes"},
 		},
 		{
 			name:       "a request no auth was bound to is a server error",
@@ -502,6 +505,11 @@ func TestTokenHandler(t *testing.T) {
 			}
 			if tt.wantBody != "" && !strings.Contains(rr.Body.String(), tt.wantBody) {
 				t.Errorf("body = %q, want it to contain %q", rr.Body.String(), tt.wantBody)
+			}
+			for _, word := range tt.notInBody {
+				if strings.Contains(rr.Body.String(), word) {
+					t.Errorf("body = %q, which carries %q", rr.Body.String(), word)
+				}
 			}
 			if tt.want == nil {
 				return
