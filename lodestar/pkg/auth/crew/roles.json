@@ -32,7 +32,8 @@
                 "designation",
                 "roleId",
                 "tonnage",
-                "hardened"
+                "hardened",
+                "inService"
               ]
             },
             {
@@ -65,7 +66,8 @@
                 "designation",
                 "roleId",
                 "tonnage",
-                "hardened"
+                "hardened",
+                "inService"
               ]
             },
             {
@@ -735,7 +737,8 @@
                 "designation",
                 "roleId",
                 "tonnage",
-                "hardened"
+                "hardened",
+                "inService"
               ]
             },
             {
@@ -784,7 +787,8 @@
               "fields": [
                 "roleId",
                 "tonnage",
-                "hardened"
+                "hardened",
+                "inService"
               ]
             },
             {
