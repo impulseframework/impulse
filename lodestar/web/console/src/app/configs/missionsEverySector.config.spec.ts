@@ -198,7 +198,7 @@ describe('the Missions in every sector page', () => {
     });
 
     it('reads alone: a mission is booked inside its sector', () => {
-      expect((fixture.nativeElement as HTMLElement).querySelector('.create-button')).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).querySelector('.impulse-resource-list-create-button')).toBeNull();
       expect(fixture.componentInstance.across()).toBe(true);
     });
   });

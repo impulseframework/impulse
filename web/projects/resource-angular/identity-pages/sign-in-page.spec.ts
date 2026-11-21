@@ -334,7 +334,7 @@ describe('the Sign-in page, drawn by the list', () => {
     );
     expect(actionsOf(0).map((action) => [action.id, action.label])).toEqual([[open, 'Open sign-up']]);
     // Nothing is open: the page keeps no notice above the list.
-    expect(element().querySelector('.notice')).toBeNull();
+    expect(element().querySelector('.impulse-resource-list-notice')).toBeNull();
   });
 
   it('offers a caller without the grant no action on any row', async () => {
@@ -381,10 +381,10 @@ describe('the Sign-in page, drawn by the list', () => {
   it('keeps a notice above the list, in the warning style, while a method is open to sign-up', async () => {
     await create([password, google, entra], mayChoose);
 
-    const notice = element().querySelector('.notice');
+    const notice = element().querySelector('.impulse-resource-list-notice');
     expect(notice?.getAttribute('role')).toBe('status');
-    expect(notice?.querySelector('mat-icon.notice-icon')?.textContent?.trim()).toBe('warning');
-    expect(notice?.querySelector('.notice-words')?.textContent?.trim()).toBe(
+    expect(notice?.querySelector('mat-icon.impulse-resource-list-notice-icon')?.textContent?.trim()).toBe('warning');
+    expect(notice?.querySelector('.impulse-resource-list-notice-words')?.textContent?.trim()).toBe(
       'Password is open to sign-up. Anyone with an email address will be able to sign up without an invitation. Each of them gets the role Member.',
     );
   });
@@ -392,6 +392,6 @@ describe('the Sign-in page, drawn by the list', () => {
   it('draws no notice while every method is invite only', async () => {
     await create([google, entra], mayChoose);
 
-    expect(element().querySelector('.notice')).toBeNull();
+    expect(element().querySelector('.impulse-resource-list-notice')).toBeNull();
   });
 });

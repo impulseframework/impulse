@@ -26,7 +26,7 @@ Then import the library's stylesheet once, from the application's global styles 
 @use '@impulseframework/resource-angular/styles';
 ```
 
-The form and list components request its classes by name — the twelve-column field grid, the read-only and edit-mode treatments, the sticky list header — and it declares the color tokens the components draw with, which the application's theme sets (see Theming below). Without the import, fields lose their grid and section labels lose their styling.
+The form components request its classes by name — the twelve-column field grid, the read-only and edit-mode treatments, the heading row that stays at the top — and it declares the color tokens the components draw with, which the application's theme sets (see Theming below). A list names every element it draws for itself (`impulse-resource-list-…`: its title is `impulse-resource-list-title`, a notice `impulse-resource-list-notice`) and requests none of the sheet's classes: it reads the tokens, and the switch for sticky headers (`--sticky-headers`). Without the import, fields lose their grid and section labels lose their styling.
 
 Those classes have plain names (`.resource`, `.field`, `.row`, `.col-1` to `.col-12`, `.readonly-field`, `.hidden-field`, `.resource-container`, `.form-edit-mode`, `.header-container`) and the sheet is global, so it styles every element of the application that carries one of them, inside any component. A component of your own that draws something else gives its elements other names: a table cell named `resource` would be laid out as a form's flex row.
 
