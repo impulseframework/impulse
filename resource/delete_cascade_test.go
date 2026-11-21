@@ -420,6 +420,261 @@ func Test_takenDeletes(t *testing.T) {
 	}
 }
 
+// invoicedTree is projectTree with two kinds that refuse the project's delete: an
+// invoice, which names a task and may name a second one it was checked against, and a
+// timesheet, which names a task.
+func invoicedTree() *DeleteTree {
+	underTask := func(column string) DeletePath {
+		return DeletePath{
+			{Columns: []string{column}, Table: "CascadeTasks", References: []string{"Id"}},
+			{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}},
+		}
+	}
+	tree := projectTree(nil)
+	tree.RefusedBy = []DeleteKind{
+		{
+			Resource: "CascadeInvoices",
+			Words:    DeleteWords{One: "invoice", Many: "invoices"},
+			Key:      []string{"Id"},
+			Paths:    []DeletePath{underTask("TaskId"), underTask("CheckedTaskId")},
+		},
+		{
+			Resource: "CascadeTimesheets",
+			Words:    DeleteWords{One: "timesheet", Many: "timesheets"},
+			Key:      []string{"Id"},
+			Paths:    []DeletePath{underTask("TaskId")},
+		},
+	}
+
+	return tree
+}
+
+// refusing answers a count's reads from the tables as the database would: the name of
+// each of the kind's rows whose columns hold what the link references of one of the
+// rows above.
+func (c cascadeTables) refusing(ctx context.Context, kind *DeleteKind, link DeleteLink, above []map[string]any) ([]string, error) {
+	rows, err := c.under(ctx, kind, link, above, len(c[kind.Resource]))
+	if err != nil {
+		return nil, err
+	}
+
+	return ids(rows), nil
+}
+
+// invoicedTables are a project's tasks, two of them under the project only through
+// another task, with the invoices and timesheets that name them.
+func invoicedTables() cascadeTables {
+	return cascadeTables{
+		"CascadeTasks": {
+			{"Id": "t1", "ProjectId": "p1"},
+			{"Id": "t2", "ParentTaskId": "t1"},
+			{"Id": "t3", "ParentTaskId": "t2"},
+			{"Id": "other", "ProjectId": "p2"},
+			{"Id": "other2", "ParentTaskId": "other"},
+		},
+		"CascadeInvoices": {
+			// Under a task that is under the project only through another task.
+			{"Id": "i1", "TaskId": "t2"},
+			// Under two of the project's tasks, by two columns.
+			{"Id": "i2", "TaskId": "t3", "CheckedTaskId": "t2"},
+			// Under another project's task.
+			{"Id": "i3", "TaskId": "other2"},
+		},
+		"CascadeTimesheets": {
+			{"Id": "s1", "TaskId": "t3"},
+		},
+	}
+}
+
+// walked is what a walk from project p1 finds in the tables.
+func walked(t *testing.T, tree *DeleteTree, tables cascadeTables) *takenFound {
+	t.Helper()
+
+	walk := &takenWalk{
+		tree:    tree,
+		limit:   1000,
+		tracked: func(accesstypes.Resource) bool { return false },
+		under:   tables.under,
+		wrote:   func(accesstypes.Resource, map[string]any) bool { return false },
+	}
+	found, err := walk.find(t.Context(), map[string]any{"Id": "p1", "Code": "ALPHA"})
+	if err != nil {
+		t.Fatalf("find() error = %v", err)
+	}
+
+	return found
+}
+
+// TestRefusingCount_rows pins the count of the rows that refuse a record's delete from
+// under the rows a walk found: a row under a task that is under the record only through
+// another task is counted, a row under two of the rows found is counted once, a row
+// under another record's task is not, the kinds come in the description's order, and a
+// record with no such row has none.
+func TestRefusingCount_rows(t *testing.T) {
+	t.Parallel()
+
+	tree := invoicedTree()
+	paid := invoicedTables()
+	delete(paid, "CascadeInvoices")
+	delete(paid, "CascadeTimesheets")
+
+	tests := []struct {
+		name   string
+		tables cascadeTables
+		want   map[accesstypes.Resource]int64
+		order  []accesstypes.Resource
+	}{
+		{
+			name:   "rows under tasks the walk alone reaches",
+			tables: invoicedTables(),
+			want:   map[accesstypes.Resource]int64{"CascadeInvoices": 2, "CascadeTimesheets": 1},
+			order:  []accesstypes.Resource{"CascadeInvoices", "CascadeTimesheets"},
+		},
+		{
+			name:   "no refusing row under the rows found",
+			tables: paid,
+			want:   map[accesstypes.Resource]int64{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			count := &refusingCount{tree: tree, under: tt.tables.refusing}
+			refusing, err := count.rows(t.Context(), walked(t, tree, tt.tables))
+			if err != nil {
+				t.Fatalf("rows() error = %v", err)
+			}
+			got := make(map[accesstypes.Resource]int64, len(refusing))
+			var order []accesstypes.Resource
+			for _, k := range refusing {
+				got[k.kind.Resource] = k.rows
+				order = append(order, k.kind.Resource)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("rows() mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.order, order); diff != "" {
+				t.Errorf("rows() order mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestRecordedDelete_refusedUnder pins the refusal of a delete over a refusing row under
+// a row the walk alone reaches: a 409 in the sentence that counts each kind the person
+// may list, and no refusal where no such row is there.
+func TestRecordedDelete_refusedUnder(t *testing.T) {
+	t.Parallel()
+
+	tree := invoicedTree()
+	paid := invoicedTables()
+	delete(paid, "CascadeInvoices")
+	delete(paid, "CascadeTimesheets")
+
+	tests := []struct {
+		name        string
+		tables      cascadeTables
+		caller      *Caller
+		wantStatus  int
+		wantMessage string
+	}{
+		{
+			name:        "a trusted call is told every kind",
+			tables:      invoicedTables(),
+			wantStatus:  http.StatusConflict,
+			wantMessage: "This project has 2 invoices and 1 timesheet, so it can't be deleted.",
+		},
+		{
+			name:        "a kind the person may not list is not counted for them",
+			tables:      invoicedTables(),
+			caller:      whoLists(accesstypes.Decisions{"CascadeInvoices": accesstypes.Denied()}),
+			wantStatus:  http.StatusConflict,
+			wantMessage: "This project has 1 timesheet, so it can't be deleted.",
+		},
+		{
+			name:   "no refusing row under the rows found",
+			tables: paid,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			asked := &recordedDelete{tree: tree, key: map[string]any{"Id": "p1"}, caller: tt.caller}
+			err := asked.refusedUnder(t.Context(), &refusingCount{tree: tree, under: tt.tables.refusing}, walked(t, tree, tt.tables))
+			if tt.wantStatus == 0 {
+				if err != nil {
+					t.Fatalf("refusedUnder() error = %v, want none", err)
+				}
+
+				return
+			}
+			if got := statusOf(err); got != tt.wantStatus {
+				t.Errorf("refusedUnder() status = %d, want %d (%v)", got, tt.wantStatus, err)
+			}
+			if got := httpio.Message(err); got != tt.wantMessage {
+				t.Errorf("refusedUnder() message = %q, want %q", got, tt.wantMessage)
+			}
+		})
+	}
+}
+
+// Test_refusingStatements pins the reads of the refusing rows under one part of the rows
+// found: the key of the kind's rows whose columns hold what the link references of one
+// of the rows above, the rows of the kind the transaction itself wrote left out, the
+// rows above read for in parts that leave room for those, and no read at all where the
+// transaction wrote more rows of the kind than a statement leaves out.
+func Test_refusingStatements(t *testing.T) {
+	t.Parallel()
+
+	invoices := &DeleteKind{Resource: "CascadeInvoices", Key: []string{"Id"}}
+	byTask := DeleteLink{Columns: []string{"TaskId"}, Table: "CascadeTasks", References: []string{"Id"}}
+	rows := func(n int) []map[string]any {
+		out := make([]map[string]any, 0, n)
+		for i := range n {
+			out = append(out, map[string]any{"Id": fmt.Sprintf("r%d", i)})
+		}
+
+		return out
+	}
+
+	got, err := refusingStatements(invoices, byTask, []map[string]any{{"Id": "t1"}, {"Id": "t2"}}, []map[string]any{{"Id": "i9"}})
+	if err != nil {
+		t.Fatalf("refusingStatements() error = %v", err)
+	}
+	want := []rowsUnderStatement{{
+		SQL:  "SELECT t0.`Id` FROM `CascadeInvoices` AS t0 WHERE ((t0.`TaskId` = @d1) OR (t0.`TaskId` = @d2)) AND NOT (t0.`Id` = @d3)",
+		Args: []any{"t1", "t2", "i9"},
+	}}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("refusingStatements() mismatch (-want +got):\n%s", diff)
+	}
+
+	parts, err := refusingStatements(invoices, byTask, rows(takenParameterLimit), rows(100))
+	if err != nil {
+		t.Fatalf("refusingStatements() error = %v", err)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("refusingStatements() made %d reads of %d rows above with 100 rows left out, want 2", len(parts), takenParameterLimit)
+	}
+	for i, part := range parts {
+		if len(part.Args) > takenParameterLimit {
+			t.Errorf("read %d names %d values, want no more than %d", i, len(part.Args), takenParameterLimit)
+		}
+	}
+
+	none, err := refusingStatements(invoices, byTask, rows(2), rows(deleteExclusionLimit+1))
+	if err != nil {
+		t.Fatalf("refusingStatements() error = %v", err)
+	}
+	if len(none) != 0 {
+		t.Errorf("refusingStatements() made %d reads with more rows written than a statement leaves out, want none", len(none))
+	}
+}
+
 // TestRecordedDelete_mayTake pins what a row that may not go answers the whole delete
 // with: its rule's own sentence where its rule refuses; where the person may not delete
 // it, or may not reach it, a 403 that names the row's kind if they may list it and says

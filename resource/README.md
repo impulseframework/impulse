@@ -1732,6 +1732,11 @@ with nothing gone where it cannot be made whole:
   link to itself (`DeleteKind.Within`: an answer names the relay it answers) is followed
   until a level finds nothing new, so a row under a row of its own kind goes however deep
   it is, and so does one that is under the record through such a row alone.
+- A row of a kind the record lists under `refusedBy` refuses the delete wherever it is
+  under the record. One under a row that is under the record through a row of its own
+  kind alone (an invoice for a task under a task) is on none of the kind's ways up, so it
+  is looked for under the rows found, each row counted once, and the delete answers in
+  the same counted sentence before any row is checked, asked about or deleted.
 - Every row goes through its own kind's generated delete (`DeleteKind.Rows`, which the
   generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind
   and the grant's condition against the row, the kind's delete rule, its change record

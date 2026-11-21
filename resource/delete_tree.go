@@ -211,19 +211,23 @@ func (t *DeleteTree) rowNameInside() string {
 	return "this " + t.Words.One
 }
 
-// referenced are the columns of a table that the taken kinds' rows are found by: the
-// columns their steps up to a row of the table reference, each once. They are the
-// table's key, or part of it, except where a foreign key references other columns.
+// referenced are the columns of a table that rows under one of its rows are found by:
+// the columns the taken kinds' steps up to a row of the table reference, and the
+// refusing kinds', whose rows are looked for under the rows a walk found
+// (refusingCount), each once. They are the table's key, or part of it, except where a
+// foreign key references other columns.
 func (t *DeleteTree) referenced(table string) []string {
 	var columns []string
-	for i := range t.Taken {
-		for _, link := range t.Taken[i].stepsUp() {
-			if link.Table != table {
-				continue
-			}
-			for _, column := range link.References {
-				if !slices.Contains(columns, column) {
-					columns = append(columns, column)
+	for _, kinds := range [][]DeleteKind{t.Taken, t.RefusedBy} {
+		for i := range kinds {
+			for _, link := range kinds[i].stepsUp() {
+				if link.Table != table {
+					continue
+				}
+				for _, column := range link.References {
+					if !slices.Contains(columns, column) {
+						columns = append(columns, column)
+					}
 				}
 			}
 		}
@@ -233,7 +237,7 @@ func (t *DeleteTree) referenced(table string) []string {
 }
 
 // reads are the columns a delete that takes rows reads of a row of the table: its key,
-// and any other column the taken kinds' rows under it are found by (referenced).
+// and any other column the rows under it are found by (referenced).
 func (t *DeleteTree) reads(table accesstypes.Resource, key []string) []string {
 	columns := slices.Clone(key)
 	for _, column := range t.referenced(string(table)) {
