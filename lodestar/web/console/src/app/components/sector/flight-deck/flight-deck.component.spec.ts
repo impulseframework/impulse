@@ -345,14 +345,22 @@ describe('FlightDeckComponent', () => {
     input.value = value;
     input.dispatchEvent(new Event('input'));
   };
-  /** The call sheet's Fee input: the library's number control, which carries no name of the deck's. */
+  /**
+   * The open dialog's money input: the library's number control, which carries no name of
+   * the deck's. It is the Fee of the call sheet and of the booking form, and the Amount of
+   * the Add expense form.
+   */
   const feeInput = (): HTMLInputElement | null =>
     inDialog<HTMLInputElement>('impulse-resource-field impulse-number-field input[type="number"]');
-  /** Types into the call sheet's Fee field, as a person does. */
+  /** Types into the open dialog's Fee field, as a person does. */
   const typeFee = (value: string): void => {
     const input = feeInput()!;
     input.value = value;
     input.dispatchEvent(new Event('input'));
+  };
+  /** Types into the Add expense form's Amount field, as a person does. */
+  const typeAmount = (value: string): void => {
+    typeFee(value);
   };
   /** Opens one of the dialog's pickers and picks the option that reads `label`, as a person does. */
   const pick = async (name: string, label: string): Promise<void> => {
@@ -479,6 +487,26 @@ describe('FlightDeckComponent', () => {
     expect(new Date(sent).getTime()).toBe(new Date(2031, 0, 2, 9, 30).getTime());
     expect(dialogOpen()).toBe(false);
     expect(reads('missions')).toBe(before + 1);
+  });
+
+  // The booking form's Fee is the library's number control, as the call sheet's is. A fee
+  // is a decimal: what is sent is the text the person typed, where a number would round
+  // it and drop its last zero.
+  it('a booking sends the fee with every digit the person typed, more than a number holds', async () => {
+    await pageFor({ grants: marshal });
+    await press('Book a mission');
+    await fillBooking();
+    typeFee('12345678901234567.50');
+    await send();
+    await settle(() => !dialogOpen(), 50);
+
+    expect(writes()).toEqual([
+      {
+        op: 'add',
+        path: `/sectors/${anvilID}/missions`,
+        value: expect.objectContaining({ title: 'Escort the Wren', fee: '12345678901234567.50' }),
+      },
+    ]);
   });
 
   it("a booking the server refuses is shown in the dialog in the server's words, and the form stays as it was filled", async () => {
@@ -1248,7 +1276,7 @@ describe('FlightDeckComponent', () => {
       .find((option) => text(option) === 'tow gear')
       ?.click();
     await settle();
-    type('expenseAmount', '300');
+    typeAmount('300');
     await send();
     await settle(() => !dialogOpen(), 50);
 
@@ -1272,7 +1300,7 @@ describe('FlightDeckComponent', () => {
     expect(dialogTexts('mat-label')).toEqual(['Category', 'Amount']);
     expect(dialogTexts('mat-dialog-actions button')).toEqual(['Cancel', 'Add expense']);
 
-    type('expenseAmount', '120');
+    typeAmount('120');
     await send();
     await settle(() => !dialogOpen() && reads('sortie-expenses') > before, 50);
 
@@ -1284,6 +1312,35 @@ describe('FlightDeckComponent', () => {
       },
     ]);
     expect(dialogOpen()).toBe(false);
+  });
+
+  // The Amount field is the library's number control, and an amount is a decimal: what is
+  // sent is the text the person typed, where a number would round it and drop its last zero.
+  it('Add expense sends an amount with every digit the person typed, more than a number holds', async () => {
+    await pageFor({ grants: marshal });
+    await openMission();
+    await press('Add expense');
+    typeAmount('12345678901234567.50');
+    await send();
+    await settle(() => !dialogOpen(), 50);
+
+    expect(writes()).toEqual([
+      {
+        op: 'add',
+        path: `/sectors/${anvilID}/sortie-expenses`,
+        value: { sortieId: 'so-1', category: 'fuel', amount: '12345678901234567.50' },
+      },
+    ]);
+  });
+
+  it('an Add expense form with no amount sends nothing', async () => {
+    await pageFor({ grants: marshal });
+    await openMission();
+    await press('Add expense');
+    await send();
+
+    expect(writes()).toEqual([]);
+    expect(dialogOpen()).toBe(true);
   });
 
   it("Attach document opens its form in a dialog under the button's words, and sends nothing until a file is picked", async () => {

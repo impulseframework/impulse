@@ -21,7 +21,13 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { MatTimepickerModule } from '@angular/material/timepicker';
-import { Methods, Missions as MissionNames, Permissions, Resources } from '@app/service/zz_gen_constants';
+import {
+  Methods,
+  Missions as MissionNames,
+  Permissions,
+  Resources,
+  SortieExpenses as SortieExpenseNames,
+} from '@app/service/zz_gen_constants';
 import { MissionKind } from '@app/service/zz_gen_enums';
 import { CompleteMissionResult, methodMeta } from '@app/service/zz_gen_methods';
 import {
@@ -304,10 +310,16 @@ export class FlightDeckComponent {
   editAssignedSquadronId = '';
   // The call sheet's Fee is the library's number control, drawn from the Missions
   // metadata. A fee is a decimal, which the metadata marks: the control writes what the
-  // person typed into this form as text, so the save sends every digit of it.
+  // person typed into this form as text, so the save sends every digit of it. The booking
+  // form's Fee is the same control over a form of its own, and the Add expense form's
+  // Amount is the control drawn from the SortieExpenses metadata.
   missionsMeta = resourceMeta(Resources.Missions);
   feeField = field({ name: MissionNames.fieldName.fee, label: 'Fee', cols: 12 });
   editFeeForm = new FormGroup({ fee: new FormControl<string | null>(null) });
+  bookFeeForm = new FormGroup({ fee: new FormControl<string | null>(null) });
+  expensesMeta = resourceMeta(Resources.SortieExpenses);
+  amountField = field({ name: SortieExpenseNames.fieldName.amount, label: 'Amount', cols: 12 });
+  expenseAmountForm = new FormGroup({ amount: new FormControl<string | null>(null) });
   // The server's refusal of the last call-sheet save, shown under the form.
   editRefusal = signal<string | undefined>(undefined);
   // The editable fields whose Update grant is conditional, named for the hint under the
@@ -332,7 +344,6 @@ export class FlightDeckComponent {
   newKind = '';
   newClientId = '';
   newHazard: number | null = null;
-  newFee: number | null = null;
   newDeadlineDate: Date | null = null;
   newDeadlineTime: Date | null = null;
   newNotes = '';
@@ -346,7 +357,6 @@ export class FlightDeckComponent {
   attachRefusal = signal<string | undefined>(undefined);
   newSortiePilot = '';
   newExpenseCategory = 'fuel';
-  newExpenseAmount: number | null = null;
 
   constructor() {
     const clock = setInterval(() => this.now.set(new Date()), 1000);
@@ -463,7 +473,7 @@ export class FlightDeckComponent {
     this.newKind = '';
     this.newClientId = '';
     this.newHazard = null;
-    this.newFee = null;
+    this.bookFeeForm.reset({ fee: null });
     this.newDeadlineDate = null;
     this.newDeadlineTime = null;
     this.newNotes = '';
@@ -500,7 +510,7 @@ export class FlightDeckComponent {
   openExpense(sortie: Sorties, form: TemplateRef<unknown>): void {
     this.expenseSortie.set(sortie);
     this.newExpenseCategory = 'fuel';
-    this.newExpenseAmount = null;
+    this.expenseAmountForm.reset({ amount: null });
     this.open(form);
   }
 
@@ -979,7 +989,8 @@ export class FlightDeckComponent {
         title: this.newTitle,
         brief: this.newBrief || undefined,
         hazard: this.newHazard ?? 1,
-        fee: String(this.newFee ?? 0),
+        // The Fee field's text, every digit of it; a booking with no fee typed is free.
+        fee: this.bookFeeForm.controls.fee.value || '0',
         deadline,
         notes: this.newNotes || undefined,
       }),
@@ -1005,13 +1016,14 @@ export class FlightDeckComponent {
   }
 
   async addExpense(sortie: Sorties): Promise<void> {
-    if (this.newExpenseAmount === null) return;
-    const amount = this.newExpenseAmount;
+    // The Amount field's text, every digit of it; an expense with no amount is not sent.
+    const amount = this.expenseAmountForm.controls.amount.value;
+    if (!amount) return;
     const added = await this.send(() =>
       this.sectors.sectorApi().sortieExpenses.create({
         sortieId: sortie.id,
         category: this.newExpenseCategory,
-        amount: String(amount),
+        amount,
       }),
     );
     if (added) {
