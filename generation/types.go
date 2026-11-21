@@ -328,6 +328,7 @@ type informationSchemaResult struct {
 	OrdinalPosition      int64   `spanner:"ORDINAL_POSITION"`
 	KeyOrdinalPosition   int64   `spanner:"KEY_ORDINAL_POSITION"`
 	HasDefault           bool    `spanner:"HAS_DEFAULT"`
+	ColumnDefault        *string `spanner:"COLUMN_DEFAULT"`
 	IsInterleaved        bool    `spanner:"IS_INTERLEAVED"`
 	ParentTable          *string `spanner:"PARENT_TABLE_NAME"`
 	OnDeleteAction       *string `spanner:"ON_DELETE_ACTION"`
@@ -426,13 +427,11 @@ type indexColumn struct {
 }
 
 type columnMeta struct {
+	// The yes or no facts stand together, so that they take one word between them: a
+	// column is copied wherever the columns of a table are ranged over.
 	IsPrimaryKey bool
 	IsForeignKey bool
 	IsNullable   bool
-	// SpannerType is the column's declared type as INFORMATION_SCHEMA.COLUMNS spells
-	// it: STRING(64), STRING(MAX), NUMERIC, ARRAY<STRING(4)>. The patch request structs
-	// carry it as sqltype where the decoder sizes the field's value against it.
-	SpannerType string
 	// IsIndex marks a column that leads some index of the table, the PRIMARY_KEY index
 	// and Spanner's managed foreign-key indexes included: a filter on it alone has a
 	// seek path. A trailing key column and a stored column are not marked; a predicate
@@ -443,7 +442,13 @@ type columnMeta struct {
 	// the PRIMARY_KEY index included, has exactly this column as its key. A column of
 	// a composite key or composite unique index is not one; the database enforces
 	// nothing per value of it.
-	IsUniqueIndex      bool
+	IsUniqueIndex bool
+	// HasDefault marks a column that declares a DEFAULT, whose expression Default holds.
+	HasDefault bool
+	// SpannerType is the column's declared type as INFORMATION_SCHEMA.COLUMNS spells
+	// it: STRING(64), STRING(MAX), NUMERIC, ARRAY<STRING(4)>. The patch request structs
+	// carry it as sqltype where the decoder sizes the field's value against it.
+	SpannerType        string
 	OrdinalPosition    int64
 	KeyOrdinalPosition int64
 	ReferencedTable    string
@@ -453,7 +458,11 @@ type columnMeta struct {
 	// row with the referenced one, outside the patch machinery, which the audit pass
 	// reads for a table that stores files (CascadeReleaseFinding).
 	DeleteRule string
-	HasDefault bool
+	// Default is the column's DEFAULT expression as INFORMATION_SCHEMA.COLUMNS spells
+	// it, without the parentheses the DDL wraps it in ("TRUE", "false", "0"); "" where
+	// the column declares none, which HasDefault says. A yes or no column's reaches
+	// the browser metadata (resourceField.YesOrNoDefault).
+	Default string
 	// GenerationExpression is a generated column's expression as
 	// INFORMATION_SCHEMA.COLUMNS spells it, "" on a plain column. A TOKENLIST column's
 	// names the tokenizer the search facts derive from, and a LOWER(col) column
@@ -1833,6 +1842,9 @@ type resourceField struct {
 	EnumerationValues []*enumData
 	ReferencedField   string
 	HasDefault        bool
+	// Default is the backing column's DEFAULT expression (columnMeta.Default); "" where
+	// the column declares none, and on a view.
+	Default string
 	// SpannerType is the backing column's declared type (columnMeta.SpannerType);
 	// empty on a view, whose fields have no schema type.
 	SpannerType string
@@ -2394,6 +2406,26 @@ func (f *resourceField) IsRequired() bool {
 	}
 
 	return false
+}
+
+// YesOrNoDefault is the default a BOOL column declares, as the browser metadata spells
+// it: "true" or "false" where the schema says DEFAULT (TRUE) or DEFAULT (FALSE) in
+// either case, and "" where the column declares no default, declares an expression
+// that is neither word, or is not a BOOL. A create form starts the field's box there,
+// so a form saved untouched sends what the schema would have stored.
+func (f *resourceField) YesOrNoDefault() string {
+	if f.SpannerType != "BOOL" {
+		return ""
+	}
+
+	switch strings.ToUpper(strings.TrimSpace(f.Default)) {
+	case "TRUE":
+		return "true"
+	case "FALSE":
+		return "false"
+	default:
+		return ""
+	}
 }
 
 func (f *resourceField) IsQueryClauseEligible() bool {

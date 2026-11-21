@@ -76,18 +76,23 @@ function notOnThisForm(labels: string[]): string {
 }
 
 /**
- * Where a create form starts a yes or no field that is never empty. What the page's config
- * gives it comes first. With nothing given, a field the resource requires starts unchecked:
- * the resource declares no default for it, an empty box already reads as a no, and a form
- * saved untouched sends that. A field the resource does not require has a default the
- * resource declares, which the server applies to a create that leaves the field out: the
- * form holds nothing for it, and sends nothing unless the person answers.
+ * Where a create form starts a yes or no field. What the page's config gives it comes
+ * first. With nothing given, a field the resource requires starts unchecked: the resource
+ * declares no default for it, an empty box already reads as a no, and a form saved
+ * untouched sends that. A field the resource does not require starts at the default the
+ * schema declares for it, which the generated metadata carries (`schemaDefault`): the form
+ * shows what a create that left the field out would store, and a form saved untouched
+ * sends it. Where the schema declares none the form holds nothing for the field, which a
+ * box draws unchecked, and sends nothing unless the person answers.
  */
 function yesOrNoStart(field: FieldMeta, given: FieldDefault): boolean | null {
   if (given?.type === 'static' && typeof given.value === 'boolean') {
     return given.value;
   }
-  return field.required ? false : null;
+  if (field.required) {
+    return false;
+  }
+  return field.schemaDefault ?? null;
 }
 
 @Component({
@@ -225,6 +230,10 @@ export class ResourceCreateComponent implements OnInit {
       }
       const fieldDefault = fieldConfig.default;
       if (field.displayType === 'boolean') {
+        control = new FormControl<boolean | null>(yesOrNoStart(field, fieldDefault));
+      } else if (field.displayType === 'nullboolean' && field.schemaDefault !== undefined) {
+        // A yes or no field that can be empty starts at the schema's default as well; with
+        // none declared it starts empty.
         control = new FormControl<boolean | null>(yesOrNoStart(field, fieldDefault));
       }
 
