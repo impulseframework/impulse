@@ -1,6 +1,16 @@
 import { CdkScrollable } from '@angular/cdk/scrolling';
 import { DOCUMENT, NgComponentOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, effect, ElementRef, inject, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  effect,
+  ElementRef,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
+import { MatButtonModule } from '@angular/material/button';
 import { MatSidenav, MatSidenavModule } from '@angular/material/sidenav';
 import { RouterOutlet } from '@angular/router';
 import { Frame } from './frame';
@@ -32,6 +42,12 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
  * the place the page is in is remembered as where the person works (PlaceService), which
  * the sign-in and sign-out pages, routed outside it, never are.
  *
+ * Where what the person holds could not be read (PlaceService.unread: a guard could not
+ * decide the page that was asked for, the global digest is unread, or the person's list of
+ * tenants is), the frame draws "This page could not be loaded" with Try again where the
+ * page goes, and no page: a page drawn then would be the page of a person who holds
+ * nothing, or who is in no tenant. Once a read answers, the page is drawn.
+ *
  * The frame is as high as the window, and the page scrolls inside it: the banner and the
  * bar stay at the top, and what is under them (`.impulse-frame-scroll`) is what scrolls, up and
  * down and sideways, never the document. So a row a page keeps at the top of what scrolls
@@ -54,7 +70,15 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
  */
 @Component({
   selector: 'impulse-frame',
-  imports: [CdkScrollable, FrameBarComponent, MatSidenavModule, MenuDrawerComponent, NgComponentOutlet, RouterOutlet],
+  imports: [
+    CdkScrollable,
+    FrameBarComponent,
+    MatButtonModule,
+    MatSidenavModule,
+    MenuDrawerComponent,
+    NgComponentOutlet,
+    RouterOutlet,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown)': 'keyToThePage($event)' },
   template: `
@@ -79,7 +103,21 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
         <impulse-frame-bar (menuOpened)="panel.open()" />
         <div #scroller class="impulse-frame-scroll" tabindex="-1" cdkScrollable>
           <main class="impulse-frame-page">
-            <router-outlet />
+            @if (places.unread()) {
+              <div class="impulse-frame-unread">
+                <h1>This page could not be loaded</h1>
+                <button
+                  mat-stroked-button
+                  type="button"
+                  class="impulse-frame-try-again"
+                  [disabled]="trying()"
+                  (click)="tryAgain()">
+                  Try again
+                </button>
+              </div>
+            } @else {
+              <router-outlet />
+            }
           </main>
         </div>
       </mat-sidenav-content>
@@ -146,21 +184,43 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
         overflow: visible;
       }
     }
+
+    /* What the frame says where the page goes while what the person holds is unread. */
+    .impulse-frame-unread {
+      padding: 1rem;
+    }
   `,
 })
 export class FrameComponent {
   readonly menus = inject(MenuService);
   readonly frame = inject(Frame);
+  protected readonly places = inject(PlaceService);
   private layout = inject(Layout);
   private panel = viewChild.required<MatSidenav>('panel');
   private scroller = viewChild.required<ElementRef<HTMLElement>>('scroller');
   private document = inject(DOCUMENT);
 
+  /** Whether what could not be read is being read again: the button waits for the answer. */
+  protected trying = signal(false);
+
   constructor() {
-    inject(PlaceService).drawn(inject(DestroyRef));
+    this.places.drawn(inject(DestroyRef));
     effect(() => {
       if (!this.layout.phone()) void this.panel().close();
     });
+  }
+
+  /**
+   * tryAgain reads again what could not be read (PlaceService.tryAgain). A read that
+   * answers draws the page; one that fails again leaves the frame as it is.
+   */
+  protected async tryAgain(): Promise<void> {
+    this.trying.set(true);
+    try {
+      await this.places.tryAgain();
+    } finally {
+      this.trying.set(false);
+    }
   }
 
   /**

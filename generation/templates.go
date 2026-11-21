@@ -6233,7 +6233,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 				default:
 					// One refusal for the state check and the grant condition
 					// alike: the wire never says which said no (§12).
-					return httpio.NewForbiddenMessagef("{{ $.RPCMethod.Name }} may not run against {{ $t.RootStruct }} {{ $t.KeyVerbs }}", {{ $t.KeyArgs "p" }})
+					return resource.TargetRefused("{{ $.RPCMethod.Name }}", "{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
 				}
 				{{- end }}
 				{{- with $t := .RPCMethod.Target }}

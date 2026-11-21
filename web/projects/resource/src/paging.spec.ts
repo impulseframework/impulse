@@ -3,6 +3,7 @@ import { Resource } from './brands';
 import { createClient, resolveAbsolute, AnyResourceHandle } from './client';
 import { ApiDescriptor } from './descriptor';
 import { listSearchParams, parseLinkHeader } from './query';
+import { ApiError } from './transport';
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 
 const descriptor: ApiDescriptor = {
@@ -252,5 +253,89 @@ describe('key-less resource', () => {
     expect(page.next).toBeUndefined();
     expect(page.prev).toBeUndefined();
     expect(transport.requests.map((r) => r.url)).toEqual([whole]);
+  });
+});
+
+describe('every', () => {
+  it('reads a resource with a maximum a page of the maximum at a time, to the end, and hands the rows back together', async () => {
+    const first = '/api/missions?sort=deadline&limit=200';
+    const second = '/api/missions?sort=deadline&limit=200&cursor=v4.local.two';
+    const third = '/api/missions?sort=deadline&limit=200&cursor=v4.local.three';
+    const transport = scripted({
+      [first]: { rows: [{ id: 'a' }, { id: 'b' }], headers: { link: `<${second}>; rel="next"` } },
+      [second]: {
+        rows: [{ id: 'c' }, { id: 'd' }],
+        headers: { link: `<${third}>; rel="next", <${first}>; rel="prev"` },
+      },
+      [third]: { rows: [{ id: 'e' }], headers: { link: `<${second}>; rel="prev"` } },
+    });
+    const api = createClient<{ missions: AnyResourceHandle<Row> }, unknown>(descriptor, { baseUrl: '/api', transport });
+
+    const rows = await api.missions.every({ sort: { field: 'deadline' as never } });
+    expect(rows).toEqual([{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }, { id: 'e' }]);
+    expect(transport.requests.map((r) => r.url)).toEqual([first, second, third]);
+  });
+
+  it('reads a resource with no maximum in the one limit=all request', async () => {
+    const whole = '/api/sectors?filter=name%3Aeq%3AAnvil&limit=all';
+    const transport = scripted({ [whole]: { rows: [{ id: 'a' }, { id: 'b' }] } });
+    const api = createClient<{ sectors: AnyResourceHandle<Row> }, unknown>(descriptor, { baseUrl: '/api', transport });
+
+    expect(await api.sectors.every({ filter: 'name:eq:Anvil' })).toEqual([{ id: 'a' }, { id: 'b' }]);
+    expect(transport.requests.map((r) => r.url)).toEqual([whole]);
+  });
+
+  it('reads a key-less resource as it is served, in one request with no limit', async () => {
+    const whole = '/api/standing-orders?sort=section';
+    const transport = scripted({ [whole]: { rows: [{ id: 'b' }, { id: 'a' }] } });
+    const api = createClient<{ standingOrders: AnyResourceHandle<Row> }, unknown>(descriptor, {
+      baseUrl: '/api',
+      transport,
+    });
+
+    expect(await api.standingOrders.every({ sort: { field: 'section' as never } })).toEqual([{ id: 'b' }, { id: 'a' }]);
+    expect(transport.requests.map((r) => r.url)).toEqual([whole]);
+  });
+
+  it('asks with no query at all, by the declared order', async () => {
+    const first = '/api/consignments?limit=100';
+    const second = '/api/consignments?limit=100&cursor=v4.local.two';
+    const transport = scripted({
+      [first]: { rows: [{ id: 'a' }], headers: { link: `<${second}>; rel="next"` } },
+      [second]: { rows: [{ id: 'b' }] },
+    });
+    const api = createClient<{ consignments: AnyResourceHandle<Row> }, unknown>(descriptor, {
+      baseUrl: '/api',
+      transport,
+    });
+
+    expect(await api.consignments.every()).toEqual([{ id: 'a' }, { id: 'b' }]);
+    expect(transport.requests.map((r) => r.url)).toEqual([first, second]);
+  });
+
+  it('rejects whole when a later page fails: no part of the rows is handed back', async () => {
+    const first = '/api/missions?sort=deadline&limit=200';
+    const second = '/api/missions?sort=deadline&limit=200&cursor=v4.local.two';
+    const transport = scripted({
+      [first]: { rows: [{ id: 'a' }], headers: { link: `<${second}>; rel="next"` } },
+    });
+    const api = createClient<{ missions: AnyResourceHandle<Row> }, unknown>(descriptor, { baseUrl: '/api', transport });
+
+    await expect(api.missions.every({ sort: { field: 'deadline' as never } })).rejects.toBeInstanceOf(ApiError);
+    expect(transport.requests.map((r) => r.url)).toEqual([first, second]);
+  });
+
+  it('takes no page and no count: one named past the type is a compile error, and is not sent', async () => {
+    const first = '/api/consignments?limit=100';
+    const transport = scripted({ [first]: { rows: [{ id: 'a' }] } });
+    const api = createClient<{ consignments: AnyResourceHandle<Row> }, unknown>(descriptor, {
+      baseUrl: '/api',
+      transport,
+    });
+
+    // @ts-expect-error every chooses the page and follows the cursors itself, and answers no total
+    const rows = await api.consignments.every({ limit: 5, cursor: 'v4.local.elsewhere', count: true });
+    expect(rows).toEqual([{ id: 'a' }]);
+    expect(transport.requests.map((r) => r.url)).toEqual([first]);
   });
 });

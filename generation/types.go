@@ -2468,7 +2468,8 @@ func (f *resourceField) TypescriptFilterable() string {
 }
 
 // Unordered reports whether the server refuses a sort by the field: its type is one
-// the query decoder does not order (a list, a map, a nested struct; see ordersType).
+// the query decoder does not order (a list, a map, a nested struct, a type that carries
+// the resource package's Unordered mark; see ordersType).
 // The TypeScript field metadata then says sortable: false, so a table draws the
 // column's heading as words with nothing to press and never offers a sort the server
 // answers 400 to. A field the server orders carries nothing.

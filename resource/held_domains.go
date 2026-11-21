@@ -64,9 +64,14 @@ func (m *maskedPermissions) HeldDomains(ctx context.Context) ([]accesstypes.Doma
 // HeldDomains refuses: the session acts as a role the application runs no sessions as,
 // so there is no checker to ask what anybody holds. A rule that counts a person's
 // tenants is not told none, which would let the rule pass; it is refused, as every
-// check of such a session is denied.
+// check of such a session is denied. The person is told one sentence, that they act as
+// a role and the session cannot do this; the role's name and what could not be read are
+// the cause's, kept for the server's log.
 func (u unsupportedRolePermissions) HeldDomains(ctx context.Context) ([]accesstypes.Domain, error) {
 	logger.FromCtx(ctx).Warnf("impersonation: role principal %s has no role-bound checker; the tenants its person holds are not read", u.role)
 
-	return nil, httpio.NewForbiddenMessagef("this session acts as the role %s, which this application runs no sessions as: what its person holds cannot be read, so nothing that depends on it is done", u.role)
+	return nil, httpio.NewForbiddenMessageWithError(
+		errors.Newf("this session acts as the role %s, which this application runs no sessions as: what its person holds cannot be read, so nothing that depends on it is done", u.role),
+		actingAsRoleWords,
+	)
 }

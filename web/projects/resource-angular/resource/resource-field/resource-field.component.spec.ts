@@ -95,6 +95,25 @@ describe('ResourceFieldComponent dispatch', () => {
     expect(element.querySelector('impulse-empty-readonly-field')).toBeNull();
   });
 
+  it('a write-only field says under its input that what is typed is never shown again', async () => {
+    await create(probe('string', { writeOnly: true }), null, 'edit');
+    const note = (fixture.nativeElement as HTMLElement).querySelector('.never-shown-again');
+    expect(note?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'What you type here is saved, but it is never shown again. This box is empty every time the form opens.',
+    );
+    // It is the line under the input, inside the field's own cell.
+    expect(note?.previousElementSibling?.querySelector('input')).not.toBeNull();
+  });
+
+  it('a field the server returns says no such line, and a write-only field says none in view mode', async () => {
+    await create(probe('string'), 'kept', 'edit');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.never-shown-again')).toBeNull();
+
+    TestBed.resetTestingModule();
+    await create(probe('string', { writeOnly: true }), null, 'view');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.never-shown-again')).toBeNull();
+  });
+
   it('a write-only field is a blank input in edit mode', async () => {
     await create(probe('string', { writeOnly: true }), null, 'edit');
     const element: HTMLElement = fixture.nativeElement;
