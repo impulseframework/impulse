@@ -171,7 +171,9 @@ func (pc *PostgresContainer) CreateDatabase(ctx context.Context, dbName string) 
 }
 
 // createExtensions creates the extensions a new database starts with, as the superuser,
-// on a connection of its own to that database, which it closes.
+// on a connection of its own to that database, which it closes. An extension is created
+// at the version the server ships, with no VERSION clause: a server installs only the
+// versions it has a script for, and PostgreSQL 19 has none for btree_gist before 1.9.
 func (pc *PostgresContainer) createExtensions(ctx context.Context, dbName string) error {
 	db, err := openDB(ctx, PostgresConnStr(pc.superUsername, pc.password, pc.host, pc.port.Port(), dbName, SSLModeDisable))
 	if err != nil {
@@ -181,8 +183,7 @@ func (pc *PostgresContainer) createExtensions(ctx context.Context, dbName string
 
 	_, err = db.Exec(ctx, `
 		CREATE EXTENSION IF NOT EXISTS btree_gist
-			SCHEMA public
-			VERSION "1.5";
+			SCHEMA public;
 	`)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create extension btree_gist in database=%q", dbName)

@@ -332,7 +332,7 @@ describe('ResourceListComponent row methods', () => {
     warned.mockRestore();
 
     // What ran is still said: the notice is the application's to show, not the list's.
-    expect(notices).toEqual(['Rename person: done.']);
+    expect(notices).toEqual(['"Rename person" is done.']);
     // An output that is emitted after its component is destroyed warns in the console
     // (NG0953), and a list nobody sees has no rows to ask for.
     expect(warnings).toEqual([]);
