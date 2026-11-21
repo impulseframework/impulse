@@ -88,6 +88,29 @@ func wantDid(t *testing.T, ch *Change, wants ...string) {
 	}
 }
 
+// lineOf is the number of the one line of the application's file that holds the text. The
+// test fails where no line holds it, or more than one.
+func lineOf(t *testing.T, a *app.App, rel, text string) int {
+	t.Helper()
+
+	at, n := 0, 0
+	for line := range strings.Lines(read(t, a, rel)) {
+		n++
+		if !strings.Contains(line, text) {
+			continue
+		}
+		if at != 0 {
+			t.Fatalf("%s holds %q on lines %d and %d, want it on one line", rel, text, at, n)
+		}
+		at = n
+	}
+	if at == 0 {
+		t.Fatalf("%s holds %q on no line", rel, text)
+	}
+
+	return at
+}
+
 // wantGoAsGofmtWritesIt holds every hand-written Go file of the application to parsing and
 // to gofmt's layout, which impulse check holds a new application to.
 func wantGoAsGofmtWritesIt(t *testing.T, a *app.App) {
@@ -133,13 +156,19 @@ func wantGoAsGofmtWritesIt(t *testing.T, a *app.App) {
 func TestOutletApplyServesASessionOutlet(t *testing.T) {
 	t.Parallel()
 
-	a, ch := applied(t, newBase(t, "staff"), Outlet{Name: "portal", Prefix: "portal/api", Sessions: true})
+	base := newBase(t, "staff")
+	// The change reports the line of app/app.go that built the console's served browser
+	// app at the root by its number in the file the command read. Where the line is in the
+	// base is the base's to say, so the number is read from the base before the command
+	// runs: a line added to the base above it moves both.
+	atRoot := lineOf(t, base, "app/app.go", `resource.NewBrowserApp(cfg.ConsoleDist(), "/")`)
+	a, ch := applied(t, base, Outlet{Name: "portal", Prefix: "portal/api", Sessions: true})
 
 	if diff := cmp.Diff([]string(nil), ch.Skipped); diff != "" {
 		t.Errorf("Skipped mismatch (-want +got):\n%s", diff)
 	}
 	wantDid(t, ch,
-		`app/app.go:124: the App builds the console's served browser app under /console, where the generated router mounts it now: NewBrowserApp(..., "/console") in place of "/"`,
+		fmt.Sprintf(`app/app.go:%d: the App builds the console's served browser app under /console, where the generated router mounts it now: NewBrowserApp(..., "/console") in place of "/"`, atRoot),
 		`pkg/config/data.go: the staff auth is told the console's pages where they are now, under /console: MailLoginURL "/console/login"`,
 		`app/app.go: Configurer asks for PortalDist(), App holds portalApp, and New builds it (resource.NewBrowserApp(cfg.PortalDist(), "/portal")), so the App serves the portal's built bundle under /portal`,
 		"app/portal_outlet.go: App declares Portal(), PortalDeepLink, and PortalAssets, which the generated router's Handlers requires of it for the portal outlet",
