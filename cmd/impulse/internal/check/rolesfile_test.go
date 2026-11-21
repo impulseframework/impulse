@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -118,4 +119,105 @@ func TestRolesFileAccepted(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRolesFileAccepted_servedGrants pins that a role file granting what the application
+// does not serve is refused by the check, as the permission engine refuses it when the
+// release starts: the check passed such a file while it read the file alone, and the
+// application then did not start.
+func TestRolesFileAccepted_servedGrants(t *testing.T) {
+	t.Parallel()
+
+	const (
+		roles      = "pkg/auth/staff/roles.json"
+		collection = "pkg/router/zz_gen_collection.go"
+		// anchor opens the base's first role, so a grant written after it is the
+		// Administrator's.
+		anchor = `"permissions": {`
+	)
+	tests := []struct {
+		name        string
+		candidate   string
+		edit        candidateEdit
+		wantStatus  Status
+		wantSummary string
+		wantDetails []string
+	}{
+		{
+			name: "the base as it is rendered", candidate: "solo",
+			wantStatus: Pass, wantSummary: "1 role file(s) parse the way the permission engine reads them and grant only what the application serves (" + collection + "): " + roles,
+		},
+		{
+			name: "the tenanted skeleton as it is rendered", candidate: "tenanted",
+			wantStatus: Pass, wantSummary: "1 role file(s) parse the way the permission engine reads them and grant only what the application serves (" + collection + "): " + roles,
+		},
+		{
+			name: "a grant on a list the application no longer serves", candidate: "tenanted",
+			edit:       candidateEdit{file: roles, old: anchor, new: anchor + `"Approve": [{"resource": "StaffSignUpRoles"}],`},
+			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
+			wantDetails: []string{roles + ": the global role Administrator grants Approve on StaffSignUpRoles, which the application does not serve (no resource of that name is in " + collection + "): take the grant out of the role, or serve the resource and run go generate ./..."},
+		},
+		{
+			name: "a global role granting on what is served in a tenant", candidate: "tenanted",
+			edit:       candidateEdit{file: roles, old: anchor, new: anchor + `"Approve": [{"resource": "StaffTenantUsers"}],`},
+			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
+			wantDetails: []string{roles + ": Administrator is a global role and grants Approve on StaffTenantUsers, a domain resource: a role's grants are at its own scope, so move the grant to a domain role"},
+		},
+		{
+			name: "a permission the resource does not take", candidate: "solo",
+			edit:       candidateEdit{file: roles, old: anchor, new: anchor + `"Approve": [{"resource": "StaffSessionUsers"}],`},
+			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
+			wantDetails: []string{roles + ": the global role Administrator grants Approve on StaffSessionUsers, which takes List, Read and not Approve: take the grant out of the role, or grant a permission the resource takes"},
+		},
+		{
+			name: "a field the resource does not have", candidate: "solo",
+			edit:       candidateEdit{file: roles, old: "\"fields\": [\n                \"username\",", new: "\"fields\": [\n                \"username\",\n                \"shoeSize\","},
+			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
+			wantDetails: []string{roles + ": the global role Administrator grants List on StaffSessionUsers with the field(s) shoeSize, which the resource does not have for List: take them out of the grant's fields, or run go generate ./... if the resource just gained them"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var edits []candidateEdit
+			if tt.edit.file != "" {
+				edits = append(edits, tt.edit)
+			}
+			a := renderCandidate(t, tt.candidate, edits...)
+			got := rolesFileAccepted{}.Run(context.Background(), &Env{App: a})
+			if got.Status != tt.wantStatus {
+				t.Fatalf("status = %v, want %v: %s %v", got.Status, tt.wantStatus, got.Summary, got.Details)
+			}
+			if got.Summary != tt.wantSummary {
+				t.Errorf("summary = %q, want %q", got.Summary, tt.wantSummary)
+			}
+			if tt.wantDetails != nil {
+				if diff := cmp.Diff(tt.wantDetails, got.Details); diff != "" {
+					t.Errorf("details mismatch (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+
+	t.Run("every skeleton's role files grant what its collection serves", func(t *testing.T) {
+		t.Parallel()
+
+		for _, candidate := range []string{"solo", "tenanted", "outlets", "sites"} {
+			got := rolesFileAccepted{}.Run(context.Background(), &Env{App: renderCandidate(t, candidate)})
+			if got.Status != Pass || !strings.Contains(got.Summary, "grant only what the application serves") {
+				t.Errorf("%s: status = %v, want a pass over its collection: %s %v", candidate, got.Status, got.Summary, got.Details)
+			}
+		}
+	})
+
+	t.Run("a collection that cannot be read is a finding", func(t *testing.T) {
+		t.Parallel()
+
+		a := renderCandidate(t, "solo", candidateEdit{file: collection, old: "resource.CollectionData{", new: "resource.Other{"})
+		got := rolesFileAccepted{}.Run(context.Background(), &Env{App: a})
+		if got.Status != Fail || !strings.Contains(got.Summary, "permission collection cannot be read") {
+			t.Errorf("status = %v, want a failure saying the collection cannot be read: %s %v", got.Status, got.Summary, got.Details)
+		}
+	})
 }

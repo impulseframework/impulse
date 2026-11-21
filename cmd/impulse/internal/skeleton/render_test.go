@@ -612,6 +612,44 @@ func TestRenderName(t *testing.T) {
 					t.Errorf("%s still names the candidate: %q", rel, m)
 				}
 			}
+			// A test the rendering carries is the application's own from its first run, so
+			// none holds the candidate's name where the application says its own: a test
+			// that reads the name out of a mail or off a page takes it from where the
+			// application keeps it.
+			display := regexp.MustCompile(`\b` + strings.ToUpper(tt.candidate[:1]) + tt.candidate[1:] + `\b`)
+			root, err := os.OpenRoot(dir)
+			if err != nil {
+				t.Fatalf("os.OpenRoot() error = %v", err)
+			}
+			defer root.Close()
+			err = fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if d.IsDir() {
+					if d.Name() == "node_modules" {
+						return fs.SkipDir
+					}
+
+					return nil
+				}
+				if !strings.HasSuffix(rel, "_test.go") && !strings.HasSuffix(rel, ".spec.ts") {
+					return nil
+				}
+				data, err := root.ReadFile(rel)
+				if err != nil {
+					t.Fatalf("os.Root.ReadFile(%s) error = %v", rel, err)
+				}
+				if m := display.FindIndex(data); m != nil {
+					line := 1 + strings.Count(string(data[:m[0]]), "\n")
+					t.Errorf("%s:%d names the candidate (%s), so the test fails in an application of another name: take the name from where the application keeps it", rel, line, display)
+				}
+
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 			readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
 			if err != nil {
 				t.Fatal(err)

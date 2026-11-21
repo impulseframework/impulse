@@ -143,6 +143,29 @@ export class SectorService {
     return current ? this.api.permissions.domainName(current as Domain) : this.frame.outside.label;
   });
 
+  /**
+   * Whether the session's grants are known: the application's digest has loaded, and the
+   * open sector's where a sector is open. Until then every permission question answers
+   * no, so a page that drew from the answers would say "not for you" and take it back.
+   */
+  readonly known = computed(() => {
+    this.permissions();
+    const sector = (this.current() || undefined) as Domain | undefined;
+    return this.api.permissions.hasDigest() && (!sector || this.api.permissions.hasDigest(sector));
+  });
+
+  /**
+   * Whether a page knows what it will draw: the grants are known, and none of the lists
+   * it reads is still on its way for the first time. A page holds itself back until then
+   * and draws whole, so nothing is drawn and then taken away: no refusal before the
+   * grants are in, no "nothing here" before the rows are, no count before the total. A
+   * list read again after a change keeps what it showed while it is read, so it stays
+   * settled; a list the grants do not allow asks nothing and is settled as it stands.
+   */
+  settled(...lists: ResourceRef<unknown>[]): boolean {
+    return this.known() && lists.every((list) => list.status() !== 'loading');
+  }
+
   /** The client bound to the open sector; undefined while none is open. */
   readonly sector = computed<SectorApi | undefined>(() => {
     const current = this.current();
@@ -249,6 +272,16 @@ export class SectorService {
   }
 
   /**
+   * saidBy is the refusal a list met as a person reads it: the server's own words, and
+   * never a status code. A refusal that came with no words says so.
+   */
+  saidBy(ref: ResourceRef<unknown>): string | undefined {
+    const err = ref.error();
+    if (!err) return undefined;
+    return serverWords(err);
+  }
+
+  /**
    * sectorList derives a deck's list from the open sector: `select` picks the
    * handle off the sector-bound client, the loader re-runs when the sector changes,
    * sits idle while none is open, and never asks for a list the digest says the
@@ -258,15 +291,31 @@ export class SectorService {
    */
   sectorList<Row>(select: (sector: SectorApi) => ListHandle<Row>, query?: ListQuery<Row>): ResourceRef<Row[]> {
     return resource({
-      params: () => {
-        this.permissions();
-        const sector = this.sector();
-        const handle = sector ? select(sector) : undefined;
-        return { handle: handle && handle.can(Permissions.List) ? handle : undefined };
-      },
+      params: this.grantedSector(select),
       loader: ({ params }) => (params.handle ? params.handle.list(query) : Promise.resolve([])),
       defaultValue: [],
     });
+  }
+
+  /**
+   * everyRow reads every row a query names of a resource that is read a page at a time:
+   * the largest page the resource allows, then each next page the server names, until
+   * there is none. It is for a list its filter keeps small (one mission's sorties), where
+   * the sector's newest page would leave some of them out; a whole resource is still read
+   * a page at a time (sectorPage). Where the digest does not grant List it asks nothing
+   * and answers no rows.
+   */
+  async everyRow<Row>(handle: ListHandle<Row>, query: ListQuery<Row>): Promise<Row[]> {
+    if (!handle.can(Permissions.List)) {
+      return [];
+    }
+    let page: Page<Row> = await handle.page({ ...query, limit: handle.descriptor.page?.max });
+    const rows = [...page.rows];
+    while (page.next) {
+      page = await page.next();
+      rows.push(...page.rows);
+    }
+    return rows;
   }
 
   /**
@@ -281,14 +330,31 @@ export class SectorService {
     query?: ListQuery<Row>,
   ): ResourceRef<Page<Row> | undefined> {
     return resource({
-      params: () => {
+      params: this.grantedSector(select),
+      loader: ({ params }) => (params.handle ? params.handle.page(query) : Promise.resolve(undefined)),
+    });
+  }
+
+  /**
+   * The selected handle of the open sector while the digest grants List on it, else none:
+   * a sector reader's params. They are a computed that counts the same handle as the same
+   * value, as a global reader's are (grantedGlobal), so a digest that lands again with the
+   * same answer reads nothing: the sector's digest is loaded again each time the sector is
+   * entered, and a list that read again for it would empty and refill under the person's
+   * eyes. A sector change, a grant given and a grant taken away are each a new answer.
+   */
+  private grantedSector<Row>(
+    select: (sector: SectorApi) => ListHandle<Row>,
+  ): Signal<{ handle: ListHandle<Row> | undefined }> {
+    return computed(
+      () => {
         this.permissions();
         const sector = this.sector();
         const handle = sector ? select(sector) : undefined;
         return { handle: handle && handle.can(Permissions.List) ? handle : undefined };
       },
-      loader: ({ params }) => (params.handle ? params.handle.page(query) : Promise.resolve(undefined)),
-    });
+      { equal: (a, b) => a.handle === b.handle },
+    );
   }
 
   /**
@@ -340,4 +406,23 @@ export class SectorService {
       { equal: (a, b) => a?.handle === b?.handle && JSON.stringify(a?.query) === JSON.stringify(b?.query) },
     );
   }
+}
+
+/**
+ * What the server said of a request it refused, as a person reads it: its own message,
+ * and never a status code. The client words a refusal that came with no message as
+ * "HTTP 409", which says nothing to a person, so that one says the server gave no reason.
+ */
+export function serverWords(err: unknown): string {
+  if (err instanceof ApiError) {
+    const body: unknown = err.body;
+    if (body && typeof body === 'object' && 'message' in body && typeof body.message === 'string' && body.message) {
+      return body.message;
+    }
+    if (typeof body === 'string' && body !== '') {
+      return body;
+    }
+    return 'The server gave no reason.';
+  }
+  return err instanceof Error ? err.message : String(err);
 }

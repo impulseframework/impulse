@@ -886,6 +886,15 @@ export interface BaseConfigOptions {
    * nothing. Unset, the page is headed by `title`, as the list is.
    */
   rowTitle?: (row: RecordData) => string;
+  /**
+   * What the list says of a row that left it while its page was open: a sentence for a
+   * person, from the row as the page last read it (a tenant's people say that a person
+   * whose last role was taken away no longer holds a role here). The row's page leaves
+   * for the list once a method has run and the row is no longer there to read, and the
+   * list says the sentence as a notice. Unset, the list says nothing more than the
+   * method did.
+   */
+  rowGone?: (row: RecordData) => string;
 }
 export interface BaseConfig {
   title: string;
@@ -904,6 +913,8 @@ export interface BaseConfig {
   createNavigation: string[];
   /** What a row's page is headed by; see BaseConfigOptions.rowTitle. */
   rowTitle?: (row: RecordData) => string;
+  /** What the list says of a row that left it; see BaseConfigOptions.rowGone. */
+  rowGone?: (row: RecordData) => string;
 }
 
 @Directive()

@@ -262,11 +262,11 @@ func TestExecute(t *testing.T) {
 			wantErr:  "-reinvite-administrator applies no migration and reports no version: it goes with no other flag",
 		},
 		{
-			name:     "a fresh invitation for an auth that invites nobody is refused before the database is touched",
+			name:     "a fresh invitation under a name no auth can have, since an auth's name has no hyphen, is refused before the database is touched, whatever auth the application gains",
 			missing:  true,
-			args:     []string{"-reinvite-administrator", "partners"},
+			args:     []string{"-reinvite-administrator", "no-such-auth"},
 			wantCode: exitRefused,
-			wantErr:  "-reinvite-administrator partners: no auth of that name invites a first administrator; name one of staff",
+			wantErr:  "-reinvite-administrator no-such-auth: no auth of that name invites a first administrator; name one of staff",
 		},
 		{
 			name:     "a fresh invitation without its auth is refused",

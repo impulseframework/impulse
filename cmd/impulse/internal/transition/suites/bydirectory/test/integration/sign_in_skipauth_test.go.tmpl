@@ -1,0 +1,68 @@
+//go:build skipAuth
+
+package integration
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"sync"
+)
+
+// The staff auth's people sign in through a directory, and its test environments' people
+// as a persona. Under the session library's skipAuth build tag both are simulated: the
+// login route of a registration sends the browser straight to its callback, and the
+// callback takes the person from APP_<REGISTRATION>_USERNAME on every sign-in, so one test
+// process signs in as many people as it likes, one at a time.
+var simulatedLogin sync.Mutex
+
+// directoryRoundTrip sends the browser through a registration of the staff auth as user:
+// the login route, then the callback the simulated directory sends the browser straight
+// to, whose status and destination it returns.
+func (b *browser) directoryRoundTrip(ctx context.Context, registration, user string) (status int, location string) {
+	b.t.Helper()
+
+	simulatedLogin.Lock()
+	defer simulatedLogin.Unlock()
+	if err := os.Setenv("APP_"+strings.ToUpper(registration)+"_USERNAME", user); err != nil {
+		b.t.Fatal(err)
+	}
+
+	status, location = b.redirect(ctx, "/api/user/"+registration+"/login?returnUrl="+url.QueryEscape(landing))
+	if status != http.StatusFound {
+		b.t.Fatalf("GET /api/user/%s/login: status %d, want %d to the directory", registration, status, http.StatusFound)
+	}
+
+	return b.redirect(ctx, location)
+}
+
+// redirect issues one GET as this browser without following the redirect it answers
+// with, and returns the status and where it points: the way a directory sign-in is
+// followed one step at a time.
+func (b *browser) redirect(ctx context.Context, target string) (status int, location string) {
+	b.t.Helper()
+
+	if !strings.HasPrefix(target, "http") {
+		target = b.base + target
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	client := &http.Client{Jar: b.client.Jar, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Do(req)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		b.t.Fatal(err)
+	}
+
+	return resp.StatusCode, resp.Header.Get("Location")
+}

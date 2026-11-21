@@ -1,0 +1,29 @@
+<div mat-dialog-title>{{ data.label }}</div>
+<mat-dialog-content>
+  <impulse-resource-create
+    [resourceConfig]="data.config"
+    [parentData]="data.parentData"
+    [loadCreatedResource]="data.loadCreatedResource"
+    [inDialog]="true"
+    (complete)="close()"></impulse-resource-create>
+  @if (incomplete()) {
+    <p class="refusal" role="alert">Please complete or fix required fields.</p>
+  }
+  @if (refusal()) {
+    <p class="refusal" role="alert">{{ refusal() }}</p>
+  }
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-raised-button type="button" color="warn" class="cancel" (click)="cancel()" [disabled]="saving()">
+    Cancel
+  </button>
+  <button
+    mat-raised-button
+    type="button"
+    color="accent"
+    class="create"
+    (click)="create()"
+    [disabled]="saving() || pristine()">
+    {{ data.label }}
+  </button>
+</mat-dialog-actions>

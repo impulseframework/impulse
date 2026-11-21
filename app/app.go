@@ -361,8 +361,13 @@ type DomainResource struct {
 	DomainColumn string
 	// DomainVia is the join path of a field annotated @domain(via: ...), by which a
 	// table that carries no tenant key reaches its tenant through the row the field
-	// names; empty for any other struct.
+	// names; empty for any other struct. The path names a Go field on each row it
+	// passes, the last one the field that holds the tenant's key.
 	DomainVia string
+	// ViaColumn is the column of the field annotated @domain(via: ...): the column the
+	// row leaves by, toward the row it reaches its tenant through. Empty where DomainVia
+	// is.
+	ViaColumn string
 }
 
 // TenantRecord is one struct annotated @tenant: the tenant record, the global resource

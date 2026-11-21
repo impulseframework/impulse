@@ -1,7 +1,10 @@
 import { Location } from '@angular/common';
+import { provideLocationMocks, SpyLocation } from '@angular/common/testing';
+import { Component, inject } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialogRef } from '@angular/material/dialog';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
+import { ActivatedRoute, Router, ROUTES } from '@angular/router';
 import { ApiDescriptor, createClient, Method, MethodMeta, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
@@ -27,7 +30,15 @@ import { ResourceViewComponent } from './resource-view.component';
 // row's Execute answer beside Update and Delete, and draws one Actions menu holding the
 // methods the answer lists: what the caller may run on this row, and nothing else. A
 // method runs through the method dialog; once it has run the page reads the row again,
-// and a row the method removed takes the page back to where it was opened from.
+// and a row the method removed takes the page to the list the row was of, or back to
+// where it was opened from where the page is no row route's own. The page leaves the
+// same way whichever read finds a row that was on hand gone, and after the row's own
+// Delete, and once.
+
+/** What the routes of these tests draw: nothing, since no outlet is on the page. */
+@Component({ template: '' })
+class Blank {}
+
 describe('ResourceViewComponent row methods', () => {
   const accounts = 'Accounts' as Resource;
   const ships = 'Ships' as Resource;
@@ -74,11 +85,18 @@ describe('ResourceViewComponent row methods', () => {
   let opened: MethodDialogData[];
   let dialogResult: MethodDialogResult | undefined;
   let wentBack: number;
+  /** While set, the row's own Delete is answered only once this resolves; otherwise at once. */
+  let deleteHeld: Promise<void> | undefined;
 
-  const server = (request: TransportRequest): TransportResponse => {
+  const server = (request: TransportRequest): TransportResponse | Promise<TransportResponse> => {
     const url = new URL(request.url, 'http://rows.test');
     if (request.method === 'GET' && (url.pathname === '/api/accounts/a-1' || url.pathname === '/api/ships/s-1')) {
       return row ? { status: 200, body: row } : { status: 404, body: { message: 'no such row' } };
+    }
+    // The row's own Delete: the row is gone from then on.
+    if (request.method === 'PATCH' && url.pathname === '/api/accounts') {
+      row = undefined;
+      return deleteHeld ? deleteHeld.then(() => ({ status: 200, body: {} })) : { status: 200, body: {} };
     }
     return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
   };
@@ -92,7 +110,12 @@ describe('ResourceViewComponent row methods', () => {
     fixture.detectChanges();
   };
 
-  const create = async (options: Partial<ViewConfigOptions> = {}, uuid = 'a-1'): Promise<void> => {
+  /**
+   * Draws the row's page. Given `at`, the page is the one a row route opened at that
+   * address (the list at /accounts, a row at /accounts/:uuid); without it the page is no
+   * route's own.
+   */
+  const create = async (options: Partial<ViewConfigOptions> = {}, uuid = 'a-1', at = ''): Promise<void> => {
     transport = scriptedTransport(server);
     wentBack = 0;
     await TestBed.configureTestingModule({
@@ -103,9 +126,39 @@ describe('ResourceViewComponent row methods', () => {
         ResourceStore,
         { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta | undefined => metas[resource] },
         { provide: METHOD_META, useValue: (name: string): MethodMeta => methodMetas[name] },
-        { provide: Location, useValue: { back: (): number => wentBack++ } },
+        provideLocationMocks(),
+        {
+          provide: ROUTES,
+          multi: true,
+          useValue: [
+            {
+              path: 'accounts',
+              children: [
+                { path: '', component: Blank },
+                { path: ':uuid', component: Blank },
+              ],
+            },
+          ],
+        },
+        // The page is the one of the route the test opened: the innermost.
+        {
+          provide: ActivatedRoute,
+          useFactory: (): ActivatedRoute => {
+            let route = inject(Router).routerState.root;
+            while (route.firstChild) {
+              route = route.firstChild;
+            }
+            return route;
+          },
+        },
       ],
     }).compileComponents();
+    TestBed.inject(Location).back = (): void => {
+      wentBack++;
+    };
+    if (at) {
+      await TestBed.inject(Router).navigateByUrl(at);
+    }
     fixture = TestBed.createComponent(ResourceViewComponent);
     component = fixture.componentInstance;
     fixture.componentRef.setInput('uuid', uuid);
@@ -141,6 +194,7 @@ describe('ResourceViewComponent row methods', () => {
 
   beforeEach(() => {
     row = { id: 'a-1', username: 'ada', disabled: false, zzCapabilities: { Execute: ['DisableAccount', 'EnableAccount', 'RenameAccount'] } };
+    deleteHeld = undefined;
   });
 
   it("asks for the row's Execute answer beside Update and Delete, and offers in one menu the methods the answer lists", async () => {
@@ -230,7 +284,7 @@ describe('ResourceViewComponent row methods', () => {
     await settle(() => asked().length === 2 && component.store.viewStatus() === 'resolved');
 
     expect(opened).toEqual([{ method: 'DisableAccount', label: 'Disable', preset: { accountId: 'a-1' }, confirm: 'Disable ada?' }]);
-    expect(notices).toEqual(['Disable: done.']);
+    expect(notices).toEqual(['"Disable" is done.']);
     expect(asked()).toEqual(['Update,Delete,Execute', 'Update,Delete,Execute']);
     expect(labels()).toEqual(['Enable account']);
     expect(wentBack).toBe(0);
@@ -261,11 +315,223 @@ describe('ResourceViewComponent row methods', () => {
     expect(wentBack).toBe(1);
   });
 
+  it('leaves the page of a row route for the list the row was of, in its own place in the history, and the list says what the config has to say of the row', async () => {
+    // The page is opened at its own address, with no page before it: there is nowhere to go back to.
+    await create({ rowGone: (was) => `${String(was['username'])} no longer holds a role here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+
+    row = undefined;
+    component.runMethod(component.rowMethods()[0]);
+    await settle(() => router.url === '/accounts');
+
+    expect(router.url).toBe('/accounts');
+    expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
+    expect(wentBack).toBe(0);
+    // What the method said, then what the list says of the row as the page last read it.
+    expect(notices).toHaveLength(2);
+    expect(notices[1]).toBe('ada no longer holds a role here.');
+  });
+
+  it('says nothing more than the method did where the config has nothing to say of a row that left', async () => {
+    await create({}, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+
+    row = undefined;
+    component.runMethod(component.rowMethods()[0]);
+    await settle(() => router.url === '/accounts');
+
+    expect(router.url).toBe('/accounts');
+    expect(notices).toHaveLength(1);
+  });
+
+  it('leaves when a read no method of the page asked for finds the row gone: the live session reads the row again after a method of a child list, before the list has said that it ran', async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} no longer holds a role here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+
+    // What the live session does for a write this tab made: the row is read again at once.
+    // The child list that ran the method leaves the page with the row, before it can say
+    // that a method ran: the count of methods never moves.
+    row = undefined;
+    component.store.reloadViewData();
+    await settle(() => router.url === '/accounts');
+
+    expect(component.store.rowChanges()).toBe(0);
+    expect(router.url).toBe('/accounts');
+    expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
+    expect(wentBack).toBe(0);
+    expect(gone).toEqual([true]);
+    expect(notices).toEqual(['ada no longer holds a role here.']);
+  });
+
+  it('leaves once for a row, however many reads find it gone', async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} no longer holds a role here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+
+    row = undefined;
+    component.store.reloadViewData();
+    await settle(() => router.url === '/accounts');
+    // A list under the row says its method ran after all, and the row is read once more.
+    component.store.rowChanged();
+    await settle(() => asked().length === 3 && component.store.viewStatus() === 'error');
+
+    expect(asked()).toHaveLength(3);
+    expect(gone).toEqual([true]);
+    expect(notices).toEqual(['ada no longer holds a role here.']);
+    expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
+  });
+
+  it("leaves the page of a row route for its list after the row's own Delete, in its own place in the history, and the list says what the config has to say of the row", async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+
+    component.deleteResource();
+    await settle(() => router.url === '/accounts');
+
+    expect(transport.requests.filter((r) => r.method === 'PATCH').map((r) => r.body)).toEqual([[{ op: 'remove', path: '/a-1' }]]);
+    expect(router.url).toBe('/accounts');
+    expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
+    expect(wentBack).toBe(0);
+    expect(gone).toEqual([true]);
+    // What the write said, then what the list says of the row as the page last read it.
+    expect(notices).toHaveLength(2);
+    expect(notices[1]).toBe('ada is no longer here.');
+  });
+
+  it("leaves once after the row's own Delete on a live page, where the read after the write finds the row gone before the page hears that the write was answered", async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+    let answer = (): void => undefined;
+    deleteHeld = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+
+    component.deleteResource();
+    await settle(() => transport.requests.some((r) => r.method === 'PATCH'));
+    // The live session's read of the row, made as soon as the write is answered to it.
+    component.store.reloadViewData();
+    await settle(() => router.url === '/accounts');
+    answer();
+    await settle(() => notices.length === 2);
+
+    expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
+    expect(wentBack).toBe(0);
+    expect(gone).toEqual([true]);
+    // What the list says of the row, then what the write said.
+    expect(notices).toEqual(['ada is no longer here.', 'Accounts updated successfully']);
+  });
+
+  it("leaves once after the row's own Delete on a live page, where the read after the write finds the row gone after the page has left", async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+
+    component.deleteResource();
+    await settle(() => router.url === '/accounts');
+    component.store.reloadViewData();
+    await settle(() => component.store.viewStatus() === 'error');
+
+    expect(component.store.viewStatus()).toBe('error');
+    expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
+    expect(wentBack).toBe(0);
+    expect(gone).toEqual([true]);
+    expect(notices).toEqual(['Accounts updated successfully', 'ada is no longer here.']);
+  });
+
+  it("says the same after the row's own Delete and goes back to where the page was opened from, where the page is no row route's own", async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` });
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+
+    component.deleteResource();
+    await settle(() => wentBack > 0);
+
+    expect(wentBack).toBe(1);
+    expect(gone).toEqual([true]);
+    expect(notices).toEqual(['Accounts updated successfully', 'ada is no longer here.']);
+  });
+
+  it("stays after the row's own Delete where the page is told not to leave, and offers its create form in the row's place", async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` }, 'a-1', '/accounts/a-1');
+    fixture.componentRef.setInput('navAfterDelete', false);
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+
+    component.deleteResource();
+    await settle(() => component.showCreateForm());
+
+    expect(component.showCreateForm()).toBe(true);
+    expect(router.url).toBe('/accounts/a-1');
+    expect(wentBack).toBe(0);
+    expect(gone).toEqual([true]);
+    expect(notices).toEqual(['Accounts updated successfully']);
+  });
+
+  it('stays when the page is handed the key of a row that is not there, though another row was on hand before', async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} no longer holds a role here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+
+    // No row answers this key: the read starts over, and what it finds is no row that left.
+    fixture.componentRef.setInput('uuid', 'a-2');
+    fixture.detectChanges();
+    await settle(() => asked().length === 2 && component.store.viewStatus() === 'error');
+
+    expect(component.store.viewStatus()).toBe('error');
+    expect(router.url).toBe('/accounts/a-1');
+    expect(wentBack).toBe(0);
+    expect(gone).toEqual([]);
+    expect(notices).toEqual([]);
+    expect(element().textContent).toContain('This record is not here.');
+  });
+
   it('stays on a row that could not be read before any method ran', async () => {
     row = undefined;
     await create();
 
     expect(component.store.viewStatus()).toBe('error');
     expect(wentBack).toBe(0);
+  });
+
+  it('says in its own words that a row is not there, and nothing of what the server answered for it', async () => {
+    row = undefined;
+    await create({}, 'a-1', '/accounts/a-1');
+
+    expect(component.viewErrorMessage()).toBe(
+      'This record is not here. It may have been removed, or it may no longer be yours to see.',
+    );
+    expect(element().textContent).toContain('This record is not here.');
+    expect(element().textContent).not.toContain('no such row');
+    expect(TestBed.inject(Router).url).toBe('/accounts/a-1');
   });
 });

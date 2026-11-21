@@ -6,12 +6,16 @@
 // edge per hop, drawn once however many paths share it: solid for @attribute,
 // dotted for @domain, dashed for a subject binding, labeled `name: column` on a
 // continuing hop and `name: column ⇒ column` where the path terminates; a thin
-// grey edge points a bare binding on a foreign key at its table. Facts only: no
+// gray edge points a bare binding on a foreign key at its table. Facts only: no
 // grant or condition is drawn.
 // A subject set that writes a who: or a where: part lists each under the set, in
 // the columns' names: who: says which rows are the requester's, where: which of
 // those rows count. A set that builds on another is a dashed edge from the
 // resource declaring that other set, labeled `name: column IN subject.other`.
+// A subject set that writes a domain: part says where its rows' tenant is found,
+// and in a request with a tenant the set holds that tenant's rows alone. The path
+// is drawn dotted, as @domain's is, under the set's name: `name domain: column` on
+// a continuing hop and `name domain: column ⇒ column` where it reads the tenant.
 digraph Bindings {
 	rankdir=LR;
 	node [shape=box];
@@ -48,6 +52,8 @@ digraph Bindings {
 	"StaffTenantUserRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffTenantUserRole</b></td></tr><tr><td align="left">everyDomain: EveryDomain</td></tr><tr><td align="left">role: Role</td></tr></table>>];
 	"StaffUserGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffUserGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"subject" [shape=ellipse];
+	"MembersGroupMember" -> "MembersGroup" [style=dotted, label="membersGroups domain: GroupId ⇒ DomainId"];
+	"StaffGroupMember" -> "StaffGroup" [style=dotted, label="staffGroups domain: GroupId ⇒ DomainId"];
 	"subject" -> "MembersGroupMember" [style=dashed, label="membersGroups: UserId"];
 	"subject" -> "StaffGroupMember" [style=dashed, label="staffGroups: UserId"];
 	"MembersGroupMember" -> "MembersGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="group"];

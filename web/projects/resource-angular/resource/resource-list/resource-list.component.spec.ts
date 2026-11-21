@@ -24,12 +24,19 @@ import {
   ListViewConfigOptions,
   MultiColumnConfig,
   multiColumnConfig,
+  RecordData,
   RESOURCE_DOMAIN,
   RESOURCE_META,
   rootConfig,
 } from '@impulseframework/resource-angular/types';
 
+import { of } from 'rxjs';
 import { CompoundResourceComponent } from '../compound-resource/compound-resource.component';
+import {
+  DeleteConfirmation,
+  deleteQuestion,
+  DeleteResourceConfirmationModalComponent,
+} from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { ResourceListComponent } from './resource-list.component';
 
 // The list page over a key-less resource: the whole list as one page, every row identified
@@ -1202,6 +1209,60 @@ describe('ResourceListComponent', () => {
       expect(key).toBeDefined();
       expect(key?.({ id: 's-1', name: 'Kestrel' }, 0)).toBe(JSON.stringify(['s-1']));
       expect(key?.({ id: 's-2', name: 'Kestrel' }, 1)).not.toBe(key?.({ id: 's-1', name: 'Kestrel' }, 0));
+    });
+  });
+
+  describe('asks before a row leaves the list', () => {
+    /** Opens the confirmation for a row with the dialog answering as told, and says what was asked and what was deleted. */
+    const ask = (row: RecordData, answer: boolean | undefined): { question: string; deleted: unknown[] } => {
+      const component = fixture.componentInstance;
+      const opened: { component: unknown; data: unknown }[] = [];
+      component.dialog.open = ((opening: unknown, config: { data: unknown }) => {
+        opened.push({ component: opening, data: config.data });
+
+        return { afterClosed: () => of(answer) };
+      }) as unknown as typeof component.dialog.open;
+      const deleted: unknown[] = [];
+      component.deleteRow = (gone): void => {
+        deleted.push(gone);
+      };
+
+      component.confirmDeleteRow(row);
+
+      expect(opened.map((o) => o.component)).toEqual([DeleteResourceConfirmationModalComponent]);
+
+      return { question: deleteQuestion(opened[0].data as DeleteConfirmation | undefined), deleted };
+    };
+    const kestrel = { id: 's-1', name: 'Kestrel' };
+
+    it('by the list it is in, and deletes it once the person says so', async () => {
+      await create({ primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }] });
+      fixture.detectChanges();
+
+      const asked = ask(kestrel, true);
+
+      expect(asked.question).toBe('Delete this row from Ships?');
+      expect(asked.deleted).toEqual([kestrel]);
+    });
+
+    it("by the row's own name where the page reads one off the row", async () => {
+      await create({
+        primaryResource: ships,
+        title: 'Ships',
+        listColumns: [{ id: 'name' as FieldName }],
+        rowTitle: (row) => String(row['name']),
+      });
+      fixture.detectChanges();
+
+      expect(ask(kestrel, true).question).toBe('Delete Kestrel from Ships?');
+    });
+
+    it('and deletes nothing when the person cancels or closes the dialog', async () => {
+      await create({ primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }] });
+      fixture.detectChanges();
+
+      expect(ask(kestrel, false).deleted).toEqual([]);
+      expect(ask(kestrel, undefined).deleted).toEqual([]);
     });
   });
 

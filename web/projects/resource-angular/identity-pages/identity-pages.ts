@@ -275,6 +275,14 @@ class SideBuilder {
       routeData: { route: this.route('users', this.tenant ? 'people' : 'accounts'), hasViewRoute: true },
       parentConfig: listViewConfig({
         title: this.tenant ? 'People' : `${this.identity.label} accounts`,
+        // A tenant's people are those who hold a role in it: the last role taken away
+        // takes the person off the list, and the list says so.
+        ...(this.tenant
+          ? {
+              rowGone: (row: RecordData): string =>
+                `${String(row['username'] ?? 'This person')} no longer holds a role here.`,
+            }
+          : {}),
         primaryResource: users,
         showRowCount: true,
         listColumns: this.columns(users, fields),

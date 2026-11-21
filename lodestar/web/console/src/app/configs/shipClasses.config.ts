@@ -12,6 +12,7 @@ export const shipClassesConfig = rootConfig({
   parentConfig: listViewConfig({
     title: 'Ship Classes',
     createTitle: 'Ship Class',
+    createButtonLabel: 'Add a ship class',
     primaryResource: Resources.ShipClasses,
     sorts: [{ field: ShipClasses.fieldName.designation, direction: 'asc' }],
     listColumns: [

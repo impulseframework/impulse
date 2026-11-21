@@ -1970,11 +1970,11 @@ func (f *resourceField) UnwrappedNullType() *string {
 }
 
 // TypescriptDataType is the field's type in the generated interface: the table row's
-// interface type (uuid is a string, civilDate a Date, a nullable boolean the
-// NullBoolean value type), with [] for a list, or the final type a derived struct or
-// a declared type carries.
+// interface type (uuid and a decimal are strings, civilDate a Date, a nullable boolean
+// the NullBoolean value type), with [] for a list, or the final type a derived struct
+// or a declared type carries.
 func (f *resourceField) TypescriptDataType() string {
-	if f.typescriptDisplay != "" {
+	if f.typescriptDisplay != "" && !f.isDecimal() {
 		return f.typescriptType
 	}
 	if f.IsNullable && f.typescriptType == booleanStr {
@@ -2000,6 +2000,13 @@ func (f *resourceField) TypescriptDisplayType() string {
 	}
 
 	return f.typescriptType
+}
+
+// isDecimal reports whether the column is the table's decimal row, or a list of it: the
+// one built-in row that carries a display type of its own (number), where every other
+// field that carries one holds its final interface type already.
+func (f *resourceField) isDecimal() bool {
+	return f.tsImport == nil && strings.TrimSuffix(f.typescriptType, sliceSuffix) == decimalTSType
 }
 
 // setColumnType records a column's resolved TypeScript type: the leaf's table type, or

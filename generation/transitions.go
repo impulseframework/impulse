@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser"
@@ -106,6 +107,27 @@ type rpcTargetKey struct {
 	// RootPKColumn is the key field's database column — the Execute-condition
 	// check-SELECT locates the row by it.
 	RootPKColumn string
+
+	// MayBeEmpty marks a column whose empty text is a value of the key, as the
+	// group of a role held directly is: the RPC field is of text and does not
+	// declare validate:"required" (keyMayBeEmpty). The TypeScript metadata
+	// says so, and a page sends the empty text a row holds there; every other
+	// column holds a value on every row a method can name.
+	MayBeEmpty bool
+}
+
+// MayBeEmptyFields renders the RPC fields whose part of the key may be empty as
+// the TypeScript metadata lists them: quoted wire names, in the key's order.
+// Empty when every part of the key holds a value.
+func (t *rpcTarget) MayBeEmptyFields() string {
+	var names []string
+	for _, key := range t.Keys {
+		if key.MayBeEmpty {
+			names = append(names, "'"+strcase.ToCamel(key.TargetField)+"'")
+		}
+	}
+
+	return strings.Join(names, ", ")
 }
 
 // LocateColumnCalls renders the located-row read's column accessors: the
@@ -423,13 +445,28 @@ func targetKeys(pStruct *parser.Struct, rootName string, rootKeys []*resourceFie
 		if targetField.Type() != pk.Type() {
 			return nil, errors.Newf("struct %s field %s: @%s type %s does not match the root key %s.%s (%s)", pStruct.Name(), targetField.Name(), targetKeyword, targetField.Type(), rootName, pk.Name(), pk.Type())
 		}
-		keys = append(keys, rpcTargetKey{TargetField: targetField.Name(), RootPKField: pk.Name(), RootPKColumn: fieldColumn(pk)})
+		keys = append(keys, rpcTargetKey{TargetField: targetField.Name(), RootPKField: pk.Name(), RootPKColumn: fieldColumn(pk), MayBeEmpty: keyMayBeEmpty(targetField)})
 	}
 	if len(missing) != 0 {
 		return nil, errors.Newf("struct %s: @%s(%s): no field carries %s — a method names its target row by the whole key (%s), one @%s(%s, %s: Field) field for each column", pStruct.Name(), targetKeyword, rootName, strings.Join(missing, ", "), strings.Join(keyNames, ", "), targetKeyword, rootName, targetKeyArgKey)
 	}
 
 	return keys, nil
+}
+
+// keyMayBeEmpty reports whether the empty text is a value of the part of the key
+// a @target field carries. The method's own declaration says so: a field of text
+// (a string, or a named type over one) that does not declare validate:"required"
+// is one the method takes empty, and the row it names holds the empty text there.
+// A field declared required, and a field of any other type (an id, a number),
+// holds a value on every row, so an empty one names no row.
+func keyMayBeEmpty(field *parser.Field) bool {
+	if field.UnderlyingType() != stringGoType {
+		return false
+	}
+	tag, ok := field.LookupTag(validateTagKey)
+
+	return !ok || !validateRequires(tag)
 }
 
 // validateTransitionStates checks every from/to value against the root's

@@ -17,6 +17,11 @@ import { Resource } from './brands';
  */
 export type ValidDisplayTypes =
   | 'string'
+  /**
+   * An integer, a float, or a decimal. A decimal is a string in the interface, because
+   * its JSON is a quoted string that keeps every digit, and this name says it is drawn
+   * and entered as a number.
+   */
   | 'number'
   | 'boolean'
   /** A nullable BOOL column: null, true, or false (NullBoolean), one tri-state control. */
@@ -103,6 +108,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {

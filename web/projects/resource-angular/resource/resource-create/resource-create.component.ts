@@ -18,6 +18,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
+import { ApiError } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
 import { FormStateService } from '@impulseframework/resource-angular/resource-services';
@@ -77,12 +78,27 @@ export class ResourceCreateComponent implements OnInit {
   destroyRef = inject(DestroyRef);
   formState = inject(FormStateService);
 
+  /**
+   * Whether the form holds something not yet created. While it does, the form is one of
+   * the unsaved forms the leave-page question counts.
+   */
   isDirty = signal(false);
   submitted = signal<boolean>(false);
   complete = output<boolean>();
   resourceConfig = input<ChildResourceConfig>();
   parentData = input<RecordData>({});
   loadCreatedResource = input<boolean>(false);
+  /**
+   * Set by the dialog a list's create opens in: the dialog draws the title and the
+   * Cancel and create buttons, so the form draws its fields alone, and a create the
+   * server refuses is kept in `refusal` for the dialog to show, where on a page it is
+   * the page's notice.
+   */
+  inDialog = input<boolean>(false);
+  /** Whether a create is on its way to the server. */
+  saving = signal(false);
+  /** The server's refusal of the last create in a dialog, in its words; empty while there is none. */
+  refusal = signal('');
 
   rootConfig = computed(() => {
     return this.activatedRoute.snapshot.data['config'] as RootConfig;
@@ -266,33 +282,61 @@ export class ResourceCreateComponent implements OnInit {
     const handle = this.store.handle();
     const operation = handle.ops.add(coercedCleanedData);
 
-    void this.store.apply([operation], `${this.store.resourceName()} created successfully`).then((response) => {
-      this.formState.decrementDirtyForms();
+    this.refusal.set('');
+    this.saving.set(true);
+    void this.store
+      .apply([operation], `${this.store.resourceName()} created successfully`)
+      .then((response) => {
+        // Created: nothing in the form is unsaved any more.
+        this.form().markAsPristine();
 
-      if (!response) {
-        this.complete.emit(true);
-        return;
-      }
-
-      const createIds: string[] =
-        response[handle.descriptor.property] ?? response[camelCase(this.store.resourceName())] ?? [];
-
-      {
-        if (this.loadCreatedResource() && createIds.length === 1) {
-          const navigationRoutes = this.config().createNavigation;
-          if (navigationRoutes.length === 0) {
-            this.router.navigate([createdRoute, createIds[0]]);
-          } else {
-            if (createIds[0]) {
-              navigationRoutes.push(createIds[0]);
-            }
-            this.router.navigate(navigationRoutes);
-          }
-        } else {
+        if (!response) {
           this.complete.emit(true);
+          return;
         }
-      }
-    });
+
+        // The consolidated route keys the new rows' ids by resource. A route of the
+        // resource's own answers them under `ids` (`iDs` on a server from before the key
+        // changed), as the client's own create reads them.
+        const createIds: string[] =
+          response[handle.descriptor.property] ??
+          response[camelCase(this.store.resourceName())] ??
+          response.ids ??
+          response.iDs ??
+          [];
+
+        {
+          if (this.loadCreatedResource() && createIds.length === 1) {
+            // The dialog closes before the new row's page opens under it.
+            if (this.inDialog()) {
+              this.complete.emit(true);
+            }
+            const navigationRoutes = this.config().createNavigation;
+            if (navigationRoutes.length === 0) {
+              this.router.navigate([createdRoute, createIds[0]]);
+            } else {
+              if (createIds[0]) {
+                navigationRoutes.push(createIds[0]);
+              }
+              this.router.navigate(navigationRoutes);
+            }
+          } else {
+            this.complete.emit(true);
+          }
+        }
+      })
+      .catch((error: unknown) => {
+        // On a page a refused create is left to the error handler, which raises the
+        // page's notice. A dialog covers that notice, so the form keeps the server's
+        // words for the dialog to show and stays as it was filled.
+        if (!this.inDialog() || !(error instanceof ApiError)) {
+          throw error;
+        }
+        this.refusal.set(error.message);
+      })
+      .finally(() => {
+        this.saving.set(false);
+      });
   }
 
   /**
@@ -307,9 +351,8 @@ export class ResourceCreateComponent implements OnInit {
   }
 
   cancelForm(): void {
-    if (this.form().dirty) {
-      this.formState.decrementDirtyForms();
-    }
+    // What was typed is dropped, so nothing in the form is unsaved any more.
+    this.form().markAsPristine();
     this.complete.emit(true);
   }
 
@@ -317,8 +360,12 @@ export class ResourceCreateComponent implements OnInit {
     effect(() => {
       console.debug('USAGE | New FormGroup subscription for: ', this.config().title);
 
+      // The form counts as unsaved exactly while it is dirty, whichever way it got
+      // there: a typed input changes the value, a picker writes the value and marks
+      // the form afterwards, and a create or a cancel marks it pristine again. Every
+      // one of those is an event of the form, where a change of value is only the first.
       this.form()
-        .valueChanges.pipe(
+        .events.pipe(
           tap(() => {
             const dirty = this.form().dirty;
 

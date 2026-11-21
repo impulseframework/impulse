@@ -4217,6 +4217,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -4260,7 +4268,7 @@ const methodMap: MethodMap = {
     transition: { target: Resources.{{ $t.RootResource }}, from: [{{ range $i, $v := $t.From }}{{ if $i }}, {{ end }}'{{ $v }}'{{ end }}], to: '{{ $t.To }}' },
     {{- end }}
     {{- with $t := $rpcMethod.Target }}
-    target: { resource: Resources.{{ $t.RootResource }}, key: { {{ range $i, $k := $t.Keys }}{{ if $i }}, {{ end }}{{ Camel $k.TargetField }}: '{{ Camel $k.RootPKField }}'{{ end }} } },
+    target: { resource: Resources.{{ $t.RootResource }}, key: { {{ range $i, $k := $t.Keys }}{{ if $i }}, {{ end }}{{ Camel $k.TargetField }}: '{{ Camel $k.RootPKField }}'{{ end }} }{{ with $t.MayBeEmptyFields }}, mayBeEmpty: [{{ . }}]{{ end }} },
     {{- end }}
     {{- if $rpcMethod.Answers }}
     answers: true,
@@ -4638,7 +4646,7 @@ func Collection() *resource.GeneratedCollection {
 				{{- with .SubjectSets }}
 				SubjectSets: []resource.SubjectBindingData{
 					{{- range . }}
-					{Name: "{{ .Name }}", UserColumn: "{{ .UserColumn }}", Column: "{{ .Column }}", Type: "{{ .Type }}"{{ BindingHops .Path }}{{ SubjectParts .Who .Where }}},
+					{Name: "{{ .Name }}", UserColumn: "{{ .UserColumn }}", Column: "{{ .Column }}", Type: "{{ .Type }}"{{ BindingHops .Path }}{{ SubjectParts .Who .Where }}{{ SubjectDomain .Domain }}},
 					{{- end }}
 				},
 				{{- end }}

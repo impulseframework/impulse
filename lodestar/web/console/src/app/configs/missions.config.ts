@@ -57,6 +57,7 @@ export const missionsConfig = rootConfig({
   parentConfig: listViewConfig({
     title: 'Missions',
     createTitle: 'Mission',
+    createButtonLabel: 'Add a mission',
     primaryResource: Resources.MissionBoards,
     listColumns: [
       { id: MissionBoards.fieldName.title },
