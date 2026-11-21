@@ -80,6 +80,10 @@ func (probeCollection) SubjectSetAuth(string) string {
 	return ""
 }
 
+func (probeCollection) Auths() []string {
+	return nil
+}
+
 func (probeCollection) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
 }

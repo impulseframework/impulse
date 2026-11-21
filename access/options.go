@@ -105,7 +105,11 @@ func WithReloadErrorHandler(f func(error)) Option {
 // migrate step to print.
 //
 // auth is the name of the auth whose roles the file declares, as its package
-// names it (its Name). An application declares its subject sets once for all of
+// names it (its Name), which is the name generation knows the auth by: New
+// refuses a name the collection's generation did not know
+// (PermissionCollection.Auths), saying the name given and the names known,
+// since no set is labeled for such a name and the file would be held to none
+// of its auth's sets. An application declares its subject sets once for all of
 // its auths, and each set describes the people of one of them: the role-file
 // check holds this file to the sets of its own auth, so a set that describes
 // another auth's people is never flagged here for a grant only that auth's

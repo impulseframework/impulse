@@ -1,10 +1,13 @@
 package generation
 
 import (
+	"go/format"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // The two-auth fixture of the generator's tests: the crew auth on the default outlet (a
@@ -250,6 +253,94 @@ func Test_Manages(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want, outlet.manages); diff != "" {
 				t.Errorf("manages mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_computeCollectionData_auths pins that the collection a run computes names the
+// run's auths, each once and in name order: the engine holds the name a role file is
+// handed over under to them (access.WithDefaultRoles, access.ValidateRoles). A run that
+// declares no auth names none.
+func Test_computeCollectionData_auths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		run  func(t *testing.T) *resourceGenerator
+		want []string
+	}{
+		{
+			name: "a run whose outlets declare two auths, one of them managed on another outlet",
+			run: func(t *testing.T) *resourceGenerator {
+				t.Helper()
+
+				return userFixtureGenerator(t, false)
+			},
+			want: []string{"crew", "members"},
+		},
+		{
+			name: "a run that declares no auth",
+			run: func(t *testing.T) *resourceGenerator {
+				t.Helper()
+
+				return &resourceGenerator{client: &client{}, genRoutes: true}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := tt.run(t).computeCollectionData()
+			if err != nil {
+				t.Fatalf("computeCollectionData() error = %v", err)
+			}
+			if !slices.Equal(data.Auths, tt.want) {
+				t.Errorf("computeCollectionData() Auths = %v, want %v", data.Auths, tt.want)
+			}
+		})
+	}
+}
+
+// Test_collectionTemplate_auths pins how the generated collection file writes the run's
+// auths: one line of the collection's data, and no line for a run that declared none.
+func Test_collectionTemplate_auths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		auths    []string
+		want     string
+		wantNone string
+	}{
+		{name: "two auths", auths: []string{"crew", "members"}, want: `Auths: []string{"crew", "members"},`},
+		{name: "one auth", auths: []string{"staff"}, want: `Auths: []string{"staff"},`},
+		{name: "no auth", wantNone: "Auths:"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{}}
+			output, err := r.generateTemplateOutput("collectionTemplate", collectionTemplate, &collectionFileData{
+				Source:  "pkg/resources",
+				Package: "router",
+				Data:    resource.CollectionData{Auths: tt.auths},
+			})
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			formatted, err := format.Source(output)
+			if err != nil {
+				t.Fatalf("rendered collection file is not valid Go: %v\n%s", err, output)
+			}
+			normalized := strings.Join(strings.Fields(string(formatted)), " ")
+			if tt.want != "" && !strings.Contains(normalized, tt.want) {
+				t.Errorf("rendered collection file lacks %q:\n%s", tt.want, formatted)
+			}
+			if tt.wantNone != "" && strings.Contains(normalized, tt.wantNone) {
+				t.Errorf("rendered collection file holds %q, want none:\n%s", tt.wantNone, formatted)
 			}
 		})
 	}

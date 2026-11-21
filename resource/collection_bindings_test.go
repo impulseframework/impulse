@@ -263,6 +263,50 @@ func TestNewGeneratedCollection_bindingValidation(t *testing.T) {
 	}
 }
 
+// TestGeneratedCollection_Auths pins that the collection answers with the auths its
+// generation run knew, in name order whatever order the data lists them in, and with
+// none for a run that declared no auth; the data read back from the collection carries
+// the same list.
+func TestGeneratedCollection_Auths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		auths   []string
+		want    []string
+		wantErr string
+	}{
+		{name: "a run that declared no auth"},
+		{name: "one auth", auths: []string{"staff"}, want: []string{"staff"}},
+		{name: "several auths, listed out of order", auths: []string{"members", "crew"}, want: []string{"crew", "members"}},
+		{name: "an auth listed twice", auths: []string{"crew", "crew"}, wantErr: `auth "crew" is listed twice`},
+		{name: "an empty name", auths: []string{"crew", ""}, wantErr: "an auth with an empty name"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			g, err := NewGeneratedCollection(CollectionData{Auths: tt.auths})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("NewGeneratedCollection() error = %v, want it to contain %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("NewGeneratedCollection() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, g.Auths(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Auths() mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.want, collectionDataFrom(g).Auths, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("the data read back: Auths mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestGeneratedCollection_SubjectSets pins what the role-file check of one auth is told
 // of the application's subject sets: each set the application declares for that auth's
 // people or for no auth, with the sets its who: part builds on, no set that describes

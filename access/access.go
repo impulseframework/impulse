@@ -82,6 +82,11 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 		if err != nil {
 			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
 		}
+		// The name the file is handed over under is the application's wiring, not the
+		// file's content: one generation did not know is refused as that.
+		if err := validateAuthName(collection, options.auth); err != nil {
+			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
+		}
 	}
 	// The methods a super administrator always runs are the application's wiring, not
 	// the role file's content: one the release does not declare is refused as that,

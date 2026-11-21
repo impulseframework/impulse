@@ -239,6 +239,23 @@ func (u *unionCollection) SubjectSets(auth string) map[string][]string {
 	return sets
 }
 
+// Auths lists the auths any collection's generation knew: an application's sites may
+// each declare an auth of their own, and a role file of any of them is checked against
+// the union.
+func (u *unionCollection) Auths() []string {
+	var auths []string
+	for _, c := range u.collections {
+		for _, auth := range c.Auths() {
+			if !slices.Contains(auths, auth) {
+				auths = append(auths, auth)
+			}
+		}
+	}
+	slices.Sort(auths)
+
+	return auths
+}
+
 // SubjectSetAuth names the auth whose people a subject set describes, from the first
 // collection (in argument order) that names one for it: the subject namespace is
 // application-wide, and a site whose generation knew one auth may leave unsaid what

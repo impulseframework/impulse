@@ -30,6 +30,8 @@ type stubCollection struct {
 	declaredSets  map[string][]string
 	// authSets are the sets that describe one auth's people, by the auth's name.
 	authSets map[string]map[string][]string
+	// auths are the auths the stub's generation knew.
+	auths []string
 }
 
 func (s *stubCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
@@ -94,6 +96,11 @@ func (s *stubCollection) SubjectSets(auth string) map[string][]string {
 	}
 
 	return sets
+}
+
+// Auths lists the auths the stub is told its generation knew.
+func (s *stubCollection) Auths() []string {
+	return s.auths
 }
 
 // SubjectSetAuth names the auth a set is declared under in authSets, and none for a
@@ -399,6 +406,40 @@ func Test_unionCollection_ListIsACopy(t *testing.T) {
 	first["Write"] = []accesstypes.Resource{"Widgets"}
 	if got := union.List(); !reflect.DeepEqual(got, registry("Read", "Widgets")) {
 		t.Errorf("List() after mutation = %v, want the original registry", got)
+	}
+}
+
+// TestUnionCollection_auths pins that the union knows every site's auths: each name
+// once, in name order, and none where no site's generation knew any.
+func TestUnionCollection_auths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		sites [][]string
+		want  []string
+	}{
+		{name: "no site knows an auth", sites: [][]string{nil, nil}},
+		{name: "every site knows the one auth", sites: [][]string{{"staff"}, {"staff"}}, want: []string{"staff"}},
+		{name: "each site knows its own", sites: [][]string{{"staff"}, {"patrons"}}, want: []string{"patrons", "staff"}},
+		{name: "a site that knows none beside one that knows two", sites: [][]string{nil, {"crew", "members"}}, want: []string{"crew", "members"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			collections := make([]PermissionCollection, 0, len(tt.sites))
+			for _, auths := range tt.sites {
+				collections = append(collections, &stubCollection{auths: auths})
+			}
+			union, err := UnionCollection(collections...)
+			if err != nil {
+				t.Fatalf("UnionCollection() error = %v", err)
+			}
+			if got := union.Auths(); !slices.Equal(got, tt.want) {
+				t.Errorf("Auths() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

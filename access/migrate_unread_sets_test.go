@@ -12,11 +12,18 @@ import (
 
 // setsCollection is the grammar fixture with its subject sets declared: each set by
 // name, with the sets its who: part builds on. sets are the sets that name no auth,
-// and authSets the sets that describe one auth's people, by the auth's name.
+// and authSets the sets that describe one auth's people, by the auth's name. auths
+// are the auths the collection's generation knew, none unless a test names them.
 type setsCollection struct {
 	grammarCollection
 	sets     map[string][]string
 	authSets map[string]map[string][]string
+	auths    []string
+}
+
+// Auths lists the auths the fixture is told its generation knew.
+func (c setsCollection) Auths() []string {
+	return c.auths
 }
 
 // SubjectSets lists the sets for one auth as a generated collection does: those that

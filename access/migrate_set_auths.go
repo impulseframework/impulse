@@ -3,6 +3,7 @@ package access
 import (
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -17,6 +18,25 @@ import (
 // the grant is refused where the role file is loaded with its auth's name. A set that
 // names no auth is any auth's to read, and a file handed over with no name is held to
 // no auth's sets.
+
+// validateAuthName refuses a role file handed over under a name that is no auth the
+// collection's generation knew (PermissionCollection.Auths). The name is what ties the
+// file to its auth's sets: under a name no set is labeled for, every labeled set would
+// read as another auth's, the check would look at none of the file's own, and a grant
+// through one would be refused as another auth's. An empty name is held to nothing, and
+// a collection that knows no auth accepts any name.
+func validateAuthName(store PermissionCollection, auth string) error {
+	if auth == "" {
+		return nil
+	}
+	known := store.Auths()
+	if len(known) == 0 || slices.Contains(known, auth) {
+		return nil
+	}
+
+	return errors.Newf("the role file is handed over as the roles of %q, and the application's generation knew no auth of that name: the auths it knew are %s. Hand over the auth's name as generation knows it, which is the name of the auth's package and the name a @subjectSet says in its auth: part",
+		auth, strings.Join(known, ", "))
+}
 
 // validateRoleSetAuths holds every grant of the role configuration to the sets of the
 // auth the configuration is handed over for (validateGrantSetAuth), the global roles

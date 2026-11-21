@@ -24,6 +24,7 @@ const (
 // such as role migration and bootstrap.
 func Collection() *resource.GeneratedCollection {
 	return resource.MustNewGeneratedCollection(resource.CollectionData{
+		Auths: []string{"staff"},
 		Resources: []resource.CollectionResource{
 			{
 				Name:        "AddStaffGroupMember",

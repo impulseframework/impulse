@@ -273,6 +273,14 @@ func (g *GeneratedCollection) SubjectSetComparisonType(name string) (accesstypes
 	return anchor.Binding.Type, true
 }
 
+// Auths lists the names of the auths the generation run knew
+// (CollectionData.Auths), in name order: the names a subject set may be labeled
+// for, and so the names a role file may be handed to the permission engine
+// under. It is empty for a run that declared no auth.
+func (g *GeneratedCollection) Auths() []string {
+	return slices.Clone(g.auths)
+}
+
 // SubjectSetAuth names the auth whose people a declared subject set describes
 // (SubjectBindingData.Auth), as the auth's package names it. It is empty for a
 // set that names none and for a name no set declares. The set of a person's

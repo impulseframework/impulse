@@ -96,6 +96,31 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 	}
 }
 
+// TestRoles_theAuthsTheCollectionKnows pins that the generated collection names the
+// application's two auths, and that a role file handed over under any other name is
+// refused: the name of the auth's cookie where an application gives it another, and the
+// auth's name in another case. The role-file check ties a file to its auth's subject sets
+// by this name, so under a name no set is labeled for it would look at none of them.
+func TestRoles_theAuthsTheCollectionKnows(t *testing.T) {
+	t.Parallel()
+
+	collection := router.Collection()
+	if got, want := collection.Auths(), []string{crew.Name, members.Name}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("router.Collection().Auths() = %v, want %v", got, want)
+	}
+	roles, err := crew.Roles().Parse()
+	if err != nil {
+		t.Fatalf("access.RoleFile.Parse() error = %v", err)
+	}
+	for _, name := range []string{"__Host-" + crew.Name, crew.TablePrefix} {
+		_, err := access.ValidateRoles(collection, roles, name)
+		want := "the role file is handed over as the roles of \"" + name + "\", and the application's generation knew no auth of that name: the auths it knew are crew, members."
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("access.ValidateRoles() under the name %q: error = %v, want it to contain %q", name, err, want)
+		}
+	}
+}
+
 // TestFeatureFlagsMigration pins the schema's feature flags tables to the library's statements:
 // the tables the deploy's MigrateFeatures and the generated handlers read are the ones
 // resource.FeatureFlagsDDL declares, copied into the schema as every application copies

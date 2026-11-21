@@ -862,7 +862,11 @@ warnings, err := access.ValidateRoles(collection, membersRoles, members.Name)
 
 The check of an auth looks at that auth's sets and at the sets that name no
 auth, and never at another auth's, so no role file is handed from one auth to
-another. A grant of one auth's role whose condition reads a set that describes
+another. The name is the one generation knows the auth by, the name of its
+package, and a file handed over under a name the collection's generation did
+not know is refused with the name given and the names known
+(`PermissionCollection.Auths`; the generated collection lists its run's auths,
+and a union every site's). A grant of one auth's role whose condition reads a set that describes
 another auth's people is refused when the file is loaded (`New`,
 `ValidateRoles`), naming the grant, the set and both auths: the set is looked
 up by the other auth's ids, so the role's holders would get nothing of their

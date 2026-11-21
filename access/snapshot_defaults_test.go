@@ -68,6 +68,10 @@ func (defaultsCollection) SubjectSetAuth(string) string {
 	return ""
 }
 
+func (defaultsCollection) Auths() []string {
+	return nil
+}
+
 func (defaultsCollection) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
 }

@@ -70,6 +70,10 @@ func (concealingCollection) SubjectSetAuth(string) string {
 	return ""
 }
 
+func (concealingCollection) Auths() []string {
+	return nil
+}
+
 func (concealingCollection) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
 }

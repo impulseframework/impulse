@@ -101,6 +101,12 @@ func (grammarCollection) SubjectSetAuth(string) string {
 	return ""
 }
 
+// Auths lists none: the fixture knows no auth, so a role file is accepted under any
+// name (setsCollection lists its own).
+func (grammarCollection) Auths() []string {
+	return nil
+}
+
 // fixtureAuth is the name of the auth the fixtures' role files are of.
 const fixtureAuth = "crew"
 

@@ -4857,6 +4857,9 @@ const (
 // such as role migration and bootstrap.
 func Collection() *resource.GeneratedCollection {
 	return resource.MustNewGeneratedCollection(resource.CollectionData{
+		{{- with .Data.Auths }}
+		Auths: []string{ {{- range $i, $auth := . }}{{ if $i }}, {{ end }}"{{ $auth }}"{{ end -}} },
+		{{- end }}
 		Resources: []resource.CollectionResource{
 			{{- range .Data.Resources }}
 			{
