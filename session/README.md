@@ -1649,8 +1649,15 @@ verified address has no mail-based recovery, and multi-factor authentication can
 instead. The address is unique among every address held, verified or not, matched
 without regard to the case of its ASCII letters (`NormalizedEmail`), so an address is
 held by one account at a time. Nothing else is folded: an address written with a letter
-from outside ASCII is the same address only when it is written with that same letter,
-in the stores as in every comparison the library makes.
+from outside ASCII is the same address only when it is written with that same letter, in
+the stores' lookups by address and the address's unique index as in every comparison the
+library makes. A username is matched more widely (`NormalizedUsername`: the database's
+Unicode normalization and case folding), so on a store whose usernames are the addresses
+two addresses that differ only by such a letter cannot both be accounts, and a sign-in
+name written with one names the account written with the other. That lets nobody in:
+every way in still asks for the account's own proof (its password, the code mailed to
+the address it holds, or a provider's word for that address as the library compares
+one).
 
 How an address gets onto a user:
 

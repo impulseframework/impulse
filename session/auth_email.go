@@ -476,7 +476,7 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 }
 
 // UserByEmail returns the user holding the address, verified or not, matched without
-// regard to case, or a NotFound error.
+// regard to the case of its ASCII letters, or a NotFound error.
 func (p *AuthAPI[S, U, Tx]) UserByEmail(ctx context.Context, email string) (*sessionstorage.SessionUser, error) {
 	user, err := p.auth.storage.UserByEmail(ctx, email)
 	if err != nil {
