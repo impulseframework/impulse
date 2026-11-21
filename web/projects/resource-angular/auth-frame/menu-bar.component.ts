@@ -30,13 +30,13 @@ import { MenuListComponent } from './menu-list.component';
   imports: [CdkMenuBar, CdkMenuItem, CdkMenuTrigger, MatIconModule, MenuListComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div cdkMenuBar class="bar" aria-label="Main menu">
+    <div cdkMenuBar class="impulse-menu-bar-menus" aria-label="Main menu">
       @for (menu of inBar(); track menu.label) {
         <button
           type="button"
           cdkMenuItem
-          class="top"
-          [class.current]="currentMenu() === menu.label"
+          class="impulse-menu-bar-top"
+          [class.impulse-menu-bar-current]="currentMenu() === menu.label"
           [cdkMenuTriggerFor]="panel"
           [cdkMenuTriggerData]="{ $implicit: menu.label }">
           {{ menu.label }}
@@ -46,9 +46,9 @@ import { MenuListComponent } from './menu-list.component';
         <button
           type="button"
           cdkMenuItem
-          class="top more"
+          class="impulse-menu-bar-top impulse-menu-bar-more"
           aria-label="More menus"
-          [class.current]="overflowIsCurrent()"
+          [class.impulse-menu-bar-current]="overflowIsCurrent()"
           [cdkMenuTriggerFor]="panel"
           [cdkMenuTriggerData]="{ $implicit: null }">
           <mat-icon>more_horiz</mat-icon>
@@ -56,11 +56,11 @@ import { MenuListComponent } from './menu-list.component';
       }
     </div>
 
-    <div #measure class="measure" aria-hidden="true">
+    <div #measure class="impulse-menu-bar-measure" aria-hidden="true">
       @for (menu of menus(); track menu.label) {
-        <span class="top">{{ menu.label }}</span>
+        <span class="impulse-menu-bar-top">{{ menu.label }}</span>
       }
-      <span class="top more"><mat-icon>more_horiz</mat-icon></span>
+      <span class="impulse-menu-bar-top impulse-menu-bar-more"><mat-icon>more_horiz</mat-icon></span>
     </div>
 
     <ng-template #panel let-label>

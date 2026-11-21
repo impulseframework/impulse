@@ -82,7 +82,7 @@ func Test_snapshot_periods(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			snap, findings, err := newSnapshotAt(records, nil, nil, noon, tt.at)
+			snap, findings, err := newSnapshotAt(records, nil, declaringRecords(records), noon, tt.at)
 			if err != nil || len(findings) != 0 {
 				t.Fatalf("newSnapshotAt() = (%v, %v), want no finding", findings, err)
 			}
@@ -117,7 +117,7 @@ func Test_snapshot_periods(t *testing.T) {
 	// and it keeps no records.
 	untimed := groupFixture()
 	untimed.Memberships = []policy.Membership{{Scope: tenant1Policy, Member: userSubject("cy"), Role: "Editor"}}
-	snap, _, err := newSnapshot(untimed, nil, nil, noon)
+	snap, _, err := newSnapshot(untimed, nil, declaringRecords(untimed), noon)
 	if err != nil {
 		t.Fatalf("newSnapshot() error = %v", err)
 	}

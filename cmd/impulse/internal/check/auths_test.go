@@ -48,7 +48,7 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
-	engine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))
+	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles()))
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ const staffSuperAdministrators = "session.SuperAdministratorsBy(signin.SuperAdmi
 // engine, so its Auth is told of no super administrators), exporting no Roles(), and
 // reading its role file without embedding it.
 var (
-	staffAuthUnhanded = strings.Replace(strings.Replace(staffAuth, "\tengine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", "", 1),
+	staffAuthUnhanded = strings.Replace(strings.Replace(staffAuth, "\tengine, err := access.New(nil, collection, access.WithDefaultRoles(Roles()))\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", "", 1),
 		staffSuperAdministrators, "session.NoSuperAdministrators()", 1)
 	staffAuthNoRoles = strings.Replace(staffAuthUnhanded, "//go:embed roles.json\nvar roleFile access.RoleFile\n\n// Roles is the release's default roles for the staff auth.\nfunc Roles() access.RoleFile { return roleFile }\n\n", "", 1)
 	staffAuthNoEmbed = strings.Replace(staffAuth, "//go:embed roles.json\nvar roleFile access.RoleFile\n", "var roleFile access.RoleFile\n", 1)
@@ -122,7 +122,7 @@ type DataConfiguration struct {
 }
 
 func New(ctx context.Context) (*DataConfiguration, error) {
-	if _, err := access.New(nil, access.WithDefaultRoles(router.Collection(), staff.Roles())); err != nil {
+	if _, err := access.New(nil, router.Collection(), access.WithDefaultRoles(staff.Roles())); err != nil {
 		return nil, err
 	}
 	s, err := staff.New(ctx, nil, "", router.Collection())
@@ -254,7 +254,7 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
-	engine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))
+	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles()))
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +307,7 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
-	engine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))
+	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles()))
 	if err != nil {
 		return nil, err
 	}

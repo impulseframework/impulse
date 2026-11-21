@@ -20,7 +20,7 @@ func TestNew(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := New(newFakeStore())
+			got, err := New(newFakeStore(), fixtureCollection)
 			if err != nil {
 				t.Error(err)
 			}
@@ -45,7 +45,7 @@ func TestClient_CheckUser_returnsDecision(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client, err := New(newFakeStore())
+	client, err := New(newFakeStore(), fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -115,7 +115,7 @@ func TestClient_CheckUserResources_returnsDecisions(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client, err := New(newFakeStore())
+	client, err := New(newFakeStore(), fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -197,7 +197,7 @@ func TestClient_CheckUserResources_conditionalDecision(t *testing.T) {
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client, err := New(store)
+	client, err := New(store, fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -271,7 +271,7 @@ func TestClient_CheckUserResources_unknownTenantFailsClosed(t *testing.T) {
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client, err := New(store)
+	client, err := New(store, fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -325,7 +325,7 @@ func TestClient_CheckUser_conditionFolding(t *testing.T) {
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client, err := New(store)
+	client, err := New(store, fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -409,7 +409,7 @@ func TestClient_CheckRole_returnsDecision(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client, err := New(newFakeStore())
+	client, err := New(newFakeStore(), fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -477,7 +477,7 @@ func TestClient_CheckRoleResources_returnsDecisions(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client, err := New(newFakeStore())
+	client, err := New(newFakeStore(), fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -552,7 +552,7 @@ func TestClient_CheckRoleResources_conditionalDecision(t *testing.T) {
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client, err := New(store)
+	client, err := New(store, fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -624,7 +624,7 @@ func TestClient_CheckRole_conditionFolding(t *testing.T) {
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client, err := New(store)
+	client, err := New(store, fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

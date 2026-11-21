@@ -180,6 +180,7 @@ func Test_snapshotEngine_policyPropagation(t *testing.T) {
 			channel := &signaltest.Channel{}
 			newEngine := func() *snapshotEngine {
 				opts := defaultClientOptions()
+				opts.collection = fixtureCollection
 				opts.heartbeatInterval = tt.heartbeat
 				if tt.withSignal {
 					opts.signal = policySignal(channel)

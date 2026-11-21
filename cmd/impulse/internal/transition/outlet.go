@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -238,6 +239,7 @@ func (o Outlet) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Chan
 	if err := o.editProgram(a, site, auth, ch); err != nil {
 		return nil, err
 	}
+	var moved *consoleLines
 	if o.Sessions {
 		consoleAuth := ""
 		if site.Default.Auth != nil {
@@ -246,7 +248,8 @@ func (o Outlet) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Chan
 		if err := o.cloneProject(a, g, consoleMount(site), consoleAuth, ch); err != nil {
 			return nil, err
 		}
-		if err := o.moveConsole(a, site, ch); err != nil {
+		var err error
+		if moved, err = o.moveConsole(a, site, ch); err != nil {
 			return nil, err
 		}
 	}
@@ -255,6 +258,11 @@ func (o Outlet) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Chan
 		return nil, err
 	}
 	if err := o.serve(a, site, auth, ch); err != nil {
+		return nil, err
+	}
+	// Nothing edits the application after this: the lines the move noted are named where
+	// they are now.
+	if err := moved.report(a, ch); err != nil {
 		return nil, err
 	}
 
@@ -729,16 +737,17 @@ func consoleMount(site *app.Site) string {
 // application's own sources follow: the App's served browser app, the login pages the
 // console's auth is told, and the old prefix where hand-written Go and the prose name it
 // as a path are rewritten, and what still names the old place after that is listed for
-// the agent, each by file and line.
-func (o Outlet) moveConsole(a *app.App, site *app.Site, ch *Change) error {
+// the agent, each by file and line. Those lines are returned, not reported: the command
+// has edits to make after the move, and reports each line where it leaves it.
+func (o Outlet) moveConsole(a *app.App, site *app.Site, ch *Change) (*consoleLines, error) {
 	if !site.GeneratedRouter || site.Default.WebApp != "/" {
-		return nil
+		return nil, nil
 	}
 	g := site.Generator
 	oldPrefix := site.Default.Prefix
 	project, w, found, err := consoleProject(a, g)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	name := consoleName
 	if found {
@@ -748,28 +757,63 @@ func (o Outlet) moveConsole(a *app.App, site *app.Site, ch *Change) error {
 
 	src, mode, err := readFile(a, g.File)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	edited, err := app.MoveDefaultOutlet(g.File, src, prefix, mount)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.WriteFile(a.Abs(g.File), edited, mode); err != nil {
-		return errors.Wrap(err, "os.WriteFile()")
+		return nil, errors.Wrap(err, "os.WriteFile()")
 	}
 	ch.didf("%s: with two browser applications none is mounted at /, so the default outlet's application moves to %s and its API to /%s: GenerateRoutes(%q, %q, ..., WebApp(%q)) in place of %q and WebApp(\"/\"); the regenerated router answers the root alone with a redirect to %s/", g.File, mount, prefix, g.RoutesDir(), prefix, mount, oldPrefix, mount)
 
 	if !found {
 		ch.skipf("no browser project holds the default outlet's client, so nothing on the browser side moved; serve the application under %s/ with its API at /%s", mount, prefix)
 	} else if err := o.mountProject(a, w.Dir, &project, oldPrefix, prefix, mount, ch); err != nil {
-		return err
+		return nil, err
 	}
 
-	if err := followConsole(a, site, oldPrefix, prefix, mount, ch); err != nil {
-		return err
+	lines := &consoleLines{did: len(ch.Did), skipped: len(ch.Skipped)}
+	if lines.rewrite, err = followConsole(a, site, oldPrefix, prefix, mount, ch); err != nil {
+		return nil, err
+	}
+	if lines.scan, err = listOldPrefix(a, oldPrefix, prefix, mount); err != nil {
+		return nil, err
 	}
 
-	return listOldPrefix(a, oldPrefix, prefix, mount, ch)
+	return lines, nil
+}
+
+// consoleLines is what the console's move noted of the application's own sources by line:
+// what it rewrote, and what still names the old place for the agent. The command reports
+// them after its last edit, since the steps after the move add lines above some of them,
+// and at the move's place in the change's lists, which keep the order of the command's
+// steps.
+type consoleLines struct {
+	rewrite *consoleMove
+	scan    *oldPrefixScan
+	// did and skipped are where the lines go in the change's lists.
+	did, skipped int
+}
+
+// report writes the lines into the change, each named where it is in the application
+// now. A command whose console did not move noted none.
+func (l *consoleLines) report(a *app.App, ch *Change) error {
+	if l == nil {
+		return nil
+	}
+	var noted Change
+	if err := l.rewrite.report(a, &noted); err != nil {
+		return err
+	}
+	if err := l.scan.report(a, &noted); err != nil {
+		return err
+	}
+	ch.Did = slices.Insert(ch.Did, l.did, noted.Did...)
+	ch.Skipped = slices.Insert(ch.Skipped, l.skipped, noted.Skipped...)
+
+	return nil
 }
 
 // consoleProject finds the browser project holding the default outlet's generated client:
@@ -874,26 +918,34 @@ var (
 // naming the old prefix as a string literal (routes, hooks, tests), and the README,
 // process files, and environment template naming it.
 type oldPrefixScan struct {
+	oldPrefix, prefix string
 	// literal is the old prefix as a Go string literal opens it.
 	literal string
 	// proseRE matches the old prefix as a path in prose, not inside a longer path.
 	proseRE *regexp.Regexp
 	mount   string
 
-	literals, deepLinks, prose mentions
-	// loginURLs maps file:line to the login page it names.
-	loginURLs map[string]string
+	literals, deepLinks, prose, loginURLs mentions
+	// loginPages are the login pages a file's loginURLs lines name, in the lines' order.
+	loginPages map[string][]string
+	// read is each file the scan noted a line of, as it read it: the text the lines'
+	// numbers are of, which the report places them from.
+	read map[string][]byte
 }
 
-func newOldPrefixScan(oldPrefix, mount string) *oldPrefixScan {
+func newOldPrefixScan(oldPrefix, prefix, mount string) *oldPrefixScan {
 	return &oldPrefixScan{
-		literal:   `"/` + oldPrefix,
-		proseRE:   regexp.MustCompile(`(^|[^A-Za-z0-9./_-])/` + regexp.QuoteMeta(oldPrefix) + `([^A-Za-z0-9_-]|$)`),
-		mount:     mount,
-		literals:  mentions{},
-		deepLinks: mentions{},
-		prose:     mentions{},
-		loginURLs: map[string]string{},
+		oldPrefix:  oldPrefix,
+		prefix:     prefix,
+		literal:    `"/` + oldPrefix,
+		proseRE:    regexp.MustCompile(`(^|[^A-Za-z0-9./_-])/` + regexp.QuoteMeta(oldPrefix) + `([^A-Za-z0-9_-]|$)`),
+		mount:      mount,
+		literals:   mentions{},
+		deepLinks:  mentions{},
+		prose:      mentions{},
+		loginURLs:  mentions{},
+		loginPages: map[string][]string{},
+		read:       map[string][]byte{},
 	}
 }
 
@@ -912,37 +964,46 @@ func (sc *oldPrefixScan) file(rel string, data []byte, isGo, isProse bool) {
 			sc.prose.add(rel, n)
 		}
 		if m := loginURLRE.FindStringSubmatch(line); isGo && m != nil && !strings.HasPrefix(m[1], sc.mount+"/") {
-			sc.loginURLs[rel+":"+strconv.Itoa(n)] = m[1]
+			sc.loginURLs.add(rel, n)
+			sc.loginPages[rel] = append(sc.loginPages[rel], m[1])
 		}
+	}
+	if len(sc.deepLinks[rel])+len(sc.literals[rel])+len(sc.prose[rel])+len(sc.loginURLs[rel]) > 0 {
+		sc.read[rel] = data
 	}
 }
 
 // report records every mention as the agent's, deep links first, then login pages, Go
-// literals, and prose, each file on one line.
-func (sc *oldPrefixScan) report(ch *Change, oldPrefix, prefix string) {
+// literals, and prose, each file on one line. Each line is named where it is in the
+// application now.
+func (sc *oldPrefixScan) report(a *app.App, ch *Change) error {
+	if err := placeLines(a, sc.read, sc.deepLinks, sc.loginURLs, sc.literals, sc.prose); err != nil {
+		return err
+	}
 	for _, m := range sc.deepLinks.sorted() {
 		ch.skipf("%s:%s: serves the console's bundle at \"/\"; it moves to %q: resource.NewBrowserApp(cfg.ConsoleDist(), %q) serves it under the mount path, as a second browser application's does (a spaassets.DeepLink and Assets pair becomes that one type)", m.file, lineList(m.lines), sc.mount+"/", sc.mount)
 	}
-	keys := make([]string, 0, len(sc.loginURLs))
-	for k := range sc.loginURLs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		ch.skipf("%s: LoginURL %q is the console's login page, which is now under %s/: %q", k, sc.loginURLs[k], sc.mount, sc.mount+sc.loginURLs[k])
+	for _, m := range sc.loginURLs.sorted() {
+		for i, line := range m.lines {
+			page := sc.loginPages[m.file][i]
+			ch.skipf("%s:%d: LoginURL %q is the console's login page, which is now under %s/: %q", m.file, line, page, sc.mount, sc.mount+page)
+		}
 	}
 	for _, m := range sc.literals.sorted() {
-		ch.skipf("%s:%s: names %q, the console's old prefix, in a string literal; the console's API is now /%s", m.file, lineList(m.lines), "/"+oldPrefix, prefix)
+		ch.skipf("%s:%s: names %q, the console's old prefix, in a string literal; the console's API is now /%s", m.file, lineList(m.lines), "/"+sc.oldPrefix, sc.prefix)
 	}
 	for _, m := range sc.prose.sorted() {
-		ch.skipf("%s:%s: names /%s, the console's old prefix; the console's API is now /%s and its pages are under %s/", m.file, lineList(m.lines), oldPrefix, prefix, sc.mount)
+		ch.skipf("%s:%s: names /%s, the console's old prefix; the console's API is now /%s and its pages are under %s/", m.file, lineList(m.lines), sc.oldPrefix, sc.prefix, sc.mount)
 	}
+
+	return nil
 }
 
 // listOldPrefix walks the application for what still names the console's old prefix or
-// its old place after the move and its rewrites, and records each as the agent's.
-func listOldPrefix(a *app.App, oldPrefix, prefix, mount string, ch *Change) error {
-	scan := newOldPrefixScan(oldPrefix, mount)
+// its old place after the move and its rewrites, and returns each for the command to
+// record as the agent's.
+func listOldPrefix(a *app.App, oldPrefix, prefix, mount string) (*oldPrefixScan, error) {
+	scan := newOldPrefixScan(oldPrefix, prefix, mount)
 	err := walkOwnSources(a, func(root *os.Root, rel string, _ fs.FileMode, isGo, isProse bool) error {
 		data, err := root.ReadFile(filepath.FromSlash(rel))
 		if err != nil {
@@ -953,11 +1014,10 @@ func listOldPrefix(a *app.App, oldPrefix, prefix, mount string, ch *Change) erro
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	scan.report(ch, oldPrefix, prefix)
 
-	return nil
+	return scan, nil
 }
 
 // processFileRE matches the development process files, whose comments name the proxied
