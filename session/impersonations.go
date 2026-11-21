@@ -445,9 +445,11 @@ type GrantCheck func(ctx context.Context, grant accesstypes.Resource) (bool, err
 // kind the application does not offer, for no principal, and for a mask that keeps a
 // kind that is no permission kind or refuses a class or a resource the application
 // does not have; 403 for a person who does not hold the grant, and for a mask wider
-// than the grant's. A call that carries no validated session is a mistake in the
-// program and answers a plain error: a server-side caller names its actor with
-// RequestFor.
+// than the grant's. Each 403 is one sentence a person can read ("You may not start this
+// kind of session.", "This kind of session gives less than you asked for."); the kind's
+// name, its grant and what the two masks say are the cause's, kept for the server's
+// log. A call that carries no validated session is a mistake in the program and answers
+// a plain error: a server-side caller names its actor with RequestFor.
 func (i *Impersonations) Request(ctx context.Context, ask *ImpersonationAsk, holds GrantCheck) (*ImpersonationRequest, error) {
 	current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
 	if !ok || current == nil || current.SessionInfo == nil {
@@ -464,7 +466,7 @@ func (i *Impersonations) Request(ctx context.Context, ask *ImpersonationAsk, hol
 	return i.request(ctx, &ImpersonationActor{
 		Name:      current.Username,
 		SessionID: impulse.NullUUID{UUID: own, Valid: !own.IsNil()},
-	}, ask, holds, "starting a session of the kind %q takes Execute on %s, which you do not hold")
+	}, ask, holds, readByPerson)
 }
 
 // RequestFor is Request for a server-side caller: a call that arrives on no session of
@@ -473,7 +475,9 @@ func (i *Impersonations) Request(ctx context.Context, ask *ImpersonationAsk, hol
 // partner portal). The caller declares its kinds as any application does and passes
 // its own check as holds: whether the calling system, which the handler has
 // authenticated, may start a session of the kind for this actor. The kind's widest
-// mask, the narrowing and the refusals are Request's.
+// mask, the narrowing and the refusals are Request's, and the two 403s are answered in
+// full, with the kind, the grant the check refused and what the request asks for beyond
+// the kind: a program reads them, or its operator.
 //
 // An actor with a Realm was signed in by another system and is recorded under the name
 // given. An actor with no Realm is a person of this application, whose own live
@@ -503,15 +507,67 @@ func (i *Impersonations) RequestFor(ctx context.Context, actor ImpersonationActo
 		)
 	}
 
-	return i.request(ctx, &actor, ask, holds, "this caller may not start a session of the kind %q: the application's check of the kind's grant, %s, refused it")
+	return i.request(ctx, &actor, ask, holds, readBySystem)
+}
+
+// requestReader is who reads the answer to a request that is refused for the kind's
+// grant or for a mask wider than the kind's.
+type requestReader int
+
+const (
+	// readByPerson is a person signed in here, who reads the answer on a screen: one
+	// plain sentence, with the kind's name, its grant and what the masks say kept as
+	// the answer's cause for the server's log.
+	readByPerson requestReader = iota
+
+	// readBySystem is the system that calls for an actor, or its operator: it is
+	// answered in full, with the kind, the grant its own check refused and what the
+	// request asks for beyond the kind.
+	readBySystem
+)
+
+const (
+	// kindNotHeldWords is what a person who does not hold a kind's grant is told.
+	kindNotHeldWords = "You may not start this kind of session."
+
+	// kindGivesLessWords is what a person who asks for more than a kind gives is told.
+	kindGivesLessWords = "This kind of session gives less than you asked for."
+)
+
+// notHeld is the answer to a caller the check of the kind's grant refuses: Forbidden. A
+// person signed in here does not hold the grant and is told so in one sentence; that the
+// kind takes Execute on its grant is the cause's, kept for the server's log, and no word
+// of it reaches the person. A server-side caller's own check said no, and it is told the
+// kind and the grant.
+func (r requestReader) notHeld(kind *ImpersonationKind) error {
+	if r == readBySystem {
+		return httpio.NewForbiddenMessagef("this caller may not start a session of the kind %q: the application's check of the kind's grant, %s, refused it", kind.name, kind.grant)
+	}
+
+	return httpio.NewForbiddenMessageWithError(
+		errors.Newf("starting a session of the kind %q takes Execute on %s, which you do not hold", kind.name, kind.grant),
+		kindNotHeldWords,
+	)
+}
+
+// widerThanKind is the answer to a request for more than its kind gives: Forbidden. how
+// says what the kind gives and what the request asks for beyond it. A person is told one
+// sentence, and how is the cause's, kept for the server's log; a server-side caller is
+// told how.
+func (r requestReader) widerThanKind(how string) error {
+	if r == readBySystem {
+		return httpio.NewForbiddenMessage(how)
+	}
+
+	return httpio.NewForbiddenMessageWithError(errors.New(how), kindGivesLessWords)
 }
 
 // request is what Request and RequestFor share once the actor is known: the kind, the
 // grant's check and the mask's arithmetic. It is the one place a request an
-// impersonated session starts from is made. notHeld is the sentence a caller the check
-// refuses is answered with, which takes the kind's name and its grant: a person signed
-// in here does not hold the grant, and a server-side caller's own check said no.
-func (i *Impersonations) request(ctx context.Context, actor *ImpersonationActor, ask *ImpersonationAsk, holds GrantCheck, notHeld string) (*ImpersonationRequest, error) {
+// impersonated session starts from is made. reader is who reads the answer when the
+// check of the kind's grant refuses the caller or the mask asked for is wider than the
+// kind's: a person signed in here, or a server-side caller.
+func (i *Impersonations) request(ctx context.Context, actor *ImpersonationActor, ask *ImpersonationAsk, holds GrantCheck, reader requestReader) (*ImpersonationRequest, error) {
 	if i == nil {
 		return nil, errors.New("the application declares no impersonation: declare the kinds it offers (session.NewImpersonations) before a request is made")
 	}
@@ -543,7 +599,7 @@ func (i *Impersonations) request(ctx context.Context, actor *ImpersonationActor,
 		return nil, errors.Wrap(err, "session.GrantCheck()")
 	}
 	if !held {
-		return nil, httpio.NewForbiddenMessagef(notHeld, kind.name, kind.grant)
+		return nil, reader.notHeld(&kind)
 	}
 
 	if problem := i.unknown(ask.Mask); problem != "" {
@@ -560,16 +616,16 @@ func (i *Impersonations) request(ctx context.Context, actor *ImpersonationActor,
 		)
 		switch {
 		case errors.As(err, &wider):
-			return nil, httpio.NewForbiddenMessagef(
+			return nil, reader.widerThanKind(fmt.Sprintf(
 				"the kind %q gives %s, and the request asks for %s as well: ask for no more than the kind gives, or name no mask to take all of it",
 				kind.name, kind.widest.Words(), permissionList(wider.Beyond),
-			)
+			))
 		case errors.As(err, &added):
-			return nil, httpio.NewForbiddenMessagef(
+			return nil, reader.widerThanKind(fmt.Sprintf(
 				"the kind %q gives %s, and the request keeps %s out of the refusal of %s actions as well: "+
 					"a request may drop what the kind keeps and never add to it, so name no more than the kind keeps, or name no mask to take all of it",
 				kind.name, kind.widest.Words(), added.AddedWords(), added.Class,
-			)
+			))
 		default:
 			return nil, errors.Wrap(err, "accesstypes.PermissionMask.Narrow()")
 		}
