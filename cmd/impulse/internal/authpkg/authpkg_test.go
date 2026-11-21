@@ -529,6 +529,76 @@ func TestFiles_signedInHook(t *testing.T) {
 	}
 }
 
+// TestFiles_passwordConfirmation pins that an auth package hands the router the password
+// confirmation of a waiting sign-in exactly where the auth has the password method. The
+// generated router asks its session surface for PendingConfirmWithPassword only there,
+// since with no password method nobody holds a password to confirm with; the rest of the
+// waiting sign-in (its status, its cancel and the mailed code) is handed either way.
+func TestFiles_passwordConfirmation(t *testing.T) {
+	t.Parallel()
+	const confirm = "func (h *Handlers) PendingConfirmWithPassword() http.HandlerFunc {\n\treturn h.Pending().ConfirmWithPassword()\n}"
+	tests := []struct {
+		name string
+		spec *Spec
+		want bool
+	}{
+		{
+			name: "a password auth", want: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+		{
+			name: "a password beside a directory", want: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "tenants", Methods: []Method{
+				{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Authority: app.AuthorityApplication},
+				{Kind: app.MethodPassword},
+			}},
+		},
+		{
+			name: "a directory auth whose roles the application gives",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", Methods: []Method{
+				{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
+			}},
+		},
+		{
+			name: "a directory auth whose roles the directory gives",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "employees", Methods: []Method{
+				{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory},
+			}},
+		},
+		{
+			name: "a directory auth with the personas of the test environments",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", Methods: []Method{
+				{Kind: app.MethodGoogle, Name: "directory", Authority: app.AuthorityApplication},
+				{Kind: app.MethodPersona},
+			}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			files, err := Files(tt.spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
+			}
+			src := string(files[tt.spec.Name+".go"])
+			if got := strings.Contains(src, confirm); got != tt.want {
+				t.Errorf("%s.go hands the router the password confirmation = %v, want %v", tt.spec.Name, got, tt.want)
+			}
+			if !tt.want && strings.Contains(src, "ConfirmWithPassword") {
+				t.Errorf("%s.go of an auth with no password method must not name ConfirmWithPassword", tt.spec.Name)
+			}
+			if got := strings.Contains(src, "waits for a password confirmation"); got != tt.want {
+				t.Errorf("%s.go says a sign-in waits for a password confirmation = %v, want %v", tt.spec.Name, got, tt.want)
+			}
+			for _, kept := range []string{"func (h *Handlers) PendingStatus() http.HandlerFunc {", "func (h *Handlers) PendingCancel() http.HandlerFunc {", "func (h *Handlers) PendingVerifyCode() http.HandlerFunc {"} {
+				if !strings.Contains(src, kept) {
+					t.Errorf("%s.go is missing %q", tt.spec.Name, kept)
+				}
+			}
+		})
+	}
+}
+
 // TestFiles_tenantMaker pins which auth is handed what makes a tenant. Nobody creates a
 // tenant directly: staff invite one person, and that person's first sign-in makes the
 // tenant through the generated maker, which the generated identity client of one auth is

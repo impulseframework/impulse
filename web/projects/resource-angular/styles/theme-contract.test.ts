@@ -159,3 +159,33 @@ describe('the sizes of the titles', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// An icon is never drawn as the letters of its name. The fonts sheet declares the icons'
+// font with nothing drawn in its place at first, and draws no icon at all while the root
+// element carries the class IconFontService marks it with; the sheet and the service name
+// the same family and the same class.
+describe('the icons while their font is on its way', () => {
+  const fonts = read(join(root, 'styles', '_fonts.scss'));
+  const service = read(join(root, 'ui-theme', 'icon-font.service.ts'));
+  // The text the service gives a constant, read from every constant it gives text to.
+  const texts = [...service.matchAll(/(\w+) = '([^']+)'/g)];
+  const named = (constant: string): string => texts.find(([, name]) => name === constant)?.[2] ?? '';
+
+  it('draws no icon under the class the service marks the root element with', () => {
+    const mark = named('AWAITS_ICON_FONT');
+    expect(mark).not.toBe('');
+    const rule = new RegExp(`\\.${mark} \\.material-icons \\{([^}]*)\\}`).exec(fonts)?.[1] ?? '';
+    expect(rule).toMatch(/visibility:\s*hidden;/);
+  });
+
+  it('declares the font under the family the service asks for, and draws the icons in it', () => {
+    const family = named('ICON_FONT_FAMILY');
+    expect(family).not.toBe('');
+    const faces = [...fonts.matchAll(/@font-face \{([^}]*)\}/g)]
+      .map((m) => m[1])
+      .filter((face) => face.includes(`font-family: '${family}';`));
+    expect(faces).toHaveLength(1);
+    expect(faces[0]).toMatch(/font-display:\s*block;/);
+    expect(/\.material-icons \{([^}]*)\}/.exec(fonts)?.[1] ?? '').toContain(`font-family: '${family}';`);
+  });
+});

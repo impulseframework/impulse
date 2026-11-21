@@ -1,4 +1,4 @@
-<div class="page-container">
+<div class="page-container" [class.heading-held]="!headingKnown()">
   <div class="header-container" [class.show-background]="!config().collapsible" [class.indent]="indentTitle()">
     <h1 class="title" [class.impulse-section]="isRootList() === false">{{ listTitle() }}</h1>
     <action-access-control-wrapper [actionContext]="createButtonContext()">
@@ -30,6 +30,12 @@
     <div class="notice" role="status" [class.indent]="indentTitle()">
       <mat-icon class="notice-icon" aria-hidden="true">warning</mat-icon>
       <p class="notice-words">{{ notice() }}</p>
+    </div>
+  }
+  @for (sentence of unread(); track sentence) {
+    <div class="notice" role="status" [class.indent]="indentTitle()">
+      <mat-icon class="notice-icon" aria-hidden="true">warning</mat-icon>
+      <p class="notice-words">{{ sentence }}</p>
     </div>
   }
   @if (linksUnread()) {

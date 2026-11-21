@@ -1,3 +1,4 @@
+import { CdkScrollable } from '@angular/cdk/scrolling';
 import { NgComponentOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, viewChild } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
@@ -24,10 +25,26 @@ import { PlaceService } from './place.service';
  * tenants is), the frame draws "This page could not be loaded" with Try again where the
  * page goes, and no page: a page drawn then would be the page of a person who holds
  * nothing, or who is in no tenant. Once a read answers, the page is drawn.
+ *
+ * The frame is as high as the window, and the page scrolls inside it: the banner and the
+ * bar stay at the top, and what is under them (`.page-scroll`) is what scrolls, up and
+ * down and sideways, never the document. So a row a page keeps at the top of what scrolls
+ * (`position: sticky; top: 0`) stays right under the bar, and the side panel is as high as
+ * the window however long the page is. What scrolls is known to the overlays
+ * (`cdkScrollable`), so a pop-up opened from the page follows it. On paper nothing scrolls:
+ * the frame is as long as the page.
  */
 @Component({
   selector: 'impulse-frame',
-  imports: [FrameBarComponent, MatButtonModule, MatSidenavModule, MenuDrawerComponent, NgComponentOutlet, RouterOutlet],
+  imports: [
+    CdkScrollable,
+    FrameBarComponent,
+    MatButtonModule,
+    MatSidenavModule,
+    MenuDrawerComponent,
+    NgComponentOutlet,
+    RouterOutlet,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <mat-sidenav-container class="shell">
@@ -44,24 +61,27 @@ import { PlaceService } from './place.service';
           <ng-container *ngComponentOutlet="banner" />
         }
         <impulse-frame-bar (menuOpened)="panel.open()" />
-        <main class="page-content">
-          @if (places.unread()) {
-            <div class="unread">
-              <h1>This page could not be loaded</h1>
-              <button mat-stroked-button type="button" class="try-again" [disabled]="trying()" (click)="tryAgain()">
-                Try again
-              </button>
-            </div>
-          } @else {
-            <router-outlet />
-          }
-        </main>
+        <div class="page-scroll" cdkScrollable>
+          <main class="page-content">
+            @if (places.unread()) {
+              <div class="unread">
+                <h1>This page could not be loaded</h1>
+                <button mat-stroked-button type="button" class="try-again" [disabled]="trying()" (click)="tryAgain()">
+                  Try again
+                </button>
+              </div>
+            } @else {
+              <router-outlet />
+            }
+          </main>
+        </div>
       </mat-sidenav-content>
     </mat-sidenav-container>
   `,
   styles: `
+    /* As high as the window, and no higher: the page scrolls inside the frame. */
     .shell {
-      min-height: 100vh;
+      height: 100dvh;
       background: transparent;
     }
 
@@ -70,19 +90,43 @@ import { PlaceService } from './place.service';
       background: var(--mat-sys-surface-container-low);
     }
 
+    /* The banner and the bar, each as high as it is, and under them what scrolls. */
     .main {
       display: flex;
       flex-direction: column;
-      min-height: 100vh;
+    }
 
-      .page-content {
-        flex: 1;
-        min-width: 0;
+    /* What scrolls: the rest of the height of the window, however long or wide the page is.
+       What a page places by hand (position: absolute) is placed in it, and scrolls with it. */
+    .page-scroll {
+      position: relative;
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      overflow: auto;
+    }
+
+    /* The page is at least as high as what scrolls, and as high as what it holds. */
+    .page-scroll > .page-content {
+      flex: 1 0 auto;
+      min-width: 0;
+    }
+
+    /* On paper nothing scrolls: the frame is as long as the page, as it was on the screen
+       before the page scrolled inside it. */
+    @media print {
+      .shell {
+        height: auto;
       }
 
-      .unread {
-        padding: 1rem;
+      .page-scroll {
+        overflow: visible;
       }
+    }
+
+    /* What the frame says where the page goes while what the person holds is unread. */
+    .unread {
+      padding: 1rem;
     }
   `,
 })

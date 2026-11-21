@@ -162,6 +162,12 @@ field — accepted only when the same filter also names an `'always'` field, sin
 are scarce and one is enough to narrow the rows — and absent on a field a filter may not
 name. A table draws a filter control from it, so what it offers is what the server answers.
 
+A sort may name only a field the server orders: text, numbers, yes or no, moments, dates,
+decimals and UUIDs. A list, a map and a nested object have no order, and a request that
+sorts by one is refused (400). The generated field metadata says which: `FieldMeta.sortable`
+is `false` on a field the server does not order and absent on every other. A table draws
+such a column's heading as words, so it offers no sort the server refuses.
+
 A text field answers `startswith`, `endswith` and `contains` where the schema states a
 fact for it, and `FieldMeta.search` lists the matches it answers: a stored `LOWER(col)`
 column leading an index answers `startswith`; a token column under the table's search
@@ -518,8 +524,8 @@ shape of the session library's login routes.
 `name` it was registered under, the library `method` behind it (`password`, `google`, `azure`,
 `workos`), its `kind` (`password`, a form the page posts; `redirect`, a navigation that sends
 the browser to the identity provider), its `label` and its `path`; and `pending`, the pending
-sign-in's status, confirmation and cancel paths, with the sign-in code's send, verification and
-enrollment paths on a server that sends mail. The answer is kept in `api.auth.snapshot`, a
+sign-in's status and cancel paths, its confirmation path on a server with a password sign-in,
+and the sign-in code's send, verification and enrollment paths on a server that sends mail. The answer is kept in `api.auth.snapshot`, a
 `Store` a framework mirrors into its own reactivity, so a page re-renders whenever the list is
 read again. A listed method of a kind the client does not drive is left out and announced once
 through the warn hook.
@@ -564,7 +570,10 @@ the page it returns to; `none`; or `refused` with `pending_expired` when the sig
 or was already used), `confirmPending(password)` posts the confirmation (the session, a further
 step, or a refusal: a wrong password answers 401 in the server's words and leaves the step in
 place), and `cancelPending()` discards it. A server whose list names no pending routes never
-holds a sign-in, and these three throw saying so.
+holds a sign-in, and these three throw saying so. A server with no password sign-in names no
+confirmation path (`pending.confirm` is absent, as nobody there has a password to confirm
+with): `pending()` and `cancelPending()` work as they do elsewhere, and `confirmPending`
+throws saying the server names no such route.
 
 A sign-in the policy holds for a second factor waits with the reason `mfa`, and when the policy
 accepts the mailed code the status carries `emailCode`, the step this client drives: the masked

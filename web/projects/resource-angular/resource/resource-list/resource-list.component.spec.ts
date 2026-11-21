@@ -22,6 +22,7 @@ import {
   iconCellKey,
   listViewConfig,
   ListViewConfigOptions,
+  MultiColumnConfig,
   multiColumnConfig,
   RecordData,
   RESOURCE_DOMAIN,
@@ -69,8 +70,8 @@ const metas: Record<string, ResourceMeta> = {
     fields: [
       field('id', { primaryKey: { ordinalPosition: 0 } }),
       field('name'),
-      field('cargoBays', { displayType: 'number[]' }),
-      field('digest', { displayType: 'bytes' }),
+      field('cargoBays', { displayType: 'number[]', sortable: false }),
+      field('digest', { displayType: 'bytes', sortable: false }),
       field('lastRefitAt', { displayType: 'date' }),
       field('decommissioned', { displayType: 'boolean' }),
       field('flagged', { displayType: 'nullboolean' }),
@@ -289,6 +290,151 @@ describe('ResourceListComponent', () => {
     });
   });
 
+  describe('offers no sort the server refuses', () => {
+    it('draws the heading of a column whose field the metadata marks sortable: false as words, and every other as a button', async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            { id: 'cargoBays' as FieldName },
+            { id: 'digest' as FieldName },
+            { id: 'lastRefitAt' as FieldName },
+          ],
+        },
+        [
+          {
+            id: 's-1',
+            name: 'Kestrel',
+            cargoBays: [60, 60, 30],
+            digest: digest32,
+            lastRefitAt: '2026-09-21T12:00:00Z',
+          },
+        ],
+      );
+      fixture.detectChanges();
+      await settle();
+      const element = fixture.nativeElement as HTMLElement;
+      const headings = Array.from(element.querySelectorAll('th.data-col'))
+        .filter((th) => th.querySelector('.col-header'))
+        .map(
+          (th) =>
+            `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.header-label') ? 'a button' : 'words'}`,
+        );
+
+      // The server orders text and moments, and answers 400 to a sort by a list or by
+      // bytes: the metadata says which, and the table offers the first two alone.
+      expect(headings).toEqual(['Name: a button', 'Cargo Bays: words', 'Digest: words', 'Last Refit At: a button']);
+
+      // A click on the words asks the server for nothing.
+      const before = transport.requests.length;
+      (element.querySelectorAll('th.data-col .header-words')[0] as HTMLElement).click();
+      fixture.detectChanges();
+      await settle();
+      expect(transport.requests.length).toBe(before);
+      expect(fixture.componentInstance.store.sorts()).toEqual([]);
+    });
+  });
+
+  describe('draws its heading once it knows what the heading says', () => {
+    /** Answers the list's request, which the server holds until the spec lets it go. */
+    let answer: (response: TransportResponse) => void;
+    const held = (): Promise<TransportResponse> =>
+      new Promise((resolve) => {
+        answer = resolve;
+      });
+    const twoShips: TransportResponse = {
+      status: 200,
+      body: [
+        { id: 's-1', name: 'Kestrel' },
+        { id: 's-2', name: 'Merlin' },
+      ],
+      headers: { 'total-count': '2' },
+    };
+    const container = (): HTMLElement =>
+      (fixture.nativeElement as HTMLElement).querySelector('.page-container') as HTMLElement;
+    const title = (): string | undefined =>
+      (fixture.nativeElement as HTMLElement).querySelector('h1.title')?.textContent?.trim();
+    /** What the list's stylesheet declares in the rules whose selector names every one of `names`. */
+    const declares = (names: string[]): string => {
+      const sheet = Array.from(document.querySelectorAll('style'))
+        .map((style) => style.textContent ?? '')
+        .join('\n');
+      return Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+        .filter(([, selector]) => names.every((name) => selector.includes(name)))
+        .map(([, , declarations]) => declarations)
+        .join('\n');
+    };
+    /** The list as its page opens it, with its request out and not answered. */
+    const open = async (options: Partial<ListViewConfigOptions>): Promise<void> => {
+      await create(
+        { primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }], ...options },
+        [],
+        held,
+      );
+      fixture.detectChanges();
+      await TestBed.inject(ApplicationRef).whenStable();
+      fixture.detectChanges();
+      expect(transport.requests.length).toBe(1);
+    };
+
+    it('holds a title that carries the count of the rows until the first answer, and draws it once, with its count', async () => {
+      await open({ showRowCount: true });
+
+      // Nothing has been answered: the heading is not drawn, and it keeps its room.
+      expect(container().classList.contains('heading-held')).toBe(true);
+      expect(declares(['.heading-held', '.header-container'])).toMatch(/visibility:\s*hidden/);
+      expect(declares(['.heading-held', '.search-container'])).toMatch(/visibility:\s*hidden/);
+
+      answer(twoShips);
+      await settle();
+
+      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(title()).toBe('Ships (2)');
+    });
+
+    it('draws it without a count once the list is refused: a refusal is an answer too', async () => {
+      await open({ showRowCount: true });
+      expect(container().classList.contains('heading-held')).toBe(true);
+
+      answer({ status: 403, body: { message: 'the caller may not list ships' } });
+      await settle();
+
+      expect(fixture.componentInstance.store.pageStatus()).toBe('error');
+      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(title()).toBe('Ships');
+    });
+
+    it('draws a title that carries no count from the start: nothing of it waits for the rows', async () => {
+      await open({ showRowCount: false });
+
+      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(title()).toBe('Ships');
+
+      answer(twoShips);
+      await settle();
+      expect(title()).toBe('Ships');
+    });
+
+    it('keeps a heading a person has seen while the list is asked again', async () => {
+      await open({ showRowCount: true });
+      answer(twoShips);
+      await settle();
+      expect(title()).toBe('Ships (2)');
+
+      // A sort asks for the rows again, and the answer is held.
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'desc' }]);
+      fixture.detectChanges();
+      await TestBed.inject(ApplicationRef).whenStable();
+      fixture.detectChanges();
+
+      expect(transport.requests.length).toBe(2);
+      expect(fixture.componentInstance.store.pageStatus()).toBe('loading');
+      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(title()).toBe('Ships (2)');
+    });
+  });
+
   describe('hands a yes-or-no value to the table as it is', () => {
     const fleet = [
       { id: 's-1', name: 'Kestrel', decommissioned: true, flagged: null },
@@ -413,6 +559,360 @@ describe('ResourceListComponent', () => {
       expect(filters).toEqual(['Name: none', 'Client: none', 'Home port: filter', 'Registry: none']);
     });
 
+    /** A list of ships whose client column, and whose home port column where asked, name a client; the server answers for the clients as told. */
+    const shipsUnder = async (clientsAnswer: TransportResponse, homePort = false): Promise<HTMLElement> => {
+      const rows = [
+        { id: 's-1', name: 'Kestrel', clientId: 'c-1', homePort: 'c-2' },
+        { id: 's-2', name: 'Vega', clientId: '', homePort: '' },
+      ];
+      const named = (id: string, header?: string): MultiColumnConfig =>
+        multiColumnConfig({
+          id: id as FieldName,
+          ...(header ? { header } : {}),
+          additionalIds: [{ resource: clients, id: 'id' as FieldName, field: 'name' as FieldName }],
+          concatFn: 'hyphen-concat',
+          fallback: (row: Record<string, unknown>) => (row[id] ? `Client ${String(row[id])}` : 'Nobody'),
+        });
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            named('clientId', 'Client'),
+            ...(homePort ? [named('homePort')] : []),
+          ],
+        },
+        rows,
+        (request) =>
+          request.url.split('?')[0] === '/api/clients'
+            ? clientsAnswer
+            : { status: 200, body: rows, headers: { 'total-count': String(rows.length) } },
+      );
+      fixture.detectChanges();
+      await settle();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    };
+
+    const cellsOf = (element: HTMLElement): (string | undefined)[][] =>
+      Array.from(element.querySelectorAll('tbody tr')).map((row) =>
+        Array.from(row.querySelectorAll('td.data-col:not(.action-col)')).map((cell) => cell.textContent?.trim()),
+      );
+
+    const noticesOf = (element: HTMLElement): (string | undefined)[] =>
+      Array.from(element.querySelectorAll('.notice[role="status"] .notice-words')).map((words) =>
+        words.textContent?.trim(),
+      );
+
+    // What the server says of a read it refuses, as it says it: the scope, the person's id,
+    // the permission and the resource. None of it is for the screen.
+    const refusal = 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [Clients]';
+    const refused: TransportResponse = { status: 403, body: { message: refusal } };
+    const serverWords = /scope \(|user \(|3f2a9c1e|does not have|\(List\)|\[Clients\]|spanner|Unavailable|session pool/;
+
+    /**
+     * What was written to the console, as a console prints it: each line's words with every
+     * name where the words keep its place (%s), and the server's own message of the error
+     * written after them.
+     */
+    const written = (log: { mock: { calls: unknown[][] } }): string[] =>
+      log.mock.calls.map(([words, ...values]) => {
+        const error = values.pop();
+        const line = values.reduce<string>((text, value) => text.replace('%s', () => String(value)), String(words));
+        return `${line} ${error instanceof Error ? error.message : ''}`;
+      });
+
+    let consoleError: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      consoleError.mockRestore();
+    });
+
+    it('draws its rows when the related read is refused: the wait ends, a cell says what the page gives for a row whose record is not read, and the list says above its rows, in plain words, that the person may not see those records', async () => {
+      const element = await shipsUnder(refused);
+      // The related read was asked once and is over: the list is not drawn as loading.
+      expect(transport.requests.filter((request) => request.url.split('?')[0] === '/api/clients').length).toBe(1);
+      expect(fixture.componentInstance.loadingRowData()).toBe(false);
+      expect(element.querySelector('.impulse-grid-loading-overlay')).toBeNull();
+      expect(cellsOf(element)).toEqual([
+        ['Kestrel', 'Client c-1'],
+        ['Vega', 'Nobody'],
+      ]);
+      expect(noticesOf(element)).toEqual(['You do not have permission to see the records named in the Client column.']);
+      // Nothing the server said is on the screen; it is in the console, once, for whoever looks into it.
+      expect(element.textContent).not.toMatch(serverWords);
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
+      ]);
+    });
+
+    it('says so once for a read two of its columns name, each by the heading the table draws, and in other words for a read that failed', async () => {
+      const failure = 'spanner: code = "Unavailable", desc = "the session pool is closed"';
+      const element = await shipsUnder({ status: 500, body: { message: failure } }, true);
+      expect(element.querySelector('.impulse-grid-loading-overlay')).toBeNull();
+      expect(cellsOf(element)).toEqual([
+        ['Kestrel', 'Client c-1', 'Client c-2'],
+        ['Vega', 'Nobody', 'Nobody'],
+      ]);
+      expect(noticesOf(element)).toEqual([
+        'The records named in the Client and Home Port columns could not be loaded.',
+      ]);
+      expect(element.textContent).not.toMatch(serverWords);
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${failure}`,
+      ]);
+    });
+
+    it('says a sentence once where two reads come to the same one: a column that names two records, neither of which could be read', async () => {
+      const rows = [{ id: 's-1', name: 'Kestrel', clientId: 'c-1' }];
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            multiColumnConfig({
+              id: 'clientId' as FieldName,
+              header: 'Client',
+              additionalIds: [
+                { resource: clients, id: 'id' as FieldName, field: 'name' as FieldName },
+                { resource: calls, id: 'id' as FieldName, field: 'summary' as FieldName },
+              ],
+              concatFn: 'hyphen-concat',
+              fallback: (row: Record<string, unknown>) => `Client ${String(row['clientId'])}`,
+            }),
+          ],
+        },
+        rows,
+        (request) =>
+          request.url.split('?')[0] === '/api/ships'
+            ? { status: 200, body: rows, headers: { 'total-count': String(rows.length) } }
+            : refused,
+      );
+      fixture.detectChanges();
+      await settle();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      fixture.detectChanges();
+      const element = fixture.nativeElement as HTMLElement;
+      // Both reads were made and both were refused: two reads, one sentence.
+      expect(
+        transport.requests.map((request) => request.url.split('?')[0]).filter((path) => path !== '/api/ships'),
+      ).toEqual(['/api/clients', '/api/distress-calls']);
+      expect(noticesOf(element)).toEqual(['You do not have permission to see the records named in the Client column.']);
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
+        `Ships: the records read for DistressCalls::id could not be loaded: ${refusal}`,
+      ]);
+    });
+
+    /** A column that names each ship's client by the client's name, or by the key the ship carries where the client is not read. */
+    const clientColumn = (): MultiColumnConfig =>
+      multiColumnConfig({
+        id: 'clientId' as FieldName,
+        header: 'Client',
+        additionalIds: [{ resource: clients, id: 'id' as FieldName, field: 'name' as FieldName }],
+        concatFn: 'hyphen-concat',
+        fallback: (row: Record<string, unknown>) => `Client ${String(row['clientId'])}`,
+      });
+
+    /** The reads of the clients the list has asked the server for, each as the ids it named. */
+    const clientReads = (): string[] =>
+      transport.requests
+        .filter((request) => request.url.split('?')[0] === '/api/clients')
+        .map((request) => /id:in:\(([^)]*)\)/.exec(decodeURIComponent(request.url))?.[1] ?? '');
+
+    // A read on its way keeps the application from being stable, so the page is turned by hand.
+    const turns = async (): Promise<void> => {
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        fixture.detectChanges();
+      }
+    };
+
+    it('keeps what it says above its rows where it is while another read is asked, and takes it away once a read answers', async () => {
+      // The read of the clients is asked again each time the list brings rows that name
+      // other clients: the first is refused at once, each later one is held until the spec
+      // answers it.
+      const answer: ((response: TransportResponse) => void)[] = [];
+      const kestrel = [{ id: 's-1', name: 'Kestrel', clientId: 'c-1' }];
+      const vega = [{ id: 's-2', name: 'Vega', clientId: 'c-2' }];
+      const heron = [{ id: 's-3', name: 'Heron', clientId: 'c-3' }];
+      let clientsAsked = 0;
+      await create(
+        { primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, clientColumn()] },
+        kestrel,
+        (request) => {
+          if (request.url.split('?')[0] === '/api/clients') {
+            clientsAsked++;
+            return clientsAsked === 1 ? refused : new Promise((resolve) => answer.push(resolve));
+          }
+          const url = decodeURIComponent(request.url);
+          const page = url.includes('sort=name:desc') ? vega : url.includes('sort=name:asc') ? heron : kestrel;
+          return { status: 200, body: page, headers: { 'total-count': '1' } };
+        },
+      );
+      const element = fixture.nativeElement as HTMLElement;
+      const sentence = 'You do not have permission to see the records named in the Client column.';
+      const read = (): string | undefined => fixture.componentInstance.resourceRefMap().get('Clients::id')?.status();
+      fixture.detectChanges();
+      await turns();
+      expect(noticesOf(element)).toEqual([sentence]);
+      const line = element.querySelector('.notice[role="status"]');
+
+      // Another order brings another row, so another client to read: the read is on its
+      // way again, and the line it left stands where it was, the same line. The row the
+      // list drew stays until the new one can be drawn with what its column shows.
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'desc' }]);
+      await turns();
+      expect(cellsOf(element)).toEqual([['Kestrel', 'Client c-1']]);
+      expect([clientsAsked, answer.length, read()]).toEqual([2, 1, 'loading']);
+      expect(noticesOf(element)).toEqual([sentence]);
+      expect(element.querySelector('.notice[role="status"]')).toBe(line);
+
+      // Refused too: still the one line, never taken away in between, and the new row is
+      // drawn with what the page gives for a row whose record is not read.
+      answer[0](refused);
+      await turns();
+      expect(read()).toBe('error');
+      expect(cellsOf(element)).toEqual([['Vega', 'Client c-2']]);
+      expect(noticesOf(element)).toEqual([sentence]);
+      expect(element.querySelector('.notice[role="status"]')).toBe(line);
+
+      // A third client is asked for, and that read answers: the line is there while it is asked, and gone once it has answered.
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'asc' }]);
+      await turns();
+      expect([clientsAsked, answer.length, read()]).toEqual([3, 2, 'loading']);
+      expect(noticesOf(element)).toEqual([sentence]);
+      answer[1]({ status: 200, body: [{ id: 'c-3', name: 'Corvid Lines' }], headers: { 'total-count': '1' } });
+      await turns();
+      expect(read()).toBe('resolved');
+      expect(noticesOf(element)).toEqual([]);
+      expect(cellsOf(element)).toEqual([['Heron', 'Corvid Lines']]);
+      // Each of the two refusals went to the console once: the line that stood through the second ask wrote nothing more.
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
+        `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
+      ]);
+
+      // The first row again: the server refused its client once, and it is not asked a
+      // second time. The list says again what it could not read, and writes nothing more.
+      fixture.componentInstance.onSortChange([]);
+      await turns();
+      expect(cellsOf(element)).toEqual([['Kestrel', 'Client c-1']]);
+      expect([clientsAsked, read()]).toEqual([3, 'error']);
+      expect(clientReads()).toEqual(['c-1', 'c-2', 'c-3']);
+      expect(noticesOf(element)).toEqual([sentence]);
+      expect(written(consoleError).length).toBe(2);
+    });
+
+    /** Two ships, each with its client, in the order the list is sorted by; the server answers for the clients as told. */
+    const twoShips = async (clientsAnswer: () => TransportResponse): Promise<HTMLElement> => {
+      const fleet = [
+        { id: 's-1', name: 'Kestrel', clientId: 'c-1' },
+        { id: 's-2', name: 'Vega', clientId: 'c-2' },
+      ];
+      await create(
+        { primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, clientColumn()] },
+        fleet,
+        (request) => {
+          if (request.url.split('?')[0] === '/api/clients') {
+            return clientsAnswer();
+          }
+          const rows = decodeURIComponent(request.url).includes('sort=name:desc') ? [...fleet].reverse() : fleet;
+          return { status: 200, body: rows, headers: { 'total-count': '2' } };
+        },
+      );
+      fixture.detectChanges();
+      await turns();
+      return fixture.nativeElement as HTMLElement;
+    };
+
+    it('asks a read the server refused once for the same records, however the list is then sorted, and writes it to the console once', async () => {
+      const element = await twoShips(() => refused);
+      const sentence = 'You do not have permission to see the records named in the Client column.';
+      expect(clientReads()).toEqual(['c-1,c-2']);
+      expect(noticesOf(element)).toEqual([sentence]);
+      const line = element.querySelector('.notice[role="status"]');
+
+      // Sorted the other way, the list reads its rows again and they name the same two
+      // clients, the other one first. The server has said it will not answer for them.
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'desc' }]);
+      await turns();
+      expect(cellsOf(element)).toEqual([
+        ['Vega', 'Client c-2'],
+        ['Kestrel', 'Client c-1'],
+      ]);
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'asc' }]);
+      await turns();
+      expect(cellsOf(element)).toEqual([
+        ['Kestrel', 'Client c-1'],
+        ['Vega', 'Client c-2'],
+      ]);
+
+      // The list was read three times and the clients once.
+      expect(transport.requests.filter((request) => request.url.split('?')[0] === '/api/ships').length).toBe(3);
+      expect(clientReads()).toEqual(['c-1,c-2']);
+      expect(fixture.componentInstance.resourceRefMap().get('Clients::id')?.status()).toBe('error');
+      expect(noticesOf(element)).toEqual([sentence]);
+      expect(element.querySelector('.notice[role="status"]')).toBe(line);
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
+      ]);
+    });
+
+    it('asks a read that failed again when the list is sorted, as the next answer may be another, and writes each failure', async () => {
+      const failure = 'spanner: code = "Unavailable", desc = "the session pool is closed"';
+      let asked = 0;
+      const element = await twoShips(() => {
+        asked++;
+        return asked === 1
+          ? { status: 500, body: { message: failure } }
+          : {
+              status: 200,
+              body: [
+                { id: 'c-1', name: 'Corvid Lines' },
+                { id: 'c-2', name: 'Halcyon Freight' },
+              ],
+              headers: { 'total-count': '2' },
+            };
+      });
+      expect(noticesOf(element)).toEqual(['The records named in the Client column could not be loaded.']);
+
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'desc' }]);
+      await turns();
+      expect(clientReads()).toEqual(['c-1,c-2', 'c-2,c-1']);
+      expect(noticesOf(element)).toEqual([]);
+      expect(cellsOf(element)).toEqual([
+        ['Vega', 'Halcyon Freight'],
+        ['Kestrel', 'Corvid Lines'],
+      ]);
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${failure}`,
+      ]);
+    });
+
+    it('says nothing above a list whose related read answered, and writes nothing to the console', async () => {
+      const element = await shipsUnder({
+        status: 200,
+        body: [{ id: 'c-1', name: 'Corvid Lines' }],
+        headers: { 'total-count': '1' },
+      });
+      expect(cellsOf(element)).toEqual([
+        ['Kestrel', 'Corvid Lines'],
+        ['Vega', 'Nobody'],
+      ]);
+      expect(noticesOf(element)).toEqual([]);
+      expect(written(consoleError)).toEqual([]);
+    });
+
     it('draws a row once the name its column shows is known: never the key first, on opening or when a row arrives', async () => {
       const rows = [
         { id: 's-1', name: 'Kestrel', clientId: 'c-1' },
@@ -452,26 +952,18 @@ describe('ResourceListComponent', () => {
           return { status: 200, body, headers: { 'total-count': String(body.length) } };
         },
       );
-      const turns = async (): Promise<void> => {
-        for (let i = 0; i < 20; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-          fixture.detectChanges();
-        }
-      };
       /** What the table has drawn under Client, a row at a time. */
       const drawn = (): string[] =>
         Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row')).map(
           (row) => row.querySelectorAll('td.data-col')[1]?.textContent?.trim() ?? '',
         );
-      const clientReads = (): number =>
-        transport.requests.filter((request) => request.url.split('?')[0] === '/api/clients').length;
 
       fixture.detectChanges();
       await settle();
       await turns();
       // The page's rows are in and their clients are asked for, not yet answered: no row
       // is drawn, and the table is told it is still loading.
-      expect(clientReads()).toBe(1);
+      expect(clientReads()).toHaveLength(1);
       expect(fixture.componentInstance.store.page().rows).toHaveLength(2);
       expect(drawn()).toEqual([]);
       expect(fixture.componentInstance.loadingRowData()).toBe(true);
@@ -485,13 +977,57 @@ describe('ResourceListComponent', () => {
       rows.push({ id: 's-3', name: 'Dishner', clientId: 'c-2' });
       fixture.componentInstance.reloadListData();
       await turns();
-      expect(clientReads()).toBe(2);
+      expect(clientReads()).toHaveLength(2);
       expect(fixture.componentInstance.store.page().rows).toHaveLength(3);
       expect(drawn()).toEqual(['Corvid Lines', 'Nobody']);
 
       release();
       await turns();
       expect(drawn()).toEqual(['Corvid Lines', 'Nobody', 'Dray and Sons']);
+    });
+
+    describe('says in its own words that the list itself could not be read', () => {
+      const cases: { name: string; answer: TransportResponse; want: string }[] = [
+        {
+          name: 'a list the person may not see',
+          answer: {
+            status: 403,
+            body: {
+              message: 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [Ships]',
+            },
+          },
+          want: 'You do not have permission to see this list.',
+        },
+        {
+          name: 'a list asked for in a way the server would not serve',
+          answer: { status: 400, body: { message: 'filter: unknown field "ownerId" in clause "ownerId:eq:9"' } },
+          want: 'This list could not be loaded the way it was asked for. Try changing its filters or how it is sorted.',
+        },
+        {
+          name: 'a list the server could not serve',
+          answer: {
+            status: 500,
+            body: { message: 'spanner: code = "Unavailable", desc = "the session pool is closed"' },
+          },
+          want: 'This list could not be loaded.',
+        },
+      ];
+
+      for (const tt of cases) {
+        it(tt.name, async () => {
+          await create({ primaryResource: ships, listColumns: [{ id: 'name' as FieldName }] }, [], () => tt.answer);
+          fixture.detectChanges();
+          await settle();
+          const element = fixture.nativeElement as HTMLElement;
+          expect(element.querySelector('tr.no-records-row .impulse-grid-across')?.textContent?.trim()).toBe(tt.want);
+          expect(element.textContent).not.toMatch(
+            /scope \(|user \(|3f2a9c1e|does not have|\[Ships\]|ownerId|spanner|session pool/,
+          );
+          expect(written(consoleError)).toEqual([
+            `Ships: the list could not be loaded: ${(tt.answer.body as { message: string }).message}`,
+          ]);
+        });
+      }
     });
   });
 
@@ -1036,9 +1572,10 @@ describe('ResourceListComponent', () => {
   describe('lists a resource across tenants', () => {
     // The page is outside every tenant and lists a resource declared for it
     // (@listAcrossTenants) in every tenant the person reaches: one request without the
-    // tenant's segment, each row naming its tenant. The table names the tenant in a first
-    // column and a row's View link opens the row itself inside its own tenant: the
-    // record's row route there, drawn where that tenant's digest lets the person read it.
+    // tenant's segment, each row naming its tenant. The table names the tenant in its
+    // second column, after the column that names the row, and a row's View link opens the
+    // row itself inside its own tenant: the record's row route there, drawn where that
+    // tenant's digest lets the person read it.
     const missions = 'Missions' as Resource;
     const refits = 'Refits' as Resource;
     // Patrols are listed across tenants too, and the application mounts them no row route.
@@ -1119,6 +1656,8 @@ describe('ResourceListComponent', () => {
     let digestRefused: string | undefined;
     /** The tenant whose digest the server answers only once the spec lets it, when a spec names one. */
     let digestHeld: { domain: string; until: Promise<void> } | undefined;
+    /** What the server waits for before it answers a tenant's digest, when a spec holds the digests. */
+    let digestsHeld: Promise<void> | undefined;
 
     const server = (request: TransportRequest): TransportResponse | Promise<TransportResponse> => {
       const url = new URL(request.url, 'http://missions.test');
@@ -1186,8 +1725,14 @@ describe('ResourceListComponent', () => {
       digestFails = undefined;
       digestRefused = undefined;
       digestHeld = undefined;
+      digestsHeld = undefined;
       domain = signal<Domain | undefined>(undefined);
-      transport = scriptedTransport(server);
+      transport = scriptedTransport(async (request: TransportRequest): Promise<TransportResponse> => {
+        if (digestsHeld && request.url.includes('permission-digest')) {
+          await digestsHeld;
+        }
+        return server(request);
+      });
       await TestBed.configureTestingModule({
         imports: [ResourceListComponent],
         providers: [
@@ -1248,15 +1793,17 @@ describe('ResourceListComponent', () => {
       ]);
 
       const cols = fixture.componentInstance.columns();
-      expect(cols.map((col) => col.id)).toEqual(['zzTenant', 'title', 'fee', 'view']);
-      expect(cols[0].header).toBe('Sector');
+      // The column that names the row is first, the one the grid holds while the rest
+      // scroll; the tenant is second, in the application's own word for a tenant.
+      expect(cols.map((col) => col.id)).toEqual(['title', 'zzTenant', 'fee', 'view']);
+      expect(cols[1].header).toBe('Sector');
 
       const cells = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')).map((row) =>
         Array.from(row.querySelectorAll('td.data-col:not(.action-col)')).map((cell) => cell.textContent?.trim()),
       );
       expect(cells).toEqual([
-        ['Anvil', 'Hauler', '8000'],
-        ['Bastion', 'Beacon', ''],
+        ['Hauler', 'Anvil', '8000'],
+        ['Beacon', 'Bastion', ''],
       ]);
 
       // Anvil's row links to the mission itself inside Anvil, where the person may read
@@ -1351,6 +1898,36 @@ describe('ResourceListComponent', () => {
       expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
     });
 
+    it('draws a row and its link together: the page waits for the digests its links are drawn from', async () => {
+      await page(missions);
+      let release = (): void => undefined;
+      digestsHeld = new Promise((resolve) => {
+        release = resolve;
+      });
+      fixture.detectChanges();
+      // The list is answered, and the digests of its rows' tenants are asked and held.
+      for (let i = 0; i < 50 && digestRequests().length < 2; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        fixture.detectChanges();
+      }
+      expect(listRequests().length).toBe(1);
+      expect(digestRequests().length).toBe(2);
+
+      // No row is drawn before what its link is drawn from is known: the list is loading.
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.querySelectorAll('tbody tr.impulse-row').length).toBe(0);
+      expect(fixture.componentInstance.loadingRowData()).toBe(true);
+
+      release();
+      await settle();
+      await settle();
+
+      // Each row is drawn once, the first with its link.
+      expect(element.querySelectorAll('tbody tr.impulse-row').length).toBe(2);
+      expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
+      expect(fixture.componentInstance.loadingRowData()).toBe(false);
+    });
+
     it('draws no link, and asks no digest, for a record the application mounts no row route', async () => {
       await page(patrols, { listColumns: [{ id: 'title' as FieldName }] });
       fixture.detectChanges();
@@ -1359,7 +1936,7 @@ describe('ResourceListComponent', () => {
 
       // The person may read a patrol in both tenants: with no row route to open one on,
       // the list still draws no View column and no link.
-      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['zzTenant', 'title']);
+      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['title', 'zzTenant']);
       expect(rowLinks()).toEqual([null, null]);
       expect(digestRequests()).toEqual([]);
     });
@@ -1383,18 +1960,45 @@ describe('ResourceListComponent', () => {
       fixture.detectChanges();
       await settle();
 
-      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['zzTenant', 'title', 'fee', 'view']);
+      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['title', 'zzTenant', 'fee', 'view']);
       expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
     });
 
-    it('sorts and filters as the page asks, and a click on the tenant column sorts nothing', async () => {
+    it('sorts as the page asks, and draws the heading of the tenant column as words: nothing to press, so no sort to lose', async () => {
       await page(missions, { sorts: [{ field: 'title' as FieldName, direction: 'desc' }], pageSize: 10 });
       fixture.detectChanges();
       await settle();
-      fixture.componentInstance.onSortChange([{ field: 'zzTenant', direction: 'asc' }]);
+      const element = fixture.nativeElement as HTMLElement;
+      const headings = (): string[] =>
+        Array.from(element.querySelectorAll('th.data-col'))
+          .filter((th) => th.querySelector('.col-header'))
+          .map(
+            (th) =>
+              `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.header-label') ? 'a button' : 'words'}`,
+          );
+
+      // The tenant is not a field of the resource, so the server sorts by none: its
+      // heading is words, as a column that opts out of sorting is drawn, and the grid
+      // keeps no room for a sort arrow beside words. A field of the resource is pressed.
+      expect(fixture.componentInstance.columns()[1]).toMatchObject({ id: 'zzTenant', sortable: false });
+      expect(headings()).toEqual(['Title: a button', 'Sector: words', 'Fee: a button']);
+
+      // A click on those words asks for nothing, and the order the page asked for stands.
+      (element.querySelector('th.data-col .header-words') as HTMLElement).click();
       fixture.detectChanges();
       await settle();
+      expect(fixture.componentInstance.store.sorts()).toEqual([{ field: 'title', direction: 'desc' }]);
+      expect(listRequests().map((request) => decodeURIComponent(request.url))).toEqual([
+        '/api/missions?sort=title:desc&limit=10&count=true',
+      ]);
 
+      // A press on a field's heading sorts by it, as on any list.
+      const title = Array.from(element.querySelectorAll<HTMLElement>('th.data-col button.header-label')).find(
+        (button) => button.textContent?.includes('Title'),
+      );
+      title?.click();
+      fixture.detectChanges();
+      await settle();
       expect(listRequests().map((request) => decodeURIComponent(request.url))).toEqual([
         '/api/missions?sort=title:desc&limit=10&count=true',
         '/api/missions?limit=10&count=true',

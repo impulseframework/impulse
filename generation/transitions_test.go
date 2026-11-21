@@ -51,7 +51,7 @@ func fixtureForm(t *testing.T, s *parser.Struct) rpcForm {
 
 // transitionFixtureViews are the fixture's views a method may name as its target,
 // well-formed or not.
-var transitionFixtureViews = []string{"TaskDigest", "FleetDigest", "KeylessDigest", "CompoundDigest", "CompoundFleetDigest"}
+var transitionFixtureViews = []string{"TaskDigest", "FleetDigest", "KeylessDigest", "CompoundDigest", "CompoundFleetDigest", "HeldSeatDigest"}
 
 // transitionFixtureClient is the state fixture client with the workflow root
 // (and the stateless Ship) resolved into c.resources, the shape the RPC
@@ -302,6 +302,23 @@ func TestResolveTransition(t *testing.T) {
 					Keys: []rpcTargetKey{
 						{TargetField: "ShipID", RootPKField: "ID", RootPKColumn: "Id"},
 						{TargetField: "Slot", RootPKField: "Slot", RootPKColumn: "Slot"},
+					},
+					ViewPackage: "virtualresources",
+				},
+			},
+			{
+				// A field of text the method does not declare required may be empty,
+				// and the row is named by the empty text; one it declares required,
+				// and a field of any other type, holds a value on every row.
+				name:    "whose key holds a field of text the method does not require says that part may be empty",
+				fixture: "PlainTargetHeldSeat",
+				want: &rpcTarget{
+					RootStruct:   "HeldSeatDigest",
+					RootResource: "HeldSeatDigests",
+					Keys: []rpcTargetKey{
+						{TargetField: "UserID", RootPKField: "UserID", RootPKColumn: "UserId"},
+						{TargetField: "Seat", RootPKField: "Seat", RootPKColumn: "Seat"},
+						{TargetField: "GroupID", RootPKField: "GroupID", RootPKColumn: "GroupId", MayBeEmpty: true},
 					},
 					ViewPackage: "virtualresources",
 				},

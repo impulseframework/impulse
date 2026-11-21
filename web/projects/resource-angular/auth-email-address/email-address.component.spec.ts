@@ -128,6 +128,13 @@ describe('EmailAddressComponent', () => {
       button: 'Add an address',
       prefill: 'pax@directory.example',
     },
+    {
+      name: "a persona's login name where an address would be, which is no address",
+      session: { email: 'admin', emailVerified: true },
+      want: 'No email address is on your account.',
+      button: 'Add an address',
+      prefill: '',
+    },
   ];
   for (const tt of states) {
     it(`shows ${tt.name}`, async () => {

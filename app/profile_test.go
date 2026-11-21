@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -233,7 +235,7 @@ type (
 	Squadron struct {
 		ID string ` + "`spanner:\"Id\"`" + `
 		// @domain(via: SectorID)
-		WingID string ` + "`spanner:\"WingId\"`" + `
+		WingID string ` + "`spanner:\"WingId,->\"`" + `
 	}
 
 	// Roster is a view over a sector's rows.
@@ -264,11 +266,52 @@ type (
 	}
 	want := []DomainResource{
 		{File: "pkg/resources/wings.go", Line: 8, Name: "Wing", Table: true, DomainColumn: "SectorId"},
-		{File: "pkg/resources/wings.go", Line: 18, Name: "Squadron", Table: true, DomainVia: "SectorID"},
+		{File: "pkg/resources/wings.go", Line: 18, Name: "Squadron", Table: true, DomainVia: "SectorID", ViaColumn: "WingId"},
 		{File: "pkg/resources/wings.go", Line: 28, Name: "Roster", DomainColumn: "SectorId"},
 		{File: "pkg/resources/wings.go", Line: 37, Name: "Launch"},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("domainResource() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestStructColumns reads the columns of a package's structs as a join path needs them:
+// each named field's column by its spanner tag, a field with no tag left out, every
+// struct of the package's own files, and neither a test file nor a file the Go tool
+// passes over.
+func TestStructColumns(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "pkg", "resources")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for name, src := range map[string]string{
+		"wings.go":      "package resources\n\ntype (\n\t// Wing carries its sector's key.\n\tWing struct {\n\t\tID       string `spanner:\"Id\"`\n\t\tSectorID string `spanner:\"SectorId\" index:\"true\"`\n\t\tnote     string\n\t}\n\tSquadron struct {\n\t\tID, Alias string `spanner:\"Id,omitempty\"`\n\t\tWingID    string `spanner:\"WingId\"`\n\t}\n)\n\n// Kind is no struct.\ntype Kind string\n",
+		"hangars.go":    "package resources\n\ntype Hangar struct {\n\tSectorID string `spanner:\"SectorId\"`\n}\n",
+		"wings_test.go": "package resources\n\ntype Fixture struct {\n\tID string `spanner:\"Id\"`\n}\n",
+		"_scratch.go":   "package resources\n\ntype Scratch struct {\n\tID string `spanner:\"Id\"`\n}\n",
+		"notes.txt":     "not Go\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &App{Root: root}
+	got, err := a.StructColumns("pkg/resources")
+	if err != nil {
+		t.Fatalf("StructColumns() error = %v", err)
+	}
+	want := map[string]map[string]string{
+		"Wing":     {"ID": "Id", "SectorID": "SectorId"},
+		"Squadron": {"ID": "Id", "Alias": "Id", "WingID": "WingId"},
+		"Hangar":   {"SectorID": "SectorId"},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("StructColumns() mismatch (-want +got):\n%s", diff)
+	}
+	if _, err := a.StructColumns("pkg/missing"); err == nil {
+		t.Error("StructColumns() of a directory that does not exist: no error")
 	}
 }

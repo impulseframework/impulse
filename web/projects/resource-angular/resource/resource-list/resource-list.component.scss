@@ -6,12 +6,27 @@
 }
 
 // The list's title and, at the far end of its line or under it, what the list offers.
+// The row is as wide as the list under it: the indent of its title is inside that width,
+// not added to it, so the row never reaches past the list's far edge.
 .header-container {
   @include headings.row;
   margin-top: 10px;
   top: 0;
   z-index: 10;
   width: 100%;
+  box-sizing: border-box;
+}
+
+// A heading whose words are not known yet (a title that carries the count of the list's
+// rows, before the list's first answer) is not drawn, and neither is what stands between it
+// and the rows, whose place the heading's height decides. Each keeps its room, as the rows'
+// frame does while it is held back, and all of the list is drawn at once.
+.page-container.heading-held {
+  > .header-container,
+  > .notice,
+  > .search-container {
+    visibility: hidden;
+  }
 }
 
 // The page's own title where the list is the page, a section's where the list is one of
@@ -107,13 +122,21 @@
   transform: scale(1.2);
 }
 
+// The title row of a list that is not folded into a panel covers what scrolls under it.
 .show-background {
-  background-color: var(--impulse-surface);
+  @include headings.covers;
   padding-bottom: 20px;
 }
 
 .indent {
   padding-left: 20px;
+}
+
+// A notice is a box with a border, so its indent moves the box in and leaves the room the
+// box keeps around its icon and its words as it is on every side.
+.notice.indent {
+  margin-left: 20px;
+  padding-left: 12px;
 }
 
 .search {

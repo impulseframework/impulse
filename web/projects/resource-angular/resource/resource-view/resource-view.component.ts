@@ -64,6 +64,15 @@ import { ResourceStore } from '../resource-store.service';
 import { patchFromForm } from '@impulseframework/resource-angular/resource-client';
 import { maxLengthValidator, metadataTypeCoercion, unchangedFieldWarning } from '../resources-helpers';
 
+/** What a row view says in place of its form where the record is not there: the server found no row for the key. */
+export const RECORD_NOT_HERE = 'This record is not here. It may have been removed, or it may no longer be yours to see.';
+
+/** What a row view says in place of its form where the person may not see the record: the server refused the read as not permitted. */
+export const RECORD_NOT_PERMITTED = 'You do not have permission to see this record.';
+
+/** What a row view says in place of its form where the read of the record failed. */
+export const RECORD_NOT_LOADED = 'This record could not be loaded.';
+
 /**
  * Whether a row view is drawn inside an expansion panel, under the panel's own title: a
  * view that folds away, or one that is not the row of a page. A view that is not drawn so
@@ -152,19 +161,23 @@ export class ResourceViewComponent implements OnInit {
 
   showCreateForm = model(false);
   /**
-   * What a view that could not load says in place of its form: the server's own
-   * message when the read was refused or failed. A refusal must never render as an
-   * empty record.
+   * What a view that could not load says in place of its form, in the page's own words:
+   * one sentence where the record is not there (the server's 404), another where the person
+   * may not see the record (the server refused the read as not permitted, its 403), another
+   * where the read failed. What the server said is never part of it: its message names ids,
+   * a permission and a resource, a database, or the search that found nothing, and whoever
+   * looks into it finds it in the browser's console, where the view writes it. A refusal
+   * must never render as an empty record.
    */
   viewErrorMessage = computed<string | undefined>(() => {
-    const error = this.store.viewError();
-    if (error instanceof ApiError && error.status === 403) {
-      return `This record is not available to you: ${error.message}`;
+    const error: unknown = this.store.viewError();
+    if (error === undefined || error === null) {
+      return undefined;
     }
-    if (error) {
-      return `This record could not be loaded: ${error instanceof Error ? error.message : String(error)}`;
+    if (error instanceof ApiError && error.status === 404) {
+      return RECORD_NOT_HERE;
     }
-    return undefined;
+    return error instanceof ApiError && error.status === 403 ? RECORD_NOT_PERMITTED : RECORD_NOT_LOADED;
   });
 
   createConfig = computed(() => {
@@ -268,7 +281,7 @@ export class ResourceViewComponent implements OnInit {
   /**
    * Runs a method against the page's row through its dialog. Once it has run the page
    * says so and reads the row and its child lists again; a row the method removed takes
-   * the page back to where it was opened from (see the constructor).
+   * the page away, as any read that finds the row gone does (see the constructor).
    */
   runMethod(method: OfferedMethod): void {
     openMethodDialog(this.dialog, method, this.store.viewData()).subscribe((result) => {
@@ -287,14 +300,48 @@ export class ResourceViewComponent implements OnInit {
   }
 
   /**
-   * The row is gone after a method ran: the page says the row left, and a row page goes
-   * back to where it was opened from, as it does after its own Delete.
+   * The row while it is on hand, as the page last read it: what the page has left of a
+   * row that is gone. Nothing until a row is read, and nothing again once a read finds no
+   * row: the row is gone, or another key or another tenant is read from the start.
+   */
+  private rowOnHand: RecordData | undefined;
+
+  /**
+   * The row the page has left for, as it was last read: what makes the page leave once
+   * for a row. After the row's own Delete nothing has read the row again, so it is still
+   * on hand when a live page's read finds it gone.
+   */
+  private rowLeft: RecordData | undefined;
+
+  /**
+   * The row that was on hand is gone: the page says the row left, and a row page leaves.
+   * The page of a row route goes to the list the row was of, whether it was opened from
+   * the list or from a link with no page before it, and takes its own place in the
+   * history, so Back never returns to a row that is not there. The list then says what
+   * the config has to say of a row that left it (`rowGone`). Any other row page says the
+   * same and goes back to where it was opened from. The page leaves once for a row,
+   * whether its own Delete removed it or a read found it gone, and however many reads
+   * find it gone: with no row on hand, or the row it has left for, this does nothing.
    */
   private leaveGoneRow(): void {
-    this.deleted.emit(true);
-    if (this.compoundResourceView() && this.navAfterDelete() !== false) {
-      this.location.back();
+    const row = this.rowOnHand;
+    if (row === undefined || row === this.rowLeft) {
+      return;
     }
+    this.rowLeft = row;
+    this.deleted.emit(true);
+    if (!this.compoundResourceView() || this.navAfterDelete() === false) {
+      return;
+    }
+    const said = this.config().rowGone?.(row);
+    if (said) {
+      this.notifications.addGlobalNotification({ message: said, type: AlertType.INFO, duration: 8000, link: '' });
+    }
+    if (this.activatedRoute.snapshot.paramMap.has('uuid')) {
+      void this.router.navigate(['..'], { relativeTo: this.activatedRoute, replaceUrl: true });
+      return;
+    }
+    this.location.back();
   }
 
   inlineRpcConfigs = computed(() => {
@@ -597,19 +644,21 @@ export class ResourceViewComponent implements OnInit {
     result.subscribe();
   }
 
+  /**
+   * The row's own Delete. Once the server has removed the row the page leaves as it does
+   * for any row that was on hand and is gone (leaveGoneRow): the page of a row route goes
+   * to its list, and the list says what the config has to say of the row. A live page
+   * reads the row again after the write, and that read may find the row gone before the
+   * write is answered here or after: the page leaves once either way. A row page told not
+   * to leave (`navAfterDelete` false) offers its create form in the row's place.
+   */
   deleteResource(): void {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(this.store.viewData()));
 
     void this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
-      this.deleted.emit(true);
-      if (!this.compoundResourceView()) {
-        return;
-      }
-      const navAfterDelete = this.navAfterDelete() !== false;
-      if (navAfterDelete) {
-        this.location.back();
-      } else {
+      this.leaveGoneRow();
+      if (this.compoundResourceView() && this.navAfterDelete() === false) {
         this.showCreateForm.set(true);
       }
     });
@@ -647,6 +696,19 @@ export class ResourceViewComponent implements OnInit {
   }
 
   constructor() {
+    // What the server said of a read it refused, or how the read failed, is for whoever
+    // looks into it: it is written to the console, once for each answer (the view's error
+    // is the one thing read here), with the resource it belongs to. The page says it in
+    // its own words (viewErrorMessage). The line's words are a constant, and the console
+    // puts the resource's name where they keep its place (%s): a name is never itself
+    // read as words to print.
+    effect(() => {
+      const error: unknown = this.store.viewError();
+      if (error !== undefined && error !== null) {
+        console.error('%s: the record could not be loaded:', untracked(this.config).primaryResource, error);
+      }
+    });
+
     effect(() => {
       console.debug('USAGE | New FormGroup subscription for: ', this.config().title);
 
@@ -680,27 +742,32 @@ export class ResourceViewComponent implements OnInit {
       }
     });
 
-    // After a method ran against the row or under it the row is read again. When that
-    // read answers that the row is no longer there (the method deleted it, or took away
-    // what made it a row of this list), the page leaves; any other answer stays.
-    let settled = this.store.rowChanges();
+    // The row is kept as it was last read while it is on hand. A row that was on hand and
+    // is read again, and answers that it is no longer there, takes the page away,
+    // whichever read finds it: the one that follows a method of the page or of one of its
+    // child lists, the one after a save, or the live session's, which reads the row again
+    // at once after a write this tab made (before a child list has said its method ran,
+    // and the row's children leave the page with the row) and after other people's
+    // changes. So the leave waits for no count of methods. A row that was never on hand
+    // (the page opened at its address, another key, another tenant) is read from the
+    // start: the page stays and says in its own words that the record is not here. Any
+    // other failure of a read stays too, and says what failed.
     effect(() => {
       const status = this.store.viewStatus();
-      const changes = this.store.rowChanges();
-      if (changes === settled) {
-        return;
-      }
-      if (status === 'resolved') {
-        settled = changes;
-        return;
-      }
-      if (status === 'error') {
-        settled = changes;
-        const error = untracked(() => this.store.viewError());
-        if (error instanceof ApiError && error.status === 404) {
-          untracked(() => this.leaveGoneRow());
+      const present = this.store.rowPresent();
+      untracked(() => {
+        if (present) {
+          this.rowOnHand = this.store.viewData();
+          return;
         }
-      }
+        if (status === 'error') {
+          const error = this.store.viewError();
+          if (error instanceof ApiError && error.status === 404) {
+            this.leaveGoneRow();
+          }
+        }
+        this.rowOnHand = undefined;
+      });
     });
   }
 

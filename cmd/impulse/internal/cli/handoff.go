@@ -226,7 +226,8 @@ func removeBrief(a *app.App) error {
 // handoffReport tells the user what was written and how to run the agent by hand.
 type handoffReport struct {
 	results []check.Result
-	// left counts the obligations the change listed itself, outside the checks.
+	// left counts the obligations the change listed itself, outside the checks: what it
+	// could not make and what it leaves that the check cannot see.
 	left  int
 	agent *handoff.Agent
 	// reference is the finished application the brief points at, or empty.

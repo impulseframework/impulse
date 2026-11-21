@@ -222,7 +222,7 @@ async function settle(done: () => boolean): Promise<void> {
 }
 
 async function pageOver(
-  config: ReturnType<typeof viewConfig> | undefined,
+  config: ChildResourceConfig | undefined,
   script: Script,
   api: ApiDescriptor = descriptor,
   methodMetas: Record<string, MethodMeta> = {},
@@ -641,6 +641,26 @@ describe('CompoundResourceComponent row page, its heading', () => {
     expect(container.classList.contains('empty-elements')).toBe(false);
     expect(viewHeading(fixture)?.textContent?.trim()).toBe('Hammer');
   });
+
+  it("keeps the room of a heading it draws itself, where the view of its row is folded into a panel, the same before and after the row is read: the row's name is added to the row that waits for it", async () => {
+    const script = scripted();
+    const fixture = await routed(listViewConfig({ ...named(about), collapsible: true }), script, lists);
+    await settle(() => rowReads(script).length === 1);
+
+    // The row has not answered. The page draws the heading of this page itself, and its
+    // row stands where it will stand and as tall as it will be, with no name in it yet.
+    expect(fixture.componentInstance.viewDrawsTitle()).toBe(false);
+    const box = ownHeader(fixture)?.querySelector('.title') as HTMLElement;
+    expect(box.classList.contains('title-without-back')).toBe(true);
+    expect(box.querySelector('h1')).toBeNull();
+
+    script.releaseRow();
+    await settle(() => rosterLists(script).length === 1 && wingLists(script).length === 1);
+
+    expect(ownHeader(fixture)?.querySelector('.title')).toBe(box);
+    expect(box.classList.contains('title-without-back')).toBe(true);
+    expect(box.querySelector('h1')?.textContent?.trim()).toBe('Hammer');
+  });
 });
 
 // The page's title and the buttons of the page's own row view are one row. The view draws
@@ -793,6 +813,90 @@ describe("CompoundResourceComponent: the page's title", () => {
     expect(declared(own, ['.title', 'h1'], ['.impulse-section'])).toContain('overflow-wrap: anywhere');
   });
 
+  it("draws its own title in the page's flow, in a row of its own that a title of two lines makes taller, so it is never laid over what follows", async () => {
+    const fixture = await present(viewConfig({ ...titled, collapsible: true }));
+    const own = ownTitle(fixture) as HTMLElement;
+    const box = own.parentElement as HTMLElement;
+    const row = box.parentElement as HTMLElement;
+
+    expect(row.classList.contains('header-container')).toBe(true);
+    // Not taken out of the page's flow: what follows starts where the row ends. The row
+    // says nothing of how it is positioned, which is the library's rule for every
+    // heading row, by the application's switch for sticky headers.
+    expect(declared(row, ['.header-container'])).not.toContain('position');
+    // At least the 48 pixels the title was laid over, and as tall as the title where that is more.
+    expect(box.classList.contains('title-without-back')).toBe(true);
+    const height = declared(box, ['.title-without-back']);
+    expect(height).toContain('min-height: 48px');
+    expect(height.replace('min-height: 48px', '')).not.toContain('height');
+    // The row is as tall as the title, with no margin of the heading's added.
+    expect(declared(own, ['.title', 'h1'], ['.impulse-section'])).toContain('margin: 0');
+    // The title takes its own room, so what follows leaves none for it.
+    const follows = element(fixture).querySelector(':scope > .page-container > .resource-container') as HTMLElement;
+    expect(follows.classList.contains('empty-elements')).toBe(false);
+  });
+
+  it('draws its own title as every heading row is drawn where the application turns sticky headers on: at the top of what scrolls, over what scrolls under it', async () => {
+    const fixture = await present(viewConfig({ ...titled, collapsible: true }));
+    const row = (ownTitle(fixture) as HTMLElement).parentElement?.parentElement as HTMLElement;
+
+    // The library's rule makes a heading row sticky by the application's switch; a sticky
+    // row with no `top` of its own stays nowhere, and scrolls away with the page. The row
+    // names the top, and a place over what scrolls under it, as the heading row of a
+    // view, a list and a create form does, and leaves how it is positioned to that rule.
+    const rule = declared(row, ['.header-container']);
+    const top = /(?:^|[\s;])top:\s*([^;]+)/.exec(rule)?.[1]?.trim() ?? 'none';
+    const over = /(?:^|[\s;])z-index:\s*([^;]+)/.exec(rule)?.[1]?.trim() ?? 'none';
+    expect([top, over]).toEqual(['0', '11']);
+    expect(rule).not.toContain('position');
+  });
+
+  /** The background a rule gives, as the stylesheet declares it; 'none' where it gives none. */
+  const background = (rule: string): string => {
+    return /(?:^|[\s;])background(?:-color)?:\s*([^;]+)/.exec(rule)?.[1]?.trim() ?? 'none';
+  };
+  /** The title row of the list under the row, and the background the list's stylesheet gives it. */
+  const listTitleRow = (fixture: ComponentFixture<unknown>): { row: HTMLElement; background: string } => {
+    const row = element(fixture).querySelector('impulse-resource-list .header-container') as HTMLElement;
+    expect(row.classList.contains('show-background')).toBe(true);
+    return { row, background: background(declared(row, ['.show-background'])) };
+  };
+
+  it('draws its own title row on the surface the title row of a list is drawn on, so what scrolls under a row that stays at the top does not show through it', async () => {
+    const fixture = await present(viewConfig({ ...titled, collapsible: true }));
+    const row = (ownTitle(fixture) as HTMLElement).parentElement?.parentElement as HTMLElement;
+    const list = listTitleRow(fixture);
+
+    // The list's title row covers the rows that scroll under it. The page's own does the same, on the same surface.
+    expect(list.background).toBe('var(--impulse-surface)');
+    expect(background(declared(row, ['.header-container']))).toBe(list.background);
+    // The row of the view folded into a panel sits on the panel, and is left as the panel draws it.
+    const inPanel = element(fixture).querySelector('impulse-resource-view mat-expansion-panel .header-container');
+    expect(inPanel).not.toBeNull();
+    expect(inPanel?.classList.contains('show-background')).toBe(false);
+    expect(background(declared(inPanel as Element, ['.header-container'], ['>']))).toBe('none');
+  });
+
+  it("draws the heading row of its row's view on that surface too, where the view is drawn on the page itself", async () => {
+    const fixture = await present(titled);
+    const row = headingRow(fixture);
+    const list = listTitleRow(fixture);
+
+    expect(row.classList.contains('show-background')).toBe(true);
+    expect(background(declared(row, ['.show-background']))).toBe(list.background);
+    // Nothing the row is given takes the surface away again.
+    expect(background(declared(row, ['.header-container'], ['>']))).toBe('none');
+  });
+
+  it('keeps the room above what it holds on a page with no title and no form of its own', async () => {
+    const fixture = await present(viewConfig({ ...titled, title: '', collapsible: true }));
+
+    expect(ownTitle(fixture)).toBeNull();
+    const holds = element(fixture).querySelector(':scope > .page-container > .resource-container') as HTMLElement;
+    expect(holds.classList.contains('empty-elements')).toBe(true);
+    expect(declared(holds, ['.empty-elements'])).toContain('padding-top: 30px');
+  });
+
   it("draws the title of a section that folds away as a section's, in a header that grows with a title of two lines", async () => {
     const script = scripted();
     const fixture = await pageOver(squadronPage, script);
@@ -823,12 +927,67 @@ describe("CompoundResourceComponent: the page's title", () => {
     expect(open).toContain('min-height: var(--mat-expansion-header-expanded-state-height, 64px)');
   });
 
-  it('draws the title itself on a page with no view of its row', async () => {
+  it('draws the title itself on a page that holds nothing, no field and no part under its row: no view of the row is drawn', async () => {
     const script = scripted();
     const fixture = await pageOver(viewConfig({ ...titled, relatedConfigs: [] }), script);
     await settle(() => rowReads(script).length === 1);
 
     expect(element(fixture).querySelector('impulse-resource-view')).toBeNull();
     expect(ownTitle(fixture)?.textContent).toBe('Squadron');
+  });
+
+  describe('leaves its title to the view of its row, which is drawn though the page has no field to show', () => {
+    const probe = componentConfig({ primaryResource: 'Squadrons' as Resource, component: ProbeComponent });
+    const cases = [
+      { name: 'on a page of lists alone', config: titled },
+      {
+        name: "on a page whose first part is a component of the application's",
+        config: viewConfig({ ...titled, relatedConfigs: [probe, roster] }),
+      },
+    ];
+
+    for (const tt of cases) {
+      it(tt.name, async () => {
+        const fixture = await present(tt.config);
+
+        expect(ownTitle(fixture)).toBeNull();
+        expect(headingRow(fixture).querySelector('h1.page-title')?.textContent).toBe('Squadron');
+      });
+    }
+  });
+
+  it("draws the title itself on a page whose configuration is not a row view's: an array's, which draws no view, though the page names a part under it", async () => {
+    const others = arrayConfig({
+      title: 'Other squadrons',
+      primaryResource: 'Squadrons' as Resource,
+      listFilter: (row: { id: string }): string => `id:ne:${row.id}`,
+      iteratedConfig: viewConfig({ primaryResource: 'Squadrons' as Resource, elements: [], showBackButton: false }),
+    });
+    const fixture = await pageOver(
+      undefined,
+      scripted(),
+      descriptor,
+      {},
+      rootConfig({
+        parentConfig: others,
+        relatedConfigs: [roster],
+        routeData: { route: 'squadrons', hasViewRoute: true },
+      }),
+    );
+    TestBed.tick();
+
+    // The page holds something, so it is not for want of anything to hold that no view draws the title.
+    expect(element(fixture).querySelector(':scope > .page-container > .resource-container')).not.toBeNull();
+    expect(element(fixture).querySelector('impulse-resource-view')).toBeNull();
+    expect(ownTitle(fixture)?.textContent).toBe('Other squadrons');
+  });
+
+  it("draws no title on a page that has none: a component of the application's", async () => {
+    const probe = componentConfig({ primaryResource: 'Squadrons' as Resource, component: ProbeComponent });
+    const fixture = await pageOver(probe, scripted());
+    TestBed.tick();
+
+    expect(element(fixture).querySelectorAll('h1').length).toBe(0);
+    expect(element(fixture).querySelector(':scope > .page-container > .header-container')).not.toBeNull();
   });
 });

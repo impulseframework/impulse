@@ -108,6 +108,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -184,6 +192,15 @@ export interface FieldMeta {
    * a filter naming the field is refused.
    */
   filterable?: FilterEligibility;
+  /**
+   * Set when the server refuses a sort by this field: its values have no order the query
+   * decoder knows (a list, a map, a nested object), and a request that sorts by it is
+   * answered 400. A table draws such a column's heading as words, with nothing to press,
+   * so it offers no sort the server would refuse. Absent on every field the server
+   * orders: text, numbers, yes or no, moments, dates, decimals and UUIDs. Emitted by the
+   * generator from the field's declared type.
+   */
+  sortable?: false;
   /**
    * The text matches the server answers on this field, derived from the schema: a stored
    * LOWER(col) column leading an index answers `startswith`; a token column under the

@@ -24,7 +24,9 @@ type Change struct {
 	// Did lists the edits made, one per line.
 	Did []string
 	// Skipped lists the deterministic edits that could not be made, with the reason, so
-	// the agent knows to make them.
+	// the agent knows to make them. The check may pass with every one of them undone
+	// (a README that still describes the base, a grant the command did not write), so a
+	// change with any is handed to the agent even when the check is clean.
 	Skipped []string
 	// Warnings are the schema warnings the regeneration printed (its "Warning: " lines),
 	// so they reach the command's output and the brief instead of ending in a swallowed
@@ -37,6 +39,14 @@ type Change struct {
 	// them. A change with any is handed to the agent even when the check is clean.
 	Left     []string
 	LeftNote string
+}
+
+// Obligations counts what the change itself lists for the agent, outside the checks:
+// the edits it could not make (Skipped) and what it leaves that the check cannot see
+// (Left). A change with any is handed to the agent even when the check is clean: the
+// brief is where the agent reads them.
+func (c *Change) Obligations() int {
+	return len(c.Skipped) + len(c.Left)
 }
 
 func (c *Change) didf(format string, args ...any) {

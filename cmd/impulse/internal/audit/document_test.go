@@ -100,7 +100,9 @@ func written(t *testing.T, files map[string]string) *app.App {
 // one tenant (5 and 6) or can be in several (7 and 8); the tenants have no directories
 // (5 and 7: a skeleton without its directories record) or can have them (6 and 8); and
 // the staff auth has a Google method whose roles the application gives beside its
-// password (5, 6 and 8) or a password alone (7), as each section's example leaves it.
+// password (5 and 8), a password alone (7), or no password and the two methods the
+// shape starts with, Google and Microsoft each open to any organization (6), as each
+// section's example leaves it.
 // Each is written here or rendered from a skeleton, not made by the commands the
 // document shows: what the commands write for those choices is the command package's to
 // test.
@@ -154,9 +156,13 @@ func documented() map[string]func(t *testing.T) *app.App {
 
 			return written(t, map[string]string{"pkg/auth/members/members.go": authFile("members", synced)})
 		},
-		"open-sign-up":                     staff(anyAccount+password, googleSlot),
-		"tenant-owned-users-invite-only":   candidate("tenanted", without("pkg/resources/tenant_directories.go", oneTenant)),
-		"tenant-owned-users-by-directory":  candidate("tenanted", oneTenant),
+		"open-sign-up":                   staff(anyAccount+password, googleSlot),
+		"tenant-owned-users-invite-only": candidate("tenanted", without("pkg/resources/tenant_directories.go", oneTenant)),
+		"tenant-owned-users-by-directory": func(t *testing.T) *app.App {
+			t.Helper()
+
+			return rendered(t, "tenanted", byDirectory(t, oneTenant["pkg/auth/staff/staff.go"]))
+		},
 		"global-users-invite-only":         candidate("sites", without("apps/console/pkg/resources/tenant_directories.go", nil)),
 		"global-users-each-tenant-chooses": candidate("tenanted", nil),
 	}

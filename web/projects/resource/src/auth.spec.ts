@@ -293,6 +293,12 @@ describe('the methods list', () => {
       server({ methods: { methods: [google], pending: { status: '/console/api/user/pending' } } }),
     );
     expect(await auth.methods()).toEqual({ methods: [google] });
+    const noCancel = authOver(
+      server({
+        methods: { methods: [google], pending: { status: pendingRoutes.status, confirm: pendingRoutes.confirm } },
+      }),
+    ).auth;
+    expect(await noCancel.methods()).toEqual({ methods: [google] });
     const empty = authOver(server({ methods: null })).auth;
     expect(await empty.methods()).toEqual({ methods: [] });
   });
@@ -568,6 +574,27 @@ describe('the pending sign-in', () => {
     await expect(auth.pending()).rejects.toThrow('names no pending sign-in routes');
     await expect(auth.confirmPending('lodestar')).rejects.toThrow('names no pending sign-in routes');
     await expect(auth.cancelPending()).rejects.toThrow('names no pending sign-in routes');
+  });
+
+  it('keeps the pending routes of a server with no password sign-in, which names no confirmation route, and posts no confirmation there', async () => {
+    const withoutConfirm = { status: pendingRoutes.status, cancel: pendingRoutes.cancel };
+    const held = { ...waiting, reason: 'mfa' };
+    const { auth, transport } = authOver(
+      server({ methods: { methods: [google], pending: withoutConfirm }, status: { status: 200, body: held } }),
+    );
+    expect(await auth.methods()).toEqual({ methods: [google], pending: withoutConfirm });
+    expect(await auth.pending()).toEqual({ outcome: 'waiting', ...held });
+    await expect(auth.confirmPending('lodestar')).rejects.toThrow(
+      'names no route that confirms a sign-in with a password',
+    );
+    await auth.cancelPending();
+    expect(sent(transport)).toEqual([
+      'GET /console/api/user/methods',
+      'GET /console/api/user/pending',
+      'GET /console/api/user/methods',
+      'GET /console/api/user/methods',
+      'POST /console/api/user/pending/cancel',
+    ]);
   });
 
   it('is confirmed with the password after the list is read again, and resolves the session', async () => {

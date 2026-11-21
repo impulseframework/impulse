@@ -90,8 +90,16 @@ export class ResourceArrayViewComponent implements OnInit {
   /** Whether the children have arrived. */
   resolved = computed(() => (this.paged() ? this.store.pageStatus() === 'resolved' : this.store.listStatus() === 'resolved'));
 
-  /** What an empty view says: the server's refusal in its own words, else the plain text. */
-  emptyMessage = computed(() => listEmptyMessage(this.paged() ? this.store.pageError() : this.store.listError(), false));
+  /** What the read of the children ended in when the server refused it or it failed, else undefined. */
+  private unreadError = computed<unknown>(() => (this.paged() ? this.store.pageError() : this.store.listError()));
+
+  /**
+   * What an empty view says: in the page's own words, that the person may not see the
+   * children or that they could not be loaded, when the server refused the read or it
+   * failed; else the plain text. What the server said is written to the console, never to
+   * the screen.
+   */
+  emptyMessage = computed(() => listEmptyMessage(this.unreadError(), false));
 
   /** The pager's label under a paged view: this page's range of the total. */
   pagerLabel = computed(() => {
@@ -171,6 +179,18 @@ export class ResourceArrayViewComponent implements OnInit {
   }
 
   constructor() {
+    // What the server said of children it refused, or how the read failed, is for whoever
+    // looks into it: it is written to the console, once, with the resource it belongs to.
+    // The line's words are a constant, and the console puts the resource's name where they
+    // keep its place (%s): a name is never itself read as words to print.
+    effect(() => {
+      const error = this.unreadError();
+      if (error) {
+        const resource = untracked(() => this.resourceConfig().primaryResource);
+        console.error('%s: the list could not be loaded:', resource, error);
+      }
+    });
+
     // A method that ran against the page's row, or from one of its lists, may have
     // changed these children: they are read again. The first run only notes the count
     // the view opened on.

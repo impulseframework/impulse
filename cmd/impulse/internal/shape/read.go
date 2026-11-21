@@ -345,12 +345,17 @@ func oneTenantCall(f *ast.File) *ast.CallExpr {
 // roles, and any other starts as Invite only and becomes Directory members or Open
 // sign-up by the method an administrator opens. With tenants the shape is told by
 // whether a person belongs to one tenant and whether a tenant's people come through its
-// own directory.
+// own directory. Two shapes have no password sign-in, Directory roles and Tenant-owned
+// users, by directory: an auth that would be either and registers the password method
+// is outside the shape, and the reading says so of the method. The persona method is the
+// test environments' and part of no shape, which the reading says beside the shape it
+// names.
 func (r *Reading) judge(auth *Auth, methods []app.Method) {
 	none := func(format string, args ...any) {
 		auth.Shape, auth.Says = nil, fmt.Sprintf(format, args...)
 	}
 	synced := firstMethod(methods, syncsRoles)
+	password := firstMethod(methods, isPassword)
 	switch unread := firstMethod(methods, rolesUnreadOf); {
 	case len(methods) == 0:
 		none("no sign-in method is read on its Auth")
@@ -358,6 +363,8 @@ func (r *Reading) judge(auth *Auth, methods []app.Method) {
 		none("who gives the roles of its %s method is not read here, and the shape follows it", methods[unread].Name)
 	case synced >= 0 && r.Tenants != nil:
 		none("its %s method takes the roles from the directory, and no shape has both tenants and roles from a directory", methods[synced].Name)
+	case synced >= 0 && password >= 0:
+		none("its password method is outside %s, the shape its %s method makes: the directory gives every role, so a person who signed in with a password would hold none, and a method whose roles come from the directory stands alone in its auth (impulse check refuses it). %s", numbered(directoryRoles), methods[synced].Name, passwordOrDirectoryRoles(auth, &methods[synced]))
 	case synced >= 0 && len(methods) > 1:
 		none("its %s method takes the roles from the directory beside another method, and a method whose roles come from the directory stands alone in its auth (impulse check refuses it)", methods[synced].Name)
 	case synced >= 0:
@@ -367,6 +374,22 @@ func (r *Reading) judge(auth *Auth, methods []app.Method) {
 	default:
 		r.judgeTenants(auth, methods)
 	}
+	if persona := firstMethod(methods, isPersona); persona >= 0 && auth.Shape != nil {
+		auth.Says = strings.TrimSpace(auth.Says + " " + fmt.Sprintf(personaSays, methods[persona].Name))
+	}
+}
+
+// personaSays is what the reading says of an auth's persona method beside the shape it
+// names: where the method is registered, and that it is part of no shape.
+const personaSays = "The %s method is registered in the test environments alone, where the persona provider is configured, and is part of no shape."
+
+// isPassword reports the password method, and isPersona the persona method.
+func isPassword(m *app.Method) bool {
+	return m.Kind == app.MethodPassword
+}
+
+func isPersona(m *app.Method) bool {
+	return m.Kind == app.MethodPersona
 }
 
 // named sets the auth's shape by its number, and what is said beside it.
@@ -431,15 +454,82 @@ func (r *Reading) judgeTenants(auth *Auth, methods []app.Method) {
 	if auth.OneTenant != "" {
 		invited, directory = tenantOwnedInviteOnly, tenantOwnedByDirectory
 	}
+	byDirectory := auth.OneTenant != "" && firstMethod(methods, isPassword) >= 0
 	switch {
+	case r.Directories != nil && len(through) > 0 && byDirectory:
+		// Tenant-owned users, by directory, has no password sign-in: every tenant is
+		// its organization's directory, and a password could enter none of them.
+		auth.Shape, auth.Says = nil, fmt.Sprintf("its password method keeps it outside %s, the shape its tenants' choices and %s make: in that shape every person of a tenant signs in through the tenant's own directory, so a password could enter no tenant. No command removes a sign-in method; the password method is taken out by hand (%s)", numbered(directory), methodsNamed(through), passwordByHand(auth))
 	case r.Directories != nil && len(through) > 0:
-		auth.named(directory, fmt.Sprintf("A tenant's people can come through its organization's directory (%s). Whether a tenant takes a directory, and whether that directory's people get an account without an invitation, is each tenant's choice, made while the application runs on the tenant's Sign-in page.", methodsNamed(through)))
+		auth.named(directory, strings.TrimSpace(fmt.Sprintf("A tenant's people can come through its organization's directory (%s). Whether a tenant takes a directory, and whether that directory's people get an account without an invitation, is each tenant's choice, made while the application runs on the tenant's Sign-in page. %s", methodsNamed(through), notTypical(auth, methods))))
+	case r.Directories != nil && byDirectory:
+		auth.named(invited, fmt.Sprintf("The tenants can have directories, but no method of this auth goes through an organization's directory, so its people come by invitation alone. %s has no password sign-in, so a directory method beside the password method (impulse add method) leaves this auth outside the eight shapes until the password method is taken out by hand.", numbered(directory)))
 	case r.Directories != nil:
 		auth.named(invited, fmt.Sprintf("The tenants can have directories, but no method of this auth goes through an organization's directory, so its people come by invitation alone; a directory method whose roles the application gives (impulse add method) makes it %s.", numbered(directory)))
 	case len(through) > 0:
 		auth.named(invited, fmt.Sprintf("%s, and %s a way for an invited person to sign in and nothing more.", noDirectories, isOrAre(through)))
 	default:
 		auth.named(invited, noDirectories+".")
+	}
+}
+
+// passwordByHand names the hand step that takes the password method out of an auth:
+// its file, its registration and its declaration, then the regeneration.
+func passwordByHand(auth *Auth) string {
+	return passwordSteps(auth.Dir, auth.File)
+}
+
+// passwordOrDirectoryRoles names the two hand changes that bring an auth whose directory
+// gives the roles, and which registers the password method beside it, back to a shape:
+// taking the password method out, which makes it Directory roles again, or having the
+// application give the roles, which keeps the password. No command makes either.
+func passwordOrDirectoryRoles(auth *Auth, synced *app.Method) string {
+	return fmt.Sprintf("No command removes a sign-in method, so one of the two is changed by hand. To have the directory give the roles, take the password method out (%s). To keep the password, have the application give the roles instead: set the %s method's RoleSync to DisableRoleSync (%s:%d), take SyncsRoles() off that method in the auth's declaration on its outlets in the generator program, and run go generate ./...; impulse audit then names the shape, and impulse check says what an auth whose roles the application gives still needs", passwordByHand(auth), synced.Name, synced.File, synced.Line)
+}
+
+// passwordSteps is the hand step by the auth's package directory and the file of its
+// Auth.
+func passwordSteps(dir, file string) string {
+	return fmt.Sprintf("remove %s/password.go and the registerPassword call in %s, take generation.PasswordMethod() out of the auth's declaration on its outlets in the generator program, and run go generate ./...", dir, file)
+}
+
+// notTypical says, of an auth of Tenant-owned users, by directory, which of its methods
+// through an organization's directory are not as wide as the shape typically is: the
+// shape starts with a Google method open to any Google Workspace and a Microsoft method
+// open to any Microsoft Entra tenant, neither with personal accounts. Any other width
+// works and is refused by nothing; the reading names it. Empty where every method is
+// the typical width, and for any other shape.
+func notTypical(auth *Auth, methods []app.Method) string {
+	if auth.OneTenant == "" {
+		return ""
+	}
+	var said []string
+	for i := range methods {
+		m := &methods[i]
+		if !givesRolesItself(m) || typicalWidth(m) {
+			continue
+		}
+		// A width that is not read is not judged: nothing is known of it to say.
+		width := ReadWidth(m)
+		if !width.Read {
+			continue
+		}
+		said = append(said, fmt.Sprintf("The %s method admits %s, which works and is not the typical width of this shape (the accounts of any Google Workspace or of any Microsoft Entra tenant, with no personal accounts).", m.Name, width.Words))
+	}
+
+	return strings.Join(said, " ")
+}
+
+// typicalWidth reports a method as wide as Tenant-owned users, by directory, typically
+// is: a Google or Microsoft method open to any organization and to no personal account.
+func typicalWidth(m *app.Method) bool {
+	switch m.Kind {
+	case app.MethodAzure:
+		return m.Tenants == app.TenantsAny && !m.PersonalAccounts
+	case app.MethodGoogle:
+		return m.Workspaces == app.WorkspacesAny && !m.GoogleAccounts
+	default:
+		return false
 	}
 }
 

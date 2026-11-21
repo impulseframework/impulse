@@ -160,3 +160,48 @@ func TestGenerateFirst(t *testing.T) {
 		})
 	}
 }
+
+// TestChange_Obligations holds what a change hands to the agent though the check is
+// clean: every edit it could not make and every line it leaves that the check cannot
+// see. The edits it made and the generator's warnings are no obligation of the agent's.
+func TestChange_Obligations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		change Change
+		want   int
+	}{
+		{
+			name:   "a change that made every edit",
+			change: Change{Did: []string{"app/app.go: the App holds the store"}, Warnings: []string{"a column has no comment"}},
+		},
+		{
+			name:   "an edit the command could not make",
+			change: Change{Did: []string{"app/app.go: the App holds the store"}, Skipped: []string{"README.md describes the application as it was rendered"}},
+			want:   1,
+		},
+		{
+			name:   "a line the check cannot see",
+			change: Change{Left: []string{"web/console/src/app/app.ts:12: names the removed flag"}, LeftNote: "The uses are yours."},
+			want:   1,
+		},
+		{
+			name: "both",
+			change: Change{
+				Skipped: []string{"README.md describes the application as it was rendered", "pkg/config/data.go: LoginURL is set to /login"},
+				Left:    []string{"web/console/src/app/app.ts:12: names the removed flag"},
+			},
+			want: 3,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.change.Obligations(); got != tt.want {
+				t.Errorf("Obligations() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

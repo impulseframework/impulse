@@ -27,12 +27,12 @@ func TestRenderShapes_console(t *testing.T) {
 		want   string
 		absent bool
 	}{
-		{name: "a document's digest is bytes", file: filepath.Join(service, "zz_gen_resources.ts"), want: "{ fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false }"},
-		{name: "a document's provenance, a derived struct, is object", file: filepath.Join(service, "zz_gen_resources.ts"), want: "{ fieldName: 'provenance', displayType: 'object', required: false, isIndex: false }"},
-		{name: "a call's position, an imported type, is object", file: filepath.Join(service, "zz_gen_resources.ts"), want: "{ fieldName: 'position', displayType: 'object', required: false, isIndex: false }"},
+		{name: "a document's digest is bytes", file: filepath.Join(service, "zz_gen_resources.ts"), want: "{ fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false, sortable: false }"},
+		{name: "a document's provenance, a derived struct, is object", file: filepath.Join(service, "zz_gen_resources.ts"), want: "{ fieldName: 'provenance', displayType: 'object', required: false, isIndex: false, sortable: false }"},
+		{name: "a call's position, an imported type, is object", file: filepath.Join(service, "zz_gen_resources.ts"), want: "{ fieldName: 'position', displayType: 'object', required: false, isIndex: false, sortable: false }"},
 		{name: "a call's transcript is write-only", file: filepath.Join(service, "zz_gen_resources.ts"), want: "{ fieldName: 'transcript', displayType: 'string', required: false, isIndex: false, writeOnly: true }"},
-		{name: "a ship's cargo bays are a number array", file: filepath.Join(service, "zz_gen_resources.ts"), want: "{ fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false }"},
-		{name: "a squadron's callsigns are a string array with a per-element length", file: filepath.Join(service, "zz_gen_resources.ts"), want: "{ fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, maxLength: 16 }"},
+		{name: "a ship's cargo bays are a number array", file: filepath.Join(service, "zz_gen_resources.ts"), want: "{ fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false, sortable: false }"},
+		{name: "a squadron's callsigns are a string array with a per-element length", file: filepath.Join(service, "zz_gen_resources.ts"), want: "{ fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, sortable: false, maxLength: 16 }"},
 		{name: "the Ships page lists and shows the cargo bays", file: filepath.Join(app, "configs", "ships.config.ts"), want: "Ships.fieldName.cargoBays"},
 		{name: "the Squadrons page lists and shows the callsigns", file: filepath.Join(app, "configs", "squadrons.config.ts"), want: "Squadrons.fieldName.callsigns"},
 		{name: "the Documents page lists and shows the digest", file: filepath.Join(app, "configs", "missionDocuments.config.ts"), want: "MissionDocuments.fieldName.digest"},
