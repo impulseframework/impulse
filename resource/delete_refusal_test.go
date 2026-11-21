@@ -395,7 +395,6 @@ func Test_newRowsUnderStatement(t *testing.T) {
 		wantSQL   string
 		wantArgs  []any
 		wantSkip  bool
-		wantErr   bool
 	}{
 		{
 			name:      "one step",
@@ -455,11 +454,30 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			wantSkip:  true,
 		},
 		{
+			// A foreign key to columns that are not the other table's key: the record's
+			// row is read for the column, found by its key.
 			name:      "a way that ends on a column the record's key does not hold",
 			dbType:    SpannerDBType,
 			kind:      DeleteKind{Resource: "Missions", Paths: []DeletePath{{{Columns: []string{"SquadronCode"}, Table: "Squadrons", References: []string{"Code"}}}}},
 			recordKey: map[string]any{"Id": "s1"},
-			wantErr:   true,
+			wantSQL: "SELECT COUNT(*) FROM `Missions` AS t0 WHERE (EXISTS (SELECT 1 FROM `Squadrons` AS w0_r" +
+				" WHERE t0.`SquadronCode` = w0_r.`Code` AND w0_r.`Id` = @d1))",
+			wantArgs: []any{"s1"},
+		},
+		{
+			name:   "a way of two steps that ends on such a column",
+			dbType: SpannerDBType,
+			kind: DeleteKind{Resource: "Sorties", Paths: []DeletePath{
+				{
+					{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+					{Columns: []string{"TenantId", "SquadronCode"}, Table: "Squadrons", References: []string{"TenantId", "Code"}},
+				},
+			}},
+			recordKey: map[string]any{"TenantId": "anvil", "Id": "s1"},
+			wantSQL: "SELECT COUNT(*) FROM `Sorties` AS t0 WHERE (EXISTS (SELECT 1 FROM `Missions` AS w0_1, `Squadrons` AS w0_r" +
+				" WHERE w0_1.`Id` = t0.`MissionId` AND w0_1.`TenantId` = w0_r.`TenantId` AND w0_1.`SquadronCode` = w0_r.`Code`" +
+				" AND w0_r.`Id` = @d1 AND w0_r.`TenantId` = @d2))",
+			wantArgs: []any{"s1", "anvil"},
 		},
 	}
 
@@ -467,13 +485,7 @@ func Test_newRowsUnderStatement(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, ok, err := newRowsUnderStatement(tt.dbType, &tt.kind, tt.recordKey, tt.written)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("newRowsUnderStatement() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				return
-			}
+			got, ok := newRowsUnderStatement(tt.dbType, &tt.kind, tt.recordKey, tt.written)
 			if ok == tt.wantSkip {
 				t.Fatalf("newRowsUnderStatement() ok = %v, want %v", ok, !tt.wantSkip)
 			}
@@ -589,6 +601,18 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 			wantLists:   false,
 		},
 		{
+			name: "a delete that answered for the rows under its record when it was buffered is not counted over",
+			patch: func() bufferer {
+				p := NewPatchSet(NewMetadata[refusalSquadron]()).SetPatchType(DeletePatchType)
+				p.SetKey("ID", "s1")
+				p.underAnswered = true
+
+				return p
+			},
+			wantWritten: map[accesstypes.Resource][]map[string]any{"RefusalSquadrons": {{"Id": "s1"}}},
+			wantDeleted: map[accesstypes.Resource]int{"RefusalSquadrons": 1},
+		},
+		{
 			name: "an update's row is one the transaction wrote",
 			patch: func() bufferer {
 				p := NewPatchSet(NewMetadata[refusalSquadron]()).SetPatchType(UpdatePatchType)
@@ -643,6 +667,16 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantDeleted, txn.deleted); diff != "" {
 				t.Errorf("the deletes noted by table mismatch (-want +got):\n%s", diff)
+			}
+			for table, keys := range tt.wantWritten {
+				for _, key := range keys {
+					if !txn.wrote(table, key) {
+						t.Errorf("the transaction does not answer that it wrote the row %v of %s", key, table)
+					}
+				}
+			}
+			if txn.wrote("RefusalSquadrons", map[string]any{"Id": "another"}) {
+				t.Error("the transaction answers that it wrote a row it did not")
 			}
 			if !tt.wantCounted {
 				if len(txn.deletes) != 0 {

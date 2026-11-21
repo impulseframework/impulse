@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/httpio"
 )
 
 // ComputedQueryDecoder decodes an HTTP request for a computed resource and enforces
@@ -158,7 +157,7 @@ func (d *ComputedQueryDecoder[Resource, Request]) Decode(request *http.Request, 
 		return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return nil, httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), requiredPermission, denied)
+		return nil, NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), requiredPermission, denied), requiredPermission, denied...)
 	}
 	plan := &rowConditions{}
 	if decision := decisions[base]; decision.IsConditional() {
@@ -220,7 +219,7 @@ func (d *ComputedQueryDecoder[Resource, Request]) projectFields(ctx context.Cont
 	}
 	if explicit {
 		if denied := decisions.DeniedResources(); len(denied) > 0 {
-			return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), requiredPermission, denied)
+			return NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), requiredPermission, denied), requiredPermission, denied...)
 		}
 	} else {
 		for _, field := range candidates {

@@ -23,6 +23,7 @@ const (
 	requestEntityTooLarge msgType = http.StatusRequestEntityTooLarge
 	unsupportedMediaType  msgType = http.StatusUnsupportedMediaType
 	unprocessableEntity   msgType = http.StatusUnprocessableEntity
+	preconditionRequired  msgType = http.StatusPreconditionRequired
 	tooManyRequests       msgType = http.StatusTooManyRequests
 	clientClosedRequest   msgType = 499
 	internalServerError   msgType = http.StatusInternalServerError
@@ -484,6 +485,17 @@ func NewUnsupportedMediaTypeMessage(message string) errors.Chain {
 func NewUnprocessableEntityMessage(message string) errors.Chain {
 	return wrap(&ClientMessage{
 		msgType:       unprocessableEntity,
+		clientMessage: message,
+	})
+}
+
+// NewPreconditionRequiredMessage creates a new client message with a PreconditionRequired (428) return code:
+// the request is one the server takes only once the client has said something more, and the
+// message is what the client is asked. A delete that would take the records under the one it
+// names is answered with it until the request says so.
+func NewPreconditionRequiredMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       preconditionRequired,
 		clientMessage: message,
 	})
 }
@@ -1117,6 +1129,16 @@ func HasUnprocessableEntity(err error) bool {
 	cerr := &ClientMessage{}
 	if errors.As(err, &cerr) {
 		return cerr.msgType == unprocessableEntity
+	}
+
+	return false
+}
+
+// HasPreconditionRequired checks if the error contains a PreconditionRequired (428) message
+func HasPreconditionRequired(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == preconditionRequired
 	}
 
 	return false
