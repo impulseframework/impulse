@@ -221,8 +221,11 @@ DML what a later rule must read.
     verified, when the method vouches for the address (Google alone does, and only for
     a Gmail address or a Workspace account's; see "Users and their email address"),
     since a person is one user whichever way they sign in. The link is made after a
-    password confirmation when the user has a password, and outright when the user has
-    none and has never signed in: it is the user's first identity. A user with no password who
+    password confirmation when the user has a password. When the user has none and has
+    never signed in, it is the user's first identity, and is made when something vouches
+    for it: at once where the method vouches for the sign-in name, and otherwise once
+    the person enters the code mailed to the address the account holds (see "A first
+    link on a name alone" below). A user with no password who
     already signs in through an identity is linked no second one on the name, on the
     same connection or another (see "Never a second identity on a name alone" below).
     An address a user holds unverified is a reservation, not a match.
@@ -298,8 +301,23 @@ DML what a later rule must read.
   directory could vouch for it and is linked only with its own invitation. An
   application whose
   tenants have no directories (no `SetDirectoryAdmission`) has only the directories its
-  deployment registered for itself, and links such an account under its name as
-  before. A
+  deployment registered for itself, and no tenant to vouch for a link. There the link
+  is made at once only where the method vouches for the sign-in name: Google names an
+  account by its address, and answers for a Gmail address and for a Workspace
+  account's. Any other name is the provider's word alone (a Google account can be made
+  under any address from outside Google, an identity provider's administrators give
+  the names they like, and Microsoft Entra ID answers for no address), so the sign-in
+  waits for the code mailed to the address the account holds, whether or not its
+  person has confirmed it (`PendingMFA`, the email code its one factor, and no other
+  address taken). Nothing is linked while it waits, so a sign-in that never finishes
+  leaves the account as it was; the person who enters the code is linked and signed
+  in, and the code confirms the address. An account that holds no address has nowhere
+  to mail the code, and an address given at the sign-in would show only that the
+  person reads their own mail: that sign-in is refused (`identity_rejected`,
+  `signin.ErrLinkNeedsAddress`) and nothing is linked, so an account made ahead of
+  its person is made with their address (`CreateUserRequest.Email`). The wait is the
+  mailed code's, so it needs mail: an Auth without `WithMail` mails no code and links
+  such an account under its name. A
   declaration naming a **default seat** admits a stranger, who is provisioned and
   seated with it in the tenant, through the hook, in the transaction
   that creates the account and links it. The hook is called once for a link, never
@@ -1504,7 +1522,7 @@ What is refused, and how:
 | --- | --- |
 | The account holds a password | 409: it is changed with the old one (`PasswordMethod.ChangeUserPassword`). The store writes a first password only while the row holds none, decided by the write itself (`AuthStore.SetFirstUserPassword`, `sessionstorage.ErrPasswordHeld` otherwise), so of two asked at once one lands. |
 | The `Auth` has no password method | 409: nobody signs in to the application with a password, so there is none to choose. |
-| The account has no confirmed address | 409 from `SendCode()`, saying to add an address and confirm it from the link first (`Email()`, "Users and their email address"). An address nobody confirmed is not mailed the code: the person has not shown it is theirs, and the code would go wherever whoever typed the address pointed it. A confirmed address no message can be sent to is answered the same way: the simulated build's directories vouch for a person under their login name, so a person signed in through one adds their address first. |
+| The account has no confirmed address | 409 from `SendCode()`, saying to add an address and confirm it from the link first (`Email()`, "Users and their email address"). An address nobody confirmed is not mailed the code: the person has not shown it is theirs, and the code would go wherever whoever typed the address pointed it. A confirmed address no message can be sent to is answered the same way: the simulated build's Google directory vouches for a person under their login name, so a person signed in through it adds their address first. |
 | The session views as someone else | 403, on both routes: an impersonated session changes nothing of the account it looks at, as on every own-account route. |
 | A wrong code | 400. The fifth within fifteen minutes ends the code and holds the account's first password for fifteen minutes, whatever codes are asked for meanwhile: 429 with `too_many_attempts`, the wait, and words that say wrong codes were what was held. A guess takes its attempt before it is judged, counted against the account in the store's one transaction, which says whether it was counted (`SignInAttempts.Counted`); a guess that was not, the limit reached already, is answered 429 without being compared with the code, so of guesses entered at once no more than five are ever judged, on both databases (the PostgreSQL driver takes the account's attempts row and its lock in one statement, so a failure recorded while the count is cleared is the first after the clear). The right code gives the attempts back. |
 | A code entered when none stands | 409: none was sent, or the one sent expired, was used, was replaced by a newer one or was ended by wrong codes. |
@@ -1629,7 +1647,7 @@ How an address gets onto a user:
   confirmation of a link sent before the identity was linked are each refused
   (Conflict); a directory person who holds no confirmed address may still confirm
   their first, and so may one whose directory vouched for a value no message can be
-  sent to, as the simulated build's directories do under a login name.
+  sent to, as the simulated build's Google directory does under a login name.
 - **Only Google vouches for an address, and every other sign-in leaves it to a
   code**: a sign-in through an external method that does not vouch for the address
   (Entra, WorkOS, an OpenID Connect provider whatever its `email_verified` says, a
@@ -2622,8 +2640,11 @@ enforced), so the standard account rule provisions and matches users
 under it. The claim confirms the address itself (`Identity.EmailVerified`) only where
 Google is the address's authority: a Gmail address, or a Workspace account's (a token
 with `hd`). A Google account made with an address from anywhere else signs in under
-that name all the same, and its first sign-in to an account with no confirmed address
-waits for the mailed code, as another provider's does. Google has no `end_session_endpoint` and issues no `sid` claim, so there is no
+that name all the same, and Google's word for the name counts no more than another
+provider's: its first sign-in to an account created ahead under that name waits for
+the code mailed to the address the account holds (see "A first link on a name alone"),
+and its first sign-in to any account with no confirmed address waits for the mailed
+code. Google has no `end_session_endpoint` and issues no `sid` claim, so there is no
 Google-initiated logout: `Logout` destroys the local session only. The `RoleSync` slot
 is `google.RoleSync(manager, groupPrefix, lookup)` or `google.DisableRoleSync()` (see
 "The group naming convention").
@@ -2813,7 +2834,7 @@ table is the wire contract:
 | `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
 | `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
-| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
+| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, a password-less user who has never signed in and holds no email address was matched by a sign-in name the method does not vouch for, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |

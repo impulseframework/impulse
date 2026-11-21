@@ -31,8 +31,10 @@ var personalDomains = []string{"gmail.com", "googlemail.com"}
 // owns the domain gave the person (the token carries hd), and an address of Google's
 // own mail (personalDomains). A Google account can also be made with an address from
 // anywhere else, and of that address Google says no more than any provider says of
-// one: its word confirms nothing, reaches no account by the address, and the person's
-// first sign-in to an account with no confirmed address waits for the mailed code.
+// one: its word confirms nothing and reaches no account. The account's sign-in name is
+// that address all the same, so a first sign-in under the name of an account created
+// ahead waits for the code mailed to the address that account holds, and a first
+// sign-in to any account with no confirmed address waits for the mailed code.
 func vouchesFor(emailVerified bool, email, hostedDomain string) bool {
 	if !emailVerified {
 		return false

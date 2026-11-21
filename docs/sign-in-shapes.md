@@ -1018,7 +1018,13 @@ A person an administrator created an account for is not such a person. Their sig
 under the account's sign-in name is joined to the account, through any of the auth's
 methods. An account that has a password asks for it first. An account that has none, and
 has never signed in, is joined to the first sign-in under its name, as in an application
-without tenants.
+without tenants. It is joined at once only where Google answers for the name: a Gmail
+address, or the address of a Google Workspace account. Through every other sign-in
+(Microsoft, another identity provider, or a Google account made with an address from
+somewhere else) the login page stops and asks for a code mailed to the address the
+account holds, and nothing is joined until the code is entered. An account that holds no
+address cannot be mailed a code, so that sign-in is refused: an administrator creates the
+account with the person's address.
 
 Where the auth has no password method, nothing asks for a password: an account that has
 one is joined as an account that has none.

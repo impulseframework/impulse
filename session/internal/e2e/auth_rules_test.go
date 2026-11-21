@@ -347,13 +347,31 @@ func (a *rulesApp[Tx]) providerSignIn(ctx context.Context, b *browser, claims ma
 	return b.oidcSignIn(ctx, a.provider, "/provider", claims)
 }
 
-// createUser creates a user without a password: pre-created for an external identity.
+// createUser creates a user without a password and without an address: pre-created
+// for an external identity whose method vouches for the sign-in name, or for a
+// directory of the user's one tenant. Through any other method the first sign-in is
+// linked on the code mailed to the address the account holds (createUserAt).
 func (a *authApp[Tx]) createUser(ctx context.Context, t *testing.T, username string) impulse.UUID {
 	t.Helper()
 
 	id, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: username})
 	if err != nil {
 		t.Fatalf("CreateSessionUser(%q) error = %v", username, err)
+	}
+
+	return id
+}
+
+// createUserAt creates a user without a password who holds email, unconfirmed, as an
+// administrator enters it: an account made ahead of its person's first sign-in through
+// a directory, which waits for the code mailed to that address before it is linked on
+// the sign-in name.
+func (a *authApp[Tx]) createUserAt(ctx context.Context, t *testing.T, username, email string) impulse.UUID {
+	t.Helper()
+
+	id, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: username, Email: &email})
+	if err != nil {
+		t.Fatalf("CreateSessionUser(%q, %q) error = %v", username, email, err)
 	}
 
 	return id
@@ -448,7 +466,7 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesMembersProvision[Tx],
 		},
 		{
-			name: "open to sign-up: a pre-created user with a password confirms with it before the link is made, matched without regard to case and keeping its spelling, and a pre-created user without a password or an identity is linked outright",
+			name: "open to sign-up: a pre-created user with a password confirms with it before the link is made, matched without regard to case and keeping its spelling, and a pre-created user without a password or an identity is linked once the code mailed to the address the account holds is entered",
 			run:  seamRulesMembersPreCreated[Tx],
 		},
 		{
@@ -456,7 +474,7 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesMembersNoRoles[Tx],
 		},
 		{
-			name: "invite only, a method with no row: a pre-created user is linked, one with a password confirms, and a stranger is refused with not_invited and a guest with guest_account, both without a row",
+			name: "invite only, a method with no row: a pre-created user is linked on the code mailed to the account's address, one with a password confirms, and a stranger is refused with not_invited and a guest with guest_account, both without a row",
 			run:  seamRulesInvitedUsersOnly[Tx],
 		},
 		{
@@ -472,7 +490,7 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesOpenSignUp[Tx],
 		},
 		{
-			name: "personal accounts beside one tenant, invite only: a pre-created person signs in with a Microsoft personal account under the consumer tenant, and a work account of an unlisted tenant is refused without a row",
+			name: "personal accounts beside one tenant, invite only: a pre-created person signs in with a Microsoft personal account under the consumer tenant, on the code mailed to the account's address, and a work account of an unlisted tenant is refused without a row",
 			run:  seamRulesPersonalAccounts[Tx],
 		},
 		{
@@ -527,6 +545,18 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			name: "Google vouches for an address only where it is the address's authority: a Gmail address and a Workspace account's are confirmed by the sign-in with nothing mailed, and the first sign-in of a Google account with an outside address and no hd waits for the mailed code",
 			run:  seamRulesGoogleVouchesForItsOwn[Tx],
 		},
+		{
+			name: "a first link on a sign-in name the method does not vouch for waits for the account's code: a Google account made with an outside address, under the name of an account that holds the address confirmed, starts no session and gains no link, the step takes no other address, and the person who reads the code at the account's address is linked and signed in",
+			run:  seamRulesNameLinkWaitsForCode[Tx],
+		},
+		{
+			name: "a first link that waits leaves nothing behind: the sign-in that never finishes writes no link, the account's own person signs in through their directory on the code mailed to them, and the earlier identity is refused",
+			run:  seamRulesNameLinkLeavesNothing[Tx],
+		},
+		{
+			name: "an account that holds no address is linked on no name: the sign-in is refused with identity_rejected, nothing waits, nothing is mailed and no address is taken",
+			run:  seamRulesNameLinkNeedsAddress[Tx],
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -534,6 +564,143 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 
 			tt.run(t.Context(), t, be)
 		})
+	}
+}
+
+// nameLinkShape is the shape of the scenarios about a first link made on a sign-in name
+// alone: the tenant and any Google account, a Workspace's or not, each invite only, and
+// no password method, so no password stands between a sign-in and the account under
+// its name.
+func nameLinkShape() *rulesShape {
+	return &rulesShape{
+		tenants: azure.Tenant(azureTenant), entraAccounts: inviteOnly,
+		workspaces: google.AnyGoogleAccount(), googleAccounts: inviteOnly,
+	}
+}
+
+// outsideGoogleClaims are the ID token claims of a Google account made with an address
+// outside Google: no hd, and an email_verified that says Google mailed the address
+// once, to whoever made the account.
+func outsideGoogleClaims(sub, email string) map[string]any {
+	return map[string]any{"sub": sub, "email": email, "email_verified": true}
+}
+
+// seamRulesNameLinkWaitsForCode is the scenario "a first link on a sign-in name the
+// method does not vouch for waits for the account's code".
+func seamRulesNameLinkWaitsForCode[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, nameLinkShape())
+	alice := a.createUser(ctx, t, "alice@corp.example")
+	a.confirmedAddress(ctx, t, alice, "alice@corp.example")
+
+	// Anyone can make a Google account under an address outside Google, and Google
+	// names the account by it. The name finds alice's account, which has no password
+	// and no identity, and nothing but the name ties the two: the sign-in waits for
+	// the code mailed to the address the account holds, with no session, no link, and
+	// nothing mailed until the code is asked for.
+	b := a.browser(t)
+	b.prime(ctx)
+	claims := outsideGoogleClaims("g-sub-other", "alice@corp.example")
+	assertRedirect(t, a.googleSignIn(ctx, b, claims), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if links := a.links(ctx, t, alice.String()); len(links) != 0 {
+		t.Fatalf("identity links while the sign-in waits = %d, want none: the link is written once the code is entered", len(links))
+	}
+	if sent := a.mail.Messages(); len(sent) != 0 {
+		t.Fatalf("mail before the code was asked for = %d messages, want none", len(sent))
+	}
+
+	// The step offers the account's address, masked, and takes no other; the
+	// application's own factor does not answer for the code.
+	if status := b.pendingStatus(ctx); status.EmailCode == nil || status.EmailCode.EnrollEmail || status.EmailCode.CodeEmail != "a•••@corp.example" {
+		t.Errorf("the step's email code = %+v, want the code offered at the account's address and no address asked for", status.EmailCode)
+	}
+	if status, body := b.do(ctx, http.MethodPost, "/pending/email", map[string]string{"email": "mallory@elsewhere.example"}); status == http.StatusOK {
+		t.Errorf("giving the step another address = %d %s, want it refused: the code goes to the address the account holds", status, body)
+	}
+	if status, body := b.do(ctx, http.MethodPost, "/mfa", nil); status == http.StatusNoContent || status == http.StatusAccepted {
+		t.Errorf("the application's own factor on a sign-in that waits for the account's code = %d %s, want it refused", status, body)
+	}
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+
+	// The person who reads the account's mail enters the code: the link is written,
+	// and the session is the account's.
+	a.answerAddressCode(ctx, b, "alice@corp.example")
+	if v := signedInAs(ctx, t, b, "alice@corp.example"); v.UserID != alice.String() {
+		t.Errorf("session user = %s, want the account under the name, %s", v.UserID, alice)
+	}
+	if links := a.links(ctx, t, alice.String()); len(links) != 1 || links[0].Subject != "g-sub-other" {
+		t.Errorf("identity links after the code = %d, want the one the code admitted", len(links))
+	}
+
+	// The identity is linked: the person's next sign-in is Google's alone.
+	next := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, next, claims), "/home", url.Values{})
+	signedInAs(ctx, t, next, "alice@corp.example")
+}
+
+// seamRulesNameLinkLeavesNothing is the scenario "a first link that waits leaves nothing
+// behind".
+func seamRulesNameLinkLeavesNothing[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, nameLinkShape())
+	alice := a.createUserAt(ctx, t, "alice@corp.example", "alice@corp.example")
+
+	// An administrator made alice's account ahead of her, with her address, which
+	// nobody has confirmed. Somebody else's Google account under that address waits for
+	// the code, which goes to her address and which they never read: the sign-in never
+	// finishes, and it leaves no link on her account.
+	b := a.browser(t)
+	b.prime(ctx)
+	other := outsideGoogleClaims("g-sub-other", "alice@corp.example")
+	assertRedirect(t, a.googleSignIn(ctx, b, other), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if links := a.links(ctx, t, alice.String()); len(links) != 0 {
+		t.Fatalf("identity links after a held sign-in that never finished = %d, want none", len(links))
+	}
+
+	// Alice's own first sign-in, through her organization's directory, waits for the
+	// code too, and she reads it: her identity is the account's one link, and the code
+	// confirmed her address.
+	own := a.browser(t)
+	own.prime(ctx)
+	assertRedirect(t, a.entraSignIn(ctx, own, azureClaims(azureTenant, "oid-alice", "alice@corp.example")), "/home", url.Values{})
+	if v := signedInAs(ctx, t, own, "alice@corp.example"); v.UserID != alice.String() {
+		t.Errorf("session user = %s, want alice's account %s", v.UserID, alice)
+	}
+	assertOneLink(t, a.links(ctx, t, alice.String()), azureTenant, azureTenant)
+	if email, verified := own.authenticatedEmail(ctx); email != "alice@corp.example" || !verified {
+		t.Errorf("alice's address = %q (confirmed %v), want alice@corp.example confirmed by the code", email, verified)
+	}
+
+	// The account signs in through her directory now: the other identity, of another
+	// connection, is refused, with her address confirmed as it was without.
+	again := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, again, other), "/login", url.Values{"code": {"identity_rejected"}})
+	again.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	assertOneLink(t, a.links(ctx, t, alice.String()), azureTenant, azureTenant)
+}
+
+// seamRulesNameLinkNeedsAddress is the scenario "an account that holds no address is
+// linked on no name".
+func seamRulesNameLinkNeedsAddress[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, nameLinkShape())
+	alice := a.createUser(ctx, t, "alice@corp.example")
+
+	// The account's name reads as an address, and the account holds none: there is
+	// nowhere to mail a code that would show the person reads the account's mail, and a
+	// code mailed to an address typed at the sign-in would show only that they read
+	// their own. The sign-in is refused, and nothing waits for an address.
+	b := a.browser(t)
+	b.prime(ctx)
+	assertRedirect(t, a.googleSignIn(ctx, b, outsideGoogleClaims("g-sub-other", "alice@corp.example")), "/login", url.Values{"code": {"identity_rejected"}})
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if status, body := b.do(ctx, http.MethodPost, "/pending/email", map[string]string{"email": "mallory@elsewhere.example"}); status == http.StatusOK {
+		t.Errorf("giving an address after the refusal = %d %s, want it refused: no sign-in waits", status, body)
+	}
+	if links := a.links(ctx, t, alice.String()); len(links) != 0 {
+		t.Errorf("identity links after the refusal = %d, want none", len(links))
+	}
+	if sent := a.mail.Messages(); len(sent) != 0 {
+		t.Errorf("mail after the refusal = %d messages, want none", len(sent))
 	}
 }
 
@@ -586,10 +753,11 @@ func seamRulesProviderConfirmsNothing[Tx any](ctx context.Context, t *testing.T,
 	shape := oneOrganization(inviteOnly)
 	shape.provider = true
 	a := newRulesApp(ctx, t, be, shape)
-	cadet := a.createUser(ctx, t, "cadet")
+	cadet := a.createUserAt(ctx, t, "cadet", "cadet@lakeside.edu")
 
-	// The token says the address is verified (email_verified), and the account holds
-	// no confirmed address: the sign-in waits for the code, and nothing was mailed.
+	// The token says the address is verified (email_verified), and nobody has confirmed
+	// the address the account was created with: the sign-in waits for the code mailed
+	// there, and nothing was mailed before the person asks.
 	b := a.browser(t)
 	b.prime(ctx)
 	claims := gatewayClaims("p-cadet", "cadet", "cadet@lakeside.edu")
@@ -706,7 +874,7 @@ func seamRulesMembersPreCreated[Tx any](ctx context.Context, t *testing.T, be ba
 	a := newRulesApp(ctx, t, be, shape)
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
 	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")
-	kim := a.createUser(ctx, t, "kim@lakeside.edu")
+	kim := a.createUserAt(ctx, t, "kim@lakeside.edu", "kim@lakeside.edu")
 
 	b := a.browser(t)
 	b.prime(ctx)
@@ -745,7 +913,7 @@ func seamRulesInvitedUsersOnly[Tx any](ctx context.Context, t *testing.T, be bac
 	shape := oneOrganization(inviteOnly)
 	shape.password = true
 	a := newRulesApp(ctx, t, be, shape)
-	kim := a.createUser(ctx, t, "kim@lakeside.edu")
+	kim := a.createUserAt(ctx, t, "kim@lakeside.edu", "kim@lakeside.edu")
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
 	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")
 
@@ -843,7 +1011,7 @@ func seamRulesOpenDefaultRole[Tx any](ctx context.Context, t *testing.T, be back
 	shape := oneOrganization(openSignUp)
 	shape.defaultRole = "Member"
 	a := newRulesApp(ctx, t, be, shape)
-	kim := a.createUser(ctx, t, "kim@lakeside.edu")
+	kim := a.createUserAt(ctx, t, "kim@lakeside.edu", "kim@lakeside.edu")
 
 	// A person with no account and no invitation: the account is made, and its first
 	// session already reads the default role, written in the transaction that made the
@@ -1001,7 +1169,7 @@ func seamRulesPersonalAccounts[Tx any](ctx context.Context, t *testing.T, be bac
 		tenants: azure.Tenants(azure.Tenant(azureTenant), azure.PersonalAccounts()), entraAccounts: inviteOnly,
 		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: inviteOnly,
 	})
-	pat := a.createUser(ctx, t, "pat@outlook.example")
+	pat := a.createUserAt(ctx, t, "pat@outlook.example", "pat@outlook.example")
 
 	b := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, b, azureClaims(azure.ConsumerTenantID, "oid-p", "pat@outlook.example")), "/home", url.Values{})
