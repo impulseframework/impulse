@@ -17,8 +17,9 @@ BEGIN;
 
 ALTER TABLE "SessionUsers" ADD COLUMN "Email" character varying;
 -- Under the "C" collation only the ASCII letters are letters, so lower() folds nothing
--- else.
-ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying GENERATED ALWAYS AS (lower("Email" COLLATE "C")) STORED;
+-- else. The column is declared under "C" as well, so that its unique index is: a lookup
+-- compares under "C", and PostgreSQL uses an index only under the index's own collation.
+ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying COLLATE "C" GENERATED ALWAYS AS (lower("Email" COLLATE "C")) STORED;
 ALTER TABLE "SessionUsers" ADD COLUMN "EmailVerifiedAt" timestamp with time zone;
 CREATE UNIQUE INDEX "SessionUsers_NormalizedEmail_idx" ON "SessionUsers" USING btree ("NormalizedEmail");
 

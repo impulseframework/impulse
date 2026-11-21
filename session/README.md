@@ -1772,7 +1772,7 @@ matching shape:
   ALTER TABLE SessionUsers ADD COLUMN NormalizedEmail STRING(MAX) AS (CAST(LOWER(CAST(Username AS BYTES)) AS STRING)) STORED;
   -- PostgreSQL
   ALTER TABLE "SessionUsers" ADD COLUMN "Email" character varying GENERATED ALWAYS AS ("Username") STORED;
-  ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying GENERATED ALWAYS AS (lower("Username" COLLATE "C")) STORED;
+  ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying COLLATE "C" GENERATED ALWAYS AS (lower("Username" COLLATE "C")) STORED;
   ```
 
   `EmailVerifiedAt`, the unique index on `NormalizedEmail` and the index by username,

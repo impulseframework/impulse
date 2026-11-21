@@ -24,7 +24,8 @@ import (
 // address with its ASCII capital letters lowercased and every other character as
 // written. It must equal util.LowerASCII, the rule the library compares two addresses
 // by. Under the "C" collation only the ASCII letters are letters, so lower() folds
-// nothing else.
+// nothing else. The column is declared under "C" too, so the comparison and the column's
+// unique index are under one collation and a lookup uses the index.
 func addressFold(operand string) string {
 	return fmt.Sprintf(`lower(%s COLLATE "C")`, operand)
 }
