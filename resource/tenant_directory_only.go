@@ -621,7 +621,7 @@ func holdsOneOf(ctx context.Context, caller *Caller, methods []accesstypes.Resou
 		}
 	}
 
-	return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", caller.Scope, caller.Permissions.User(), accesstypes.Execute, methods)
+	return methodRefused(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", caller.Scope, caller.Permissions.User(), accesstypes.Execute, methods))
 }
 
 // listsPeople reports whether the caller may list the people of one auth in tenant, as

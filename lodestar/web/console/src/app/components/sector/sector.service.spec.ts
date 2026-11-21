@@ -338,13 +338,13 @@ describe('SectorService sector readers', () => {
   });
 
   it("settled holds for a list the server refused, and saidBy gives the server's words and no status code", async () => {
-    missionsAnswer = { status: 403, body: { message: 'user cadet does not have List on Missions' } };
+    missionsAnswer = { status: 403, body: { message: 'You may not list missions here.' } };
     const sectors = await enterAnvil();
     const missions = TestBed.runInInjectionContext(() => sectors.sectorList((sector) => sector.missions));
     await settle(() => missions.status() === 'error');
 
     expect(sectors.settled(missions)).toBe(true);
-    expect(sectors.saidBy(missions)).toBe('user cadet does not have List on Missions');
+    expect(sectors.saidBy(missions)).toBe('You may not list missions here.');
   });
 });
 

@@ -35,66 +35,73 @@ interface Level {
   imports: [MatIconModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="top">
-      <button type="button" class="close" aria-label="Close the menu" (click)="closing.emit()">
+    <div class="impulse-menu-drawer-top">
+      <button type="button" class="impulse-menu-drawer-close" aria-label="Close the menu" (click)="closing.emit()">
         <mat-icon>close</mat-icon>
       </button>
-      <span class="name">{{ name() }}</span>
+      <span class="impulse-menu-drawer-name">{{ name() }}</span>
     </div>
 
-    <nav class="viewport" aria-label="Main menu">
-      <div class="track" [style.transform]="'translateX(' + depth() * -100 + '%)'" (transitionend)="settled($event)">
-        <div class="page" [attr.inert]="depth() === 0 ? null : ''">
+    <nav class="impulse-menu-drawer-viewport" aria-label="Main menu">
+      <div
+        class="impulse-menu-drawer-track"
+        [style.transform]="'translateX(' + depth() * -100 + '%)'"
+        (transitionend)="settled($event)">
+        <div class="impulse-menu-drawer-page" [attr.inert]="depth() === 0 ? null : ''">
           @for (menu of menus(); track menu.label) {
             <button
               type="button"
-              class="row menu"
-              [class.current]="menu.label === currentMenu()"
+              class="impulse-menu-drawer-row impulse-menu-drawer-menu"
+              [class.impulse-menu-drawer-current]="menu.label === currentMenu()"
               [attr.data-from]="menu.label"
               (click)="open(menu.label, menu.groups)">
-              <span class="label">{{ menu.label }}</span>
-              <mat-icon class="end">chevron_right</mat-icon>
+              <span class="impulse-menu-drawer-label">{{ menu.label }}</span>
+              <mat-icon class="impulse-menu-drawer-end">chevron_right</mat-icon>
             </button>
           }
         </div>
 
         @for (level of stack(); track $index; let i = $index) {
-          <div class="page" [attr.inert]="depth() === i + 1 ? null : ''">
-            <button type="button" class="back" [attr.aria-label]="'Back from ' + level.title" (click)="back()">
+          <div class="impulse-menu-drawer-page" [attr.inert]="depth() === i + 1 ? null : ''">
+            <button
+              type="button"
+              class="impulse-menu-drawer-back"
+              [attr.aria-label]="'Back from ' + level.title"
+              (click)="back()">
               <mat-icon>chevron_left</mat-icon>
-              <span class="label">{{ level.title }}</span>
+              <span class="impulse-menu-drawer-label">{{ level.title }}</span>
             </button>
             @for (group of level.groups; track $index) {
               @if (!$first) {
-                <div class="separator" role="separator"></div>
+                <div class="impulse-menu-drawer-separator" role="separator"></div>
               }
               @if (group.label) {
-                <div class="group-label">{{ group.label }}</div>
+                <div class="impulse-menu-drawer-group-label">{{ group.label }}</div>
               }
               @for (entry of group.entries; track entry.label) {
                 @if (entry.groups) {
                   <button
                     type="button"
-                    class="row"
-                    [class.current]="holds(entry)"
+                    class="impulse-menu-drawer-row"
+                    [class.impulse-menu-drawer-current]="holds(entry)"
                     [attr.data-from]="entry.label"
                     [disabled]="entry.disabled"
                     (click)="open(entry.label, entry.groups)">
-                    <mat-icon class="icon">{{ entry.icon ?? '' }}</mat-icon>
-                    <span class="label">{{ entry.label }}</span>
-                    <mat-icon class="end">chevron_right</mat-icon>
+                    <mat-icon class="impulse-menu-drawer-icon">{{ entry.icon ?? '' }}</mat-icon>
+                    <span class="impulse-menu-drawer-label">{{ entry.label }}</span>
+                    <mat-icon class="impulse-menu-drawer-end">chevron_right</mat-icon>
                   </button>
                 } @else {
                   <button
                     type="button"
-                    class="row"
-                    [class.current]="isCurrent(entry)"
+                    class="impulse-menu-drawer-row"
+                    [class.impulse-menu-drawer-current]="isCurrent(entry)"
                     [attr.aria-current]="isCurrent(entry) ? 'page' : null"
                     [disabled]="entry.disabled"
                     (click)="choose(entry)">
-                    <mat-icon class="icon">{{ entry.icon ?? '' }}</mat-icon>
-                    <span class="label">{{ entry.label }}</span>
-                    <mat-icon class="end">{{ entry.checked ? 'check' : '' }}</mat-icon>
+                    <mat-icon class="impulse-menu-drawer-icon">{{ entry.icon ?? '' }}</mat-icon>
+                    <span class="impulse-menu-drawer-label">{{ entry.label }}</span>
+                    <mat-icon class="impulse-menu-drawer-end">{{ entry.checked ? 'check' : '' }}</mat-icon>
                   </button>
                 }
               }
@@ -135,7 +142,7 @@ export class MenuDrawerComponent {
     this.stack.set([...this.stack().slice(0, depth), { title, groups }]);
     this.depth.set(depth + 1);
     // The new page's back row takes the focus, so the keyboard and a screen reader follow.
-    this.focus(depth + 1, (page) => page.querySelector<HTMLElement>('.back'));
+    this.focus(depth + 1, (page) => page.querySelector<HTMLElement>('.impulse-menu-drawer-back'));
   }
 
   /** Slides the page out to the right, back to the one that opened it. */
@@ -195,7 +202,7 @@ export class MenuDrawerComponent {
   private focus(depth: number, pick: (page: HTMLElement) => HTMLElement | null | undefined): void {
     afterNextRender(
       () => {
-        const page = this.host.querySelectorAll<HTMLElement>('.page')[depth];
+        const page = this.host.querySelectorAll<HTMLElement>('.impulse-menu-drawer-page')[depth];
         if (page) pick(page)?.focus({ preventScroll: true });
       },
       { injector: this.injector },

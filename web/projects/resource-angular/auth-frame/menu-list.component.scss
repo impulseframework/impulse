@@ -2,7 +2,7 @@
 // split by a line, an icon column, the label, a hint at the right edge, and an arrow or a
 // check in the last column. The colors are the theme's, so light and dark both follow.
 
-.menu-list {
+.impulse-menu-list-menu {
   display: flex;
   flex-direction: column;
   min-width: 220px;
@@ -22,12 +22,12 @@
   outline: none;
 }
 
-.group {
+.impulse-menu-list-group {
   display: flex;
   flex-direction: column;
 }
 
-.group-label {
+.impulse-menu-list-group-label {
   padding: 8px 10px 4px 36px;
   font-size: 11px;
   font-weight: 500;
@@ -36,13 +36,13 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.separator {
+.impulse-menu-list-separator {
   height: 1px;
   margin: 4px 6px;
   background: var(--mat-sys-outline-variant);
 }
 
-.item {
+.impulse-menu-list-item {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto 18px;
   align-items: center;
@@ -79,14 +79,14 @@
     color: inherit;
   }
 
-  &.current {
+  &.impulse-menu-list-current {
     font-weight: 500;
     box-shadow: inset 2px 0 0 var(--mat-sys-primary);
   }
 }
 
-.icon,
-.end {
+.impulse-menu-list-icon,
+.impulse-menu-list-end {
   width: 18px;
   height: 18px;
   font-size: 18px;
@@ -94,22 +94,22 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.item:hover .icon,
-.item:hover .end,
-.item:focus-visible .icon,
-.item:focus-visible .end,
-.item[aria-expanded='true'] .icon,
-.item[aria-expanded='true'] .end {
+.impulse-menu-list-item:hover .impulse-menu-list-icon,
+.impulse-menu-list-item:hover .impulse-menu-list-end,
+.impulse-menu-list-item:focus-visible .impulse-menu-list-icon,
+.impulse-menu-list-item:focus-visible .impulse-menu-list-end,
+.impulse-menu-list-item[aria-expanded='true'] .impulse-menu-list-icon,
+.impulse-menu-list-item[aria-expanded='true'] .impulse-menu-list-end {
   color: inherit;
 }
 
-.label {
+.impulse-menu-list-label {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.hint {
+.impulse-menu-list-hint {
   font-size: 12px;
   color: var(--mat-sys-on-surface-variant);
   white-space: nowrap;
