@@ -174,7 +174,7 @@
           <div class="unsaved message">You have unsaved changes!</div>
         }
         @if (displayFormInvalidMessage() && changedFieldsInvalid()) {
-          <div class="invalid message">Please complete or fix required fields.</div>
+          <div class="invalid message">{{ incomplete() }}</div>
         }
         <button mat-raised-button color="primary" (click)="resetForm()">Cancel</button>
         <button mat-raised-button color="accent" (click)="saveForm()" [disabled]="form().pristine">Save</button>
