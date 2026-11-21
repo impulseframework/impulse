@@ -122,7 +122,9 @@ func NewSetData(fields []FieldTags, permissions ...accesstypes.Permission) (SetD
 // @manualAddResource annotation or WithManualResources.
 type ManualRegistration struct {
 	// Scope is empty when the declaration leaves the scope to the default
-	// (accesstypes.GlobalPermissionScope).
+	// (accesstypes.GlobalPermissionScope). A name is registered in one scope: the
+	// Resource Generator refuses a resource registered for the whole application and
+	// for a tenant, by hand in both or by hand under the name of a generated one.
 	Scope      accesstypes.PermissionScope
 	Permission accesstypes.Permission
 	Resource   accesstypes.Resource

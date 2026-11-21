@@ -1183,6 +1183,82 @@ func Test_manualPermissionsFromConstants(t *testing.T) {
 	}
 }
 
+// Test_computeCollectionData_oneScopePerName pins that the collection the generator
+// computes registers a name in one scope. A constant that registers a permission for the
+// whole application and another for a tenant, a registration made by hand for the whole
+// application under the name of a tenant's resource, and one for a tenant under the name
+// of a resource that registers no permission of its own are each refused, naming the
+// resource, what each scope registers and what to write. The collection finds a
+// resource's scope by its name alone (resource.GeneratedCollection.Scope), so a name of
+// two scopes was answered with either, one run to the next. A name registered twice in
+// one scope is one resource, as it was.
+func Test_computeCollectionData_oneScopePerName(t *testing.T) {
+	t.Parallel()
+
+	const whatToWrite = `: a name is of one scope, which a role's grant and a check find by the name alone. ` +
+		`Register both in one scope, written with @permissionScope on a struct and as the second argument of @manualAddResource on a constant, ` +
+		`or give one of the two a name of its own`
+
+	t.Run("a constant that registers in both scopes", func(t *testing.T) {
+		t.Parallel()
+
+		r := &resourceGenerator{client: &client{}}
+		if err := r.readManualDeclarations(permissionFixtureConstants(t)("Divided")); err != nil {
+			t.Fatalf("readManualDeclarations() error = %v", err)
+		}
+
+		wantErr := `"Divided" is registered for the whole application (Read) and for a tenant (Update)` + whatToWrite
+		if _, err := r.computeCollectionData(); err == nil || !strings.HasSuffix(err.Error(), wantErr) {
+			t.Errorf("computeCollectionData() error = %v, want the error %q", err, wantErr)
+		}
+	})
+
+	// The fixture's Vaults is a tenant's resource that registers List, its ScopedThings
+	// a tenant's registration made by hand, and its Sprockets a resource of the whole
+	// application that, with no route generated, registers no permission and declares
+	// what a condition reads.
+	tests := []struct {
+		name    string
+		add     ManualRegistration
+		wantErr string
+	}{
+		{
+			name:    "a registration for the whole application under the name of a tenant's resource",
+			add:     ManualRegistration{Permission: accesstypes.Read, Resource: "Vaults"},
+			wantErr: `"Vaults" is registered for the whole application (Read) and for a tenant (List)` + whatToWrite,
+		},
+		{
+			name:    "a registration for a tenant under the name of a resource that registers no permission",
+			add:     ManualRegistration{Scope: accesstypes.DomainPermissionScope, Permission: accesstypes.Read, Resource: "Sprockets"},
+			wantErr: `"Sprockets" is registered for the whole application and for a tenant (Read)` + whatToWrite,
+		},
+		{
+			name: "a second registration in the scope the name is registered in",
+			add:  ManualRegistration{Scope: accesstypes.DomainPermissionScope, Permission: accesstypes.Update, Resource: "ScopedThings"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := collectionFixtureGenerator(t)
+			r.manualRegistrations = append(r.manualRegistrations, tt.add)
+
+			_, err := r.computeCollectionData()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("computeCollectionData() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Errorf("computeCollectionData() error = %v, want the error %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // Test_computeCollectionData_declaredPermissions pins where a declared permission goes,
 // from the annotation on: the generator reads it off the resources package's constants
 // beside the resources registered by hand, computes it into the collection, sorted, so

@@ -1,7 +1,8 @@
 // Package permissionfixture is the test fixture for a permission declared with no
 // resource: accesstypes.Permission constants carrying @manualAddPermission, one that
 // carries nothing and so declares nothing, and the declarations the generator refuses,
-// each read alone by the test that names it.
+// each read alone by the test that names it. One resource's constant registers by hand
+// in both scopes, which the generator refuses where it computes the collection.
 package permissionfixture
 
 import (
@@ -86,3 +87,9 @@ const Ledgers accesstypes.Resource = "Ledgers"
 //
 // @manualAddResource(Read)
 const Reports accesstypes.Resource = "Reports"
+
+// Divided is a resource registered by hand for the whole application and for a tenant.
+//
+// @manualAddResource(Read)
+// @manualAddResource(Update, domain)
+const Divided accesstypes.Resource = "Divided"

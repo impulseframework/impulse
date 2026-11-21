@@ -318,6 +318,52 @@ func scopeOrGlobal(scope accesstypes.PermissionScope) accesstypes.PermissionScop
 	return scope
 }
 
+// oneScopePerName refuses a name the collection registers in both scopes, for the whole
+// application and for a tenant: a resource and a registration made by hand under its
+// name in the other scope, or a constant that registers a permission in each. The
+// collection finds a resource's scope by its name alone
+// (resource.GeneratedCollection.Scope), which is how a role's grant is held to its scope
+// and how a check finds what binds the resource to a tenant, so a name of two scopes
+// would be answered with either, one run to the next.
+func oneScopePerName(data resource.CollectionData) error {
+	global := make(map[accesstypes.Resource]*resource.CollectionResource)
+	for i := range data.Resources {
+		if res := &data.Resources[i]; res.Scope == accesstypes.GlobalPermissionScope {
+			global[res.Name] = res
+		}
+	}
+	for i := range data.Resources {
+		res := &data.Resources[i]
+		whole, ok := global[res.Name]
+		if !ok || res.Scope == accesstypes.GlobalPermissionScope {
+			continue
+		}
+
+		return errors.Newf(
+			"%q is registered for the whole application%s and for a tenant%s: a name is of one scope, which a role's grant and a check find by the name alone. "+
+				"Register both in one scope, written with @%s on a struct and as the second argument of @%s on a constant, or give one of the two a name of its own",
+			string(res.Name), registeredPermissions(whole), registeredPermissions(res), permissionScopeKeyword, manualAddResourceKeyword,
+		)
+	}
+
+	return nil
+}
+
+// registeredPermissions words the permissions a collection resource registers, in
+// parentheses after the scope a refusal names them in. A resource that registers none,
+// one that only declares what a condition reads, is worded as nothing.
+func registeredPermissions(res *resource.CollectionResource) string {
+	if len(res.Permissions) == 0 {
+		return ""
+	}
+	names := make([]string, len(res.Permissions))
+	for i, permission := range res.Permissions {
+		names[i] = string(permission)
+	}
+
+	return " (" + strings.Join(names, ", ") + ")"
+}
+
 // computeCollectionData derives the permission collection statically from the same
 // parsed state the generator renders handlers from. Without GenerateRoutes no generated
 // wiring performs registrations, so only the manual declarations (@manualAddResource and
@@ -373,6 +419,9 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 	r.collectAcrossTenantsRegistrations(b)
 
 	data := b.Data()
+	if err := oneScopePerName(data); err != nil {
+		return resource.CollectionData{}, err
+	}
 	if err := r.validateStateEnumTables(data); err != nil {
 		return resource.CollectionData{}, err
 	}
