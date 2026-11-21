@@ -542,6 +542,10 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesProviderReachesNoAccount[Tx],
 		},
 		{
+			name: "a sign-in held while every provider's word for an address was kept keeps none when it is finished: the row says the provider verified the address, the application's own factor answers the step, and the sign-in waits for the mailed code with no session and no address written; the code confirms the address the person gives",
+			run:  seamRulesHeldSignInKeepsNoProvidersWord[Tx],
+		},
+		{
 			name: "Google vouches for an address only where it is the address's authority: a Gmail address and a Workspace account's are confirmed by the sign-in with nothing mailed, and the first sign-in of a Google account with an outside address and no hd waits for the mailed code",
 			run:  seamRulesGoogleVouchesForItsOwn[Tx],
 		},
@@ -778,6 +782,44 @@ func seamRulesProviderConfirmsNothing[Tx any](ctx context.Context, t *testing.T,
 	next := a.browser(t)
 	assertRedirect(t, a.providerSignIn(ctx, next, claims), "/home", url.Values{})
 	signedInAs(ctx, t, next, "cadet")
+}
+
+// seamRulesHeldSignInKeepsNoProvidersWord is the scenario "a sign-in held while every
+// provider's word for an address was kept keeps none when it is finished".
+func seamRulesHeldSignInKeepsNoProvidersWord[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, oneOrganization(openSignUp))
+
+	// A person's first sign-in through a directory: the account is made and linked,
+	// with no address, and the sign-in waits.
+	b := a.browser(t)
+	b.prime(ctx)
+	claims := azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")
+	assertRedirect(t, a.entraRoundTrip(ctx, b, claims), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+
+	// The row as a release that kept every provider's word stored one. The provider
+	// said the address is verified, so the row says so, and that release held the
+	// sign-in for the application's own second factor, not for the address.
+	a.db.heldWithProvidersWord(ctx, t)
+
+	// The person passes the application's factor under the release that keeps no
+	// provider's word. The row's word is not kept: the sign-in waits again, for the
+	// mailed code, and the provider's word has started no session and written its
+	// address on no account.
+	b.expect(ctx, http.StatusAccepted, http.MethodPost, "/mfa", nil)
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if _, err := a.api.UserByEmail(ctx, "pat@lakeside.edu"); !httpio.HasNotFound(err) {
+		t.Fatalf("UserByEmail() error = %v, want NotFound: the provider's word writes its address on no account", err)
+	}
+	if sent := a.mail.Messages(); len(sent) != 0 {
+		t.Errorf("mail before the person gave an address = %d messages, want none", len(sent))
+	}
+
+	// The code confirms the address the person gives, and the sign-in is theirs.
+	a.answerAddressCode(ctx, b, "pat@lakeside.edu")
+	signedInAs(ctx, t, b, "pat@lakeside.edu")
+	if email, verified := b.authenticatedEmail(ctx); email != "pat@lakeside.edu" || !verified {
+		t.Errorf("the account's address = %q (confirmed %v), want pat@lakeside.edu confirmed by the code", email, verified)
+	}
 }
 
 // seamRulesProviderReachesNoAccount is the scenario "another identity provider's word

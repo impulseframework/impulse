@@ -1676,11 +1676,14 @@ How an address gets onto a user:
   until the person verifies it. Google's method is the one `session/google` registers,
   which the library knows by a mark only its own packages can set
   (`signin.Method.AddressAuthority`): a method of the application's own that names
-  itself `google` is not Google's, and its word is not kept. The other way round, a
-  first Google sign-in by a person whose address a user already holds verified is that
-  user's, where Google vouches for the address: the standard account rule matches the
-  user by the address once no user is under the sign-in name (see "Storage and schema"
-  above).
+  itself `google` is not Google's, and its word is not kept. A sign-in that waits is
+  held to the same answer when it is read and when it is finished, whatever its row
+  holds: one stored with another provider's word, by a release of the library that
+  kept every provider's word, confirms no address when it is finished. The other way
+  round, a first Google sign-in by a person whose address a user already holds verified
+  is that user's, where Google vouches for the address: the standard account rule
+  matches the user by the address once no user is under the sign-in name (see "Storage
+  and schema" above).
 - **An invitation or a sign-up proves it**: the account an invited person creates, or
   an existing account that accepts an invitation while holding no verified address,
   takes the invitation's address verified; a sign-up's account is created with its

@@ -81,16 +81,10 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	// The name a directory gave is kept as a user's is, or not at all: one a row would
-	// not keep is dropped here, before anything of the sign-in is written, the pending
-	// identity among it, so it never fails the sign-in it came with. The identity is the
-	// caller's, who may hand one to several sign-ins at once, so it is never written:
-	// the attempt takes a copy that carries the name as kept.
-	if kept := sessioninfo.KeptName(at.identity.Name); kept != at.identity.Name {
-		identity := *at.identity
-		identity.Name = kept
-		at.identity = &identity
-	}
+	// Every sign-in's identity is held to what the library keeps of it here, the one a
+	// callback verified and the one a pending row held, before anything reads the
+	// identity or stores it.
+	at.identity = a.keptIdentity(at)
 
 	// An identity whose connection attests to a second factor records the
 	// attestation after the sign-in's own event, so the policy and the session see it.
@@ -1016,6 +1010,67 @@ func writeSignInError(ctx context.Context, w http.ResponseWriter, err error) err
 // up, and at least one so a client never retries at once.
 func retryAfterSeconds(wait time.Duration) int {
 	return max(int(math.Ceil(wait.Seconds())), 1)
+}
+
+// keptIdentity returns the attempt's identity as the sign-in keeps it: without a word
+// for the address the library does not keep (onlyGoogleVouches), and with the name a
+// directory gave kept as a user's is, or not at all. A name a row would not keep is
+// dropped here, before anything of the sign-in is written, the pending identity among
+// it, so it never fails the sign-in it came with. The identity is the caller's, who may
+// hand one to several sign-ins at once, so it is never written: an identity that
+// changes is a copy.
+func (a *Auth[S, U, Tx]) keptIdentity(at *signInAttempt) *sessioninfo.Identity {
+	identity := a.onlyGoogleVouches(at.registration, at.identity)
+	if kept := sessioninfo.KeptName(identity.Name); kept != identity.Name {
+		named := *identity
+		named.Name = kept
+		identity = &named
+	}
+
+	return identity
+}
+
+// onlyGoogleVouches returns identity without the word of every method but Google's that
+// the address is verified (Identity.EmailVerified). The people who run an identity
+// provider can mark any address verified, so a provider's word confirms nothing: the
+// address is written on no account by it and finds no account by it, and the person's
+// first sign-in to an account with no confirmed address waits for the mailed code. It
+// holds for every method whatever it fills in, the library's own and one an application
+// registers. Google's method keeps its word, which it gives only for an address Google
+// is the authority for: a Gmail address and a Workspace account's (keepsWord).
+//
+// Every sign-in passes it where the sign-in starts (signIn, by keptIdentity), and a
+// pending sign-in where its row is read (pending). So the identity a callback verified
+// and the one a row held are held to the same answer, and a pending sign-in stored with
+// another provider's word, as a release that kept every provider's word stored one, is
+// reported and finished without it. The identity is the caller's, so it is never
+// written: one that loses the word is a copy.
+func (a *Auth[S, U, Tx]) onlyGoogleVouches(registration string, identity *sessioninfo.Identity) *sessioninfo.Identity {
+	if !identity.EmailVerified || a.keepsWord(registration, identity) {
+		return identity
+	}
+	kept := *identity
+	kept.EmailVerified = false
+
+	return &kept
+}
+
+// keepsWord reports whether the library keeps the word identity carries that its
+// address is verified, for a sign-in that came through the registration named
+// registration. It keeps the word of Google's method: the registration's method
+// carries the library's mark (signin.Method.AddressAuthority), which only
+// session/google sets and no application's method can carry, and the identity says it
+// came through Google. A method that takes Google's name is not Google's, and its word
+// is not kept. A sign-in through no registration is the library's own, a password's or
+// a session the application starts: its identity names its user, and its word is what
+// the user's own row says of the address.
+func (a *Auth[S, U, Tx]) keepsWord(registration string, identity *sessioninfo.Identity) bool {
+	if registration == "" {
+		return namesItsUser(identity)
+	}
+	m, ok := a.registered().external[registration]
+
+	return ok && m.AddressAuthority.IsGoogle() && identity.Method == sessioninfo.MethodGoogle
 }
 
 // namesItsUser reports whether identity names its user instead of being resolved to

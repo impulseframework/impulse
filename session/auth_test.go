@@ -29,6 +29,7 @@ import (
 	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
+	"github.com/impulseframework/impulse/session/internal/vouch"
 	"github.com/impulseframework/impulse/session/internal/workos"
 	"github.com/impulseframework/impulse/session/mock/mock_azure"
 	"github.com/impulseframework/impulse/session/mock/mock_google"
@@ -3436,7 +3437,9 @@ func entraIssuer(tid string) string {
 // the code mailed to it, which the person's first sign-in to an account with no
 // confirmed address waits for. Google's method is the one session/google builds, known
 // by the library's mark and not by its name: a method of the application's own that
-// names itself and its identities google keeps no flag either.
+// names itself and its identities google keeps no flag either. The word is Google's
+// only for an identity that says it came through Google: the marked method keeps none
+// for an identity of another method.
 func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
 	t.Parallel()
 
@@ -3445,6 +3448,9 @@ func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
 		// registered is the method the registration is of, and asserted the method the
 		// identity says it came through.
 		registered, asserted sessioninfo.AuthMethod
+		// mark is the library's mark the method carries: Google's on the method Google's
+		// package builds, none on any other.
+		mark vouch.Mark
 	}{
 		{name: "an application's own method", registered: "bare", asserted: "bare"},
 		{name: "the generic OpenID Connect method", registered: sessioninfo.MethodOIDC, asserted: sessioninfo.MethodOIDC},
@@ -3452,6 +3458,7 @@ func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
 		{name: "WorkOS", registered: sessioninfo.MethodWorkOS, asserted: sessioninfo.MethodWorkOS},
 		{name: "another method whose identity says it is Google's", registered: "bare", asserted: sessioninfo.MethodGoogle},
 		{name: "a method of the application's own that takes Google's name", registered: sessioninfo.MethodGoogle, asserted: sessioninfo.MethodGoogle},
+		{name: "Google's method, for an identity that says it came through another", registered: sessioninfo.MethodGoogle, asserted: sessioninfo.MethodOIDC, mark: vouch.Google()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3462,8 +3469,9 @@ func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
 				Name: "provider", Method: tt.registered,
 				Build: func(signin.StateCookies) (*signin.Method, error) {
 					return &signin.Method{
-						Name:     tt.registered,
-						LoginURL: func() string { return "/login" },
+						Name:             tt.registered,
+						LoginURL:         func() string { return "/login" },
+						AddressAuthority: tt.mark,
 						Complete: func(context.Context, http.ResponseWriter, *http.Request) (*signin.Verified, error) {
 							return &signin.Verified{
 								Identity:  &sessioninfo.Identity{Method: tt.asserted, Connection: "c", Subject: "s", Email: "pat@example.com", EmailVerified: true, SignInName: "pat"},
@@ -3487,6 +3495,80 @@ func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
 
 			if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/next" {
 				t.Errorf("response = %d %q, want 302 /next", rr.Code, rr.Header().Get("Location"))
+			}
+		})
+	}
+}
+
+// TestAuth_HeldSignInKeepsNoOtherMethodsWordForAnAddress proves the word a held sign-in
+// stored is kept as a callback's is: Google's method's alone. A pending sign-in stored
+// with another provider's word that the address is verified, as a release that kept
+// every provider's word stored one, is reported and finished without it, so its
+// completion confirms no address by it. One Google's method stored keeps Google's word.
+func TestAuth_HeldSignInKeepsNoOtherMethodsWordForAnAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// method is the method of the registration the sign-in came through and of its
+		// identity, and mark the library's mark the method carries.
+		method   sessioninfo.AuthMethod
+		mark     vouch.Mark
+		wantKept bool
+	}{
+		{name: "another provider's word is not kept", method: sessioninfo.MethodOIDC},
+		{name: "Google's word is kept", method: sessioninfo.MethodGoogle, mark: vouch.Google(), wantKept: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			userID, sessionID := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
+			f := newAuthFixture(t, gomock.NewController(t))
+			f.auth.RegisterExternal(&signin.Registration[mockTx]{
+				Name: "provider", Method: tt.method,
+				Build: func(signin.StateCookies) (*signin.Method, error) {
+					return &signin.Method{
+						Name:             tt.method,
+						LoginURL:         func() string { return "/login" },
+						AddressAuthority: tt.mark,
+						Complete: func(context.Context, http.ResponseWriter, *http.Request) (*signin.Verified, error) {
+							return nil, errors.New("no round trip in this test")
+						},
+					}, nil
+				},
+			})
+			// The row is stored with the provider's word on it: holdPending stores the
+			// identity it is given.
+			stored := &sessioninfo.Identity{Method: tt.method, Connection: "c", Subject: "s", Email: "pat@example.com", EmailVerified: true}
+			wait := &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat"}
+			cookies, pendingID := f.hold(t, &signInAttempt{identity: stored, reason: sessioninfo.ReasonLogin, registration: "provider"}, wait)
+			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
+				if req.Identity.EmailVerified != tt.wantKept || req.Identity.Email != "pat@example.com" {
+					t.Errorf("SignIn() identity = %+v, want the stored address with EmailVerified %v", req.Identity, tt.wantKept)
+				}
+				req.UserID, req.Username = userID, "pat"
+			}, nil)
+			f.expectConsume(pendingID)
+			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).AnyTimes()
+
+			var (
+				reported *sessioninfo.PendingIdentity
+				got      impulse.UUID
+				err      error
+			)
+			f.serve(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if reported, err = f.auth.API().PendingIdentity(r.Context()); err != nil {
+					return
+				}
+				got, err = f.auth.API().CompletePending(r.Context(), w, sessioninfo.AuthEvent{Method: "email-otp"})
+			}), http.MethodPost, "/mfa", nil, cookies)
+
+			if err != nil || got != sessionID {
+				t.Fatalf("CompletePending() = %s, %v; want %s", got, err, sessionID)
+			}
+			if reported.Identity.EmailVerified != tt.wantKept {
+				t.Errorf("PendingIdentity() identity = %+v, want EmailVerified %v", reported.Identity, tt.wantKept)
 			}
 		})
 	}
