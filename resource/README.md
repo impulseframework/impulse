@@ -3434,11 +3434,11 @@ carries an action's name instead, `Create<Record>` (Lodestar's `CreateSector`), 
 the generated collection registers in the global scope with the class `access`
 (`accesstypes.ClassAccess`), and asks the session's mask about it before anything else
 (`resource.RefuseActionUnderMask`). A session whose mask refuses the class `access`,
-refuses the action by name or keeps no Execute is refused with nothing written ("you
-are acting as someone else, and this session cannot create a sector: the mask refuses
-the class access. ..."), the denial is logged as the mask's, in the line the masked
-check writes for a denial of its own, and the route's `GET` answers that none is
-offered (`resource.MaskRefusesAction`). A session that acts as a person with no mask
+refuses the action by name or keeps no Execute is refused with nothing written ("You
+are acting as someone else, and this session cannot create a sector."; why the mask
+refuses it is said in the server's log alone), the denial is logged as the mask's, in
+the line the masked check writes for a denial of its own, and the route's `GET` answers
+that none is offered (`resource.MaskRefusesAction`). A session that acts as a person with no mask
 makes the tenant, and the person acted as is its administrator: to let someone act as
 a person with no mask is to give them what the person holds. One tenant per person holds
 in such a session as in the person's own, whatever its mask shows: a mask that keeps the
