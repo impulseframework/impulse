@@ -300,10 +300,12 @@ func (tn Tenancy) recordRenames() []recordRename {
 }
 
 // inRecordWords renames a copied file's record from the reference's to the
-// application's: every name the generator derives from the record, and in a template
-// or a spec the record's word in the sentences the screen shows. The library's own
-// words stay: a Microsoft Entra tenant and its tenant id are the directory's, and the
-// copied components keep their names.
+// application's: every name the generator derives from the record, and the record's
+// word in the sentences the screen shows. Those are a template's and a spec's whole
+// text, and in any other TypeScript file the text of its string literals, where a
+// component holds what it says from its code (a dialog's words, a message). The
+// library's own words stay: a Microsoft Entra tenant and its tenant id are the
+// directory's, and the copied components keep their names.
 func (tn Tenancy) inRecordWords(rel, text string) string {
 	if tn.Table == referenceTable {
 		return text
@@ -311,8 +313,11 @@ func (tn Tenancy) inRecordWords(rel, text string) string {
 	for _, r := range tn.recordRenames() {
 		text = r.re.ReplaceAllString(text, r.with)
 	}
-	if strings.HasSuffix(rel, ".html") || strings.HasSuffix(rel, ".spec.ts") {
+	switch {
+	case strings.HasSuffix(rel, ".html"), strings.HasSuffix(rel, ".spec.ts"):
 		text = tn.proseInRecordWords(text)
+	case strings.HasSuffix(rel, ".ts"):
+		text = tn.literalsInRecordWords(text)
 	}
 
 	return text
@@ -347,6 +352,138 @@ func (tn Tenancy) proseInRecordWords(text string) string {
 	b.WriteString(text[last:])
 
 	return b.String()
+}
+
+// literalsInRecordWords renames the record's word in the sentences a TypeScript file
+// holds in its string literals, quoted or template. Its code, its comments and the
+// expressions inside a template literal are left as they are, and a name in code that a
+// literal holds (a selector, a path) is left by the rule that leaves one in a template.
+func (tn Tenancy) literalsInRecordWords(text string) string {
+	var b strings.Builder
+	last := 0
+	for _, literal := range literalText(text) {
+		b.WriteString(text[last:literal.start])
+		b.WriteString(tn.proseInRecordWords(text[literal.start:literal.end]))
+		last = literal.end
+	}
+	b.WriteString(text[last:])
+
+	return b.String()
+}
+
+// stretch is a part of a source text, from start up to end.
+type stretch struct {
+	start, end int
+}
+
+// literalText lists the text of every string literal of a TypeScript source, in order:
+// what is between a quoted literal's quotes, and each part of a template literal outside
+// its ${...} expressions. An expression is code, read for the literals inside it, and a
+// comment is passed over, so an apostrophe in one opens nothing. A regular expression
+// literal is read as code: one that holds a quote would be misread, and the copied
+// files hold none.
+func literalText(src string) []stretch {
+	s := literalScan{src: src}
+	s.code(0, false)
+
+	return s.found
+}
+
+// literalScan reads a TypeScript source for the text of its string literals.
+type literalScan struct {
+	src   string
+	found []stretch
+}
+
+// code reads code from i and answers where it stops: the end of the source, or, in a
+// template literal's expression, past the brace that closes it.
+func (s *literalScan) code(i int, inExpression bool) int {
+	depth := 0
+	for i < len(s.src) {
+		switch c := s.src[i]; {
+		case strings.HasPrefix(s.src[i:], "//"):
+			i = s.past(i, "\n")
+		case strings.HasPrefix(s.src[i:], "/*"):
+			i = s.past(i+2, "*/")
+		case c == '\'' || c == '"':
+			i = s.quoted(i)
+		case c == '`':
+			i = s.template(i + 1)
+		case c == '}' && inExpression && depth == 0:
+			return i + 1
+		case c == '{':
+			depth++
+			i++
+		case c == '}':
+			depth--
+			i++
+		default:
+			i++
+		}
+	}
+
+	return i
+}
+
+// past answers the place after the next end at or after i, or the end of the source.
+func (s *literalScan) past(i int, end string) int {
+	at := strings.Index(s.src[i:], end)
+	if at < 0 {
+		return len(s.src)
+	}
+
+	return i + at + len(end)
+}
+
+// quoted reads the quoted literal that opens at i, notes its text and answers the place
+// after it. A quote left open at the end of its line is no literal.
+func (s *literalScan) quoted(i int) int {
+	for j := i + 1; j < len(s.src); j++ {
+		switch s.src[j] {
+		case '\\':
+			j++
+		case '\n':
+			return j
+		case s.src[i]:
+			s.note(i+1, j)
+
+			return j + 1
+		}
+	}
+
+	return len(s.src)
+}
+
+// template reads a template literal from the place after its opening backtick, notes
+// each part of its text, reads each expression as code and answers the place after the
+// closing backtick.
+func (s *literalScan) template(i int) int {
+	start := i
+	for j := i; j < len(s.src); {
+		switch {
+		case s.src[j] == '\\':
+			j += 2
+		case s.src[j] == '`':
+			s.note(start, j)
+
+			return j + 1
+		case strings.HasPrefix(s.src[j:], "${"):
+			s.note(start, j)
+			j = s.code(j+2, true)
+			start = j
+		default:
+			j++
+		}
+	}
+
+	return len(s.src)
+}
+
+// note keeps a literal's text that is not empty.
+func (s *literalScan) note(start, end int) {
+	if start < end {
+		s.found = append(s.found, stretch{start: start, end: end})
+	}
 }
 
 // isCodeName reports whether the word between before and after is part of a name in

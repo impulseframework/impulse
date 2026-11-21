@@ -9,6 +9,7 @@ import { methodMeta } from '@app/service/zz_gen_methods';
 import { SectorDirectories } from '@app/service/zz_gen_resources';
 import {
   ClientBase,
+  DirectoryOnlyCondition,
   Domain,
   MethodWarning,
   PermissionDigest,
@@ -97,6 +98,27 @@ const wouldOpen = (role: string): MethodWarning => ({
 
 const nobody: Digests = { global: {}, anvil: {} };
 
+/**
+ * The two things turning directory only takes of the person who turns it, as the server
+ * says them for the person viewing the page: each in the sentence its refusal opens
+ * with, whether that person meets it, and what they do where they do not.
+ */
+const throughTheDirectory: DirectoryOnlyCondition = {
+  sentence:
+    "Directory only is turned on by a person who is signed in through this sector's directory, Google Workspace example: that shows the directory works, and that you will not shut yourself out.",
+  met: true,
+};
+const hasAPassword: DirectoryOnlyCondition = {
+  sentence:
+    'Directory only is turned on by a person who has a password: a marshal of this sector enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem.',
+  met: true,
+};
+const noPassword: DirectoryOnlyCondition = {
+  ...hasAPassword,
+  met: false,
+  toDo: 'Choose a password on Your account first, then try again.',
+};
+
 /** What the scripted server holds: the grants, how the person signed in, the sector's directory, and its answer to a write. */
 interface World {
   digests: Digests;
@@ -105,6 +127,8 @@ interface World {
   write?: TransportResponse;
   /** Whether the sector is directory only as the page opens. */
   directoryOnly?: boolean;
+  /** What the server says turning directory only takes of the person viewing; none unless given. */
+  conditions?: DirectoryOnlyCondition[];
   /** The server's answer to a request for a method's warning; the warnings above unless given. */
   warning?: TransportResponse;
 }
@@ -148,7 +172,13 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
         return { status: 200, body: { id: anvilID, name: 'Anvil', directoryOnly: world.directoryOnly ?? false } };
       // The switch as it stands is the sector's own read.
       case `${environment.apiUrl}/sectors/${anvilID}/directory-only`:
-        return { status: 200, body: { directoryOnly: world.directoryOnly ?? false } };
+        return {
+          status: 200,
+          body: {
+            directoryOnly: world.directoryOnly ?? false,
+            ...(world.conditions ? { conditions: world.conditions } : {}),
+          },
+        };
       case `${environment.apiUrl}/sectors/${anvilID}/sector-directories`:
         return { status: 200, body: world.directories ?? [] };
       case `${environment.apiUrl}/sectors/${anvilID}/crew-sector-directory-roles`:
@@ -294,7 +324,7 @@ describe('SectorSignInComponent', () => {
     expect(texts('.refusal')).toEqual([sentence]);
   });
 
-  it('a sector that has a directory shows it, with no offer of another, and its marshal removes it', async () => {
+  it('a sector that has a directory shows it, with no offer of another, and its marshal removes it once they confirm', async () => {
     await pageFor({ digests: marshal, session: throughWorkspace, directories: [workspace] });
 
     expect(texts('.directory')).toEqual(['Google Workspace example']);
@@ -304,10 +334,34 @@ describe('SectorSignInComponent', () => {
     expect(texts('.directory-only')[0]).toContain('Every sign-in admitted');
     expect(button('.make-directory-only').disabled).toBe(false);
 
-    element().querySelector<HTMLButtonElement>('.remove-directory')?.click();
-    await settle();
-    await settle();
+    // Removing the directory asks first, as making the sector invite only and turning
+    // directory only off do: nothing is written until the person confirms.
+    button('.remove-directory').click();
+    await turn();
+    expect(dialogText('[mat-dialog-title]')).toBe('Remove the directory');
+    expect(dialogText('.impulse-action-words')).toBe(
+      "Google Workspace example will no longer be this sector's directory. The roles it gave stay in place, and it is free for another sector.",
+    );
+    expect(dialogText('.impulse-action-confirm')).toBe('Remove the directory');
+    expect(writes()).toEqual([]);
+
+    inDialog('.impulse-action-confirm')?.click();
+    await turn();
+    await turn();
     expect(writes()).toEqual([{ op: 'remove', path: `/sectors/${anvilID}/sector-directories/d-1` }]);
+  });
+
+  it('a person who cancels the removal of the directory writes nothing, and the directory stays', async () => {
+    await pageFor({ digests: marshal, session: throughWorkspace, directories: [workspace] });
+
+    button('.remove-directory').click();
+    await turn();
+    expect(dialogText('[mat-dialog-title]')).toBe('Remove the directory');
+    inDialog('.impulse-action-cancel')?.click();
+    await turn();
+    await turn();
+    expect(writes()).toEqual([]);
+    expect(texts('.directory')).toEqual(['Google Workspace example']);
   });
 
   it("the sector's marshal opens the sector to its directory's people with a role picked in the dialog, behind the server's warning and the typed word", async () => {
@@ -408,13 +462,20 @@ describe('SectorSignInComponent', () => {
   });
 
   it("the sector's marshal makes the sector directory only behind the server's warning, the people it names as a list, and the typed word", async () => {
-    await pageFor({ digests: marshal, session: throughWorkspace, directories: [workspace] });
+    await pageFor({
+      digests: marshal,
+      session: throughWorkspace,
+      directories: [workspace],
+      conditions: [throughTheDirectory, hasAPassword],
+    });
 
     expect(texts('.directory-only')[0]).toContain('Every sign-in admitted');
     expect(element().querySelector('.needs-directory')).toBeNull();
-    expect(texts('.turned-on-by')).toEqual([
-      "Directory only is turned on by a person who is signed in through this sector's directory. You are shown who it will keep out before it is saved.",
-    ]);
+    // Both things turning it on takes are said before the person tries, in the server's
+    // sentences; this person meets both, so nothing more is asked of them.
+    expect(texts('.turned-on-by')).toEqual([throughTheDirectory.sentence, hasAPassword.sentence]);
+    expect(element().querySelector('.turned-on-by .to-do')).toBeNull();
+    expect(texts('.shown-first')).toEqual(['You are shown who it will keep out before it is saved.']);
 
     button('.make-directory-only').click();
     await turn();
@@ -441,6 +502,28 @@ describe('SectorSignInComponent', () => {
     expect(calls('make-sector-directory-only')).toEqual([{}]);
     expect(writes()).toEqual([]);
     expect(texts('.refusal')).toEqual([]);
+  });
+
+  it("a person who does not meet one of the two things is told which and what to do, in the server's sentences, before they press", async () => {
+    await pageFor({
+      digests: marshal,
+      session: throughWorkspace,
+      directories: [workspace],
+      conditions: [throughTheDirectory, noPassword],
+    });
+
+    expect(texts('.turned-on-by')).toEqual([throughTheDirectory.sentence, `${noPassword.sentence} ${noPassword.toDo}`]);
+    expect(texts('.turned-on-by.unmet')).toEqual([`${noPassword.sentence} ${noPassword.toDo}`]);
+    expect(texts('.turned-on-by .to-do')).toEqual([noPassword.toDo]);
+    // The button stays: the server refuses the press in the same words.
+    expect(button('.make-directory-only').disabled).toBe(false);
+  });
+
+  it('the page holds no sentence of its own for what turning directory only takes: where the server names nothing, nothing is shown', async () => {
+    await pageFor({ digests: marshal, session: throughWorkspace, directories: [workspace] });
+
+    expect(element().querySelector('.turned-on-by')).toBeNull();
+    expect(button('.make-directory-only').disabled).toBe(false);
   });
 
   it('a person who may not list the people is told how many the switch keeps out, and the dialog draws no list', async () => {
@@ -506,13 +589,15 @@ describe('SectorSignInComponent', () => {
     expect(texts('.directory-only')[0]).toContain('Every sign-in admitted');
   });
 
-  it('a sector with no directory is told to set one first', async () => {
+  it('a sector with no directory is told to set one first, and is not offered the button', async () => {
     await pageFor({ digests: marshal });
 
     expect(texts('.needs-directory')).toEqual([
       'Set a directory first: a sector with no directory cannot be directory only, since nobody could enter it.',
     ]);
     expect(element().querySelector('.turned-on-by')).toBeNull();
+    // The button is not offered where a press could only be refused.
+    expect(element().querySelector('.make-directory-only')).toBeNull();
   });
 
   it('turning directory only off is a plain confirmation, and asks the server nothing first', async () => {

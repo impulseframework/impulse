@@ -595,6 +595,24 @@ describe('LoginMethodsComponent signs in with the password', () => {
       want: DEFAULT_LOGIN_MESSAGES['too_many_attempts'],
     },
   ];
+  it('tells a person a directory-only organization refused what is true of how they signed in', async () => {
+    // After a password: the organization does not sign in with one here.
+    const password = await pageOver(
+      server({ login: { status: 401, body: { message: 'Sign-in denied', code: 'directory_only' } } }),
+    );
+    await signIn(password, 'overseer', 'right');
+    expect(messageOf(password)).toBe(
+      'Your organization does not sign in with a password here. Please sign in the way your organization has set up.',
+    );
+    TestBed.resetTestingModule();
+    // After Google or Microsoft with a personal account: no password was used, so none is named.
+    const personal = await pageOver(server(), { code: 'directory_only_personal_account' });
+    expect(messageOf(personal)).toBe(
+      "Your organization admits only people who sign in with the account it gave them. Sign in with your organization's account, not a personal one.",
+    );
+    expect(messageOf(personal)).not.toContain('password');
+  });
+
   for (const tt of refusals) {
     it(tt.name, async () => {
       const page = await pageOver(server({ login: tt.answer }));
