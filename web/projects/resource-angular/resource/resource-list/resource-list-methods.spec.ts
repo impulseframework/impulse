@@ -332,7 +332,7 @@ describe('ResourceListComponent row methods', () => {
     warned.mockRestore();
 
     // What ran is still said: the notice is the application's to show, not the list's.
-    expect(notices).toEqual(['Rename person: done.']);
+    expect(notices).toEqual(['"Rename person" is done.']);
     // An output that is emitted after its component is destroyed warns in the console
     // (NG0953), and a list nobody sees has no rows to ask for.
     expect(warnings).toEqual([]);
@@ -488,6 +488,36 @@ describe('ResourceListComponent row methods', () => {
       'person_add Add a person',
       'Invite',
     ]);
+  });
+
+  it('draws that row as wide as the list under it and no wider: the indent of its title is inside its width', async () => {
+    await create({ primaryResource: people, title: 'People' });
+    const row = element().querySelector('.header-container') as HTMLElement;
+
+    // The row is indented, and as wide as what holds it: an indent added to that width
+    // put its far end 20 pixels past the list's.
+    expect(row.classList.contains('indent')).toBe(true);
+    expect(declared(row, ['.indent'])).toContain('padding-left: 20px');
+    const rule = declared(row, ['.header-container'], ['>']);
+    expect(rule).toContain('width: 100%');
+    expect(rule).toContain('box-sizing: border-box');
+  });
+
+  it('indents a notice as a box: the box moves in by the indent, and keeps the room it gives its icon and its words on every side', async () => {
+    await create({ primaryResource: people, title: 'People', notice: () => 'Two people are waiting to be let in.' });
+    const box = element().querySelector('.notice') as HTMLElement;
+
+    expect(box.querySelector('.notice-words')?.textContent).toBe('Two people are waiting to be let in.');
+    expect(box.classList.contains('indent')).toBe(true);
+    // The box keeps 12 pixels around what it holds, and its indent is outside its border.
+    // An indent written as the box's padding moves nothing: it only replaces that room on
+    // one side, which is what the rule for an indented row does to a box left to it.
+    expect(declared(box, ['.notice'], ['.indent', '.notice-'])).toContain('padding: 12px');
+    const indented = declared(box, ['.notice', '.indent']);
+    expect(indented).toContain('margin-left: 20px');
+    expect(indented).toContain('padding-left: 12px');
+    // As the page draws it, a later rule over an earlier one: 20 pixels in, 12 inside.
+    expect([getComputedStyle(box).marginLeft, getComputedStyle(box).paddingLeft]).toEqual(['20px', '12px']);
   });
 
   it("draws its title as the page's where the list is the page and as a section's where it is one of the things under a row, and lets it break where its line ends", async () => {

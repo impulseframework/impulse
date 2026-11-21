@@ -199,7 +199,7 @@ func (o Outlet) declareSessionMethods(a *app.App, site *app.Site, auth *app.Outl
 		ch.skipf("%s: %s holds no *%s.Handlers, so %s() is not declared; return the %s auth's session handlers from it (%s%sSession), which the generated router's Handlers requires", e.rel, appType, path.Base(auth.ImportPath), pascal, o.Auth, router, pascal)
 	default:
 		file.imports = append(file.imports, routerPath...)
-		file.declare(pascal+"()", fmt.Sprintf("\n// %[1]s returns the %[2]s outlet's session handlers (%[5]s%[1]sSession): the %[3]s auth's,\n// the auth the outlet binds to, whose people sign in under the outlet's prefix.\nfunc (a *%[6]s) %[1]s() %[5]s%[1]sSession {\n\tif a.%[4]s == nil {\n\t\treturn nil\n\t}\n\n\treturn a.%[4]s\n}\n", pascal, o.Name, o.Auth, holder, router, appType))
+		file.declare(pascal+"()", sessionAccessor(pascal, o.Name, o.Auth, holder, router))
 	}
 	if !slices.Contains(methods, pascal+"DeepLink") {
 		file.imports = append(file.imports, "net/http")
@@ -211,6 +211,14 @@ func (o Outlet) declareSessionMethods(a *app.App, site *app.Site, auth *app.Outl
 	}
 
 	return o.writeAppMethods(a, e, file, ch)
+}
+
+// sessionAccessor is the App's accessor of a session outlet's handlers as the command
+// writes it: the handlers of the auth the outlet binds to, read from the App's field
+// that holds them. impulse add outlet writes it for the auth the outlet is laid in with,
+// and impulse add auth writes it again for the auth it binds the outlet to.
+func sessionAccessor(pascal, outlet, auth, holder, router string) string {
+	return fmt.Sprintf("\n// %[1]s returns the %[2]s outlet's session handlers (%[5]s%[1]sSession): the %[3]s auth's,\n// the auth the outlet binds to, whose people sign in under the outlet's prefix.\nfunc (a *%[6]s) %[1]s() %[5]s%[1]sSession {\n\tif a.%[4]s == nil {\n\t\treturn nil\n\t}\n\n\treturn a.%[4]s\n}\n", pascal, outlet, auth, holder, router, appType)
 }
 
 // appMethods collects the methods an outlet asks of the App that the App lacks, for the

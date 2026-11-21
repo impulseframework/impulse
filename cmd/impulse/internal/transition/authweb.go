@@ -45,8 +45,8 @@ const (
 	webRewritten
 )
 
-// rebindWeb binds the browser application the outlet serves to the new auth, in the
-// sites layout: a site's browser application starts as a copy of the console's, bound to
+// rebindWeb binds the browser application the outlet serves to the new auth, in either
+// layout: an outlet's browser application starts as a copy of the console's, bound to
 // the console's auth, so its HttpClient echoes that auth's XSRF cookie, and its routes
 // may ask the library for the pages of that auth's management, which the API description
 // no longer carries once the outlet names another auth (the library refuses the request
@@ -54,12 +54,8 @@ const (
 // program generates the new auth's management: where it does the routes name the new
 // auth, and where it does not the pages are taken out. A file the skeleton rendered and
 // nobody edited is rendered again from the template for the new auth; a file edited since
-// is rewritten in place. The flat layout is left as it was: an additional outlet's
-// project there is the agent's, and the brief says what to name.
+// is rewritten in place.
 func (au Auth) rebindWeb(a *app.App, choice *OutletChoice, src *authSource, managed bool, ch *Change) error {
-	if a.Profile().Layout != app.LayoutSites {
-		return nil
-	}
 	for _, t := range outletTargets(choice.Site.Generator, &choice.Outlet) {
 		source, ok, err := projectSource(a, t)
 		if err != nil {
@@ -318,7 +314,7 @@ func (au Auth) reportAppConfig(rel, base string, outcome webOutcome, ch *Change)
 }
 
 // webPlan is the sentence the brief carries about the browser application, for the
-// Meaning: what the transition did in the sites layout, what is the agent's in the flat.
-func webPlan(outlet string) string {
-	return fmt.Sprintf("In the sites layout the site's browser application is rebound with the auth: its HttpClient names the auth's XSRF cookie, and its routes and its menu file ask the library for the pages of the auth's generated management by the auth's name (identityRoutes, identityMenuPages), or for none where the outlet's program generates no management of the auth; each file is rendered again from the skeleton's when nobody edited it and rewritten in place otherwise (the did lines say which), and the web-wired check holds the result. In the flat layout the %s outlet's project is yours to rebind the same way.", outlet)
+// Meaning: what the transition did to the outlet's project.
+func webPlan() string {
+	return "The outlet's browser application is rebound with the auth, in the flat layout and in the sites layout alike: its HttpClient names the auth's XSRF cookie, and its routes and its menu file ask the library for the pages of the auth's generated management by the auth's name (identityRoutes, identityMenuPages), or for none where the outlet's program generates no management of the auth; each file is rendered again from the skeleton's when nobody edited it and rewritten in place otherwise (the did lines say which), and the web-wired check holds the result."
 }

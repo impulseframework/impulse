@@ -98,10 +98,8 @@ var migratePieces = []piece{
 		after:  "\t\"strconv\"\n",
 	},
 	{
-		// The standard library's imports end at the blank line: what follows it is
-		// sorted by the application's module path, so it is no anchor.
 		before: "\t\"strconv\"\n",
-		after:  "\n\t\"",
+		after:  "\t\"time\"\n",
 	},
 	{
 		before: "\tretireSecret string\n",
@@ -126,7 +124,7 @@ var migratePieces = []piece{
 		without: " or the\n// migrations.\n",
 	},
 	{
-		before:  "\t\treturn retireSecret(ctx, o.retireSecret, out)\n",
+		before:  "\t\treturn retireSecret(ctx, settings, o.retireSecret, out)\n",
 		after:   "// report prints one line per migrations table",
 		without: "\t}\n\n\treturn migrate(ctx, settings, o.seed)\n}\n\n",
 	},

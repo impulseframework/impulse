@@ -55,6 +55,10 @@ func (capStubPermissions) Reaches(context.Context, accesstypes.Domain) (bool, er
 	return true, nil
 }
 
+func (capStubPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	return []accesstypes.Domain{}, nil
+}
+
 func (capStubPermissions) User() accesstypes.User { return "u1" }
 
 // TestQuerySet_stmt_capabilities pins the capability envelope's statement

@@ -7,6 +7,7 @@ import {
   narrowedFilter,
   optionColumns,
   optionDisplay,
+  pickerConsoleLine,
   PickerNarrowing,
   pickerNarrowing,
   PickerOption,
@@ -265,32 +266,75 @@ describe('withChosen', () => {
 });
 
 describe('pickerRefusal', () => {
-  const cases: { name: string; error: unknown; want: string | undefined }[] = [
-    { name: 'nothing while the picker works', error: undefined, want: undefined },
+  // What the server says, as it says it: of a request it will not serve, and of a read that failed.
+  const unserved = new ApiError('GET', '/api/berths', 400, {
+    message: 'Berths serves at most 50 rows per page and declares no order; add a sort',
+  });
+  const failed = new ApiError('GET', '/api/berths', 500, {
+    message: 'spanner: code = "Unavailable", desc = "the session pool is closed"',
+  });
+  const cases: {
+    name: string;
+    error: unknown;
+    read: 'list' | 'record';
+    showsId: boolean;
+    want: string | undefined;
+  }[] = [
+    { name: 'nothing while the picker works', error: undefined, read: 'list', showsId: true, want: undefined },
     {
       name: "a 403 is not said here: the picker says a sentence of its own for it, never the server's words",
       error: new ApiError('GET', '/api/sectors/anvil/client-rosters', 403, {
-        message: 'no List grant on ClientRosters',
+        message: 'scope (anvil), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [ClientRosters]',
       }),
+      read: 'list',
+      showsId: true,
       want: undefined,
     },
     {
-      name: 'a 400 says the server refused the request, in its words: the way out is on the struct or in the config',
-      error: new ApiError('GET', '/api/berths', 400, {
-        message: 'Berths serves at most 50 rows per page and declares no order; add a sort',
-      }),
-      want: "The server refused this picker's request: Berths serves at most 50 rows per page and declares no order; add a sort",
+      name: "a list the server would not serve is said in the picker's words, with what a form that is read shows for the value it holds",
+      error: unserved,
+      read: 'list',
+      showsId: true,
+      want: 'This list could not be loaded, so only the id is shown.',
     },
     {
-      name: 'any other failure is a plain sentence',
+      name: 'a list that failed, where the field shows no id (it is edited, or holds nothing), says nothing can be chosen',
+      error: failed,
+      read: 'list',
+      showsId: false,
+      want: 'This list could not be loaded, so nothing can be chosen here.',
+    },
+    {
+      name: 'a failure that is no answer of the server is said the same',
       error: new Error('network down'),
-      want: 'This picker could not be loaded: network down',
+      read: 'list',
+      showsId: true,
+      want: 'This list could not be loaded, so only the id is shown.',
+    },
+    {
+      name: 'the read of the row the field holds, where it failed, is said in words of its own',
+      error: failed,
+      read: 'record',
+      showsId: true,
+      want: 'This record could not be loaded, so only its id is shown.',
     },
   ];
 
+  it('says nothing of what the server said: no resource, page size, column or database of its message', () => {
+    const serverWords = /Berths|50 rows|declares no order|add a sort|spanner|Unavailable|session pool|network down/;
+    for (const tt of cases) {
+      expect(pickerRefusal(tt.error, tt.read, tt.showsId) ?? '').not.toMatch(serverWords);
+    }
+  });
+
+  it('names the resource and the read in the line it writes to the console before what the server said', () => {
+    expect(pickerConsoleLine('Berths', 'list')).toBe('Berths: the list a picker offers could not be loaded:');
+    expect(pickerConsoleLine('Berths', 'record')).toBe('Berths: the record a picker shows could not be loaded:');
+  });
+
   for (const tt of cases) {
     it(tt.name, () => {
-      expect(pickerRefusal(tt.error)).toBe(tt.want);
+      expect(pickerRefusal(tt.error, tt.read, tt.showsId)).toBe(tt.want);
     });
   }
 });

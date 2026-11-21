@@ -14,8 +14,8 @@ that start an application from one, and what `impulse audit` prints for it.
 - [How wide a Google or Microsoft sign-in can be opened](#how-wide-a-google-or-microsoft-sign-in-can-be-opened)
 - [Which sign-in methods each shape can use](#which-sign-in-methods-each-shape-can-use)
 - [Shapes and the impulse command](#shapes-and-the-impulse-command)
-- [In every shape](#in-every-shape): the email address on an account, the way back in, and
-  the mail an account gets
+- [In every shape](#in-every-shape): the email address on an account, the way back in, the
+  mail an account gets, and acting as someone else
 - [Without tenants](#without-tenants): shapes [1](#1-invite-only),
   [2](#2-directory-members), [3](#3-directory-roles) and [4](#4-open-sign-up)
 - [In every shape with tenants](#in-every-shape-with-tenants)
@@ -479,6 +479,97 @@ Nothing is mailed when an account is disabled or enabled, when a role ends by it
 a person leaves a tenant themselves, or when an administrator deletes the account
 outright.
 
+### Acting as someone else
+
+An application can let chosen people act as another person, or as a role: someone in
+support who looks at what a customer sees, or an administrator who stands in for a
+colleague. No shape adds this, and the commands write no page for it. The application
+names each kind of acting it offers, with the grant a person needs to start a session of
+that kind and the most such a session may do. That limit is the session's mask. The person
+who starts a session can ask for less than the kind gives, never for more.
+
+Where an application offers it, these things hold in every shape.
+
+- A session that acts as someone does what that person may do, less what its mask refuses.
+  A mask can keep reading only. It can refuse a class of actions, and there are two
+  classes in every application: the actions that change how a person signs in (a password
+  set or removed, a reset link sent, an address or a username changed), and the actions
+  that change what anyone may do (a role, a place in a group, an invitation, an account).
+  It can also refuse one action, or the writes of one record, by name. A kind that is
+  given no mask gives the people who hold its grant everything the person holds.
+- The sign-in settings this document describes are among the actions that change what
+  anyone may do: opening a sign-in method to sign-up or making it invite only, the switch
+  that lets people ask for their own reset link, opening a tenant to its directory or
+  making it invite only, and turning a tenant's directory only on or off. A session whose
+  mask refuses that class changes none of them.
+- Creating a tenant is among them too. A person who signed up creates their own tenant
+  with no grant, so a session that acts as such a person could create one in their name,
+  and the person acted as would be its first administrator. A session whose mask refuses
+  that class is refused, and nothing is created. A session with no mask creates the
+  tenant: the application gave that kind everything the person holds.
+- Nobody changes their own account while they act as someone else, whatever the mask. A
+  person who acts as an administrator cannot give their own account a role, a place in a
+  group, a password or an address, and cannot invite their own address. A person who acts
+  as a role cannot create a tenant, since they would become its administrator themselves.
+  The same holds for a row of the application's own that names them and decides what
+  they may do. They stop acting as the other person first.
+- The rule also sees a row of the application's own that reaches the person without
+  naming them. A pass given to a team they are in is refused, and so is their own team
+  moved to another division. This holds whatever the session's mask keeps, so a kind
+  that is allowed to give passes gives them to other people and other teams only.
+- The rule does not see a role given to a group they are in: a session whose mask does
+  not refuse that class of actions can give one. This is a stated limit of the rule. An
+  application closes it through the mask of the kind: a kind that is not to change what
+  anyone may do refuses that class of actions.
+- A row removed with its parent, which may name the person, is a stated limit of its
+  own. A pass is removed when the place it opens is deleted. No write of the pass is
+  made, so neither the rule nor a mask that refuses the writes of passes is asked. An
+  application closes it in the mask of the kind, by refusing everything that removes a
+  record above the row: the delete of the parent record; the delete of each record
+  above that one, as far as the database carries a delete down (deleting the site
+  removes the place, and the pass with it); and any action that removes one of them
+  itself. On PostgreSQL a foreign key can also change the row where it stands, when the
+  parent is deleted (`ON DELETE SET NULL`, `ON DELETE SET DEFAULT`) or when the parent's
+  key is changed (`ON UPDATE CASCADE`). The application then refuses the parent's delete
+  and the change of that key as well.
+- A column that records who made a row is another stated limit. Where what a person may
+  do with a row depends on that column (the person who booked a job may cancel it), the
+  row names a person and decides what they may do, and the rule does not read the
+  column. While the application fills the column in from the session and nobody can
+  write it, no row that exists is moved onto the real person, and a row made while
+  acting as a person carries that person. A row made while acting as a role carries the
+  real person, because a role is not anyone. After the session they hold what the row's
+  author holds, for a row that was made with the role's powers. An application that
+  does not want that refuses creating the record in the mask of the kind that acts as a
+  role, or fills the column in with nobody in such a session. Where people can write
+  the column, the application refuses the writes of that record in the mask of the
+  kind.
+- Disabling, enabling and deleting an account are not in that class. A person who acts
+  as an administrator does them as the administrator would, on anyone's account but
+  their own. The rule knows the person by the account they signed in with. If they have
+  a second account, the rule does not see that it is theirs, so they can enable it again
+  while they act as an administrator. An application that must stop this refuses those
+  three actions by name in the mask of the kind.
+- A session that acts as someone is started through the kinds the application named.
+  Through the library's API there is no other way: the application's own code cannot
+  write one into the session store around them. A store the application wraps does not
+  decide one either. The library reads who started it, whom it acts as, what its mask
+  keeps and whether it has ended from its own store, and never asks the wrapper. The
+  wrapper still answers for an ordinary session, as the session the request's cookie
+  names and no other: an answer that is another person's session is refused, so nobody
+  starts a session that acts as someone under another person's name. The writes that
+  end a session that acts as someone pass through the wrapper. The application owns its tables, so SQL of its
+  own can write any row, and the library does not see that. This includes the
+  function an application registers to fill in its own session data, which the library
+  calls with the request inside the transaction that writes the session. It includes
+  the connection to the database too, which the application hands the library: a
+  wrapper around a PostgreSQL connection, or an interceptor on a Spanner client, sees
+  what the library writes and could change it on the way.
+- Whom a session that acts as someone acts as is decided by the kind and by nothing
+  else. An application can register a function that chooses whom an ordinary session
+  is checked as (a service that acts as a role, for example). That function is never
+  asked about a session that acts as someone.
+
 ## Without tenants
 
 An auth's users are one set for the whole application: they are not divided among
@@ -657,7 +748,7 @@ no first administrator is invited.
 
 The application still sends mail, though it invites nobody. Through Microsoft, each
 person's first sign-in stops for a code mailed to the address they give, as
-[The email address on an account](#the-email-address-on-an-account) says. Through either
+[The email address on an account](#the-email-address-on-an-account) says. Through any
 directory, a sign-in that carries no second factor of the directory's own stops for a
 code mailed to the person's address. So each deployed environment needs its mailbox,
 although no release asks for one: without it the code is written to the server's log,
@@ -693,8 +784,21 @@ impulse new ./fleet --module example.com/fleet --auth staff --shape directory-ro
   value of the method's setting, and each deployment names its own.
 - The command asks for the directory and the organization when a flag is missing. Where
   nobody is there to answer, it refuses and names the flag.
-- Another identity provider's directory is not a start of `impulse new`: it is an auth of
-  its own, added with `impulse add auth`, as below.
+
+It starts from another identity provider in the same way:
+
+```sh
+impulse new ./fleet --module example.com/fleet --auth staff --shape directory-roles --method oidc:okta --organization https://id.fleet.example
+```
+
+- `--method oidc:okta` names the directory as another identity provider's and registers
+  its method under the name `okta`. This kind always takes a name: the application's word
+  for the provider.
+- `--organization https://id.fleet.example` names the provider by its issuer, which is an
+  `https` URL with no query or fragment. The command checks it before it writes anything,
+  and refuses an issuer that is not one, as it refuses a missing one where nobody is there
+  to answer. It is written as the development value of the setting
+  `APP_<AUTH>_<METHOD>_ISSUER`, and each deployment names its own.
 
 A development run of such an application signs a person in through a simulated
 directory: the person the setting `APP_USERNAME` names, with the roles the setting
@@ -858,7 +962,11 @@ administrator. This works while an administrator has a sign-in method open to si
 the auth's Sign-in page. In an application with tenants, opening a method names no default
 role: a person who signs up holds no tenant, and the application offers to let them
 create one. A person who already has a tenant creates no second one this way, in any
-shape.
+shape. Every tenant the person is in counts, also one the session cannot enter: a tenant
+that is directory only when the person signed in another way, and a tenant that the mask
+hides from a session that acts as the person. A session that acts as someone else
+creates one only where its mask allows, as
+[Acting as someone else](#acting-as-someone-else) describes.
 
 Whether its tenants are made by invitation, by sign-up or both does not change an
 application's shape. With tenants, a shape's name says how a tenant's people come to the

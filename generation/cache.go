@@ -19,10 +19,10 @@ const (
 	genCacheSuffix string = ".gen"
 	// tableMapCache is versioned: the table map gained its index composition (v2), each
 	// column's declared type (v3), each table's parent and delete action with each
-	// foreign key's delete rule (v4), and each column's generation expression with each
-	// index's search kind (v5), and a cache an earlier generator wrote would load
-	// without them under the same schema hash.
-	tableMapCache  string = "tablemap-v5" + genCacheSuffix
+	// foreign key's delete rule (v4), each column's generation expression with each
+	// index's search kind (v5), and each table's foreign keys whole (v6), and a cache an
+	// earlier generator wrote would load without them under the same schema hash.
+	tableMapCache  string = "tablemap-v6" + genCacheSuffix
 	enumValueCache string = "enumvalues" + genCacheSuffix
 
 	// latestEmulatorVersion is the emulator's moving tag: a generator may name it, and

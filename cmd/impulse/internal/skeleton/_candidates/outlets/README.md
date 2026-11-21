@@ -298,6 +298,10 @@ generated router test proves the route sits behind the token check.
   and `-force <n>` and `-force-data <n>` set a table to a version (-1 for no version), for
   the states the migration runner refuses to guess at; the pipeline passes them from the
   operations workflow (`bedrock migration`), and none of them applies a migration.
+  Every run but those opens the application's data and gives the database one minute to
+  answer: a database that has not answered by then, as one that does not exist never does,
+  stops the run with one sentence that names the database and its instance, and a non-zero
+  exit.
   `-retire-secret APP_SECRET_KEY_1` retires a version of the application secret: it writes
   every stored secret field that names the version again under the current one, confirms
   none is left and exits 0 only then, so the deployment disables the version only when no

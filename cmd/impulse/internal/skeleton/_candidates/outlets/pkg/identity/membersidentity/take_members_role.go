@@ -30,6 +30,7 @@ import (
 // @rpc
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type TakeMembersRole struct {
 	// Domain is the tenant the role is taken in.
 	Domain string `validate:"required"`

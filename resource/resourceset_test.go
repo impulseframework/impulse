@@ -336,8 +336,7 @@ func (Organization) DefaultConfig() Config {
 }
 
 var defaultConfig = Config{
-	ChangeTrackingTable: "DataChangeEvents",
-	TrackChanges:        true,
+	TrackChanges: true,
 }
 
 func BenchmarkNewMetadata(b *testing.B) {

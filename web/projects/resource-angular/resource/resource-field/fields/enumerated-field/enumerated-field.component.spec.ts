@@ -172,6 +172,14 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   const alsoSealedWing = 'w-sealed-too';
   /** A wing whose read fails for a reason that is no permission's. */
   const brokenWing = 'w-broken';
+  // What the server says of a read it refuses, as it says it (the scope, the person's id,
+  // the permission and the resource), and of one that failed. None of it is for the screen:
+  // it is written to the console, once, for whoever looks into it.
+  const readRefusal = 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (Read) on [Wings]';
+  const listRefusal = 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [Wings]';
+  const failure = 'spanner: code = "Unavailable", desc = "the session pool is closed"';
+  const serverWords =
+    /scope \(|user \(|3f2a9c1e|does not have|\((Read|List)\)|\[Wings\]|spanner|Unavailable|session pool/;
   const closedSource = 'You do not have access to this list, so only the id is shown.';
   const nothingToChoose = 'You do not have access to this list, so nothing can be chosen here.';
   const closedRecord = 'You do not have access to this record, so only its id is shown.';
@@ -182,6 +190,14 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   let digest: PermissionDigest;
   /** Whether the server refuses the list of wings as not permitted. */
   let listRefused: boolean;
+  /** Whether the list of wings fails, for a reason that is no permission's. */
+  let listFails: boolean;
+  let consoleError: ReturnType<typeof vi.spyOn>;
+  /** What was written to the console: each line's words, and the server's own message of the error written with it. */
+  const written = (): string[] =>
+    consoleError.mock.calls.map(
+      ([words, error]: unknown[]) => `${String(words)} ${error instanceof Error ? error.message : ''}`,
+    );
 
   const server = (request: TransportRequest): TransportResponse => {
     const path = request.url.split('?')[0];
@@ -193,14 +209,17 @@ describe('EnumeratedFieldComponent over a paged source', () => {
       return { status: 200, body: wingRows[key] };
     }
     if (key === sealedWing || key === alsoSealedWing) {
-      return { status: 403, body: { message: 'you may not read Wings here' } };
+      return { status: 403, body: { message: readRefusal } };
     }
     if (key === brokenWing) {
-      return { status: 500, body: { message: 'the database is away' } };
+      return { status: 500, body: { message: failure } };
+    }
+    if (path === '/api/wings' && listFails) {
+      return { status: 500, body: { message: failure } };
     }
     if (path === '/api/wings') {
       return listRefused
-        ? { status: 403, body: { message: 'you may not list Wings here' } }
+        ? { status: 403, body: { message: listRefusal } }
         : { status: 200, body: Object.values(wingRows), headers: { 'total-count': '2' } };
     }
     return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
@@ -243,6 +262,8 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   beforeEach(async () => {
     digest = {};
     listRefused = false;
+    listFails = false;
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     transport = scriptedTransport(server);
     await TestBed.configureTestingModule({
       imports: [EnumeratedFieldComponent],
@@ -272,6 +293,10 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     fixture.componentRef.setInput('form', formOver('w-1'));
     fixture.detectChanges();
     await settle();
+  });
+
+  afterEach(() => {
+    consoleError.mockRestore();
   });
 
   it('reads the chosen row once at load and shows its display', () => {
@@ -329,7 +354,7 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     expect(readOnly()).toBe(sealedWing);
     expect(text()).toContain(closedRecord);
     // Never the server's words, which name the permission and the resource.
-    expect(text()).not.toContain('you may not read Wings here');
+    expect(text()).not.toMatch(serverWords);
     expect(text()).not.toContain('not available to you');
 
     fixture.componentRef.setInput('editMode', 'edit');
@@ -343,7 +368,7 @@ describe('EnumeratedFieldComponent over a paged source', () => {
       'w-2',
     ]);
     expect(text()).toContain(closedRecord);
-    expect(text()).not.toContain('you may not read Wings here');
+    expect(text()).not.toMatch(serverWords);
     // Nothing more is asked for that value, and leaving the field alone keeps it.
     fixture.componentRef.setInput('editMode', 'view');
     await settle();
@@ -493,7 +518,7 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     expect(picks()).toBe(false);
     expect(readOnly()).toBe('w-1');
     expect(text()).toContain(closedSource);
-    expect(text()).not.toContain('you may not list Wings here');
+    expect(text()).not.toMatch(serverWords);
 
     fixture.componentRef.setInput('editMode', 'view');
     await settle();
@@ -507,19 +532,70 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     expect(form.dirty).toBe(false);
   });
 
-  // A failure that is no permission's keeps the words the picker always had for it.
-  it('says a failed read that is no refusal of permission in the words it always had, and stays a picker', async () => {
+  // A failure that is no permission's is said in the picker's own words too: what the
+  // server said of it goes to the console, once, and none of it to the screen.
+  it('says a failed read that is no refusal of permission in words of its own, writes what the server said to the console, and stays a picker', async () => {
     fixture.componentRef.setInput('form', formOver(brokenWing));
     await settle();
 
     expect(readOnly()).toBe(brokenWing);
-    expect(text()).toContain('This picker could not be loaded: the database is away');
+    expect(text()).toContain('This record could not be loaded, so only its id is shown.');
     expect(text()).not.toContain('You do not have access');
+    expect(text()).not.toMatch(serverWords);
+    fixture.detectChanges();
+    await settle();
+    expect(written()).toEqual([`Wings: the record a picker shows could not be loaded: ${failure}`]);
 
     fixture.componentRef.setInput('editMode', 'edit');
     await settle();
     expect(picks()).toBe(true);
     expect(wingLists()).toBe(1);
+    expect(text()).not.toMatch(serverWords);
+    // The list was read meanwhile: the record's failure, still there, is not written again.
+    expect(written()).toEqual([`Wings: the record a picker shows could not be loaded: ${failure}`]);
+  });
+
+  it('writes each failure once, though the other read of the picker fails after it', async () => {
+    listFails = true;
+    fixture.componentRef.setInput('form', formOver(brokenWing));
+    await settle();
+    expect(written()).toEqual([`Wings: the record a picker shows could not be loaded: ${failure}`]);
+
+    // The field is edited: the list is asked for now, and fails too.
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(wingLists()).toBe(1);
+    expect(written()).toEqual([
+      `Wings: the record a picker shows could not be loaded: ${failure}`,
+      `Wings: the list a picker offers could not be loaded: ${failure}`,
+    ]);
+    expect(text()).not.toMatch(serverWords);
+  });
+
+  it('says a list of options that failed in words of its own, as a picker with nothing to choose from, and writes what the server said to the console', async () => {
+    listFails = true;
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+
+    // The picker is drawn, over the row the field holds: it shows no id, and offers nothing.
+    expect(picks()).toBe(true);
+    expect(text()).toContain('This list could not be loaded, so nothing can be chosen here.');
+    expect(text()).not.toContain('id is shown');
+    expect(text()).not.toContain('You do not have access');
+    expect(text()).not.toMatch(serverWords);
+    expect(written()).toEqual([`Wings: the list a picker offers could not be loaded: ${failure}`]);
+  });
+
+  it('writes what the server said of a read it refused to the console, once, and none of it to the screen', async () => {
+    fixture.componentRef.setInput('form', formOver(sealedWing));
+    await settle();
+
+    expect(readOnly()).toBe(sealedWing);
+    expect(text()).toContain(closedRecord);
+    expect(text()).not.toMatch(serverWords);
+    fixture.detectChanges();
+    await settle();
+    expect(written()).toEqual([`Wings: the record a picker shows could not be loaded: ${readRefusal}`]);
   });
 });
 
@@ -570,11 +646,28 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
     [piers]: { route: 'piers', fields: [idField, nameField] },
   };
   const closedSource = 'You do not have access to this list, so only the id is shown.';
+  const failedSource = 'This list could not be loaded, so only the id is shown.';
+  // What the server says of a list it refuses as not permitted, of one it will not serve
+  // the way it was asked for, and of one that failed, each as the server says it. None of
+  // it is for the screen: it is written to the console, once, for whoever looks into it.
+  const said: Record<number, string> = {
+    403: 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [Docks]',
+    400: 'Docks serves at most 50 rows per page and declares no order; add a sort',
+    500: 'spanner: code = "Unavailable", desc = "the session pool is closed"',
+  };
+  const serverWords =
+    /scope \(|user \(|3f2a9c1e|does not have|\(List\)|\[Docks\]|50 rows|declares no order|add a sort|spanner|Unavailable|session pool/;
 
   let fixture: ComponentFixture<EnumeratedFieldComponent>;
   let transport: ScriptedTransport;
   let digest: PermissionDigest;
   let listStatus: number;
+  let consoleError: ReturnType<typeof vi.spyOn>;
+  /** What was written to the console: each line's words, and the server's own message of the error written with it. */
+  const written = (): string[] =>
+    consoleError.mock.calls.map(
+      ([words, error]: unknown[]) => `${String(words)} ${error instanceof Error ? error.message : ''}`,
+    );
 
   const server = (request: TransportRequest): TransportResponse => {
     const path = request.url.split('?')[0];
@@ -584,7 +677,7 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
     if (path === '/api/docks' || path === '/api/piers') {
       return listStatus === 200
         ? { status: 200, body: [{ id: 'd-1', name: 'North Dock' }] }
-        : { status: listStatus, body: { message: 'the server said no in words of its own' } };
+        : { status: listStatus, body: { message: said[listStatus] } };
     }
     return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
   };
@@ -602,10 +695,10 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
   const readOnly = (): string | undefined => element().querySelector<HTMLInputElement>('input[readonly]')?.value;
   const picks = (): boolean => element().querySelector('mat-select') !== null;
 
-  /** Draws the field over the stored key, as a form that is read or edited. */
-  const draw = async (source: FieldMeta, mode: 'view' | 'edit'): Promise<FormGroup> => {
+  /** Draws the field over the stored key, or over nothing, as a form that is read or edited. */
+  const draw = async (source: FieldMeta, mode: 'view' | 'edit', stored: string | null = 'd-1'): Promise<FormGroup> => {
     const name = source.fieldName as FieldName;
-    const form = new FormGroup({ [name]: new FormControl<string | null>('d-1') });
+    const form = new FormGroup({ [name]: new FormControl<string | null>(stored) });
     fixture = TestBed.createComponent(EnumeratedFieldComponent);
     fixture.componentRef.setInput('meta', metas[hangars]);
     fixture.componentRef.setInput('fieldMeta', source);
@@ -628,6 +721,7 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
   beforeEach(async () => {
     digest = {};
     listStatus = 200;
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     transport = scriptedTransport(server);
     await TestBed.configureTestingModule({
       imports: [EnumeratedFieldComponent],
@@ -640,6 +734,10 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
         ResourceStore,
       ],
     }).compileComponents();
+  });
+
+  afterEach(() => {
+    consoleError.mockRestore();
   });
 
   it('lists the source and shows the name where nothing says the person may not', async () => {
@@ -674,22 +772,55 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
     expect(picks()).toBe(false);
     expect(readOnly()).toBe('d-1');
     expect(text()).toContain(closedSource);
-    expect(text()).not.toContain('the server said no in words of its own');
+    expect(text()).not.toMatch(serverWords);
 
     fixture.componentRef.setInput('editMode', 'view');
     await settle();
     fixture.componentRef.setInput('editMode', 'edit');
     await settle();
     expect(lists('docks')).toBe(1);
+    // What the server said is in the console, once, for whoever looks into it.
+    expect(written()).toEqual([`Docks: the list a picker offers could not be loaded: ${said[403]}`]);
   });
 
-  it('says a list that failed for another reason in the words it always had', async () => {
+  it('says a list that failed for another reason in words of its own, with what the field shows, and writes what the server said to the console', async () => {
     listStatus = 500;
     await draw(dockField, 'view');
 
     expect(readOnly()).toBe('d-1');
-    expect(text()).toContain('This picker could not be loaded: the server said no in words of its own');
+    expect(text()).toContain(failedSource);
     expect(text()).not.toContain('You do not have access');
+    expect(text()).not.toMatch(serverWords);
+    expect(written()).toEqual([`Docks: the list a picker offers could not be loaded: ${said[500]}`]);
+  });
+
+  it('says the same of a list the server will not serve the way the picker asked for it', async () => {
+    listStatus = 400;
+    await draw(dockField, 'view');
+
+    expect(readOnly()).toBe('d-1');
+    expect(text()).toContain(failedSource);
+    expect(text()).not.toMatch(serverWords);
+    expect(written()).toEqual([`Docks: the list a picker offers could not be loaded: ${said[400]}`]);
+  });
+
+  it('says that nothing can be chosen where the field is edited: the picker is drawn there, and shows no id', async () => {
+    listStatus = 500;
+    await draw(dockField, 'edit');
+
+    expect(picks()).toBe(true);
+    expect(text()).toContain('This list could not be loaded, so nothing can be chosen here.');
+    expect(text()).not.toContain('id is shown');
+    expect(text()).not.toMatch(serverWords);
+  });
+
+  it('says the same where the form is read and the field holds nothing: there is no id to show', async () => {
+    listStatus = 500;
+    await draw(dockField, 'view', null);
+
+    expect(text()).toContain('This list could not be loaded, so nothing can be chosen here.');
+    expect(text()).not.toContain('id is shown');
+    expect(text()).not.toMatch(serverWords);
   });
 
   it('asks a source the generated API does not describe, whatever the digest holds: the digest has no word of it', async () => {

@@ -554,6 +554,32 @@ func newAccessClient(t *testing.T, db *initiator.SpannerDB, roles access.RoleFil
 	return client
 }
 
+// engineThatChecksNoName opens an engine over the crew's store that was told nothing of
+// what the release declares: no role file and no permission collection, so its user
+// manager checks no name and writes a role any grant the store can hold. The release's
+// own engine refuses to write a role a grant the release does not declare, so a test
+// that needs one in the store writes it through this engine, as a release that declared
+// the name would have left it there. The engine is closed when the test ends.
+func engineThatChecksNoName(t *testing.T, db *initiator.SpannerDB) *access.Client {
+	t.Helper()
+
+	store, err := spannerstore.New(db.Client, spannerstore.WithPrefix(crew.TablePrefix))
+	if err != nil {
+		t.Fatalf("spannerstore.New() error = %v", err)
+	}
+	client, err := access.New(store)
+	if err != nil {
+		t.Fatalf("access.New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("access.Client.Close() error = %v", err)
+		}
+	})
+
+	return client
+}
+
 // demoWorld prepares a fresh seeded database and the application over it, with the shared
 // provisioned engines, for suites that MUTATE the seeded rows. Read-only suites use
 // sharedWorld instead.

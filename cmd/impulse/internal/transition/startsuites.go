@@ -16,7 +16,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"text/template"
+
+	// The templates render the tests of an application, Go and TypeScript source files and
+	// never HTML, so text/template is the right package.
+	"text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template.import-text-template
 
 	"github.com/go-playground/errors/v5"
 
@@ -84,8 +87,11 @@ type suiteData struct {
 	// gives the roles, Field its name as the auth's Settings carry it, and Upper its name
 	// as the simulated directory's variables carry it (APP_<Upper>_USERNAME).
 	Method, Field, Upper string
-	// Google reports that method a Google one; it is a Microsoft one otherwise.
-	Google bool
+	// Google reports that method a Google one and Provider another identity provider's
+	// (oidc); it is a Microsoft one otherwise. Kind is the method's kind as the methods
+	// route names it, and Label the words the login page shows for it.
+	Google, Provider bool
+	Kind, Label      string
 	// Record is the tenant record of an application with tenants, OneTenant whether a
 	// person belongs to one tenant, Directories whether a tenant can have a directory of
 	// its own, and North the id the development seed gives its first tenant.
@@ -136,7 +142,10 @@ func (d *DirectoryStart) suiteSet() (set string, data *suiteData, removed []remo
 	case d.syncsRoles():
 		m := d.methods()[0]
 
-		return directoryRolesSuites, &suiteData{Method: m.Name, Field: m.Pascal(), Upper: m.Upper(), Google: m.Kind == app.MethodGoogle}, directoryRolesRemoved
+		return directoryRolesSuites, &suiteData{
+			Method: m.Name, Field: m.Pascal(), Upper: m.Upper(),
+			Google: m.Kind == app.MethodGoogle, Provider: m.Kind == app.MethodOIDC, Kind: m.Kind, Label: methodLabel(&m),
+		}, directoryRolesRemoved
 	case d.persona() && d.Tenants != nil && !d.Tenants.NoDirectories:
 		return byDirectorySuites, &suiteData{Record: d.Tenants.Record(), OneTenant: d.Tenants.OneTenantPerPerson, Directories: true, North: devTenantNorth}, byDirectoryRemoved
 	}
@@ -317,6 +326,8 @@ func methodLabel(m *authpkg.Method) string {
 		return "Microsoft"
 	case app.MethodPersona:
 		return "Persona"
+	case app.MethodOIDC:
+		return m.Words()
 	}
 
 	return m.Name
@@ -544,8 +555,8 @@ func (d *DirectoryStart) derivedMigrateTest(src []byte) ([]byte, error) {
 
 // methodEnvironment is the lines that give a test's process the settings of the start's
 // one method that its registration validates, as a deployment's environment does: the
-// one organization, the callback and, where the directory's groups carry the roles,
-// their prefix.
+// one organization (another identity provider's is its issuer), the callback and, where
+// the directory's groups carry the roles, their prefix.
 func (d *DirectoryStart) methodEnvironment(m *authpkg.Method) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\t// The %s auth's %s registration validates its settings as the data level\n\t// opens, so the run names them, as a deployment's environment does.\n", d.Auth, m.Name)
@@ -558,6 +569,8 @@ func (d *DirectoryStart) methodEnvironment(m *authpkg.Method) string {
 			value = "fleet.example"
 		case authpkg.FieldTenantID:
 			value = "5b6c1f0e-2d7a-4c3b-9e8f-1a2b3c4d5e6f"
+		case authpkg.FieldIssuer:
+			value = "https://id.fleet.example"
 		case authpkg.FieldRedirectURL:
 			value = "http://solo.test/api/user/" + m.Name + "/callback"
 		case authpkg.FieldGroupPrefix:

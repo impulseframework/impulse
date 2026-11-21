@@ -30,6 +30,7 @@ type (
 	// @rpc
 	// @permissionScope(domain)
 	// @outlet(default)
+	// @class(access)
 	InviteStaffTenantUser struct {
 		Email string `validate:"required"`
 		Name  *string

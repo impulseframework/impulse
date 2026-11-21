@@ -7,6 +7,8 @@
   <p>
     The sector's wings and squadrons, and who flies with whom. Headquarters and the Marshal may also see the console as
     another crew member does, read-only, or act as a role: the role lends what it may do, never anyone's identity.
+    Whoever holds the stand-in role may act as a crew member too: everything that person may do, except change how
+    anyone signs in.
   </p>
 
   @if (sectors.saidBy(squadrons); as said) {
@@ -41,19 +43,22 @@
     </mat-card>
   }
 
-  @if ((canViewAs() || canAssumeRole()) && !alreadyImpersonating()) {
+  @if ((canViewAs() || canActAs() || canAssumeRole()) && !alreadyImpersonating()) {
     <mat-card appearance="outlined" class="impersonation-card">
       <mat-card-header>
         <mat-card-title>Viewing as, acting as</mat-card-title>
         <mat-card-subtitle>
-          While you view as someone or act as a role, that session takes the place of yours: end it from the banner. You
-          cannot start another from inside one.
+          While you view as someone, act as someone or act as a role, that session takes the place of yours: end it from
+          the banner. You cannot start another from inside one.
         </mat-card-subtitle>
       </mat-card-header>
       <mat-card-content>
         <div class="actions">
           @if (canViewAs() && people.value().length) {
             <button mat-stroked-button type="button" class="view-as" (click)="open(viewAsForm)">View as</button>
+          }
+          @if (canActAs() && people.value().length) {
+            <button mat-stroked-button type="button" class="act-as" (click)="open(actAsForm)">Act as</button>
           }
           @if (canAssumeRole()) {
             <button mat-stroked-button type="button" class="assume-role" (click)="open(assumeRoleForm)">
@@ -67,7 +72,7 @@
 }
 
 <!--
-  The two pickers. Each opens in a dialog over the page from the button that names it:
+  The three pickers. Each opens in a dialog over the page from the button that names it:
   the title and the button that mints are that button's words, Cancel and Escape close it
   with nothing minted, and what the server refuses is shown in the dialog.
 -->
@@ -91,6 +96,30 @@
     <mat-dialog-actions align="end">
       <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
       <button mat-raised-button type="submit" color="accent" class="send">View as</button>
+    </mat-dialog-actions>
+  </form>
+</ng-template>
+
+<ng-template #actAsForm>
+  <div mat-dialog-title>Act as</div>
+  <form class="dialog-form" (ngSubmit)="actAs()">
+    <mat-dialog-content>
+      <p class="hint">You do what that crew member may do, except change how anyone signs in or who may do what.</p>
+      <mat-form-field appearance="outline">
+        <mat-label>Crew member</mat-label>
+        <mat-select name="actAs" [(ngModel)]="actAsUserId" required>
+          @for (person of people.value(); track person.id) {
+            <mat-option [value]="person.id">{{ personLabel(person) }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      @if (refusal(); as refusal) {
+        <p class="refusal" role="alert">{{ refusal }}</p>
+      }
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+      <button mat-raised-button type="submit" color="accent" class="send">Act as</button>
     </mat-dialog-actions>
   </form>
 </ng-template>

@@ -23,6 +23,7 @@ type (
 	//
 	// @rpc
 	// @outlet(portal)
+	// @class(access)
 	CreateMembersGroup struct {
 		Name        string `validate:"required"`
 		Description string `validate:"required"`

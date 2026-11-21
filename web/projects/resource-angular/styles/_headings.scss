@@ -53,6 +53,15 @@
   }
 }
 
+/// A heading row that stays at the top of what scrolls, where the application turns sticky
+/// headers on, is drawn on the surface the page sits on: what scrolls under it is covered,
+/// and never shows through its title or its buttons. One rule for every such row, so the
+/// title row of a list, the title row a page draws itself, the heading row of a row's view
+/// and that of a create form are covered alike.
+@mixin covers {
+  background-color: var(--impulse-surface);
+}
+
 /// The row a title shares with what the page offers beside it. The title comes first, and
 /// the parts after it share the rest of its line as they always have, the last of them at
 /// the far end: beside the title while they fit one line, which is the row as it always

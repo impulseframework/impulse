@@ -226,7 +226,7 @@ func Test_tenantMakerData(t *testing.T) {
 		{
 			name:    "a record whose auth's roles a directory writes is made by no invitation",
 			structs: []string{"Citadel"},
-			mutate:  func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth("example.com/app/pkg/auth/staff") },
+			mutate:  func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth() },
 		},
 		{
 			name:    "the fields an invitation carries: no key, no secret, no write-only field, none the server owns",

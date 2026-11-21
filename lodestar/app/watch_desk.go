@@ -18,24 +18,36 @@ import (
 // desk's revoke route.
 const ImpersonationID httpio.ParamType = "impersonationID"
 
-// activeImpersonation is one live view-as or act-as-role session as the watch desk lists
-// it: who established it, as whom, why, and when it expires. Both people are named by
-// username, which is what a person reads: Principal is the role's name, or the username
-// of the person viewed as, never the id of the account the record names them by.
+// What a watch desk entry's session acts as: a person or a role.
+const (
+	principalUser = "user"
+	principalRole = "role"
+)
+
+// activeImpersonation is one live impersonated session as the watch desk lists it: who
+// established it, as whom, what it may do, why, and when it expires. Both people are
+// named by username, which is what a person reads: Principal is the role's name, or the
+// username of the person the session acts as, never the id of the account the record
+// names them by. Mask is the session's mask in words, as the library says it
+// (accesstypes.PermissionMask.Words): "reading only" for a session that views,
+// "everything except access actions, credential actions, ..." and each write the act
+// kind refuses by name for one that acts as a person (impersonationKinds), "everything"
+// for one with no mask, which holds all its principal holds.
 type activeImpersonation struct {
 	SessionID impulse.UUID `json:"sessionId"`
 	Actor     string       `json:"actor"`
 	Principal string       `json:"principal"`
 	Kind      string       `json:"kind"`
+	Mask      string       `json:"mask"`
 	Reason    string       `json:"reason"`
 	StartedAt time.Time    `json:"startedAt"`
 	ExpiresAt time.Time    `json:"expiresAt"`
 }
 
 // ActiveImpersonations lists every live impersonated session in the service for the
-// Governor's watch desk. Its gate is the same manual Execute registration the mint route
-// checks (resources.ViewAsUser): whoever may establish a view-as session may see the
-// live ones.
+// Governor's watch desk, each with its mask in words. Its gate is the same manual
+// Execute registration the mint route checks for a view (resources.ViewAsUser): whoever
+// may establish a view-as session may see the live ones.
 //
 // Demonstrates: impersonation.active-list.
 func (a *App) ActiveImpersonations() http.HandlerFunc {
@@ -108,12 +120,13 @@ func (a *App) describe(ctx context.Context, imp *sessioninfo.Impersonation) (act
 	out := activeImpersonation{
 		SessionID: imp.SessionID,
 		Actor:     imp.Actor,
+		Mask:      imp.Mask.Words(),
 		Reason:    imp.Reason,
 		StartedAt: imp.StartedAt,
 		ExpiresAt: imp.ExpiresAt,
 	}
 	if role, ok := imp.Principal.Role(); ok {
-		out.Kind, out.Principal = kindRole, string(role)
+		out.Kind, out.Principal = principalRole, string(role)
 
 		return out, nil
 	}
@@ -121,7 +134,7 @@ func (a *App) describe(ctx context.Context, imp *sessioninfo.Impersonation) (act
 	if !ok {
 		return out, nil
 	}
-	out.Kind = kindUser
+	out.Kind = principalUser
 	id, err := impulse.UUIDFromString(string(user))
 	if err != nil {
 		return out, errors.Wrapf(err, "the impersonation record of session %s names a user who is no account", imp.SessionID)

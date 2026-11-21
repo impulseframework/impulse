@@ -3,9 +3,10 @@ import { ListViewConfig } from '@impulseframework/resource-angular/types';
 
 // A list page across tenants (ListViewConfigOptions.acrossTenants): the parts that are
 // plain functions. The page lists a resource declared for it (`@listAcrossTenants`) in
-// every tenant the person reaches; each row carries its tenant, the table names it in a
-// first column, and a row's link opens the row itself inside that tenant: the record's
-// own row route there, drawn where the person may read the record in that tenant.
+// every tenant the person reaches; each row carries its tenant, the table names it in
+// its second column, after the column that names the row, and a row's link opens the row
+// itself inside that tenant: the record's own row route there, drawn where the person may
+// read the record in that tenant.
 
 /**
  * The display-row key a row's own link rides under on a list across tenants. A generated

@@ -37,7 +37,13 @@
   @include headings.row;
   top: 0;
   z-index: 11;
-  background: transparent;
+}
+
+// The heading row of a view drawn on the page itself covers what scrolls under it where it
+// stays at the top, as the title row of a list does. The row of a view folded into a panel
+// sits on the panel, and is left as the panel draws it.
+.show-background {
+  @include headings.covers;
 }
 
 // The page's title, which the page hands the view to draw here: where the page drew it

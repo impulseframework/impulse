@@ -61,6 +61,9 @@ func (a *authoredApplication) read(t *testing.T, rel string) string {
 // run runs a command in the application's root and gives back everything it wrote.
 func (a *authoredApplication) run(t *testing.T, name string, args ...string) (string, error) {
 	t.Helper()
+	// The command is one the test names itself (go, git or golangci-lint), with the arguments
+	// its callers write: nothing from outside the test reaches it.
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := osexec.CommandContext(t.Context(), name, args...) //nolint:gosec // the test's own commands: go, git and golangci-lint, with the arguments its callers write
 	cmd.Dir = a.dir
 	out, err := cmd.CombinedOutput()
@@ -774,6 +777,35 @@ func TestAuthoredApplication(t *testing.T) {
 		everyStepAsMade(t, made, []string{
 			"flat layout, 1 site(s); not tenanted; outlets devices, portal (sessions); generated router",
 			"3 outlet(s) mounted: default (/console/api, live), devices (/devices/api), portal (/portal/api, sessions, live)",
+			"2 browser application(s) bound to their outlets' auths",
+		})
+	})
+
+	t.Run("an auth added to a second browser application", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
+		made := author(t, checkout, "wharf", "", []string{"--outlet", "partners=partners/api"}, nil)
+		// The outlet is laid in for the staff auth; the author then gives it an auth of
+		// its own, with the base's password sign-in.
+		var said bytes.Buffer
+		add := newAddAuth()
+		add.SetOut(&said)
+		add.SetErr(&said)
+		add.SetArgs([]string{"partners", "--outlet", "partners", "--app", made.dir})
+		if err := add.Execute(); err != nil {
+			t.Fatalf("impulse add auth partners --outlet partners error = %v\n%s", err, said.String())
+		}
+		for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "checkpoint: the partners auth"}} {
+			if out, err := made.run(t, "git", args...); err != nil {
+				t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+			}
+		}
+		// The command wrote what the regenerated router and the generated contract ask
+		// of the App for the auth, so the application builds, passes its own tests and
+		// passes its check as the command left it: the outlet's browser application asks
+		// for the partners auth's pages, the auth mails to the outlet's login page, and
+		// the module builds outside any workspace.
+		vetsAsMade(t, made)
+		testsAsMade(t, made)
+		everyStepAsMade(t, made, []string{
 			"2 browser application(s) bound to their outlets' auths",
 		})
 	})

@@ -54,7 +54,7 @@ func TestRender(t *testing.T) {
 		{name: "outlets", candidate: "outlets", script: "web/weblib.sh"},
 		{name: "sites", candidate: "sites", script: "apps/console/web/weblib.sh"},
 	}
-	static := []string{"generator-program", "options", "tenancy-wired", "tenant-delete-rule", "outlet-wired", "outlet-shape", "sites-wired", "web-wired", "login-pages", "session-tables", "migrations-reader", "auths-wired", "directory-admission", "first-administrator", "tenant-accounts", "emulator-version", "prettier-ignore", "eslint-ignore", "test-runner", "installable", "sites-generators", "env-template", "secret-holders"}
+	static := []string{"generator-program", "options", "tenancy-wired", "tenant-delete-rule", "outlet-wired", "outlet-shape", "sites-wired", "web-wired", "login-pages", "session-tables", "migrations-reader", "auths-wired", "directory-admission", "first-administrator", "tenant-accounts", "emulator-version", "prettier-ignore", "eslint-ignore", "test-runner", "installable", "sites-generators", "env-template", "secret-holders", "framework-modules", "framework-linkname"}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -64,6 +64,15 @@ import { ResourceStore } from '../resource-store.service';
 import { patchFromForm } from '@impulseframework/resource-angular/resource-client';
 import { maxLengthValidator, metadataTypeCoercion, unchangedFieldWarning } from '../resources-helpers';
 
+/** What a row view says in place of its form where the record is not there: the server found no row for the key. */
+export const RECORD_NOT_HERE = 'This record is not here. It may have been removed, or it may no longer be yours to see.';
+
+/** What a row view says in place of its form where the person may not see the record: the server refused the read as not permitted. */
+export const RECORD_NOT_PERMITTED = 'You do not have permission to see this record.';
+
+/** What a row view says in place of its form where the read of the record failed. */
+export const RECORD_NOT_LOADED = 'This record could not be loaded.';
+
 /**
  * Whether a row view is drawn inside an expansion panel, under the panel's own title: a
  * view that folds away, or one that is not the row of a page. A view that is not drawn so
@@ -152,24 +161,23 @@ export class ResourceViewComponent implements OnInit {
 
   showCreateForm = model(false);
   /**
-   * What a view that could not load says in place of its form: the server's own
-   * message when the read was refused or failed. A refusal must never render as an
-   * empty record. A row that is not there is said in the page's own words: what the
-   * server answers for it describes the search that found nothing, which is nobody's to
-   * read on a page.
+   * What a view that could not load says in place of its form, in the page's own words:
+   * one sentence where the record is not there (the server's 404), another where the person
+   * may not see the record (the server refused the read as not permitted, its 403), another
+   * where the read failed. What the server said is never part of it: its message names ids,
+   * a permission and a resource, a database, or the search that found nothing, and whoever
+   * looks into it finds it in the browser's console, where the view writes it. A refusal
+   * must never render as an empty record.
    */
   viewErrorMessage = computed<string | undefined>(() => {
-    const error = this.store.viewError();
+    const error: unknown = this.store.viewError();
+    if (error === undefined || error === null) {
+      return undefined;
+    }
     if (error instanceof ApiError && error.status === 404) {
-      return 'This record is not here. It may have been removed, or it may no longer be yours to see.';
+      return RECORD_NOT_HERE;
     }
-    if (error instanceof ApiError && error.status === 403) {
-      return `This record is not available to you: ${error.message}`;
-    }
-    if (error) {
-      return `This record could not be loaded: ${error instanceof Error ? error.message : String(error)}`;
-    }
-    return undefined;
+    return error instanceof ApiError && error.status === 403 ? RECORD_NOT_PERMITTED : RECORD_NOT_LOADED;
   });
 
   createConfig = computed(() => {
@@ -611,29 +619,29 @@ export class ResourceViewComponent implements OnInit {
   /**
    * Asks before the page's row is deleted, then deletes it. The question names the row
    * by its own name where the config reads one off the row (`rowTitle`), and the list
-   * the row is in by the config's title.
+   * the row is in by the config's title. The dialog is handed the delete and runs it
+   * when the person says so, so a delete the server refuses is answered in the dialog, in
+   * the server's words. While the question is open, asking again opens no second one.
    */
   confirmDeleteResource(): void {
-    const existingDialog = this.dialog.openDialogs.find(
+    const asking = this.dialog.openDialogs.some(
       (d) => d.componentInstance instanceof DeleteResourceConfirmationModalComponent,
     );
+    if (asking) {
+      return;
+    }
 
     const config = this.config();
-    const data: DeleteConfirmation = { name: config.rowTitle?.(this.store.viewData()), from: config.title };
-    const dialogRef =
-      existingDialog ?? this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
+    const data: DeleteConfirmation = {
+      name: config.rowTitle?.(this.store.viewData()),
+      from: config.title,
+      delete: () => {
+        console.debug('Deleting resource | ', this.config().title, '|', this.relatedId());
 
-    const result = dialogRef.afterClosed().pipe(
-      tap((value) => {
-        if (value === true) {
-          console.debug('Deleting resource | ', this.config().title, '|', this.relatedId());
-          this.deleteResource();
-        }
-      }),
-      takeUntilDestroyed(this.destroyRef),
-    );
-
-    result.subscribe();
+        return this.deleteResource();
+      },
+    };
+    this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
   }
 
   /**
@@ -642,13 +650,14 @@ export class ResourceViewComponent implements OnInit {
    * to its list, and the list says what the config has to say of the row. A live page
    * reads the row again after the write, and that read may find the row gone before the
    * write is answered here or after: the page leaves once either way. A row page told not
-   * to leave (`navAfterDelete` false) offers its create form in the row's place.
+   * to leave (`navAfterDelete` false) offers its create form in the row's place. A delete
+   * the server refuses rejects with the client's `ApiError`, for whoever asked to show.
    */
-  deleteResource(): void {
+  deleteResource(): Promise<void> {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(this.store.viewData()));
 
-    void this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
+    return this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
       this.leaveGoneRow();
       if (this.compoundResourceView() && this.navAfterDelete() === false) {
         this.showCreateForm.set(true);
@@ -688,6 +697,19 @@ export class ResourceViewComponent implements OnInit {
   }
 
   constructor() {
+    // What the server said of a read it refused, or how the read failed, is for whoever
+    // looks into it: it is written to the console, once for each answer (the view's error
+    // is the one thing read here), with the resource it belongs to. The page says it in
+    // its own words (viewErrorMessage). The line's words are a constant, and the console
+    // puts the resource's name where they keep its place (%s): a name is never itself
+    // read as words to print.
+    effect(() => {
+      const error: unknown = this.store.viewError();
+      if (error !== undefined && error !== null) {
+        console.error('%s: the record could not be loaded:', untracked(this.config).primaryResource, error);
+      }
+    });
+
     effect(() => {
       console.debug('USAGE | New FormGroup subscription for: ', this.config().title);
 
