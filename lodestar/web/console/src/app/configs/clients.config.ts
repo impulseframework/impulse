@@ -35,7 +35,6 @@ export const clientsConfig = rootConfig({
   parentConfig: listViewConfig({
     title: 'Clients',
     createTitle: 'Client',
-    createButtonLabel: 'Add a client',
     primaryResource: Resources.Clients,
     listColumns: [
       { id: Clients.fieldName.name },

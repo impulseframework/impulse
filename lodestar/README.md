@@ -1260,7 +1260,7 @@ watch desk then name the cadet by username; and
   draws a form on its page. Three pages of Lodestar's own follow the same rule, the Flight
   deck, the Roster and the portal's tracker: each action that adds or changes something
   is a button that opens its form in a dialog, and what the server refuses of it is shown
-  in the dialog. Add a pass opens the form with three pickers side by side, a person of
+  in the dialog. Add a hangar pass opens the form with three pickers side by side, a person of
   the sector, a squadron and a group of the sector, each a list the generated metadata
   names; the pass names one of them, and one that names two, or none, is refused inside
   the dialog in the server's words. An empty person is nobody, in the validator and in

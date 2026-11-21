@@ -29,6 +29,7 @@ type (
 	// @outlet(portal)
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group role)
 	MembersGroupRole struct {
 		// @attribute(group)
 		GroupID   impulse.UUID `spanner:"GroupId"`

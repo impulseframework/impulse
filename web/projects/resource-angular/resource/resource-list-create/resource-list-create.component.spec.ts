@@ -71,7 +71,7 @@ describe('ResourceListCreateComponent, where its create opens', () => {
 
   const page = (): HTMLElement => fixture.nativeElement as HTMLElement;
 
-  async function draw(config: ListViewConfig): Promise<void> {
+  async function draw(config: ListViewConfig, meta?: ResourceMeta): Promise<void> {
     const root = rootConfig({ parentConfig: config, routeData: { route: 'squadrons', hasViewRoute: true } });
     await TestBed.configureTestingModule({
       imports: [ResourceListCreateComponent],
@@ -79,6 +79,7 @@ describe('ResourceListCreateComponent, where its create opens', () => {
         provideResourceTesting({ transport: scriptedTransport({ status: 200, body: [] }) }),
         // A collapsed list's panel turns its animation off, which needs the animations there.
         provideNoopAnimations(),
+        ...(meta ? [{ provide: RESOURCE_META, useValue: (): ResourceMeta => meta }] : []),
         { provide: ActivatedRoute, useValue: { snapshot: { data: { config: root }, params: {}, queryParams: {} } } },
       ],
     }).compileComponents();
@@ -144,7 +145,20 @@ describe('ResourceListCreateComponent, where its create opens', () => {
     expect(page().querySelector('impulse-resource-create')).toBeNull();
   });
 
-  it('titles the dialog Create where the config writes no label for the button', async () => {
+  it("titles the dialog with the word the resource's rows go by where the config writes no label for the button", async () => {
+    await draw(squadrons({ createButtonLabel: undefined }), {
+      route: 'squadrons',
+      rowWords: { one: 'squadron', many: 'squadrons' },
+      fields: [],
+    } as ResourceMeta);
+
+    component.listChild()?.createRequested.emit();
+
+    expect((open.mock.calls[0][1] as { data: { label: string } }).data.label).toBe('Add a squadron');
+    expect(component.createLabel()).toBe('Add a squadron');
+  });
+
+  it('titles the dialog Create where the config writes no label and the metadata carries no word', async () => {
     await draw(squadrons({ createButtonLabel: undefined }));
 
     component.listChild()?.createRequested.emit();

@@ -25,6 +25,7 @@ type (
 	// @outlet(default)
 	// @order(StartedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(impersonation)
 	CrewSessionImpersonation struct {
 		SessionID       impulse.UUID  `spanner:"SessionId"`
 		ActorUsername   string        `spanner:"ActorUsername"`

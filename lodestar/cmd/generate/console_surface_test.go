@@ -16,8 +16,9 @@ import (
 // provided); the Squadrons page's componentConfig (the channel card) and arrayConfig (the
 // sector's other squadrons, filtered by the indexed key); the Hangars page, whose passes
 // list offers the three holder pickers, the sector's groups among them, and whose two
-// lists each write the words their create's button and dialog carry (every list's create
-// opens in a dialog, with nothing for its config to ask); and the leave-page
+// lists write no words for their create's button and dialog, which the library takes from
+// each resource's row word (every list's create opens in a dialog, with nothing for its
+// config to ask); and the leave-page
 // confirmation, which the library's resourceRoutes attaches to every config-driven list
 // and row route under the FRONTEND_LOGIN_PATH the console provides, so the console adds
 // no guard of its own. Lodestar has no browser specs and the walkthrough is curl, so the
@@ -100,9 +101,10 @@ func TestConsoleCarriesLibrarySurface(t *testing.T) {
 				"listDisplay: [Squadrons.fieldName.name],",
 				"name: HangarPasses.fieldName.groupId,",
 				"listDisplay: [CrewSectorGroups.fieldName.name],",
-				"createButtonLabel: 'Add a hangar',",
-				"createButtonLabel: 'Add a pass',",
 			},
+			// Neither list writes a label: each add button takes its words from the
+			// resource's row word (TestConsoleNamesItsRowsInWords).
+			absent: []string{"createButtonLabel"},
 		},
 		{
 			name: "the config-driven routes come from resourceRoutes, which carries the leave-page guard, and the console adds none",
@@ -136,6 +138,92 @@ func TestConsoleCarriesLibrarySurface(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestConsoleNamesItsRowsInWords pins the word a list calls its row by, as the generated
+// metadata carries it for the library's lists, which say it on the button that adds a
+// row ("Add a hangar pass"), in the question before one is deleted ("Delete this hangar
+// pass?") and in the message after ("Hangar pass deleted."). A resource that states no
+// word goes by its name split into words; a view that declares its table goes by the
+// table's word (the mission board's rows are missions, the squadron's roster's are
+// squadron memberships); and a view that states its own keeps it (@rowWord): a pilot's
+// assignments are a second view over the table of memberships, and its rows are
+// assignments. Two lists keep the label they write, since adding is called something
+// else there: a distress call is filed, and the roster gains a pilot while what a
+// delete takes away is the membership, never the pilot. Needs no emulator.
+//
+// Demonstrates: @rowWord.
+func TestConsoleNamesItsRowsInWords(t *testing.T) {
+	t.Parallel()
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	console := filepath.Join(filepath.Dir(thisFile), "..", "..", "web", "console", "src", "app")
+
+	data, err := os.ReadFile(filepath.Join(console, "core", "service", "zz_gen_resources.ts"))
+	if err != nil {
+		t.Fatalf("reading the generated metadata: %v", err)
+	}
+	metadata := string(data)
+
+	words := []struct {
+		name     string
+		resource string
+		want     string
+	}{
+		{name: "a resource that states no word: its name in words", resource: "HangarPasses", want: "rowWords: { one: 'hangar pass', many: 'hangar passes' },"},
+		{name: "a name of one word", resource: "Hangars", want: "rowWords: { one: 'hangar', many: 'hangars' },"},
+		{name: "a view that declares its table: the table's word", resource: "MissionBoards", want: "rowWords: { one: 'mission', many: 'missions' },"},
+		{name: "the table two views show", resource: "SquadronMemberships", want: "rowWords: { one: 'squadron membership', many: 'squadron memberships' },"},
+		{name: "one of them states no word, and takes the table's", resource: "SquadronRosters", want: "rowWords: { one: 'squadron membership', many: 'squadron memberships' },"},
+		{name: "the other states its own", resource: "PilotAssignments", want: "rowWords: { one: 'assignment', many: 'assignments' },"},
+		{name: "a view over no declared table states the word its rows go by", resource: "ClientRosters", want: "rowWords: { one: 'client', many: 'clients' },"},
+		{name: "a resource the generated management declares", resource: "CrewSectorUsers", want: "rowWords: { one: 'person', many: 'people' },"},
+	}
+	for _, tt := range words {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, block, found := strings.Cut(metadata, "\n  [Resources."+tt.resource+"]: {\n")
+			if !found {
+				t.Fatalf("the generated metadata holds no %s", tt.resource)
+			}
+			head, _, _ := strings.Cut(block, "\n    fields: [")
+			if !strings.Contains(head, tt.want) {
+				t.Errorf("%s: want %q, got:\n%s", tt.resource, tt.want, head)
+			}
+		})
+	}
+
+	t.Run("a list writes a label only where adding is called something else", func(t *testing.T) {
+		t.Parallel()
+
+		configs, err := filepath.Glob(filepath.Join(console, "configs", "*.config.ts"))
+		if err != nil || len(configs) == 0 {
+			t.Fatalf("listing the console's configs: %v (%d found)", err, len(configs))
+		}
+		var labels []string
+		for _, config := range configs {
+			source, err := os.ReadFile(config)
+			if err != nil {
+				t.Fatalf("reading %s: %v", config, err)
+			}
+			for _, line := range strings.Split(string(source), "\n") {
+				if strings.Contains(line, "createButtonLabel:") {
+					labels = append(labels, filepath.Base(config)+": "+strings.TrimSpace(line))
+				}
+			}
+		}
+		want := []string{
+			"distressCalls.config.ts: createButtonLabel: 'File a distress call',",
+			"squadrons.config.ts: createButtonLabel: 'Add a pilot',",
+		}
+		if strings.Join(labels, "\n") != strings.Join(want, "\n") {
+			t.Errorf("labels the configs write = %q, want %q", labels, want)
+		}
+	})
 }
 
 // TestConsoleHandsTheClientItsHooks pins how both browser applications render the

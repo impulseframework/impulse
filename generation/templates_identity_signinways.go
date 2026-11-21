@@ -67,6 +67,7 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(Password desc, Through asc)
+// @rowWord(way to sign in, plural: ways to sign in)
 type {{ .SignInWay }} struct {
 	// UserID is the person, whom the list is filtered by.
 	// @primarykey

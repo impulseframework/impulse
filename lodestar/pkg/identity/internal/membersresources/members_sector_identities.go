@@ -28,6 +28,7 @@ type (
 	// @outlet(portal, default)
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in identity)
 	MembersSectorIdentity struct {
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`

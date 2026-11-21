@@ -24,12 +24,13 @@ type (
 	// The row is the method's target, so the row's Execute answer says whether the
 	// method runs on it, and a page draws the button from that answer.
 	//
-	// Demonstrates: @virtual, virtual.domain, virtual.with-clause, virtual.keyed-read, @attribute, @attribute.view, @target.view.
+	// Demonstrates: @virtual, virtual.domain, virtual.with-clause, virtual.keyed-read, @attribute, @attribute.view, @target.view, @rowWord.
 	//
 	// @virtual
 	// @permissionScope(domain)
 	// @order(DisplayName asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(pilot)
 	SectorPilot struct {
 		// @primarykey
 		PilotID impulse.UUID `spanner:"PilotId" index:"true"`

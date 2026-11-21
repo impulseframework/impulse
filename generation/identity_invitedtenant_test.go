@@ -443,7 +443,7 @@ func Test_prepareIdentity_invitedTenant(t *testing.T) {
 	invited := identitySource(t, "crewidentity/crew_invited_citadels.go")
 	assertContains(t, "crew_invited_citadels.go", invited, []string{
 		generationHeader,
-		"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(CreatedAt asc)\ntype CrewInvitedCitadel struct {",
+		"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(CreatedAt asc)\n// @rowWord(invitation)\ntype CrewInvitedCitadel struct {",
 		"// @primarykey\n ID impulse.UUID `spanner:\"Id\"`",
 		// Every field of the record is one the caller may be denied, so each can be
 		// absent, the switch among them.

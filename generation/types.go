@@ -989,6 +989,7 @@ type computedResource struct {
 	identity *identityInstance
 	pagingDecl
 	rowsOfDecl
+	rowWordsDecl
 	publishDecl
 	// Shape is the struct's wire shape: the fields as the handlers' local mirrors
 	// declare them, with every struct they reach. A nested field is opaque: one
@@ -1300,6 +1301,7 @@ type resourceInfo struct {
 	identity *identityInstance
 	pagingDecl
 	rowsOfDecl
+	rowWordsDecl
 	publishDecl
 	Fields []*resourceField
 	// ColumnShapes are the structs the resource's columns hold, leaves first, each
@@ -2450,6 +2452,7 @@ const (
 	scheduleKeyword             string = "schedule"             // Declares an RPC method a scheduled route Cloud Scheduler calls: @schedule("0 3 * * *"[, zone: "America/Denver", log: onEvent])
 	searchAlsoKeyword           string = "searchAlso"           // Declares a child table's text a table-backed resource's search box also searches, one hop down a foreign key: @searchAlso(ClientContact.DisplayName[, via: ClientId])
 	listAcrossTenantsKeyword    string = "listAcrossTenants"    // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
+	rowWordKeyword              string = "rowWord"              // States the word a person calls one row of a resource by, where the resource's name split into words is not it: @rowWord(pass[, plural: passes])
 )
 
 func resourceKeywords() map[string]genlang.KeywordOpts {
@@ -2498,6 +2501,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		scheduleKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		searchAlsoKeyword:           {genlang.ScanStruct: genlang.ArgsRequired},
 		listAcrossTenantsKeyword:    {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		rowWordKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 	}
 }
 

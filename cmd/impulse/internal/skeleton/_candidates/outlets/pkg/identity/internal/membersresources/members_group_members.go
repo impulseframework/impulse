@@ -42,6 +42,7 @@ type (
 	// @outlet(portal)
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group member)
 	MembersGroupMember struct {
 		// @attribute(group)
 		GroupID impulse.UUID `spanner:"GroupId"`

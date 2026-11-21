@@ -476,7 +476,7 @@ func Test_prepareIdentity(t *testing.T) {
 		// the identities that count, read through the identity package's judgment and
 		// named by the words the generator program declares for the auth's sign-ins.
 		"crewidentity/crew_sign_in_ways.go": {
-			"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Password desc, Through asc)\ntype CrewSignInWay struct {",
+			"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Password desc, Through asc)\n// @rowWord(way to sign in, plural: ways to sign in)\ntype CrewSignInWay struct {",
 			"// @primarykey\n\tUserID impulse.UUID `spanner:\"UserId\" allow_filter:\"true\"`", "// @primarykey\n\tWay string `spanner:\"Way\"`",
 			"return \"CrewSignInWays\"", "RemoveCrewPassword is refused unless the person holds a password and one identity",
 			"func ListCrewSignInWay(ctx context.Context, qSet *resource.QuerySet[CrewSignInWay], db resource.Client, client *Client) iter.Seq2[*CrewSignInWay, error] {",
@@ -1059,7 +1059,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		// of its own list of people, whose two facts each row carries for the role file's
 		// conditions. The words of the sign-ins are the whole application's file's.
 		"crewidentity/crew_ship_sign_in_ways.go": {
-			generationHeader, "// @computed\n// @permissionScope(domain)\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Password desc, Through asc)\ntype CrewShipSignInWay struct {",
+			generationHeader, "// @computed\n// @permissionScope(domain)\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Password desc, Through asc)\n// @rowWord(way to sign in, plural: ways to sign in)\ntype CrewShipSignInWay struct {",
 			"// @attribute(heldElsewhere)\n\tHeldElsewhere bool", "// @attribute(heldGlobally)\n\tHeldGlobally bool", "return \"CrewShipSignInWays\"",
 			"// @attribute(password)\n\tPassword bool", "a grant under \"password = false OR heldElsewhere = false\" lists the",
 			"RemoveCrewShipPassword is refused unless the person holds a password and one identity", "for a row of CrewShipUser, the tenant's own list of the auth's people",

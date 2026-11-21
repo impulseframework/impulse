@@ -36,6 +36,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group)
 	{{ .Group }} struct {
 		// @attribute(group)
 		ID          impulse.UUID ` + "`spanner:\"Id\"`" + `
@@ -95,6 +96,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group member)
 	{{ .GroupMember }} struct {
 		// @attribute(group)
 		GroupID impulse.UUID ` + "`spanner:\"GroupId\"`" + `
@@ -139,6 +141,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group role)
 	{{ .GroupRole }} struct {
 		// @attribute(group)
 		GroupID   impulse.UUID ` + "`spanner:\"GroupId\"`" + `
@@ -657,6 +660,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group member)
 	{{ .SubjectGroupUser }} struct {
 		{{- if .ForTenant }}
 		// @domain
@@ -741,6 +745,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group)
 	{{ .SubjectGroup }} struct {
 		// @primarykey
 		// @attribute(group)
@@ -812,6 +817,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(GroupName asc, Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group role)
 	{{ .SubjectGroupRole }} struct {
 		// @domain
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
@@ -914,6 +920,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Username asc, GroupName asc, Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role held through a group, plural: roles held through a group)
 	{{ .SubjectUserGroupRole }} struct {
 		{{- if .ForTenant }}
 		// @domain

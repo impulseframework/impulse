@@ -3963,6 +3963,9 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     {{- end }}
     live: {{ $resource.Published }},
+    {{- if $resource.RowWord }}
+    rowWords: {{ $resource.TypescriptRowWords }},
+    {{- end }}
     {{- if $resource.TenantNameField }}
     nameField: '{{ Camel $resource.TenantNameField.Name }}',
     {{- end }}
@@ -4005,6 +4008,9 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: {{ $resource.Published }},
+    {{- if $resource.RowWord }}
+    rowWords: {{ $resource.TypescriptRowWords }},
+    {{- end }}
     fields: [
       {{- range $field := $resource.Fields }}
       {{- if not $field.IsFileKey }}
@@ -4029,6 +4035,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
+    rowWords: { one: 'feature flag', many: 'feature flags' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },

@@ -40,6 +40,7 @@ const resourceMap = defineResourceMap({
     route: 'tenants/{tenantID}/announcements',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'announcement', many: 'announcements' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'tenantId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always', readOnly: true },
@@ -54,6 +55,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
+    rowWords: { one: 'feature flag', many: 'feature flags' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },

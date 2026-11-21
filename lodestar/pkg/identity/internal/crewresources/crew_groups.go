@@ -28,6 +28,7 @@ type (
 	// @outlet(default)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group)
 	CrewGroup struct {
 		// @attribute(group)
 		ID          impulse.UUID `spanner:"Id"`

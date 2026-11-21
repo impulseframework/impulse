@@ -46,6 +46,7 @@ import { ResourceLayoutComponent } from '../resource-layout/resource-layout.comp
 import { ResourceStore } from '../resource-store.service';
 import { rendererFor } from '../resource-field/renderer';
 import { maxLengthValidator, metadataTypeCoercion } from '../resources-helpers';
+import { rowMessage, rowWordsOf } from '../row-words';
 
 /** The display types the create form presents and never takes: their control starts null and a null control leaves the add operation. */
 const READ_ONLY_SHAPES = new Set(['bytes', 'array', 'object']);
@@ -240,6 +241,12 @@ export class ResourceCreateComponent implements OnInit {
 
   camelCaseToTitlePipe = new CamelCaseToTitlePipe();
 
+  /**
+   * The words the created row goes by: the listed resource's, as its metadata carries
+   * them. The message after a create names the row by them.
+   */
+  rowWords = computed(() => rowWordsOf(this.resourceMeta(this.config().primaryResource as Resource)));
+
   ngOnInit(): void {
     // The form is built for the resource the create goes into: the listed resource,
     // or its table when the list is a view declaring one (rowsOf).
@@ -285,7 +292,7 @@ export class ResourceCreateComponent implements OnInit {
     this.refusal.set('');
     this.saving.set(true);
     void this.store
-      .apply([operation], `${this.store.resourceName()} created successfully`)
+      .apply([operation], rowMessage(this.rowWords(), 'added', this.store.resourceName()))
       .then((response) => {
         // Created: nothing in the form is unsaved any more.
         this.form().markAsPristine();

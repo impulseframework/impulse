@@ -29,6 +29,7 @@ type (
 	// @outlet(portal, default)
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(invitation)
 	MembersSectorInvitation struct {
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`

@@ -41,6 +41,12 @@ describe('DeleteResourceConfirmationModal', () => {
     expect(textOf(dialog.querySelector('.question'))).toBe('Delete this row from Passes?');
   });
 
+  it("asks about a row with no name by the word the resource's rows go by", async () => {
+    const dialog = await drawn({ from: 'Passes', word: 'hangar pass', inList: true });
+
+    expect(textOf(dialog.querySelector('.question'))).toBe('Delete this hangar pass?');
+  });
+
   it('names the row where the page knows its name', async () => {
     const dialog = await drawn({ name: 'Night Watch', from: 'Groups' });
 
@@ -111,7 +117,19 @@ describe('deleteQuestion', () => {
     expect(deleteQuestion({ name: 'Night Watch', from: '  ' })).toBe('Delete Night Watch?');
   });
 
-  it('says "this row" in a list and "this record" on a page for a row with no name', () => {
+  it("says the word the resource's rows go by for a row with no name, in a list and on a page", () => {
+    expect(deleteQuestion({ word: 'hangar pass', from: 'Passes', inList: true })).toBe('Delete this hangar pass?');
+    expect(deleteQuestion({ word: 'hangar pass', from: 'Passes' })).toBe('Delete this hangar pass?');
+    expect(deleteQuestion({ name: ' ', word: ' hangar pass ' })).toBe('Delete this hangar pass?');
+  });
+
+  it('names the row by its own name before the word', () => {
+    expect(deleteQuestion({ name: 'Night Watch', from: 'Groups', word: 'group', inList: true })).toBe(
+      'Delete Night Watch from Groups?',
+    );
+  });
+
+  it('says "this row" in a list and "this record" on a page for a row with no name and a resource with no word', () => {
     expect(deleteQuestion({ inList: true })).toBe('Delete this row?');
     expect(deleteQuestion({ name: ' ', from: 'Passes', inList: true })).toBe('Delete this row from Passes?');
     expect(deleteQuestion({ from: 'Missions' })).toBe('Delete this record from Missions?');

@@ -15,13 +15,14 @@ type (
 	// backing table, a create goes into the table, and the new row shows up in the view
 	// on the next list because the view's SQL reads that table.
 	//
-	// Demonstrates: @rowsOf, @rowsOf.association, @enumerate, list.row-route, @virtual, virtual.domain.
+	// Demonstrates: @rowsOf, @rowsOf.association, @enumerate, list.row-route, @virtual, virtual.domain, @rowWord.
 	//
 	// @virtual
 	// @rowsOf(SquadronMemberships)
 	// @permissionScope(domain)
 	// @order(SquadronName asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(assignment)
 	PilotAssignment struct {
 		// @primarykey
 		// @enumerate(Squadrons)

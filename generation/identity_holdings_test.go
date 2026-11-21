@@ -121,11 +121,11 @@ func Test_prepareIdentity_holdings(t *testing.T) {
 			"scope := accesstypes.GlobalPolicyScope()\n\tif err := client.manager.TakeRole(ctx, txn, scope, accesstypes.Role(m.Role), identity.TakeLength(m.Length), m.Reason); err != nil {",
 		},
 		"crewidentity/crew_takeable_roles.go": {
-			"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\ntype CrewTakeableRole struct {",
+			"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\n// @rowWord(role)\ntype CrewTakeableRole struct {",
 			"roles, err := client.manager.RolesToTake(ctx, false)",
 		},
 		"crewidentity/crew_take_lengths.go": {
-			"// @order(Minutes asc)\ntype CrewTakeLength struct {\n\t// @primarykey\n\tName    string `spanner:\"Name\"`\n\tMinutes int64  `spanner:\"Minutes\"`",
+			"// @order(Minutes asc)\n// @rowWord(length of time, plural: lengths of time)\ntype CrewTakeLength struct {\n\t// @primarykey\n\tName    string `spanner:\"Name\"`\n\tMinutes int64  `spanner:\"Minutes\"`",
 			"for _, length := range identity.TakeLengths() {",
 		},
 		// The taking is judged as the role given directly, so the client is handed the role

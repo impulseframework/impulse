@@ -23,6 +23,7 @@ import (
 // @suppress(readHandler)
 // @outlet(portal)
 // @order(Minutes asc)
+// @rowWord(length of time, plural: lengths of time)
 type MembersTakeLength struct {
 	// @primarykey
 	Name    string `spanner:"Name"`

@@ -261,6 +261,17 @@ export interface SearchBranchMeta {
   pii?: true;
 }
 
+/**
+ * The words a person calls a resource's rows by: one row ("hangar pass") and several
+ * ("hangar passes"), each written alone and in the case it has inside a sentence. A
+ * screen puts "a", "an" or "this" before the word and capitalizes it where it opens a
+ * sentence.
+ */
+export interface RowWords {
+  one: string;
+  many: string;
+}
+
 export interface ResourceMeta {
   route: string;
   consolidatedRoute?: string;
@@ -284,6 +295,16 @@ export interface ResourceMeta {
    * See pageIsLive. Emitted by the ccc TypeScript generator.
    */
   live?: boolean;
+  /**
+   * The words a row of the resource goes by. A list names its row by them on the button
+   * that adds one ("Add a hangar pass"), in the question before one is deleted ("Delete
+   * this hangar pass?") and in the message after ("Hangar pass deleted."). The generator
+   * emits the resource's name split into words, or the words its `@rowWord` states; a
+   * view that declares its table (rowsOf) and states none carries the table's. Absent on
+   * metadata from a generator that predates the field: a list then says "Create" and
+   * speaks of "this row".
+   */
+  rowWords?: RowWords;
   /**
    * The field a row of the resource is called by, where the resource declares one: the
    * tenant record's name (`@tenantName`). The record is keyed by an id nobody reads, so a

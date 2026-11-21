@@ -97,19 +97,19 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 		// The table's rows are written by the two methods alone: the declaration serves
 		// no route, and every write leaves its change event.
 		"internal/crewresources/crew_session_sign_in_methods.go": {
-			generationHeader, "// @resource\n\t// @suppress(listHandler)\n\t// @suppress(readHandler)\n\t// @suppress(patchHandler)\n\t// @outlet(default)\n\tCrewSessionSignInMethod struct {",
+			generationHeader, "// @resource\n\t// @suppress(listHandler)\n\t// @suppress(readHandler)\n\t// @suppress(patchHandler)\n\t// @outlet(default)\n\t// @rowWord(way to sign in, plural: ways to sign in)\n\tCrewSessionSignInMethod struct {",
 			"Name             string    `spanner:\"Name\"`", "OpenSignUp       bool      `spanner:\"OpenSignUp\"`", "OpenedFor        *string   `spanner:\"OpenedFor\"`",
 			"DefaultRole      *string   `spanner:\"DefaultRole\"`", "SelfServiceReset bool      `spanner:\"SelfServiceReset\"`",
 			"func (CrewSessionSignInMethod) Config() resource.Config {\n\treturn defaultConfig().SetTrackChanges(true)\n}",
 		},
 		"crewidentity/crew_sign_in_methods.go": {
-			generationHeader, "// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Label asc)\ntype CrewSignInMethod struct {",
+			generationHeader, "// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Label asc)\n// @rowWord(way to sign in, plural: ways to sign in)\ntype CrewSignInMethod struct {",
 			"// @primarykey\n\tName ", "DirectoryGivesRoles bool", "OwnRule             bool", "OwnRule: methods[i].OwnRule", `return "CrewSignInMethods"`,
 			"func ListCrewSignInMethod(ctx context.Context, _ *resource.QuerySet[CrewSignInMethod], reader resource.Client, client *Client) iter.Seq2[*CrewSignInMethod, error] {",
 			"client.manager.SignInMethods(ctx, reader)",
 		},
 		"crewidentity/crew_sign_up_roles.go": {
-			generationHeader, "// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\ntype CrewSignUpRole struct {",
+			generationHeader, "// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\n// @rowWord(sign-up role)\ntype CrewSignUpRole struct {",
 			"// @primarykey\n\t// @attribute(name)\n\tName ", "Description string", `return "CrewSignUpRoles"`,
 			// The list asks with the context its frame hands it, which carries the
 			// request's caller (Test_computedResourceHandlerTemplate_caller): it lists

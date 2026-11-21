@@ -63,6 +63,7 @@ import { ResourceLayoutComponent } from '../resource-layout/resource-layout.comp
 import { ResourceStore } from '../resource-store.service';
 import { patchFromForm } from '@impulseframework/resource-angular/resource-client';
 import { maxLengthValidator, metadataTypeCoercion, unchangedFieldWarning } from '../resources-helpers';
+import { rowMessage, rowWordsOf } from '../row-words';
 
 /**
  * Whether a row view is drawn inside an expansion panel, under the panel's own title: a
@@ -422,7 +423,6 @@ export class ResourceViewComponent implements OnInit {
       .sort((a, b) => a.primaryKey!.ordinalPosition - b.primaryKey!.ordinalPosition);
   });
 
-
   ngOnInit(): void {
     // The view reads and writes the resource whose row it shows: the listed resource,
     // or its table when the list is a view declaring one (rowsOf).
@@ -554,13 +554,20 @@ export class ResourceViewComponent implements OnInit {
     if (!operation) {
       return;
     }
-    void this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
+    void this.store.apply([operation], rowMessage(this.rowWords(), 'saved', this.store.resourceName())).then(() => {
       // Saved: nothing in the form is unsaved any more.
       this.form().markAsPristine();
       this.setEditMode('view');
       this.store.reloadViewData();
     });
   }
+
+  /**
+   * The words the page's row goes by: the listed resource's, as its metadata carries
+   * them. The delete question and the messages after a save and a delete name the row
+   * by them.
+   */
+  rowWords = computed(() => rowWordsOf(this.resourceMeta(this.config().primaryResource as Resource)));
 
   resetForm(): void {
     // What was changed is dropped, so nothing in the form is unsaved any more.
@@ -571,8 +578,8 @@ export class ResourceViewComponent implements OnInit {
 
   /**
    * Asks before the page's row is deleted, then deletes it. The question names the row
-   * by its own name where the config reads one off the row (`rowTitle`), and the list
-   * the row is in by the config's title.
+   * by its own name where the config reads one off the row (`rowTitle`) and the list
+   * the row is in by the config's title, else by the word the resource's rows go by.
    */
   confirmDeleteResource(): void {
     const existingDialog = this.dialog.openDialogs.find(
@@ -580,7 +587,11 @@ export class ResourceViewComponent implements OnInit {
     );
 
     const config = this.config();
-    const data: DeleteConfirmation = { name: config.rowTitle?.(this.store.viewData()), from: config.title };
+    const data: DeleteConfirmation = {
+      name: config.rowTitle?.(this.store.viewData()),
+      from: config.title,
+      word: this.rowWords()?.one,
+    };
     const dialogRef =
       existingDialog ?? this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
 
@@ -601,7 +612,7 @@ export class ResourceViewComponent implements OnInit {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(this.store.viewData()));
 
-    void this.store.apply([operation], `${this.store.resourceName()} updated successfully`).then(() => {
+    void this.store.apply([operation], rowMessage(this.rowWords(), 'deleted', this.store.resourceName())).then(() => {
       this.deleted.emit(true);
       if (!this.compoundResourceView()) {
         return;

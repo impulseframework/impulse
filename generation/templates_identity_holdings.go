@@ -43,6 +43,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Username asc, Role asc, GroupName asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(held role)
 	{{ .HeldRole }} struct {
 		// @primarykey
 		UserID   impulse.UUID ` + "`spanner:\"UserId\" index:\"true\"`" + `
@@ -163,6 +164,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Username asc, Role asc, GroupName asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(held role)
 	{{ .TenantHeldRole }} struct {
 		// @domain
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
@@ -271,6 +273,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group)
 	{{ .ListedGroup }} struct {
 		// @primarykey
 		// @attribute(group)
@@ -341,6 +344,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group role)
 	{{ .ListedGroupRole }} struct {
 		// @primarykey
 		// @attribute(group)
@@ -415,6 +419,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(EndsAt desc, Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(taken role)
 	{{ .TakenRole }} struct {
 		// @primarykey
 		UserID   impulse.UUID ` + "`spanner:\"UserId\" index:\"true\"`" + `
@@ -500,6 +505,7 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(Name asc)
+// @rowWord(role)
 type {{ .TakeableRole }} struct {
 	// @primarykey
 	// @attribute(name)
@@ -557,6 +563,7 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(Minutes asc)
+// @rowWord(length of time, plural: lengths of time)
 type {{ .TakeLength }} struct {
 	// @primarykey
 	Name    string ` + "`spanner:\"Name\"`" + `
