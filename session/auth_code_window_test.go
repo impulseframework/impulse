@@ -38,10 +38,12 @@ func TestAuth_ACodeWritesOnlyWhileTheAccountHoldsWhatItHeld(t *testing.T) {
 		// mailedTo is the address the code went to.
 		mailedTo string
 		// write says the completion writes the address, conditional on wantHeld (nil: no
-		// address); written is what the store answers the write.
-		write    bool
-		wantHeld *string
-		written  error
+		// address); wantAddress is the address written where it is not the one mailed to,
+		// and written is what the store answers the write.
+		write       bool
+		wantHeld    *string
+		wantAddress string
+		written     error
 		// want is the completion's refusal: code_expired for a dead code, the server's
 		// error for a write that failed, and otherwise the refusal of the pending
 		// sign-in's consume, where this test ends a completion that goes on.
@@ -60,6 +62,11 @@ func TestAuth_ACodeWritesOnlyWhileTheAccountHoldsWhatItHeld(t *testing.T) {
 		{
 			name:  "the account holds an address nobody has confirmed at both reads: it is written while the account still holds it",
 			first: held, second: held, mailedTo: held, write: true, wantHeld: strPtr(held),
+			want: sessioninfo.RefusedPendingExpired,
+		},
+		{
+			name:  "the account holds the code's address in another spelling of its ASCII letters at both reads: it is confirmed as the account spells it",
+			first: "Pat@Lakeside.edu", second: "Pat@Lakeside.edu", mailedTo: held, write: true, wantHeld: strPtr("Pat@Lakeside.edu"), wantAddress: "Pat@Lakeside.edu",
 			want: sessioninfo.RefusedPendingExpired,
 		},
 		{
@@ -105,7 +112,11 @@ func TestAuth_ACodeWritesOnlyWhileTheAccountHoldsWhatItHeld(t *testing.T) {
 			}).AnyTimes()
 			f.store.EXPECT().UserByEmail(gomock.Any(), gomock.Any()).Return(nil, httpio.NewNotFoundMessage("no user holds the address")).AnyTimes()
 			if tt.write {
-				f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), userID, tt.wantHeld, tt.mailedTo).Return(tt.written)
+				address := tt.mailedTo
+				if tt.wantAddress != "" {
+					address = tt.wantAddress
+				}
+				f.store.EXPECT().VerifyUserEmailIfHeld(gomock.Any(), userID, tt.wantHeld, address).Return(tt.written)
 			}
 			if tt.want == sessioninfo.RefusedPendingExpired {
 				f.store.EXPECT().ConsumePendingSignIn(gomock.Any(), pending.TokenHash).Return(httpio.NewNotFoundMessage("no live pending sign-in"))

@@ -556,7 +556,14 @@ func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, p *pendingState, 
 	if user.EmailVerified() {
 		return nil
 	}
-	if err := a.storage.VerifyUserEmailIfHeld(ctx, user.ID, user.Email, email); err != nil {
+	// The address is confirmed as the account spells it. The code proves the mailbox
+	// under either spelling of its ASCII letters, and the spelling on the account is the
+	// last one an administrator or the person gave it.
+	written := email
+	if user.Email != nil {
+		written = *user.Email
+	}
+	if err := a.storage.VerifyUserEmailIfHeld(ctx, user.ID, user.Email, written); err != nil {
 		if httpio.HasConflict(err) {
 			logger.FromCtx(ctx).Infof(
 				"the address of user %s changed while the sign-in code mailed to %s was entered, or another account holds it now: the code is dead, and nothing is written",
@@ -567,10 +574,10 @@ func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, p *pendingState, 
 
 		return errors.Wrap(err, "sessionstorage.AuthStore.VerifyUserEmailIfHeld()")
 	}
-	logger.FromCtx(ctx).Infof("user %s verified the email address %s by the sign-in code", user.ID, email)
-	if a.registered().usernameIsEmail() && !sameAddress(user.Username, email) && a.userRenamed != nil {
-		if err := a.userRenamed(ctx, user.ID, user.Username, email); err != nil {
-			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by the sign-in code, and the rename hook failed; run the hook's work by hand: %v", user.ID, user.Username, email, err)
+	logger.FromCtx(ctx).Infof("user %s verified the email address %s by the sign-in code", user.ID, written)
+	if a.registered().usernameIsEmail() && !sameAddress(user.Username, written) && a.userRenamed != nil {
+		if err := a.userRenamed(ctx, user.ID, user.Username, written); err != nil {
+			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by the sign-in code, and the rename hook failed; run the hook's work by hand: %v", user.ID, user.Username, written, err)
 		}
 	}
 

@@ -54,7 +54,7 @@ func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 		{name: "a password's sign-in, and the address was moved to another account", identity: passwords, heldByAnother: true, wantDead: true},
 		{name: "a linked identity's sign-in, and the address was moved to another account", identity: waitsToBeLinked, linked: true, heldByAnother: true, wantDead: true},
 		{name: "the account still holds the address, which nobody has confirmed, and the code confirms it", identity: waitsToBeLinked, holds: mailedTo, wantWritten: mailedTo},
-		{name: "the account holds the address under another spelling of its letters", identity: waitsToBeLinked, holds: "Alice@Corp.Example", wantWritten: mailedTo},
+		{name: "the account holds the address under another spelling of its letters", identity: waitsToBeLinked, holds: "Alice@Corp.Example", wantWritten: "Alice@Corp.Example"},
 		{name: "the account holds the address confirmed, and nothing is written", identity: waitsToBeLinked, holds: mailedTo, confirmed: true},
 		{name: "an account that holds no address takes the one the person who proved its password gave", identity: passwords, wantWritten: mailedTo},
 		{name: "an account that holds no address takes the one the person its identity is linked to gave", identity: waitsToBeLinked, linked: true, wantWritten: mailedTo},
