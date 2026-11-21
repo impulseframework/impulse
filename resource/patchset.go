@@ -17,7 +17,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/spxscan/spxapi"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 // PatchType defines the type of operation for a PatchSet.
@@ -706,10 +706,14 @@ func (p *PatchSet[Resource]) bufferInsertWithDataChangeEvent(txn ReadWriteTransa
 	return nil
 }
 
+// bufferInsertOrUpdateWithDataChangeEvent buffers the record of what an insert-or-update
+// writes: what it changes in the row that is there, or, where the row is not there, every
+// value of the row it creates.
 func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string) error {
 	changeSet, where, err := p.updateChangeSet(ctx, txn)
 	if err != nil {
-		if !errors.Is(err, spxapi.ErrNotFound) {
+		// The reader answers a row that is not there with its 404 (recordNotFound).
+		if !httpio.HasNotFound(err) {
 			return err
 		}
 		changeSet, err = p.insertChangeSet()
