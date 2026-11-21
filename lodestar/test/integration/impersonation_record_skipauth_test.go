@@ -70,7 +70,7 @@ func standing(ctx context.Context, t *testing.T, s *served) []string {
 		`SELECT CONCAT('Pilots ', Id, ' user ', UserId, ' clearance ', CAST(Clearance AS STRING), ' fee limit ', CAST(FeeLimit AS STRING)) FROM Pilots`,
 		`SELECT CONCAT('PilotCertifications ', UserId, ' ', CertificationId) FROM PilotCertifications`,
 		`SELECT CONCAT('SquadronMemberships ', SquadronId, ' ', UserId) FROM SquadronMemberships`,
-		`SELECT CONCAT('HangarPasses ', Id, ' hangar ', HangarId, ' user ', IFNULL(UserId, 'none'), ' squadron ', IFNULL(SquadronId, 'none'), ' level ', LevelId) FROM HangarPasses`,
+		`SELECT CONCAT('HangarPasses ', Id, ' hangar ', HangarId, ' user ', IFNULL(UserId, 'none'), ' squadron ', IFNULL(SquadronId, 'none'), ' group ', IFNULL(GroupId, 'none'), ' level ', LevelId) FROM HangarPasses`,
 		`SELECT CONCAT('ClientContacts ', Id, ' user ', UserId, ' client ', ClientId) FROM ClientContacts`,
 		`SELECT CONCAT('Squadrons ', Id, ' wing ', WingId) FROM Squadrons`,
 	} {
@@ -478,8 +478,30 @@ func wingNamed(ctx context.Context, t *testing.T, s *served, name string) string
 	return id
 }
 
+// oneID reads the id the statement selects, straight from the database: what names the
+// row a test goes on to write, where the seed or a method gave it an id of its own.
+func oneID(ctx context.Context, t *testing.T, s *served, what, sql string, params map[string]any) string {
+	t.Helper()
+
+	iter := s.db.Single().Query(ctx, spanner.Statement{SQL: sql, Params: params})
+	defer iter.Stop()
+
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("reading the id of %s: %v", what, err)
+	}
+	var id string
+	if err := row.Columns(&id); err != nil {
+		t.Fatalf("reading the id of %s: %v", what, err)
+	}
+
+	return id
+}
+
 // TestImpersonation_ownSetActingAsAPerson proves the rule for a row that reaches a person
-// without naming them, and the exception the act kind keeps. The pilot flies with Tongs.
+// without naming them, and the exception the act kind keeps. The pilot flies with Tongs
+// and is in one of Anvil's groups, the Deck runners, which the governor makes and gives
+// a pass before the session starts.
 // Given the grant to act as a person, the pilot acts as the marshal, whose daily work a
 // hangar pass is: the kind refuses the class access and keeps the writes of HangarPasses
 // out of it. A pass given to another person and to another squadron goes through, and so
@@ -487,7 +509,10 @@ func wingNamed(ctx context.Context, t *testing.T, s *served, name string) string
 // account is refused by the rule for a row that names a person, and a pass given to
 // Tongs, changed for Tongs or taken from Tongs by the rule for a set the real person is
 // in, each with its sentence, alone or last in a batch, and nothing in the database
-// changes.
+// changes. A pass that names a group is held the same way: given to the Deck runners,
+// changed for them or taken from them it is refused with the sentence for a group, alone
+// or last in a batch, and the same four writes for the Bay keepers, a group of Anvil's
+// the pilot is not in, go through.
 //
 // A request narrows the kind and never widens it. One that refuses the class access
 // again and names nothing to keep drops the exception: the session it starts is refused
@@ -511,28 +536,68 @@ func TestImpersonation_ownSetActingAsAPerson(t *testing.T) {
 	pilot, yeoman := string(account(t, "pilot")), string(account(t, "yeoman"))
 	giveCrewRole(ctx, t, s, "StandIn", "pilot")
 	giveCrewRole(ctx, t, s, "CommandStaff", "pilot")
-	asMarshal := actingBrowser(ctx, t, s, "pilot", actAs(t, "marshal", "standing in for the marshal", ""))
 
 	passes := opPath(anvil, "hangar-passes")
 	pass := func(holder, id, level string) string {
 		return recordOp("add", passes, fmt.Sprintf(`{"hangarId":%q,%q:%q,"levelId":%q}`, hangarQuarantineID, holder, id, level))
 	}
 
-	// What the exception keeps: a pass for another person and for a squadron the pilot
-	// does not fly with, given, changed and taken.
+	// The pilot's own group: the governor, in a session of his own, makes a group of
+	// Anvil's, puts the pilot in it and gives it a pass to visit the Quarantine Bay. The
+	// Bay keepers are a group of the seed's the pilot is not in, with a pass of their own
+	// to run the same bay.
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	made, group := governor.do(ctx, http.MethodPost, sectorPath(anvil, "create-crew-sector-group"), []byte(`{"name":"Deck runners","description":"The people who run Anvil's dock."}`))
+	if made != http.StatusOK {
+		t.Fatalf("the governor making a group of Anvil's: status %d, want 200: %s", made, group)
+	}
+	deckRunners := cell[string](t, decodeRow(t, group), "id")
+	if status, answer := governor.do(ctx, http.MethodPost, crewMethod("add-crew-group-member"), fmt.Appendf(nil, `{"groupId":%q,"userId":%q}`, deckRunners, pilot)); status != http.StatusNoContent {
+		t.Fatalf("the governor putting the pilot in the group: status %d, want 204: %s", status, answer)
+	}
+	if status, answer := writeRecords(ctx, governor, pass("groupId", deckRunners, "visit")); status != http.StatusOK {
+		t.Fatalf("the governor giving the pilot's group a pass: status %d, want 200: %s", status, answer)
+	}
+	passOfDeckRunners := oneID(ctx, t, s, "the pass of the pilot's group", `SELECT Id FROM HangarPasses WHERE GroupId = @group`, map[string]any{"group": deckRunners})
+	bayKeepers := oneID(ctx, t, s, "the Bay keepers, a group of Anvil's",
+		`SELECT Id FROM CrewGroups WHERE Name = 'Bay keepers' AND Kind = 'domain' AND DomainId = @sector`, map[string]any{"sector": anvil})
+
+	asMarshal := actingBrowser(ctx, t, s, "pilot", actAs(t, "marshal", "standing in for the marshal", ""))
+
+	// What the exception keeps: a pass for another person, for a squadron the pilot does
+	// not fly with and for a group the pilot is not in, given, changed and taken, and a
+	// batch of two such passes.
+	ofBayKeepers := " hangar " + hangarQuarantineID + " user none squadron none group " + bayKeepers
 	kept := []struct {
 		name string
-		op   string
+		ops  []string
 		want string
 		gone string
 	}{
-		{name: "a pass given to another person", op: pass("userId", yeoman, "run"), want: " hangar " + hangarQuarantineID + " user " + yeoman + " squadron none level run"},
-		{name: "a pass given to another squadron", op: pass("squadronId", squadronHammerID, "visit"), want: " hangar " + hangarQuarantineID + " user none squadron " + squadronHammerID + " level visit"},
+		{name: "a pass given to another person", ops: []string{pass("userId", yeoman, "run")}, want: " hangar " + hangarQuarantineID + " user " + yeoman + " squadron none group none level run"},
 		{
-			name: "another squadron's pass changed", op: recordOp("patch", passes+"/"+passOfHammer, `{"levelId":"visit"}`),
-			want: "HangarPasses " + passOfHammer + " hangar " + hangarQuarantineID + " user none squadron " + squadronHammerID + " level visit",
+			name: "a pass given to another squadron", ops: []string{pass("squadronId", squadronHammerID, "visit")},
+			want: " hangar " + hangarQuarantineID + " user none squadron " + squadronHammerID + " group none level visit",
 		},
-		{name: "another squadron's pass taken", op: recordOp("remove", passes+"/"+passOfHammer, ""), gone: "HangarPasses " + passOfHammer + " "},
+		{
+			name: "another squadron's pass changed", ops: []string{recordOp("patch", passes+"/"+passOfHammer, `{"levelId":"visit"}`)},
+			want: "HangarPasses " + passOfHammer + " hangar " + hangarQuarantineID + " user none squadron " + squadronHammerID + " group none level visit",
+		},
+		{name: "another squadron's pass taken", ops: []string{recordOp("remove", passes+"/"+passOfHammer, "")}, gone: "HangarPasses " + passOfHammer + " "},
+		{name: "a pass given to a group they are not in", ops: []string{pass("groupId", bayKeepers, "visit")}, want: ofBayKeepers + " level visit"},
+		{
+			name: "the pass of a group they are not in changed", ops: []string{recordOp("patch", passes+"/"+passBayKeepersQuarantineID, `{"levelId":"visit"}`)},
+			want: "HangarPasses " + passBayKeepersQuarantineID + ofBayKeepers + " level visit",
+		},
+		{
+			name: "the pass of a group they are not in taken", ops: []string{recordOp("remove", passes+"/"+passBayKeepersQuarantineID, "")},
+			gone: "HangarPasses " + passBayKeepersQuarantineID + " ",
+		},
+		{
+			name: "a batch that gives another person a pass and then a group they are not in", ops: []string{pass("userId", yeoman, "visit"), pass("groupId", bayKeepers, "run")},
+			want: ofBayKeepers + " level run",
+		},
 	}
 	holds := func(rows []string, part string) bool {
 		return slices.ContainsFunc(rows, func(row string) bool {
@@ -540,7 +605,7 @@ func TestImpersonation_ownSetActingAsAPerson(t *testing.T) {
 		})
 	}
 	for _, write := range kept {
-		if status, answer := writeRecords(ctx, asMarshal, write.op); status != http.StatusOK {
+		if status, answer := writeRecords(ctx, asMarshal, write.ops...); status != http.StatusOK {
 			t.Errorf("acting as the marshal, %s: status %d, want 200: the kind keeps the writes of HangarPasses: %s", write.name, status, answer)
 
 			continue
@@ -555,7 +620,8 @@ func TestImpersonation_ownSetActingAsAPerson(t *testing.T) {
 	}
 
 	// What the rule refuses whatever the mask keeps: a pass that reaches the real person,
-	// by their account or through the squadron they fly with.
+	// by their account, through the squadron they fly with or through a group they are
+	// in.
 	refused := []recordWrite{
 		{name: "a pass given to their own account", by: asMarshal, says: "add your own hangar pass record", ops: []string{pass("userId", pilot, "run")}},
 		{name: "a pass given to their own squadron", by: asMarshal, says: "add a hangar pass record for one of your own squadrons", ops: []string{pass("squadronId", squadronTongsID, "run")}},
@@ -570,6 +636,19 @@ func TestImpersonation_ownSetActingAsAPerson(t *testing.T) {
 		{
 			name: "a batch that gives another squadron a pass and then their own", by: asMarshal, says: "add a hangar pass record for one of your own squadrons",
 			ops: []string{pass("squadronId", squadronHammerID, "run"), pass("squadronId", squadronTongsID, "run")},
+		},
+		{name: "a pass given to their own group", by: asMarshal, says: "add a hangar pass record for one of your own groups", ops: []string{pass("groupId", deckRunners, "run")}},
+		{
+			name: "their own group's pass changed", by: asMarshal, says: "change a hangar pass record of one of your own groups",
+			ops: []string{recordOp("patch", passes+"/"+passOfDeckRunners, `{"levelId":"run"}`)},
+		},
+		{
+			name: "their own group's pass taken", by: asMarshal, says: "remove a hangar pass record of one of your own groups",
+			ops: []string{recordOp("remove", passes+"/"+passOfDeckRunners, "")},
+		},
+		{
+			name: "a batch that gives a group they are not in a pass and then their own", by: asMarshal, says: "add a hangar pass record for one of your own groups",
+			ops: []string{pass("groupId", bayKeepers, "visit"), pass("groupId", deckRunners, "run")},
 		},
 	}
 	before := standing(ctx, t, s)
