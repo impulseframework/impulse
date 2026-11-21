@@ -113,8 +113,10 @@ func frameworkCheckout(t *testing.T) string {
 // that commit's pseudo-version and the browser packages at the latest release's; a build
 // from a checkout, or one reporting (devel), is refused before anything is written; with
 // --dev-root the framework is pinned at the zero pseudo-version and replaced by the
-// checkout, whatever the build, and tidy alone runs; and a go get or a tidy that fails
-// stops before the first commit, the tree rendered.
+// checkout, whatever the build, and tidy alone runs; an auth of another name than the
+// skeleton's has the generators run once after that, and the skeleton's own name does
+// not; and a go get, a tidy or a regeneration that fails stops before the first commit,
+// the tree rendered.
 func TestNew(t *testing.T) {
 	t.Parallel()
 
@@ -130,7 +132,9 @@ func TestNew(t *testing.T) {
 		name    string
 		build   check.Build
 		devRoot bool
-		fail    string
+		// auth is the first auth's name, the skeleton's placeholder where it is empty.
+		auth string
+		fail string
 		// wantPin is go.mod's framework pin after the run, wantWeb the one spec every web
 		// root pins the browser packages at; wantCalls the go commands run; wantLine a
 		// line of the report and wantNoLine a fragment it must not hold; rendered says a
@@ -188,6 +192,23 @@ func TestNew(t *testing.T) {
 			wantNoLine: "Pinned the framework",
 		},
 		{
+			name:      "an auth of another name than the skeleton's is regenerated once the requirements are settled, so the generated files are the generator's under that name",
+			build:     check.Build{Version: release, FromModule: true},
+			auth:      "members",
+			wantPin:   release,
+			wantWeb:   "0.4.0",
+			wantCalls: []string{"app GOWORK=off go get -tool github.com/impulseframework/impulse/cmd/impulse@" + release, "app GOWORK=off go mod tidy", "app go generate ./..."},
+		},
+		{
+			name:      "a regeneration that fails stops before the first commit, the tree rendered",
+			build:     check.Build{Version: release, FromModule: true},
+			auth:      "members",
+			fail:      "go generate",
+			wantCalls: []string{"app GOWORK=off go get -tool github.com/impulseframework/impulse/cmd/impulse@" + release, "app GOWORK=off go mod tidy", "app go generate ./..."},
+			rendered:  true,
+			wantErr:   "go generate ./... could not write the generated files under the members auth's name (exit status 1), and a new application is committed as its generators write it. The generators read the schema through the Spanner emulator, so a container runtime has to be running. ",
+		},
+		{
 			name:      "a pin the module proxy cannot resolve stops before the first commit, the tree rendered",
 			build:     check.Build{Version: commit, FromModule: true},
 			fail:      "go get -tool",
@@ -211,7 +232,11 @@ func TestNew(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "app")
 			run := &fakeGo{fail: tt.fail}
 			cmd := newNewWith(newDeps{build: func() check.Build { return tt.build }, run: run})
-			args := []string{dir, "--module", "example.com/acme/beacon", "--auth", "staff", "--skip-git"}
+			auth := tt.auth
+			if auth == "" {
+				auth = "staff"
+			}
+			args := []string{dir, "--module", "example.com/acme/beacon", "--auth", auth, "--skip-git"}
 			checkout := ""
 			if tt.devRoot {
 				checkout = frameworkCheckout(t)

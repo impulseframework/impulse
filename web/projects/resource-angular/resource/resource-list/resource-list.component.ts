@@ -2,6 +2,7 @@ import { NgComponentOutlet } from '@angular/common';
 import {
   Component,
   computed,
+  DestroyRef,
   effect,
   inject,
   Injector,
@@ -127,6 +128,7 @@ export class ResourceListComponent implements OnInit {
   activatedRoute = inject(ActivatedRoute);
   auth = inject(AuthService);
   dialog = inject(MatDialog);
+  private readonly destroyRef = inject(DestroyRef);
 
   hideCreateButton = input<boolean>(true);
   /**
@@ -137,7 +139,7 @@ export class ResourceListComponent implements OnInit {
   /**
    * A method ran from this list, against one of its rows or from above it. The list has
    * already asked for its rows again; a page that holds the list under a row reads the
-   * row and its other lists again.
+   * row and its other lists again. A list whose page has left by then tells nobody.
    */
   methodRan = output<void>();
   resourceConfig = input<ChildResourceConfig>();
@@ -949,7 +951,11 @@ export class ResourceListComponent implements OnInit {
   /**
    * Runs a method through its dialog: against the row when one is given, its key filling
    * the request, or with no row for a method offered above the list. Once the method has
-   * run the page says so and reads its rows again, by the page's own cursor.
+   * run the page says so and reads its rows again, by the page's own cursor. Where the
+   * method took away the row the list sits under, the page may have left before the
+   * dialog answers here (a live page reads its row again as soon as the write lands):
+   * what ran is still said, and the list, which nobody sees any more, reads no rows and
+   * tells no page.
    */
   runMethod(method: OfferedMethod, row?: RecordData): void {
     openMethodDialog(this.dialog, method, row, this.relatedData(), this.store.page().rows).subscribe((result) => {
@@ -963,6 +969,9 @@ export class ResourceListComponent implements OnInit {
         duration: 5000,
         link: '',
       });
+      if (this.destroyRef.destroyed) {
+        return;
+      }
       this.store.reloadPage();
       this.methodRan.emit();
     });

@@ -62,7 +62,7 @@ func TestLoginMethods(t *testing.T) {
 			prefix: portalAPI,
 			want: `{"methods":[` +
 				`{"name":"directory","method":"google","kind":"redirect","label":"Company directory","path":"/portal/api/user/directory/login"}],` +
-				`"pending":{"status":"/portal/api/user/pending","confirm":"/portal/api/user/pending/confirm","cancel":"/portal/api/user/pending/cancel",` +
+				`"pending":{"status":"/portal/api/user/pending","cancel":"/portal/api/user/pending/cancel",` +
 				`"sendCode":"/portal/api/user/pending/code","verifyCode":"/portal/api/user/pending/code/verify","enrollEmail":"/portal/api/user/pending/email"}}`,
 		},
 	}
