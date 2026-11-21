@@ -389,7 +389,7 @@ func storedRowNames[Resource resource.Resourcer](
 		return false, err
 	}
 	for _, column := range columns {
-		value := data.FieldByName(string(column))
+		value := storedField(data, column)
 		if !value.IsValid() {
 			return false, errors.Newf("identity: %s has no field %s to read the person its row names from", data.Type(), column)
 		}
@@ -411,7 +411,7 @@ func storedColumn[Resource resource.Resourcer](
 	if err != nil || !found {
 		return nil, false, err
 	}
-	held := data.FieldByName(string(column))
+	held := storedField(data, column)
 	if !held.IsValid() {
 		return nil, false, errors.Newf("identity: %s has no field %s to read the stored value from", data.Type(), column)
 	}
@@ -449,6 +449,21 @@ func storedRow[Resource resource.Resourcer](
 	}
 
 	return reflect.Indirect(reflect.ValueOf(row.Data)), true, nil
+}
+
+// storedField answers the field of the stored row that holds the column, or the zero
+// Value where the row's type has no field of that name. The column picks one of the
+// fields the type itself declares, a field of an embedded struct among them as a
+// selector reaches it, and the field is then read by its place in the type: a name
+// reaches nothing of the row but a field its type lists.
+func storedField(data reflect.Value, column accesstypes.Field) reflect.Value {
+	for _, field := range reflect.VisibleFields(data.Type()) {
+		if field.Name == string(column) {
+			return data.FieldByIndex(field.Index)
+		}
+	}
+
+	return reflect.Value{}
 }
 
 // columnNames reports whether a column that holds a person's account id holds the

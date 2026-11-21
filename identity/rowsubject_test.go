@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"iter"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -391,5 +392,176 @@ func TestRefuseImpersonatorAsRowSubject_grantsFirst(t *testing.T) {
 	err = RefuseImpersonatorAsRowSubject(acting, txn, resource.OperationUpdate, resource.KeySet{}, trusted, "seat", "UserID")
 	if err == nil || httpio.HasForbidden(err) || !strings.Contains(err.Error(), "no key to read the GuardedSeats row by") {
 		t.Fatalf("RefuseImpersonatorAsRowSubject() with no key error = %v, want the fault that says the row cannot be read", err)
+	}
+}
+
+// TestStoredColumn pins the read of the value a stored row holds in a column, which the
+// rule on a row that names a set asks before a write: the value of that column and no
+// other, a NULL as the row holds it, nothing for a row that is not there, and a fault,
+// never a value, where the row cannot be read for the column.
+func TestStoredColumn(t *testing.T) {
+	t.Parallel()
+
+	passID := mustUUID("66666666-6666-4666-8666-666666666663")
+	holder := userID.String()
+	key := resource.KeySet{}.Add("ID", passID)
+
+	tests := []struct {
+		name   string
+		stored *guardedPass
+		key    resource.KeySet
+		column accesstypes.Field
+		// want is the value answered and wantFound whether a row was there; wantErr
+		// is what the fault says, empty where there is none, and wantRead the column
+		// the one statement asks for, empty where nothing is read.
+		want      any
+		wantFound bool
+		wantErr   string
+		wantRead  string
+	}{
+		{
+			name: "the value the row holds in the column", stored: &guardedPass{ID: passID, UserID: &holder, Door: "east"}, key: key,
+			column: "Door", want: "east", wantFound: true, wantRead: "Door",
+		},
+		{
+			name: "the value of a column between the others", stored: &guardedPass{ID: passID, HolderID: impulse.NullUUIDFromUUID(otherUser), Door: "east"}, key: key,
+			column: "HolderID", want: impulse.NullUUIDFromUUID(otherUser), wantFound: true, wantRead: "HolderId",
+		},
+		{
+			name: "a pointer as the row holds it", stored: &guardedPass{ID: passID, UserID: &holder}, key: key,
+			column: "UserID", want: &holder, wantFound: true, wantRead: "UserId",
+		},
+		{
+			name: "a NULL as the row holds it", stored: &guardedPass{ID: passID, Door: "east"}, key: key,
+			column: "UserID", want: (*string)(nil), wantFound: true, wantRead: "UserId",
+		},
+		{
+			name: "a row that is not there holds nothing", key: key,
+			column: "Door", wantRead: "Door",
+		},
+		{
+			name: "no key to read the row by is a fault", stored: &guardedPass{ID: passID, Door: "east"},
+			column: "Door", wantErr: "no key to read the GuardedPasses row by",
+		},
+		{
+			name: "a column the record does not have is a fault", stored: &guardedPass{ID: passID, Door: "east"}, key: key,
+			column: "Nope", wantErr: "Nope",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			reader := &storedRows[guardedPass]{row: tt.stored}
+			txn := resource.NewMockReadWriteTransaction(stubTxn{}, reader)
+
+			got, found, err := storedColumn[guardedPass](t.Context(), txn, tt.key, tt.column)
+			if tt.wantErr != "" {
+				if err == nil || httpio.HasForbidden(err) || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("storedColumn() error = %v, want a fault that says %q", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("storedColumn() error = %v, want nil", err)
+			}
+			if found != tt.wantFound || !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("storedColumn() = %#v, %t, want %#v, %t", got, found, tt.want, tt.wantFound)
+			}
+
+			wantReads := 0
+			if tt.wantRead != "" {
+				wantReads = 1
+			}
+			if len(reader.reads) != wantReads {
+				t.Fatalf("storedColumn() read %d rows, want %d", len(reader.reads), wantReads)
+			}
+			for _, stmt := range reader.reads {
+				if !strings.Contains(stmt.SQL, tt.wantRead) || !strings.Contains(stmt.SQL, "WHERE `Id` = @") {
+					t.Errorf("storedColumn() read %q, want the column %s, by the row's key", stmt.SQL, tt.wantRead)
+				}
+				for _, other := range []string{"UserId", "HolderId", "BackupId", "OwnerId", "Door"} {
+					if other != tt.wantRead && strings.Contains(stmt.SQL, other) {
+						t.Errorf("storedColumn() read %q, want the column %s alone, not %s", stmt.SQL, tt.wantRead, other)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestRefuseImpersonator_columnTheRecordDoesNotHave pins what the rules answer when they
+// are given a column the record does not have, which the generated write never does: the
+// stored row cannot be read for it, so each rule answers a fault and the write does not
+// happen. Neither lets the write through, and neither answers the refusal a person could
+// act on.
+func TestRefuseImpersonator_columnTheRecordDoesNotHave(t *testing.T) {
+	t.Parallel()
+
+	seatID := mustUUID("66666666-6666-4666-8666-666666666661")
+	acting := viewedBy(t.Context(), userID)
+	key := resource.KeySet{}.Add("ID", seatID)
+	reader := &storedRows[guardedSeat]{row: &guardedSeat{ID: seatID, UserID: userID.String(), Level: 2}}
+	txn := resource.NewMockReadWriteTransaction(stubTxn{}, reader)
+	patchSet := resource.NewPatchSet(resource.NewMetadata[guardedSeat]()).Set("Level", int64(5))
+
+	for _, op := range []resource.OperationType{resource.OperationUpdate, resource.OperationDelete} {
+		err := RefuseImpersonatorAsRowSubject(acting, txn, op, key, patchSet, "seat", "Nope")
+		if err == nil || httpio.HasForbidden(err) || !strings.Contains(err.Error(), "Nope") {
+			t.Errorf("RefuseImpersonatorAsRowSubject(%s) error = %v, want a fault that names the column", op, err)
+		}
+		err = RefuseImpersonatorAsSetSubject(acting, txn, op, key, patchSet, "seat", "Nope", "teams")
+		if err == nil || httpio.HasForbidden(err) || !strings.Contains(err.Error(), "Nope") {
+			t.Errorf("RefuseImpersonatorAsSetSubject(%s) error = %v, want a fault that names the column", op, err)
+		}
+	}
+	if len(reader.reads) != 0 {
+		t.Errorf("the rules read %d rows for a column the record does not have, want none", len(reader.reads))
+	}
+}
+
+// TestStoredField pins how the field of a stored row is found for a column: by the name
+// of a field the row's type declares, a field of an embedded struct among them, and the
+// zero Value for a name the type does not have, which the rules answer as a fault.
+func TestStoredField(t *testing.T) {
+	t.Parallel()
+
+	type Stamp struct {
+		Door string
+	}
+	type stampedPass struct {
+		Stamp
+
+		ID     string
+		UserID string
+	}
+	data := reflect.ValueOf(stampedPass{Stamp: Stamp{Door: "east"}, ID: "pass-1", UserID: "someone"})
+
+	tests := []struct {
+		name   string
+		column accesstypes.Field
+		// want is the value the field holds, nil where the type has no such field.
+		want any
+	}{
+		{name: "a field the type declares", column: "UserID", want: "someone"},
+		{name: "the field of that name and no other", column: "ID", want: "pass-1"},
+		{name: "a field of an embedded struct", column: "Door", want: "east"},
+		{name: "a name the type does not have", column: "Nope"},
+		{name: "a name in other letters is another name", column: "userid"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := storedField(data, tt.column)
+			if tt.want == nil {
+				if got.IsValid() {
+					t.Fatalf("storedField(%s) = %v, want the zero Value", tt.column, got)
+				}
+
+				return
+			}
+			if !got.IsValid() || got.Interface() != tt.want {
+				t.Errorf("storedField(%s) = %v, want %v", tt.column, got, tt.want)
+			}
+		})
 	}
 }
