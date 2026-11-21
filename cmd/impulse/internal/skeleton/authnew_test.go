@@ -18,8 +18,9 @@ import (
 // leave the permission collection out, as it refuses each of its other required settings:
 // with a sentence that names the auth's own setting and says what to pass. The settings
 // are a struct, so leaving the collection out compiles, and without the refusal the
-// permission engine's own (access.New) is what a person reads, which names neither the
-// setting nor the union an application with several sites passes.
+// permission engine's own (access.New) is what a person reads, which names the union an
+// application with several sites passes (access.UnionCollection) and not the auth's
+// setting, the place where the collection was left out.
 //
 // A nil pointer of a collection's type is a missing collection too, and is refused with
 // the same sentence: a variable nothing was assigned to hands one over, the interface
