@@ -27,8 +27,11 @@ const (
 	goModFile   = "go.mod"
 )
 
-// AuthDir is the directory the auth packages live under: pkg/auth/<name>, one per
-// population that signs in one way and holds roles in one store.
+// AuthDir is the name of the directory the auth packages live directly under
+// (pkg/auth/<name> in an application the skeleton made), one package per population
+// that signs in one way and holds roles in one store. A package directly under a
+// directory of this name, anywhere in the module, is an auth package when it
+// constructs a session Auth (AuthPackages).
 const AuthDir = "auth"
 
 // The construction that makes a package under an auth directory an auth: the session

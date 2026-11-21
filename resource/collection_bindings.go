@@ -110,10 +110,11 @@ type DomainBindingData struct {
 //
 // Auth names the auth whose people the set describes, as the auth's package
 // names it (auth: in the @subjectSet): the user column holds that auth's
-// people, so only that auth's roles can give anybody anything through the
-// set, and only that auth's role-file check looks at it
-// (GeneratedCollection.SubjectSets); another auth's role file is refused a
-// grant that reads it (GeneratedCollection.SubjectSetAuth). It is empty on a set that says none,
+// people and the set is looked up by their ids, so an engine opened for
+// another auth takes no grant that reads the set, in its role file, on a
+// custom role or from the store (GeneratedCollection.SubjectSetAuth), and
+// only that auth's role-file check looks at it
+// (GeneratedCollection.SubjectSets). It is empty on a set that says none,
 // which an application with one auth may leave so, every set being that
 // auth's, and on a subject value. Generation refuses a set that follows a
 // person through a set of another auth's people (a who: test against it).
@@ -299,8 +300,8 @@ func (g *GeneratedCollection) SubjectSetAuth(name string) string {
 // that describe the people of one auth, by name, each with the names of the
 // sets its who: part builds on (Column IN subject.<set>). auth is the auth's
 // name, as its package names it. A set that names another auth is left out:
-// only that auth's roles can read it, so its role-file check is the one that
-// looks at it. A set that names no auth, as a set of an application with
+// an engine opened for this auth takes no grant that reads it, so that auth's
+// role-file check is the one that looks at it. A set that names no auth, as a set of an application with
 // one auth may, is listed for every auth, and an empty auth lists every set.
 // A set the generator declares for an auth (Offered) is left out: the
 // role-file check flags a listed set that no role reads

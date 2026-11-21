@@ -13,12 +13,12 @@ import (
 // subject.hangarsOpen). A set no grant reads does nothing: the people it gathers hold
 // nothing through it, and nobody is told. A set is read when a grant's condition names
 // it, or when a set that is read builds on it in its who: part (GroupID IN
-// subject.crewGroups), since the first set then holds what the second yields. A set describes
-// the people of one auth, and only that auth's roles can give them anything through it:
-// an application with several auths says which on each set (auth: in the @subjectSet), the
-// collection lists each auth its own, and one auth's check never looks at another's. It
-// is a warning and never a refusal, because a set may be declared one change before the
-// first grant that reads it.
+// subject.crewGroups), since the first set then holds what the second yields. A set
+// describes the people of one auth, and an engine opened for another auth takes no grant
+// that reads it: an application with several auths says which on each set (auth: in the
+// @subjectSet), the collection lists each auth its own, and one auth's check never looks
+// at another's. It is a warning and never a refusal, because a set may be declared one
+// change before the first grant that reads it.
 
 // UnreadSetWarning is one subject set the application declares for an auth's people that
 // no grant of the auth's role file reads, directly or through another set's who: part.

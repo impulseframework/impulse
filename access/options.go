@@ -116,9 +116,11 @@ func WithReloadErrorHandler(f func(error)) Option {
 // roles could write (UnreadSetWarning). A grant of the file whose condition
 // reads a set that describes another auth's people fails New, naming the
 // grant, the set and both auths: the set is looked up by the other auth's
-// ids, so the role's holders would get nothing of their own through it. A
-// set that names no auth is any auth's to read. An empty auth refuses no
-// grant for whose people its set describes, and looks at every set.
+// ids, so it says nothing about the people who hold the role. The engine
+// holds a grant written to a custom role, and one found in the store, to the
+// same rule under the same name. A set that names no auth is any auth's to
+// read. An empty auth refuses no grant for whose people its set describes, and
+// looks at every set.
 func WithDefaultRoles(file RoleFile, auth string) Option {
 	return func(o *clientOptions) {
 		o.roleFile = file

@@ -929,13 +929,17 @@ person's groups that the generator declares for an auth is not flagged, since
 nobody wrote it.
 
 A set describes the people of one auth: its user column holds that auth's
-people, so only that auth's roles can give anybody anything through it. An
-application with more than one auth says so on each set (`auth: staff` in the
+people, and the set is looked up by their ids. An engine that is told its auth's
+name takes no grant that reads another auth's set, whether the grant is in its
+role file, written to a custom role, or found in the store. An application with
+more than one auth says whose people each set holds (`auth: staff` in the
 `@subjectSet`, the auth's name as its package names it; generation refuses a set
-that says none). The application's auths are the auth packages in its tree
-(`pkg/auth/<name>`, a package that constructs a session Auth, as `impulse check`
-finds them), so the generate program of one site knows another site's auth with
-nothing declared for it. Each auth hands its own name with its role file:
+that says none). A run knows the auths its own outlets declare and the auth
+packages in the tree of its module (a package directly under a directory named
+`auth` that constructs a session Auth, the rule `impulse check` finds an auth
+package by), so the generate program of one site knows another site's auth in
+the same module with nothing declared for it. Each auth hands its own name with
+its role file:
 
 ```go
 access.WithDefaultRoles(staff.Roles(), staff.Name)
@@ -943,23 +947,32 @@ warnings, err := access.ValidateRoles(collection, membersRoles, members.Name)
 ```
 
 The check of an auth looks at that auth's sets and at the sets that name no
-auth, and never at another auth's, so no role file is handed from one auth to
-another. The name is the one generation knows the auth by, the name of its
-package, and a file handed over under a name the collection's generation did
-not know is refused with the name given and the names known
-(`PermissionCollection.Auths`; the generated collection lists the application's
-auths as its run read them, and a union every site's). Two sites that say one set
-name describes two different auths' people are refused where the union is built
-(`UnionCollection`), naming the set and both auths: a role file reads a set by its
-name alone, so one of the two sets takes another name. A grant of one auth's role whose condition reads a set that describes
-another auth's people is refused when the file is loaded (`New`,
-`ValidateRoles`), naming the grant, the set and both auths: the set is looked
-up by the other auth's ids, so the role's holders would get nothing of their
-own through it. A set follows a person through sets of its own auth alone: generation
-refuses a `who:` that tests a set labeled for another auth, the set of a
-person's groups that the generator declares for another auth included, which
-names its auth without being told. An application with one auth need not write `auth:`: every set is that
-auth's. An empty name looks at every set.
+auth, and never at another auth's, so a set is never flagged as unread in the
+role file of an auth whose roles could not read it. The name is the one
+generation knows the auth by, the name of its package, and a file handed over
+under a name the collection's generation did not know is refused with the name
+given and the names known (`PermissionCollection.Auths`; the generated
+collection lists the application's auths as its run read them, and a union every
+site's). Two sites that say one set name describes two different auths' people
+are refused where the union is built (`UnionCollection`), naming the set and
+both auths: a role file reads a set by its name alone, so one of the two sets
+takes another name, or both name the same auth. Where the collections of a union
+together know several auths, a set that does not say whose people it describes
+is refused there too, naming the set: the union is where an application's sites
+meet, and it holds the rule for the auths one site's generation could not see. A
+grant whose condition reads a set that describes another auth's people is
+refused, naming the grant, the set and both auths: in the role file when it is
+loaded (`New`, `ValidateRoles`), and on a custom role when the grant is written.
+One found in the store is left out when the policy is loaded, and reported. The
+set is looked up by the other auth's ids, so it says nothing about the people
+who hold the role, whichever way the condition tests it. A set follows a person
+through sets of its own auth alone: generation refuses a `who:` that tests a set
+labeled for another auth, the set of a person's groups that the generator
+declares for another auth included. That set is named after its auth
+(`subject.staffGroups` for the auth `staff`) and names its auth without being
+told. An application with one auth need not write `auth:`: every set is that
+auth's. An engine handed an empty name, or opened with no role file, holds no
+grant to an auth's sets, and a check handed an empty name looks at every set.
 
 ### Behavior
 

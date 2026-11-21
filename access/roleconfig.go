@@ -321,8 +321,10 @@ type defaultRole struct {
 // write the grant in and every set the release declares would be flagged. auth
 // names the auth whose roles these are: the subject sets held to them are that
 // auth's own, and a grant that reads a set of another auth's people is refused
-// (validateGrantSetAuth). An empty auth holds the file to every set and
-// refuses no grant for whose people its set describes.
+// (validateGrantSetAuth). The name stays with the compiled roles, and the
+// engine holds a custom role's grants to it (grantRule). An empty auth holds
+// the file to every set and refuses no grant for whose people its set
+// describes.
 func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, methods []accesstypes.Resource, auth string) (*defaultRoles, error) {
 	roleFile := roleConfig
 	if roleConfig == nil {
