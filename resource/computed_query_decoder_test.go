@@ -3,6 +3,7 @@ package resource
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -27,10 +28,12 @@ func (computedEnforcementResource) Resource() accesstypes.Resource { return comp
 
 func (computedEnforcementResource) DefaultConfig() Config { return Config{} }
 
+// Tagged joins the search box, as a computed resource's text field does: the handler
+// searches the rows its function yields in memory.
 type computedEnforcementRequest struct {
 	ID     impulse.UUID `json:"id"     perm:"-"`
 	Public string       `json:"public" allow_filter:"true"`
-	Tagged string       `json:"tagged" allow_filter:"true"`
+	Tagged string       `json:"tagged" allow_filter:"true" search:"memory"`
 }
 
 func TestComputedQueryDecoder_Decode_permissionEnforcement(t *testing.T) {
@@ -165,6 +168,19 @@ func TestComputedQueryDecoder_Decode_permissionEnforcement(t *testing.T) {
 			wantForbidden:   true,
 			wantErrContains: "must be granted unconditionally",
 			wantSaid:        "You may not sort or filter computed enforcement resources by the tagged here.",
+		},
+		// The search box searches the field's real values too, so a field it searches
+		// needs the same grant, and its refusal says "search": the caller asked for no
+		// sort and no filter of the field.
+		{
+			name:   "the search box over a field the caller may not list is Forbidden in the box's own words",
+			target: "/?filter=" + url.QueryEscape(`*:search:"x"`) + "&limit=all",
+			grants: map[accesstypes.Permission][]accesstypes.Resource{
+				accesstypes.List: {computedEnforcedResource, computedEnforcedResource + ".public"},
+			},
+			wantForbidden:   true,
+			wantErrContains: "cannot search tagged",
+			wantSaid:        "You may not search computed enforcement resources by the tagged here.",
 		},
 		// A grant under a condition is a grant: it passes the decoder, which keeps the
 		// condition for the rows (computed_conditions_test.go judges them). It is
