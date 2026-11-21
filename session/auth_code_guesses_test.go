@@ -255,9 +255,13 @@ func TestAuth_verifyEmailCode_guessesAtOnce(t *testing.T) {
 	t.Run("a code with an attempt left stands in the status", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
-		pending := &pendingState{ID: impulse.Must(impulse.NewUUID())}
+		userID := impulse.Must(impulse.NewUUID())
+		pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID)}
 		code := expectFactorCode(f, pending, sent)
 		code.taken, code.row.Attempts = emailCodeAttempts-1, emailCodeAttempts-1
+		// The code stands for the address the account holds, which is the one it was
+		// mailed to.
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", Email: strPtr("pat@lakeside.edu")}, nil).AnyTimes()
 
 		state, err := f.auth.emailCodeState(context.Background(), pending)
 		if err != nil {

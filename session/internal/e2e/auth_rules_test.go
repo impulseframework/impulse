@@ -566,6 +566,10 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesNameLinkTakesNoAddress[Tx],
 		},
 		{
+			name: "a code mailed before the account's address is taken away is no longer good: the step offers no code at the address the account held, the code is answered code_expired, nobody is linked or signed in, and the address is not written back",
+			run:  seamRulesNameLinkCodeOutlivesNoAddress[Tx],
+		},
+		{
 			name: "a sign-in name that moves to another account while a first link waits links nobody: the code mailed to the first account's address is refused at the completion, and neither account gains a link or a session",
 			run:  seamRulesNameLinkAfterTheNameMoved[Tx],
 		},
@@ -681,6 +685,49 @@ func seamRulesNameLinkTakesNoAddress[Tx any](ctx context.Context, t *testing.T, 
 	}
 	if _, err := a.api.UserByEmail(ctx, "mallory@elsewhere.example"); !httpio.HasNotFound(err) {
 		t.Errorf("UserByEmail() error = %v, want NotFound: the address given is written on no account", err)
+	}
+}
+
+// seamRulesNameLinkCodeOutlivesNoAddress is the scenario "a code mailed before the
+// account's address is taken away is no longer good".
+func seamRulesNameLinkCodeOutlivesNoAddress[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, nameLinkShape())
+	alice := a.createUser(ctx, t, "alice@corp.example")
+	a.confirmedAddress(ctx, t, alice, "alice@corp.example")
+
+	// A Google account made under alice's name, with an address outside Google, waits
+	// for the code mailed to the address alice's account holds. The person asks for
+	// the code, and it is mailed there.
+	b := a.browser(t)
+	b.prime(ctx)
+	assertRedirect(t, a.googleSignIn(ctx, b, outsideGoogleClaims("g-sub-other", "alice@corp.example")), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	code := a.lastCode(t, "alice@corp.example")
+	if status := b.pendingStatus(ctx); status.EmailCode == nil || !status.EmailCode.CodeSent {
+		t.Fatalf("the step's email code after the code was mailed = %+v, want the code standing", status.EmailCode)
+	}
+
+	// An administrator learns the mailbox is no longer alice's and takes the address
+	// off the account. The code was mailed to an address the account no longer holds:
+	// the step offers it no more, and entering it is answered as a code that expired.
+	if err := a.setEmail(ctx, alice, nil); err != nil {
+		t.Fatalf("SetUserEmail() error = %v", err)
+	}
+	if status := b.pendingStatus(ctx); status.EmailCode == nil || status.EmailCode.CodeSent || status.EmailCode.CodeEmail != "" {
+		t.Errorf("the step's email code after the address was taken off the account = %+v, want no code standing and no address offered", status.EmailCode)
+	}
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"code_expired"`) {
+		t.Fatalf("the code mailed before the address was taken off the account = %d %s, want 401 code_expired", status, body)
+	}
+
+	// Nobody is signed in or linked, and the address the administrator took away is
+	// not written back.
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if links := a.links(ctx, t, alice.String()); len(links) != 0 {
+		t.Errorf("identity links of the account = %d, want none", len(links))
+	}
+	if _, err := a.api.UserByEmail(ctx, "alice@corp.example"); !httpio.HasNotFound(err) {
+		t.Errorf("UserByEmail() error = %v, want NotFound: the address the administrator took away is on no account", err)
 	}
 }
 

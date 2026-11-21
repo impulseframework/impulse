@@ -316,11 +316,16 @@ DML what a later rule must read.
   person reads their own mail: that sign-in is refused (`identity_rejected`,
   `signin.ErrLinkNeedsAddress`) and nothing is linked, so an account made ahead of
   its person is made with their address (`CreateUserRequest.Email`). The wait is for
-  the account it began with and for the address that account holds, whatever changes
-  while it lasts. An account whose address is taken away while a sign-in waits takes
-  none from the person who waits: the step's `EnrollEmail` is refused (`409`, saying
-  that an administrator gives the account its address) and nothing is mailed, so the
-  person signs in again once the account holds one. A sign-in name that moves to
+  the account it began with, and its code is good only for the address that account
+  holds when the code is entered. A code mailed to an address that has since been
+  taken off the account, replaced by another (confirmed or not) or moved to another
+  account is dead (`code_expired`, as a code that ran out is): nobody is linked on it,
+  the address it was mailed to is not written back, and the step offers a new code at
+  the address the account holds now. An account whose address is taken away while a
+  sign-in waits takes none from the person who waits: the step's `EnrollEmail` is
+  refused (`409`, saying that an administrator gives the account its address) and
+  nothing is mailed, so the person signs in again once the account holds one. A
+  sign-in name that moves to
   another account while a sign-in waits links nobody: the code answered for the first
   account's address and for no other's, so the sign-in that carries it is refused
   (`identity_rejected`) before anything is written, and neither account gains a link.
@@ -1197,7 +1202,10 @@ the person reaches.
    once for one pending sign-in one stands, so there is never a second code to guess
    at with attempts of its own. The code goes to the address the user holds, verified or not:
    an address an operator entered is proven by the code as a link would prove it, and
-   the user holds it verified once the code is entered. A user who holds no address
+   the user holds it verified once the code is entered. A code is good only for the
+   address the user holds when it is entered: one mailed to an address the account no
+   longer holds is dead (`code_expired`), nothing is written, and the next code goes to
+   the address the account holds now. A user who holds no address
    gives one at the step (`Pending().EnrollEmail()`, `{"email"}`), which is written on
    the user verified when its code is entered; an address another account holds is
    answered as sent and told so by mail to that address, as the add-address step does,
@@ -1653,10 +1661,11 @@ How an address gets onto a user:
   masked, and no link). An address another account holds is told so by mail and gets
   no link, and the answer is the same. One change stands at a time: asking again
   withdraws the links asked for before, and a link is dead once the account confirmed
-  any address after it was mailed. A sign-in code never replaces a confirmed address,
-  and a code mailed to an address the account has replaced since is dead
-  (`code_expired`). Nothing writes an address onto an account unconfirmed after its
-  creation.
+  any address after it was mailed. A sign-in code never replaces an address the
+  account holds, confirmed or not: a code mailed to an address the account no longer
+  holds (replaced, taken off the account or moved to another account) is dead
+  (`code_expired`), and nothing is written. Nothing writes an address onto an account
+  unconfirmed after its creation.
 - **A directory keeps its people's**: the address of a person with an identity linked
   through an organization's directory (`signin.Directory.Organization()`) is changed in
   the directory. Their own add and verify, an administrator's request and the
@@ -2901,7 +2910,7 @@ table is the wire contract:
 | `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
 | `too_many_emails` | `RefusedTooManyEmails` | Auth: a sixth sign-in code or link asked for one address within fifteen minutes while the five before it went unused (a code or link that is used resets the count); answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes. |
 | `invalid_code` | `RefusedInvalidCode` | Auth: the sign-in code entered is not the one sent; the code stands with one fewer attempt (see "The second factor"). |
-| `code_expired` | `RefusedCodeExpired` | Auth: a sign-in code entered while none stands: none was sent, or the one sent expired, was used or took its last attempt; the page asks for a new one. |
+| `code_expired` | `RefusedCodeExpired` | Auth: a sign-in code entered while none stands: none was sent, or the one sent expired, was used, took its last attempt or was mailed to an address the account no longer holds; the page asks for a new one. |
 
 **The resolver rule.** A custom session data resolver's error decides the code by its
 shape. A `sessioninfo.LoginRefusal` (`sessioninfo.NewLoginRefusal(code, cause)`) answers

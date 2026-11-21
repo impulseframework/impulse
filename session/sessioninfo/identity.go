@@ -400,6 +400,7 @@ const (
 	// code sent stands, with one fewer attempt left.
 	RefusedInvalidCode LoginRefusalCode = "invalid_code"
 	// RefusedCodeExpired is the code for an email code entered after the one sent
-	// expired, was used, or took its last attempt; the page asks for a new one.
+	// expired, was used, took its last attempt, or was mailed to an address the account
+	// no longer holds; the page asks for a new one.
 	RefusedCodeExpired LoginRefusalCode = "code_expired"
 )
