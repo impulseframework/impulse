@@ -32,6 +32,7 @@ func (h *Handlers) CrewSessionMailLinks() http.HandlerFunc {
 		CreatedAt       time.Time     `json:"createdAt"`
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
+		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 	}
 
 	type response []map[string]any
@@ -121,6 +122,10 @@ func (h *Handlers) CrewSessionMailLinks() http.HandlerFunc {
 					if !row.Masked("consumedAt") {
 						rmap["consumedAt"] = rec.ConsumedAt
 					}
+				case "MailFailedAt":
+					if !row.Masked("mailFailedAt") {
+						rmap["mailFailedAt"] = rec.MailFailedAt
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -156,6 +161,7 @@ func (h *Handlers) CrewSessionMailLink() http.HandlerFunc {
 		CreatedAt       time.Time     `json:"createdAt"`
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
+		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSessionMailLink, response](h, accesstypes.Read)
@@ -232,6 +238,10 @@ func (h *Handlers) CrewSessionMailLink() http.HandlerFunc {
 			case "ConsumedAt":
 				if !row.Masked("consumedAt") {
 					rmap["consumedAt"] = rec.ConsumedAt
+				}
+			case "MailFailedAt":
+				if !row.Masked("mailFailedAt") {
+					rmap["mailFailedAt"] = rec.MailFailedAt
 				}
 			}
 		}

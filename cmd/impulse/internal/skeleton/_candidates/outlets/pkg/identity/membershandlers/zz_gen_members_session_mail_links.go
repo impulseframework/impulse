@@ -32,6 +32,7 @@ func (h *Handlers) MembersSessionMailLinks() http.HandlerFunc {
 		CreatedAt       time.Time     `json:"createdAt"`
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
+		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 	}
 
 	type response []map[string]any
@@ -121,6 +122,10 @@ func (h *Handlers) MembersSessionMailLinks() http.HandlerFunc {
 					if !row.Masked("consumedAt") {
 						rmap["consumedAt"] = rec.ConsumedAt
 					}
+				case "MailFailedAt":
+					if !row.Masked("mailFailedAt") {
+						rmap["mailFailedAt"] = rec.MailFailedAt
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -156,6 +161,7 @@ func (h *Handlers) MembersSessionMailLink() http.HandlerFunc {
 		CreatedAt       time.Time     `json:"createdAt"`
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
+		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 	}
 
 	decoder := NewQueryDecoder[membersresources.MembersSessionMailLink, response](h, accesstypes.Read)
@@ -232,6 +238,10 @@ func (h *Handlers) MembersSessionMailLink() http.HandlerFunc {
 			case "ConsumedAt":
 				if !row.Masked("consumedAt") {
 					rmap["consumedAt"] = rec.ConsumedAt
+				}
+			case "MailFailedAt":
+				if !row.Masked("mailFailedAt") {
+					rmap["mailFailedAt"] = rec.MailFailedAt
 				}
 			}
 		}

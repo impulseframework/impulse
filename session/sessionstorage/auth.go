@@ -386,6 +386,11 @@ type AuthStore[Tx any] interface {
 	// RevokeMailLink consumes the live mail link id: an invitation withdrawn by hand.
 	// A link that is not live is NotFound.
 	RevokeMailLink(ctx context.Context, id impulse.UUID) error
+	// FailMailLink ends the live mail link id whose message could not be mailed. The
+	// link is consumed, as a withdrawn one is, and its row says the mail failed, so a
+	// list of the links tells it from one that was followed or withdrawn. A link that
+	// is not live is NotFound.
+	FailMailLink(ctx context.Context, id impulse.UUID) error
 	// SetFactorCodesTableName sets the name of the factor codes table.
 	SetFactorCodesTableName(name string) error
 	// SetTrustedDevicesTableName sets the name of the trusted devices table.
@@ -864,6 +869,18 @@ func (a *Auth[Tx]) RevokeMailLink(ctx context.Context, id impulse.UUID) error {
 
 	if err := a.db.RevokeMailLink(ctx, id, time.Now()); err != nil {
 		return errors.Wrap(err, "db.RevokeMailLink()")
+	}
+
+	return nil
+}
+
+// FailMailLink implements AuthStore.
+func (a *Auth[Tx]) FailMailLink(ctx context.Context, id impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.FailMailLink(ctx, id, time.Now()); err != nil {
+		return errors.Wrap(err, "db.FailMailLink()")
 	}
 
 	return nil

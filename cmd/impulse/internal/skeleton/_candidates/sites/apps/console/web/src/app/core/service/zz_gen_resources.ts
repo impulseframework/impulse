@@ -154,6 +154,7 @@ export interface StaffSessionMailLinks {
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
+  mailFailedAt?: Date;
 }
 
 export interface StaffSessionSignInAttempts {
@@ -704,6 +705,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.StaffSessionSignInAttempts]: {

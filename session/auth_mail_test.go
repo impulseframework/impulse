@@ -47,6 +47,17 @@ type mailLinks struct {
 	// the store was asked for, whatever it answered.
 	beforeRevoke func(ctx context.Context)
 	revokes      int
+
+	// unmailed holds the ids of the links the store was told could not be mailed.
+	unmailed map[impulse.UUID]bool
+}
+
+// notMailed reports whether the store was told the link id could not be mailed.
+func (m *mailLinks) notMailed(id impulse.UUID) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.unmailed[id]
 }
 
 // holds makes the store report user as the account holding email.
@@ -125,6 +136,24 @@ func expectMailLinks(f *authFixture) *mailLinks {
 			if l.ID == id && l.ConsumedAt == nil {
 				now := time.Now()
 				l.ConsumedAt = &now
+
+				return nil
+			}
+		}
+
+		return httpio.NewNotFoundMessage("no live mail link")
+	}).AnyTimes()
+	f.store.EXPECT().FailMailLink(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id impulse.UUID) error {
+		links.mu.Lock()
+		defer links.mu.Unlock()
+		for _, l := range links.rows {
+			if l.ID == id && l.ConsumedAt == nil {
+				now := time.Now()
+				l.ConsumedAt = &now
+				if links.unmailed == nil {
+					links.unmailed = make(map[impulse.UUID]bool)
+				}
+				links.unmailed[id] = true
 
 				return nil
 			}

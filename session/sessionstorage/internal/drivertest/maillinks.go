@@ -509,6 +509,67 @@ func testMailLinkConsumedOnce(ctx context.Context, t *testing.T, h *AuthHarness)
 	}
 }
 
+func testMailLinkMailFailed(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	unmailed := insertInvitation(ctx, t, in.Driver, "unmailed@lakeside.edu", "lakeside", nil, tokenHash(1))
+	withdrawn := insertInvitation(ctx, t, in.Driver, "withdrawn@lakeside.edu", "lakeside", nil, tokenHash(2))
+	followed := insertInvitation(ctx, t, in.Driver, "followed@lakeside.edu", "lakeside", nil, tokenHash(3))
+	expired := insertInvitation(ctx, t, in.Driver, "expired@lakeside.edu", "lakeside", nil, tokenHash(4))
+
+	// A standing link says nothing of its mail.
+	if failedAt := h.MailLinkMailFailedAt(ctx, t, in.Raw, unmailed.TokenHash); failedAt != nil {
+		t.Errorf("MailFailedAt of a standing link = %v, want nil", failedAt)
+	}
+
+	// The link whose message could not be mailed is ended and says so, in one write at
+	// the database's time.
+	w := startWindow(h.ClockLead)
+	if err := in.Driver.FailMailLink(ctx, unmailed.ID, time.Now()); err != nil {
+		t.Fatalf("FailMailLink() error = %v", err)
+	}
+	w.done()
+	failedAt, consumedAt := h.MailLinkMailFailedAt(ctx, t, in.Raw, unmailed.TokenHash), h.MailLinkConsumedAt(ctx, t, in.Raw, unmailed.TokenHash)
+	if failedAt == nil || consumedAt == nil {
+		t.Fatalf("MailFailedAt, ConsumedAt after FailMailLink() = %v, %v; want the database's time in both", failedAt, consumedAt)
+	}
+	w.assertStamped(t, "MailFailedAt", *failedAt)
+	if !failedAt.Equal(*consumedAt) {
+		t.Errorf("MailFailedAt = %v and ConsumedAt = %v, want one time: one write stamps both", failedAt, consumedAt)
+	}
+	if _, err := in.Driver.MailLinkByToken(ctx, unmailed.TokenHash, time.Now()); !httpio.HasNotFound(err) {
+		t.Errorf("MailLinkByToken() of a link that could not be mailed error = %v, want NotFound", err)
+	}
+
+	// Once: a link that ended is not ended again, and neither is one nobody stored or
+	// one that has expired.
+	if err := in.Driver.FailMailLink(ctx, unmailed.ID, time.Now()); !httpio.HasNotFound(err) {
+		t.Errorf("second FailMailLink() error = %v, want NotFound", err)
+	}
+	if err := in.Driver.FailMailLink(ctx, impulse.Must(impulse.NewUUID()), time.Now()); !httpio.HasNotFound(err) {
+		t.Errorf("FailMailLink() of an unknown id error = %v, want NotFound", err)
+	}
+	if err := in.Driver.FailMailLink(ctx, expired.ID, expired.ExpiresAt.Add(time.Second)); !httpio.HasNotFound(err) {
+		t.Errorf("FailMailLink() after expiry error = %v, want NotFound", err)
+	}
+
+	// A link withdrawn by hand and one that was followed are consumed and say nothing
+	// of their mail, and neither is marked afterwards.
+	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now()); err != nil {
+		t.Fatalf("RevokeMailLink() error = %v", err)
+	}
+	if err := in.Driver.ConsumeMailLink(ctx, followed.TokenHash, time.Now()); err != nil {
+		t.Fatalf("ConsumeMailLink() error = %v", err)
+	}
+	for _, link := range []*dbtype.MailLink{withdrawn, followed, expired} {
+		if err := in.Driver.FailMailLink(ctx, link.ID, time.Now().Add(365*24*time.Hour)); !httpio.HasNotFound(err) {
+			t.Errorf("FailMailLink() of the link to %s, which is not live, error = %v, want NotFound", link.Email, err)
+		}
+		if failedAt := h.MailLinkMailFailedAt(ctx, t, in.Raw, link.TokenHash); failedAt != nil {
+			t.Errorf("MailFailedAt of the link to %s = %v, want nil: its mail did not fail", link.Email, failedAt)
+		}
+	}
+}
+
 func testMailLinkExpired(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	link := insertInvitation(ctx, t, in.Driver, "pat@lakeside.edu", "lakeside", nil, tokenHash(1))

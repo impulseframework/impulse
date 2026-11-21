@@ -303,8 +303,8 @@ func (a *Auth[S, U, Tx]) sendFirstPasswordCode(ctx context.Context, userID impul
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := a.send(ctx, m.firstPasswordMessage(email, code, lifetime)); err != nil {
-		if rerr := a.storage.RevokeMailLink(ctx, row.ID); rerr != nil && !httpio.HasNotFound(rerr) {
-			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.RevokeMailLink()"))
+		if rerr := a.storage.FailMailLink(ctx, row.ID); rerr != nil && !httpio.HasNotFound(rerr) {
+			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.FailMailLink()"))
 		}
 
 		return nil, err

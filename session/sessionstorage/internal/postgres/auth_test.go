@@ -26,6 +26,7 @@ func TestAuth(t *testing.T) {
 		Record:                record,
 		PendingConsumedAt:     pendingConsumedAt,
 		MailLinkConsumedAt:    mailLinkConsumedAt,
+		MailLinkMailFailedAt:  mailLinkMailFailedAt,
 		RequirePasswordChange: requirePasswordChange,
 	})
 }
@@ -198,4 +199,15 @@ func mailLinkConsumedAt(ctx context.Context, t *testing.T, raw any, tokenHash []
 	}
 
 	return consumedAt
+}
+
+func mailLinkMailFailedAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	var failedAt *time.Time
+	if err := queryer(t, raw).QueryRow(ctx, `SELECT "MailFailedAt" FROM "SessionMailLinks" WHERE "TokenHash" = $1`, tokenHash).Scan(&failedAt); err != nil {
+		t.Fatalf("QueryRow().Scan() error = %v", err)
+	}
+
+	return failedAt
 }

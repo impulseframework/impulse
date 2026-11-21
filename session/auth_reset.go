@@ -213,8 +213,8 @@ func (a *Auth[S, U, Tx]) mailReset(ctx context.Context, user *sessionstorage.Ses
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := a.send(ctx, m.passwordResetMessage(email, token, lifetime, by, a.administratorOf(m, by))); err != nil {
-		if rerr := a.storage.RevokeMailLink(ctx, link.ID); rerr != nil && !httpio.HasNotFound(rerr) {
-			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.RevokeMailLink()"))
+		if rerr := a.storage.FailMailLink(ctx, link.ID); rerr != nil && !httpio.HasNotFound(rerr) {
+			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.FailMailLink()"))
 		}
 
 		return err

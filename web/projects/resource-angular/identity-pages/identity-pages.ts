@@ -488,7 +488,13 @@ class SideBuilder {
     // application's list, in an application with tenants, where the reader may read the
     // mark of an invitation into every tenant.
     const placed = !this.tenant && this.identity.tenant ? this.has(resource, 'everyTenant') : false;
-    const into = (row: RecordData): string => String(row['tenantId'] ?? '') || this.invitedInto(row, placed);
+    // Whether the list can tell the first administrator's own invitation, which nobody
+    // sent: where it says the place, and the reader may read who sent a link.
+    const sender = placed && this.has(resource, 'invitedByUserId');
+    // Whether the list can tell a link whose message could not be mailed: the whole
+    // application's list, where the reader may read when the mail failed.
+    const unmailed = !this.tenant && this.has(resource, 'mailFailedAt');
+    const into = (row: RecordData): string => String(row['tenantId'] ?? '') || this.invitedInto(row, placed, sender);
     return rootConfig({
       page: this.tenant ? { label: 'Invitations', icon: 'mail' } : { label: 'Mailed links', icon: 'forward_to_inbox' },
       routeData: {
@@ -501,13 +507,19 @@ class SideBuilder {
         showViewButton: false,
         showRowCount: true,
         // The tenant a link invites into is named, where the tenant record can be read,
-        // and a link that names none says where its roles are held instead.
+        // and a link that names none says where its roles are held instead. A link whose
+        // message could not be mailed says so where its dates would be.
         listColumns: [
-          ...this.columns(resource, fields).map((column) =>
-            column.id === 'tenantId' ? this.tenantNamed(column.id, column.header ?? '', into) : column,
-          ),
+          ...this.columns(resource, fields).map((column) => {
+            if (column.id === 'tenantId') {
+              return this.tenantNamed(column.id, column.header ?? '', into);
+            }
+            return unmailed ? this.unmailedCell(column) : column;
+          }),
           // Read with each row and not drawn.
           ...(placed ? [{ id: 'everyTenant' as FieldName, hidden: true }] : []),
+          ...(sender ? [{ id: 'invitedByUserId' as FieldName, hidden: true }] : []),
+          ...(unmailed ? [{ id: 'mailFailedAt' as FieldName, hidden: true }] : []),
         ],
         rowMethods: this.present([
           [
@@ -1561,21 +1573,30 @@ class SideBuilder {
 
   /**
    * Where a mailed link that names no tenant gives its roles, in words: every tenant, or
-   * the whole application. A link that gives no role says nothing, since nothing is held
+   * the whole application, or both for the first administrator's own invitation, which
+   * nobody sent and which gives the Super Administrator role (told where the list reads
+   * who sent a link: sender). A link that gives no role says nothing, since nothing is held
    * anywhere: a verification, and an invitation that makes a tenant, which the list of
    * invited tenants shows. Nothing either where the list does not say the place (placed
    * is false): without the mark of an invitation into every tenant the two could not be
    * told apart.
    */
-  private invitedInto(row: RecordData, placed: boolean): string {
+  private invitedInto(row: RecordData, placed: boolean, sender: boolean): string {
     if (!placed) {
       return '';
     }
     if (row['everyTenant'] === true) {
       return `Every ${this.tenantWord}`;
     }
-    const roles = row['roleNames'];
-    return Array.isArray(roles) && roles.length > 0 ? 'The whole application' : '';
+    const roles: unknown = row['roleNames'];
+    if (!Array.isArray(roles) || roles.length === 0) {
+      return '';
+    }
+    // The first administrator's own invitation: its acceptance gives roles in the whole
+    // application and in every tenant, so the row says both.
+    const first =
+      sender && row['kind'] === 'invitation' && !row['invitedByUserId'] && roles.includes(superAdministrator);
+    return first ? `The whole application and every ${this.tenantWord}` : 'The whole application';
   }
 
   /**
@@ -1727,6 +1748,26 @@ class SideBuilder {
         ? { id: name as FieldName, header, valueGetter: (row: RecordData) => lastDay(row[name]) }
         : { id: name as FieldName, header },
     );
+  }
+
+  /**
+   * A column of the whole application's mailed links that says when a link's message
+   * could not be mailed. Such a link ended where the mail failed, so its Sent cell says
+   * "Not mailed", its Expires cell "Ended" and its Used cell nothing: the dates the row
+   * keeps would say it was sent, still waits and was used. Every other row shows its
+   * dates, and every other column is left as it is.
+   */
+  private unmailedCell(column: ColumnConfig): ColumnConfig {
+    const id: string = column.id;
+    if (!(id in unmailedWords)) {
+      return column;
+    }
+    const said = unmailedWords[id];
+    return {
+      id: column.id,
+      header: column.header,
+      valueGetter: (row: RecordData) => (row['mailFailedAt'] ? said : String(row[id] ?? '')),
+    };
   }
 
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
@@ -1953,6 +1994,22 @@ const periodWords: Record<string, string> = { startsAt: 'From', endsAt: 'Until' 
  * method's `throughDay`), and a list shows the last day the assignment counts (lastDay).
  */
 const periodEnds: readonly string[] = ['endsAt'];
+
+/**
+ * The role the deployment's first administrator is invited to hold, as the server names
+ * it. The invitation that gives it and that nobody sent is the first administrator's own.
+ */
+const superAdministrator = 'SuperAdministrator';
+
+/**
+ * What the Sent, Expires and Used cells of a mailed link say when its message could not
+ * be mailed: it was never sent, it waits for no deadline and nobody used it.
+ */
+const unmailedWords: Readonly<Record<string, string>> = {
+  createdAt: 'Not mailed',
+  expiresAt: 'Ended',
+  consumedAt: '',
+};
 
 /**
  * The last day a period that ends at the instant counts, as a list shows it: the day of

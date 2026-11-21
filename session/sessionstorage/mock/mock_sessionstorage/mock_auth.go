@@ -476,6 +476,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) FactorCode(ctx, pendingID any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FactorCode", reflect.TypeOf((*MockAuthStore[Tx])(nil).FactorCode), ctx, pendingID)
 }
 
+// FailMailLink mocks base method.
+func (m *MockAuthStore[Tx]) FailMailLink(ctx context.Context, id impulse.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailMailLink", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FailMailLink indicates an expected call of FailMailLink.
+func (mr *MockAuthStoreMockRecorder[Tx]) FailMailLink(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailMailLink", reflect.TypeOf((*MockAuthStore[Tx])(nil).FailMailLink), ctx, id)
+}
+
 // HoldSignIn mocks base method.
 func (m *MockAuthStore[Tx]) HoldSignIn(ctx context.Context, p *sessionstorage.PendingSignIn) (impulse.UUID, error) {
 	m.ctrl.T.Helper()

@@ -39,6 +39,7 @@ type membersSessionMailLinkRead struct {
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	MailFailedAt    *time.Time    `json:"mailFailedAt"`
 }
 
 var membersSessionMailLinkReadSets resource.SetCache[MembersSessionMailLink, membersSessionMailLinkRead]
@@ -59,6 +60,7 @@ type membersSessionMailLinkWrite struct {
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	MailFailedAt    *time.Time    `json:"mailFailedAt"`
 }
 
 var membersSessionMailLinkWriteSets resource.SetCache[MembersSessionMailLink, membersSessionMailLinkWrite]
@@ -179,6 +181,7 @@ func (c *MembersSessionMailLinkColumns) All() *MembersSessionMailLinkColumns {
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
+		"MailFailedAt",
 	}
 
 	return c
@@ -252,6 +255,12 @@ func (c *MembersSessionMailLinkColumns) ExpiresAt() *MembersSessionMailLinkColum
 
 func (c *MembersSessionMailLinkColumns) ConsumedAt() *MembersSessionMailLinkColumns {
 	c.fields = append(c.fields, "ConsumedAt")
+
+	return c
+}
+
+func (c *MembersSessionMailLinkColumns) MailFailedAt() *MembersSessionMailLinkColumns {
+	c.fields = append(c.fields, "MailFailedAt")
 
 	return c
 }
@@ -396,6 +405,10 @@ func (c *membersSessionMailLinkSort) ExpiresAt() *MembersSessionMailLinkSort {
 
 func (c *membersSessionMailLinkSort) ConsumedAt() *MembersSessionMailLinkSort {
 	return c.addField("ConsumedAt")
+}
+
+func (c *membersSessionMailLinkSort) MailFailedAt() *MembersSessionMailLinkSort {
+	return c.addField("MailFailedAt")
 }
 
 type MembersSessionMailLinkSort struct {
@@ -679,6 +692,26 @@ func (p *MembersSessionMailLinkCreatePatch) ConsumedAt() *time.Time {
 
 func (p *MembersSessionMailLinkCreatePatch) ConsumedAtIsSet() bool {
 	return p.patchSet.IsSet("ConsumedAt")
+}
+
+func (p *MembersSessionMailLinkCreatePatch) SetMailFailedAt(v *time.Time) *MembersSessionMailLinkCreatePatch {
+	if v != nil {
+		p.patchSet.Set("MailFailedAt", v)
+	} else {
+		p.patchSet.Set("MailFailedAt", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionMailLinkCreatePatch) MailFailedAt() *time.Time {
+	v, _ := p.patchSet.Get("MailFailedAt").(*time.Time)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkCreatePatch) MailFailedAtIsSet() bool {
+	return p.patchSet.IsSet("MailFailedAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -967,6 +1000,26 @@ func (p *MembersSessionMailLinkUpdatePatch) ConsumedAt() *time.Time {
 
 func (p *MembersSessionMailLinkUpdatePatch) ConsumedAtIsSet() bool {
 	return p.patchSet.IsSet("ConsumedAt")
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) SetMailFailedAt(v *time.Time) *MembersSessionMailLinkUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("MailFailedAt", v)
+	} else {
+		p.patchSet.Set("MailFailedAt", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) MailFailedAt() *time.Time {
+	v, _ := p.patchSet.Get("MailFailedAt").(*time.Time)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) MailFailedAtIsSet() bool {
+	return p.patchSet.IsSet("MailFailedAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

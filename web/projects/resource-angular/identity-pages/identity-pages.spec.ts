@@ -692,6 +692,62 @@ describe("identityPages, the whole application's side", () => {
     expect(said({ kind: 'global', domainId: '' })).toBe('The whole application');
   });
 
+  // The mailed links as the generator writes them: who sent a link and when its mail
+  // failed are fields a reader may be granted.
+  const sentMetas = (resource: Resource): ResourceMeta =>
+    resource === 'CrewSessionMailLinks'
+      ? { ...metas[resource], fields: [...metas[resource].fields, ...fields('invitedByUserId', 'mailFailedAt').fields] }
+      : metas[resource];
+  const dates = ['createdAt', 'expiresAt', 'consumedAt'];
+  const cell = (config: RootConfig, id: string): ((row: RecordData) => string) | undefined =>
+    list(config).listColumns.find((column) => column.id === id)?.valueGetter;
+
+  it('says a link whose message could not be mailed was not mailed and ended, and leaves its Used cell empty', () => {
+    // The pages of a descriptor are made once, so pages over other fields take a descriptor of their own.
+    const [, links] = identityPages({ ...descriptor }, sentMetas, { auth: 'Crew', scope: 'global' });
+    const unmailed = {
+      createdAt: '2026-11-20T10:00:00Z',
+      expiresAt: '2026-11-27T10:00:00Z',
+      consumedAt: '2026-11-20T10:00:01Z',
+      mailFailedAt: '2026-11-20T10:00:01Z',
+    };
+    expect(dates.map((id) => cell(links, id)?.(unmailed))).toEqual(['Not mailed', 'Ended', '']);
+    // A link that was used or withdrawn shows its dates, and one that stands has no Used.
+    const used = { ...unmailed, mailFailedAt: null };
+    expect(dates.map((id) => cell(links, id)?.(used))).toEqual([used.createdAt, used.expiresAt, used.consumedAt]);
+    expect(cell(links, 'consumedAt')?.({ ...used, consumedAt: null })).toBe('');
+    // When the mail failed is read with each row and not drawn, and the other columns are left alone.
+    const unseen = list(links).listColumns.filter((column) => column.hidden);
+    expect(unseen.map((column) => column.id)).toEqual(['everyTenant', 'invitedByUserId', 'mailFailedAt']);
+    expect(cell(links, 'email')).toBeUndefined();
+    // It has nothing left to withdraw.
+    expect(presentation(list(links).rowMethods, 'WithdrawCrewInvitation').when?.(unmailed)).toBe(false);
+    // Where the reader may not read when the mail failed, the cells are the fields' own.
+    expect(dates.map((id) => cell(invitations, id))).toEqual([undefined, undefined, undefined]);
+  });
+
+  it("says the first administrator's own invitation gives roles in the whole application and in every sector", () => {
+    // The pages of a descriptor are made once, so pages over other fields take a descriptor of their own.
+    const [, links] = identityPages({ ...descriptor }, sentMetas, { auth: 'Crew', scope: 'global' });
+    const into = (config: RootConfig): MultiColumnConfig => list(config).listColumns[3] as MultiColumnConfig;
+    const first = {
+      kind: 'invitation',
+      tenantId: null,
+      everyTenant: false,
+      invitedByUserId: null,
+      roleNames: ['SuperAdministrator'],
+    };
+    expect(into(links).fallback?.(first)).toBe('The whole application and every sector');
+    // An invitation a person sent, and one that gives another role, say the place the row keeps.
+    const sent = { ...first, invitedByUserId: 'f0000000-0000-4000-8000-000000000001' };
+    expect(into(links).fallback?.(sent)).toBe('The whole application');
+    expect(into(links).fallback?.({ ...first, roleNames: ['Clerk'] })).toBe('The whole application');
+    expect(into(links).fallback?.({ ...first, everyTenant: true })).toBe('Every sector');
+    expect(into(links).fallback?.({ ...first, roleNames: [] })).toBe('');
+    // Where the reader may not read who sent a link, the row says the place it keeps.
+    expect(into(invitations).fallback?.(first)).toBe('The whole application');
+  });
+
   it('offers Withdraw on a mailed link that was not used, End the session on a session, and Unlock on a counted name', () => {
     const withdraw = presentation(list(invitations).rowMethods, 'WithdrawCrewInvitation');
     expect([withdraw.when?.({ consumedAt: null }), withdraw.when?.({ consumedAt: '2026-01-01T00:00:00Z' })]).toEqual([

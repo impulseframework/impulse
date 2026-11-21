@@ -11,13 +11,18 @@ import (
 
 type (
 	// CrewSessionMailLink is one link the Crew auth mailed: a row of
-	// CrewSessionMailLinks. Kind says what the link is for (invitation, verification
-	// or sign-up); an invitation carries the roles and where they are held (TenantID for
-	// one tenant, EveryTenant for every tenant, neither for the whole application), and
-	// the name its sender gave the person (Name), where they gave one. A
-	// link stands while it is neither consumed nor expired, and one that was followed
-	// and one that was revoked are both consumed. The link itself is in the message
-	// alone and its hash is not a field.
+	// CrewSessionMailLinks. Kind says what the link is for: an invitation
+	// (invitation), the verification of an address a person adds (verification), a
+	// sign-up (sign-up), the code a person with no password chooses their first one by
+	// (first-password), a password reset (password-reset), or the confirmation of an
+	// address an administrator set (address-change). An invitation carries the roles
+	// and where they are held (TenantID for one tenant, EveryTenant for every tenant,
+	// neither for the whole application), and the name its sender gave the person
+	// (Name), where they gave one. A link stands while it is neither consumed nor
+	// expired, and one that was followed and one that was withdrawn are both consumed.
+	// A link whose message could not be mailed is consumed too, where the mail failed,
+	// and MailFailedAt says when: the one field that tells it from a link that was
+	// used. The link itself is in the message alone and its hash is not a field.
 	//
 	// @resource
 	// @suppress(patchHandler)
@@ -37,5 +42,6 @@ type (
 		CreatedAt       time.Time     `spanner:"CreatedAt"`
 		ExpiresAt       time.Time     `spanner:"ExpiresAt"`
 		ConsumedAt      *time.Time    `spanner:"ConsumedAt"`
+		MailFailedAt    *time.Time    `spanner:"MailFailedAt"`
 	}
 )

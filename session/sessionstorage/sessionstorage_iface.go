@@ -205,6 +205,8 @@ type db interface {
 	ConsumeMailLink(ctx context.Context, tokenHash []byte, now time.Time) error
 	// RevokeMailLink marks the live mail link id consumed at now; NotFound when it is not live.
 	RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
+	// FailMailLink marks the live mail link id consumed at now, and as one whose message could not be mailed; NotFound when it is not live.
+	FailMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
 	// SetTokensTableName sets the name of the tokens table.
 	SetTokensTableName(name string) error
 	// SetDeviceCodesTableName sets the name of the device codes table.

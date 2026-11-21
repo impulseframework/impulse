@@ -823,11 +823,12 @@ func (a *Auth[S, U, Tx]) invitee(to string) (*mailSettings, string, error) {
 }
 
 // sendInvitation mails the stored invitation id its link. A message that could not be
-// sent withdraws the invitation, so no link stands that nobody holds, and is the error.
+// sent ends the invitation and marks it as not mailed, so no link stands that nobody
+// holds and a list of the links says why this one ended, and is the error.
 func (a *Auth[S, U, Tx]) sendInvitation(ctx context.Context, m *mailSettings, id impulse.UUID, email, token string, lifetime time.Duration) error {
 	if err := a.send(ctx, m.invitationMessage(email, token, lifetime)); err != nil {
-		if rerr := a.storage.RevokeMailLink(ctx, id); rerr != nil {
-			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.RevokeMailLink()"))
+		if rerr := a.storage.FailMailLink(ctx, id); rerr != nil {
+			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.FailMailLink()"))
 		}
 
 		return err

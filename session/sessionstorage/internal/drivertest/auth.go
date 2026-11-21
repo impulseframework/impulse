@@ -74,6 +74,7 @@ type AuthDriver interface {
 	LiveMailLinks(ctx context.Context, kind dbtype.MailLinkKind, now time.Time) ([]*dbtype.MailLink, error)
 	ConsumeMailLink(ctx context.Context, tokenHash []byte, now time.Time) error
 	RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
+	FailMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
 	SetTokensTableName(name string) error
 	SetDeviceCodesTableName(name string) error
 	InsertToken(ctx context.Context, t *dbtype.Token) error
@@ -493,6 +494,9 @@ type AuthHarness struct {
 	// MailLinkConsumedAt reads the ConsumedAt of the mail link holding tokenHash
 	// directly: nil while it is live.
 	MailLinkConsumedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
+	// MailLinkMailFailedAt reads the MailFailedAt of the mail link holding tokenHash
+	// directly: nil unless the link's message could not be mailed.
+	MailLinkMailFailedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
 	// RequirePasswordChange sets the user's password change mark directly, bypassing
 	// the driver, as an application's account management does when an administrator
 	// requires a new password: the library reads the mark and clears it, and no write of
@@ -604,6 +608,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "where the username is the address, the database derives the address, a rename is refused and a verified address renames the user", run: testUsernameIsEmail},
 		{name: "a mail link is read back by its token hash with everything it carried", run: testMailLinkRoundTrip},
 		{name: "a mail link is consumed once, by token or by id, and listed while it stands", run: testMailLinkConsumedOnce},
+		{name: "a mail link whose message could not be mailed is ended and says so, once, and no other end says it", run: testMailLinkMailFailed},
 		{name: "an expired mail link is neither read, consumed nor listed", run: testMailLinkExpired},
 		{name: "a verification link goes with its user", run: testMailLinkCascade},
 		{name: "a sign-in that carries an invitation accepts it in the resolution's transaction: consumed, the address set, the hook's writes committed with the user", run: testInvitationSignIn},

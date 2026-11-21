@@ -620,7 +620,7 @@ func Test_prepareIdentity_newTenantColumn(t *testing.T) {
 	// The members' people make no tenant, so their mail links table is asked for no
 	// column: with the crew's in place the run passes whatever the members' holds.
 	r = citadelGenerator(t, citadelTenantSource, func(r *resourceGenerator) {
-		r.tableMap["MembersSessionMailLinks"] = &tableMetadata{Columns: map[string]columnMeta{everyTenantColumn: {SpannerType: "BOOL"}}}
+		r.tableMap["MembersSessionMailLinks"] = &tableMetadata{Columns: map[string]columnMeta{everyTenantColumn: {SpannerType: "BOOL"}, mailFailedColumn: {SpannerType: "TIMESTAMP", IsNullable: true}}}
 	})
 	if err := r.prepareIdentity(); err != nil {
 		t.Errorf("prepareIdentity() with the members' mail links table lacking the column: error = %v", err)

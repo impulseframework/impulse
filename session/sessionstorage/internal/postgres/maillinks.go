@@ -161,6 +161,16 @@ func (s *SessionStorageDriver) RevokeMailLink(ctx context.Context, id impulse.UU
 	return s.consumeMailLink(ctx, s.conn, `"Id"`, id, now)
 }
 
+// FailMailLink marks the live mail link id consumed and as one whose message could not
+// be mailed, both at the database's time: the link ends where its mail failed, and its
+// row says why. A link that is not live is NotFound.
+func (s *SessionStorageDriver) FailMailLink(ctx context.Context, id impulse.UUID, now time.Time) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return s.endMailLink(ctx, s.conn, mailLinkMailFailed, `"Id"`, id, now)
+}
+
 // ConsumeMailLinkIn consumes the live mail link id inside tx, at the transaction's
 // time. A link that is not live is NotFound, and the transaction may go on.
 func (s *SessionStorageDriver) ConsumeMailLinkIn(ctx context.Context, tx pgx.Tx, id impulse.UUID, now time.Time) error {
@@ -172,8 +182,22 @@ type execer interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
+// The columns the end of a mail link sets, each to the database's time: a link that was
+// followed or withdrawn is consumed, and one whose message could not be mailed is
+// consumed and says the mail failed.
+const (
+	mailLinkConsumed   = `"ConsumedAt" = now()`
+	mailLinkMailFailed = `"ConsumedAt" = now(), "MailFailedAt" = now()`
+)
+
 func (s *SessionStorageDriver) consumeMailLink(ctx context.Context, q execer, column string, value any, now time.Time) error {
-	query := fmt.Sprintf(`UPDATE %s SET "ConsumedAt" = now() WHERE %s = $1 AND "ConsumedAt" IS NULL AND "ExpiresAt" > $2`, s.mailLinksTable(), column)
+	return s.endMailLink(ctx, q, mailLinkConsumed, column, value, now)
+}
+
+// endMailLink ends the live mail link whose column holds value by a conditional update
+// that sets the columns set names; NotFound when no link is live there.
+func (s *SessionStorageDriver) endMailLink(ctx context.Context, q execer, set, column string, value any, now time.Time) error {
+	query := fmt.Sprintf(`UPDATE %s SET %s WHERE %s = $1 AND "ConsumedAt" IS NULL AND "ExpiresAt" > $2`, s.mailLinksTable(), set, column)
 	tag, err := q.Exec(ctx, query, value, now)
 	if err != nil {
 		return errors.Wrap(err, "Exec()")

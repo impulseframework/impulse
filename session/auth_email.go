@@ -372,8 +372,8 @@ func (p *AuthAPI[S, U, Tx]) RequestAddressChange(ctx context.Context, userID imp
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := a.send(ctx, m.addressChangeMessage(bare, token, lifetime, a.administratorOf(m, by))); err != nil {
-		if rerr := a.storage.RevokeMailLink(ctx, link.ID); rerr != nil && !httpio.HasNotFound(rerr) {
-			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.RevokeMailLink()"))
+		if rerr := a.storage.FailMailLink(ctx, link.ID); rerr != nil && !httpio.HasNotFound(rerr) {
+			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.FailMailLink()"))
 		}
 
 		return err

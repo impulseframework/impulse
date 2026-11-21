@@ -330,6 +330,7 @@ export interface CrewSessionMailLinks {
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
+  mailFailedAt?: Date;
 }
 
 export interface CrewSessionSignInAttempts {
@@ -605,6 +606,7 @@ export interface MembersSessionMailLinks {
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
+  mailFailedAt?: Date;
 }
 
 export interface MembersSessionSignInAttempts {
@@ -1453,6 +1455,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSessionSignInAttempts]: {
@@ -1841,6 +1844,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.MembersSessionSignInAttempts]: {

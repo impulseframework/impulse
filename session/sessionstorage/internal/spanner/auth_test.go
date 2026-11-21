@@ -27,6 +27,7 @@ func TestAuth(t *testing.T) {
 		Record:                record,
 		PendingConsumedAt:     pendingConsumedAt,
 		MailLinkConsumedAt:    mailLinkConsumedAt,
+		MailLinkMailFailedAt:  mailLinkMailFailedAt,
 		RequirePasswordChange: requirePasswordChange,
 		ClockLead:             emulatorClockLead,
 	})
@@ -230,4 +231,20 @@ func mailLinkConsumedAt(ctx context.Context, t *testing.T, raw any, tokenHash []
 	}
 
 	return &consumedAt.Time
+}
+
+func mailLinkMailFailedAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	stmt := spanner.NewStatement("SELECT MailFailedAt FROM SessionMailLinks WHERE TokenHash = @tokenHash")
+	stmt.Params["tokenHash"] = tokenHash
+	var failedAt spanner.NullTime
+	if err := client(t, raw).Single().Query(ctx, stmt).Do(func(r *spanner.Row) error { return r.Column(0, &failedAt) }); err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if !failedAt.Valid {
+		return nil
+	}
+
+	return &failedAt.Time
 }
