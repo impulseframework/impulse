@@ -71,6 +71,9 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 		wantParent      string
 		wantCascade     bool
 		wantDeleteRules map[string]string
+		// wantForeignKeys are the table's foreign keys whole, in constraint name order,
+		// compared where a case names any.
+		wantForeignKeys []foreignKeyMeta
 	}{
 		{
 			name:        "a table with only its primary key, sharing the key column name with Orders",
@@ -143,6 +146,39 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 			},
 			wantFlags:       map[string][2]bool{"Id": {true, true}, "OrderId": {true, false}, "TenantId": {true, false}},
 			wantDeleteRules: map[string]string{"OrderId": "CASCADE", "TenantId": "NO ACTION", "StoreKey": ""},
+			wantForeignKeys: []foreignKeyMeta{
+				{Name: "FK_Attachments_OrderId", Columns: []string{"OrderId"}, ReferencedTable: "Orders", ReferencedColumns: []string{"Id"}, DeleteRule: "CASCADE"},
+				{Name: "FK_Attachments_TenantId", Columns: []string{"TenantId"}, ReferencedTable: "Tenants", ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"},
+			},
+		},
+		{
+			// The gate's key is Id, and the pass names the gate by its Code: the foreign
+			// key reads with the table and the column it references all the same.
+			name:  "a foreign key to a column that is not the other table's key reads whole",
+			table: "Passes",
+			wantIndexes: []indexMeta{
+				{Managed: true, Key: []indexColumn{{Column: "GateCode"}}},
+				{Managed: true, Unique: true, Key: []indexColumn{{Column: "Zone"}, {Column: "Number"}}},
+				{Name: "PRIMARY_KEY", PrimaryKey: true, Unique: true, Key: []indexColumn{{Column: "Id"}}},
+			},
+			wantForeignKeys: []foreignKeyMeta{
+				{Name: "FK_Passes_GateCode", Columns: []string{"GateCode"}, ReferencedTable: "Gates", ReferencedColumns: []string{"Code"}, DeleteRule: "NO ACTION"},
+			},
+		},
+		{
+			// Two columns to two columns that are no key, each beside the column it
+			// references, and a foreign key to the same table's key next to it.
+			name:  "a foreign key of two columns to columns that are no key reads each beside the column it references",
+			table: "Stubs",
+			wantIndexes: []indexMeta{
+				{Managed: true, Key: []indexColumn{{Column: "PassId"}}},
+				{Managed: true, Key: []indexColumn{{Column: "PassZone"}, {Column: "PassNumber"}}},
+				{Name: "PRIMARY_KEY", PrimaryKey: true, Unique: true, Key: []indexColumn{{Column: "Id"}}},
+			},
+			wantForeignKeys: []foreignKeyMeta{
+				{Name: "FK_Stubs_Pass", Columns: []string{"PassZone", "PassNumber"}, ReferencedTable: "Passes", ReferencedColumns: []string{"Zone", "Number"}, DeleteRule: "NO ACTION"},
+				{Name: "FK_Stubs_PassId", Columns: []string{"PassId"}, ReferencedTable: "Passes", ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"},
+			},
 		},
 	}
 
@@ -182,6 +218,11 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 			for column, want := range tt.wantDeleteRules {
 				if got := table.Columns[column].DeleteRule; got != want {
 					t.Errorf("%s.%s DeleteRule = %q, want %q", tt.table, column, got, want)
+				}
+			}
+			if tt.wantForeignKeys != nil {
+				if diff := cmp.Diff(tt.wantForeignKeys, table.ForeignKeys); diff != "" {
+					t.Errorf("%s foreign keys mismatch (-want +got):\n%s", tt.table, diff)
 				}
 			}
 		})

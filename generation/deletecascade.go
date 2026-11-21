@@ -38,8 +38,9 @@ type deleteCascadeDecl struct {
 }
 
 // parseDeleteCascade reads a resource's @deleteCascade. A kind is named once: a kind
-// in both lists, or twice in one, has no one meaning, and a record is never a kind
-// under itself.
+// in both lists, or twice in one, has no one meaning. The record's own kind is read
+// like any other: the schema says whether a row of it is under another
+// (declaredDeleteTree).
 func parseDeleteCascade(record string, arg genlang.Arg) (*deleteCascadeDecl, error) {
 	invocations, err := arg.ParseInvocations(deleteCascadeSpec())
 	if err != nil {
@@ -56,9 +57,6 @@ func parseDeleteCascade(record string, arg genlang.Arg) (*deleteCascadeDecl, err
 
 	seen := make(map[string]struct{}, len(decl.Taken)+len(decl.RefusedBy))
 	for _, kind := range slices.Concat(decl.Taken, decl.RefusedBy) {
-		if kind == record {
-			return nil, errors.Newf("@%s on %s names %s itself; list the kinds of record under a %s, not the record", deleteCascadeKeyword, record, record, record)
-		}
 		if _, dup := seen[kind]; dup {
 			return nil, errors.Newf("@%s on %s names %s twice; a kind is either taken with the %s or refuses its delete, and is listed once", deleteCascadeKeyword, record, kind, record)
 		}
@@ -109,6 +107,17 @@ type deleteKind struct {
 	// RemovedWith is the tables whose row's delete makes the database remove rows of
 	// the kind (removedWith). It is written for the kinds under Under alone.
 	RemovedWith []string
+	// Within is the kind's links to itself: a row under a row of its own kind
+	// (selfLinks). It is written for the taken kinds alone, since a delete that takes
+	// a row takes the rows of its kind under it too. The record's own kind has none:
+	// its links to itself are its ways up to the record.
+	Within []deleteLink
+	// Deletes marks a kind the description is written with the delete of one of its
+	// rows for (resource.DeleteKind.Rows): each taken kind of a record that declares
+	// its cascade. Rule marks one that declares a delete rule (@validateDeleteType),
+	// which that delete registers.
+	Deletes bool
+	Rule    bool
 }
 
 // depth is the kind's longest way up to the record, in steps. A kind is always deeper
@@ -229,7 +238,8 @@ func (c *client) schemaLinks() map[string][]deleteLink {
 
 // selfLinks is every table's foreign keys to itself: a row under a row of its own kind
 // (a folder in a folder). No way up to a record is walked through one, so schemaLinks
-// leaves them out; a plain delete of a row counts the rows that name it (kindsUnder).
+// leaves them out; a plain delete of a row counts the rows that name it (kindsUnder),
+// and a declared delete follows them row by row (declaredDeleteTree).
 func (c *client) selfLinks() map[string][]deleteLink {
 	links := make(map[string][]deleteLink)
 	for name, table := range c.tableMap {
@@ -442,7 +452,7 @@ func (c *client) resolveDeleteTrees(resources []*resourceInfo) error {
 			}
 			res.DeleteTree = tree
 		case res.deleteCascade != nil:
-			tree, err := c.declaredDeleteTree(res, byTable, byName, links)
+			tree, err := c.declaredDeleteTree(res, byTable, byName, links, self)
 			if err != nil {
 				return err
 			}
@@ -473,27 +483,103 @@ func (c *client) resolveDeleteTrees(resources []*resourceInfo) error {
 // kind with rows under the record is named: taken with it, or refusing its delete. What
 // is under a refusing kind alone needs no place in either list, since no row of it is
 // under the record without a row of the kind that refuses.
-func (c *client) declaredDeleteTree(res *resourceInfo, byTable, byName map[string]*resourceInfo, links map[string][]deleteLink) (*deleteTree, error) {
+//
+// The record's own kind is one of them where a row of it is under another (a folder in
+// a folder): it is named like any other kind, and its ways up are its links to itself.
+// Taken, it is the last kind deleted before the record, since everything under a row
+// of it goes first. A taken kind with a link to itself carries the link (Within), so
+// the delete finds a row under a row of the kind, however deep, and each taken kind is
+// written with the delete of one of its rows (Deletes).
+func (c *client) declaredDeleteTree(res *resourceInfo, byTable, byName map[string]*resourceInfo, links, self map[string][]deleteLink) (*deleteTree, error) {
 	record := c.pluralize(res.Name())
 	decl := res.deleteCascade
 	all := pathsUnder(links, record, nil)
+	// The record's ways up from a row of its own kind: one for each link to itself.
+	for _, link := range self[record] {
+		all[record] = append(all[record], []deleteLink{link})
+	}
 
-	taken := make(map[string]bool, len(decl.Taken))
-	refusing := make(map[string]bool, len(decl.RefusedBy))
+	taken, refusing, err := c.namedDeleteKinds(res, byName, all)
+	if err != nil {
+		return nil, err
+	}
+
+	// Every kind with a way up to the record that passes no refusing kind has its place
+	// in a list, the record's own kind among them.
+	reached := pathsUnder(links, record, refusing)
+	if len(all[record]) > 0 {
+		reached[record] = all[record]
+	}
+	if err := unlistedDeleteKind(res, byTable, reached, taken, refusing); err != nil {
+		return nil, err
+	}
+
+	// A way in reached passes no refusing kind, so every table on it is a taken kind; a
+	// named kind with none is under the record through a refusing kind alone.
+	tree := &deleteTree{Record: c.deleteKindOf(res, nil)}
+	var own *deleteKind
+	for _, name := range decl.Taken {
+		table := c.pluralize(name)
+		paths := reached[table]
+		if len(paths) == 0 {
+			return nil, errors.Newf("@%s on %s takes %s, but a %s is under a %s only through a kind that refuses the delete, so there is never one to take. Remove %s from the list.",
+				deleteCascadeKeyword, res.Name(), name, name, res.Name(), name)
+		}
+		kind := c.deleteKindOf(byName[name], paths)
+		kind.Deletes, kind.Rule = true, byName[name].HasValidateDeleteType()
+		if table == record {
+			own = kind
+
+			continue
+		}
+		kind.Within = self[table]
+		tree.Taken = append(tree.Taken, kind)
+	}
+	for _, name := range decl.RefusedBy {
+		table := c.pluralize(name)
+		paths := reached[table]
+		if len(paths) == 0 {
+			return nil, errors.Newf("@%s on %s lists %s under %s, but a %s is under a %s only through another kind that refuses the delete already. Remove %s from the list.",
+				deleteCascadeKeyword, res.Name(), name, deleteCascadeRefusedByKey, name, res.Name(), name)
+		}
+		tree.RefusedBy = append(tree.RefusedBy, c.deleteKindOf(byName[name], paths))
+	}
+	sortDeepestFirst(tree.Taken)
+	if own != nil {
+		// A row of the record's own kind goes after everything under it, whatever the
+		// kind, and before the record.
+		tree.Taken = append(tree.Taken, own)
+	}
+
+	return tree, nil
+}
+
+// namedDeleteKinds holds each kind a record's @deleteCascade names to the schema and
+// answers them by table: the kinds taken with the record, then the kinds that refuse its
+// delete. all holds each table's ways up to the record, the record's own among them.
+func (c *client) namedDeleteKinds(res *resourceInfo, byName map[string]*resourceInfo, all map[string][][]deleteLink) (taken, refusing map[string]bool, err error) {
+	record := c.pluralize(res.Name())
+	decl := res.deleteCascade
+	taken = make(map[string]bool, len(decl.Taken))
+	refusing = make(map[string]bool, len(decl.RefusedBy))
 	for _, name := range slices.Concat(decl.Taken, decl.RefusedBy) {
 		kind, ok := byName[name]
 		if !ok {
-			return nil, errors.Newf("@%s on %s names %s, which is not a resource of this package. Name the resources whose rows are under a %s.",
+			return nil, nil, errors.Newf("@%s on %s names %s, which is not a resource of this package. Name the resources whose rows are under a %s.",
 				deleteCascadeKeyword, res.Name(), name, res.Name())
 		}
 		table := c.pluralize(name)
+		if table == record && len(all[table]) == 0 {
+			return nil, nil, errors.Newf("@%s on %s names %s, but no foreign key puts a %s under a %s. Remove %s from the list.",
+				deleteCascadeKeyword, res.Name(), name, name, res.Name(), name)
+		}
 		if len(all[table]) == 0 {
-			return nil, errors.Newf("@%s on %s names %s, but no foreign key or interleave puts a %s under a %s. Remove %s from the list.",
+			return nil, nil, errors.Newf("@%s on %s names %s, but no foreign key or interleave puts a %s under a %s. Remove %s from the list.",
 				deleteCascadeKeyword, res.Name(), name, name, res.Name(), name)
 		}
 		if slices.Contains(decl.Taken, name) {
 			if kind.IsEnumeration() {
-				return nil, errors.Newf("@%s on %s takes %s, which is a read-only table (@%s): its rows are never deleted. List %s under %s, or remove it.",
+				return nil, nil, errors.Newf("@%s on %s takes %s, which is a read-only table (@%s): its rows are never deleted. List %s under %s, or remove it.",
 					deleteCascadeKeyword, res.Name(), name, enumerateKeyword, name, deleteCascadeRefusedByKey)
 			}
 			taken[table] = true
@@ -503,9 +589,13 @@ func (c *client) declaredDeleteTree(res *resourceInfo, byTable, byName map[strin
 		refusing[table] = true
 	}
 
-	// Every kind with a way up to the record that passes no refusing kind has its place
-	// in a list.
-	reached := pathsUnder(links, record, refusing)
+	return taken, refusing, nil
+}
+
+// unlistedDeleteKind refuses a record's @deleteCascade that leaves out a kind with rows
+// under the record: reached holds each table with a way up to the record that passes no
+// refusing kind, and every one of them is taken or refuses the delete.
+func unlistedDeleteKind(res *resourceInfo, byTable map[string]*resourceInfo, reached map[string][][]deleteLink, taken, refusing map[string]bool) error {
 	tables := make([]string, 0, len(reached))
 	for table := range reached {
 		tables = append(tables, table)
@@ -518,38 +608,15 @@ func (c *client) declaredDeleteTree(res *resourceInfo, byTable, byName map[strin
 		way := pathWords(table, reached[table][0])
 		kind, ok := byTable[table]
 		if !ok {
-			return nil, errors.Newf("@%s on %s: the table %s is under a %s (%s), and no resource of this package declares it, so a delete in code could not remove its rows. Declare a resource for %s and list it.",
+			return errors.Newf("@%s on %s: the table %s is under a %s (%s), and no resource of this package declares it, so a delete in code could not remove its rows. Declare a resource for %s and list it.",
 				deleteCascadeKeyword, res.Name(), table, res.Name(), way, table)
 		}
 
-		return nil, errors.Newf("@%s on %s: a %s is under a %s (%s), and the list names it neither as taken nor under %s. List %s to delete it with the %s, or under %s to keep a %s that has one from being deleted.",
+		return errors.Newf("@%s on %s: a %s is under a %s (%s), and the list names it neither as taken nor under %s. List %s to delete it with the %s, or under %s to keep a %s that has one from being deleted.",
 			deleteCascadeKeyword, res.Name(), kind.Name(), res.Name(), way, deleteCascadeRefusedByKey, kind.Name(), res.Name(), deleteCascadeRefusedByKey, res.Name())
 	}
 
-	// A way in reached passes no refusing kind, so every table on it is a taken kind; a
-	// named kind with none is under the record through a refusing kind alone.
-	tree := &deleteTree{Record: c.deleteKindOf(res, nil)}
-	for _, name := range decl.Taken {
-		table := c.pluralize(name)
-		paths := reached[table]
-		if len(paths) == 0 {
-			return nil, errors.Newf("@%s on %s takes %s, but a %s is under a %s only through a kind that refuses the delete, so there is never one to take. Remove %s from the list.",
-				deleteCascadeKeyword, res.Name(), name, name, res.Name(), name)
-		}
-		tree.Taken = append(tree.Taken, c.deleteKindOf(byName[name], paths))
-	}
-	for _, name := range decl.RefusedBy {
-		table := c.pluralize(name)
-		paths := reached[table]
-		if len(paths) == 0 {
-			return nil, errors.Newf("@%s on %s lists %s under %s, but a %s is under a %s only through another kind that refuses the delete already. Remove %s from the list.",
-				deleteCascadeKeyword, res.Name(), name, deleteCascadeRefusedByKey, name, res.Name(), name)
-		}
-		tree.RefusedBy = append(tree.RefusedBy, c.deleteKindOf(byName[name], paths))
-	}
-	sortDeepestFirst(tree.Taken)
-
-	return tree, nil
+	return nil
 }
 
 // tenantDeleteTree writes the tenant record's description, which the library declares:
@@ -643,6 +710,13 @@ func (r *resourceInfo) DeclaresDeleteCascade() bool {
 	return r.deleteCascade != nil
 }
 
+// TakesRowsUnder reports whether a delete of the record takes rows under it when it is
+// told to: the record declares its cascade, which always lists a kind as taken. Its
+// delete patch then carries WithEverythingUnder.
+func (r *resourceInfo) TakesRowsUnder() bool {
+	return r.deleteCascade != nil && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
+}
+
 // DeleteTreeLiteral is the record's description as the Go value its file returns
 // (resource.DeleteTree).
 func (r *resourceInfo) DeleteTreeLiteral() string {
@@ -680,7 +754,7 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 		for _, path := range kind.Paths {
 			b.WriteString("{\n")
 			for _, link := range path {
-				fmt.Fprintf(b, "{Columns: %s, Table: %q, References: %s%s},\n", stringsLiteral(link.Columns), link.Table, stringsLiteral(link.References), mayBeEmptyLiteral(link))
+				b.WriteString(linkLiteral(link))
 			}
 			b.WriteString("},\n")
 		}
@@ -688,9 +762,41 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 		if len(kind.RemovedWith) > 0 {
 			fmt.Fprintf(b, "RemovedWith: %s,\n", stringsLiteral(kind.RemovedWith))
 		}
+		if len(kind.Within) > 0 {
+			b.WriteString("Within: []resource.DeleteLink{\n")
+			for _, link := range kind.Within {
+				b.WriteString(linkLiteral(link))
+			}
+			b.WriteString("},\n")
+		}
+		if kind.Deletes {
+			writeTakenRows(b, kind)
+		}
 		b.WriteString("},\n")
 	}
 	b.WriteString("},\n")
+}
+
+// linkLiteral is one step as the Go value a description is written with
+// (resource.DeleteLink), on a line of its own.
+func linkLiteral(link deleteLink) string {
+	return fmt.Sprintf("{Columns: %s, Table: %q, References: %s%s},\n", stringsLiteral(link.Columns), link.Table, stringsLiteral(link.References), mayBeEmptyLiteral(link))
+}
+
+// writeTakenRows writes how a delete of the record deletes a row of a taken kind with
+// it (resource.NewTakenRows): the kind's generated delete patch around the row's patch
+// set, with the kind's delete rule registered where it declares one, armed against the
+// caller of the record's delete unless that call is trusted.
+func writeTakenRows(b *strings.Builder, kind *deleteKind) {
+	fmt.Fprintf(b, "Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[%s], caller *resource.Caller) {\n", kind.Name)
+	fmt.Fprintf(b, "patch := &%sDeletePatch{patchSet: patchSet}\n", kind.Name)
+	if kind.Rule {
+		b.WriteString("patch.registerValidateFunc()\n")
+	}
+	b.WriteString("if !caller.IsZero() {\n")
+	b.WriteString("patch.Enforce(caller)\n")
+	b.WriteString("}\n")
+	b.WriteString("}),\n")
 }
 
 // mayBeEmptyLiteral is the field a step that may be empty adds to its literal, and

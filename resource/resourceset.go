@@ -173,6 +173,18 @@ func newUnenforcedSet[Resource Resourcer, Request any]() (*Set[Resource], error)
 	}, nil
 }
 
+// newDeleteSet builds the Set a delete is armed with where no request is decoded (a
+// generated delete patch's Enforce): Delete on the resource and nothing of any field,
+// since a delete carries none.
+func newDeleteSet[Resource Resourcer]() *Set[Resource] {
+	return &Set[Resource]{
+		permissions:     []accesstypes.Permission{accesstypes.Delete},
+		requiredTagPerm: make(accesstypes.TagPermissions),
+		fieldToTag:      make(map[accesstypes.Field]accesstypes.Tag),
+		rMeta:           NewMetadata[Resource](),
+	}
+}
+
 // BaseResource returns the base name of the resource (without any tags).
 func (r *Set[Resource]) BaseResource() accesstypes.Resource {
 	var res Resource

@@ -195,6 +195,21 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 				},
 			},
 			{
+				Resource: "DistressRelays",
+				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 5, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"CaseNumber"}, Table: "DistressCalls", References: []string{"CaseNumber"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
 				Resource: "Ships",
 				Words:    resource.DeleteWords{One: "ship", Many: "ships"},
 				Key:      []string{"Id"},
@@ -233,7 +248,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 				Resource: "DistressCalls",
 				Words:    resource.DeleteWords{One: "distress call", Many: "distress calls"},
 				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},

@@ -1,0 +1,3 @@
+DROP TABLE Stubs;
+DROP TABLE Passes;
+DROP TABLE Gates;

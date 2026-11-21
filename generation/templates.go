@@ -821,6 +821,18 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 	})
 }
 {{ end }}
+{{- if .Resource.TakesRowsUnder }}
+// WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. Without it, a delete of a {{ .Resource.Name }} that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *{{ .Resource.Name }}DeletePatch) WithEverythingUnder() *{{ .Resource.Name }}DeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+{{ end }}
 func (p *{{ .Resource.Name }}DeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }

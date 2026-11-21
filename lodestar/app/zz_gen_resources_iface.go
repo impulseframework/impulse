@@ -14,9 +14,10 @@ type Resourcer interface {
 	resource.Resourcer
 	resources.Client | resources.ClientContact | virtualresources.ClientRoster |
 		resources.Commendation | resources.Consignment | resources.DistressCall |
-		resources.DroidReport | virtualresources.FeeByKind | resources.Hangar |
-		resources.HangarPass | resources.Mission | virtualresources.MissionBoard |
-		resources.MissionDocument | virtualresources.OpenMissionsBySquadron | resources.Pilot |
+		resources.DistressRelay | resources.DroidReport | virtualresources.FeeByKind |
+		resources.Hangar | resources.HangarPass | resources.Mission |
+		virtualresources.MissionBoard | resources.MissionDocument |
+		virtualresources.OpenMissionsBySquadron | resources.Pilot |
 		virtualresources.PilotAssignment | resources.PilotCertification | resources.Refit |
 		resources.RefitTask | resources.Sector | resources.SectorDirectory |
 		virtualresources.SectorPilot | resources.Ship | resources.ShipClass | resources.Sortie |

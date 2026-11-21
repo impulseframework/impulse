@@ -47,6 +47,13 @@ func (Mission) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[SortieExpense], caller *resource.Caller) {
+					patch := &SortieExpenseDeletePatch{patchSet: patchSet}
+					patch.registerValidateFunc()
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
 			},
 			{
 				Resource: "MissionDocuments",
@@ -58,6 +65,12 @@ func (Mission) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[MissionDocument], caller *resource.Caller) {
+					patch := &MissionDocumentDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
 			},
 			{
 				Resource: "Sorties",
@@ -69,6 +82,12 @@ func (Mission) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Sortie], caller *resource.Caller) {
+					patch := &SortieDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
 			},
 		},
 	}
@@ -1324,6 +1343,17 @@ func NewMissionDeletePatch(id impulse.UUID) *MissionDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &MissionDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the Mission with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. Without it, a delete of a Mission that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *MissionDeletePatch) WithEverythingUnder() *MissionDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
 }
 
 func (p *MissionDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

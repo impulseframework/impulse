@@ -206,6 +206,11 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		spanner.InsertMap("DistressCalls", map[string]any{
 			"Id": newID(t), "SectorId": ember, "Summary": "Lights out in Ember", "Severity": 1, "CaseNumber": "EMBER-CASE-0001", "FiledByUserId": string(governorUser), "FiledByName": "governor",
 		}),
+		// A relay names its call by the case number, with no delete rule on that key: it
+		// goes with the sector by its own key to it.
+		spanner.InsertMap("DistressRelays", map[string]any{
+			"Id": newID(t), "SectorId": ember, "CaseNumber": "EMBER-CASE-0001", "Message": "Ember has gone dark", "RelayedByName": "governor", "RelayedAt": spanner.CommitTimestamp,
+		}),
 		spanner.Insert("Squadrons", []string{"Id", "WingId", "Name"}, []any{emberSquadron, emberWing, "Cinderfall"}),
 		spanner.Insert("SquadronMemberships", []string{"SquadronId", "UserId"}, []any{emberSquadron, string(marshalUser)}),
 		spanner.Insert("Ships", []string{"Id", "HangarId", "ClassId", "Registry", "Name"}, []any{emberShip, emberHangar, shipClassKestrelID, "EMB-001", "Last Light"}),
@@ -372,7 +377,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 // sectorKeyedTables are Lodestar's tables that carry a sector's key on the row itself,
 // the directories record apart: each references Sectors with the delete rule, so its
 // rows go with their sector.
-var sectorKeyedTables = []string{"Wings", "Hangars", "HangarPasses", "Missions", "Consignments", "DroidReports", "DistressCalls"}
+var sectorKeyedTables = []string{"Wings", "Hangars", "HangarPasses", "Missions", "Consignments", "DroidReports", "DistressCalls", "DistressRelays"}
 
 // sectorDirectoryRows counts the rows of the directories record, a sector's own or, for
 // an empty sector, every one, as committed.

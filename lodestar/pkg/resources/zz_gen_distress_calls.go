@@ -22,6 +22,56 @@ func (DistressCall) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what a delete of a DistressCall takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the DistressCall and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a DistressCall
+// that the database does not remove with it.
+func (DistressCall) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "DistressCalls",
+		Words:  resource.DeleteWords{One: "distress call", Many: "distress calls"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 4, Files: 0},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "DistressRelays",
+				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 5, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"CaseNumber"}, Table: "DistressCalls", References: []string{"CaseNumber"}},
+					},
+				},
+				Within: []resource.DeleteLink{
+					{Columns: []string{"AnswersRelayId"}, Table: "DistressRelays", References: []string{"Id"}, MayBeEmpty: true},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[DistressRelay], caller *resource.Caller) {
+					patch := &DistressRelayDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "DistressRelays",
+				Words:    resource.DeleteWords{One: "distress relay", Many: "distress relays"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 5, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"CaseNumber"}, Table: "DistressCalls", References: []string{"CaseNumber"}},
+					},
+				},
+				RemovedWith: []string{"Sectors"},
+			},
+		},
+	}
+}
+
 // distressCallRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; distressCallReadSets holds one Set per read operation.
@@ -900,6 +950,17 @@ func NewDistressCallDeletePatch(id impulse.UUID) *DistressCallDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &DistressCallDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the DistressCall with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. Without it, a delete of a DistressCall that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *DistressCallDeletePatch) WithEverythingUnder() *DistressCallDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
 }
 
 func (p *DistressCallDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

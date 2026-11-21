@@ -68,6 +68,17 @@ func (a *App) PatchResources() http.HandlerFunc {
 	}
 	distressCallDecoder := NewDecoder[resources.DistressCall, distressCallRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
+	type distressRelayRequest struct {
+		ID             impulse.UUID     `json:"-"`
+		SectorID       impulse.UUID     `json:"-"`
+		CaseNumber     string           `json:"caseNumber"     immutable:"true"`
+		AnswersRelayID impulse.NullUUID `json:"answersRelayId" immutable:"true"`
+		Message        string           `json:"message"`
+		RelayedByName  string           `json:"-"`
+		RelayedAt      time.Time        `json:"-"`
+	}
+	distressRelayDecoder := NewDecoder[resources.DistressRelay, distressRelayRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
+
 	type hangarPassRequest struct {
 		ID         impulse.UUID     `json:"-"`
 		SectorID   impulse.UUID     `json:"-"`
@@ -657,6 +668,38 @@ func (a *App) PatchResources() http.HandlerFunc {
 							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewDistressCallDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.DistressCallDeletePatch.Buffer()")
+							}
+						}
+					case "distress-relays":
+						patchSet, err := distressRelayDecoder.DecodeOperation(op, userPermissions, accesstypes.DomainScope(domain))
+						if err != nil {
+							return errors.Wrap(err, "distressRelayDecoder.DecodeOperation()")
+						}
+
+						req, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id}")
+						if err != nil {
+							return errors.Wrap(err, "op.ReqWithPattern()")
+						}
+
+						switch op.Type {
+						case resource.OperationCreate:
+							patch, err := resources.NewDistressRelayCreatePatchFromPatchSet(patchSet)
+							if err != nil {
+								return errors.Wrap(err, "distressRelayCreatePatchFromPatchSet()")
+							}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.DistressRelayCreatePatch.Buffer()")
+							}
+							resp["distressRelays"] = append(resp["distressRelays"], patch.ID())
+						case resource.OperationUpdate:
+							id := httpio.Param[impulse.UUID](req, "id")
+							if err := resources.NewDistressRelayUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.DistressRelayUpdatePatch.Buffer()")
+							}
+						case resource.OperationDelete:
+							id := httpio.Param[impulse.UUID](req, "id")
+							if err := resources.NewDistressRelayDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.DistressRelayDeletePatch.Buffer()")
 							}
 						}
 					case "hangar-passes":

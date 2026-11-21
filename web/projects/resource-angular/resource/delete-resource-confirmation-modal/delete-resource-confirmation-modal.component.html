@@ -1,6 +1,6 @@
 <div mat-dialog-title>Delete</div>
 <mat-dialog-content>
-  <p class="question">{{ question }}</p>
+  <p class="question" aria-live="polite" aria-atomic="true">{{ question() }}</p>
   @if (refusal()) {
     <p class="refusal" role="alert">{{ refusal() }}</p>
   }

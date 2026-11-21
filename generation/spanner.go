@@ -258,9 +258,11 @@ const indexMapQuery string = `SELECT
 	ORDER BY i.TABLE_NAME, i.INDEX_NAME, ic.ORDINAL_POSITION`
 
 // foreignKeyMapQuery reads every foreign key whole: one row per column of the
-// constraint, in constraint order, beside the column of the referenced table's key it
-// is matched with. A constraint that references columns outside a key reads with a NULL
-// referenced table.
+// constraint, in constraint order, beside the column it references. The referenced
+// columns are those of the unique constraint the foreign key is held by: the referenced
+// table's primary key, or the unique index the database keeps on the columns of a
+// foreign key to columns that are not the key, which the information schema lists as a
+// constraint of its own. So a foreign key reads with its table and columns either way.
 const foreignKeyMapQuery string = `SELECT
 		kcu.TABLE_NAME,
 		rc.CONSTRAINT_NAME,

@@ -624,6 +624,33 @@ CREATE TABLE DistressCalls (
 
 CREATE UNIQUE INDEX DistressCallsByCaseNumber ON DistressCalls(CaseNumber);
 
+-- DistressRelays: a message passed along about a distress call, and the answers to it. A
+-- relay names its call by the case number an operator reads out, a column of DistressCalls
+-- that is not its key, and an answer names the relay it answers, a row of this same table.
+-- Neither foreign key carries a delete rule: a call's delete takes its relays, and a
+-- relay's delete its answers, in code (the two resource structs declare it).
+CREATE TABLE DistressRelays (
+  Id STRING(36) NOT NULL,
+  SectorId STRING(36) NOT NULL,
+  CaseNumber STRING(MAX) NOT NULL,
+  AnswersRelayId STRING(36),
+  Message STRING(MAX) NOT NULL,
+  -- RelayedByName is the username of whoever passed the message along, as it was then.
+  RelayedByName STRING(320) NOT NULL,
+  RelayedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+
+  CONSTRAINT CK_DistressRelays_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+  CONSTRAINT FK_DistressRelays_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
+  CONSTRAINT FK_DistressRelays_CaseNumber FOREIGN KEY (CaseNumber) REFERENCES DistressCalls(CaseNumber),
+  CONSTRAINT FK_DistressRelays_AnswersRelayId FOREIGN KEY (AnswersRelayId) REFERENCES DistressRelays(Id),
+) PRIMARY KEY (Id);
+
+-- A call's page lists its relays by the case number, and a sector's relays list in the
+-- order they were passed along: each with the sector bound first.
+CREATE INDEX DistressRelaysBySectorIdCaseNumber ON DistressRelays(SectorId, CaseNumber);
+
+CREATE INDEX DistressRelaysBySectorIdRelayedAt ON DistressRelays(SectorId, RelayedAt);
+
 CREATE TABLE MissionDocuments (
   Id STRING(36) NOT NULL,
   MissionId STRING(36) NOT NULL,

@@ -44,6 +44,12 @@ func (Client) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[ClientContact], caller *resource.Caller) {
+					patch := &ClientContactDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
 			},
 		},
 		RefusedBy: []resource.DeleteKind{
@@ -864,6 +870,17 @@ func NewClientDeletePatch(id impulse.UUID) *ClientDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &ClientDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the Client with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. Without it, a delete of a Client that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *ClientDeletePatch) WithEverythingUnder() *ClientDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
 }
 
 func (p *ClientDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

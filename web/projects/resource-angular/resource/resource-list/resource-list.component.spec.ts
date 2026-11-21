@@ -1281,6 +1281,34 @@ describe('ResourceListComponent', () => {
       expect(ask(kestrel, false).deleted).toEqual([]);
       expect(ask(kestrel, undefined).deleted).toEqual([]);
     });
+
+    it('and says the delete takes everything under the row once the dialog says so', async () => {
+      await create({ primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }] });
+      fixture.detectChanges();
+      const component = fixture.componentInstance;
+      let handed: DeleteConfirmation | undefined;
+      component.dialog.open = ((_: unknown, config: { data: DeleteConfirmation }) => {
+        handed = config.data;
+
+        return {};
+      }) as unknown as typeof component.dialog.open;
+      const sent: unknown[] = [];
+      component.store.apply = ((operations: unknown[]) => {
+        sent.push(...(JSON.parse(JSON.stringify(operations)) as unknown[]));
+
+        return Promise.resolve({});
+      }) as unknown as typeof component.store.apply;
+      component.store.reloadPage = (): void => undefined;
+
+      component.confirmDeleteRow(kestrel);
+      await handed?.delete?.();
+      await handed?.delete?.({ everythingUnder: true });
+
+      expect(sent).toEqual([
+        { op: 'remove', path: '/s-1' },
+        { op: 'remove', path: '/s-1', value: { everythingUnder: true } },
+      ]);
+    });
   });
 
   describe('asks for its first page once per request', () => {

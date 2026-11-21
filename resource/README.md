@@ -70,7 +70,7 @@ type Ship struct { ... }
 | `@validateCreateType` | `@resource` struct | type name | The generated create path calls `Validate()` on the named type to validate the incoming resource. |
 | `@validateUpdateType` | `@resource` struct | type name | As above, for updates. |
 | `@validateDeleteType` | `@resource` struct | type name | A delete rule no grant gets around. Before a row of the resource is deleted, the generated delete calls `Validate()` on the named type with the delete patch, inside the delete's transaction, once the caller's grants and their conditions have passed and before anything is buffered. An error it returns refuses the delete and nothing is deleted: `httpio.NewBadRequestMessage` answers 400 with the rule's own sentence, which is what the person reads. Who may delete which rows stays in grant conditions; the rule is for what no role may do, such as a retention period, which a condition cannot hold because conditions add up across a person's grants. A caller the grants refuse hears their Forbidden and never the rule's sentence. A read-only enumeration table refuses the annotation. Example: [SortieExpenseDeleteRule](../lodestar/pkg/resources/sortie_expenses.go). |
-| `@deleteCascade` | `@resource` struct | kinds, then `refusedBy:` kinds | Declares what a delete of the record takes with it and what refuses it. `@deleteCascade(Project, Task, TaskComment, refusedBy: Invoice)` on `Client` lists the kinds of row that go with a client, in any order, and after `refusedBy:` the kinds that keep a client from being deleted while it has one. The generator reads what is under the record from the schema, the foreign keys and interleaves that lead up to it, and holds the list to it: every kind under the record is named in one list or the other, or generation fails naming the kind, the record and the way between them. A kind that is under the record only through a refusing kind needs no place, since it has no row there without a row of the kind that refuses. A name that is no resource, a kind that is not under the record, a kind named twice, and a read-only table among the kinds taken fail generation the same way, each in a sentence that says what to change. For the record the generator writes `DeleteTree()` on the resource (`resource.DeleteTree`): the kinds taken in the order their rows are deleted, deepest first, each kind's ways up to the record, and what the delete of one row costs in mutations (`resource.DeleteCost`: the delete, an entry in each index of its table, the change record where changes are tracked, and the release of each stored file). `DeleteTree.Mutations` is the one count of a whole delete, held against the 80,000 mutations Spanner takes in a commit (`resource.DeleteMutationLimit`). A delete of a record with a row of a kind listed under `refusedBy` is refused before the commit in a sentence that counts what refuses it, and so is a delete of any record with rows under it that the database does not remove with it (section 10). The tenant record takes no `@deleteCascade`: the library declares its description, every kind of the application's rows that carry the tenant's key or lead to a row that does, with nothing listed to refuse it. A way up to the record never passes a table twice, so a row that hangs under the record only through another row of its own kind is not in the description. Example: [Mission](../lodestar/pkg/resources/missions.go) and [Client](../lodestar/pkg/resources/clients.go). |
+| `@deleteCascade` | `@resource` struct | kinds, then `refusedBy:` kinds | Declares what a delete of the record takes with it and what refuses it. `@deleteCascade(Project, Task, TaskComment, refusedBy: Invoice)` on `Client` lists the kinds of row that go with a client, in any order, and after `refusedBy:` the kinds that keep a client from being deleted while it has one. The generator reads what is under the record from the schema, the foreign keys and interleaves that lead up to it, and holds the list to it: every kind under the record is named in one list or the other, or generation fails naming the kind, the record and the way between them. A kind that is under the record only through a refusing kind needs no place, since it has no row there without a row of the kind that refuses. A name that is no resource, a kind that is not under the record, a kind named twice, and a read-only table among the kinds taken fail generation the same way, each in a sentence that says what to change. For the record the generator writes `DeleteTree()` on the resource (`resource.DeleteTree`): the kinds taken in the order their rows are deleted, deepest first, each kind's ways up to the record, and what the delete of one row costs in mutations (`resource.DeleteCost`: the delete, an entry in each index of its table, the change record where changes are tracked, and the release of each stored file). `DeleteTree.Mutations` is the one count of a whole delete, held against the 80,000 mutations Spanner takes in a commit (`resource.DeleteMutationLimit`). A delete of a record with a row of a kind listed under `refusedBy` is refused before the commit in a sentence that counts what refuses it. A delete of a record with rows of the kinds it takes asks first: it deletes nothing and is answered 428 with a question that names what will be deleted, and the same delete saying it takes them (`"everythingUnder": true` as the remove operation's value) deletes those rows in code, each as its own delete would delete it, and the record last. A record that declares nothing is refused while it has rows under it that the database does not remove with it (section 10). The tenant record takes no `@deleteCascade`: the library declares its description, every kind of the application's rows that carry the tenant's key or lead to a row that does, with nothing listed to refuse it. A record lists its own kind where its table has a foreign key to itself (an answer names the message it answers): `@deleteCascade(DistressRelay)` on `DistressRelay` takes the answers under a relay, however deep, and a table with such a key is a kind under its own record like any other, to be named in one list or the other. A kind taken with another record carries its link to itself in the description (`DeleteKind.Within`), so that record's delete takes the rows under its rows too. A foreign key to columns that are not the other table's key (a case number) is a way up like any other: the description holds the columns each step references (`DeleteLink.References`), and the rows are found by them. Example: [Mission](../lodestar/pkg/resources/missions.go), [Client](../lodestar/pkg/resources/clients.go), and [DistressCall](../lodestar/pkg/resources/distress_calls.go) with [DistressRelay](../lodestar/pkg/resources/distress_relays.go). |
 | `@primarykey` | field of a `@computed` or `@virtual` struct | none | Marks the field as (part of) the resource's primary key; multiple annotated fields form a compound key in declaration order. Primary-key fields are exempt from field-level permission enforcement (their readability follows the resource-level grant). The key is what gives a row identity: the read route (`/{key}`), the cursor's tie-break (the key fields end every order, so a keyset cursor walks a total order), and the browser's row identity (`keyOf`). Without a key the resource is a whole read-only list, with no read route and no paging: served in one response, sorted when asked or declared, refusing a numeric `limit` or a `cursor` with a 400 that names `@primarykey` as the way to page, and refusing `@page` at generation. Rejected on table-backed `@resource` structs, whose keys come from the schema. Compound example: [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go); key-less example: [StandingOrder](../lodestar/pkg/computedresources/standing_orders.go). |
 | `@rowsOf` | `@virtual` or `@computed` struct | table resource name | The view declares its backing table, a create goes into the table, and the new row shows up in the view on the next list because the view's SQL reads that table. The declaration states row identity, not columns: every row of the view is one row of the named table under the same key, and the view's other columns are its own — joined from other tables, aggregated, or computed in the projection; the generator compares none of them to the table. It checks, each refusal naming the fix: the named resource exists and is a table-backed `@resource` (a `@virtual` or `@computed` target is refused, since a view cannot back a view, and an `@enumerate` table — with or without a struct over it — is refused as a contradiction, since its rows are the program's constants and a create button for them would be policy about nothing); the view declares `@primarykey` fields matching the table's key in count, order, Go field name, and Go type, nullability included, and on a `@virtual` the `spanner` columns as well, the message naming the first mismatch and the table's key; the two share a `@permissionScope`; the table is served on every outlet the view is served on (fail loud, never a silent degrade); and the view does not name itself. Refused on `@resource` and `@rpc` structs. Several views may name one table. The view's TypeScript metadata carries `rowsOf: Resources.X`, so a page listing the view sends its create, edit, and delete to the table and opens a row on the table's page; a view without the declaration is what it is today, a read-only list. One backing table only: two tables sharing one key (a table and its one-to-one extension) is the door left open and not built, and a parent joined to its children is never one to one with anything and stays a read-only list or an RPC. Examples: [MissionBoard](../lodestar/pkg/virtualresources/mission_boards.go), a same-row view over Missions; [SquadronRoster](../lodestar/pkg/virtualresources/squadron_rosters.go) and [PilotAssignment](../lodestar/pkg/virtualresources/pilot_assignments.go), two association views over SquadronMemberships whose compound key is edited and deleted from the list. [OpenMissionsBySquadron](../lodestar/pkg/virtualresources/open_missions_by_squadrons.go) and [FeeByKind](../lodestar/pkg/virtualresources/fee_by_kinds.go) declare nothing and stay read-only lists. |
 | `@changedBy` | `@virtual` or `@computed` struct | table names | The tables whose changes change the resource, so a commit on them reaches the resource's live pages. On a virtual resource the declaration replaces what the generator reads off the query (the text behind its `Subquery` method, an embedded file, a string literal or a concatenation of constants, walked with memefish's lexer for the names in table positions, section 14), so it can drop a table the walk misread as well as add one the query does not show; the generator still reads the query, and a declaration that differs from the reading is a warning naming both sides, never a refusal. It is the way out when the reading refuses (a name in a table position that is neither a table nor a CTE in scope, a recursive `WITH`, a text the lexer refuses) and required for a query built at run time. A computed resource is Go, so the declaration is its only source: without one its changes are not published, its pages stay plain, and nothing refuses. The `@rowsOf` root must be in the set, read or declared, and a name the schema lacks is refused; refused on `@resource` and `@rpc` structs. The sets are recorded next to the resources, as each package's generated `LiveDerivations`, and assembled in the handler package's `zz_gen_live_derivations.go` (section 14), so what the generator concluded shows in the diff, and the resource's TypeScript metadata says `live: true`. A table of an Auth's generated management (section 22) is read or declared like any other and recorded by its name, since the type over it is internal to the management's tree. Examples: [MissionBoard](../lodestar/pkg/virtualresources/mission_boards.go), read off its query; [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go), declared. |
@@ -1601,8 +1601,8 @@ transaction, and answers the first delete that has one with a 409:
   those named, and the sentence says only to delete them.
 - A kind the record lists under `refusedBy` answers before any other, counted by every
   way it leads up to the record, and keeps the record from being deleted at all. The
-  kinds a record lists as going with it are counted like any other kind under it: the
-  library deletes no row with the record.
+  kinds a record lists as going with it are not in the way: its delete takes them, once
+  it has asked (the next part).
 - The sentence is written for the person the delete is for: the one the patch is armed
   against, else the caller the request carries. A kind they may not list is never named
   or counted for them, and a grant to list it that carries a condition is not enough,
@@ -1618,15 +1618,86 @@ transaction, and answers the first delete that has one with a 409:
 
 What the count does not reach is still the commit's to refuse, in the sentences of the
 table above: a row under a row the database removes with the record (a hangar's ships
-go with it, and a sortie names a ship), a row whose foreign key names columns that are
-not the other table's key, and a row an update of the same transaction leaves under the
-record. The count knows the rows the transaction's patches wrote and no others: code that
+go with it, and a sortie names a ship), and a row an update of the same transaction
+leaves under the record. The count knows the rows the transaction's patches wrote and no others: code that
 removes the rows under a record with raw mutations and deletes the record with a patch in
 one transaction is refused over rows that are about to go, so those rows are deleted
 through their patches. The mock client holds no rows and refuses nothing here, and
 PostgreSQL has no write path.
 
 Example: [the served suite](../lodestar/test/integration/delete_refusal_test.go).
+
+### A delete that takes what is under the record
+
+A record that declares what goes with it (`@deleteCascade`) is deleted together with the
+rows of the kinds it lists as taken, and the library deletes them in code: it finds the
+rows, checks each one as that row's own delete would be checked, and deletes them in the
+record's transaction, deepest first and the record last. A foreign key's own rule
+(`ON DELETE CASCADE`) is not what removes them.
+
+Such a delete asks first. A delete of a record with rows to take deletes nothing unless
+it says it takes them, and is answered 428 (`httpio.HasPreconditionRequired`) with the
+question a person is asked before anything goes:
+
+| Under the record | Message |
+| --- | --- |
+| Rows of kinds the person may list | `Delete this mission and everything under it: 2 sorties, 1 mission document, 1 sortie expense. This can't be undone.` |
+| Some rows of kinds they may not list | `Delete this mission and everything under it: 2 sorties, and records you can't see. This can't be undone.` |
+| Rows of kinds they may list none of | `Delete this mission and everything under it? This can't be undone.` |
+
+The same delete, saying it takes them, deletes the rows and the record:
+
+- On the wire the remove operation carries a value, `{"op": "remove", "path": "/missions/…",
+  "value": {"everythingUnder": true}}`. A value that is not an object, or that says
+  `everythingUnder` with anything but true or false, is a 400.
+- The TypeScript client takes it as an option, `missions.remove([id], { everythingUnder: true })`
+  and `missions.ops.remove([id], { everythingUnder: true })`. The library's delete dialog
+  asks the server's question in the place of its own and sends the second delete when the
+  person presses Delete again.
+- In Go the generated delete patch of a record that declares its cascade carries
+  `WithEverythingUnder()` (`PatchSet.DeleteEverythingUnder`).
+
+A record with nothing to take under it is deleted without a question, whatever the delete
+says. Before the question is asked, and whatever the delete says, the delete is refused
+with nothing gone where it cannot be made whole:
+
+| What stops it | Status | Message |
+| --- | --- | --- |
+| A row of a kind the record lists under `refusedBy` | 409 | `This client has 10 missions and 5 consignments, so it can't be deleted.` |
+| More rows than one commit takes | 409 | `This mission has too many records under it to delete at once. Delete some of them first.` |
+| A row the person may not delete, of a kind they may list | 403 | `This mission has sortie expenses that you can't delete, so it can't be deleted.` |
+| A row the person may not delete, of a kind they may not list | 403 | `This mission has records under it that you can't delete, so it can't be deleted.` |
+| A row its delete rule refuses (`@validateDeleteType`) | the rule's | the rule's own sentence |
+
+- The rows are found level by level from the record, by each kind's ways up to it
+  (`DeleteKind.Paths`), on the columns each foreign key references (`DeleteLink.References`),
+  the other table's key or not: a relay names its call by the call's case number. A kind's
+  link to itself (`DeleteKind.Within`: an answer names the relay it answers) is followed
+  until a level finds nothing new, so a row under a row of its own kind goes however deep
+  it is, and so does one that is under the record through such a row alone.
+- Every row goes through its own kind's generated delete (`DeleteKind.Rows`, which the
+  generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind
+  and the grant's condition against the row, the kind's delete rule, its change record
+  where the kind is tracked, and the release of its stored files. One row that may not
+  go stops the whole delete.
+- The rows are counted against what one commit takes before any is deleted
+  (`DeleteTree.Mutations` against `resource.DeleteMutationLimit`, 80,000 mutations): the
+  delete of each row, an entry in each index of its table, its change record and its files.
+- The rows are checked as the person the record's delete is armed against, and the
+  sentences are written for that person, as the count of the part before is. A trusted
+  delete (a patch that is not armed) checks no grant, runs each kind's rule, and is told
+  every kind; it is asked the question all the same, and takes the rows once it says so.
+- A row the same transaction already deleted is not found again, so a request that deletes
+  a row under the record beside the record deletes it once.
+
+The delete in code is Spanner's write path. The mock client holds no rows and takes none,
+and PostgreSQL has no write path.
+
+Example: [the served suite](../lodestar/test/integration/delete_cascade_test.go), over
+[Mission](../lodestar/pkg/resources/missions.go), [Client](../lodestar/pkg/resources/clients.go)
+and [DistressCall](../lodestar/pkg/resources/distress_calls.go).
+
+### What the translation does not do
 
 What the library does not do: it reads nothing before buffering to name the offending
 field. A read inside the transaction does not see the transaction's own buffered writes, so
@@ -1905,7 +1976,7 @@ by construction and never checks the generator's output.
 | `date` | `Date` | `time.Time`, `spanner.NullTime` |
 | `civildate` | `Date` | `civil.Date`, `spanner.NullDate` |
 | `uuid` | `string` | `impulse.UUID`, `impulse.NullUUID` |
-| `enumerated` | the key's type | a declared or inferred picker (`@enumerate`, a key into a resource or an enumeration table) |
+| `enumerated` | the key's type | a declared or inferred picker (`@enumerate`, a key into a resource or an enumeration table). A foreign key to a column that is not the other table's key (a case number) infers none and keeps its own type, since a picker writes the key of the row picked |
 | `object` | the derived or imported interface, or `unknown` | a struct, a `@typescript` type, `spanner.NullJSON`, `json.RawMessage` and a type declared over it |
 | `bytes` | `string` | a byte slice, base64 on the wire |
 | `string[]`, `number[]`, `boolean[]`, `date[]`, `civildate[]`, `uuid[]`, `object[]`, `bytes[]` | the element's interface type with `[]` | a slice, an array, or a named slice type of the leaf (an `ARRAY<...>` column); element pointers are read through, so `[]*int64` is `number[]` and a nullable `[]*bool` is `boolean[]` |

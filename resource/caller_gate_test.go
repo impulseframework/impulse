@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -204,4 +205,36 @@ func TestExecuteGate_EnforceProposed(t *testing.T) {
 			t.Errorf("ExecuteGate.EnforceProposed() error = %v, want Forbidden", err)
 		}
 	})
+}
+
+// TestSetCache_For pins the Set the cache builds for each operation of a generated patch
+// armed with Enforce. A create and an update ask their permission of every field a
+// request may address. A delete carries no field, so its Set asks Delete of the resource
+// and nothing of a field: a generated delete patch is armed with it, and so is the
+// delete of every row a record's declared cascade takes.
+func TestSetCache_For(t *testing.T) {
+	t.Parallel()
+
+	var cache SetCache[tenancyResource, tenancyCreateRequest]
+
+	for _, perm := range []accesstypes.Permission{accesstypes.Create, accesstypes.Update} {
+		set := cache.For(perm)
+		if !set.PermissionRequired("Name", perm) {
+			t.Errorf("For(%s): the field Name does not require %s", perm, perm)
+		}
+	}
+
+	forDelete := cache.For(accesstypes.Delete)
+	if got, want := forDelete.Permissions(), []accesstypes.Permission{accesstypes.Delete}; !slices.Equal(got, want) {
+		t.Errorf("For(Delete).Permissions() = %v, want %v", got, want)
+	}
+	if got := forDelete.TagPermissions(); len(got) != 0 {
+		t.Errorf("For(Delete) asks a permission of the fields %v, want of none", got)
+	}
+	if got := forDelete.BaseResource(); got != tenancyTestResource {
+		t.Errorf("For(Delete).BaseResource() = %q, want %q", got, tenancyTestResource)
+	}
+	if cache.For(accesstypes.Delete) != forDelete {
+		t.Error("For(Delete) built a second Set, want the one the cache holds")
+	}
 }
