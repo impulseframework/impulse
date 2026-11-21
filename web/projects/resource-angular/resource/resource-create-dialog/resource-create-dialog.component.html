@@ -7,7 +7,7 @@
     [inDialog]="true"
     (complete)="close()"></impulse-resource-create>
   @if (incomplete()) {
-    <p class="refusal" role="alert">Please complete or fix required fields.</p>
+    <p #said class="refusal" role="alert">{{ incomplete() }}</p>
   }
   @if (refusal()) {
     <p class="refusal" role="alert">{{ refusal() }}</p>

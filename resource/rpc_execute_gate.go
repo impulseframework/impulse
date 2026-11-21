@@ -11,7 +11,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
-	"github.com/impulseframework/impulse/httpio"
 	"google.golang.org/api/iterator"
 )
 
@@ -400,7 +399,7 @@ func (g *ExecuteGate) enforce(ctx context.Context, txn ReadWriteTransaction, tar
 		return err
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("%s %s does not exist", target.Label, key)
+		return TargetNotFound(target.Label, pkValues...)
 	}
 	if !passed.Valid || !passed.Bool {
 		return TargetRefused(g.method, target.Label, pkValues...)
@@ -488,7 +487,7 @@ func (g *ExecuteGate) VerifyTenancy(ctx context.Context, txn ReadWriteTransactio
 		return err
 	}
 	if !found || !inTenant.Valid || !inTenant.Bool {
-		return httpio.NewNotFoundMessagef("%s %s does not exist", target.Label, key)
+		return TargetNotFound(target.Label, pkValues...)
 	}
 
 	return nil

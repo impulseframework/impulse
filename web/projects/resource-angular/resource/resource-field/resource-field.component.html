@@ -1,4 +1,4 @@
-<div [class.hidden-field]="!showField()">
+<div [class.hidden-field]="!showField()" [attr.data-field]="fieldConfig().name">
   @if (!hasControl()) {
     <!-- The form owner left this field out: nothing to render and no control to bind. -->
   } @else if (showEmptyField()) {
