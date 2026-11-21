@@ -316,7 +316,7 @@ func (w *rowsUnderWriter) ofRecordsTenant(prefix string, kind *DeleteKind, tree 
 		return ""
 	}
 	row := w.rowTenant(prefix, kind.Tenant)
-	if value, held := recordKey[tree.Tenant.Column]; held && len(tree.Tenant.Path) == 0 {
+	if value, held := heldTenant(tree, recordKey); held {
 		return fmt.Sprintf(" AND %s = %s", row, w.value(value))
 	}
 	equal := make([]string, 0, len(recordKey))
@@ -326,6 +326,20 @@ func (w *rowsUnderWriter) ofRecordsTenant(prefix string, kind *DeleteKind, tree 
 
 	return fmt.Sprintf(" AND %s = (SELECT %s FROM %s AS tr WHERE %s)",
 		row, w.rowTenant("tr.", tree.Tenant), w.quote(string(tree.Record)), strings.Join(equal, " AND "))
+}
+
+// heldTenant is the tenant the record's key holds: the value of the column that holds
+// the tenant's key, where the record's rows are a tenant's by a column of their own and
+// the key holds that column (the tenant record itself, or a record keyed by its tenant).
+// held is false where the record is no tenant's, reaches its tenant through other rows,
+// or is keyed without the column.
+func heldTenant(tree *DeleteTree, recordKey map[string]any) (value any, held bool) {
+	if tree == nil || tree.Tenant == nil || len(tree.Tenant.Path) != 0 {
+		return nil, false
+	}
+	value, held = recordKey[tree.Tenant.Column]
+
+	return value, held
 }
 
 // tenantValues is the most values ofRecordsTenant adds to a statement about the kind's
@@ -521,29 +535,71 @@ func (d *recordedDelete) rowsOf(ctx context.Context, dbType DBType, kinds []Dele
 }
 
 // seen is the kinds the person may be told of: the ones they may list, granted
-// outright in the delete's own scope. A grant that carries a condition shows some of a
-// kind's rows and not others, and the count is of every row, so it is not enough. A
+// outright. A kind of a tenant's rows under a record whose key holds its tenant (the
+// tenant record above all, or a record keyed by its tenant) is asked about in that
+// tenant, whatever scope the delete is asked in, since its rows under the record are
+// that tenant's; every other kind is asked about in the delete's own scope. One check
+// is asked for the kinds of each scope. A grant that carries a condition shows some of
+// a kind's rows and not others, and the count is of every row, so it is not enough. A
 // trusted call is told every kind.
 func (d *recordedDelete) seen(ctx context.Context, kinds []kindRows) ([]kindRows, error) {
 	if d.caller.IsZero() {
 		return kinds, nil
 	}
-	resources := make([]accesstypes.Resource, 0, len(kinds))
-	for _, k := range kinds {
-		resources = append(resources, k.kind.Resource)
-	}
-	decisions, err := d.caller.Check(ctx, accesstypes.List, resources...)
+	tenant, inTenant, err := d.tenantScope(kinds)
 	if err != nil {
 		return nil, err
 	}
+	scopeOf := func(kind *DeleteKind) accesstypes.Scope {
+		if inTenant && kind.Tenant != nil {
+			return tenant
+		}
+
+		return d.caller.Scope
+	}
+	var scopes []accesstypes.Scope
+	resources := make(map[accesstypes.Scope][]accesstypes.Resource, 2)
+	for _, k := range kinds {
+		scope := scopeOf(k.kind)
+		if _, asked := resources[scope]; !asked {
+			scopes = append(scopes, scope)
+		}
+		resources[scope] = append(resources[scope], k.kind.Resource)
+	}
+	decisions := make(map[accesstypes.Scope]accesstypes.Decisions, len(scopes))
+	for _, scope := range scopes {
+		decided, err := d.caller.Permissions.Check(ctx, d.caller.Env, scope, accesstypes.List, resources[scope]...)
+		if err != nil {
+			return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
+		}
+		decisions[scope] = decided
+	}
 	var seen []kindRows
 	for _, k := range kinds {
-		if decisions[k.kind.Resource].IsGranted() {
+		if decisions[scopeOf(k.kind)][k.kind.Resource].IsGranted() {
 			seen = append(seen, k)
 		}
 	}
 
 	return seen, nil
+}
+
+// tenantScope is the scope of the tenant the record's key holds (heldTenant), where one
+// of the kinds is a tenant's rows: ok is false where none is, or the key holds no tenant.
+func (d *recordedDelete) tenantScope(kinds []kindRows) (scope accesstypes.Scope, ok bool, err error) {
+	if !slices.ContainsFunc(kinds, func(k kindRows) bool { return k.kind.Tenant != nil }) {
+		return accesstypes.Scope{}, false, nil
+	}
+	value, held := heldTenant(d.tree, d.key)
+	if !held {
+		return accesstypes.Scope{}, false, nil
+	}
+	domain, err := tenantDomainOf(value)
+	if err != nil {
+		return accesstypes.Scope{}, false, errors.Wrapf(err, "the tenant of a %s", d.tree.Words.One)
+	}
+
+	return accesstypes.DomainScope(domain), true, nil
 }
 
 // deleteRefusedSentence is the sentence a person reads when a delete is refused over

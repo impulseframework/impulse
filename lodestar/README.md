@@ -557,8 +557,12 @@ class `access`, so a person who acts as the governor under the `act` kind is ref
 it, and the delete takes them in code: every row under the sector, in the same
 transaction, each through its resource's own delete, so a kind that keeps a change
 record keeps one of the row that went. A sector with rows under it is asked first
-("Delete this sector and everything under it? This can't be undone."), and the request
-that goes ahead says it takes them. The schema carries the same rule under that: each of
+("Delete this sector and everything under it: 1 wing, 1 sector directory, 1 hangar, 1
+distress call, 1 consignment, 1 squadron, 1 ship, 1 distress relay, 1 squadron
+membership, 1 refit, 1 mission, 1 hangar pass, 1 sortie, 1 refit task, 1 mission
+document, 1 sortie expense, and records you can't see. This can't be undone.", counting
+each kind the person may list in that sector), and the request that goes ahead says it
+takes them. The schema carries the same rule under that: each of
 the eight tables that carry a sector's key (Wings, Hangars,
 HangarPasses, Missions, Consignments, DroidReports, DistressCalls, DistressRelays)
 references `Sectors` with `ON DELETE CASCADE`, as the skeletons' sample tenant table does, and `impulse check`

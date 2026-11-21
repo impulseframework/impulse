@@ -271,15 +271,38 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	eventsBefore := changeEvents(ctx, t, s, tracked...)
 
 	// A request that does not say it takes what is under the sector is asked the
-	// question, and nothing is gone: not the sector, not its directory, not a row. The
-	// question counts the kinds the person may list in the scope the delete is asked
-	// in, and a sector's delete is asked for the whole fleet, where the governor's
-	// roles list none of a sector's kinds: it says "everything under it" and no count.
-	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/sectors/`+ember+`"}]`))
+	// question, and nothing is gone: not the sector, not its directory, not a row.
+	//
+	// The question counts each kind the person may list in the tenant being deleted.
+	// The governor holds the sector's marshal role in every sector, and it lists each
+	// kind of Ember's rows but a droid's report, which is not named: one of each, the
+	// kind nearest the sector first.
+	remove := []byte(`[{"op":"remove","path":"/sectors/` + ember + `"}]`)
+	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", remove)
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	const counted = "Delete this sector and everything under it: 1 wing, 1 sector directory, 1 hangar, 1 distress call, " +
+		"1 consignment, 1 squadron, 1 ship, 1 distress relay, 1 squadron membership, 1 refit, 1 mission, 1 hangar pass, " +
+		"1 sortie, 1 refit task, 1 mission document, 1 sortie expense, and records you can't see. This can't be undone."
+	if got := refusalMessage(t, body); got != counted {
+		t.Errorf("the governor's question = %q, want %q", got, counted)
+	}
+	// The person lists none of the tenant's kinds in the tenant being deleted: the
+	// question says "everything under it" and no count. The deckhand, given the closing
+	// role, may delete the sector, and holds no role in Ember or in every sector.
+	deckhand := newBrowser(t, s, consoleAPI)
+	deckhand.signIn(ctx, "deckhand")
+	deckhandUser := account(t, "deckhand")
+	if err := crewManager.AddUserRoles(ctx, global, deckhandUser, closer); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles(deckhand, %s) error = %v", closer, err)
+	}
+	if d := decisionFor(ctx, t, s.access.ForUser(deckhandUser), accesstypes.GlobalScope(), accesstypes.Delete, sectorsResource, time.Now().Add(15*time.Second)); !d.IsGranted() {
+		t.Fatalf("Delete on Sectors for the deckhand holding %s = %s, want granted before the question", closer, d)
+	}
+	status, body = deckhand.do(ctx, http.MethodPatch, consoleAPI+"/resources", remove)
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
 	const question = "Delete this sector and everything under it? This can't be undone."
 	if got := refusalMessage(t, body); got != question {
-		t.Errorf("the question = %q, want %q", got, question)
+		t.Errorf("the deckhand's question = %q, want %q", got, question)
 	}
 	if n := rowsWhere(ctx, t, s, "Sectors", "Id", ember); n != 1 {
 		t.Fatalf("Sectors holds %d row(s) of Ember after the question, want the one: a delete that is asked the question deletes nothing", n)

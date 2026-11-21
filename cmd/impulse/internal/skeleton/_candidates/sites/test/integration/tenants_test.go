@@ -100,12 +100,11 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 
 	// A tenant that has rows under it is not deleted by a request that does not say so:
 	// the plain remove is answered with the question a person is asked first, and
-	// nothing is gone. The question counts the kinds the person may list in the scope
-	// the delete is asked in, and a tenant's delete is asked for the whole application,
-	// where the administrator's roles list none of a tenant's kinds: it says
-	// "everything under it" and no count.
+	// nothing is gone. The question counts each kind the person may list in the tenant
+	// being deleted. The administrator holds the tenant's administrator role in every
+	// tenant, which lists the directory and the announcement.
 	status, body = admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`"}]`))
-	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it? This can't be undone.") {
+	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 tenant directory, 1 announcement. This can't be undone.") {
 		t.Fatalf("deleting the tenant without saying it takes what is under it: status %d, want 428 with the question: %s", status, body)
 	}
 	for _, table := range []string{"TenantDirectories", "Announcements"} {

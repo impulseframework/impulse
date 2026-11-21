@@ -1690,7 +1690,10 @@ transaction, and answers the first delete that has one with a 409:
 - The sentence is written for the person the delete is for: the one the patch is armed
   against, else the caller the request carries. A kind they may not list is never named
   or counted for them, and a grant to list it that carries a condition is not enough,
-  since the count is of every row. A trusted call is told every kind.
+  since the count is of every row. A trusted call is told every kind. A kind of a
+  tenant's rows under a record whose key holds its tenant, the tenant record above all,
+  is asked about in that tenant, whatever scope the delete is asked in (section 16,
+  "Deleting a tenant").
 - A row of another tenant is never counted. Where the kind's rows are a tenant's
   (`@domain`) and the record is a tenant's, or is the tenant record, the count is of the
   rows of the record's own tenant (`DeleteKind.Tenant` and `DeleteTree.Tenant`, which the
@@ -3660,10 +3663,14 @@ is answered 428 with the question a person is asked first (`Delete this tenant a
 everything under it? This can't be undone.`), and nothing is gone; the request that goes
 ahead carries `"value": {"everythingUnder": true}` on the remove operation, and the
 library's delete dialog sends it when the person presses Delete at the question. The
-question counts the rows of the kinds the person may list in the scope the delete is
-asked in, and a tenant's delete is asked for the whole application: a person whose roles
-list a tenant's kinds in the tenants alone reads no count. A tenant with nothing
-under it is deleted by the plain remove. A table of the application's that no resource
+question counts the rows of each kind the person may list in the tenant being deleted
+(`Delete this tenant and everything under it: 3 projects, 12 tasks. This can't be
+undone.`). A tenant's delete is asked for the whole application, and the rows under the
+tenant are the tenant's, so each kind of them is asked about in that tenant: a person
+whose roles list a kind there reads its count, and a kind they may not list there is
+neither named nor counted (`, and records you can't see.` after the kinds they may list,
+or the question alone where they may list none). A tenant with nothing under it is
+deleted by the plain remove. A table of the application's that no resource
 describes is not a row the library can delete: it goes by the application's schema, a
 foreign key declared `ON DELETE CASCADE` in the same transaction, and one without the
 rule refuses the delete while its rows remain. An application that deletes a tenant in a

@@ -114,12 +114,12 @@ func TestTenants_aDeletedTenantTakesItsDirectoryAndItsRows(t *testing.T) {
 	before := changeEvents(ctx, t, s, "TenantDirectories")["TenantDirectories"]
 
 	// A request that does not say it takes what is under the tenant is asked the
-	// question, and nothing is gone. The question counts the kinds the person may list
-	// in the scope the delete is asked in, and a tenant's delete is asked for the whole
-	// application, where the administrator's roles list none of a tenant's kinds: it
-	// says "everything under it" and no count.
+	// question, and nothing is gone. The question counts each kind the person may list
+	// in the tenant being deleted. The administrator holds the tenant's administrator
+	// role in every tenant, which lists the directory and the announcement, and enters
+	// Ember as a super administrator though it is directory only.
 	status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+ember+`"}]`))
-	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it? This can't be undone.") {
+	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 tenant directory, 1 announcement. This can't be undone.") {
 		t.Fatalf("deleting Ember without saying it takes what is under it: status %d, want 428 with the question: %s", status, body)
 	}
 	if tenantNamed(ctx, t, admin, "Ember") == nil || rowsOf(ctx, t, s, "TenantDirectories", ember) != 1 || rowsOf(ctx, t, s, "Announcements", ember) != 1 {
