@@ -45,7 +45,10 @@ func TestComputedQueryDecoder_Decode_permissionEnforcement(t *testing.T) {
 		wantForbidden   bool
 		wantBadRequest  bool
 		wantErrContains string
-		wantFields      []accesstypes.Field
+		// wantSaid is the sentence a refused caller is told; wantErrContains is then
+		// in the error's text, which the server's log prints.
+		wantSaid   string
+		wantFields []accesstypes.Field
 	}{
 		// The filter is validated at decode, before any permission check and before
 		// the handler calls the body: a request the handler would refuse never runs.
@@ -138,6 +141,7 @@ func TestComputedQueryDecoder_Decode_permissionEnforcement(t *testing.T) {
 			},
 			wantForbidden:   true,
 			wantErrContains: "sort or filter on tagged",
+			wantSaid:        "You may not sort or filter computed enforcement resources by the tagged here.",
 		},
 		{
 			name:   "filter on a denied field is Forbidden naming the field",
@@ -147,6 +151,7 @@ func TestComputedQueryDecoder_Decode_permissionEnforcement(t *testing.T) {
 			},
 			wantForbidden:   true,
 			wantErrContains: "sort or filter on tagged",
+			wantSaid:        "You may not sort or filter computed enforcement resources by the tagged here.",
 		},
 		{
 			name:   "sort on a conditionally granted field is Forbidden: the handler orders by the field's real values",
@@ -159,6 +164,7 @@ func TestComputedQueryDecoder_Decode_permissionEnforcement(t *testing.T) {
 			},
 			wantForbidden:   true,
 			wantErrContains: "must be granted unconditionally",
+			wantSaid:        "You may not sort or filter computed enforcement resources by the tagged here.",
 		},
 		// A grant under a condition is a grant: it passes the decoder, which keeps the
 		// condition for the rows (computed_conditions_test.go judges them). It is
@@ -219,6 +225,9 @@ func TestComputedQueryDecoder_Decode_permissionEnforcement(t *testing.T) {
 				}
 				if tt.wantErrContains != "" && !strings.Contains(err.Error(), tt.wantErrContains) {
 					t.Errorf("ComputedQueryDecoder.Decode() error = %v, want error containing %q", err, tt.wantErrContains)
+				}
+				if tt.wantSaid != "" {
+					plainAnswer(t, err, httpio.HasForbidden, tt.wantSaid, "testDomain", "testUser", "(List)", "computedEnforcementResources.tagged")
 				}
 
 				return

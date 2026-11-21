@@ -1,0 +1,177 @@
+package resource
+
+import (
+	"strings"
+
+	"github.com/ettle/strcase"
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
+)
+
+// This file holds the words a caller is told when a permission refuses what was asked.
+// Every such refusal is one sentence a person can read: the permission by its verb
+// (permissionVerb), the resource by its name in words, a field denied alone by its own
+// name in words. No sentence carries an id, a permission's code name or a table's name.
+// Those stay in the refusal's cause, which the server's log prints with the scope and
+// the person, as it did when they were the sentence.
+
+// refusedPlainly is what a caller is told when what was refused has no plain words: a
+// permission permissionVerb has no verb for (an action an application declares, a
+// method's Execute), or nothing that is named.
+const refusedPlainly = "You may not do this here."
+
+// The places a refusal speaks of: the tenant the request was made in, and every tenant a
+// list across tenants reads.
+const (
+	refusedHere     = "here"
+	refusedAnywhere = "anywhere"
+)
+
+// The ways a list is asked for by a field, as a refusal says them.
+const (
+	bySortOrFilter = "sort or filter"
+	bySearch       = "search"
+)
+
+// permissionVerb is the library's one table of the verb a refusal says for a permission.
+// A permission it holds no verb for answers "", and its refusal is refusedPlainly.
+func permissionVerb(perm accesstypes.Permission) string {
+	switch perm {
+	case accesstypes.Create:
+		return "add"
+	case accesstypes.Read:
+		return "see"
+	case accesstypes.Update:
+		return "change"
+	case accesstypes.Delete:
+		return "delete"
+	case accesstypes.List:
+		return "list"
+	default:
+		return ""
+	}
+}
+
+// NotPermitted is the answer to a caller who does not hold perm on the resources denied:
+// Forbidden, with one sentence a person can read. A resource is said by its name in
+// words ("You may not change hangar passes here."), a field denied alone by its own
+// ("You may not change the budget of hangar passes here."), and a permission with no
+// plain verb, a method's Execute among them, names nothing ("You may not do this
+// here."). The cause says who was refused what, by the scope, the person, the
+// permission's code name and the resources' own names; it is kept for the server's log
+// and no word of it reaches the caller. A handler that checks a permission itself
+// answers its refusal with NotPermitted, so every refusal of an application reads the
+// same. It answers the type httpio's own refusals do, and is returned as one of those
+// is.
+func NotPermitted(cause error, perm accesstypes.Permission, denied ...accesstypes.Resource) errors.Chain {
+	return httpio.NewForbiddenMessageWithError(cause, mayNot(perm, denied, refusedHere))
+}
+
+// methodRefused is the answer to a caller who may not run a method. A method is no thing
+// a person knows by a word, so the sentence names nothing; the cause, with the method's
+// name, is kept for the server's log.
+func methodRefused(cause error) error {
+	return httpio.NewForbiddenMessageWithError(cause, refusedPlainly)
+}
+
+// conditionRefused is the answer to a write whose grant holds for some rows and not for
+// the one written: the sentence says the person may do it to others.
+func (q *QuerySet[Resource]) conditionRefused(resources []accesstypes.Resource) error {
+	cause := errors.Newf("scope (%s), user (%s): (%s) on %s is conditionally granted and the condition does not hold for this row",
+		q.scope, q.userPermissions.User(), q.requiredPermission, resources)
+
+	return httpio.NewForbiddenMessageWithError(cause, mayNotThisOne(q.requiredPermission, resources))
+}
+
+// mayNot is the sentence for a permission refused on the resources denied, in the place
+// where: "You may not change the budget of hangar passes here."
+func mayNot(perm accesstypes.Permission, denied []accesstypes.Resource, where string) string {
+	verb, things := permissionVerb(perm), thingsInWords(denied, "")
+	if verb == "" || things == "" {
+		return refusedPlainly
+	}
+
+	return "You may not " + verb + " " + things + " " + where + "."
+}
+
+// mayNotAskBy is the sentence for a list that may not be asked for by a field, which the
+// caller may not see: "You may not sort or filter hangar passes by the budget here."
+func mayNotAskBy(how string, field accesstypes.Resource, where string) string {
+	name, tag, _ := strings.Cut(string(field), ".")
+	thing, by := inWords(name), inWords(tag)
+	if thing == "" || by == "" {
+		return refusedPlainly
+	}
+
+	return "You may not " + how + " " + thing + " by the " + by + " " + where + "."
+}
+
+// mayNotThisOne is the sentence for a permission that holds for some rows and not for the
+// one asked about: "You may change some hangar passes here, but not this one.", and for
+// fields "You may change the budget of some hangar passes here, but not of this one."
+func mayNotThisOne(perm accesstypes.Permission, resources []accesstypes.Resource) string {
+	verb, things := permissionVerb(perm), thingsInWords(resources, "some ")
+	if verb == "" || things == "" {
+		return refusedPlainly
+	}
+	last := "but not this one."
+	if strings.HasPrefix(things, "the ") {
+		last = "but not of this one."
+	}
+
+	return "You may " + verb + " " + things + " " + refusedHere + ", " + last
+}
+
+// thingsInWords says the resources a refusal is about. A resource is its name in words,
+// after quantity ("some hangar passes"); fields of a resource that is not itself among
+// them are "the budget or the due date of" it. Resources that have no words say "".
+func thingsInWords(resources []accesstypes.Resource, quantity string) string {
+	var (
+		names  []string
+		fields = map[string][]string{}
+		whole  = map[string]bool{}
+	)
+	for _, res := range resources {
+		name, tag, _ := strings.Cut(string(res), ".")
+		if _, seen := fields[name]; !seen {
+			names = append(names, name)
+			fields[name] = nil
+		}
+		if field := inWords(tag); field != "" {
+			fields[name] = append(fields[name], "the "+field)
+		} else {
+			whole[name] = true
+		}
+	}
+
+	things := make([]string, 0, len(names))
+	for _, name := range names {
+		thing := inWords(name)
+		switch {
+		case thing == "":
+			continue
+		case whole[name]:
+			things = append(things, quantity+thing)
+		default:
+			things = append(things, eitherOf(fields[name])+" of "+quantity+thing)
+		}
+	}
+
+	return eitherOf(things)
+}
+
+// eitherOf joins the things a person may not do something to: "a", "a or b", "a, b or c".
+func eitherOf(things []string) string {
+	if len(things) < 2 {
+		return strings.Join(things, "")
+	}
+
+	return strings.Join(things[:len(things)-1], ", ") + " or " + things[len(things)-1]
+}
+
+// inWords spells a resource's name, or a field's, as lower-case words: "HangarPasses" is
+// "hangar passes", "dueDate" is "due date". A resource's name is its plural already.
+func inWords(name string) string {
+	return strcase.ToCase(name, strcase.LowerCase, ' ')
+}

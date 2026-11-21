@@ -107,7 +107,7 @@ func (c *Caller) gateFor(ctx context.Context, method accesstypes.Resource, perm 
 		return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", c.Permissions.User(), c.Scope, perm, denied)
+		return nil, methodRefused(errors.Newf("user %s, scope %s, does not have %s on %s", c.Permissions.User(), c.Scope, perm, denied))
 	}
 
 	gate := &ExecuteGate{

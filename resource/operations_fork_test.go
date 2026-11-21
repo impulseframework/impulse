@@ -257,7 +257,10 @@ func TestDecoder_DecideOperation_refusedBeforeTheRead(t *testing.T) {
 	if err == nil || !httpio.HasForbidden(err) {
 		t.Fatalf("DecideOperation() = %v, error = %v, want a 403", decided, err)
 	}
-	if msg := httpio.Message(err); !strings.Contains(msg, string(accesstypes.Update)) || !strings.Contains(msg, string(tenancyTestResource)) {
-		t.Errorf("the refusal = %q, want it to name Update and the resource", msg)
+	if msg, want := httpio.Message(err), "You may not change tenancy resources here."; msg != want {
+		t.Errorf("the refusal = %q, want %q", msg, want)
+	}
+	if text := err.Error(); !strings.Contains(text, string(accesstypes.Update)) || !strings.Contains(text, string(tenancyTestResource)) {
+		t.Errorf("the error's text, which the server's log prints, = %q, want it to name Update and the resource", text)
 	}
 }

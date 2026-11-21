@@ -327,7 +327,7 @@ func TestMissionDocument_fileRoute(t *testing.T) {
 			user:        "cadet",
 			target:      target,
 			wantStatus:  http.StatusForbidden,
-			wantMessage: "does not have (Read) on [MissionDocuments",
+			wantMessage: "You may not see mission documents here.",
 		},
 		{
 			name:       "the governor, a marshal in every sector, asks under bastion: another sector's document is indistinguishable from none",

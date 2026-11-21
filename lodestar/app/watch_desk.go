@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
@@ -107,7 +108,7 @@ func (a *App) checkWatchDesk(r *http.Request) error {
 		return errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if !decisions[resources.ViewAsUser].IsGranted() {
-		return httpio.NewForbiddenMessagef("user %s does not have Execute on %s", perms.User(), resources.ViewAsUser)
+		return resource.NotPermitted(errors.Newf("user %s does not have Execute on %s", perms.User(), resources.ViewAsUser), accesstypes.Execute, resources.ViewAsUser)
 	}
 
 	return nil
