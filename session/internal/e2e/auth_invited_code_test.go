@@ -4,7 +4,8 @@
 // backends: wherever the sign-in does not itself prove the invited address, the
 // acceptance waits for the code mailed to that address, and until the code is entered
 // nothing is written. The codes of an invitation are counted under the invitation, so
-// whoever holds a forwarded link uses up nothing of the invited person's own sign-in.
+// whoever holds a forwarded link uses up nothing of the invited person's own sign-in,
+// and an invitation takes twenty-five codes and no more, however long it stands.
 
 package e2e
 
@@ -17,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -55,6 +57,14 @@ func runInvitationByMailedCodeSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "the codes of an invitation are counted under the invitation: the holder of a forwarded link asks for them until they are refused and ends the code with wrong guesses, and the invited person is still mailed the codes of their own sign-in",
 			run:  seamInvitationCodesCountedApart[Tx],
+		},
+		{
+			name: "an invitation takes twenty-five codes and no more: the twenty-fifth wrong code is answered as the invitation spent, and no code is mailed or taken for it afterward, in another sign-in or once the count of the codes mailed has started again",
+			run:  seamInvitationSpent[Tx],
+		},
+		{
+			name: "a right code before the invitation is spent still accepts: after twenty-four wrong codes the code mailed makes the account and accepts the invitation",
+			run:  seamInvitationRightCodeWithinBudget[Tx],
 		},
 	}
 	for _, tt := range tests {
@@ -446,5 +456,158 @@ func seamInvitationCodesCountedApart[Tx any](ctx context.Context, t *testing.T, 
 	signedInAs(ctx, t, p, address)
 	if standing := a.standingInvitations(ctx, t); len(standing) != 1 {
 		t.Errorf("standing invitations after a sign-in that carried no invitation = %d, want the one", len(standing))
+	}
+}
+
+// invitationSpentSentence is what a person is told of an invitation that takes no more
+// codes.
+const invitationSpentSentence = "This invitation can't be used any more. Ask the person who invited you to send a new one."
+
+// assertInvitationSpent fails unless the wait in b is refused its code, asked for and
+// entered, in the words of an invitation that takes no more, with nothing mailed.
+func (a *authApp[Tx]) assertInvitationSpent(ctx context.Context, t *testing.T, b *browser, when string) {
+	t.Helper()
+
+	mailed := len(a.mail.Messages())
+	for _, request := range []struct {
+		path string
+		body any
+	}{
+		{path: "/pending/code/send"},
+		{path: "/pending/code/verify", body: map[string]any{"code": "000000"}},
+	} {
+		status, body := b.do(ctx, http.MethodPost, request.path, request.body)
+		if status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"invitation_spent"`) || !strings.Contains(string(body), invitationSpentSentence) {
+			t.Errorf("POST %s %s = %d %s, want 401 invitation_spent saying %q", request.path, when, status, body, invitationSpentSentence)
+		}
+	}
+	if n := len(a.mail.Messages()) - mailed; n != 0 {
+		t.Errorf("%d message(s) mailed %s, want none: a spent invitation mails nothing", n, when)
+	}
+}
+
+// seamInvitationSpent is the scenario "an invitation takes twenty-five codes and no
+// more".
+func seamInvitationSpent[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, oneOrganization(inviteOnly))
+	const address = "pat@lakeside.edu"
+
+	// An administrator invites Pat's address, and the mail is forwarded to Mallory, a
+	// person of the same directory who has no account. The directory proves no
+	// address, so Mallory's sign-in from the link waits for the invitation's code.
+	inv, err := a.api.Invite(ctx, &session.InvitationRequest{Email: address})
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	token := lastInvitationToken(t, a.mail)
+	holder := func(oid, username string) *browser {
+		b := a.browser(t)
+		b.prime(ctx)
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": token}, b.xsrfToken())
+		claims := azureClaims(azureTenant, oid, username)
+		delete(claims, "email")
+		assertRedirect(t, a.entraRoundTrip(ctx, b, claims), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+
+		return b
+	}
+	m := holder("oid-mallory", "mallory@lakeside.edu")
+
+	// Five codes, the most that are mailed within fifteen minutes, and five wrong
+	// guesses at each: four are wrong, the fifth ends its code. The last of them is the
+	// invitation's twenty-fifth, and is answered as the invitation spent.
+	for sent := 1; sent <= 5; sent++ {
+		if status, body := m.do(ctx, http.MethodPost, "/pending/code/send", nil); status != http.StatusOK {
+			t.Fatalf("code #%d of the invitation = %d %s, want 200", sent, status, body)
+		}
+		wrong := wrongCode(a.lastCode(t, address))
+		for guess := 1; guess <= 5; guess++ {
+			want := "invalid_code"
+			switch {
+			case sent == 5 && guess == 5:
+				want = "invitation_spent"
+			case guess == 5:
+				want = "code_expired"
+			}
+			if status, body := m.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": wrong}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"`+want+`"`) {
+				t.Fatalf("wrong code #%d of code #%d = %d %s, want 401 %s", guess, sent, status, body, want)
+			}
+		}
+	}
+	a.assertInvitationSpent(ctx, t, m, "after twenty-five wrong codes")
+
+	// The count is the invitation's and outlasts it: twenty-five, closed to codes for
+	// longer than the invitation stands.
+	record, err := a.store.SignInAttempts(ctx, attempts.OwnKey(attempts.KindInvitationGuess, inv.ID.String()))
+	if err != nil {
+		t.Fatalf("SignInAttempts() of the invitation's codes entered error = %v", err)
+	}
+	if record.Failures != 25 || record.LockedUntil == nil || !record.LockedUntil.After(inv.ExpiresAt) || !record.WindowEndsAt.After(inv.ExpiresAt) {
+		t.Errorf("the invitation's count of codes entered = %+v, want twenty-five, kept and closed for longer than the invitation stands (%v)", record, inv.ExpiresAt)
+	}
+
+	// Fifteen minutes on, the count of the codes mailed for the invitation starts again:
+	// here it is cleared, as the time passing would. The invitation still takes no code
+	// and mails none, in Mallory's sign-in and in a sign-in started afresh by another
+	// holder of the link.
+	if err := a.store.ClearSignInAttempts(ctx, attempts.OwnKey(attempts.KindInvitation, inv.ID.String())); err != nil {
+		t.Fatalf("ClearSignInAttempts() of the invitation's codes mailed error = %v", err)
+	}
+	a.assertInvitationSpent(ctx, t, m, "once the count of the codes mailed has started again")
+	a.assertInvitationSpent(ctx, t, holder("oid-nico", "nico@lakeside.edu"), "in another sign-in that carries the invitation")
+
+	// Nobody was made, and the invitation stands as it was: only its codes are over.
+	a.assertNoRow(ctx, t, m, "mallory@lakeside.edu")
+	a.assertNoRow(ctx, t, m, "nico@lakeside.edu")
+	if standing := a.standingInvitations(ctx, t); len(standing) != 1 || standing[0].ID != inv.ID {
+		t.Errorf("standing invitations after the invitation's codes were spent = %+v, want the invitation still listed for the administrator to withdraw or replace", standing)
+	}
+}
+
+// seamInvitationRightCodeWithinBudget is the scenario "a right code before the
+// invitation is spent still accepts".
+func seamInvitationRightCodeWithinBudget[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newTenantInvitationApp(ctx, t, be)
+	const invited = "pat@elsewhere.example"
+	inv, err := a.api.Invite(ctx, &session.InvitationRequest{Email: invited})
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	a.openInvitation(ctx, t, b)
+
+	// Pat signs up with a password and mistypes the code: four codes ended by five
+	// wrong guesses each, and four wrong guesses at the fifth. Twenty-four wrong codes.
+	code := a.signUpHeld(ctx, b, "patl", invited)
+	for sent := 1; sent <= 5; sent++ {
+		if sent > 1 {
+			b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+			code = a.lastCode(t, invited)
+		}
+		for guess := 1; guess <= 5 && (sent < 5 || guess < 5); guess++ {
+			want := "invalid_code"
+			if guess == 5 {
+				want = "code_expired"
+			}
+			if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": wrongCode(code)}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"`+want+`"`) {
+				t.Fatalf("wrong code #%d of code #%d = %d %s, want 401 %s", guess, sent, status, body, want)
+			}
+		}
+	}
+	a.assertNoRow(ctx, t, b, "patl")
+	a.assertStanding(ctx, t, "after twenty-four wrong codes", inv)
+
+	// The twenty-fifth code entered is the right one: the account is made, the invited
+	// address confirmed, and the invitation accepted.
+	if body := b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": code}); !strings.Contains(string(body), `"mfaIsRequired":false`) {
+		t.Fatalf("the right code, the twenty-fifth entered = %s, want the account made and signed in", body)
+	}
+	signedInAs(ctx, t, b, "patl")
+	if email, confirmed := b.authenticatedEmail(ctx); email != invited || !confirmed {
+		t.Errorf("the new account's address = %q (confirmed %v), want the invited address confirmed by the code", email, confirmed)
+	}
+	a.assertStanding(ctx, t, "after the acceptance")
+	if handed := a.handed(); len(handed) != 1 || handed[0].ID != inv.ID {
+		t.Errorf("the hook was handed %+v, want the one invitation accepted", handed)
 	}
 }

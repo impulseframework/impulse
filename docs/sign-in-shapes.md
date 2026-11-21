@@ -311,7 +311,10 @@ account takes the address when they enter it. A person who is already signed in 
 an account is told to sign in again from the invitation's link, which mails
 the code. The code comes in a message of its own, which says that it accepts an
 invitation and that somebody else has the invitation's link if the person did not open
-it themselves. An account that has confirmed the invited address accepts with no code.
+it themselves. An invitation takes twenty-five codes: after twenty-five were entered and
+none of them accepted it, no more are mailed for it and none is taken, however long it
+stands, and the person asks whoever invited them for a new invitation. An account that
+has confirmed the invited address accepts with no code.
 This is described under "Invitations" and "The first administrator's invitation" in
 [session/README.md](../session/README.md).
 

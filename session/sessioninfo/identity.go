@@ -349,6 +349,13 @@ const (
 	// invitation's link. The login page names the invited address and asks for a
 	// sign-in with that account.
 	RefusedInvitationAddress LoginRefusalCode = "invitation_address"
+	// RefusedInvitationSpent is the code for a sign-in code asked for or entered to
+	// accept an invitation that takes no more codes: twenty-five were entered for it
+	// and none of them accepted it. The count is the invitation's own, across every
+	// sign-in that carried it, and never starts again, so nothing more is mailed for
+	// the invitation and no code is compared with one. The person asks whoever invited
+	// them for a new invitation.
+	RefusedInvitationSpent LoginRefusalCode = "invitation_spent"
 	// RefusedGuestAccount is the code for an identity that is a guest of its directory
 	// (Identity.Guest), which the standard account rule refuses.
 	RefusedGuestAccount LoginRefusalCode = "guest_account"

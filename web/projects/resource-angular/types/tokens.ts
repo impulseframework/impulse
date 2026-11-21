@@ -237,6 +237,8 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
   not_invited: 'This account has not been invited to this application.',
   // The login page names the invited address itself while the invitation stands; this is the sentence without it.
   invitation_address: 'This invitation is for another account. Sign in with the account it was sent to.',
+  // Twenty-five codes were entered for the invitation and none accepted it: it takes no more and mails none.
+  invitation_spent: "This invitation can't be used any more. Ask the person who invited you to send a new one.",
   guest_account: 'Guest accounts cannot sign in here. Use an account that is a member of the organization.',
   policy_denied: 'Signing in this way is not allowed for this account.',
   user_disabled: 'This account has been disabled. Please contact your administrator.',

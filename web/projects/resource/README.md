@@ -556,14 +556,16 @@ address the code goes to (`codeEmail`, `n•••@fleet.example`), whether a co
 the code mailed, replacing one standing, and answers `sent` with the address and the expiry, or
 the refusal (409 when the sign-in does not wait for the code or the account holds no address;
 `too_many_emails` with the wait when the address was sent five codes within fifteen minutes and
-used none; a code that is used resets the count);
+used none; a code that is used resets the count; `invitation_spent` when the code would accept an
+invitation that twenty-five codes were entered for already, which takes no more and mails none);
 `enrollEmail(email)` gives the address of an account that holds none and has the code mailed to
 it, and the address is written on the account, verified, once its code is entered (an address
 another account holds is answered as sent and that account told by mail, so the screen reveals
 nothing); `verifyCode(code, rememberDevice)` enters the code and resolves as a sign-in step does,
 a wrong code refused with `invalid_code` and the code standing with one fewer attempt, a code
 entered while none stands (none sent; the one sent expired, was used or took its last attempt)
-with `code_expired`. With `rememberDevice` the server remembers the browser, and this person's
+with `code_expired`, and the twenty-fifth wrong code entered for one invitation, as every code
+after it, with `invitation_spent`. With `rememberDevice` the server remembers the browser, and this person's
 next sign-ins from it skip the code for as long as the server keeps a remembered browser. A
 server whose pending routes name none of the three does not route them, and they throw saying so.
 

@@ -106,6 +106,38 @@ func invitationCodeLimitKey(inv *sessioninfo.Invitation) string {
 	return attempts.OwnKey(attempts.KindInvitation, inv.ID.String())
 }
 
+// invitationGuessLimit is the budget of codes entered to accept one invitation:
+// twenty-five, and then the invitation takes no more. The code mailed to the invited
+// address is the only thing between the holder of an invitation's link and the account,
+// the address and the roles the invitation gives, and mailLimit alone lets its holder
+// guess again every fifteen minutes for as long as the invitation stands. This count
+// does not start again: it is kept in the sign-in attempts table under the invitation
+// (invitationGuessKey), and its window and its lock (invitationGuessHorizon) outlast
+// every invitation, so the codes entered in every sign-in that carried the invitation,
+// whenever they were entered, are one count, and an invitation that reached the limit
+// stays closed to codes. Nothing resets it; an administrator answers a spent invitation
+// by inviting again.
+var invitationGuessLimit = sessionstorage.SignInAttemptLimit{Failures: 25, Window: invitationGuessHorizon, Lock: invitationGuessHorizon}
+
+// invitationGuessHorizon is how long the count of the codes entered for an invitation
+// is kept, and how long an invitation that reached the limit stays closed: a hundred
+// years, which no invitation lives.
+const invitationGuessHorizon = 100 * 365 * 24 * time.Hour
+
+// invitationGuessKey is the key, in the sign-in attempts table, of the codes entered to
+// accept the invitation inv: the invitation's id under a kind of its own, apart from
+// the count of the codes sent for it (invitationCodeLimitKey).
+func invitationGuessKey(inv *sessioninfo.Invitation) string {
+	return attempts.OwnKey(attempts.KindInvitationGuess, inv.ID.String())
+}
+
+// errInvitationSpent is the refusal of a code asked for or entered to accept an
+// invitation that takes no more codes (invitationGuessLimit).
+func errInvitationSpent() error {
+	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvitationSpent,
+		httpio.NewUnauthorizedMessage("This invitation can't be used any more. Ask the person who invited you to send a new one."))
+}
+
 // mailSettings are the Auth's mail settings once validated.
 type mailSettings struct {
 	sender   mail.Sender
@@ -588,9 +620,68 @@ func (a *Auth[S, U, Tx]) limitCode(ctx context.Context, email string) error {
 // limitInvitationCode bounds the codes sent to accept the invitation inv, as limitMail
 // bounds an address's mail, in the invitation's own count (invitationCodeLimitKey): the
 // holder of a forwarded link uses up that invitation's codes and nothing of the invited
-// person's own sign-in.
+// person's own sign-in. An invitation that takes no more codes (invitationSpent) is
+// mailed none, and is refused before the count is touched.
 func (a *Auth[S, U, Tx]) limitInvitationCode(ctx context.Context, inv *sessioninfo.Invitation) error {
+	if err := a.invitationSpent(ctx, inv); err != nil {
+		return err
+	}
+
 	return a.limitSent(ctx, invitationCodeLimitKey(inv))
+}
+
+// invitationSpent refuses the invitation inv once the codes entered for it reached the
+// limit (invitationGuessLimit), with invitation_spent.
+func (a *Auth[S, U, Tx]) invitationSpent(ctx context.Context, inv *sessioninfo.Invitation) error {
+	record, err := a.storage.SignInAttempts(ctx, invitationGuessKey(inv))
+	if err != nil && !httpio.HasNotFound(err) {
+		return errors.Wrap(err, "sessionstorage.AuthStore.SignInAttempts()")
+	}
+	if _, locked := record.Locked(time.Now()); locked {
+		return errInvitationSpent()
+	}
+
+	return nil
+}
+
+// takeInvitationGuess takes the place of a code entered for the pending MFA wait p in
+// the count of the invitation the code accepts (invitationGuessLimit), before the code
+// is judged: the store counts it in one transaction and says whether it was counted,
+// and a code that was not, because the invitation had reached the limit already, is
+// refused with invitation_spent and compared with nothing. Codes entered at once are
+// each counted, so no more than the limit are ever judged for one invitation, in
+// however many sign-ins. last reports that this code took the last place, so a wrong
+// one is answered as the invitation spent. Every code takes a place, the right one too:
+// an invitation it accepts takes no more codes anyway.
+//
+// A code that is the account's own (codeDestination) is counted against no invitation,
+// and neither is the code of a wait whose invitation is gone, which is answered as it
+// always was. A browser that carries no invitation is asked nothing more for this.
+func (a *Auth[S, U, Tx]) takeInvitationGuess(ctx context.Context, p *pendingState) (last bool, err error) {
+	if _, carried := invitationTokenHash(ctx); !carried {
+		return false, nil
+	}
+	_, inv, err := a.codeDestination(ctx, p)
+	if err != nil {
+		if sessioninfo.LoginRefusalCodeOf(err) == sessioninfo.RefusedPendingExpired {
+			return false, nil
+		}
+
+		return false, err
+	}
+	if inv == nil {
+		return false, nil
+	}
+	record, err := a.storage.RecordSignInFailure(ctx, invitationGuessKey(inv), invitationGuessLimit)
+	if err != nil {
+		return false, errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
+	}
+	if !record.Counted {
+		return false, errInvitationSpent()
+	}
+	_, locked := record.Locked(time.Now())
+
+	return locked, nil
 }
 
 // limitSent takes a message's place under the mail limit in the count kept under key,

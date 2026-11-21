@@ -1180,7 +1180,15 @@ the person reaches.
    accept an invitation are counted under that invitation (`INVITATION:` and its id) and
    under no address: whoever holds the invitation's link has them sent, and a mailed
    link can be forwarded, so its holder uses up that invitation's codes and nothing
-   else. The links, and a code asked for an address a person types at this step, are
+   else. An invitation also takes twenty-five codes and no more. Its code is the only
+   thing between the holder of its link and what it gives, so every code entered to
+   accept it takes a place under the invitation (`INVITATION-GUESS:` and its id)
+   before it is judged, in every sign-in that carries it, and that count never starts
+   again: it is reset by nothing, and it is kept for longer than any invitation
+   stands. The wrong code that takes the twenty-fifth place, and every code asked for
+   or entered after it, is `401 {"code": "invitation_spent"}`; nothing more is mailed
+   for the invitation, and an administrator invites the person again. The right code
+   among the twenty-five accepts. The links, and a code asked for an address a person types at this step, are
    counted together under another key (`MAIL:`), which anybody who knows an address can
    run up. So nothing a stranger asks for in a person's name, or with a link that was
    mailed to them, holds up the codes that person signs in with. A request takes
@@ -2947,6 +2955,7 @@ table is the wire contract:
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
+| `invitation_spent` | `RefusedInvitationSpent` | Auth: a sign-in code asked for, or entered, to accept an invitation that takes no more codes: twenty-five were entered for it and none accepted it. The count is the invitation's, across every sign-in that carried it, and never starts again, so nothing more is mailed for it and no code is compared. The person asks whoever invited them for a new invitation (see "The second factor"). |
 | `invitation_address` | `RefusedInvitationAddress` | Auth: a sign-in or an acceptance by hand carried an invitation mailed to another address than the one it answers for (the one the method verified, or the account's own); refused before anything is read or written, the invitation left standing. A sign-in through an identity that asserts no address, or one its method did not verify, which accepts by a mailed code, is refused with it once the accounts are read and before anything is written: the account it is linked to, or would be linked to, is not the one that holds the invited address. An account that names itself and has not confirmed the invited address is not refused at a sign-in, which waits for the code mailed to the invited address; its acceptance by hand, where nothing can wait, is refused with this code and a sentence that says to sign in again from the invitation's link. The login page names the invited address and asks for a sign-in with that account. |
 | `organization_account_required` | `RefusedOrganizationAccountRequired` | Auth: a sign-in, a sign-up with a password or an acceptance by hand carried an invitation that makes a tenant entered through its directory only, and came through no organization's directory (a password, a personal account, a session established any other way); refused before anything is read or written, no account made and the invitation left standing. The login page asks for a sign-in with the organization's account. |
 | `guest_account` | `RefusedGuestAccount` | Auth: the identity is a guest of its directory (an Entra B2B guest), which the standard account rule refuses. |

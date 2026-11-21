@@ -451,9 +451,22 @@ func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, c
 // through an invitation makes its account here, the code entered
 // (invitedSignUpAttempt). With remember, a session that starts makes the browser a
 // trusted device of the user.
+//
+// A code that accepts an invitation takes its place in the invitation's count of codes
+// entered before it is judged (takeInvitationGuess): twenty-five are judged for one
+// invitation, and the wrong one that took the last place is answered, as every code
+// after it is, with invitation_spent.
 func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.ResponseWriter, p *pendingState, code string, remember bool) (*signInOutcome, error) {
+	last, err := a.takeInvitationGuess(ctx, p)
+	if err != nil {
+		return nil, err
+	}
 	email, err := a.verifyEmailCode(ctx, p, code)
 	if err != nil {
+		if refused := sessioninfo.LoginRefusalCodeOf(err); last && (refused == sessioninfo.RefusedInvalidCode || refused == sessioninfo.RefusedCodeExpired) {
+			return nil, errInvitationSpent()
+		}
+
 		return nil, err
 	}
 	// The code reached the person: the counts it was sent under are reset.
