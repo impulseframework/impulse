@@ -651,8 +651,8 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 		wantStatus int
 		says       string
 	}{
-		{name: "a view that asks for Execute", ask: maskAsk{Kind: "view", Principal: "alice", Mask: []accesstypes.Permission{accesstypes.List, accesstypes.Read, accesstypes.Execute}}, wantStatus: http.StatusForbidden, says: "gives reading only, and the request asks for Execute as well"},
-		{name: "a kind whose grant support does not hold", ask: maskAsk{Kind: "act", Principal: "alice"}, wantStatus: http.StatusForbidden, says: "takes Execute on ActAsUser, which you do not hold"},
+		{name: "a view that asks for Execute", ask: maskAsk{Kind: "view", Principal: "alice", Mask: []accesstypes.Permission{accesstypes.List, accesstypes.Read, accesstypes.Execute}}, wantStatus: http.StatusForbidden, says: "This kind of session gives less than you asked for."},
+		{name: "a kind whose grant support does not hold", ask: maskAsk{Kind: "act", Principal: "alice"}, wantStatus: http.StatusForbidden, says: "You may not start this kind of session."},
 		{name: "a mask that refuses a class no action carries", ask: maskAsk{Kind: "view", Principal: "alice", RefuseClasses: []accesstypes.ActionClass{"nonesuch"}}, wantStatus: http.StatusBadRequest, says: "nonesuch"},
 	}
 	for i := range refusals {

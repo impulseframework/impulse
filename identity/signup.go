@@ -381,10 +381,16 @@ func (m *Manager) choosable(name string) (*session.RegisteredMethod, error) {
 	return &registered[i], nil
 }
 
+// signUpRoleNotGiven is what a person is told who opens a method with a default role
+// they may not give. It names no role, so it reads the same of a role the application
+// holds and of one it does not; the role is named in the refusal's cause, kept for the
+// server's log.
+const signUpRoleNotGiven = "Opening the method gives every person who signs up a role you may not give."
+
 // requireSignUpRole holds a default role to its rule: never the Super Administrator
 // role, one the request's caller may give a person directly (mayGiveBySignUp), refused
-// with 403 naming the role otherwise, and a role held for the whole application, by the
-// rule a membership's role is held to. The grant answers before the role is looked
+// with 403 otherwise (signUpRoleNotGiven), and a role held for the whole application, by
+// the rule a membership's role is held to. The grant answers before the role is looked
 // for, so the refusal says the same of a role the application holds and of one it does
 // not: a caller learns of no role the grant keeps from them. The Super Administrator
 // role is the framework's own, the same in every application, so refusing it first
@@ -398,9 +404,12 @@ func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteT
 		return err
 	}
 	if !may {
-		return httpio.NewForbiddenMessagef(
-			"opening the method gives every person who signs up the role %s, which you may not give: choose a role you may give, or have someone who may give %s open the method",
-			string(role), string(role))
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf(
+				"opening the method gives every person who signs up the role %s, which you may not give: choose a role you may give, or have someone who may give %s open the method",
+				string(role), string(role)),
+			signUpRoleNotGiven,
+		)
 	}
 	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{accesstypes.GlobalPolicyScope()})
 	if err != nil {

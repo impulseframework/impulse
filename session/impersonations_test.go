@@ -311,6 +311,9 @@ func TestImpersonations_Request(t *testing.T) {
 		wantPrincipal accesstypes.Principal
 		wantStatus    int
 		wantMessage   string
+		// wantCause is what the server's log keeps of a refusal a person reads as one
+		// plain sentence; nothing is asked of the cause when it is empty.
+		wantCause string
 		// wantAsked are the grants the person was asked about.
 		wantAsked []accesstypes.Resource
 	}{
@@ -335,7 +338,8 @@ func TestImpersonations_Request(t *testing.T) {
 			ask:         ImpersonationAsk{Kind: "view", Principal: "bob", Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read, accesstypes.Update, accesstypes.Execute)},
 			holds:       holdsAll,
 			wantStatus:  http.StatusForbidden,
-			wantMessage: `the kind "view" gives reading only, and the request asks for Execute and Update as well: ask for no more than the kind gives, or name no mask to take all of it`,
+			wantMessage: "This kind of session gives less than you asked for.",
+			wantCause:   `the kind "view" gives reading only, and the request asks for Execute and Update as well: ask for no more than the kind gives, or name no mask to take all of it`,
 			wantAsked:   []accesstypes.Resource{"ViewAsUser"},
 		},
 		{
@@ -383,7 +387,8 @@ func TestImpersonations_Request(t *testing.T) {
 			ask:         ImpersonationAsk{Kind: "act", Principal: "bob"},
 			holds:       []accesstypes.Resource{"ViewAsUser"},
 			wantStatus:  http.StatusForbidden,
-			wantMessage: `starting a session of the kind "act" takes Execute on ActAsUser, which you do not hold`,
+			wantMessage: "You may not start this kind of session.",
+			wantCause:   `starting a session of the kind "act" takes Execute on ActAsUser, which you do not hold`,
 			wantAsked:   []accesstypes.Resource{"ActAsUser"},
 		},
 		{
@@ -391,14 +396,16 @@ func TestImpersonations_Request(t *testing.T) {
 			ask:         ImpersonationAsk{Kind: "view", Principal: "bob"},
 			holds:       []accesstypes.Resource{"ActAsUser"},
 			wantStatus:  http.StatusForbidden,
-			wantMessage: `starting a session of the kind "view" takes Execute on ViewAsUser, which you do not hold`,
+			wantMessage: "You may not start this kind of session.",
+			wantCause:   `starting a session of the kind "view" takes Execute on ViewAsUser, which you do not hold`,
 			wantAsked:   []accesstypes.Resource{"ViewAsUser"},
 		},
 		{
 			name:        "a person without the grant learns nothing of the mask they asked for",
 			ask:         ImpersonationAsk{Kind: "view", Principal: "bob", Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Update)},
 			wantStatus:  http.StatusForbidden,
-			wantMessage: `starting a session of the kind "view" takes Execute on ViewAsUser, which you do not hold`,
+			wantMessage: "You may not start this kind of session.",
+			wantCause:   `starting a session of the kind "view" takes Execute on ViewAsUser, which you do not hold`,
 			wantAsked:   []accesstypes.Resource{"ViewAsUser"},
 		},
 		{
@@ -484,6 +491,9 @@ func TestImpersonations_Request(t *testing.T) {
 				}
 				if msg := httpio.Message(err); msg != tt.wantMessage {
 					t.Errorf("Request() message = %q, want %q", msg, tt.wantMessage)
+				}
+				if tt.wantCause != "" && !strings.Contains(err.Error(), tt.wantCause) {
+					t.Errorf("Request() error = %q, want it to keep %q for the server's log", err.Error(), tt.wantCause)
 				}
 
 				return

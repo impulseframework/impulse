@@ -167,6 +167,9 @@ func TestImpersonations_Request_exceptions(t *testing.T) {
 		wantMask    accesstypes.PermissionMask
 		wantStatus  int
 		wantMessage string
+		// wantCause is what the server's log keeps of a refusal a person reads as one
+		// plain sentence; nothing is asked of the cause when it is empty.
+		wantCause string
 	}{
 		{name: "no mask named: all the kind keeps", wantMask: widest},
 		{
@@ -185,10 +188,11 @@ func TestImpersonations_Request_exceptions(t *testing.T) {
 			wantMask: refusingAccessExcept(accesstypes.ExceptWrites("Seats"), credential, accesstypes.RefuseAction("GrantSeat")),
 		},
 		{
-			name:       "an exception the kind does not carry: refused, not trimmed",
-			ask:        refusingAccessExcept([]accesstypes.MaskException{accesstypes.ExceptAction("GrantSeat"), accesstypes.ExceptAction("RevokeSeat")}),
-			wantStatus: http.StatusForbidden,
-			wantMessage: `the kind "act" gives everything except access actions (still allowed: the action GrantSeat and writing Seats) and credential actions, ` +
+			name:        "an exception the kind does not carry: refused, not trimmed",
+			ask:         refusingAccessExcept([]accesstypes.MaskException{accesstypes.ExceptAction("GrantSeat"), accesstypes.ExceptAction("RevokeSeat")}),
+			wantStatus:  http.StatusForbidden,
+			wantMessage: "This kind of session gives less than you asked for.",
+			wantCause: `the kind "act" gives everything except access actions (still allowed: the action GrantSeat and writing Seats) and credential actions, ` +
 				`and the request keeps the action RevokeSeat out of the refusal of access actions as well: ` +
 				`a request may drop what the kind keeps and never add to it, so name no more than the kind keeps, or name no mask to take all of it`,
 		},
@@ -220,6 +224,9 @@ func TestImpersonations_Request_exceptions(t *testing.T) {
 				}
 				if msg := httpio.Message(err); msg != tt.wantMessage {
 					t.Errorf("Request() message = %q, want %q", msg, tt.wantMessage)
+				}
+				if tt.wantCause != "" && !strings.Contains(err.Error(), tt.wantCause) {
+					t.Errorf("Request() error = %q, want it to keep %q for the server's log", err.Error(), tt.wantCause)
 				}
 
 				return
