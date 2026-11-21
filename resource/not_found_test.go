@@ -82,7 +82,9 @@ func missingRowStatement[Resource Resourcer](t *testing.T, dbType DBType, id str
 // speaks, where the package finds no record or nothing to change: a plain sentence, with
 // no query, no table's name, no column's and no key. What the server looked for (the
 // WHERE clause as that database is asked it, the table) stays in the error, for the
-// server's log.
+// server's log. For PostgreSQL this holds the answers to the statement alone: the package
+// renders the statement for that database and reads nothing through it yet, so no read
+// is proven there, as TestSpannerClient_notFound_saysNoQuery proves one over Spanner.
 func TestAnswers_sayNoQuery(t *testing.T) {
 	t.Parallel()
 
