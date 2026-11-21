@@ -209,9 +209,10 @@ func classOnNoAction(where string, permission accesstypes.Permission, classes []
 // classesOnActionsAlone refuses a name that carries a class and registers a permission
 // other than Execute, however the two came to share the name: a method that carries the
 // class and a registration made by hand of another permission under the method's name,
-// for the whole application or for a tenant. The masked check reads an action's classes
-// by its name whichever scope registers it, so a class would otherwise ride the record's
-// permission with the action's, in the action's scope and in the other.
+// in the method's scope. One made in the other scope is refused before this is asked,
+// since a name is of one scope (oneScopePerName). The masked check reads an action's
+// classes by its name whichever scope registers it, so a class would otherwise ride the
+// record's permission with the action's, in the action's scope and in the other.
 func classesOnActionsAlone(data resource.CollectionData) error {
 	classed := make(map[accesstypes.Resource][]accesstypes.ActionClass)
 	for i := range data.Resources {

@@ -711,10 +711,10 @@ func (s Site) union(a *app.App, modulePath, first string, ch *Change) error {
 	text = strings.TrimRight(text, "\n") + fmt.Sprintf(`
 
 // Collection is the application's whole permission registry: the union of every site's
-// generated collection. The sites share one policy store, so the permission engine
-// validates the roles against everything any site registers; a resource several sites
-// serve is declared identically in each and appears once, and access.UnionCollection
-// refuses sites that disagree on one.
+// generated collection. The sites share one policy store, so the permission engine holds
+// every grant, the role file's and a stored one alike, to everything any site registers;
+// a resource several sites serve is declared identically in each and appears once, and
+// access.UnionCollection refuses sites that disagree on one.
 func Collection() (access.PermissionCollection, error) {
 	collection, err := access.UnionCollection(%s.Collection())
 	if err != nil {

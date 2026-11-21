@@ -21,8 +21,12 @@ type policyFinding interface {
 
 // SkippedGrant reports a grant the policy store holds that the running release
 // cannot use: its condition does not parse, a row-referencing condition sits
-// on a scope-wide grant, or it names a permission, resource or field the
-// release does not declare. The snapshot loaded without the grant, so the
+// on a scope-wide grant, it names a permission, resource or field the
+// release does not declare, or it is a role's grant on a resource that a write
+// would be refused for any other reason: the resource is of another scope than
+// the role's, Update is given on what the release marks immutable, or the
+// condition reads what the release does not declare or cannot judge the
+// permission by. The snapshot loaded without the grant, so the
 // permission it would grant is denied and the rest of the policy is in force.
 // One report per such grant reaches the reload-error hook
 // (WithReloadErrorHandler) each time a snapshot compiles; the default hook
@@ -173,29 +177,27 @@ func grantResourceName(g *policy.Grant) accesstypes.Resource {
 	return joinResourceField(g.Resource, g.Field)
 }
 
-// unusableName says why a resource grant names a permission, resource or field
-// the collection does not declare, or nil when it does. The rule is the role
-// file's own: the dotted resource must be listed under the permission. A
-// scope-wide grant is not checked: the collection lists the permissions
-// resources require, which is not every permission a role may hold.
-func unusableName(collection PermissionCollection, g *policy.Grant) error {
-	if g.Resource == "" {
-		return nil
-	}
-
-	return unlistedName(collection.List(), g)
-}
-
-// unlistedName is unusableName over what a collection lists (its List), for a
-// caller that asks about several grants and reads the list once.
+// unlistedName says why a grant names a permission, resource or field the
+// collection does not list, or nil when it lists them. listed is the
+// collection's List, which a caller that asks about several grants reads once.
+//
+// It is the one rule a grant's names are held to, by a load of the policy and
+// by a write to a custom role alike (snapshot.intern, userManager.requireDeclared
+// and requireDeclaredPermission). The rule is the role file's own: the
+// permission is one the release has, and a grant on a resource or a field is
+// listed under it by its dotted name. A scope-wide grant names a permission and
+// nothing else, so the permission is what it is held to.
+//
+// The names are the first part of what a role's grant on a resource is held to
+// (grantRule). A load and a write ask the whole of it, so a load skips exactly
+// the stored grants a write would refuse.
 func unlistedName(listed map[accesstypes.Permission][]accesstypes.Resource, g *policy.Grant) error {
-	if g.Resource == "" {
-		return nil
-	}
-
 	resources, known := listed[g.Perm]
 	if !known {
 		return errors.Newf("this release has no permission %s", g.Perm)
+	}
+	if g.Resource == "" {
+		return nil
 	}
 	name := grantResourceName(g)
 	if !slices.Contains(resources, name) {
