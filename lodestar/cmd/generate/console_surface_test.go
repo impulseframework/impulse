@@ -11,10 +11,11 @@ import (
 // TestConsoleCarriesLibrarySurface pins the browser-library surface the console carries
 // beyond its generated pages, which no other application exercises since the
 // browser packages' showcase retired: the idle session provided from the build's environment through the
-// library's tokens, its warning the library's notice at the top of the viewport that any
-// activity ends, with no button of the console's (the retired confirmation flag is not
-// provided); the Squadrons page's componentConfig (the channel card) and arrayConfig (the
-// sector's other squadrons, filtered by the indexed key); the Hangars page, whose passes
+// library's tokens, its warning the library's notice that any activity ends, with no
+// button of the console's (the retired confirmation flag is not provided); the notices'
+// place, under the frame's bar and at the foot of the screen on a phone; the Squadrons
+// page's componentConfig (the channel card) and arrayConfig (the sector's other
+// squadrons, filtered by the indexed key); the Hangars page, whose passes
 // list offers the three holder pickers, the sector's groups among them, and whose two
 // lists write no words for their create's button and dialog, which the library takes from
 // each resource's row word (every list's create opens in a dialog, with nothing for its
@@ -69,10 +70,13 @@ func TestConsoleCarriesLibrarySurface(t *testing.T) {
 			want: []string{"component: FrameComponent,", "canActivate: [LoginAuthenticationGuard],"},
 		},
 		{
-			name:   "the notices stack at the top of the viewport, as the skeleton places them",
-			file:   "app/app.component.scss",
-			want:   []string{".alert-container {", "top: 12px;", "transform: translateX(-50%);"},
-			absent: []string{"bottom: 16px;"},
+			name: "the notices stack under the frame's bar, and at the foot of the screen on a phone, as the skeleton places them",
+			file: "app/app.component.scss",
+			want: []string{
+				".alert-container {", "top: 56px;", "transform: translateX(-50%);",
+				"@media (max-width: 599.98px) {", "top: auto;", "bottom: 16px;",
+			},
+			absent: []string{"top: 12px;"},
 		},
 		{
 			name: "the Squadrons page carries the channel card and the sector's other squadrons",
