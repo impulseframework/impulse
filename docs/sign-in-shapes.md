@@ -309,8 +309,10 @@ address confirmed, once they enter it. A person who signs in with a password to 
 account that has not confirmed the invited address is mailed a code the same way, and the
 account takes the address when they enter it. A person who is already signed in to such
 an account is told to sign in again from the invitation's link, which mails
-the code. An account that has confirmed the invited address accepts with no code. This is
-described under "Invitations" and "The first administrator's invitation" in
+the code. The code comes in a message of its own, which says that it accepts an
+invitation and that somebody else has the invitation's link if the person did not open
+it themselves. An account that has confirmed the invited address accepts with no code.
+This is described under "Invitations" and "The first administrator's invitation" in
 [session/README.md](../session/README.md).
 
 The persona method, the sign-in of the test environments, is not part of any shape.

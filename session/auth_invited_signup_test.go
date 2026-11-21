@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -119,13 +120,21 @@ func (c *factorCodes) sentTo() []string {
 	return to
 }
 
-// signInCodeIn is the code a sign-in code's mail carries, as a person would type it.
-func signInCodeIn(t *testing.T, msg mail.Message) string {
+// The subjects of the two mails a code of the second step comes in: the code an account
+// signs in with, and the code that accepts an invitation.
+var (
+	signInCodeSubject     = regexp.MustCompile(`^Your Harbor sign-in code is (\d{3}) (\d{3})$`)
+	invitationCodeSubject = regexp.MustCompile(`^Your code to accept your invitation to Harbor is (\d{3}) (\d{3})$`)
+)
+
+// invitationCodeIn is the code the mail of an invitation's code carries, as a person
+// would type it.
+func invitationCodeIn(t *testing.T, msg mail.Message) string {
 	t.Helper()
 
-	m := regexp.MustCompile(`^Your Harbor sign-in code is (\d{3}) (\d{3})$`).FindStringSubmatch(msg.Subject)
+	m := invitationCodeSubject.FindStringSubmatch(msg.Subject)
 	if m == nil {
-		t.Fatalf("the message's subject = %q, want a sign-in code's", msg.Subject)
+		t.Fatalf("the message's subject = %q, want the one of a code that accepts an invitation", msg.Subject)
 	}
 
 	return m[1] + m[2]
@@ -281,7 +290,7 @@ func invitedSignUpByCode(t *testing.T) {
 		req.Invitation.Accepted = true
 	}, nil)
 
-	rr := f.enterCode(cookies, signInCodeIn(t, msgs[1]))
+	rr := f.enterCode(cookies, invitationCodeIn(t, msgs[1]))
 
 	if rr.Code != http.StatusOK || decoded(t, rr)["mfaIsRequired"] != false || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
 		t.Errorf("VerifyCode() = %d %s, want a session", rr.Code, rr.Body.String())
@@ -567,8 +576,22 @@ func TestAuth_codeDestination(t *testing.T) {
 			case err != nil:
 				t.Errorf("sendCodeToUser() error = %v, want the code mailed", err)
 			default:
-				if msgs := recorder.Messages(); len(msgs) != sent+1 || msgs[sent].To != tt.wantEmail {
-					t.Errorf("sendCodeToUser() mailed %d message(s), want one to %s", len(msgs)-sent, tt.wantEmail)
+				msgs := recorder.Messages()
+				if len(msgs) != sent+1 || msgs[sent].To != tt.wantEmail {
+					t.Fatalf("sendCodeToUser() mailed %d message(s), want one to %s", len(msgs)-sent, tt.wantEmail)
+				}
+				// The mail says what its code does. A code that accepts an invitation
+				// comes in the invitation's own words, which say that somebody opened
+				// the invitation and speak of no password: the person invited may have
+				// no account yet. An account's own code comes in the sign-in code's.
+				switch msg := msgs[sent]; {
+				case !tt.wantInvitation && !signInCodeSubject.MatchString(msg.Subject):
+					t.Errorf("the subject of an account's own code = %q, want the sign-in code's", msg.Subject)
+				case tt.wantInvitation && !invitationCodeSubject.MatchString(msg.Subject):
+					t.Errorf("the subject of a code that accepts an invitation = %q, want the invitation's own: a sign-in code's tells a person with no account to change a password", msg.Subject)
+				case tt.wantInvitation && (strings.Contains(strings.ToLower(msg.Text), "password") || !strings.Contains(msg.Text, "someone else has its link")):
+					t.Errorf("the mail of a code that accepts an invitation speaks of a password (%t), want none, and want it to say that someone else has the link where the person did not open it",
+						strings.Contains(strings.ToLower(msg.Text), "password"))
 				}
 				key := codeLimitKey(tt.wantEmail)
 				if tt.wantInvitation {

@@ -466,6 +466,39 @@ Nobody from %s will ask you for it. Don't share it.
 	}
 }
 
+// invitationCodeMessage is the mail that carries the code an invitation is accepted
+// with: the code, that it accepts the invitation sent to this address, where to enter it
+// and how long it is good for (lifetime), then what it means if the person did not open
+// the invitation themselves, and a word to keep the code to oneself. The code is mailed
+// only once a browser that carries the invitation's link is at the code's step, so a
+// person who did not open the invitation learns here that somebody else holds its link.
+// Nothing in it speaks of a password: the person invited may have no account yet. The
+// code is spaced in the middle for reading.
+func (m *mailSettings) invitationCodeMessage(to, code string, lifetime time.Duration) mail.Message {
+	app := m.settings.Application
+	spaced := code
+	if len(code) == emailCodeLength {
+		spaced = code[:emailCodeLength/2] + " " + code[emailCodeLength/2:]
+	}
+
+	return mail.Message{
+		To:      to,
+		Subject: fmt.Sprintf("Your code to accept your invitation to %s is %s", app, spaced),
+		Text: fmt.Sprintf(`Your code to accept your invitation to %s is:
+
+%s
+
+It accepts the invitation to %s that was sent to this address. Enter it on the page that asked you for it. The code is good for %s.
+
+Didn't do this?
+If you did not open your invitation yourself, someone else has its link. Don't give the code to anyone, and tell the person who invited you.
+
+Keep the code to yourself
+Only you should enter it. Nobody from %s will ask you for it. Don't share it.
+`, app, spaced, app, goodFor(lifetime), app),
+	}
+}
+
 // firstPasswordMessage is the mail that carries the code of a person's first password:
 // the code, where to enter it and how long it is good for (lifetime), then what to do
 // if they did not ask: someone at a browser they left signed in asked, and without the

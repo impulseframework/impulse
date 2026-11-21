@@ -397,6 +397,22 @@ Nobody from Harbor will ask you for it. Don't share it.
 `},
 		},
 		{
+			name: "the code that accepts an invitation: the code spaced for reading, what it accepts, where to enter it and how long it is good for, then what it means if they did not open the invitation and that only they enter it, with no word of a password",
+			got:  m.invitationCodeMessage("pat@lakeside.edu", "483920", 10*time.Minute),
+			want: mail.Message{To: "pat@lakeside.edu", Subject: "Your code to accept your invitation to Harbor is 483 920", Text: `Your code to accept your invitation to Harbor is:
+
+483 920
+
+It accepts the invitation to Harbor that was sent to this address. Enter it on the page that asked you for it. The code is good for 10 minutes.
+
+Didn't do this?
+If you did not open your invitation yourself, someone else has its link. Don't give the code to anyone, and tell the person who invited you.
+
+Keep the code to yourself
+Only you should enter it. Nobody from Harbor will ask you for it. Don't share it.
+`},
+		},
+		{
 			name: "the code of a first password: the code spaced for reading, where to enter it and how long it is good for, then what to do if they did not ask and to keep the code",
 			got:  m.firstPasswordMessage("pat@lakeside.edu", "483920", 10*time.Minute),
 			want: mail.Message{To: "pat@lakeside.edu", Subject: "Your code to choose a Harbor password is 483 920", Text: `Your code to choose a password for your Harbor account is:

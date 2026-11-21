@@ -50,8 +50,12 @@ login() { # login <persona>: the crew's password method under the console prefix
   second_factor "$p" "$API" "$p@fleet.example" "$LOG"
 }
 
-codes_mailed() { # codes_mailed <address> <log>: how many sign-in codes the log holds for the address
-  grep -ac "mail (not sent) to $1, subject \"Your Lodestar sign-in code is" "$2"
+# A code comes in one of two mails: the code an account signs in with, and the code that
+# accepts an invitation, which says so. Both end their subject with the code.
+CODE_SUBJECT='Your (Lodestar sign-in code|code to accept your invitation to Lodestar) is'
+
+codes_mailed() { # codes_mailed <address> <log>: how many codes the log holds for the address, a sign-in's or an invitation's
+  grep -acE "mail \(not sent\) to $1, subject \"$CODE_SUBJECT" "$2"
 }
 
 invitation_mailed() { # invitation_mailed <address> <log>: the last invitation the auths mailed to the address, its line of the log and the lines of its text
@@ -81,7 +85,7 @@ second_factor() { # second_factor <persona> <api> <address> <log>: the sign-in c
       curl -s -c "$S/$p.jar" -b "$S/$p.jar" -o /dev/null -H "X-XSRF-TOKEN: $(xsrf "$p")" -X POST "$api/user/pending/code" ;;
   esac
   for _ in $(seq 1 100); do [ "$(codes_mailed "$address" "$log")" -gt "$before" ] && break; sleep 0.1; done
-  code=$(grep -a "mail (not sent) to $address, subject \"Your Lodestar sign-in code is" "$log" | tail -1 | sed -E 's/.*sign-in code is ([0-9]{3}) ([0-9]{3}).*/\1\2/')
+  code=$(grep -aE "mail \(not sent\) to $address, subject \"$CODE_SUBJECT" "$log" | tail -1 | sed -E 's/.* is ([0-9]{3}) ([0-9]{3}).*/\1\2/')
   curl -s -c "$S/$p.jar" -b "$S/$p.jar" -o /dev/null -H "X-XSRF-TOKEN: $(xsrf "$p")" -H 'Content-Type: application/json' \
     -d "{\"code\":\"$code\"}" "$api/user/pending/code/verify"
 }

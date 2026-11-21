@@ -1875,6 +1875,11 @@ one it sends.
   answers 409 there), and the invitation is accepted in the transaction of the sign-in
   the code completes, the new account made with the invited address verified. The code
   proves the address and gives no way in to an account somebody can already sign in to.
+  It comes in a message of its own, never the sign-in code's: the message says that the
+  code accepts an invitation to the application sent to this address, that only the
+  person invited should enter it, and that somebody else has the invitation's link if
+  they did not open the invitation themselves, so they should tell the person who
+  invited them. It speaks of no password, since the person may have no account yet.
   The account that holds the invited address, verified or not (an address an
   administrator entered is kept for its account), is the one invited: with a password
   it is held for the password as any link is, without one and signing in through an
@@ -2436,8 +2441,9 @@ when they want it gone there too.
 The library sends mail for the flows that need a link or a code in someone's mailbox:
 the invitation a tenant's administrator sends to an address, the link that verifies an
 address a person adds or changes, the link a password sign-up starts from, the link
-that resets a password, the link that confirms an address an administrator set, and the
-sign-in code of the second factor. It also sends notices, which carry no link and are
+that resets a password, the link that confirms an address an administrator set, the
+sign-in code of the second factor, and the code that accepts an invitation, which comes
+in a message of its own. It also sends notices, which carry no link and are
 not counted against the limit on mail to an address: that an account's address changed
 (to the old address), that an administrator reset a person's second factor, and that an
 administrator removed a person from a tenant, which says so when the account went with

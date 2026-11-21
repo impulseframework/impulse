@@ -19,6 +19,7 @@ import (
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/cookie"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/tracer"
@@ -262,12 +263,16 @@ func hashEmailCode(pendingID impulse.UUID, code string) []byte {
 }
 
 // sendEmailCode mails a fresh code for p to email and records it, replacing the code
-// standing. limit takes the code's place under the count it is held to before anything
-// is mailed: the sign-in codes' own for the address an account holds (limitCode), the
-// invitation's for a code that accepts one (limitInvitationCode), and the address's
-// other mail for an address somebody typed (limitMail).
-func (a *Auth[S, U, Tx]) sendEmailCode(ctx context.Context, p *pendingState, email string, limit func(ctx context.Context) error) (*emailCodeAnswer, error) {
-	m := a.settings.mail
+// standing. message is the mail the code goes in, which says what the code does: the
+// sign-in code's (codeMessage), or the invitation's own for a code that accepts one
+// (invitationCodeMessage). limit takes the code's place under the count it is held to
+// before anything is mailed: the sign-in codes' own for the address an account holds
+// (limitCode), the invitation's for a code that accepts one (limitInvitationCode), and
+// the address's other mail for an address somebody typed (limitMail).
+func (a *Auth[S, U, Tx]) sendEmailCode(
+	ctx context.Context, p *pendingState, email string,
+	message func(to, code string, lifetime time.Duration) mail.Message, limit func(ctx context.Context) error,
+) (*emailCodeAnswer, error) {
 	if err := limit(ctx); err != nil {
 		return nil, err
 	}
@@ -280,7 +285,7 @@ func (a *Auth[S, U, Tx]) sendEmailCode(ctx context.Context, p *pendingState, ema
 	if err := a.storage.InsertFactorCode(ctx, row); err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertFactorCode()")
 	}
-	if err := a.send(ctx, m.codeMessage(email, code, lifetime)); err != nil {
+	if err := a.send(ctx, message(email, code, lifetime)); err != nil {
 		if cerr := a.storage.ConsumeFactorCode(ctx, row.ID); cerr != nil && !httpio.HasNotFound(cerr) {
 			logger.FromCtx(ctx).Error(errors.Wrap(cerr, "sessionstorage.AuthStore.ConsumeFactorCode()"))
 		}
@@ -303,7 +308,10 @@ func errNoAddress() error {
 // (limitCode). The holder of an invitation's link is sent the invitation's, which is
 // held to that invitation's count (limitInvitationCode): a link can be forwarded, and
 // what its holder asks for uses up nothing of the invited person's own sign-in codes.
+// The invitation's code comes in a mail of its own (invitationCodeMessage), which says
+// that it accepts an invitation and what to do if the person did not open it.
 func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*emailCodeAnswer, error) {
+	m := a.settings.mail
 	email, inv, err := a.codeDestination(ctx, p)
 	if err != nil {
 		return nil, err
@@ -312,12 +320,12 @@ func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*
 		return nil, errNoAddress()
 	}
 	if inv != nil {
-		return a.sendEmailCode(ctx, p, email, func(ctx context.Context) error {
+		return a.sendEmailCode(ctx, p, email, m.invitationCodeMessage, func(ctx context.Context) error {
 			return a.limitInvitationCode(ctx, inv)
 		})
 	}
 
-	return a.sendEmailCode(ctx, p, email, func(ctx context.Context) error {
+	return a.sendEmailCode(ctx, p, email, m.codeMessage, func(ctx context.Context) error {
 		return a.limitCode(ctx, email)
 	})
 }
@@ -359,7 +367,7 @@ func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email
 		return &emailCodeAnswer{CodeEmail: maskAddress(bare), CodeSent: true}, nil
 	}
 
-	return a.sendEmailCode(ctx, p, bare, func(ctx context.Context) error {
+	return a.sendEmailCode(ctx, p, bare, m.codeMessage, func(ctx context.Context) error {
 		return a.limitMail(ctx, bare)
 	})
 }
