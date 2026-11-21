@@ -300,8 +300,8 @@ func (g *GeneratedCollection) SubjectSetAuth(name string) string {
 // sets its who: part builds on (Column IN subject.<set>). auth is the auth's
 // name, as its package names it. A set that names another auth is left out:
 // only that auth's roles can read it, so its role-file check is the one that
-// looks at it. A set that names no auth, as every set of an application with
-// one auth does, is listed for every auth, and an empty auth lists every set.
+// looks at it. A set that names no auth, as a set of an application with
+// one auth may, is listed for every auth, and an empty auth lists every set.
 // A set the generator declares for an auth (Offered) is left out: the
 // role-file check flags a listed set that no role reads
 // (access.UnreadSetWarning), and a set nobody wrote is no oversight.

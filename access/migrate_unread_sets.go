@@ -32,7 +32,7 @@ func (UnreadSetWarning) warning() {}
 // String renders the warning as one line: what is declared, that nothing reads it, and
 // what closes it.
 func (w UnreadSetWarning) String() string {
-	return fmt.Sprintf("subject set %s is declared (@subjectSet) and no role reads it: no grant's condition names subject.%s, and no set a grant reads builds on it in its who: part, so nobody holds anything through it. Write the grant that reads it, or accept this warning where the role file is validated until that grant is written. If the set describes another auth's people, say so on the set (auth: in its @subjectSet) and hand this auth's name to WithDefaultRoles and to ValidateRoles, and this auth's check no longer looks at it.",
+	return fmt.Sprintf("subject set %s is declared (@subjectSet) and no role reads it: no grant's condition names subject.%s, and no set a grant reads builds on it in its who: part, so nobody holds anything through it. Write the grant that reads it, or accept this warning where the role file is validated until that grant is written. If the set describes another auth's people, name that auth on the set (auth: in its @subjectSet), and this auth's check no longer looks at it. A check that was handed no auth's name (WithDefaultRoles, ValidateRoles) looks at every auth's sets: hand it this auth's name.",
 		w.Set, w.Set)
 }
 

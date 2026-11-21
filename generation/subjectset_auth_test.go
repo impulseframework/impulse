@@ -12,7 +12,7 @@ import (
 
 // TestResolveSubjectSetAuths pins what a run holds a set to on whose people it
 // describes, driven through structsToResources and the run's resolution as a generation
-// run drives them. An application with one auth leaves the part out, and every set is
+// run drives them. An application with one auth may leave the part out, and every set is
 // that auth's. An application with several says it on every set it writes, since nothing
 // else tells the generator which auth's people a user column holds, and a name that is
 // no auth of the application is refused. The set of a person's groups, which the

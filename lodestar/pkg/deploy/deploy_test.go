@@ -41,7 +41,8 @@ var archivistFee = access.ConcealingKeyWarning{
 // the grammar holds, every condition resolves against the generated
 // collection, and the warnings the deploy's role check would print are exactly
 // the ones pinned here. Every subject set the application declares describes the crew's
-// people (auth: crew) and is read by a role of the crew, so no set is flagged as unread,
+// people (auth: crew), the set of a person's groups that the generator declares among them,
+// and is read by a role of the crew, so no set is flagged as unread,
 // and the members' check looks at none of them: each auth's file is validated with its
 // auth's name. No role holds a conditional write on a row it can
 // neither Read nor List, and no role may create a resource without a field every

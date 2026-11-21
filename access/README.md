@@ -876,7 +876,7 @@ up by the other auth's ids, so the role's holders would get nothing of their
 own through it. A set follows a person through sets of its own auth alone: generation
 refuses a `who:` that tests a set labeled for another auth, the set of a
 person's groups that the generator declares for another auth included, which
-names its auth without being told. An application with one auth writes no `auth:`, and every set is that
+names its auth without being told. An application with one auth need not write `auth:`: every set is that
 auth's. An empty name looks at every set.
 
 ### Behavior

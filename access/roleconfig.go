@@ -36,8 +36,8 @@ type PermissionCollection interface {
 	// SubjectSets lists the subject sets the application declares (@subjectSet)
 	// that describe the people of one auth, by name, each with the names of the
 	// sets its who: part builds on (Column IN subject.<set>). auth is the auth's
-	// name, as its package names it. A set that names no auth, as every set of
-	// an application with one auth does, is listed for every auth, and an empty
+	// name, as its package names it. A set that names no auth, as a set of an
+	// application with one auth may, is listed for every auth, and an empty
 	// auth lists every set. A set the generator declares for an auth, the set of
 	// a person's groups, is left out: nobody wrote it, so leaving it unread is no
 	// oversight. A set listed here that no grant reads is flagged (see

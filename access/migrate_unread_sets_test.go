@@ -346,7 +346,7 @@ func TestNew_grantThroughAnotherAuthsSet(t *testing.T) {
 func TestUnreadSetWarning_String(t *testing.T) {
 	t.Parallel()
 
-	want := "subject set wings is declared (@subjectSet) and no role reads it: no grant's condition names subject.wings, and no set a grant reads builds on it in its who: part, so nobody holds anything through it. Write the grant that reads it, or accept this warning where the role file is validated until that grant is written. If the set describes another auth's people, say so on the set (auth: in its @subjectSet) and hand this auth's name to WithDefaultRoles and to ValidateRoles, and this auth's check no longer looks at it."
+	want := "subject set wings is declared (@subjectSet) and no role reads it: no grant's condition names subject.wings, and no set a grant reads builds on it in its who: part, so nobody holds anything through it. Write the grant that reads it, or accept this warning where the role file is validated until that grant is written. If the set describes another auth's people, name that auth on the set (auth: in its @subjectSet), and this auth's check no longer looks at it. A check that was handed no auth's name (WithDefaultRoles, ValidateRoles) looks at every auth's sets: hand it this auth's name."
 	if got := (UnreadSetWarning{Set: "wings"}).String(); got != want {
 		t.Errorf("UnreadSetWarning.String() =\n  %s\nwant\n  %s", got, want)
 	}
