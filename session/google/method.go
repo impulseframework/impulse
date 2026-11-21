@@ -42,7 +42,9 @@ type Config struct {
 	// LoginURL is where refused and pending sign-ins are sent. (default: /login)
 	LoginURL string
 	// Authenticator replaces the verifier built from the fields above. Tests inject a
-	// fake identity provider through it; production leaves it nil.
+	// fake identity provider through it; production leaves it nil. A verifier the
+	// application sets here is trusted as Google's: what it says of an address is kept
+	// as Google's own word.
 	Authenticator Authenticator
 }
 

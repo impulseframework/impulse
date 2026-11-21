@@ -17,6 +17,10 @@
 // own) would be handed the method Google's package built, mark and all, and could carry
 // the mark over to a method of its own. That is no method taking Google's name by
 // mistake, and the type checker does not refuse it.
+//
+// The mark says which method is Google's, and not who answered for the token: a
+// verifier the application sets in the Google method's configuration
+// (google.Config.Authenticator) is trusted as Google's, and production leaves it nil.
 package vouch
 
 // Mark is the mark of a sign-in method whose word for an address the library keeps.
