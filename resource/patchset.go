@@ -49,6 +49,7 @@ type PatchSet[Resource Resourcer] struct {
 	defaultsUpdateFunc    DefaultsFunc
 	validateCreateFunc    ValidateFunc
 	validateUpdateFunc    ValidateFunc
+	validateDeleteFunc    ValidateFunc
 	// fork is set on an update-or-create (OrCreate) and on a create-unless-there
 	// (OrSkip) patch, and nil on every other (patch_fork.go).
 	fork *patchFork[Resource]
@@ -625,17 +626,39 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 	return nil
 }
 
-func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+// checkDelete is everything a delete of the patch's row must pass before anything is
+// buffered, in the order a refusal is answered: the caller's grants on the resource, the
+// conditions those grants carry, evaluated against the row inside the transaction with
+// the tenancy check, and then the resource's delete rule (RegisterValidateDeleteFunc).
+// The rule is asked last, so a caller the grants refuse gets their Forbidden whatever
+// the rule would have said, and learns nothing from its sentence. It writes nothing. A
+// delete of one row runs it (bufferDelete), and so does whatever must know that a row
+// may go before it removes any, so the two never disagree about a row.
+func (p *PatchSet[Resource]) checkDelete(ctx context.Context, txn ReadWriteTransaction) error {
 	if err := p.checkPermissions(ctx, txn.DBType()); err != nil {
+		return err
+	}
+
+	if err := p.enforceWriteConditions(ctx, txn); err != nil {
+		return err
+	}
+
+	if p.validateDeleteFunc != nil {
+		if err := p.validateDeleteFunc(ctx, txn); err != nil {
+			return errors.Wrap(err, "validateDeleteFunc()")
+		}
+	}
+
+	return nil
+}
+
+func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+	if err := p.checkDelete(ctx, txn); err != nil {
 		return err
 	}
 
 	event, err := p.validateEventSource(eventSource)
 	if err != nil {
-		return err
-	}
-
-	if err := p.enforceWriteConditions(ctx, txn); err != nil {
 		return err
 	}
 
@@ -1014,6 +1037,13 @@ func (p *PatchSet[Resource]) RegisterValidateCreateFunc(fn ValidateFunc) {
 // Update Patches just before the patch is buffered to validate the patch
 func (p *PatchSet[Resource]) RegisterValidateUpdateFunc(fn ValidateFunc) {
 	p.validateUpdateFunc = fn
+}
+
+// RegisterValidateDeleteFunc registers the resource's delete rule: a function called on
+// every Delete Patch once the caller's grants have passed and before anything is
+// buffered. An error it returns refuses the delete, and nothing is deleted.
+func (p *PatchSet[Resource]) RegisterValidateDeleteFunc(fn ValidateFunc) {
+	p.validateDeleteFunc = fn
 }
 
 // all returns an iterator over key-value pairs from m.

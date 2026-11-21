@@ -288,6 +288,9 @@ func resolveResourceAnnotations(res *resourceInfo, annotations genlang.StructAnn
 	if annotations.Struct.Has(validateUpdateTypeKeyword) {
 		res.ValidateUpdateType = string(annotations.Struct.Get(validateUpdateTypeKeyword))
 	}
+	if annotations.Struct.Has(validateDeleteTypeKeyword) {
+		res.ValidateDeleteType = string(annotations.Struct.Get(validateDeleteTypeKeyword))
+	}
 
 	// The list across tenants reads the scope and the suppressions resolved above.
 	return resolveListAcrossTenants(res, annotations)
@@ -325,6 +328,7 @@ func deriveEnumerationResource(res *resourceInfo, typeName string) error {
 		{defaultsUpdateTypeKeyword, res.DefaultsUpdateType},
 		{validateCreateTypeKeyword, res.ValidateCreateType},
 		{validateUpdateTypeKeyword, res.ValidateUpdateType},
+		{validateDeleteTypeKeyword, res.ValidateDeleteType},
 	} {
 		if c.value != "" {
 			conflicts = append(conflicts, "@"+c.keyword)

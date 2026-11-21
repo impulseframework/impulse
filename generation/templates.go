@@ -754,7 +754,14 @@ patchSet *resource.PatchSet[{{ .Resource.Name }}]) *{{ .Resource.Name }}DeletePa
 	{{ end }}
 		SetPatchType(resource.DeletePatchType)
 
+{{ if .Resource.HasValidateDeleteType }}
+	patch := &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
+
+	return patch
+{{- else }}
 	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+{{- end }}
 }
 
 func New{{ .Resource.Name }}DeletePatch(
@@ -770,9 +777,27 @@ func New{{ .Resource.Name }}DeletePatch(
 {{- end }}
 		SetPatchType(resource.DeletePatchType)
 
-	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
-}
+{{ if .Resource.HasValidateDeleteType }}
+	patch := &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
 
+	return patch
+{{- else }}
+	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+{{- end }}
+}
+{{ if .Resource.HasValidateDeleteType }}
+// registerValidateFunc hands the patch set the resource's delete rule
+// (@validateDeleteType): {{ .Resource.ValidateDeleteType }}.Validate is asked about the
+// row before it is deleted, by the delete of the one row and by a delete that takes the
+// row with a record it is under. An error it returns refuses the delete, and nothing
+// is deleted.
+func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
+	p.patchSet.RegisterValidateDeleteFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return new({{ .Resource.ValidateDeleteType }}).Validate(ctx, txn, p)
+	})
+}
+{{ end }}
 func (p *{{ .Resource.Name }}DeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
