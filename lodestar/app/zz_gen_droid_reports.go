@@ -21,13 +21,14 @@ import (
 
 func (a *App) DroidReports() http.HandlerFunc {
 	type droidReport struct {
-		ID         impulse.UUID     `json:"id"         index:"true" perm:"-"`
+		ID         impulse.UUID     `json:"id"         index:"true"      perm:"-"`
 		SectorID   impulse.UUID     `json:"sectorId"   index:"true"`
 		ShipID     impulse.UUID     `json:"shipId"     index:"true"`
 		Subsystem  string           `json:"subsystem"`
 		Reading    float64          `json:"reading"`
 		RecordedAt time.Time        `json:"recordedAt"`
 		Frame      *telemetry.Frame `json:"frame"`
+		SectorName *string          `json:"sectorName" nameof:"SectorID"`
 	}
 
 	type response []map[string]any
@@ -66,7 +67,7 @@ func (a *App) DroidReports() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*droidReport)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
