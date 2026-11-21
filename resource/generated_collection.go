@@ -142,10 +142,12 @@ type ManualRegistration struct {
 // internal representation.
 type CollectionData struct {
 	// Auths are the names of the auths the generation run knew, as their packages
-	// name them, in name order: the auths a subject set of the run may be labeled
-	// for (SubjectBindingData.Auth), and so the names a role file may be handed to
-	// the permission engine under (access.WithDefaultRoles, access.ValidateRoles).
-	// Empty for a run that declared no auth.
+	// name them, in name order: the auth packages in the application's tree and the
+	// auths the run's own outlets declare. They are the auths a subject set of the
+	// run may be labeled for (SubjectBindingData.Auth), and so the names a role file
+	// may be handed to the permission engine under (access.WithDefaultRoles,
+	// access.ValidateRoles). Empty for a run that declared no auth in an application
+	// whose tree holds no auth package.
 	Auths []string
 
 	Resources []CollectionResource

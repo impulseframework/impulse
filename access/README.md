@@ -853,7 +853,10 @@ A set describes the people of one auth: its user column holds that auth's
 people, so only that auth's roles can give anybody anything through it. An
 application with more than one auth says so on each set (`auth: staff` in the
 `@subjectSet`, the auth's name as its package names it; generation refuses a set
-that says none), and each auth hands its own name with its role file:
+that says none). The application's auths are the auth packages in its tree
+(`pkg/auth/<name>`, a package that constructs a session Auth, as `impulse check`
+finds them), so the generate program of one site knows another site's auth with
+nothing declared for it. Each auth hands its own name with its role file:
 
 ```go
 access.WithDefaultRoles(staff.Roles(), staff.Name)
@@ -865,8 +868,8 @@ auth, and never at another auth's, so no role file is handed from one auth to
 another. The name is the one generation knows the auth by, the name of its
 package, and a file handed over under a name the collection's generation did
 not know is refused with the name given and the names known
-(`PermissionCollection.Auths`; the generated collection lists its run's auths,
-and a union every site's). A grant of one auth's role whose condition reads a set that describes
+(`PermissionCollection.Auths`; the generated collection lists the application's
+auths as its run read them, and a union every site's). A grant of one auth's role whose condition reads a set that describes
 another auth's people is refused when the file is loaded (`New`,
 `ValidateRoles`), naming the grant, the set and both auths: the set is looked
 up by the other auth's ids, so the role's holders would get nothing of their

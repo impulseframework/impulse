@@ -259,9 +259,11 @@ func Test_Manages(t *testing.T) {
 }
 
 // Test_computeCollectionData_auths pins that the collection a run computes names the
-// run's auths, each once and in name order: the engine holds the name a role file is
-// handed over under to them (access.WithDefaultRoles, access.ValidateRoles). A run that
-// declares no auth names none.
+// application's auths, each once and in name order: the engine holds the name a role file
+// is handed over under to them (access.WithDefaultRoles, access.ValidateRoles). They are
+// the auths the run's outlets declare and the auth packages in the application's tree, so
+// the collection of one site's generate program names another site's auth too. A run that
+// declares no auth in a tree that holds none names none.
 func Test_computeCollectionData_auths(t *testing.T) {
 	t.Parallel()
 
@@ -286,6 +288,34 @@ func Test_computeCollectionData_auths(t *testing.T) {
 
 				return &resourceGenerator{client: &client{}, genRoutes: true}
 			},
+		},
+		{
+			name: "a run whose outlets declare two auths, in an application whose tree holds one of them and a third",
+			run: func(t *testing.T) *resourceGenerator {
+				t.Helper()
+
+				r := userFixtureGenerator(t, false)
+				r.moduleRoot = t.TempDir()
+				writeAuthPackage(t, r.moduleRoot, "members")
+				writeAuthPackage(t, r.moduleRoot, "agents")
+
+				return r
+			},
+			want: []string{"agents", "crew", "members"},
+		},
+		{
+			name: "a run that declares no auth, in an application whose tree holds two",
+			run: func(t *testing.T) *resourceGenerator {
+				t.Helper()
+
+				r := &resourceGenerator{client: &client{}, genRoutes: true}
+				r.moduleRoot = t.TempDir()
+				writeAuthPackage(t, r.moduleRoot, "staff")
+				writeAuthPackage(t, r.moduleRoot, "patrons")
+
+				return r
+			},
+			want: []string{"patrons", "staff"},
 		},
 	}
 	for _, tt := range tests {

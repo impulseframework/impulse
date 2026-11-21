@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
+	"github.com/impulseframework/impulse/internal/apptree"
 )
 
 // TestScanReadsWhatTheGoToolReads holds the scan to the Go files the application's builds
@@ -225,5 +227,112 @@ func TestGoToolReads(t *testing.T) {
 		if got := GoToolReads(tt.name); got != tt.want {
 			t.Errorf("GoToolReads(%q) = %v, want %v", tt.name, got, tt.want)
 		}
+	}
+}
+
+// TestAuthPackagesAreTheTreeRules holds the scan and a generation run to one answer on
+// what the application's auths are. The scan finds an auth package while it reads every
+// declaration the checks need; a generation run asks the tree for the auths alone
+// (apptree.AuthPackages), and holds each subject set to them. A tree the two read
+// differently would let a run take a set for an auth the checks never see, or refuse one
+// for an auth they do. They differ in one place, pinned in the last case: a package under
+// a directory the walk leaves alone, which the scan reads where the application imports
+// it by its path and a run does not.
+func TestAuthPackagesAreTheTreeRules(t *testing.T) {
+	t.Parallel()
+
+	const (
+		constructs = "package staff\n\nimport \"github.com/impulseframework/impulse/session\"\n\nfunc New() {\n\t_, _ = session.NewAuth(nil)\n}\n"
+		aliased    = "package staff\n\nimport sess \"github.com/impulseframework/impulse/session\"\n\nfunc New() {\n\t_, _ = sess.NewAuth[string](nil)\n}\n"
+		noAuth     = "package staff\n\nimport \"github.com/impulseframework/impulse/session\"\n\nvar _ session.Options\n"
+	)
+	tests := []struct {
+		name  string
+		files map[string]string
+		want  []string
+		// wantScan is what the scan finds where it differs from what a run reads.
+		wantScan []string
+	}{
+		{
+			name: "two auth packages, one under a name of its own for the session package and with type arguments",
+			files: map[string]string{
+				"pkg/auth/staff/auth.go":   constructs,
+				"pkg/auth/patrons/auth.go": aliased,
+			},
+			want: []string{"patrons", "staff"},
+		},
+		{
+			name: "a package that constructs no Auth, a construction outside an auth directory, a test file and a passed-over file",
+			files: map[string]string{
+				"pkg/auth/staff/auth.go":        constructs,
+				"pkg/auth/shared/opts.go":       noAuth,
+				"cmd/server/main.go":            constructs,
+				"pkg/auth/crew/auth_test.go":    constructs,
+				"pkg/auth/members/_auth.go":     constructs,
+				"pkg/auth/staff/inner/auth.go":  constructs,
+				"pkg/auth/patrons/.scratch.go":  constructs,
+				"pkg/authentication/x/auth.go":  constructs,
+				"pkg/auth/staff/zz_gen_auth.go": noAuth,
+			},
+			want: []string{"staff"},
+		},
+		{
+			name: "directories a walk leaves alone and a module of its own under the root",
+			files: map[string]string{
+				"pkg/auth/staff/auth.go":            constructs,
+				"vendor/x/auth/crew/auth.go":        constructs,
+				"dist/auth/crew/auth.go":            constructs,
+				"_old/pkg/auth/crew/auth.go":        constructs,
+				"pkg/testdata/auth/crew/auth.go":    constructs,
+				"tools/go.mod":                      "module example.com/acme/beacon/tools\n\ngo 1.26\n",
+				"tools/pkg/auth/members/auth.go":    constructs,
+				"web/node_modules/auth/crew/a.go":   constructs,
+				"web/.angular/cache/auth/crew/a.go": constructs,
+			},
+			want: []string{"staff"},
+		},
+		{
+			name: "an auth package under a passed-over directory that the application imports by its path is the scan's alone",
+			files: map[string]string{
+				"pkg/auth/staff/auth.go":      constructs,
+				"_fixtures/auth/crew/auth.go": constructs,
+				"cmd/server/main.go":          "package main\n\nimport _ \"example.com/acme/beacon/_fixtures/auth/crew\"\n\nfunc main() {}\n",
+			},
+			want:     []string{"staff"},
+			wantScan: []string{"crew", "staff"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeTree(t, root, map[string]string{"go.mod": "module example.com/acme/beacon\n\ngo 1.26\n"})
+			writeTree(t, root, tt.files)
+
+			got, err := apptree.AuthPackages(root)
+			if err != nil {
+				t.Fatalf("apptree.AuthPackages() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("apptree.AuthPackages() mismatch (-want +got):\n%s", diff)
+			}
+
+			a, err := Discover(root)
+			if err != nil {
+				t.Fatalf("Discover() error = %v", err)
+			}
+			var scanned []string
+			for _, pkg := range a.AuthPackages {
+				scanned = append(scanned, pkg.Name)
+			}
+			wantScan := tt.wantScan
+			if wantScan == nil {
+				wantScan = tt.want
+			}
+			if diff := cmp.Diff(wantScan, scanned, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("the scan's AuthPackages mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

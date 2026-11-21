@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+
+	"github.com/impulseframework/impulse/internal/apptree"
 )
 
 // FeatureFlag is one feature flag declaration: a constant of type resource.Feature in a
@@ -207,7 +209,7 @@ func (a *App) FeatureUses() ([]FeatureUse, error) {
 			return errors.Wrap(err, "fs.WalkDir()")
 		}
 		if d.IsDir() {
-			if p != "." && skippedDirs[d.Name()] {
+			if p != "." && apptree.HoldsDependenciesOrOutput(d.Name()) {
 				return fs.SkipDir
 			}
 

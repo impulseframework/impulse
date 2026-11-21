@@ -1,6 +1,8 @@
 package generation
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -150,20 +152,27 @@ func TestResolveSubjectSetAuths(t *testing.T) {
 }
 
 // TestExtractResourcesBesideTheApplications_subjectSetAuths drives the same rule through
-// the step of a run that applies it, with the auths the run's own outlets declare and no
+// the step of a run that applies it, with the auths the run learns for itself and no
 // name handed in by the test: a run that skipped the check, or held the sets to no auth,
 // fails here. Two outlets that sign two auths in make an application of several auths,
 // so a set that says none is refused naming both, and a set that names neither is
 // refused as no auth of the application; one outlet makes an application of one auth,
-// whose sets need say nothing.
+// whose sets need say nothing. A run whose generate program declares one site's outlet
+// still knows every auth of the application, from the auth packages in the application's
+// tree: beside another site's auth package, a set that says none is refused naming both
+// auths, and a set labeled for the other site's auth is taken.
 func TestExtractResourcesBesideTheApplications_subjectSetAuths(t *testing.T) {
 	t.Parallel()
 
 	structs := fixtureStructs(loadFixture(t, "subjectsetfixture"))
 
 	tests := []struct {
-		name    string
-		auths   []string
+		name string
+		// auths are the auths the run's outlets declare, the first on the default outlet.
+		auths []string
+		// tree are the auth packages in the application's tree; none leaves the run with
+		// no tree to read.
+		tree    []string
 		structs []string
 		want    map[string]string
 		wantErr []string
@@ -192,12 +201,45 @@ func TestExtractResourcesBesideTheApplications_subjectSetAuths(t *testing.T) {
 			structs: []string{"TeamMember", "BayKeeper"},
 			want:    map[string]string{"bays": "staff", "teams": ""},
 		},
+		{
+			name:    "one outlet with an auth whose package is the tree's one auth, and a set that says none",
+			auths:   []string{"staff"},
+			tree:    []string{"staff"},
+			structs: []string{"TeamMember", "BayKeeper"},
+			want:    map[string]string{"bays": "staff", "teams": ""},
+		},
+		{
+			name:    "one outlet with an auth beside another site's auth package, and a set that says none",
+			auths:   []string{"staff"},
+			tree:    []string{"staff", "patrons"},
+			structs: []string{"TeamMember", "BayKeeper"},
+			wantErr: []string{"struct TeamMember field UserID: @subjectSet(teams): the application has several auths (patrons, staff), and a set describes the people of one"},
+		},
+		{
+			name:    "one outlet with an auth beside another site's auth package, and a set for each auth",
+			auths:   []string{"staff"},
+			tree:    []string{"staff", "patrons"},
+			structs: []string{"BayKeeper", "LoungeGuest"},
+			want:    map[string]string{"bays": "staff", "lounges": "patrons"},
+		},
+		{
+			name:    "no outlet with an auth beside two auth packages, and a set that names neither",
+			tree:    []string{"crew", "patrons"},
+			structs: []string{"BayKeeper"},
+			wantErr: []string{"struct BayKeeper field UserID: @subjectSet(bays): auth: names staff, which is no auth of the application; its auths are: crew, patrons"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			r := &resourceGenerator{client: subjectSetFixtureClient(t, structs), genRoutes: true, routePrefix: "api"}
+			if len(tt.tree) > 0 {
+				r.moduleRoot = t.TempDir()
+				for _, auth := range tt.tree {
+					writeAuthPackage(t, r.moduleRoot, auth)
+				}
+			}
 			for i, auth := range tt.auths {
 				outlet := routerOutlet{auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/" + auth, methods: []AuthMethod{PasswordMethod()}}}
 				if i == 0 {
@@ -240,5 +282,21 @@ func TestExtractResourcesBesideTheApplications_subjectSetAuths(t *testing.T) {
 				t.Errorf("the auth each set names mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// writeAuthPackage writes an auth package of the name into the application tree at root,
+// where the application keeps its auths: a package under pkg/auth that constructs a
+// session Auth.
+func writeAuthPackage(t *testing.T, root, name string) {
+	t.Helper()
+
+	dir := filepath.Join(root, "pkg", "auth", name)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatalf("os.MkdirAll() error = %v", err)
+	}
+	src := "package " + name + "\n\nimport \"github.com/impulseframework/impulse/session\"\n\nfunc New() {\n\t_, _ = session.NewAuth(nil)\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "auth.go"), []byte(src), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 }

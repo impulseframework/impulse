@@ -19,24 +19,13 @@ import (
 	"github.com/go-playground/errors/v5"
 
 	"github.com/impulseframework/impulse/cloud"
+	"github.com/impulseframework/impulse/internal/apptree"
 )
 
-// skippedDirs are never descended into: they hold dependencies or build output, not the
-// application's own declarations.
-var skippedDirs = map[string]bool{
-	".git":         true,
-	"node_modules": true,
-	"vendor":       true,
-	"dist":         true,
-	".angular":     true,
-}
-
-// The names the Go tool goes by: the directory it keeps for a package's test fixtures,
-// and the file that makes a directory the root of a module.
-const (
-	testdataDir = "testdata"
-	goModFile   = "go.mod"
-)
+// The rules a reading of the application's tree goes by (which directories a walk leaves
+// alone, which Go files the Go tool reads, which packages are its auths) are the apptree
+// package's, where a generation run reads them too; the scan asks them under the names
+// below.
 
 // passedOverByGo reports whether the Go tool passes over a directory or a file of this
 // name: one whose name begins with "_" or ".", and a directory named testdata (go help
@@ -45,7 +34,7 @@ const (
 // test's fixture, a tool's own directory) unless a package the pattern does match imports
 // it by its path, which followImports reads.
 func passedOverByGo(name string, isDir bool) bool {
-	return strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".") || (isDir && name == testdataDir)
+	return apptree.PassedOverByGo(name, isDir)
 }
 
 // GoToolReads reports whether a file of this name is a Go file the Go tool reads: its
@@ -61,21 +50,19 @@ func passedOverByGo(name string, isDir bool) bool {
 // themselves still. A test file and a generated file are Go files the Go tool reads; a
 // reader that leaves them out says so itself.
 func GoToolReads(name string) bool {
-	return strings.HasSuffix(name, ".go") && !passedOverByGo(name, false)
+	return apptree.GoToolReads(name)
 }
 
 // skipsDir reports whether a walk of the application leaves a directory of this name
 // alone: one that holds dependencies or build output, and one the Go tool passes over. The
 // application's root is the caller's to exempt, whatever it is called.
 func skipsDir(name string) bool {
-	return skippedDirs[name] || passedOverByGo(name, true)
+	return apptree.SkipsDir(name)
 }
 
 // holdsModule reports whether a directory holds a go.mod of its own.
 func holdsModule(abs string) bool {
-	info, err := os.Stat(filepath.Join(abs, goModFile))
-
-	return err == nil && !info.IsDir()
+	return apptree.HoldsModule(abs)
 }
 
 var (
