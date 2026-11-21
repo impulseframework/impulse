@@ -122,8 +122,9 @@ func TestGeneratedCollection_subjectComparisonTypes(t *testing.T) {
 
 // TestNewGeneratedCollection_bindingValidation pins the runtime vocabulary
 // rules: names unique within one resource, subject names unique across the
-// whole collection, and every attribute and subject entry typed from the
-// vocabulary.
+// whole collection, every attribute and subject entry typed from the
+// vocabulary, and a subject entry's own way to a row's tenant carried only by
+// a subject set of a resource that is no tenant's.
 func TestNewGeneratedCollection_bindingValidation(t *testing.T) {
 	t.Parallel()
 
@@ -196,6 +197,44 @@ func TestNewGeneratedCollection_bindingValidation(t *testing.T) {
 				SubjectValues: []SubjectBindingData{{Name: "approvalLimit", UserColumn: "UserId", Column: "Limit", Type: "bytes"}},
 			}}},
 			wantContain: `subject binding "approvalLimit" carries comparison type "bytes"`,
+		},
+		{
+			name: "a subject set that names its own way to a tenant on a tenant's resource",
+			data: CollectionData{Resources: []CollectionResource{{
+				Name:  "CrewMembers",
+				Scope: accesstypes.DomainPermissionScope,
+				SubjectSets: []SubjectBindingData{{
+					Name: "crews", UserColumn: "UserId", Column: "CrewId", Type: AttributeTypeString,
+					Domain: &DomainBindingData{Column: "Region"},
+				}},
+				Domain: &DomainBindingData{Column: "StationId"},
+			}}},
+			wantContain: `resource "CrewMembers" subject set "crews" writes a domain:, which says where a row's tenant is found on a resource that is no tenant's; "CrewMembers" is a tenant's resource`,
+		},
+		{
+			name: "a subject set that names its own way to a tenant beside a domain binding the resource carries",
+			data: CollectionData{Resources: []CollectionResource{{
+				Name:  "CrewMembers",
+				Scope: accesstypes.GlobalPermissionScope,
+				SubjectSets: []SubjectBindingData{{
+					Name: "crews", UserColumn: "UserId", Column: "CrewId", Type: AttributeTypeString,
+					Domain: &DomainBindingData{Column: "CrewId", Path: []BindingHop{{Table: "Crews", JoinColumn: "Id", Column: "Region"}}},
+				}},
+				Domain: &DomainBindingData{Column: "StationId"},
+			}}},
+			wantContain: `its own domain binding keeps the set to the request's tenant — remove the set's domain`,
+		},
+		{
+			name: "a subject value that names a way to a tenant",
+			data: CollectionData{Resources: []CollectionResource{{
+				Name:  "UserProfiles",
+				Scope: accesstypes.GlobalPermissionScope,
+				SubjectValues: []SubjectBindingData{{
+					Name: "approvalLimit", UserColumn: "UserId", Column: "Limit", Type: AttributeTypeNumber,
+					Domain: &DomainBindingData{Column: "StationId"},
+				}},
+			}}},
+			wantContain: `resource "UserProfiles" subject value "approvalLimit" writes a domain:, which is a part of a subject set alone`,
 		},
 		{
 			name: "empty binding name",

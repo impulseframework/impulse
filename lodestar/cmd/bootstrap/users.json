@@ -3,6 +3,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000001",
       "user": "governor",
+      "name": "Governor Greer",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -23,6 +24,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000002",
       "user": "marshal",
+      "name": "Marshal Maren",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -42,6 +44,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000003",
       "user": "cadet",
+      "name": "Cadet Cass",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -59,6 +62,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000004",
       "user": "pilot",
+      "name": "Pilot Pax",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -80,6 +84,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000005",
       "user": "veteran",
+      "name": "Veteran Vela",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -97,6 +102,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000006",
       "user": "lead",
+      "name": "Flight Lead Lior",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -114,6 +120,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000007",
       "user": "dispatcher",
+      "name": "Dispatcher Dunn",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -136,6 +143,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000008",
       "user": "overseer",
+      "name": "Overseer Orla",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -154,6 +162,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000009",
       "user": "booking",
+      "name": "Booking Agent Bex",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -172,6 +181,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000010",
       "user": "wingco",
+      "name": "Wing Commander Wilde",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -189,6 +199,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000011",
       "user": "engineer",
+      "name": "Engineer Ezra",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -205,6 +216,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000012",
       "user": "quartermaster",
+      "name": "Quartermaster Quill",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -221,6 +233,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000013",
       "user": "supercargo",
+      "name": "Supercargo Sol",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -238,6 +251,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000014",
       "user": "salvor",
+      "name": "Salvor Sable",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -254,6 +268,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000015",
       "user": "yeoman",
+      "name": "Yeoman Yael",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -270,6 +285,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000016",
       "user": "purser",
+      "name": "Purser Priya",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -286,6 +302,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000017",
       "user": "registrar",
+      "name": "Registrar Rhea",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -302,6 +319,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000018",
       "user": "photographer",
+      "name": "Photographer Petra",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -318,6 +336,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000019",
       "user": "archivist",
+      "name": "Archivist Ada",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -332,6 +351,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000020",
       "user": "assessor",
+      "name": "Assessor Asa",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -347,6 +367,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000021",
       "user": "hazards",
+      "name": "Hazard Analyst Hale",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -367,6 +388,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000022",
       "user": "dock",
+      "name": "Dockmaster Dara",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -383,6 +405,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000023",
       "user": "watch",
+      "name": "Night Watch Nadia",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -399,6 +422,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000024",
       "user": "harbormaster",
+      "name": "Harbormaster Hollis",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -415,6 +439,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000025",
       "user": "adjutant",
+      "name": "Adjutant Alba",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -432,6 +457,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000026",
       "user": "surveyor",
+      "name": "Surveyor Shen",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -446,6 +472,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000027",
       "user": "rigger",
+      "name": "Rigger Rook",
       "password": "lodestar",
       "roles": {
         "domains": {
@@ -461,6 +488,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000028",
       "user": "bosun",
+      "name": "Bosun Bram",
       "password": "lodestar",
       "roles": {
         "domains": {
@@ -473,6 +501,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000029",
       "user": "armorer",
+      "name": "Armorer Arlo",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -488,6 +517,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000031",
       "user": "liaison",
+      "name": "Liaison Lark",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -507,6 +537,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000032",
       "user": "deckhand",
+      "name": "Deckhand Dev",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -518,6 +549,7 @@
     {
       "id": "f0000000-0000-4000-8000-000000000033",
       "user": "relief",
+      "name": "Relief Rae",
       "password": "lodestar",
       "roles": {
         "global": [
@@ -536,6 +568,22 @@
           "reason": "Covering Anvil's deck while the hangar is refitted"
         }
       ]
+    },
+    {
+      "id": "f0000000-0000-4000-8000-000000000034",
+      "user": "sentry",
+      "name": "Sentry Sol",
+      "password": "lodestar",
+      "roles": {
+        "global": [
+          "CrewCommon"
+        ],
+        "domains": {
+          "Anvil": [
+            "Armorer"
+          ]
+        }
+      }
     }
   ],
   "groups": [
@@ -553,6 +601,22 @@
       },
       "members": [
         "deckhand"
+      ]
+    },
+    {
+      "name": "Bay keepers",
+      "description": "The people who keep Anvil's Quarantine Bay: the group holds a pass to run the bay, so each of them does.",
+      "domain": "Anvil",
+      "roles": {},
+      "members": [
+        "sentry"
+      ],
+      "passes": [
+        {
+          "id": "61000000-0000-4000-8000-000000000006",
+          "hangar": "Quarantine Bay",
+          "level": "run"
+        }
       ]
     }
   ],

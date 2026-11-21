@@ -25,6 +25,7 @@ func (a *App) HangarPasses() http.HandlerFunc {
 		HangarID   impulse.UUID     `json:"hangarId"   index:"true"`
 		UserID     *string          `json:"userId"     index:"true"`
 		SquadronID impulse.NullUUID `json:"squadronId" index:"true"`
+		GroupID    impulse.NullUUID `json:"groupId"    index:"true"`
 		LevelID    string           `json:"levelId"    index:"true"`
 		ExpiresAt  *time.Time       `json:"expiresAt"`
 	}
@@ -89,6 +90,10 @@ func (a *App) HangarPasses() http.HandlerFunc {
 					if !row.Masked("squadronId") {
 						rmap["squadronId"] = rec.SquadronID
 					}
+				case "GroupID":
+					if !row.Masked("groupId") {
+						rmap["groupId"] = rec.GroupID
+					}
 				case "LevelID":
 					if !row.Masked("levelId") {
 						rmap["levelId"] = rec.LevelID
@@ -125,6 +130,7 @@ func (a *App) HangarPass() http.HandlerFunc {
 		HangarID   impulse.UUID     `json:"hangarId"`
 		UserID     *string          `json:"userId"`
 		SquadronID impulse.NullUUID `json:"squadronId"`
+		GroupID    impulse.NullUUID `json:"groupId"`
 		LevelID    string           `json:"levelId"`
 		ExpiresAt  *time.Time       `json:"expiresAt"`
 	}
@@ -176,6 +182,10 @@ func (a *App) HangarPass() http.HandlerFunc {
 			case "SquadronID":
 				if !row.Masked("squadronId") {
 					rmap["squadronId"] = rec.SquadronID
+				}
+			case "GroupID":
+				if !row.Masked("groupId") {
+					rmap["groupId"] = rec.GroupID
 				}
 			case "LevelID":
 				if !row.Masked("levelId") {

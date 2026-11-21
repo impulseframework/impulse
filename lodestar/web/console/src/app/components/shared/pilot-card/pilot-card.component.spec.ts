@@ -45,7 +45,9 @@ const cadet: Persona = {
   username: 'cadet',
   digest: cardDigest(false),
   enabled: [],
-  cards: [{ userId: 'cadet', displayName: 'Cadet Cass', clearance: 1, feeLimit: 0, certifications: [], squadrons: [] }],
+  cards: [
+    { userId: 'cadet', displayName: 'Cadet Cass', clearance: 1, feeLimit: '0', certifications: [], squadrons: [] },
+  ],
 };
 
 /** Pax, whose two citations the desk holds: his card with the flag on and with it off. */
@@ -58,7 +60,7 @@ const paxCited: Persona = {
       userId: 'pilot',
       displayName: 'Pilot Pax',
       clearance: 3,
-      feeLimit: 0,
+      feeLimit: '0',
       certifications: ['hazard-3'],
       squadrons: ['Hammer'],
       commendations: 2,
@@ -75,7 +77,7 @@ const paxDark: Persona = {
       userId: 'pilot',
       displayName: 'Pilot Pax',
       clearance: 3,
-      feeLimit: 0,
+      feeLimit: '0',
       certifications: ['hazard-3'],
       squadrons: ['Hammer'],
     },

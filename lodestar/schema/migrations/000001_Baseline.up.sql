@@ -391,23 +391,26 @@ CREATE TABLE Hangars (
   Name_Lower STRING(MAX) AS (LOWER(Name)) STORED,
 ) PRIMARY KEY (Id);
 
--- HangarPasses: who a hangar is open to. A pass names a person or a squadron, never both,
--- at a level (visit, or run) and until it expires; no expiry is a standing pass. The two
--- subject sets the resource struct declares read this table: the hangars open to the
--- requester and the hangars the requester runs, each through a pass in their own name or
--- in the name of a squadron they fly with. A pass goes with its hangar and with its
--- squadron.
+-- HangarPasses: who a hangar is open to. A pass names one holder, a person, a squadron or
+-- a group of the crew, at a level (visit, or run) and until it expires; no expiry is a
+-- standing pass. The two subject sets the resource struct declares read this table: the
+-- hangars open to the requester and the hangars the requester runs, each through a pass
+-- in their own name, in the name of a squadron they fly with or in the name of a group
+-- they are in. A pass goes with its hangar, with its squadron and with its group (the
+-- foreign key to CrewGroups is added below that table). The holder check counts the
+-- three columns and takes exactly one; an empty UserId names nobody and is not counted.
 CREATE TABLE HangarPasses (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
   HangarId STRING(36) NOT NULL,
   UserId STRING(36),
   SquadronId STRING(36),
+  GroupId STRING(36),
   LevelId STRING(64) NOT NULL,
   ExpiresAt TIMESTAMP,
 
   CONSTRAINT CK_HangarPasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT CK_HangarPasses_Holder CHECK ((UserId IS NULL) != (SquadronId IS NULL)),
+  CONSTRAINT CK_HangarPasses_Holder CHECK (IF(UserId IS NULL OR UserId = '', 0, 1) + IF(SquadronId IS NULL, 0, 1) + IF(GroupId IS NULL, 0, 1) = 1),
   CONSTRAINT FK_HangarPasses_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id) ON DELETE CASCADE,
@@ -420,6 +423,8 @@ CREATE TABLE HangarPasses (
 CREATE INDEX HangarPassesBySectorIdUserIdHangarId ON HangarPasses(SectorId, UserId, HangarId);
 
 CREATE INDEX HangarPassesBySectorIdSquadronIdHangarId ON HangarPasses(SectorId, SquadronId, HangarId);
+
+CREATE INDEX HangarPassesBySectorIdGroupIdHangarId ON HangarPasses(SectorId, GroupId, HangarId);
 
 -- The list's own order: a sector's passes by hangar.
 CREATE INDEX HangarPassesBySectorIdHangarId ON HangarPasses(SectorId, HangarId);
@@ -753,6 +758,10 @@ CREATE TABLE CrewGroups (
 ) PRIMARY KEY (Id);
 
 CREATE UNIQUE INDEX CrewGroupsByName ON CrewGroups (Kind, Axis, DomainId, Name);
+
+-- A hangar pass may name a group as its holder. The pass goes with the group: deleting
+-- a group leaves no pass that names it.
+ALTER TABLE HangarPasses ADD CONSTRAINT FK_HangarPasses_GroupId FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id) ON DELETE CASCADE;
 
 CREATE TABLE CrewGroupMembers (
   GroupId STRING(36) NOT NULL,

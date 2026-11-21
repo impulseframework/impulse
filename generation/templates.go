@@ -4824,7 +4824,7 @@ func Collection() *resource.GeneratedCollection {
 				{{- with .SubjectSets }}
 				SubjectSets: []resource.SubjectBindingData{
 					{{- range . }}
-					{Name: "{{ .Name }}", UserColumn: "{{ .UserColumn }}", Column: "{{ .Column }}", Type: "{{ .Type }}"{{ BindingHops .Path }}{{ SubjectParts .Who .Where }}},
+					{Name: "{{ .Name }}", UserColumn: "{{ .UserColumn }}", Column: "{{ .Column }}", Type: "{{ .Type }}"{{ BindingHops .Path }}{{ SubjectParts .Who .Where }}{{ SubjectDomain .Domain }}},
 					{{- end }}
 				},
 				{{- end }}

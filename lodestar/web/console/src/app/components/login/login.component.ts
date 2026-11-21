@@ -173,6 +173,13 @@ export const CREW_MANIFEST: Persona[] = [
       'Sees the hangars a pass opens to his squadron and re-zones the one it runs: a subject set with a who: that follows the squadron set and a where: on the level and the expiry.',
   },
   {
+    login: 'sentry',
+    name: 'Sentry Sol',
+    deck: 'Hangar deck',
+    proves:
+      'Holds no pass and flies with no squadron: the Bay keepers, a group kept in Anvil, hold a pass to run the Quarantine Bay, and the sentry is in the group, so the bay is the one hangar on his list and his to re-zone.',
+  },
+  {
     login: 'deckhand',
     name: 'Deckhand Dev',
     deck: 'Hangar deck',

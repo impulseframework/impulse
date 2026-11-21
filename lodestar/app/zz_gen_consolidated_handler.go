@@ -72,8 +72,9 @@ func (a *App) PatchResources() http.HandlerFunc {
 		ID         impulse.UUID     `json:"-"`
 		SectorID   impulse.UUID     `json:"-"`
 		HangarID   impulse.UUID     `json:"hangarId"`
-		UserID     *string          `json:"userId"     sqltype:"STRING(36)"`
-		SquadronID impulse.NullUUID `json:"squadronId"`
+		UserID     *string          `json:"userId"     immutable:"true"     sqltype:"STRING(36)"`
+		SquadronID impulse.NullUUID `json:"squadronId" immutable:"true"`
+		GroupID    impulse.NullUUID `json:"groupId"    immutable:"true"`
 		LevelID    string           `json:"levelId"    sqltype:"STRING(64)"`
 		ExpiresAt  *time.Time       `json:"expiresAt"`
 	}
@@ -693,6 +694,9 @@ func (a *App) PatchResources() http.HandlerFunc {
 							return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
 						}
 						if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "SquadronID", "squadrons"); err != nil {
+							return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
+						}
+						if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "GroupID", "groups"); err != nil {
 							return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
 						}
 

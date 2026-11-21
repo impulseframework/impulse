@@ -235,7 +235,7 @@ export interface Missions {
   brief?: string;
   briefingTemplateId?: string;
   hazard?: number;
-  fee?: number;
+  fee?: string;
   deadline?: Date;
   requiredCertId?: string;
   bookedByUserId?: string;
@@ -243,7 +243,7 @@ export interface Missions {
   assignedSquadronId?: string;
   statusId?: string;
   notes?: string;
-  settlement?: number;
+  settlement?: string;
 }
 
 export interface MissionDocuments {

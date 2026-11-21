@@ -57,6 +57,31 @@ func loweringFixtureCollection(t *testing.T) *GeneratedCollection {
 				{Name: "clearedUntil", UserColumn: "UserId", Column: "ClearedUntil", Type: AttributeTypeTimestamp},
 			},
 		},
+		{
+			// A table that is no tenant's whose rows belong to tenants through a parent:
+			// a pool is kept at one station or at none, and the set says where its tenant
+			// is found.
+			Name:  "PoolMembers",
+			Scope: accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{
+				{
+					Name: "pools", UserColumn: "UserId", Column: "PoolId", Type: AttributeTypeString,
+					Domain: &DomainBindingData{Column: "PoolId", Path: []BindingHop{{Table: "Pools", JoinColumn: "Id", Column: "StationId"}}},
+				},
+			},
+		},
+		{
+			// A table that is no tenant's whose rows each carry their tenant themselves:
+			// the set names that column of its own row, and its way to a tenant has no hop.
+			Name:  "Keyholders",
+			Scope: accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{
+				{
+					Name: "keys", UserColumn: "UserId", Column: "KeyId", Type: AttributeTypeString,
+					Domain: &DomainBindingData{Column: "StationId"},
+				},
+			},
+		},
 	}})
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection() error = %v", err)
@@ -111,6 +136,32 @@ func TestLowerCondition_rendering(t *testing.T) {
 			source:  "crew IN subject.crews",
 			wantSQL: "CASE WHEN `t`.`CrewId` IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM `CrewMembers` `ca1` WHERE `ca1`.`UserId` = @subject AND `ca1`.`CrewId` = `t`.`CrewId`) END",
 
+			wantNamed: []string{"subject"},
+		},
+		{
+			name:        "a set on a global table that names its own way to a tenant is kept to the request's tenant",
+			source:      "crew IN subject.pools",
+			partitioned: true,
+			wantSQL:     "CASE WHEN `t`.`CrewId` IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM `PoolMembers` `ca1` WHERE `ca1`.`UserId` = @subject AND `ca1`.`PoolId` = `t`.`CrewId` AND EXISTS (SELECT 1 FROM `Pools` `ca2` WHERE `ca2`.`Id` = `ca1`.`PoolId` AND `ca2`.`StationId` = @domain)) END",
+			wantNamed:   []string{"domain", "subject"},
+		},
+		{
+			name:        "a set on a global table whose rows carry their tenant compares the anchor's own column to the request's tenant",
+			source:      "crew IN subject.keys",
+			partitioned: true,
+			wantSQL:     "CASE WHEN `t`.`CrewId` IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM `Keyholders` `ca1` WHERE `ca1`.`UserId` = @subject AND `ca1`.`KeyId` = `t`.`CrewId` AND `ca1`.`StationId` = @domain) END",
+			wantNamed:   []string{"domain", "subject"},
+		},
+		{
+			name:      "that set in a global request reads every tenant's rows",
+			source:    "crew IN subject.keys",
+			wantSQL:   "CASE WHEN `t`.`CrewId` IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM `Keyholders` `ca1` WHERE `ca1`.`UserId` = @subject AND `ca1`.`KeyId` = `t`.`CrewId`) END",
+			wantNamed: []string{"subject"},
+		},
+		{
+			name:      "the same set in a global request reads every tenant's rows",
+			source:    "crew IN subject.pools",
+			wantSQL:   "CASE WHEN `t`.`CrewId` IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM `PoolMembers` `ca1` WHERE `ca1`.`UserId` = @subject AND `ca1`.`PoolId` = `t`.`CrewId`) END",
 			wantNamed: []string{"subject"},
 		},
 		{

@@ -569,6 +569,7 @@ func (c *client) templateFuncs() map[string]any {
 		"ClassConstant":           classConstantName,
 		"BindingHops":             bindingHopsLiteral,
 		"SubjectParts":            subjectPartsLiteral,
+		"SubjectDomain":           subjectDomainLiteral,
 		// The feature flag routes under an outlet's prefix and the read route's
 		// parameter, from the resource package's constants, so the routes, the router
 		// tests and the TypeScript descriptor spell them once.
@@ -665,6 +666,17 @@ func subjectPartsLiteral(who []resource.SubjectWhoData, where *resource.SubjectW
 	}
 
 	return b.String()
+}
+
+// subjectDomainLiteral renders a subject set's own way to a row's tenant as the
+// trailing Domain field of its SubjectBindingData literal. A set that names none
+// renders nothing, so its literal is the one it has always had.
+func subjectDomainLiteral(domain *resource.DomainBindingData) string {
+	if domain == nil {
+		return ""
+	}
+
+	return fmt.Sprintf(", Domain: &resource.DomainBindingData{Column: %q%s}", domain.Column, bindingHopsLiteral(domain.Path))
 }
 
 // permissionConstant renders a permission as its accesstypes constant when one exists,
