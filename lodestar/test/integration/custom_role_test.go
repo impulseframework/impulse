@@ -63,10 +63,10 @@ func TestCustomRole_undeclaredGrantIsSkipped(t *testing.T) {
 	}
 	// The grant on the undeclared resource is put in the store as a release that
 	// declared the resource would have left it there: by an engine over the same store
-	// that was told nothing of what this release declares, and so checks no name.
-	earlier := engineThatChecksNoName(t, db)
+	// whose collection lists the resource beside what this release declares.
+	earlier := engineOfAReleaseThatDeclared(t, db, map[accesstypes.Permission][]accesstypes.Resource{accesstypes.List: {undeclared}})
 	if err := earlier.UserManager().AddRoleGrant(ctx, held, role, accesstypes.List, undeclared, ""); err != nil {
-		t.Fatalf("access.UserManager.AddRoleGrant() by an engine with no collection, error = %v", err)
+		t.Fatalf("access.UserManager.AddRoleGrant() by the engine of a release that declared %s, error = %v", undeclared, err)
 	}
 	if err := manager.AddUserRoles(ctx, held, login, role); err != nil {
 		t.Fatalf("access.UserManager.AddUserRoles() error = %v", err)

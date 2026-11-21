@@ -14,10 +14,12 @@ type clientOptions struct {
 	signal            ChangeSignal
 	heartbeatInterval time.Duration
 	onReloadError     func(error)
-	collection        PermissionCollection
-	roleFile          RoleFile
-	roleFileSet       bool
-	superMethods      []accesstypes.Resource
+	// collection is what the running release declares: the argument New takes,
+	// which New sets here for the engine it builds.
+	collection   PermissionCollection
+	roleFile     RoleFile
+	roleFileSet  bool
+	superMethods []accesstypes.Resource
 	// tenantAdministrators are the roles whose holders administer a tenant
 	// (WithTenantAdministratorRoles).
 	tenantAdministrators []accesstypes.Role
@@ -84,25 +86,9 @@ func WithReloadErrorHandler(f func(error)) Option {
 	}
 }
 
-// WithPermissionCollection tells the Client what the running release declares:
-// its permissions, resources and fields. A stored grant naming one the release
-// does not declare (after a rollback, or once a release drops a resource) is
-// then left out of the snapshot and reported as a SkippedGrant instead of
-// being carried as a grant nothing can check, and the writes that give a
-// custom role a grant refuse a name the release does not declare
-// (UserManager.AddRoleGrant). Without it, names are not checked, when the
-// policy loads or when a grant is written; conditions are checked either way.
-// WithDefaultRoles sets the collection too, so an application with a role
-// file does not need this.
-func WithPermissionCollection(c PermissionCollection) Option {
-	return func(o *clientOptions) {
-		o.collection = c
-	}
-}
-
 // WithDefaultRoles gives the Client the release's default roles: the role
 // file embedded in the application binary, validated against the collection
-// the release declares. The default roles are policy that travels with the
+// New is given. The default roles are policy that travels with the
 // release — the store holds no row for them: the snapshot compiles them from
 // the file, a global role held in the global partition and a domain role held
 // in every tenant domain, a membership names one by name alone, and the
@@ -114,10 +100,9 @@ func WithPermissionCollection(c PermissionCollection) Option {
 // or carries a condition the vocabulary refuses fails New, so the release
 // does not start. The shapes the file may carry but probably should not (see
 // Warning) do not fail it; Client.CheckPolicy returns them for the deploy's
-// migrate step to print. The collection must not be nil.
-func WithDefaultRoles(collection PermissionCollection, file RoleFile) Option {
+// migrate step to print.
+func WithDefaultRoles(file RoleFile) Option {
 	return func(o *clientOptions) {
-		o.collection = collection
 		o.roleFile = file
 		o.roleFileSet = true
 	}
@@ -131,10 +116,9 @@ func WithDefaultRoles(collection PermissionCollection, file RoleFile) Option {
 // condition, whatever the role file grants anybody: a super administrator
 // gives and takes any role of the auth for any person, in the global
 // partition and in every tenant, so one who can sign in can take the power
-// to fix what is broken. With a collection (WithDefaultRoles,
-// WithPermissionCollection) New refuses a method the release does not declare
-// at the global scope with Execute. Without the option the role is defined
-// and holds nothing of its own.
+// to fix what is broken. New refuses a method the release's collection does
+// not declare at the global scope with Execute. Without the option the role
+// is defined and holds nothing of its own.
 func WithSuperAdministratorMethods(methods ...accesstypes.Resource) Option {
 	return func(o *clientOptions) {
 		o.superMethods = methods

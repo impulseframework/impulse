@@ -450,6 +450,13 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			case domain != madeTenant:
 				t.Errorf("acceptTenantInvitation() = %q, want the tenant the maker made", domain)
 			}
+			wantSaid := ""
+			if tt.wantErr == nil {
+				wantSaid = string(madeTenant)
+			}
+			if tt.inv.MadeTenantID != wantSaid {
+				t.Errorf("the invitation's MadeTenantID = %q, want %q: the acceptance tells the session library the tenant it made, and names none when it made none", tt.inv.MadeTenantID, wantSaid)
+			}
 			if diff := cmp.Diff(tt.wantMade, tt.maker.made); diff != "" {
 				t.Errorf("the maker was asked (-want +got):\n%s", diff)
 			}

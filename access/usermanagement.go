@@ -28,17 +28,16 @@ type userManager struct {
 	// (WithTenantAdministratorRoles), which TenantsAdministered reads the
 	// store by.
 	tenantAdministrators []accesstypes.Role
-	// collection is what the running release declares (WithDefaultRoles,
-	// WithPermissionCollection), which a grant written to a role is held to
-	// (requireDeclared); nil where the application handed the Client none.
+	// collection is what the running release declares (the collection New is
+	// given), which a grant written to a role is held to (requireDeclared).
 	collection PermissionCollection
 }
 
 // newUserManager creates a userManager over the policy store, the release's
 // default roles (nil for none), the evaluator the effective-permission
 // listings answer from, the roles whose holders administer a tenant (none
-// where the application named none) and the permission collection a grant
-// written to a role is held to (nil where the application handed none).
+// where the application named none) and the release's permission collection,
+// which a grant written to a role is held to.
 func newUserManager(store managementStore, defaults *defaultRoles, evaluator evaluator, tenantAdministrators []accesstypes.Role, collection PermissionCollection) *userManager {
 	return &userManager{
 		store:                store,
@@ -536,11 +535,10 @@ func requireResources(rows []GrantRow) error {
 // release, after a rollback or once a release drops a resource, and the load
 // skips and reports that one as before.
 //
-// A Client that was handed no collection checks no name here, as its load
-// checks none. A name the store cannot hold (splitGrantResource) is left to the
-// store, which refuses it in its own words.
+// A name the store cannot hold (splitGrantResource) is left to the store, which
+// refuses it in its own words.
 func (u *userManager) requireDeclared(rows []GrantRow) error {
-	if u.collection == nil || len(rows) == 0 {
+	if len(rows) == 0 {
 		return nil
 	}
 
@@ -573,12 +571,8 @@ func (u *userManager) requireDeclared(rows []GrantRow) error {
 // release has, which is one its permission collection lists. A role given a
 // permission no release has would show it in the role's editor and hold nothing
 // by it. A load of the policy checks no name on a stored scope-wide grant, so
-// this is where the name is held; a removal is held to nothing. A Client that
-// was handed no collection checks no name here either.
+// this is where the name is held; a removal is held to nothing.
 func (u *userManager) requireDeclaredPermission(permission accesstypes.Permission) error {
-	if u.collection == nil {
-		return nil
-	}
 	if _, has := u.collection.List()[permission]; !has {
 		return httpio.NewBadRequestMessagef(
 			"%s cannot be given to a role: this release has no permission %s. A role is given a permission the application declares; check the permission's name",

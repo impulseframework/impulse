@@ -48,9 +48,9 @@ var paymasterWarning = GrantWarning{Role: "Paymaster", Scope: accesstypes.Domain
 
 // newPolicyClient builds a Client over store with the options, failing the
 // test when New refuses, and closes it at test end.
-func newPolicyClient(t *testing.T, store Store, opts ...Option) *Client {
+func newPolicyClient(t *testing.T, store Store, collection PermissionCollection, opts ...Option) *Client {
 	t.Helper()
-	client, err := New(store, opts...)
+	client, err := New(store, collection, opts...)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -192,10 +192,10 @@ func TestRoleFile_Parse(t *testing.T) {
 }
 
 // TestNew_withDefaultRoles_refusals pins what New refuses with
-// WithDefaultRoles: a nil collection, a file that does not parse, a file
-// whose shape is wrong — a role name outside the grammar, a role with no
-// description — and a file naming what the collection does not declare: a
-// release whose default roles are wrong does not start.
+// WithDefaultRoles: a nil collection, as it does without a role file, a file
+// that does not parse, a file whose shape is wrong — a role name outside the
+// grammar, a role with no description — and a file naming what the collection
+// does not declare: a release whose default roles are wrong does not start.
 func TestNew_withDefaultRoles_refusals(t *testing.T) {
 	t.Parallel()
 
@@ -237,7 +237,7 @@ func TestNew_withDefaultRoles_refusals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			client, err := New(newFakeStore(), WithDefaultRoles(tt.collection, tt.file))
+			client, err := New(newFakeStore(), tt.collection, WithDefaultRoles(tt.file))
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("New() error = %v, want one containing %q", err, tt.wantErr)
 			}
@@ -257,7 +257,7 @@ func TestClient_WithDefaultRoles(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client := newPolicyClient(t, newFakeStore(), WithDefaultRoles(grammarCollection{}, grammarRoleFile))
+	client := newPolicyClient(t, newFakeStore(), grammarCollection{}, WithDefaultRoles(grammarRoleFile))
 	if err := client.WaitReady(ctx); err != nil {
 		t.Fatalf("WaitReady() error = %v", err)
 	}
@@ -460,7 +460,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 					t.Fatalf("seeding fake store: %v", err)
 				}
 			}
-			client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile))
+			client := newPolicyClient(t, store, probeCollection{}, WithDefaultRoles(probeRoleFile))
 			before, err := store.ReadPolicy(ctx)
 			if err != nil {
 				t.Fatalf("ReadPolicy() before error = %v", err)
@@ -518,7 +518,7 @@ func TestClient_CheckPolicy_findingsAreErrors(t *testing.T) {
 			t.Fatalf("seeding fake store: %v", err)
 		}
 	}
-	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile))
+	client := newPolicyClient(t, store, probeCollection{}, WithDefaultRoles(probeRoleFile))
 
 	warnings, err := client.CheckPolicy(ctx)
 	if err != nil {
@@ -601,7 +601,7 @@ func TestClient_CheckPolicy_storeError(t *testing.T) {
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile))
+	client := newPolicyClient(t, store, probeCollection{}, WithDefaultRoles(probeRoleFile))
 	store.setFail(errors.New("store down"))
 
 	warnings, err := client.CheckPolicy(ctx)
@@ -653,7 +653,7 @@ func TestClient_CheckPolicy_findingsReachReloadHook(t *testing.T) {
 		}
 	}
 	hook := &reloadErrors{}
-	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile), WithReloadErrorHandler(hook.collect))
+	client := newPolicyClient(t, store, probeCollection{}, WithDefaultRoles(probeRoleFile), WithReloadErrorHandler(hook.collect))
 
 	warnings, err := client.CheckPolicy(ctx)
 	if err != nil {

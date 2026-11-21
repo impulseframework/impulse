@@ -37,6 +37,12 @@ const rememberedOutside = '@outside';
  * person who holds something outside every tenant lands there, and anyone else lands in
  * their first tenant by name. Nobody lands on an empty page outside every tenant.
  *
+ * A person who has just accepted an invitation into a tenant lands in that tenant,
+ * whatever else they hold and wherever they last worked: the server names the tenant on
+ * the first session read after the acceptance (AuthService.invitedTenant). It is where
+ * they land until a page under the top bar is open, and from then on they land where they
+ * last worked, as everyone does.
+ *
  * Where a person works is where a page under the top bar was open: a page inside the
  * frame (FrameComponent), once the navigation to it has ended. The sign-in and sign-out
  * pages are outside every tenant by their URLs and are no place anybody works in, so
@@ -99,7 +105,8 @@ export class PlaceService {
     // every tenant is remembered only for a person who holds something in it. A navigation
     // under way has settled the tenant before it has drawn its page (the frame of the page
     // being left still stands while a lazy page loads), so nothing is remembered until it
-    // ends, and then only under a frame.
+    // ends, and then only under a frame. A person who works somewhere has landed: the
+    // tenant an invitation they accepted led to is no longer where they land.
     effect(() => {
       const place = this.current();
       const username = this.auth.sessionInfo().username;
@@ -111,6 +118,7 @@ export class PlaceService {
       } catch {
         // A browser that refuses storage lands the person by the first-time rule.
       }
+      this.auth.invitationLanded();
     });
   }
 
@@ -124,19 +132,35 @@ export class PlaceService {
     until.onDestroy(() => this.frames.update((count) => count - 1));
   }
 
-  /** Waits until the person's places are known: the global digest and the tenant list. */
+  /**
+   * Waits until the person's places are known: the global digest and the tenant list. The
+   * list is read again when it does not hold the tenant an invitation the person has just
+   * accepted seated them in: a person who accepts as they are was signed in, and had the
+   * list, before the seat was made.
+   */
   async ready(): Promise<void> {
     if (!this.auth.hasDigest()) {
       await firstValueFrom(this.auth.loadDigest());
     }
-    if (this.frame.tenanted && !this.tenants.tenants().length) {
+    if (!this.frame.tenanted) return;
+    const tenants = this.tenants.tenants();
+    const invited = this.auth.invitedTenant();
+    if (!tenants.length || (invited && !tenants.includes(invited))) {
       await firstValueFrom(this.auth.loadDomains());
     }
   }
 
-  /** Where the person lands: where they last worked if they still can, else the first place. */
+  /**
+   * Where the person lands: the tenant an invitation they have just accepted seated them
+   * in; else where they last worked if they still can, else the first place. An
+   * invitation's tenant that is no place of theirs (it is closed to this sign-in) is
+   * passed over.
+   */
   defaultPlace(): Place | undefined {
     const places = this.places();
+    const invited = this.auth.invitedTenant();
+    const seat = invited ? places.find((place) => place.id === invited) : undefined;
+    if (seat) return seat;
     let remembered: string | null = null;
     try {
       remembered = localStorage.getItem(this.rememberKey(this.auth.sessionInfo().username));

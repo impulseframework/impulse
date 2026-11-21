@@ -232,7 +232,7 @@ func Test_tenantAdministrators_periods(t *testing.T) {
 	e.clock = clock.now
 	stored := newStoreManager(store)
 	stored.onPolicyChange = e.policyChanged
-	manager := newUserManager(stored, nil, e, opts.tenantAdministrators, nil)
+	manager := newUserManager(stored, nil, e, opts.tenantAdministrators, fixtureCollection)
 	must := func(err error) {
 		t.Helper()
 		if err != nil {

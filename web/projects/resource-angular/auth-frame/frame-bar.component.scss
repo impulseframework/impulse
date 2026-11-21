@@ -1,5 +1,5 @@
 // The bar is above what scrolls, never among it: the frame scrolls the page under the bar
-// (`.page-scroll`), so the bar stays where it is with nothing to hold it there. It keeps
+// (`.impulse-frame-scroll`), so the bar stays where it is with nothing to hold it there. It keeps
 // its own layer, over anything a page fixes to the window.
 :host {
   display: block;

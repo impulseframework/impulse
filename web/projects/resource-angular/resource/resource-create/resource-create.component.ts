@@ -4,6 +4,7 @@ import {
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   inject,
   input,
   OnInit,
@@ -77,6 +78,7 @@ export class ResourceCreateComponent implements OnInit {
   router = inject(Router);
   destroyRef = inject(DestroyRef);
   formState = inject(FormStateService);
+  private host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /**
    * Whether the form holds something not yet created. While it does, the form is one of
@@ -251,15 +253,30 @@ export class ResourceCreateComponent implements OnInit {
     }
   }
 
+  /**
+   * Brings the first field the form refuses into view, in whatever scrolls around the
+   * form (the frame's page, a dialog): the field with its label and the line under it
+   * that says what is wrong, in the middle of the room, clear of a row the page keeps at
+   * its top. The field is found among this form's own elements, by the marks Angular's
+   * forms keep: `ng-invalid` on what does not hold, and `ng-touched` or `ng-untouched`
+   * on every element they keep a mark on at all. An element that carries the form's
+   * group is marked for the whole form, whatever its own control holds, and a text, a
+   * number and a date field carry it on their `mat-form-field`: a field that is filled
+   * is marked as refused while another is not. So the refused control is the first
+   * marked element that holds no other element of the form's.
+   */
+  private showFirstRefused(): void {
+    const marked = Array.from(this.host.nativeElement.querySelectorAll('form .ng-invalid'));
+    const control = marked.find((element) => element.querySelector('.ng-touched, .ng-untouched') === null);
+    const field = control?.closest('mat-form-field') ?? control;
+    field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
   saveForm(): void {
     if (!this.form().valid) {
       this.submitted.set(true);
       this.form().markAllAsTouched();
-      const formElement = document.getElementById('resource-form');
-      const invalidField = formElement?.querySelector('.mdc-text-field--invalid');
-      if (invalidField) {
-        invalidField.scrollIntoView({ behavior: 'smooth' });
-      }
+      this.showFirstRefused();
       return;
     }
 

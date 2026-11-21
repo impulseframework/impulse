@@ -151,6 +151,23 @@ async function settle(o: Opened, done: () => boolean): Promise<void> {
 const escapeKey = (): KeyboardEvent => new KeyboardEvent('keydown', { key: 'Escape' });
 
 describe('ResourceCreateDialogComponent', () => {
+  /** What was brought into view, in the order it was asked: jsdom lays nothing out and scrolls nothing. */
+  let shown: Element[];
+
+  beforeEach(() => {
+    shown = [];
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value(this: Element): void {
+        shown.push(this);
+      },
+    });
+  });
+
+  afterEach(() => {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
   it('is titled with the label, draws the fields with no heading of their own, and holds its button until something is filled', async () => {
     const o = await open(created);
 
@@ -208,7 +225,7 @@ describe('ResourceCreateDialogComponent', () => {
     expect(adds(o).length).toBe(2);
   });
 
-  it('says what is missing where a required field is empty, and sends nothing', async () => {
+  it('says what is missing where a required field is empty, brings that field into view in what the dialog scrolls, and sends nothing', async () => {
     const o = await open(created);
     // Something is filled, so the button can be pressed; the required holder is not.
     control(o, 'doorId').markAsDirty();
@@ -218,6 +235,8 @@ describe('ResourceCreateDialogComponent', () => {
     o.fixture.detectChanges();
 
     expect(text(o, '.refusal')).toBe('Please complete or fix required fields.');
+    expect(shown.map((element) => element.querySelector('mat-label')?.textContent?.trim())).toEqual(['Holder']);
+    expect(page(o).querySelector('mat-dialog-content')?.contains(shown[0])).toBe(true);
     expect(adds(o)).toEqual([]);
     expect(o.closed).toEqual([]);
   });

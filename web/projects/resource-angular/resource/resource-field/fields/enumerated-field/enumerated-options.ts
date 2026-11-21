@@ -185,22 +185,13 @@ export const failedRecordText = 'This record could not be loaded, so only its id
  * holds ('record'), nothing while it works. What the server said is never part of it: the
  * server's message names a resource, a page size, a column or a database, and whoever
  * looks into the failure finds it in the browser's console, where the picker writes it
- * (pickerConsoleLine). A request refused as not permitted (notPermitted) is not said
- * here: the picker says a sentence of its own for it (closedSourceText, closedRecordText).
+ * after the resource it reads and which of its two reads it was. A request refused as not
+ * permitted (notPermitted) is not said here: the picker says a sentence of its own for it
+ * (closedSourceText, closedRecordText).
  */
 export function pickerRefusal(error: unknown, read: 'list' | 'record', showsId: boolean): string | undefined {
   if (error === undefined || error === null || notPermitted(error)) {
     return undefined;
   }
   return read === 'list' ? failedSourceText(showsId) : failedRecordText;
-}
-
-/**
- * What the picker writes to the console before the server's answer, for a request of its
- * own that was refused or failed: the resource it reads, and which of its two reads it was.
- */
-export function pickerConsoleLine(resource: string, read: 'list' | 'record'): string {
-  return read === 'list'
-    ? `${resource}: the list a picker offers could not be loaded:`
-    : `${resource}: the record a picker shows could not be loaded:`;
 }

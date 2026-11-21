@@ -558,6 +558,14 @@ a[mat-icon-button] {
   color: var(--mat-sys-on-surface-variant);
 }
 
+// A cell whose text is cut short is a stop of the Tab key, where its whole text is
+// offered. The line that marks the focus is drawn inside the cell: outside it, the cells
+// beside it and the frame's edge would cut it.
+.impulse-row > td:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--mat-sys-primary, #1976d2) 50%, transparent);
+  outline-offset: -2px;
+}
+
 /* A list drawn a line each: every item on a line of its own, cut short like any cell. */
 .data-col .cell-line {
   display: block;
