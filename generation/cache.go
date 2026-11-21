@@ -24,8 +24,10 @@ const (
 	// default expression (v7), and a cache an earlier generator wrote would load without
 	// them under the same schema hash. It then came to pair a foreign key column with
 	// the column it references by its position in the referenced key (v8), and an
-	// earlier cache would load the pairing as it was read before.
-	tableMapCache  string = "tablemap-v8" + genCacheSuffix
+	// earlier cache would load the pairing as it was read before. It then came to read
+	// the columns of two foreign keys to the same columns once each (v9), and an earlier
+	// cache would load them twice.
+	tableMapCache  string = "tablemap-v9" + genCacheSuffix
 	enumValueCache string = "enumvalues" + genCacheSuffix
 
 	// latestEmulatorVersion is the emulator's moving tag: a generator may name it, and

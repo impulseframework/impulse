@@ -185,6 +185,20 @@ func Test_createTableMapUsingQuery(t *testing.T) {
 			},
 		},
 		{
+			// A seal and a stub name a pass by the same two columns. The database holds
+			// both foreign keys by one unique index on the pass, and the information
+			// schema lists that index's columns once for each of the two.
+			name:  "two foreign keys to the same columns that are no key each read their columns once",
+			table: "Seals",
+			wantIndexes: []indexMeta{
+				{Managed: true, Key: []indexColumn{{Column: "PassZone"}, {Column: "PassNumber"}}},
+				{Name: "PRIMARY_KEY", PrimaryKey: true, Unique: true, Key: []indexColumn{{Column: "Id"}}},
+			},
+			wantForeignKeys: []foreignKeyMeta{
+				{Name: "FK_Seals_Pass", Columns: []string{"PassZone", "PassNumber"}, ReferencedTable: "Passes", ReferencedColumns: []string{"Zone", "Number"}, DeleteRule: "NO ACTION"},
+			},
+		},
+		{
 			// The expression comes back as the migration wrote it, in its own case and
 			// without the parentheses the DDL wraps it in.
 			name:        "each column's default is read as the schema declares it",

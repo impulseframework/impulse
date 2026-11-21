@@ -273,6 +273,9 @@ const indexMapQuery string = `SELECT
 // table's primary key, or the unique index the database keeps on the columns of a
 // foreign key to columns that are not the key, which the information schema lists as a
 // constraint of its own. So a foreign key reads with its table and columns either way.
+// That index is one for every foreign key to the same columns, and the information
+// schema lists its columns once for each of them, so the referenced columns are read
+// distinct: a foreign key's column is beside the column it references once.
 const foreignKeyMapQuery string = `SELECT
 		kcu.TABLE_NAME,
 		rc.CONSTRAINT_NAME,
@@ -282,7 +285,10 @@ const foreignKeyMapQuery string = `SELECT
 		rc.DELETE_RULE
 	FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
 		JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
-		LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ref ON ref.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME
+		LEFT JOIN (
+			SELECT DISTINCT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION
+			FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+		) ref ON ref.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME
 			AND ref.ORDINAL_POSITION = kcu.POSITION_IN_UNIQUE_CONSTRAINT
 	WHERE
 		rc.CONSTRAINT_SCHEMA != 'INFORMATION_SCHEMA'
