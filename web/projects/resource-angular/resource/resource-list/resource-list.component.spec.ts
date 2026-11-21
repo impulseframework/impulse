@@ -613,9 +613,17 @@ describe('ResourceListComponent', () => {
     const refused: TransportResponse = { status: 403, body: { message: refusal } };
     const serverWords = /scope \(|user \(|3f2a9c1e|does not have|\(List\)|\[Clients\]|spanner|Unavailable|session pool/;
 
-    /** What was written to the console: each line's words, and the server's own message of the error written with it. */
+    /**
+     * What was written to the console, as a console prints it: each line's words with every
+     * name where the words keep its place (%s), and the server's own message of the error
+     * written after them.
+     */
     const written = (log: { mock: { calls: unknown[][] } }): string[] =>
-      log.mock.calls.map(([words, error]) => `${String(words)} ${error instanceof Error ? error.message : ''}`);
+      log.mock.calls.map(([words, ...values]) => {
+        const error = values.pop();
+        const line = values.reduce<string>((text, value) => text.replace('%s', () => String(value)), String(words));
+        return `${line} ${error instanceof Error ? error.message : ''}`;
+      });
 
     let consoleError: ReturnType<typeof vi.spyOn>;
 

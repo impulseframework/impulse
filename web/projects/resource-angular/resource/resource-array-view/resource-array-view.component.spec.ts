@@ -103,9 +103,13 @@ describe('ResourceArrayViewComponent, where the children could not be read', () 
       expect(element.textContent).not.toMatch(
         /scope \(|user \(|3f2a9c1e|does not have|\[Squadrons\]|spanner|session pool/,
       );
-      const written = consoleError.mock.calls.map(
-        ([words, error]: unknown[]) => `${String(words)} ${error instanceof Error ? error.message : ''}`,
-      );
+      // The line as a console prints it: the resource's name where the words keep its
+      // place (%s), then the server's own message of the error written after them.
+      const written = consoleError.mock.calls.map(([words, ...values]: unknown[]) => {
+        const error = values.pop();
+        const line = values.reduce<string>((text, value) => text.replace('%s', () => String(value)), String(words));
+        return `${line} ${error instanceof Error ? error.message : ''}`;
+      });
       expect(written).toEqual([`Squadrons: the list could not be loaded: ${tt.message}`]);
     });
   }

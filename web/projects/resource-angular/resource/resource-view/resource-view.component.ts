@@ -699,11 +699,13 @@ export class ResourceViewComponent implements OnInit {
     // What the server said of a read it refused, or how the read failed, is for whoever
     // looks into it: it is written to the console, once for each answer (the view's error
     // is the one thing read here), with the resource it belongs to. The page says it in
-    // its own words (viewErrorMessage).
+    // its own words (viewErrorMessage). The line's words are a constant, and the console
+    // puts the resource's name where they keep its place (%s): a name is never itself
+    // read as words to print.
     effect(() => {
       const error: unknown = this.store.viewError();
       if (error !== undefined && error !== null) {
-        console.error(`${untracked(this.config).primaryResource}: the record could not be loaded:`, error);
+        console.error('%s: the record could not be loaded:', untracked(this.config).primaryResource, error);
       }
     });
 

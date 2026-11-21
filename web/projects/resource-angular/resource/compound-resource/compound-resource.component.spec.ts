@@ -845,10 +845,9 @@ describe("CompoundResourceComponent: the page's title", () => {
     // names the top, and a place over what scrolls under it, as the heading row of a
     // view, a list and a create form does, and leaves how it is positioned to that rule.
     const rule = declared(row, ['.header-container']);
-    const place = ['top', 'z-index'].map(
-      (property) => new RegExp(`(?:^|[\\s;])${property}:\\s*([^;]+)`).exec(rule)?.[1]?.trim() ?? 'none',
-    );
-    expect(place).toEqual(['0', '11']);
+    const top = /(?:^|[\s;])top:\s*([^;]+)/.exec(rule)?.[1]?.trim() ?? 'none';
+    const over = /(?:^|[\s;])z-index:\s*([^;]+)/.exec(rule)?.[1]?.trim() ?? 'none';
+    expect([top, over]).toEqual(['0', '11']);
     expect(rule).not.toContain('position');
   });
 

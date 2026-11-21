@@ -2121,7 +2121,8 @@ describe('a list and the width of its frame', () => {
 
         /** How many pixels a rule of the stylesheet gives a property. */
         const drawnAt = (rule: string, property: string): number => {
-          return Number(new RegExp(`(?:^|[\\s;])${property}:\\s*(\\d+)px`).exec(rule)?.[1]);
+          const lengths = Array.from(rule.matchAll(/(?:^|[\s;])([a-z-]+):\s*(\d+)px/g));
+          return Number(lengths.find(([, name]) => name === property)?.[2]);
         };
         const arrowIs = drawnAt(declares(['.sort-icon']), 'width');
         const gapIs = drawnAt(declares(['.header-label'], ['.header-words']), 'gap');

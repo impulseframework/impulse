@@ -1272,14 +1272,16 @@ export class ResourceListComponent implements OnInit {
         // What the server said of a list or of a related read it refused, or how the read
         // failed, is for whoever looks into it: it is written to the console, once, with
         // the resource and the read it belongs to. The screen says it in the page's words.
+        // Each line's words are a constant, and the console puts the names where they keep
+        // a place (%s): a name is never itself read as words to print.
         const resource = this.config().primaryResource;
         const pageError: unknown = this.store.pageError();
         if (pageError && this.firstSeen(pageError)) {
-          console.error(`${resource}: the list could not be loaded:`, pageError);
+          console.error('%s: the list could not be loaded:', resource, pageError);
         }
         for (const [refKey, error] of this.unanswered()) {
           if (this.firstSeen(error)) {
-            console.error(`${resource}: the records read for ${refKey} could not be loaded:`, error);
+            console.error('%s: the records read for %s could not be loaded:', resource, refKey, error);
           }
         }
       });

@@ -462,11 +462,17 @@ describe('ResourceViewComponent over a record that cannot be read', () => {
   let transport: ScriptedTransport;
   let consoleError: ReturnType<typeof vi.spyOn>;
 
-  /** What was written to the console: each line's words, and the server's own message of the error written with it. */
+  /**
+   * What was written to the console, as a console prints it: each line's words with the
+   * resource's name where the words keep its place (%s), and the server's own message of
+   * the error written after them.
+   */
   const written = (): string[] =>
-    consoleError.mock.calls.map(
-      ([words, error]: unknown[]) => `${String(words)} ${error instanceof Error ? error.message : ''}`,
-    );
+    consoleError.mock.calls.map(([words, ...values]: unknown[]) => {
+      const error = values.pop();
+      const line = values.reduce<string>((text, value) => text.replace('%s', () => String(value)), String(words));
+      return `${line} ${error instanceof Error ? error.message : ''}`;
+    });
 
   /** Draws the view of the client c-1 against a server that answers its read so, in a panel of its own or as the row of a page. */
   const draw = async (answer: TransportResponse, rowOfPage: boolean): Promise<HTMLElement> => {

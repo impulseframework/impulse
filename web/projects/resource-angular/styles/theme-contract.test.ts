@@ -167,7 +167,9 @@ describe('the sizes of the titles', () => {
 describe('the icons while their font is on its way', () => {
   const fonts = read(join(root, 'styles', '_fonts.scss'));
   const service = read(join(root, 'ui-theme', 'icon-font.service.ts'));
-  const named = (constant: string): string => new RegExp(`${constant} = '([^']+)'`).exec(service)?.[1] ?? '';
+  // The text the service gives a constant, read from every constant it gives text to.
+  const texts = [...service.matchAll(/(\w+) = '([^']+)'/g)];
+  const named = (constant: string): string => texts.find(([, name]) => name === constant)?.[2] ?? '';
 
   it('draws no icon under the class the service marks the root element with', () => {
     const mark = named('AWAITS_ICON_FONT');

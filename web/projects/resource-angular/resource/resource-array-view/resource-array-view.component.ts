@@ -181,11 +181,13 @@ export class ResourceArrayViewComponent implements OnInit {
   constructor() {
     // What the server said of children it refused, or how the read failed, is for whoever
     // looks into it: it is written to the console, once, with the resource it belongs to.
+    // The line's words are a constant, and the console puts the resource's name where they
+    // keep its place (%s): a name is never itself read as words to print.
     effect(() => {
       const error = this.unreadError();
       if (error) {
         const resource = untracked(() => this.resourceConfig().primaryResource);
-        console.error(`${resource}: the list could not be loaded:`, error);
+        console.error('%s: the list could not be loaded:', resource, error);
       }
     });
 
