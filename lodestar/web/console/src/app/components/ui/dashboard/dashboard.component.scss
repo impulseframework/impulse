@@ -1,45 +1,14 @@
-.card-badge {
+.ledger {
+  display: block;
   margin: 16px 0;
 }
 
-.badge {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-
-  th,
-  td {
-    text-align: left;
-    padding: 4px 8px;
-    border-bottom: 1px solid var(--mat-sys-outline-variant);
-  }
-
-  th {
-    font-weight: 500;
-    color: var(--mat-sys-on-surface-variant);
-  }
-
-  .label {
-    font-weight: 500;
-  }
-
-  .scope {
-    margin-left: 6px;
-    font-size: 11px;
-    color: var(--mat-sys-on-surface-variant);
-  }
-
-  .masked {
-    background: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 6px,
-      color-mix(in srgb, var(--mat-sys-primary) 15%, transparent) 6px,
-      color-mix(in srgb, var(--mat-sys-primary) 15%, transparent) 12px
-    );
-  }
+// The badge is the library's card, laid out by its own width; the page gives it room.
+impulse-permissions-card {
+  margin: 16px 0;
 }
 
+// The methods the session may fire, under the card's table: the page's own.
 .pill {
   display: inline-block;
   padding: 1px 8px;
@@ -56,10 +25,6 @@
     background: var(--mat-sys-tertiary-container);
     color: var(--mat-sys-on-tertiary-container);
   }
-
-  &.absent {
-    color: var(--mat-sys-on-surface-variant);
-  }
 }
 
 .methods {
@@ -71,12 +36,4 @@
 h3 {
   margin: 16px 0 8px;
   font-weight: 500;
-}
-
-.email-card {
-  margin-top: 16px;
-}
-
-.appearance-card {
-  margin-top: 16px;
 }

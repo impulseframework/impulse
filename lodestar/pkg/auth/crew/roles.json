@@ -1004,14 +1004,61 @@
       },
       {
         "name": "CommandStaff",
-        "description": "Views the application as another user, reading only, and assumes any role, for support and demonstrations.",
+        "description": "Views the application as another user, reading only, and assumes any role, for support and demonstrations, and keeps the watch desk: sees every session held as someone else and ends one.",
         "permissions": {
+          "List": [
+            {
+              "resource": "CrewSessionUsers",
+              "fields": [
+                "username"
+              ]
+            },
+            {
+              "resource": "CrewSessionImpersonations",
+              "fields": [
+                "actorRealm",
+                "actorUsername",
+                "endReason",
+                "endedAt",
+                "expiresAt",
+                "mask",
+                "principalKind",
+                "principalRole",
+                "principalUserId",
+                "reason",
+                "sourceSessionId",
+                "startedAt"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "CrewSessionImpersonations",
+              "fields": [
+                "actorRealm",
+                "actorUsername",
+                "endReason",
+                "endedAt",
+                "expiresAt",
+                "mask",
+                "principalKind",
+                "principalRole",
+                "principalUserId",
+                "reason",
+                "sourceSessionId",
+                "startedAt"
+              ]
+            }
+          ],
           "Execute": [
             {
               "resource": "ViewAsUser"
             },
             {
               "resource": "AssumeRole"
+            },
+            {
+              "resource": "EndCrewSessionImpersonation"
             }
           ]
         }

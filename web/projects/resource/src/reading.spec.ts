@@ -61,7 +61,7 @@ describe('wholeListQuery', () => {
     { name: 'keeps a sort the caller asked for', descriptor: shipClasses, query: { sort: [{ field: 'name' }] }, want: 'sort=name&limit=all' },
     { name: 'sends no limit on a key-less resource, which refuses one', descriptor: standingOrders, query: { columns: ['id'] }, want: 'columns=id' },
     { name: 'a hand-written descriptor reads whole', descriptor: manual, want: 'limit=all' },
-    { name: 'refuses a source with a maximum, which is never read whole', descriptor: hangars, throws: 'Hangars declares a maximum page size of 200 and is never read whole' },
+    { name: 'refuses a source with a maximum, which no one request reads whole', descriptor: hangars, throws: 'Hangars declares a maximum page size of 200, so no one request reads it whole' },
   ];
 
   for (const tt of cases) {

@@ -17,12 +17,12 @@ describe('the menu file', () => {
   it('names a page the routes carry and no menu places', () => {
     const withoutDecks = menus().filter((menu) => menu.label !== 'Decks');
     expect(unplacedPages(routes, withoutDecks).map((page) => page.label)).toEqual([
-      'Flight deck',
-      'Hangar deck',
       'Salvage hold',
       'Call log',
-      'Squadron roster',
       'Hazard board',
+      'Flight deck',
+      'Hangar deck',
+      'Squadron roster',
       "Ship's log",
       'Briefing',
     ]);

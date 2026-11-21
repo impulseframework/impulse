@@ -6,7 +6,8 @@ import { field, FieldMeta, FieldName, ResourceMeta } from '@impulseframework/res
 import { ResourceStore } from '../../../resource-store.service';
 import { ObjectFieldComponent } from './object-field.component';
 
-// An object field presents the value as indented JSON, whatever JSON it is, and offers no input.
+// An object field writes a place in words and any other value as indented JSON, whatever
+// JSON it is, and offers no input.
 
 describe('ObjectFieldComponent', () => {
   let fixture: ComponentFixture<ObjectFieldComponent>;
@@ -29,9 +30,14 @@ describe('ObjectFieldComponent', () => {
   };
 
   const point = { type: 'Point', coordinates: [-118.2437, 34.0522] };
+  const provenance = { source: 'relay', hops: 3 };
 
   const cases: { name: string; value: unknown; want: string }[] = [
-    { name: 'a derived or imported object, pretty-printed', value: point, want: JSON.stringify(point, null, 2) },
+    {
+      name: 'a derived or imported object, pretty-printed',
+      value: provenance,
+      want: JSON.stringify(provenance, null, 2),
+    },
     { name: 'an unknown that is a string prints as JSON', value: 'free text', want: '"free text"' },
     { name: 'an unknown that is a number', value: 42, want: '42' },
     { name: 'an unknown that is an array', value: [1, 2], want: JSON.stringify([1, 2], null, 2) },
@@ -43,6 +49,28 @@ describe('ObjectFieldComponent', () => {
       await create(tt.value);
       const element: HTMLElement = fixture.nativeElement;
       expect(element.querySelector('pre.object-json')?.textContent).toBe(tt.want);
+      expect(element.querySelector('.object-place')).toBeNull();
+      expect(element.querySelector('.object-label')?.textContent?.trim()).toBe('Position');
+      expect(element.querySelector('input:not([type=hidden])')).toBeNull();
+    });
+  }
+
+  const places: { name: string; value: unknown; want: string }[] = [
+    { name: 'a position is a place in words', value: point, want: '34.0522° N, 118.2437° W' },
+    {
+      name: 'a shape other than a point is what it is and where it starts',
+      value: { type: 'LineString', coordinates: [point.coordinates, [-115.1398, 36.1699]] },
+      want: 'A line of 2 points, starting at 34.0522° N, 118.2437° W',
+    },
+  ];
+
+  for (const tt of places) {
+    it(`${tt.name}, never its JSON`, async () => {
+      await create(tt.value);
+      const element: HTMLElement = fixture.nativeElement;
+      expect(element.querySelector('.object-place')?.textContent).toBe(tt.want);
+      expect(element.querySelector('pre.object-json')).toBeNull();
+      expect(element.textContent).not.toContain('coordinates');
       expect(element.querySelector('.object-label')?.textContent?.trim()).toBe('Position');
       expect(element.querySelector('input:not([type=hidden])')).toBeNull();
     });

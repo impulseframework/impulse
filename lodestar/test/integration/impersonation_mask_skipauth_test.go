@@ -314,17 +314,15 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 
 	desk := newBrowser(t, s, consoleAPI)
 	desk.signIn(ctx, "governor")
-	listed := func() map[string]watchDeskEntry {
+	// The watch desk is the list of the crew auth's impersonation records: what it says
+	// of each session, by the session's id.
+	listed := func() map[string]map[string]any {
 		t.Helper()
-		status, body := desk.do(ctx, http.MethodGet, consoleAPI+"/impersonations", nil)
+		status, body := desk.do(ctx, http.MethodGet, consoleAPI+"/crew-session-impersonations?limit=200", nil)
 		assertStatus(t, status, http.StatusOK, body)
-		var entries []watchDeskEntry
-		if err := json.Unmarshal(body, &entries); err != nil {
-			t.Fatal(err)
-		}
-		bySession := make(map[string]watchDeskEntry, len(entries))
-		for _, entry := range entries {
-			bySession[entry.SessionID] = entry
+		bySession := make(map[string]map[string]any)
+		for _, row := range decodeRows(t, body) {
+			bySession[cell[string](t, row, "sessionId")] = row
 		}
 
 		return bySession
@@ -500,24 +498,13 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 		t.Errorf("a session that acts as a role = %q, want the grant's mask: everything", role.Mask)
 	}
 
-	// The watch desk says each live session's mask in words, and so does the generated
-	// list of the impersonation records, which reads the stored text as words.
+	// The watch desk says each session's mask in words: it is the generated list of the
+	// impersonation records, which reads the stored text as words.
 	words := map[string]string{view.SessionID: "reading only", listing.SessionID: "List only", act.SessionID: actMaskWords, role.SessionID: "everything"}
 	entries := listed()
 	for id, want := range words {
-		if got, ok := entries[id]; !ok || got.Mask != want {
-			t.Errorf("the watch desk's entry for the session %s = %+v, want it listed with the mask %q", id, got, want)
-		}
-	}
-	status, body = desk.do(ctx, http.MethodGet, consoleAPI+"/crew-session-impersonations?limit=200", nil)
-	assertStatus(t, status, http.StatusOK, body)
-	records := make(map[string]any)
-	for _, row := range decodeRows(t, body) {
-		records[cell[string](t, row, "sessionId")] = row["mask"]
-	}
-	for id, want := range words {
-		if got, ok := records[id]; !ok || got != want {
-			t.Errorf("the generated list's record of the session %s says the mask %v, want %q", id, got, want)
+		if got, ok := entries[id]; !ok || got["mask"] != want {
+			t.Errorf("the watch desk's record of the session %s = %v, want it listed with the mask %q", id, got, want)
 		}
 	}
 	status, body = desk.do(ctx, http.MethodGet, consoleAPI+"/crew-session-impersonations/"+act.SessionID, nil)

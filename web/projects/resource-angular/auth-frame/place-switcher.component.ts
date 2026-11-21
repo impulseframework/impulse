@@ -22,6 +22,10 @@ export const findFrom = 8;
  * ("Acme admits only people who sign in through its own directory. You signed in with a
  * password."), and nothing to open. The list opens for it even when the person has one
  * place, so a seat is never missing without a word.
+ *
+ * Nothing is drawn until the person's places are known (PlaceService.known): a list of
+ * tenants that has not been read, or could not be, is never shown as a person with one
+ * place or with none to switch to.
  */
 @Component({
   selector: 'impulse-place-switcher',
@@ -53,7 +57,7 @@ export const findFrom = 8;
         }
         <mat-icon class="impulse-place-switcher-chevron">expand_more</mat-icon>
       </button>
-    } @else if (places.places().length === 1) {
+    } @else if (alone()) {
       <span
         class="impulse-place-switcher-place impulse-place-switcher-alone"
         [attr.aria-label]="(place().id ? word.one + ': ' : '') + place().label">
@@ -119,12 +123,19 @@ export class PlaceSwitcherComponent {
   readonly inPlace = computed(() => this.places.places().some((place) => place.id === this.place().id));
   /**
    * Whether there is a list to open: more than one place, a way back to the one from a
-   * page in none, or a tenant that is closed to this sign-in, which the list names.
+   * page in none, or a tenant that is closed to this sign-in, which the list names. Never
+   * before the person's places are known: a list of tenants that has not been read, or
+   * could not be, is not a person with no tenant to switch to.
    */
   readonly listed = computed(() => {
+    if (!this.places.known()) {
+      return false;
+    }
     const count = this.places.places().length;
     return count > 1 || (count === 1 && !this.inPlace()) || this.places.closed().length > 0;
   });
+  /** Whether the person has one place and nothing to switch to, once their places are known. */
+  readonly alone = computed(() => this.places.known() && this.places.places().length === 1);
   readonly filter = signal('');
   readonly findable = computed(() => this.places.places().length + this.places.closed().length >= findFrom);
 
