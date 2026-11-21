@@ -101,8 +101,10 @@ const databaseSQLPath = "database/sql"
 // wrappers and the generic Null[T].
 const sqlNullPrefix = "Null"
 
-// validField is the flag field every database/sql Null wrapper carries beside its
-// value; the value field is the other one, and names the pointer the refusal offers.
+// validField is the flag field a Null wrapper carries beside its value, database/sql's
+// and every other package's: a wrapper is known by it (nullableBase, UnwrappedNullType).
+// The value field is the other one, and names the pointer the refusal of a database/sql
+// wrapper offers.
 const validField = "Valid"
 
 // rawMessageColumnRefusal is the message for json.RawMessage on a table or view column:

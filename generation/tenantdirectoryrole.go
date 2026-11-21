@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -65,11 +66,15 @@ func makeInviteOnlyMethodName(record string) string {
 
 // directoryRoleMethodsOf are the two methods that say how the record admits its
 // directory's people: the one that opens it, which warns, and the one that makes it
-// invite only.
+// invite only. The first gives a role to everyone who arrives through the directory
+// and the second takes it away again, so both carry the class of the actions that
+// change who may do what (accesstypes.ClassAccess).
 func directoryRoleMethodsOf(record string) []tenantOwnMethod {
+	changesAccess := []accesstypes.ActionClass{accesstypes.ClassAccess}
+
 	return []tenantOwnMethod{
-		{Name: openToDirectoryMethodName(record), Typed: resource.OpenToDirectoryWord},
-		{Name: makeInviteOnlyMethodName(record), Typed: ""},
+		{Name: openToDirectoryMethodName(record), Typed: resource.OpenToDirectoryWord, Classes: changesAccess},
+		{Name: makeInviteOnlyMethodName(record), Typed: "", Classes: changesAccess},
 	}
 }
 

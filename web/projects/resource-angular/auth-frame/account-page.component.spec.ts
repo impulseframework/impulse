@@ -416,6 +416,29 @@ describe('AccountPageComponent', () => {
     expect(text('.none')).toBe('Your sign-in is managed by your organization, so there is nothing to change here.');
   });
 
+  it('holds no password section for a person whose auth registers no password method, beside the sections it does offer', async () => {
+    // What the methods route of such an auth answers: its directory methods, the change of
+    // the person's name and the read of what they sign in with, and none of the password
+    // method's routes, which the server names only where the method is registered.
+    await open({
+      methods: {
+        methods: [lakeside, fleetGoogle],
+        changeName: passwordMethods.changeName,
+        signInMeans: passwordMethods.signInMeans,
+      },
+      means: signsInWith(false, true),
+    });
+    expect(text('.name h2')).toBe('Your name');
+    expect(element().querySelector('.password')).toBeNull();
+    expect(element().querySelector('.first-password')).toBeNull();
+    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(element().querySelector('input[type="password"]')).toBeNull();
+    expect(TestBed.inject(Account).password()).toBe(false);
+    expect(TestBed.inject(Account).firstPassword()).toBe(false);
+    expect(TestBed.inject(Account).removePassword()).toBe(false);
+    expect(element().querySelector('.none')).toBeNull();
+  });
+
   // The server serves the choice of a first password, as one whose auth has the password
   // method does.
   const choosing = { ...told, firstPassword: firstPasswordRoutes };

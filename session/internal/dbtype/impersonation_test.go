@@ -1,6 +1,7 @@
 package dbtype
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,9 @@ func TestMaskColumn_RoundTrip(t *testing.T) {
 		{name: "unrestricted is NULL", mask: accesstypes.PermissionMask{}, wantCol: nil},
 		{name: "read-only", mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read, accesstypes.List), wantCol: strPtr("List,Read")},
 		{name: "allows nothing is the empty string", mask: accesstypes.DenyAll(), wantCol: strPtr("")},
+		{name: "every kind except a class", mask: accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)), wantCol: strPtr("*;-class:credential")},
+		{name: "every kind except one action", mask: accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("LaunchMission")), wantCol: strPtr("*;-on:Execute:LaunchMission")},
+		{name: "kinds, a class and a record's update", mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read, accesstypes.Update).Refusing(accesstypes.RefuseClass("sensitive"), accesstypes.RefusePermission(accesstypes.Update, "Ships")), wantCol: strPtr("List,Read,Update;-class:sensitive;-on:Update:Ships")},
 	}
 
 	for _, tt := range tests {
@@ -33,7 +37,7 @@ func TestMaskColumn_RoundTrip(t *testing.T) {
 			if (col == nil) != (tt.wantCol == nil) || (col != nil && *col != *tt.wantCol) {
 				t.Fatalf("MaskColumn() = %v, want %v", col, tt.wantCol)
 			}
-			if got := MaskFromColumn(col); got.String() != tt.mask.String() {
+			if got := MaskFromColumn(col); !got.Equal(tt.mask) {
 				t.Errorf("MaskFromColumn(MaskColumn()) = %v, want %v", got, tt.mask)
 			}
 		})
@@ -61,6 +65,48 @@ func TestMaskFromColumn_Tolerates(t *testing.T) {
 				t.Errorf("MaskFromColumn(%q) = %q, want %q", tt.col, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestMaskFromColumn_failsClosed pins what a column that is no mask's text is read as:
+// the mask that keeps nothing. A record somebody wrote by hand, or a refusal this
+// version cannot read, never leaves the session wider than what was written.
+func TestMaskFromColumn_failsClosed(t *testing.T) {
+	t.Parallel()
+
+	for _, col := range []string{"*;class:credential", "*;-class:", "*;-on:Execute", "List,Read;", "*;-everything"} {
+		t.Run(col, func(t *testing.T) {
+			t.Parallel()
+
+			got := MaskFromColumn(&col)
+			if !got.Equal(accesstypes.DenyAll()) {
+				t.Errorf("MaskFromColumn(%q) = %q, want the mask that keeps nothing", col, got.Text())
+			}
+			for _, perm := range []accesstypes.Permission{accesstypes.List, accesstypes.Read, accesstypes.Execute} {
+				if got.Allows(perm) {
+					t.Errorf("MaskFromColumn(%q) keeps %s", col, perm)
+				}
+			}
+		})
+	}
+}
+
+// TestImpersonation_MaskFault pins that a row whose mask column does not read says
+// why, and that a row whose column reads, or that stores none, says nothing.
+func TestImpersonation_MaskFault(t *testing.T) {
+	t.Parallel()
+
+	unreadable := "*;class:credential"
+	readable := "*;-class:credential"
+
+	if err := (&Impersonation{Mask: &unreadable}).MaskFault(); err == nil || !strings.Contains(err.Error(), `the part "class:credential" is no refusal`) {
+		t.Errorf("MaskFault() of %q = %v, want the part that does not read", unreadable, err)
+	}
+	if err := (&Impersonation{Mask: &readable}).MaskFault(); err != nil {
+		t.Errorf("MaskFault() of %q = %v, want none", readable, err)
+	}
+	if err := (&Impersonation{}).MaskFault(); err != nil {
+		t.Errorf("MaskFault() of no mask = %v, want none", err)
 	}
 }
 

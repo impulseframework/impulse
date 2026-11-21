@@ -91,9 +91,12 @@ func WithReloadErrorHandler(f func(error)) Option {
 // its permissions, resources and fields. A stored grant naming one the release
 // does not declare (after a rollback, or once a release drops a resource) is
 // then left out of the snapshot and reported as a SkippedGrant instead of
-// being carried as a grant nothing can check. Without it, names are not
-// checked; conditions are checked either way. WithDefaultRoles sets the
-// collection too, so an application with a role file does not need this.
+// being carried as a grant nothing can check, and the writes that give a
+// custom role a grant refuse a name the release does not declare
+// (UserManager.AddRoleGrant). Without it, names are not checked, when the
+// policy loads or when a grant is written; conditions are checked either way.
+// WithDefaultRoles sets the collection too, so an application with a role
+// file does not need this.
 func WithPermissionCollection(c PermissionCollection) Option {
 	return func(o *clientOptions) {
 		o.collection = c

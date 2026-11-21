@@ -39,6 +39,7 @@ import { NotificationService } from '@impulseframework/resource-angular/ui-notif
 import {
   acrossTenantsHandle,
   AnyResourceHandle,
+  ApiError,
   BatchResult,
   Capability,
   ChangeEvent,
@@ -60,7 +61,7 @@ import {
   sameSubscription,
   wholeListQuery,
 } from '@impulseframework/resource';
-import { from, map, mergeMap, Observable, of, tap, toArray } from 'rxjs';
+import { from, map, mergeMap, Observable, of, tap, throwError, toArray } from 'rxjs';
 import { PagedList, PagedListRequest } from './paged-list';
 import { PagePosition, positionAfter } from './resource-list/list-request';
 import { methodsTargeting } from './row-methods/row-methods';
@@ -196,6 +197,20 @@ export class ResourceStore {
   /** The reload of a live page in flight: the page it repeats, the version it asked by, and its place among the requests. */
   private liveReload: { page: Page<RecordData>; version: string; seq: number } | undefined;
   pageStatus = signal<ListPageStatus>('idle');
+  /**
+   * Whether the list's first request has been answered, with a page or with a refusal.
+   * From then on the list knows what it has, and what it draws from that (its rows, its
+   * empty line, the count in its title) stands on an answer. It stays true through every
+   * request that follows.
+   */
+  readonly firstPageAnswered = signal(false);
+  /**
+   * What a page that has landed still needs before it is the list's page, where a list
+   * draws a row from more than the row: a list across tenants reads each tenant's digest
+   * to know whether a row links to its own page. The request stays in flight until this
+   * settles, so a row is drawn once, with everything it is drawn from. It never rejects.
+   */
+  pageNeeds: ((page: Page<RecordData>) => Promise<void>) | undefined;
   /** The page request's error when it failed — an ApiError for a server refusal — else undefined. */
   pageError = signal<unknown>(undefined);
   page = computed<ListPage>(() => {
@@ -385,8 +400,9 @@ export class ResourceStore {
     // No limit unless the page names one, so the descriptor's default applies; no sort
     // unless the page names one, so a declared @order applies, and a resource declaring
     // none is refused by the server until the config names a sort or a header is
-    // clicked, in the server's own words (see listEmptyMessage). The client fabricates
-    // no sort of its own.
+    // clicked: the list says it could not be loaded the way it was asked for (see
+    // listEmptyMessage) and writes the server's own words to the console. The client
+    // fabricates no sort of its own.
     const sorts = query.sorts.map((s) => ({ field: s.field as string, direction: s.direction }));
     const request: ListQuery<RecordData> = {
       filter: query.filter !== '' ? query.filter : undefined,
@@ -414,12 +430,19 @@ export class ResourceStore {
       if (seq !== this.pageRequestSeq) {
         return;
       }
+      if (this.pageNeeds) {
+        await this.pageNeeds(landed);
+        if (seq !== this.pageRequestSeq) {
+          return;
+        }
+      }
       this.position.set(
         positionAfter(this.position(), turn, leftRows, { rows: landed.rows.length, total: landed.total }),
       );
       this.currentPage.set(landed);
       this.pageError.set(undefined);
       this.pageStatus.set('resolved');
+      this.firstPageAnswered.set(true);
     } catch (error) {
       if (seq !== this.pageRequestSeq) {
         return;
@@ -428,6 +451,7 @@ export class ResourceStore {
       this.position.set({ offset: 0 });
       this.pageError.set(error);
       this.pageStatus.set('error');
+      this.firstPageAnswered.set(true);
     }
   }
 
@@ -833,6 +857,13 @@ export class ResourceStore {
    * page per batch of the page's keys, each batch no larger than its maximum (and than
    * `batchSize`), each answered by the key's index in one request; nothing is walked and
    * nothing is read whole.
+   *
+   * A read the server refused (an answer in the 400s: the caller may not list the source,
+   * or the source would not be asked that way) is not asked again for the same keys by the
+   * same reader, in whatever order the page holds them: a sort or a filter that brings rows
+   * naming the same records ends in the refusal the server gave, the same error, and no
+   * request is made. A read that failed (no answer, or one in the 500s) is asked again, as
+   * the next answer may be another.
    */
   resourceListByKeys(
     route: Signal<string>,
@@ -844,6 +875,9 @@ export class ResourceStore {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new Error(`resourceListByKeys: batchSize must be a positive integer, got ${batchSize}`);
     }
+
+    // The reads the server refused, each by what was asked.
+    const refused = new Map<string, ApiError>();
 
     return untracked(() => {
       return rxResource({
@@ -879,6 +913,17 @@ export class ResourceStore {
           if (params.keys.length === 0) {
             return of([] as RecordData[]);
           }
+          const asked = JSON.stringify([
+            params.route,
+            params.keyField,
+            params.columns,
+            params.domain,
+            [...params.keys].sort(),
+          ]);
+          const refusal = refused.get(asked);
+          if (refusal !== undefined) {
+            return throwError(() => refusal);
+          }
           return from(keyBatches(handle.descriptor, params.keys, batchSize)).pipe(
             mergeMap(
               (batch) =>
@@ -891,6 +936,13 @@ export class ResourceStore {
             ),
             toArray(),
             map((results) => results.flat()),
+            tap({
+              error: (error: unknown) => {
+                if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+                  refused.set(asked, error);
+                }
+              },
+            }),
           );
         },
       }) as ResourceRef<RecordData[]>;

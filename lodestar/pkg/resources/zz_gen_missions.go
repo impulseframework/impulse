@@ -24,6 +24,56 @@ func (Mission) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what a delete of a Mission takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Mission and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a Mission
+// that the database does not remove with it.
+func (Mission) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Missions",
+		Words:  resource.DeleteWords{One: "mission", Many: "missions"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 10, Files: 0},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "SortieExpenses",
+				Words:    resource.DeleteWords{One: "sortie expense", Many: "sortie expenses"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "MissionDocuments",
+				Words:    resource.DeleteWords{One: "mission document", Many: "mission documents"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 1},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Sorties",
+				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
 // missionRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; missionReadSets holds one Set per read operation.

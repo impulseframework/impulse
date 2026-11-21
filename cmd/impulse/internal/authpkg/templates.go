@@ -291,15 +291,17 @@ func (h *Handlers) {{.Pascal}}Tokens() *session.MachineOutlet {
 }
 {{- end}}
 
-// PendingStatus reports the sign-in that waits for a password confirmation, if any.
+// PendingStatus reports the sign-in that waits for {{if .Password}}a password confirmation{{else}}the second factor{{end}}, if any.
 func (h *Handlers) PendingStatus() http.HandlerFunc {
 	return h.Pending().Status()
 }
+{{- if .Password}}
 
 // PendingConfirmWithPassword completes a waiting sign-in with the user's password.
 func (h *Handlers) PendingConfirmWithPassword() http.HandlerFunc {
 	return h.Pending().ConfirmWithPassword()
 }
+{{- end}}
 
 // PendingCancel discards a waiting sign-in.
 func (h *Handlers) PendingCancel() http.HandlerFunc {

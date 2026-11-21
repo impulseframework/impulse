@@ -208,8 +208,10 @@ func (w *groupShareWorld) holderOf(t *testing.T, pass string) string {
 // passClerk makes a person up under the username and gives them, in Anvil, a role of the
 // test's own that is handed Update on a pass and on every column of one, the three
 // holder columns among them. No role file may grant those three (a role file that
-// grants Update on an immutable column is refused when it is read), so the rows are
-// written to the engine's store directly. The engine holds what the collection offers:
+// grants Update on an immutable column is refused when it is read), and the release's
+// engine writes a role no grant the release does not declare, so the rows are written
+// to the store by an engine that was told nothing of what the release declares
+// (engineThatChecksNoName). The release's engine holds what the collection offers:
 // the hangar, the level and the expiry are the teller's to write, and the three holder
 // rows are skipped, because the collection takes Update off an immutable column. So the
 // role is the most a role can hold of a pass, and a holder column is nobody's to write
@@ -223,7 +225,7 @@ func (w *groupShareWorld) passClerk(t *testing.T, username accesstypes.User) {
 	if err := manager.AddRole(w.ctx, held, clerk, "Is handed every column of a hangar pass."); err != nil {
 		t.Fatalf("access.UserManager.AddRole() error = %v", err)
 	}
-	if err := manager.AddRoleGrants(w.ctx, held, clerk,
+	if err := engineThatChecksNoName(t, w.db).UserManager().AddRoleGrants(w.ctx, held, clerk,
 		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses"},
 		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses.hangarId"},
 		access.GrantRow{Permission: accesstypes.Update, Resource: "HangarPasses.userId"},

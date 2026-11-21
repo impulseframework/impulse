@@ -165,6 +165,24 @@ func (s *Spec) DirectoryAdmission() bool {
 	return true
 }
 
+// FirstAuth describes the first auth of a new application, as the base skeleton carries
+// it and impulse new renders it under the name the author gave: the people who sign in
+// to the console with a password, whose administrators hold the Administrator role and
+// whose first administrator is invited to that role and the one that turns features on
+// and off, with the management of the auth's people generated into pkg/identity. A new
+// application that starts from a shape with no password sign-in renders the same auth
+// with the shape's methods in the password's place (Methods and Doc replaced).
+func FirstAuth(module, name string) Spec {
+	return Spec{
+		Module: module, AuthDir: "pkg/auth", Name: name,
+		Doc:                     "the people who sign in to the console with a password",
+		Methods:                 []Method{{Kind: app.MethodPassword}},
+		AdministratorRoles:      AdministratorRoles{Global: []string{"Administrator"}},
+		FirstAdministratorRoles: AdministratorRoles{Global: []string{"Administrator", "FeatureAdministrator"}},
+		IdentityDir:             "pkg/identity",
+	}
+}
+
 // AdministratorRoles are role names by where a membership is held: the global partition
 // and every tenant domain.
 type AdministratorRoles struct {

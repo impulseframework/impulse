@@ -8,10 +8,14 @@ import (
 )
 
 // TestAuditFindings pins the audit pass's findings over this application as typed
-// values: exactly one, the cascade finding on RefitTask, whose table is interleaved in
-// Refits ON DELETE CASCADE and stores the task photo, so a refit
-// deleted by patch takes its tasks and their photos past the release. The set is
-// exact: a new @file table on a cascade shows up here. Runs the generator in-process
+// values: exactly two, one for each table that stores files and whose rows the database
+// deletes by cascade. RefitTask's table is interleaved in Refits ON DELETE CASCADE and
+// stores the task photo, so a refit deleted by patch takes its tasks and their photos
+// past the release. MissionDocument's table references Missions with the delete rule, as
+// every link of a table's way to its sector does, and stores the document, so a mission
+// deleted by patch, or a sector deleted with its missions, takes the documents' rows
+// past the release too. The set is exact: a new @file table on a cascade shows up
+// here. Runs the generator in-process
 // like TestSchemaWarnings, so it regenerates the tree like go generate does; the
 // findings are the demonstration's pin, not a pattern for an application, whose
 // generate program prints them under -audit alone. Requires the Spanner emulator
@@ -38,6 +42,7 @@ func TestAuditFindings(t *testing.T) {
 	}
 
 	want := []generation.Finding{
+		generation.CascadeReleaseFinding{Resource: "MissionDocument", Table: "MissionDocuments", Column: "MissionId"},
 		generation.CascadeReleaseFinding{Resource: "RefitTask", Table: "RefitTasks", Parent: "Refits"},
 	}
 	if got := generator.Audit(); !slices.Equal(want, got) {

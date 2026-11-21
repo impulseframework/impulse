@@ -1,0 +1,79 @@
+//go:build skipAuth
+
+package integration
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"sync"
+
+	"github.com/impulseframework/impulse/accesstypes"
+)
+
+// The staff auth's people sign in through a directory, which also gives them their roles.
+// Under the session library's skipAuth build tag the directory is simulated: the login
+// route sends the browser straight to the callback, and the callback takes the person
+// from APP_[[.Upper]]_USERNAME and the roles the directory asserts for them from
+// APP_[[.Upper]]_ROLES on every sign-in, so one test process signs in as many people as it
+// likes, one at a time.
+var simulatedLogin sync.Mutex
+
+// directoryRoundTrip sends the browser through the [[.Method]] registration as user, a person
+// of the directory for whom it asserts roles: the login route, then the callback the
+// simulated directory sends the browser straight to, whose status and destination it
+// returns.
+func (b *browser) directoryRoundTrip(ctx context.Context, user string, roles []accesstypes.Role) (status int, location string) {
+	b.t.Helper()
+
+	asserted := make([]string, 0, len(roles))
+	for _, role := range roles {
+		asserted = append(asserted, string(role))
+	}
+	simulatedLogin.Lock()
+	defer simulatedLogin.Unlock()
+	if err := os.Setenv("APP_[[.Upper]]_USERNAME", user); err != nil {
+		b.t.Fatal(err)
+	}
+	if err := os.Setenv("APP_[[.Upper]]_ROLES", strings.Join(asserted, ",")); err != nil {
+		b.t.Fatal(err)
+	}
+
+	status, location = b.redirect(ctx, "/api/user/[[.Method]]/login?returnUrl="+url.QueryEscape(landing))
+	if status != http.StatusFound {
+		b.t.Fatalf("GET /api/user/[[.Method]]/login: status %d, want %d to the directory", status, http.StatusFound)
+	}
+
+	return b.redirect(ctx, location)
+}
+
+// redirect issues one GET as this browser without following the redirect it answers
+// with, and returns the status and where it points: the way a directory sign-in is
+// followed one step at a time.
+func (b *browser) redirect(ctx context.Context, target string) (status int, location string) {
+	b.t.Helper()
+
+	if !strings.HasPrefix(target, "http") {
+		target = b.base + target
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	client := &http.Client{Jar: b.client.Jar, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Do(req)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		b.t.Fatal(err)
+	}
+
+	return resp.StatusCode, resp.Header.Get("Location")
+}

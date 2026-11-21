@@ -25,6 +25,11 @@ import (
 // resource per field), its scope, its immutability, its computed marking, its method
 // target, its concealing keys, and the fields a create of it must carry. The attribute vocabulary a shared resource declares is not enumerable through
 // the interface, so keeping it identical stays the declaring sites' business.
+//
+// An action one collection marks as no role's (the action of a site's generated
+// create-your-tenant route) is no role's in the union: it is in no List, a role's grant
+// that names it is refused, and a collection that registers the same name for roles is
+// refused here.
 func UnionCollection(collections ...PermissionCollection) (PermissionCollection, error) {
 	if len(collections) == 0 {
 		return nil, errors.New("UnionCollection: at least one collection is required")
@@ -56,6 +61,19 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 	}
 	for perm := range u.merged {
 		slices.Sort(u.merged[perm])
+	}
+	// An action one collection marks as no role's is one no collection registers for
+	// roles: the mark takes the name out of what a role file may grant in every site.
+	for i, c := range collections {
+		marker, ok := c.(noRoleActions)
+		if !ok {
+			continue
+		}
+		for _, action := range marker.NoRoleActions() {
+			if reg, registered := first[action]; registered {
+				return nil, errors.Newf("UnionCollection: collection %d (in argument order) marks %q as an action no role is given and collection %d registers it for roles: a name is one or the other in every site, so rename one of the two", i+1, action, reg.collection+1)
+			}
+		}
 	}
 
 	return u, nil
@@ -246,4 +264,30 @@ func (u *unionCollection) ConcealingKeys(scope accesstypes.PermissionScope, res 
 
 func (u *unionCollection) RequiredOnCreate(scope accesstypes.PermissionScope, res accesstypes.Resource) []accesstypes.Tag {
 	return u.owner(res).RequiredOnCreate(scope, res)
+}
+
+// IsNoRoleAction reports whether any of the collections marks action as one no role
+// is given: the mark of one site holds in the whole application, since a role is one
+// set of powers across every site.
+func (u *unionCollection) IsNoRoleAction(action accesstypes.Resource) bool {
+	for _, c := range u.collections {
+		if isNoRoleAction(c, action) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// NoRoleActions lists the actions any of the collections marks as no role's, sorted.
+func (u *unionCollection) NoRoleActions() []accesstypes.Resource {
+	var actions []accesstypes.Resource
+	for _, c := range u.collections {
+		if marker, ok := c.(noRoleActions); ok {
+			actions = append(actions, marker.NoRoleActions()...)
+		}
+	}
+	slices.Sort(actions)
+
+	return slices.Compact(actions)
 }

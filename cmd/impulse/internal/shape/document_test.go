@@ -107,7 +107,7 @@ func TestUsage_pointsAtTheDocument(t *testing.T) {
 	t.Parallel()
 
 	const want = "; the shapes are described in docs/sign-in-shapes.md of the framework's repository"
-	for _, offered := range [][]Shape{OfMethods(), OfTenants()} {
+	for _, offered := range [][]Shape{OfMethods(), OfTenants(), OfNew()} {
 		if got := Usage(offered, "the choices"); !strings.HasSuffix(got, want) {
 			t.Errorf("Usage() = %q, want it to end %q", got, want)
 		}
@@ -273,6 +273,62 @@ func TestDocumentMarksTheInviteOnlyShapes(t *testing.T) {
 		}
 		if listed == 0 {
 			t.Errorf("%s: the section of %s lists no sign-in method", documentFile, s)
+		}
+	}
+}
+
+// TestDocumentMarksThePassword holds the document's mark for the password method to
+// the command: the shapes a new application starts from with no password method
+// (NoPassword) are the shapes whose password the document marks "Cannot be used", in the
+// Password column of the table of the methods and in the Password row of the shape's
+// own section. A shape that gained or lost its password sign-in in the command would
+// fail here until the document said the same, and so would a mark changed in one of the
+// document's two places alone.
+func TestDocumentMarksThePassword(t *testing.T) {
+	t.Parallel()
+
+	const cannotBeUsed = "Cannot be used"
+	document := readDocument(t)
+	rows := map[string][]string{}
+	for _, row := range marksRowRE.FindAllStringSubmatch(document, -1) {
+		rows[row[1]+" "+row[2]] = row[3:]
+	}
+	for _, s := range All() {
+		marks, ok := rows[s.String()]
+		if !ok {
+			t.Errorf("%s: the table of the methods has no row for %s", documentFile, s)
+
+			continue
+		}
+		if got := marks[0] == cannotBeUsed; got != s.NoPassword() {
+			t.Errorf("%s: the row of %s marks the password %q, and the command starts the shape with no password method: %v", documentFile, s, marks[0], s.NoPassword())
+		}
+
+		// The shape's own section marks the password again.
+		heading := fmt.Sprintf("### %d. %s\n", s.Number, s.Name)
+		start := strings.Index(document, heading)
+		if start < 0 {
+			t.Errorf("%s has no section %q", documentFile, strings.TrimSpace(heading))
+
+			continue
+		}
+		section := document[start+len(heading):]
+		if end := strings.Index(section, "\n### "); end >= 0 {
+			section = section[:end]
+		}
+		var own []string
+		for line := range strings.SplitSeq(section, "\n") {
+			if mark, found := strings.CutPrefix(line, "| Password | "); found {
+				own = append(own, strings.TrimSuffix(mark, " |"))
+			}
+		}
+		if len(own) != 1 {
+			t.Errorf("%s: the section of %s marks the password %d time(s), want one row that opens | Password |", documentFile, s, len(own))
+
+			continue
+		}
+		if own[0] != marks[0] {
+			t.Errorf("%s: the section of %s marks the password %q, and the table of the methods %q", documentFile, s, own[0], marks[0])
 		}
 	}
 }

@@ -62,13 +62,15 @@ type Ship struct { ... }
 | `@virtual` | struct in the resources package | none | A resource backed by a view instead of a base table. Because there is no table metadata, indexed fields must be declared with `index`/`uniqueindex` tags (see §2), and the read identity (if any) with `@primarykey`. A view that declares its key serves a keyed read route beside its list, as a table does (`@suppress(readHandler)` removes it). Without a key the view is a whole read-only list, with no read route and no paging: one list route serves every row the filter admits in one response, sorted when a `sort` is asked or an `@order` declared, a numeric `limit` or a `cursor` is refused with a 400 naming `@primarykey` as the way to page (section 4), `@page` is refused at generation, and its metadata says `readDisabled`. A view that carries a table's rows one to one declares the table with `@rowsOf`, so a page listing the view writes to the table; without it the view is a read-only list. A view declares two bindings on fields of its own, each in its bare form, since a view has no schema to resolve a join path against: `@domain` on the tenant column its query selects, and `@attribute` on a column a grant's condition reads by name (a fact about the row, which the view's query computes). A view keyed by one field may be a method's `@target`: the method's Execute grant is then judged against the row, within the tenant (see `@target`). Examples: [OpenMissionsBySquadron](../lodestar/pkg/virtualresources/open_missions_by_squadrons.go); [SectorPilot](../lodestar/pkg/virtualresources/sector_pilots.go), a view with a fact that is a method's target. |
 | `@computed` | struct in the resources package | none | A read-only resource (List/Read only) whose rows are produced by hand-written query logic rather than a table. Primary-key fields are marked with `@primarykey`, and the key is optional: without one the resource is a whole read-only list, with no read route and no paging (one list route, every row the filter admits in one response, sorted when asked or declared; a numeric `limit` or a `cursor` is refused naming `@primarykey` as the way to page, `@page` is refused at generation, and the Collection registers List only, so a Read grant on it is refused at deploy). Example: [StandingOrder](../lodestar/pkg/computedresources/standing_orders.go). A computed view that carries a table's rows one to one declares the table with `@rowsOf`, so a page listing it writes to the table. Its permission checks run when the request is decoded, since the rows come from a Go function and no query of the library's. A grant on it may still carry a condition that reads the row: the struct declares the fields a condition may read with a bare `@attribute(name)` on the field, and the library judges each row the function yields, in Go, by the rules a table's rows follow (a row the condition on the resource refuses is not listed, not counted, and read as a row that is not there; a field granted under a condition the row does not meet is left out of that row; a row that would show none of the fields a grant covers is left out). The condition reads the declared fields, `subject`, `now`, and the facts about the caller that are held in tables (`subject.<name>`, a subject set or a subject value). A table's statement reads such a fact as a subquery beside its rows; for a computed resource the library reads it once for the request, when the request is decoded, through the resource client, by a statement built from the same pieces (the anchor table, the caller's rows on it, the anchor's own tenancy filter, a dotted value hop by hop). So a request costs one read for each fact its conditions name, whatever the number of rows, and none where no condition names one. The read is implemented for Spanner, the database the resource client reads; the PostgreSQL statements are rendered and proven by test, as the rest of the PostgreSQL rendering is. Deploy-time role migration validates a computed resource's condition as a table's, against the fields the resource declares, and the generated Collection marks the resource computed so a refusal names that declaration. Example: Lodestar's Flight Lead reads the [expense manifests](../lodestar/pkg/computedresources/expense_manifests.go) of the missions their own squadrons fly (`assignedSquadron IN subject.squadrons`), through the list, the read and the rendered file. A field a list sorts, filters or searches by needs an unconditional grant, and `qSet.TakePage()` answers false while a condition is left to judge the rows by. Example: the roles a tenant picks from (section 22). From the browser a computed resource answers a list query exactly as a table does, with no code in its List function: the generated handler applies the filter, then the sort when the request asks one or the struct declares one (`@order`), then the page (cursor, Link header, count) over the rows the function yields; with neither a `sort` nor an `@order` only the whole list (`limit=all`) is served, the rows in the order the function yielded them, after the filter; a paged request without an order is refused (section 4). A field is filterable when it carries `allow_filter`, as on a table; `index` and `uniqueindex` are refused (there is no database index), and `allow_filter` on a field the in-memory evaluator cannot compare fails generation with the field named. A List function that runs its own queries may take pieces of the work to push down — `qSet.Filter().Take(fields…)` returns the conditions on those fields and leaves the handler the rest (defined on an AND-only filter; an OR takes nothing; a field is taken whole, so a body that takes a text field answers its matches too, `Condition.MatchesText`, and one that takes the box reads its `SearchTerms` and `SearchFields`, section 4), `qSet.TakeSort()` returns the total order (empty when the list is not sorted: the body's own order stands) and marks it the body's, and `qSet.TakePage()` returns the page bounds only when paging in the body is correct (nothing left to filter, the sort taken, no count asked) and otherwise answers false so the handler pages. Taking is the only way to opt out, so a body can never make the result wrong. A computed list sorts and pages `NULL` where the application's database does, the same end as the tables beside it (Spanner first ascending and last descending, PostgreSQL the reverse); a body's plain `ORDER BY` already produces that placement, and the generated decoder carries the database type so the handler's in-memory sort and page boundary agree with the rows a body yields. Example: [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go). |
 | `@rpc` | struct in the rpc package | none, or `max: 8MB`, `log: onEvent`, `trace: off` | Declares an RPC method: the struct's fields are the request payload, and the struct declares `Execute` in one of two forms, read off its signature — `Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error` runs inside the generated handler's read-write transaction; `Execute(ctx context.Context, client resource.Client, rpcClient *Client) error` runs outside one. The third parameter is the application's own RPC client type. `Execute` returns `error` alone, and the handler answers with an empty 200, or `(Result, error)` with `Result` a struct type or a pointer to one, and the handler answers with the result after the transaction commits, mirrored with generated wire names (a nil pointer answers empty). A method answers with identifiers and outcomes, never rows: a `@resource` or `@computed` struct in the result position is refused, since rows are read through their own routes, where permission masking applies. A struct with no `Execute`, or one of another shape, fails generation naming the struct; no interface declaration takes part. Example of an answering method: [InspectShip](../lodestar/pkg/rpc/inspect_ship.go). The generated frame stamps the caller into the context before `Execute` (`resource.CallerFrom`), so a body may arm a typed patch or query with `.Enforce(caller)` and run the pipeline the resource routes run, or ask `caller.Check` for a decision to branch on; without either the body is trusted, the default. A transaction-form method honors `X-Dry-Run: true`: the whole frame and the body run and the transaction rolls back, refusing exactly as the real call would and answering an empty 200 where it would have succeeded; a client-form method refuses the header with 400. The generated TypeScript method metadata says which a method is (`dryRun: true` on a transaction-form method, nothing on a client-form one), so a page knows a dry run previews the call before it sends one, and names on each request field the name a grant's condition reads it by (`attribute: 'role'` for a bare `@attribute(role)` on the field): the Angular library's method dialog rehearses a method this way where the caller's grant on it carries a condition, waiting for the fields a condition may read and marking them when the dry run is refused as not permitted. Examples: [HoldMission](../lodestar/pkg/rpc/hold_mission.go) (armed), [CompleteMission](../lodestar/pkg/rpc/complete_mission.go) (decision as data). Gated by the `Execute` permission. The struct lives in a file named after it in snake case (`claim_mission.go`), as every generated kind does; a name ending in `Test` carries the `_rpc` marker instead (`start_flight_test_rpc.go`), so neither it nor the `zz_gen_` files generated beside it are Go `_test.go` files. Example: [ClaimMission](../lodestar/pkg/rpc/claim_mission.go). `max:` bounds the method's request body (a byte count or `KB`/`MB`/`GB`, 1024-based), applied by its generated handler in place of the application's limit (section 8, request body limits); a method that declares none takes that limit. Example: [IssueBulletin](../lodestar/pkg/rpc/issue_bulletin.go). `log:` is the method's own request log word, `always`, `onEvent`, `sampled` (with `fraction: 0.01`) or `never`, and `trace:` its own trace setting, `followFrontEnd`, `capped` (with `rate: 0.1`) or `off`: the nearest declaration, over its outlet's and the application's (section 8, request logs and traces). A word is refused on a scheduled method, which declares it on `@schedule`, and with `@suppress`, where no route carries it; a trace setting needs `GenerateRouter`. Example: [IngestDroidReports](../lodestar/pkg/rpc/ingest_droid_reports.go). |
-| `@enumerate` | named type with underlying type `string` | enum table name | Generates typed constants for the named type from the rows of an enum table, and declares the table an enumeration: its rows are the program's constants, fixed at generation time. Two rules follow. A table-backed field whose foreign key points into the table is emitted as an `enumerated` picker whose values ride in the TypeScript metadata (`enumeration: [{ id, display }]`, Description as the display), so the browser needs neither a request nor a List grant, and this wins even when a struct also exposes the table as a resource. A `@resource` struct backing the table is read-only by derivation: no patch handler, no Create/Update/Delete in the collection, fields marked `readOnly`, and create or update defaults, validators, or a manual patch Set on it fail generation. A table is an enum table when it has an `Id` column and a `Description` column (the generator runs `SELECT DISTINCT Id, Description` against the migrated schema); a `Description` column on a table keyed otherwise, such as the feature flags or an auth's roles, names no enumeration. An enum table with more than 500 rows warns at every generation, since each field keyed into it carries every row in the TypeScript metadata; the warning names the bytes and the fields, and the way out is to drop `@enumerate` from the type and expose the table with a `@resource` struct, whose picker reads it whole or, under a `@page` maximum, one page at a time. Example: [ShipRole](../lodestar/pkg/resources/enums.go) behind [ShipClass.RoleID](../lodestar/pkg/resources/ship_classes.go). |
+| `@enumerate` | named type with underlying type `string` | enum table name | Generates typed constants for the named type from the rows of an enum table, and declares the table an enumeration: its rows are the program's constants, fixed at generation time. Two rules follow. A table-backed field whose foreign key points into the table is emitted as an `enumerated` picker whose values ride in the TypeScript metadata (`enumeration: [{ id, display }]`, Description as the display), so the browser needs neither a request nor a List grant, and this wins even when a struct also exposes the table as a resource. A `@resource` struct backing the table is read-only by derivation: no patch handler, no Create/Update/Delete in the collection, fields marked `readOnly`, and create or update defaults, validators, a delete rule, or a manual patch Set on it fail generation. A table is an enum table when it has an `Id` column and a `Description` column (the generator runs `SELECT DISTINCT Id, Description` against the migrated schema); a `Description` column on a table keyed otherwise, such as the feature flags or an auth's roles, names no enumeration. An enum table with more than 500 rows warns at every generation, since each field keyed into it carries every row in the TypeScript metadata; the warning names the bytes and the fields, and the way out is to drop `@enumerate` from the type and expose the table with a `@resource` struct, whose picker reads it whole or, under a `@page` maximum, one page at a time. Example: [ShipRole](../lodestar/pkg/resources/enums.go) behind [ShipClass.RoleID](../lodestar/pkg/resources/ship_classes.go). |
 | `@enumerate` | field of an `@rpc`, `@resource`, `@virtual`, or `@computed` struct | resource or enum table name | Declares which resource a picker for the field lists — the field holds another resource's identifier, and the generator alone says which. The generated metadata emits `displayType: 'enumerated'` with `enumeratedResource: Resources.X`; the browser narrows and presents X's rows and never chooses another resource. X must exist — a table-backed, virtual, or computed resource — and be keyed by a single column, since a picker stores one key. On a list field of an `@rpc` struct (a list of plain values) the field holds several picked keys and the metadata emits `displayType: 'enumerated[]'`; a list field of a table, a view or a computed resource refuses the annotation, since a column stores one key, and so does a list of nested values; a picker of several reads X whole, so an X with a `@page` maximum fails generation there. A picker reads X in one of two ways, chosen by X's `@page` maximum: with none, the whole list in one request (`limit=all`), the chosen row resolved from it, so X may suppress its read; with a maximum, one server page at a time, the chosen row read by key, so X must serve a read — a bounded X with a suppressed read fails generation naming the two ways out (keep the read, or drop the maximum), on this path and on an undeclared foreign key into a routed resource alike. A list field cannot declare one: the field would store many keys where a picker stores one, so `@enumerate` on a slice, an array, or a named list type fails generation on every path naming the struct and field (`struct Ship field Tags: @enumerate on a list field; a picker stores one key`), and a byte slice, one value on the wire, is not a list here. Four rules: a **plain column** (no foreign key) names the resource the picker lists, with no Go validation and no database check, as for an identifier held from outside the schema (example: [Mission.BriefingTemplateID](../lodestar/pkg/resources/missions.go) → [BriefingTemplates](../lodestar/pkg/computedresources/briefing_templates.go)); a **foreign key** may name a resource other than its target whose rows key into the same space, typically a virtual view over the target carrying display columns the target lacks, while the constraint stays the guard at write time — naming the target itself is refused as redundant, the schema already says so (example: [Mission.ClientID](../lodestar/pkg/resources/missions.go) → [ClientRosters](../lodestar/pkg/virtualresources/client_rosters.go)); naming an **enum table** — one an `@enumerate` type declares, with or without a struct over it — renders the field from the inline `enumeration` values exactly as an inferred key into that table does, one rule for declared and inferred (example: [FailMission.ReasonID](../lodestar/pkg/rpc/fail_mission.go)); and a declaration on a foreign key that **already points into an enum table** is refused as a contradiction, since those values are program constants baked into the metadata. A request field has no schema, so it always declares (example: [CompileBriefing.TemplateID](../lodestar/pkg/rpc/compile_briefing.go), naming a computed resource). A declared enumeration follows the RPC outlet rule: naming a resource that is not on the target outlet fails generation with the fix named, where an inferred key degrades to its plain type. |
 | `@suppress` | `@resource`, `@computed`, or `@rpc` struct | one or more of `listHandler`, `readHandler`, `patchHandler`, `allHandlers`, `allRoutes` | Skips generating the named handlers, or all routes. Suppressing `readHandler` on a resource a picker lists is refused where the resource declares a `@page` maximum (`@enumerate`). Suppressing `patchHandler` also removes the resource from the consolidated patch handler. `allRoutes` is rejected on consolidated resources unless the patch handler is suppressed or the resource is excluded from consolidation. On an `@rpc` struct, any argument suppresses the generated handler. |
 | `@defaultsCreateType` | `@resource` struct | type name | The generated create path calls `Defaults()` on the named type to set defaults when creating the resource. |
 | `@defaultsUpdateType` | `@resource` struct | type name | As above, for updates. |
 | `@validateCreateType` | `@resource` struct | type name | The generated create path calls `Validate()` on the named type to validate the incoming resource. |
 | `@validateUpdateType` | `@resource` struct | type name | As above, for updates. |
+| `@validateDeleteType` | `@resource` struct | type name | A delete rule no grant gets around. Before a row of the resource is deleted, the generated delete calls `Validate()` on the named type with the delete patch, inside the delete's transaction, once the caller's grants and their conditions have passed and before anything is buffered. An error it returns refuses the delete and nothing is deleted: `httpio.NewBadRequestMessage` answers 400 with the rule's own sentence, which is what the person reads. Who may delete which rows stays in grant conditions; the rule is for what no role may do, such as a retention period, which a condition cannot hold because conditions add up across a person's grants. A caller the grants refuse hears their Forbidden and never the rule's sentence. A read-only enumeration table refuses the annotation. Example: [SortieExpenseDeleteRule](../lodestar/pkg/resources/sortie_expenses.go). |
+| `@deleteCascade` | `@resource` struct | kinds, then `refusedBy:` kinds | Declares what a delete of the record takes with it and what refuses it. `@deleteCascade(Project, Task, TaskComment, refusedBy: Invoice)` on `Client` lists the kinds of row that go with a client, in any order, and after `refusedBy:` the kinds that keep a client from being deleted while it has one. The generator reads what is under the record from the schema, the foreign keys and interleaves that lead up to it, and holds the list to it: every kind under the record is named in one list or the other, or generation fails naming the kind, the record and the way between them. A kind that is under the record only through a refusing kind needs no place, since it has no row there without a row of the kind that refuses. A name that is no resource, a kind that is not under the record, a kind named twice, and a read-only table among the kinds taken fail generation the same way, each in a sentence that says what to change. For the record the generator writes `DeleteTree()` on the resource (`resource.DeleteTree`): the kinds taken in the order their rows are deleted, deepest first, each kind's ways up to the record, and what the delete of one row costs in mutations (`resource.DeleteCost`: the delete, an entry in each index of its table, the change record where changes are tracked, and the release of each stored file). `DeleteTree.Mutations` is the one count of a whole delete, held against the 80,000 mutations Spanner takes in a commit (`resource.DeleteMutationLimit`). A delete of a record with a row of a kind listed under `refusedBy` is refused before the commit in a sentence that counts what refuses it, and so is a delete of any record with rows under it that the database does not remove with it (section 10). The tenant record takes no `@deleteCascade`: the library declares its description, every kind of the application's rows that carry the tenant's key or lead to a row that does, with nothing listed to refuse it. A way up to the record never passes a table twice, so a row that hangs under the record only through another row of its own kind is not in the description. Example: [Mission](../lodestar/pkg/resources/missions.go) and [Client](../lodestar/pkg/resources/clients.go). |
 | `@primarykey` | field of a `@computed` or `@virtual` struct | none | Marks the field as (part of) the resource's primary key; multiple annotated fields form a compound key in declaration order. Primary-key fields are exempt from field-level permission enforcement (their readability follows the resource-level grant). The key is what gives a row identity: the read route (`/{key}`), the cursor's tie-break (the key fields end every order, so a keyset cursor walks a total order), and the browser's row identity (`keyOf`). Without a key the resource is a whole read-only list, with no read route and no paging: served in one response, sorted when asked or declared, refusing a numeric `limit` or a `cursor` with a 400 that names `@primarykey` as the way to page, and refusing `@page` at generation. Rejected on table-backed `@resource` structs, whose keys come from the schema. Compound example: [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go); key-less example: [StandingOrder](../lodestar/pkg/computedresources/standing_orders.go). |
 | `@rowsOf` | `@virtual` or `@computed` struct | table resource name | The view declares its backing table, a create goes into the table, and the new row shows up in the view on the next list because the view's SQL reads that table. The declaration states row identity, not columns: every row of the view is one row of the named table under the same key, and the view's other columns are its own — joined from other tables, aggregated, or computed in the projection; the generator compares none of them to the table. It checks, each refusal naming the fix: the named resource exists and is a table-backed `@resource` (a `@virtual` or `@computed` target is refused, since a view cannot back a view, and an `@enumerate` table — with or without a struct over it — is refused as a contradiction, since its rows are the program's constants and a create button for them would be policy about nothing); the view declares `@primarykey` fields matching the table's key in count, order, Go field name, and Go type, nullability included, and on a `@virtual` the `spanner` columns as well, the message naming the first mismatch and the table's key; the two share a `@permissionScope`; the table is served on every outlet the view is served on (fail loud, never a silent degrade); and the view does not name itself. Refused on `@resource` and `@rpc` structs. Several views may name one table. The view's TypeScript metadata carries `rowsOf: Resources.X`, so a page listing the view sends its create, edit, and delete to the table and opens a row on the table's page; a view without the declaration is what it is today, a read-only list. One backing table only: two tables sharing one key (a table and its one-to-one extension) is the door left open and not built, and a parent joined to its children is never one to one with anything and stays a read-only list or an RPC. Examples: [MissionBoard](../lodestar/pkg/virtualresources/mission_boards.go), a same-row view over Missions; [SquadronRoster](../lodestar/pkg/virtualresources/squadron_rosters.go) and [PilotAssignment](../lodestar/pkg/virtualresources/pilot_assignments.go), two association views over SquadronMemberships whose compound key is edited and deleted from the list. [OpenMissionsBySquadron](../lodestar/pkg/virtualresources/open_missions_by_squadrons.go) and [FeeByKind](../lodestar/pkg/virtualresources/fee_by_kinds.go) declare nothing and stay read-only lists. |
 | `@changedBy` | `@virtual` or `@computed` struct | table names | The tables whose changes change the resource, so a commit on them reaches the resource's live pages. On a virtual resource the declaration replaces what the generator reads off the query (the text behind its `Subquery` method, an embedded file, a string literal or a concatenation of constants, walked with memefish's lexer for the names in table positions, section 14), so it can drop a table the walk misread as well as add one the query does not show; the generator still reads the query, and a declaration that differs from the reading is a warning naming both sides, never a refusal. It is the way out when the reading refuses (a name in a table position that is neither a table nor a CTE in scope, a recursive `WITH`, a text the lexer refuses) and required for a query built at run time. A computed resource is Go, so the declaration is its only source: without one its changes are not published, its pages stay plain, and nothing refuses. The `@rowsOf` root must be in the set, read or declared, and a name the schema lacks is refused; refused on `@resource` and `@rpc` structs. The sets are recorded next to the resources, as each package's generated `LiveDerivations`, and assembled in the handler package's `zz_gen_live_derivations.go` (section 14), so what the generator concluded shows in the diff, and the resource's TypeScript metadata says `live: true`. A table of an Auth's generated management (section 22) is read or declared like any other and recorded by its name, since the type over it is internal to the management's tree. Examples: [MissionBoard](../lodestar/pkg/virtualresources/mission_boards.go), read off its query; [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go), declared. |
@@ -79,15 +81,16 @@ type Ship struct { ... }
 | `@state` | field of a `@resource` struct | `default: <value>` | Marks the resource's state column (ABAC design plan §09). The column must be a foreign key to its state enum table (the ordinary Id/Description convention — the FK identifies the table, nothing is declared on it), and the declared default must be one of that table's values. The marker derives the field's behavior — never stated twice: the field decodes output-only (create and update closed, so the wire cannot express a state write; transitions happen inside RPC bodies), Create/Update on it are ungrantable, reads stay grantable, and the generated create patch applies the declared initial state on insert (never a database DEFAULT). State values change only by migration: a mutation permission registered against the state enum table is a generation error, while Read stays grantable. |
 | `@stateRoot` | FK field of a `@resource` struct | `RootStructName` | Declares workflow membership (ABAC design plan §09) on the foreign key anchoring the member — the field is the hop, so only the workflow root's struct name is spelled. Each member declares only its immediate hop; chains compose through other members and must reach the root (a cycle or a hop outside the workflow fails generation), every hop is many-to-one through a real foreign key, and member and root permission scopes must match. The generator synthesizes the uniform `state` attribute binding on the root (a column binding on its `@state` field) and every member (a join path through the chain), so one condition text reads identically across the workflow, and emits the assembled graph as a committed, drift-tested `zz_gen_workflow_<root>.dot` file per stateful root: the whole tree — root and members as solid nodes with one edge per hop labeled with the anchoring FK field, dashed context nodes for every FK reference leaving the tree (the tenant record included), a state cluster with every value and the default marked, one labeled edge per declared `@transition`, and a legend; undeclared state changes stay RPC-body business rules the framework cannot see. The TypeScript resource metadata carries the same facts (root, members with hops, states, default, transitions) as a `Workflows` constant, so a frontend can render the graph itself. A resource belongs to at most one workflow. |
 | `@transition` | `@rpc` struct | `RootStructName, from: a[, b…], to: c` | Declares the RPC method as a workflow state transition (ABAC design plan §09): the method moves rows of the named root resource along one edge. The root must carry `@state`, every `from`/`to` value must be a value of its state enum table, method and root permission scopes must match, and the struct's `Execute` must be the transaction form, carrying exactly one `@target` field. The generated handler owns the mechanical frame inside the transaction it already runs: before the body it locates the target row within the tenancy predicate (absent or cross-tenant is NotFound) and verifies the pre-image state is in the `from` set, then evaluates any row-referencing condition the caller's Execute grant carries against the same located row — either refusal is one uniform Forbidden naming the method and the row, so the wire never says whether the state or the condition said no (§12); after the body returns without error it stamps the `to` state as the last mutation. The body never reads or writes the state field — it carries only the edge's business effect. Who may run the method stays its Execute grant (grants-only, §09). The declared edge travels in the generated Collection, draws labeled edges in the workflow DOT file, rides the TypeScript method metadata, and answers `capabilities=Execute` per row. Example: [LaunchMission](../lodestar/pkg/rpc/launch_mission.go). |
-| `@target` | field of an `@rpc` struct | none, `RootStructName`, or `RootStructName, key: KeyField` | Marks the field carrying the target row's key, its type matching the key column it carries. A method addresses one row: a target keyed by one column is named by one field, and a target keyed by several is named by one field for each column, every one declaring `@target(Root, key: KeyField)` with the key field it carries (the fields may be declared in any order; a column left uncarried, a column carried twice, a field naming no key field, and fields naming two resources are generation errors). With `@transition` it is bare and single (the declared root is the target, and a workflow root is keyed by one column); without one, `@target(Root)` names the row resource directly and the method gets the plain located-row form (ABAC design plan §12): the generated handler locates the row inside its transaction (absent or cross-tenant is NotFound) and evaluates any row-referencing condition on the caller's Execute grant against it, with no state check and no stamp. Either way, a targeted method's Execute grants may carry row conditions — `access.MigrateRoles` validates them against the target resource's binding vocabulary — and the method joins the target resource's per-row `capabilities=Execute` answer. Requires the transaction form of `Execute`; method and target permission scopes must match. A domain-scoped target resolves tenancy through its `@domain` binding, either form: a bare tenant column is read off the located row, a join-path binding is verified with one query in the same transaction — absent and cross-tenant rows answer the same NotFound either way. In the plain form the target may be a view (a `@virtual` struct) keyed by its `@primarykey` field or fields. A view's row is one row of the view's query, and in a tenant-scoped view its key names a row in each tenant that holds one — the tenant column is not part of the key, since `@domain` already holds a row to its tenant, and a key that includes it is refused — so the handler reads no row by the key: it hands the gate the view's own value, named in the package the view is declared in, and one SELECT over the view's query, by the key within the request's tenant, both locates the row and evaluates the grant's condition against it (`ExecuteGate.EnforceView`), a condition that may read the view's `@attribute` facts. No row there answers NotFound, whether the key names nothing or another tenant's row; a key that names two rows there fails the call, as a fault of the view's query. Refused on a view: `@transition`, since a view has no `@state` to move; and a view with no `@primarykey`. The TypeScript method metadata names the target as `target: { resource, key }`, `key` mapping each request field to the row field it carries, so a page fills the request from a row. Examples: [HailShip](../lodestar/pkg/rpc/hail_ship.go), a table's row; [SetSectorPilotClearance](../lodestar/pkg/rpc/set_sector_pilot_clearance.go), a view's; `RemoveCrewSectorRole` of the generated management (section 21), a view's row keyed by two columns. |
+| `@target` | field of an `@rpc` struct | none, `RootStructName`, or `RootStructName, key: KeyField` | Marks the field carrying the target row's key, its type matching the key column it carries. A method addresses one row: a target keyed by one column is named by one field, and a target keyed by several is named by one field for each column, every one declaring `@target(Root, key: KeyField)` with the key field it carries (the fields may be declared in any order; a column left uncarried, a column carried twice, a field naming no key field, and fields naming two resources are generation errors). With `@transition` it is bare and single (the declared root is the target, and a workflow root is keyed by one column); without one, `@target(Root)` names the row resource directly and the method gets the plain located-row form (ABAC design plan §12): the generated handler locates the row inside its transaction (absent or cross-tenant is NotFound) and evaluates any row-referencing condition on the caller's Execute grant against it, with no state check and no stamp. Either way, a targeted method's Execute grants may carry row conditions — `access.MigrateRoles` validates them against the target resource's binding vocabulary — and the method joins the target resource's per-row `capabilities=Execute` answer. Requires the transaction form of `Execute`; method and target permission scopes must match. A domain-scoped target resolves tenancy through its `@domain` binding, either form: a bare tenant column is read off the located row, a join-path binding is verified with one query in the same transaction — absent and cross-tenant rows answer the same NotFound either way. In the plain form the target may be a view (a `@virtual` struct) keyed by its `@primarykey` field or fields. A view's row is one row of the view's query, and in a tenant-scoped view its key names a row in each tenant that holds one — the tenant column is not part of the key, since `@domain` already holds a row to its tenant, and a key that includes it is refused — so the handler reads no row by the key: it hands the gate the view's own value, named in the package the view is declared in, and one SELECT over the view's query, by the key within the request's tenant, both locates the row and evaluates the grant's condition against it (`ExecuteGate.EnforceView`), a condition that may read the view's `@attribute` facts. No row there answers NotFound, whether the key names nothing or another tenant's row; a key that names two rows there fails the call, as a fault of the view's query. Refused on a view: `@transition`, since a view has no `@state` to move; and a view with no `@primarykey`. The TypeScript method metadata names the target as `target: { resource, key }`, `key` mapping each request field to the row field it carries, so a page fills the request from a row. A key field of text (a `string`, or a named type over one) that does not declare `validate:"required"` is one the method takes empty, and the empty text is a value of the key there, as the group of a role a person holds directly is: the metadata lists the field in `target.mayBeEmpty`, and a page sends the empty text a row holds there as it is. Every other part of a key (a text field declared required, an id, a number) holds a value on every row, and a page refuses a row that is empty there before it sends anything. Examples: [HailShip](../lodestar/pkg/rpc/hail_ship.go), a table's row; [SetSectorPilotClearance](../lodestar/pkg/rpc/set_sector_pilot_clearance.go), a view's; `RemoveCrewSectorRole` of the generated management (section 21), a view's row keyed by three columns, the last of which may be empty. |
 | `@answers` | `@rpc` struct | `200, 409` | Declares the statuses the method may answer with; the result type carries `HTTPStatus() int` and chooses one per response. Allowed: `200`, `201`, `202`, `204`, and any 4xx except `401`, `403`, and `404`, which stay the frame's own refusals; at least one must be a 2xx. A 4xx answer is the method's refusal with its typed body: in the transaction form the transaction rolls back first, so nothing the body armed commits. `204` writes no body and requires a pointer result returned nil, or an answerless method, whose only permitted declaration is `@answers(204)`. A result declaring `HTTPStatus()` without `@answers`, or the reverse, is a generation error; an undeclared status at runtime answers 500. The TypeScript client resolves `{ status, result }` for a method with declared statuses and still throws on every undeclared 4xx. Example: [CompleteMission](../lodestar/pkg/rpc/complete_mission.go). |
 | `@upload` | `@rpc` struct | `max: 5MB`, and `store: S` for a named store | Declares the method as a multipart upload. Its `Execute` takes `resource.Files` third, `Execute(ctx, txn resource.ReadWriteTransaction, files resource.Files, client *Client)`, the transaction form only, since the transaction is what claims the files, and the declaration and the signature go together (either alone is a generation error). With `store: S`, the files go to the named store `S` (section 13) and `Execute` takes `resource.FilesIn[S]`, whose keys are `resource.Key[S]`; the declaration and the signature name one store or neither, and a mismatch is a generation error. The request is `multipart/form-data`: one part named `request` first, carrying the JSON the method's decoder reads exactly as for a JSON RPC, then one or more parts named `file`. `max` (a byte count or `KB`/`MB`/`GB`, 1024-based) bounds the whole body; over it is a 413 naming the maximum, no `file` part a 400, a body that is not multipart a 415. The frame streams each file to the method's store, read off the resource client, under a key it minted, runs the body with the files, and on any failure before commit deletes the objects it streamed and answers with the failure; after a commit nothing more happens, since the rows the body wrote claim the keys. The body records each key in a `@file` column of the same store, a `string` column for the default store and a `resource.Key[S]` column for `S`, whose generated setter takes the typed key, so a key of another store does not compile into it; a key recorded anywhere else is invisible to the release and is the orphaned-file cleanup's. An upload naming a store no `@file` column holds is refused at generation. Reading a file back is the `@file` route (section 13). A dry run streams nothing: the files describe the parts with empty keys. The TypeScript handle gains `upload(body, files)`, which refuses locally over the maximum. Examples: [AttachRefitPhoto](../lodestar/pkg/rpc/attach_refit_photo.go) on the default store, [AttachMissionDocument](../lodestar/pkg/rpc/attach_mission_document.go) on a named one. |
 | `@warning` | `@rpc` struct | `typed: open` | Declares that the method warns before it runs (section 7): a person reads what the call will do, in the server's words, and types the word before the confirm button works. The struct declares `Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error)` beside `Execute`, and the declaration and the method go together (either alone is a generation error). A request that carries `X-Warning: true` is decoded and checked exactly as the call is, answers the `resource.Warning` in place of running the call, and saves nothing; a method that declares no warning refuses the header with 400. The typed word is one lowercase word of 2 to 24 letters, which the generated metadata carries (`warning: { typed }`). Refused on the client form of `Execute` (the warning is read inside the handler's transaction, which is rolled back), on an `@upload` method, with `@suppress`, and with `@schedule`. |
 | `@schedule` | `@rpc` struct | the cron expression in quotes, `zone: "<IANA zone>"` (UTC when absent), and `log: onEvent`: `@schedule("30 3 * * *", zone: "America/Denver")` | Declares the method a scheduled route: Cloud Scheduler calls it on the schedule, read in the zone. The expression is five fields separated by single spaces (minute, hour, day of the month, month, day of the week), each a comma list of `*`, a value, or a range, the `*` and the range optionally stepped (`*/15`, `1-5/2`), months and days of the week also by name (`JAN`, `MON`); an expression outside that, a zone the time zone database does not know, and `Local` are generation errors. A scheduled method takes no input: no field, no `@upload`, no `@permissionScope` (a domain scope is a path parameter, and a scheduled method checks no permission), no `@target` or `@transition`, no `@outlet`, `@feature`, `@formerly` or `@suppress`, each refused naming the struct, and it needs `GenerateRouter`. It is served at `POST /_scheduled/<method in kebab case>` behind the scheduler's token check alone, never on an outlet, never in the permission collection or a TypeScript client. `log:` is the method's own request log word (`always`, `onEvent`, `sampled` with `fraction:`, `never`), set ahead of its handler as a route's is (section 8, request logs and traces); a scheduled method's spans follow the front end, so `trace:` is refused here and on its `@rpc`. Section 19. Example: [PruneDroidReports](../lodestar/pkg/rpc/prune_droid_reports.go). |
 | `@file` | field of a `@resource`, `@virtual`, or keyed `@computed` struct (the column holding the store key); or a keyed `@computed` struct | none, `segment`, on a field `name: Field`, `type: Field`, and `log: onEvent`, `trace: off` | A row says which stored object is its file, and the generator serves that file under the row's read route: `GET <read route>/content` answers the bytes with their type, name, size, time, and validator, gated by `Read` on the resource and a `Read` grant on `content`, the route's own field, which the Collection registers with no column behind it (`columns=content` on a read stays a 400; a grant naming it is accepted by `access.MigrateRoles`). On a field, the annotation marks the column holding the store key: `@file` bare serves under `content`, `@file(thumbnail)` under its own segment, and `name:` and `type:` name sibling columns carrying the file's name and media type (a struct may carry several, one per segment). The column's type says which store holds the file: `string` or `*string` is the default store, `resource.Key[S]` or `*resource.Key[S]` the named store `S`, a type the application declares by embedding `resource.Store` (section 13); both are `STRING` columns, and the generated `FileKeys()` names each column with its store. The key column goes off the wire in both directions: never returned on read or list, never accepted on create or update, absent from the TypeScript interface and metadata; a `NOT NULL` key means a row is added by the `@upload` method that stores its file, so `Create` is not registered and the patch handlers refuse a create op naming that way in, while a nullable key leaves `Create` ordinary. On a keyed `@computed` struct, `@file` or `@file(segment)` declares a rendered file: the computed package declares `<Name><Segment>(ctx, key…, qSet *resource.QuerySet[Name], client resource.Client, computedClient *Client) (*resource.Content, error)` beside `Read<Name>`, checked at generation as `Read<Name>`'s callers are, and a nil content is 404. Deleting a row that carries a key, or pointing it at another object, releases the old object: the patch machinery records the key on the transaction and the executor deletes it from the column's store, wired on the resource client (`resource.WithFileStore`, `resource.WithNamedFileStore[S]`), once the commit lands, from every transaction the application runs; one row owns one object, and a row the database deletes by cascade releases nothing (section 13). Under a suppressed read route the declaration serves nothing and still names the key column, so the release and the orphaned-file cleanup see its keys. `log:` and `trace:` are the file route's own request log word and trace setting, as on `@rpc` (section 8, request logs and traces), refused under a suppressed read route, where no route carries them. Refused at generation, naming the struct: a key-less struct, an unknown sibling, two declarations on one segment, a name or type field that is not a `string` or `*string`, a key field that is none of `string`, `*string`, `resource.Key[S]` and `*resource.Key[S]`, a `resource.Key[S]` column without the declaration, the struct-scope form on a table or view, a rendered file under a suppressed read route, and a content function that is missing or has another signature. Examples: [MissionDocument.StoreKey](../lodestar/pkg/resources/mission_documents.go), a stored file; [ExpenseManifest](../lodestar/pkg/computedresources/expense_manifests.go), a rendered one. |
-| `@subjectSet` | user-id field of a `@resource` struct; with a `who:` written, one of the fields the `who:` names | `name, value: Field`, the two optional parts `who: <tests>` and `where: <condition>`, and on a global-scoped anchor `domain: Field` or `domain: Field.Path` | Declares subject-side set vocabulary: `subject.<name>` in grant conditions is the set of `value:` values on this table's rows whose annotated column matches the requesting user (`crew IN subject.crews`). The annotation designates the user-id column — no separate marker — and is repeatable per anchor; `value:` names the sibling Go field the set yields, dotted to continue through foreign-key hops with the same many-to-one validation as `via:`; every set is drawn in the package's `zz_gen_bindings.dot`: the requester enters the anchor once naming its sets, a bare set is listed in the anchor's box and points at its table when the column is a foreign key, and a dotted value continues as edges (see `@domain`). **Tenancy:** the rendered subject subquery is tenant-filtered by the anchor resource's own `@domain` binding, so a domain-scoped anchor must declare one — generation rejects it otherwise, because without it `subject.<name>` matches the user's rows from every tenant (a membership held at tenant B would satisfy conditions evaluated at tenant A). A global-scoped anchor is the deliberately shared pattern — a certification earned once applies everywhere — and stays unfiltered. Where a global table's rows still belong to tenants, the set says where a row's tenant is found, `domain:`. Where the row carries its tenant's key itself, `domain:` names that column (`domain: TenantID`), and `zz_gen_bindings.dot` lists it under the set in the anchor's box (`subject.keys domain: TenantId`). Where a row belongs to a tenant through a parent (a person's place in a group, the group being kept in one tenant or in none), it names a foreign key of the row and then the path to the column that holds the tenant's key (`domain: GroupID.DomainID`), validated many-to-one as `via:` is, and drawn in `zz_gen_bindings.dot` as an `@domain` path is, dotted, under the set's name (`groups domain: GroupId ⇒ DomainId`). In a request that has a tenant the set then holds that tenant's rows alone, and a row that names another tenant, or none, is left out; in a request that has no tenant it holds every row. Generation refuses a `domain:` on a domain-scoped anchor (its own `@domain` is the filter), on a `@subjectValue`, on a path that does not start at a foreign key of the row, and on a column or a path's end that is not text. Text is all a column's type says, so where generation knows which column of the table a `domain:` ends on holds its tenant, the end must be that column, and the refusal names it: on a domain-scoped table, the column its bare `@domain` sits on (a table that finds its tenant through `@domain(via: ...)` holds no tenant's key, so the path goes on through that foreign key); on the `@tenant` record, its key; on an auth's groups table, the store's `DomainId`. A global table that is none of these tells generation nothing of a tenant, so there the end is held to text alone, and that the column holds a tenant's key is the author's word. `NewGeneratedCollection` refuses a collection built by hand that gives a set a domain on a domain-scoped resource, or gives one to a subject value, so nothing takes the place of a resource's own tenant filter. Note the anchor's own binding is what counts: tenancy never arrives transitively from a domain-scoped parent table (see `@domain`). **Type:** the set's comparison type is derived from the `value:` column (the terminal of a dotted value) exactly as `@attribute`'s is, and a grant may test only an attribute of the same type for membership in it; `MigrateRoles` refuses the mismatch at deploy. **The two parts:** a set's definition may say two more things, each in the language grant conditions are written in ([`accesstypes/condition`](../accesstypes/condition), whose package documentation states the grammar of both) over the fields of the same struct, named as Go fields. Both are optional, and a set that writes neither is the set described above and generates as it always has. `who:` says which rows are the requester's: one test or several joined by `OR`, each tying a column of the row to the requester, `Field = subject` or `Field IN subject.<another set>`. Left out, it is the annotated column equal to the requester. `where:` says which of those rows count: a condition over the row's own columns compared to literals and to `now`, with the comparisons, `IN (…)`, `IS NULL`, `AND`, `OR` and `NOT`, judged as every condition is, so a row counts only where it is TRUE. One table then yields a set for each level it records, an expired row drops out at its hour, and a set follows a person through any table that declares a set of its own: `@subjectSet(hangarsRun, value: HangarID, who: UserID = subject OR SquadronID IN subject.squadrons, where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))`, written on one line or continued over the comment's next lines. A role file does not change: a grant names the set (`hangar IN subject.hangarsRun`) and nothing of the table behind it. Sets build on sets to any depth, and each keeps its own tenant filter: a set on a tenant-scoped table reads the request's tenant, a set on a global table reads every row unless it writes a `domain:`, whichever of the two names the other, so a table kept outside every tenant answers the same in each. Both parts render inside the one `EXISTS` the set already is, the set a `who:` follows as that set's own `EXISTS` with the row's column where an attribute would stand. With a `who:` written the annotation sits on one of the fields the `who:` names, as every annotation that ties a row to the requester or the tenant sits on the column it reads. **Refused at generation**, naming the struct, the field and the set: a `who:` test that does not tie the row to the requester (a comparison to a literal, `!=`, a negated test, tests joined by `AND`), since a set of everyone's rows is one mistake away without it; a `who:` naming a field the struct does not have or one no condition can compare, comparing a column that is not a string to the requester, or writing one test twice; a `who:` naming a set no `@subjectSet` declares (the message lists the sets declared), a `@subjectValue`, or a set whose value type differs from the tested column's; sets that build on each other in a loop, a set on itself included, with the loop spelled out; the annotation on a field its `who:` does not name, with the fields it may sit on; a `where:` naming something that is not a field of the struct, or a field no condition can compare; a `where:` literal that does not fit the column it is compared to (a string against a number, a timestamp that is not RFC 3339, a date that is not `YYYY-MM-DD`, `now` against anything but a timestamp); a `where:` value that an enumerated column does not hold (a foreign key into an `@enumerate` table, or a field-scope `@enumerate` naming one), with the values it does hold; and a `where:` that names the requester (`subject`, `subject.<name>`) or a proposed value (`new.`), since the test that ties a row to the requester is the `who:` and a set's rows are read as the database holds them. **Index warning:** generation warns, and never refuses, when no index of the set's table serves the set's lookup, one warning for each column the `who:` names (the annotated column for a set that writes none), each naming the `CREATE INDEX` it wants: the tenant column first where the row carries one, then the column, then the value (section 9). **Strings:** a string literal in a `where:` is written in single quotes and holds any character, a comma or a parenthesis among them; a quote inside it is written twice (`Code = ':)'`, `Note != 'it''s'`). A string that is never closed is refused as an unclosed single quote, at the annotation. Examples: [SquadronMembership](../lodestar/pkg/resources/squadron_memberships.go), a set that writes neither part; [HangarPass](../lodestar/pkg/resources/hangar_passes.go), two sets on one table, each with both. |
-| `@subjectValue` | user-id field of a `@resource` struct | `name, value: Field` | Declares subject-side scalar vocabulary for threshold comparisons (`amount <= subject.approvalLimit`). Same grammar — and the same tenancy rule, and the same place in `zz_gen_bindings.dot` — as `@subjectSet`, valid only where the annotated user-id column is the whole key of a unique index, the single-column primary key included, so the database enforces exactly one row per user; a column of a composite key or composite unique index does not qualify. It takes neither `who:` nor `where:`, the parts of a `@subjectSet`: its one row is the requester's by the unique column, and generation refuses either on it. **Type:** the value's comparison type is derived from the `value:` column as `@attribute`'s is, and a grant may compare it only against an attribute of the same type (`now` only against a timestamp-typed value); `MigrateRoles` refuses the mismatch at deploy. |
+| `@subjectSet` | user-id field of a `@resource` struct; with a `who:` written, one of the fields the `who:` names | `name, value: Field`, the two optional parts `who: <tests>` and `where: <condition>`, and on a global-scoped anchor `domain: Field` or `domain: Field.Path` | Declares subject-side set vocabulary: `subject.<name>` in grant conditions is the set of `value:` values on this table's rows whose annotated column matches the requesting user (`crew IN subject.crews`). The annotation designates the user-id column — no separate marker — and is repeatable per anchor; `value:` names the sibling Go field the set yields, dotted to continue through foreign-key hops with the same many-to-one validation as `via:`; every set is drawn in the package's `zz_gen_bindings.dot`: the requester enters the anchor once naming its sets, a bare set is listed in the anchor's box and points at its table when the column is a foreign key, and a dotted value continues as edges (see `@domain`). **Tenancy:** the rendered subject subquery is tenant-filtered by the anchor resource's own `@domain` binding, so a domain-scoped anchor must declare one — generation rejects it otherwise, because without it `subject.<name>` matches the user's rows from every tenant (a membership held at tenant B would satisfy conditions evaluated at tenant A). A global-scoped anchor is the deliberately shared pattern — a certification earned once applies everywhere — and stays unfiltered. Where a global table's rows still belong to tenants, the set says where a row's tenant is found, `domain:`. Where the row carries its tenant's key itself, `domain:` names that column (`domain: TenantID`), and `zz_gen_bindings.dot` lists it under the set in the anchor's box (`subject.keys domain: TenantId`). Where a row belongs to a tenant through a parent (a person's place in a group, the group being kept in one tenant or in none), it names a foreign key of the row and then the path to the column that holds the tenant's key (`domain: GroupID.DomainID`), validated many-to-one as `via:` is, and drawn in `zz_gen_bindings.dot` as an `@domain` path is, dotted, under the set's name (`groups domain: GroupId ⇒ DomainId`). In a request that has a tenant the set then holds that tenant's rows alone, and a row that names another tenant, or none, is left out; in a request that has no tenant it holds every row. Generation refuses a `domain:` on a domain-scoped anchor (its own `@domain` is the filter), on a `@subjectValue`, on a path that does not start at a foreign key of the row, and on a column or a path's end that is not text. Text is all a column's type says, so where generation knows which column of the table a `domain:` ends on holds its tenant, the end must be that column, and the refusal names it: on a domain-scoped table, the column its bare `@domain` sits on (a table that finds its tenant through `@domain(via: ...)` holds no tenant's key, so the path goes on through that foreign key); on the `@tenant` record, its key; on an auth's groups table, the store's `DomainId`. A global table that is none of these tells generation nothing of a tenant, so there the end is held to text alone, and that the column holds a tenant's key is the author's word. `NewGeneratedCollection` refuses a collection built by hand that gives a set a domain on a domain-scoped resource, or gives one to a subject value, so nothing takes the place of a resource's own tenant filter. Note the anchor's own binding is what counts: tenancy never arrives transitively from a domain-scoped parent table (see `@domain`). **Type:** the set's comparison type is derived from the `value:` column (the terminal of a dotted value) exactly as `@attribute`'s is, and a grant may test only an attribute of the same type for membership in it; `MigrateRoles` refuses the mismatch at deploy. **The two parts:** a set's definition may say two more things, each in the language grant conditions are written in ([`accesstypes/condition`](../accesstypes/condition), whose package documentation states the grammar of both) over the fields of the same struct, named as Go fields. Both are optional, and a set that writes neither is the set described above and generates as it always has. `who:` says which rows are the requester's: one test or several joined by `OR`, each tying a column of the row to the requester, `Field = subject` or `Field IN subject.<another set>`. Left out, it is the annotated column equal to the requester. `where:` says which of those rows count: a condition over the row's own columns compared to literals and to `now`, with the comparisons, `IN (…)`, `IS NULL`, `AND`, `OR` and `NOT`, judged as every condition is, so a row counts only where it is TRUE. One table then yields a set for each level it records, an expired row drops out at its hour, and a set follows a person through any table that declares a set of its own: `@subjectSet(hangarsRun, value: HangarID, who: UserID = subject OR SquadronID IN subject.squadrons, where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))`, written on one line or continued over the comment's next lines. A role file does not change: a grant names the set (`hangar IN subject.hangarsRun`) and nothing of the table behind it. Sets build on sets to any depth, and each keeps its own tenant filter: a set on a tenant-scoped table reads the request's tenant, a set on a global table reads every row unless it writes a `domain:`, whichever of the two names the other, so a table kept outside every tenant answers the same in each. Both parts render inside the one `EXISTS` the set already is, the set a `who:` follows as that set's own `EXISTS` with the row's column where an attribute would stand. With a `who:` written the annotation sits on one of the fields the `who:` names, as every annotation that ties a row to the requester or the tenant sits on the column it reads. **Refused at generation**, naming the struct, the field and the set: a `who:` test that does not tie the row to the requester (a comparison to a literal, `!=`, a negated test, tests joined by `AND`), since a set of everyone's rows is one mistake away without it; a `who:` naming a field the struct does not have or one no condition can compare, comparing a column that is not a string to the requester, or writing one test twice; a `who:` naming a set no `@subjectSet` declares (the message lists the sets declared), a `@subjectValue`, or a set whose value type differs from the tested column's; sets that build on each other in a loop, a set on itself included, with the loop spelled out; the annotation on a field its `who:` does not name, with the fields it may sit on; a `where:` naming something that is not a field of the struct, or a field no condition can compare; a `where:` literal that does not fit the column it is compared to (a string against a number, a timestamp that is not RFC 3339, a date that is not `YYYY-MM-DD`, `now` against anything but a timestamp); a `where:` value that an enumerated column does not hold (a foreign key into an `@enumerate` table, or a field-scope `@enumerate` naming one), with the values it does hold; and a `where:` that names the requester (`subject`, `subject.<name>`) or a proposed value (`new.`), since the test that ties a row to the requester is the `who:` and a set's rows are read as the database holds them. **Index warning:** generation warns, and never refuses, when no index of the set's table serves the set's lookup, one warning for each column the `who:` names (the annotated column for a set that writes none), each naming the `CREATE INDEX` it wants: the tenant column first where the row carries one, then the column, then the value (section 9). **Strings:** a string literal in a `where:` is written in single quotes and holds any character, a comma or a parenthesis among them; a quote inside it is written twice (`Code = ':)'`, `Note != 'it''s'`). A string that is never closed is refused as an unclosed single quote, at the annotation. Examples: [SquadronMembership](../lodestar/pkg/resources/squadron_memberships.go), a set that writes neither part; [HangarPass](../lodestar/pkg/resources/hangar_passes.go), two sets on one table, each with both. **Impersonation:** the record decides what a person may do, so its generated write refuses the real person behind an impersonated session a row that names them, by the annotated column or a column a `who:` compares to the requester, before the write and after it (section 21, "The rules on who is asking"). |
+| `@subjectValue` | user-id field of a `@resource` struct | `name, value: Field` | Declares subject-side scalar vocabulary for threshold comparisons (`amount <= subject.approvalLimit`). Same grammar — and the same tenancy rule, and the same place in `zz_gen_bindings.dot` — as `@subjectSet`, valid only where the annotated user-id column is the whole key of a unique index, the single-column primary key included, so the database enforces exactly one row per user; a column of a composite key or composite unique index does not qualify. It takes neither `who:` nor `where:`, the parts of a `@subjectSet`: its one row is the requester's by the unique column, and generation refuses either on it. **Type:** the value's comparison type is derived from the `value:` column as `@attribute`'s is, and a grant may compare it only against an attribute of the same type (`now` only against a timestamp-typed value); `MigrateRoles` refuses the mismatch at deploy. **Impersonation:** as for a `@subjectSet`, the record's generated write refuses the real person behind an impersonated session the row that names them (section 21, "The rules on who is asking"). |
 | `@manualAddResource` | `accesstypes.Resource` constant | `permission[, scope]` | Registers the permission on the resource in the generated Collection for a hand-written route with no generated handler. Repeatable. Scope is `global` or `domain`; omitted means the global default. An `@outlet` annotation on the same constant names the outlets the hand-written route is mounted under, so an outlet-filtered TypeScript target (`ForOutlet`) carries the registration only when it names that outlet; omitted means the default outlet. The constant's value is the resource name and must not contain `:` (reserved for access-defined markers like `accesstypes.GlobalResource`); generation rejects it. The registration reaches the TypeScript constants like a generated one: an `Execute` registration joins `Methods`, any other permission joins `Resources`. |
+| `@class` | `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource(Execute)` | comma list of class names, `credential`, `access` | Marks the action with the classes it carries, which a permission mask refers to: the mask of an impersonated session that refuses a class (`accesstypes.RefuseClass`) refuses every action that carries it, the ones declared after the mask was written among them, so nobody keeps a list of actions in step with the application (section 6). Repeatable, and a list and repeated annotations mean the same. A class is named by a lowercase letter, then lowercase letters, digits and underscores (`money_movement`); the library names two, which its generated identity methods carry (section 21): `credential` (`accesstypes.ClassCredential`), on the methods that change how a person signs in (a password set, required anew or removed, a reset link sent, a sign-in identity unlinked, a username or an address changed), and `access` (`accesstypes.ClassAccess`), on the methods that give or take away what someone may do (a role given or removed, a group and who is in it and what it holds, an invitation, an account made, and what a sign-in method or a tenant's directory gives everyone who arrives through it; an account disabled, enabled or deleted carries neither class, section 21). An application marks its own actions with either or with a class it names. The generated Collection carries each action's classes (`CollectionResource.Classes`, read back with `ActionClasses`), which is where the masked check reads them, and the collection file declares a constant for each class in use (`ClassCredential`, `ClassAccess`, `ClassMoneyMovement`), so a mask is written against a name the compiler knows and one that names a class no action carries any more does not compile. A registration declared with `WithManualResources` carries its classes in `ManualRegistration.Classes`. A class is an action's alone, a name that registers Execute and nothing else. **Refused at generation:** a name no class may carry, a class named twice on one action, the annotation on a `@resource`, `@virtual` or `@computed` struct (the annotation marks an action; a record's writes are given the class `access` by the generator alone, where the record decides what a person may do, and a mask holds a session off any other record by naming it, `accesstypes.RefuseWrites`), the annotation on a constant that registers nothing, the annotation beside a registration of a permission other than Execute, on a constant or in `ManualRegistration.Classes` (`constant "LedgerRows": @class(sensitive) marks an action, and the registration is of List, which is no action's permission: a class is carried by a registration of Execute alone. …`), a name that carries a class and registers another permission beside Execute (`"ResetLogin" carries the class credential and registers Update beside Execute: …`; the collection refuses the same when the application starts, so a collection file written before the rule is not served), the annotation on a method that registers no action (its handler suppressed with `@suppress`, or a generation that writes no routes: the class rides the registration, so it goes on the constant that registers the action by hand, and is never dropped without a word), and two classes whose constants would share a name. A name registered twice, by a method and by hand, carries the classes of both. Example: [ScrapShip](../lodestar/pkg/rpc/scrap_ship.go). |
 | `@manualAddResourceSet` | `@resource` struct | comma list of `listHandler`, `readHandler`, `patchHandler`, or `allHandlers` | Declares that hand-written handlers register this resource's permission Sets for the given handler types; validated against the set of generated handlers. |
 | `@outlet` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource` | comma list of outlet names | Names the router outlets the struct's routes — or the constant's hand-written route — are registered under. Outlets are independent registration surfaces with their own route prefixes — the generator emits a `Generated<Name>Handlers` interface and `generated<Name>Routes` function per outlet, so the application composes different authentication and middleware around each (a browser app on one, a machine REST API on another). The default outlet is declared by `generation.GenerateRoutes` and carries the reserved name `default`; additional outlets are declared with `generation.WithRouterOutlet(name, routePrefix)`, and referencing an undeclared name is a generation error. An outlet serving browser sessions declares it (`WithRouterOutlet(name, prefix, Auth(pkg, flavor))` under the generated router, `ServesSessions()` under a hand-written one; section 8): the generated route tables register the permission-digest and user-domains routes under its prefix, and only a session-serving outlet may be the target of a `GenerateTypescript` call (`ForOutlet(name)`), which filters every emitted TypeScript file to that outlet's members — a client for a session-less outlet would have no permission channels and fail closed on every page, so it is a generation error. Without the annotation a struct is on the default outlet only; naming outlets replaces that default, so `@outlet(default, automation)` serves both while `@outlet(automation)` serves the automation outlet only. Consolidated resources get one consolidated patch dispatcher per outlet (`PatchResources`, `Patch<Name>Resources`), each bundling exactly that outlet's members. The generated router tests cover every outlet's routes and additionally prove isolation: a route's path under an outlet it is not attached to must 404. Example: [Consignment](../lodestar/pkg/resources/consignments.go). |
 | `@permissionScope` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct | `global` or `domain` | Sets the permission scope used by all of the resource's registrations. Default: `global`. It also selects the domain the generated handlers evaluate permissions in: global-scoped handlers pass `accesstypes.GlobalDomain`, while domain-scoped handlers read it from a required `/<tenants>/{<tenant>ID}/` route segment pair between the route prefix and the resource path (pair-style, so domain values can never collide with resource or method route names). Both names derive from the package's `@tenant` record: the segment is the record's route name and the parameter its key's route parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/`), and a tenant-scoped resource in a package with no `@tenant` record is refused. Domain-scoped routes are wrapped in the generated `DomainGuard`, which asks the application's tenant roster (`TenantRoster().Has`, section 16) and answers 404 for a domain the roster does not hold before the handler runs, and the same 404 for a tenant the session does not reach (`UserPermissions.Reaches`: the tenant's declaration does not admit the way the session was established, section 6). With `generation.WithConcealedDomains()` the guard asks the caller's foothold next (`UserPermissions.HasGrants` in the domain): a domain where the requesting user holds zero grants answers identically to a domain that does not exist (404 on routes, 400 in consolidated op paths), so refusals never confirm a tenant; any grant in the domain restores ordinary 403s (`access.Client.UserHasGrants` answers the foothold question from the in-memory snapshot, so the check stays legal inside the consolidated mutation transaction). Tenant identifiers must be a single URL-safe path segment and must never contain `:` (the character is reserved for access-defined markers; `accesstypes.GlobalDomain` is `access:global`); a URL domain is pure data, and `accesstypes.DomainScope` routes it to a tenant partition by construction, so no value can address the global partition. In the consolidated patch handler, a domain-scoped resource's operations carry the domain in the path exactly as the URL grammar does (`{"op":"patch","path":"/sectors/sector-alpha/berths/…"}`); global operations stay domainless, an unknown domain in an operation path is a 400, and cross-domain batches are legal (each operation is checked in its own partition; the batch is one transaction). Example: [Sector](../lodestar/pkg/resources/sectors.go). |
@@ -628,11 +631,14 @@ removed still lists while grants in it remain; existence is the tenant roster's
 ## 6. Impersonated sessions
 
 The `session` package can establish a session that operates as another user or as a role
-on behalf of an authenticated actor, optionally attenuated by an
-`accesstypes.PermissionMask`. Such a session is an ordinary session to every consumer;
-this package supplies the two pieces that must know about it:
+on behalf of an authenticated actor, attenuated by an `accesstypes.PermissionMask`. The
+mask is the control: a session that impersonates a person with no mask holds everything
+that person holds (the session package's "Impersonation is granted with a mask", which
+also has the declaration of the kinds an application offers). Such a session is an
+ordinary session to every consumer; this package supplies the pieces that must know
+about it:
 
-- **`SessionPermissions(ctx, forUser, forRole, roster, declarations)`** composes the
+- **`SessionPermissions(ctx, forUser, forRole, roster, declarations, classes)`** composes the
   request's `UserPermissions` from the session: `forUser` (typically
   `access.Client.ForUser`) for a user principal — an ordinary session or an impersonated
   user — and `forRole` (typically `access.Client.ForRole`) for a role principal, admits
@@ -647,11 +653,69 @@ this package supplies the two pieces that must know about it:
   to it, and a column that records who did something (the anchor of a `@subjectSet`, a
   `filedBy`) holds it. An application that does not operate sessions as roles passes
   `RolePrincipalsUnsupported` as `forRole`; a role principal then fails closed (every
-  check Denied, empty digest, no domains) with the same `User()`. `Masked(perms, mask)`
-  is the attenuation on its own: a permission the mask does not allow is Denied for every
-  resource before policy is consulted and dropped from the permission digest, so the
-  frontend's digest agrees with what `Check` enforces. Forgetting the mask fails *open*,
+  check Denied, empty digest, no domains) with the same `User()`. Forgetting the mask fails *open*,
   which is why the composition is here rather than hand-rolled per application.
+- **`Masked(perms, mask, classes)`** is the attenuation on its own. A check is Denied,
+  before policy is consulted, when the mask does not keep its permission kind (for
+  every resource asked about), when the mask refuses a class its resource carries
+  (in either scope: the class is the action's, whichever scope registers it), or
+  when the mask refuses the permission on the resource by name; the other resources of
+  the same check are answered as policy answers them. Each denial is logged as the
+  mask's, with the mask, the person, the resource and the reason
+  (`impersonation: Execute denied by mask (*;-class:credential) for … on
+  SetStaffTemporaryPassword: the mask refuses the class credential`), and the
+  permission digest drops the same entries, so the frontend's digest agrees with what
+  `Check` enforces and no page offers what the session is refused. A field is judged
+  by its record. `classes` is where the check reads an action's classes
+  (`ActionClasses`): the generated collection, `router.Collection()`, built once and
+  held by the application, as the skeletons do. A mask that refuses a class, checked
+  with no classes handed in (`nil`), refuses everything: the check cannot know which
+  actions carry the class, and it never guesses open. For the same reason such a mask
+  refuses Execute on a name that is no action of the application, one the collection
+  registers no Execute on for the whole application or for a tenant: a name spelled
+  wrong, an action checked by hand and never registered, or an action of a collection
+  other than the one handed in. Its classes are not none, they are unknown, and the
+  denial says so (`… "CreateWorkspace" is no action of the application, so the classes
+  it carries cannot be known: register it by hand (@manualAddResource(Execute) on the
+  constant, with the @class it carries) or correct the name`). It is the rule the
+  declaration of a kind holds its grant and its mask to when the application starts
+  (`session.NewImpersonations`), asked here of the names that arrive with a request. An
+  application's own route that asks the mask about an action no grant admits
+  (`resource.RefuseActionUnderMask`, `resource.MaskRefusesAction`, section 16) therefore
+  registers that action, by hand, under the name it asks about. The other permissions
+  are held to the collection too: under such a mask, Create, Read, List, Update or
+  Delete on a name the collection registers nothing under, for the whole application
+  or for a tenant, is refused before policy is asked (`… the application registers
+  nothing under "Shipyrds", so what the name is cannot be known: register it by hand
+  (@manualAddResource(Update) on the constant) or correct the name`). A record the
+  collection registers carries a class on the writes the generator gave one (below),
+  and is left to policy for each of its other permissions, the ones it registers and
+  the ones it does not; a field is judged by its record. Every check a generated handler makes names a record or an action of
+  the collection, so this rule refuses none of them; it is reached by a check written
+  by hand on a name registered nowhere, and by an application of several sites that
+  hands each site's check its own collection while one policy holds them all: under a
+  mask that refuses a class, a session at one site is refused the names of the other,
+  and they are left out of the digest that site serves. A mask that refuses no class
+  leaves such a name to policy, as before.
+- **`HoldsAction(perms, scope)`** answers whether the request's person holds Execute on
+  an action, granted outright, in one scope. It is the grant check the session
+  package's declaration of impersonation asks
+  (`session.Impersonations.Request(ctx, ask, resource.HoldsAction(perms, scope))`).
+- **Nobody is the subject of what they do in such a session.** The mask says what the
+  session may do. One thing no mask decides: the person who started the session changes
+  nothing of their own account from inside it, a role, a place in a group, a password,
+  an address, and writes no row of their own in a record that decides what a person may
+  do, a clearance, a spending limit, a place in a team. The generated user management
+  refuses every such act whatever the mask keeps. The generated write of a record that
+  carries a `@subjectValue` or a `@subjectSet` asks the same rule about the person the
+  row names, before the write and after it (`identity.RefuseImpersonatorAsRowSubject`),
+  about a set of theirs the row names (`identity.RefuseImpersonatorAsSetSubject`), and
+  the write of a record a dotted `value:` is read through asks it about the row their
+  own value is read through (`identity.RefuseImpersonatorAsReadThroughSubject`), with
+  nothing declared for it. An application's own action that names a person asks it
+  with `identity.RefuseImpersonatorAsSubject(ctx, account, act)` (section 21, "The rules
+  on who is asking", which also says what the rule cannot see, and the class `access`
+  and the named refusals a mask carries for it).
 - **The tenant list and the admission.** `roster` is the application's tenant roster
   (`DomainRoster`, the `TenantRoster`'s `Domains`; nil in an application without
   tenants), and `declarations` is the application's reader of what a tenant declares
@@ -1055,15 +1119,18 @@ external method under its registration name, `GET user/<name>/login` and `GET
 user/<name>/callback` (`GET user/<name>/logout` too for Azure, the directory's
 front-channel logout). The sign-in's POSTs sit behind the outlet's XSRF guard alone, as
 the session library wires them: `POST user/password/login`, `POST user/password/change`,
-`POST user/password/remove`, `POST user/pending/confirm`, `POST user/pending/cancel`, `POST user/pending/code` (mails
+`POST user/password/remove`, `POST user/pending/cancel`, `POST user/pending/code` (mails
 the sign-in code to a sign-in that waits for the second factor), `POST
 user/pending/code/verify` and `POST user/pending/email` (the address a person who holds
 none gives for the code); `POST user/email/confirm` (the link an administrator's change
 of a person's address mails to the new address, confirmed by a person who need not be
-signed in); and, for an Auth with a password method, `POST user/password-reset` (a
-person's own request for a reset link), `POST user/password-reset/open` and `POST
-user/password-reset/complete` (the mailed link opened, and completed with the new
-password). A browser reaches them with the XSRF cookie its first request
+signed in); and, for an Auth with a password method, `POST user/pending/confirm` (a
+sign-in that matched an account with a password, finished with that password), `POST
+user/password-reset` (a person's own request for a reset link), `POST
+user/password-reset/open` and `POST user/password-reset/complete` (the mailed link
+opened, and completed with the new password). An Auth with no password method gives
+nobody a password, so its outlet serves no `user/pending/confirm`, names none in what
+the login page is told, and its session surface needs no `PendingConfirmWithPassword`. A browser reaches them with the XSRF cookie its first request
 was issued, echoed in the header. The methods route names the reset paths
 (`passwordReset`), the request's only while an administrator lets people ask for a link
 themselves (section 21, "Who may sign up"), so the login page offers "Forgot your
@@ -1503,13 +1570,74 @@ codes' sentences. A tracked resource's change-event rows do not count among the 
 patches. An error the transaction function itself returns passes through unchanged, whatever
 its code.
 
+### A delete with rows under the record
+
+A delete of a record that has rows under it is answered before the commit, in a sentence
+that says what is in the way. For every record the generator writes the kinds with a row
+directly under it on a reference that says nothing of a delete (`DeleteTree.Under`, in the
+record's generated `DeleteTree()`): the database removes none of those rows with the
+record, so a commit that leaves one refuses the delete. Once the transaction's function
+has returned and before the commit, `SpannerClient.ExecuteFunc` counts the rows of each
+such kind under each record a patch deleted, one count per kind, inside the same
+transaction, and answers the first delete that has one with a 409:
+
+| Under the record | Message |
+| --- | --- |
+| Rows of one kind | `This ship has 2 sorties. Delete them first.` |
+| One row | `This ship has 1 sortie. Delete it first.` |
+| Rows of several kinds | `This ship has 9 droid reports and 2 sorties. Delete them first.` |
+| Rows that can be taken from under the record | `This squadron has 8 missions. Move or delete them first.` |
+| One such row | `This squadron has 1 mission. Move or delete it first.` |
+| A row of a kind the record lists under `refusedBy` (`@deleteCascade`) | `This client has 10 missions and 5 consignments, so it can't be deleted.` |
+| Rows of kinds the person may list none of | `This ship has records under it that you can't see, so it can't be deleted.` |
+
+- The sentence names the record by its kind, in the words of its resource
+  (`DeleteTree.RowName`, the one place a row's name comes from).
+- "Move or delete" is said where every kind the sentence names can be taken from under
+  the record without being deleted: each of the kind's references to the record has a
+  column that may be empty and is no part of the row's key (`DeleteLink.MayBeEmpty`,
+  which the generator writes from the schema). A mission's assigned squadron may be
+  empty, so the missions can be given to another squadron or to none; a sortie always
+  names a ship. A kind with one reference that may not be empty, or one such kind among
+  those named, and the sentence says only to delete them.
+- A kind the record lists under `refusedBy` answers before any other, counted by every
+  way it leads up to the record, and keeps the record from being deleted at all. The
+  kinds a record lists as going with it are counted like any other kind under it: the
+  library deletes no row with the record.
+- The sentence is written for the person the delete is for: the one the patch is armed
+  against, else the caller the request carries. A kind they may not list is never named
+  or counted for them, and a grant to list it that carries a condition is not enough,
+  since the count is of every row. A trusted call is told every kind.
+- A row the transaction's own patches deleted or updated is left out of the count, by
+  its key: a read inside the transaction does not see its buffered writes. So the rows
+  and the record go together in one transaction, in either order. A transaction that
+  wrote more than 200 rows of a kind is not counted over that kind.
+- The count never refuses a delete the database would take. A kind whose rows the
+  database removes with a row of another table (`DeleteKind.RemovedWith`: a sortie goes
+  with its mission) is not counted once the transaction deleted a row of that table, and
+  a kind the database removes with the record itself is not in the description.
+
+What the count does not reach is still the commit's to refuse, in the sentences of the
+table above: a row under a row the database removes with the record (a hangar's ships
+go with it, and a sortie names a ship), a row whose foreign key names columns that are
+not the other table's key, and a row an update of the same transaction leaves under the
+record. The count knows the rows the transaction's patches wrote and no others: code that
+removes the rows under a record with raw mutations and deletes the record with a patch in
+one transaction is refused over rows that are about to go, so those rows are deleted
+through their patches. The mock client holds no rows and refuses nothing here, and
+PostgreSQL has no write path.
+
+Example: [the served suite](../lodestar/test/integration/delete_refusal_test.go).
+
 What the library does not do: it reads nothing before buffering to name the offending
 field. A read inside the transaction does not see the transaction's own buffered writes, so
 two creates sharing a value in one batch would pass such a check and fail at commit anyway,
 and concurrent requests would race past it; the commit translation is needed regardless.
 The application's validators (`@validateCreateType`, `@validateUpdateType`) are where a rule
 is answered as 400 naming the field before anything is buffered; the commit translation is
-the backstop for what they do not cover. A value the decoder can size never reaches the
+the backstop for what they do not cover. A delete has its rule too (`@validateDeleteType`):
+it reads the row inside the transaction and answers 400 in its own sentence before the
+delete is buffered. A value the decoder can size never reaches the
 commit through the API: a string longer than its `STRING(n)` column, a byte slice longer
 than its `BYTES(n)` column, and a decimal beyond `NUMERIC`'s digits answer 400 naming the
 field at decode (section 11). The 409 for a too-long string remains for `STRING(MAX)`,
@@ -2892,7 +3020,11 @@ serves the record: `Make<Record>DirectoryOnly`, at
 `End<Record>DirectoryOnly`, at
 `POST /<prefix>/<tenants>/{tenant}/end-<record>-directory-only`, turns it off. Neither
 takes anything in its body (`{}`: the route names the tenant), and `X-Dry-Run: true`
-runs the frame and rolls back, as on every method. The tenant's administrator runs
+runs the frame and rolls back, as on every method. Both say who may sign in to the
+tenant at all, so their actions carry the class `access` (`accesstypes.ClassAccess`)
+in the generated collection, as the two methods that say how a tenant admits its
+directory's people do (`Open<Record>ToDirectory` and `Make<Record>InviteOnly`, below),
+and a session whose mask refuses the class runs neither. The tenant's administrator runs
 them: a role file grants Execute on each to the domain role that manages the tenant's
 sign-in settings, and the record's own write paths, which are global, show the flag and
 never write it (the field is output only on the wire, so a create or an update that
@@ -3101,7 +3233,10 @@ for no person: a grant whose condition reads the person a role is given to admit
 default role. A tenant with no directory is refused (409): there is nobody to open it
 to. `Make<Record>InviteOnly` is plain and declares no warning. Each method writes the
 column through the directories record's update patch, so the record's change events
-are the audit of who opened the door and when. The role is picked from a list of its own,
+are the audit of who opened the door and when. Both give or take away what people may
+do, so their actions carry the class `access` (`accesstypes.ClassAccess`) in the
+generated collection, as the generated management's role and group methods do (section
+21), and a session whose mask refuses the class runs neither. The role is picked from a list of its own,
 `<Auth><Record>DirectoryRoles` (Lodestar's `CrewSectorDirectoryRoles`), a computed
 resource the generated management declares for the auth that judges the role: the roles
 of the tenant that the caller could give there directly
@@ -3151,11 +3286,32 @@ has no `create`), and there are two ways a tenant is made, neither a declaration
   writes the row, whether an administrator has a sign-in method of the auth open to
   sign-up (section 21, "Who may sign up"), and refuses while every method is invite
   only. The same route answers `GET` with whether the caller may create one now
-  (`{"offered": true}`, the generated client's `Create<Record>Offered`), by the two
-  facts the creation refuses on: the caller holds no tenant, and a method is open. A
-  page reads it before it offers the creation, so nobody is shown a dialog the server
-  would refuse; the skeletons' home page shows its create-your-tenant card only while
-  the answer is yes.
+  (`{"offered": true}`, the generated client's `Create<Record>Offered`), by the four
+  facts the creation refuses on: the session's mask does not refuse the creation, the
+  caller is not the real person behind a session that acts as a role (both under "The
+  first administrator", below), the caller holds no tenant, and a method is open. Whether
+  the caller holds a tenant is read from every tenant they hold a grant in
+  (`HeldDomains`, a method of `resource.UserPermissions`), and not from the tenants the
+  session lists: a tenant that a session's mask leaves nothing of, or that is closed to
+  the way the session signed in, is still the person's, so neither opens the way to a
+  second one. Every permissions value answers it, since the method is part of the
+  interface: a type of the application's that embeds the composed value passes the call
+  through, and one that implements the interface itself does not compile until it
+  answers, from the person's grants before any mask and never from `Domains`. In a
+  session that runs with a role's grants the person is the real person behind it, and
+  the list is theirs and not the role's. A page reads the answer before it offers the
+  creation, so nobody is shown a dialog the server would refuse; the skeletons' home
+  page shows its create-your-tenant card only while the answer is yes.
+  The `POST` asks the rule twice. The permissions answer before a body is read, as the
+  `GET` does. The auth's tables answer again in the transaction that writes the tenant's
+  row and its administrator's membership (`<Auth>Identity().HoldsTenant`,
+  `identity.Manager.HoldsTenant`): a role the person holds in one tenant, of their own
+  or through a group kept in one, whose period has not ended. So of two creations one
+  person sends at once, one is written and the other is refused with the words a second
+  creation is always refused in, and a creation an instance has not heard of yet still
+  counts. The second read is of the rows and not of what they grant: a role in a tenant
+  whose period has not begun, or one that grants nothing, refuses a creation there that
+  the first read would have let through.
 
 `@tenant(creation: ...)`, which declared the choice in code, is refused at generation
 with these words. A record served by session outlets bound to different auths is refused
@@ -3180,6 +3336,40 @@ exist fails the creation. After the route's commit, and once this instance's ros
 lists the tenant, the answer waits until the permission engine answers the membership,
 so the person's next request stands in the tenant; an engine that does not answer
 within ten seconds is logged and the request answered, since the rows are committed.
+In a session that acts as a role, the caller is the real person behind it, who would
+become the tenant's administrator: nobody is the subject of what they do while they act
+as someone else (section 21), so the route refuses them before it reads the body, with
+nothing written ("you are acting as someone else, so you cannot create a sector of your
+own"), and its `GET` answers that none is offered. In a session that acts as a person,
+the person acted as would become the tenant's administrator, and the mask decides. No
+grant admits the route, so no permission is checked there for a mask to deny; the route
+carries an action's name instead, `Create<Record>` (Lodestar's `CreateSector`), which
+the generated collection registers in the global scope with the class `access`
+(`accesstypes.ClassAccess`), and asks the session's mask about it before anything else
+(`resource.RefuseActionUnderMask`). A session whose mask refuses the class `access`,
+refuses the action by name or keeps no Execute is refused with nothing written ("you
+are acting as someone else, and this session cannot create a sector: the mask refuses
+the class access. ..."), the denial is logged as the mask's, in the line the masked
+check writes for a denial of its own, and the route's `GET` answers that none is
+offered (`resource.MaskRefusesAction`). A session that acts as a person with no mask
+makes the tenant, and the person acted as is its administrator: to let someone act as
+a person with no mask is to give them what the person holds. One tenant per person holds
+in such a session as in the person's own, whatever its mask shows: a mask that keeps the
+creation and leaves nothing of the person's grants in their tenant takes the tenant off
+the session's list and not off the person, and the route counts the person's
+(`resource.UserPermissions.HeldDomains`). The name is for masks
+alone, and the collection says so: the generator registers it as an action no role is
+given (`NoRole: true` in the generated collection file,
+`resource.CollectionResource.NoRole`). Nothing asks a role for it, so a grant of it
+would do nothing and its absence refuses nobody. A role file that names it is refused
+wherever the file is validated, in words that say why (the permission engine at start,
+`access.ValidateRoles`, and the `roles-file` check of `impulse check`, which reads the
+mark from the generated collection file); the browser constants (`Methods` in
+`zz_gen_constants.ts`) leave it out on every outlet, so no page that lists what a
+person may be shown or given names it; and a registration made by hand under the name
+is refused at generation. The collection still answers for the name where a mask is
+declared and where the masked check asks (`Scope`, `HasPermission`, `ActionClasses`),
+so a kind refuses it by its class or by name.
 
 **The maker.** What makes a tenant from an accepted invitation is generated beside the
 roster: `New<Record>Maker(roster, liveService)` in the handler package answers an
@@ -3224,6 +3414,13 @@ how the skeletons' sample tenant table is declared, and one without the rule ref
 delete while its rows remain. An application that deletes a tenant in a transaction of
 its own calls `ClearTenant` and `Clear<Record>Directory` there, and a program that
 generates no auth's management removes the memberships itself.
+
+Each thing the delete takes is an action of the class `access` when it is done alone (a
+role removed, a group deleted, an invitation withdrawn), so the generator gives the
+tenant record's delete that class. A session whose mask refuses the class, a person
+acting as someone else under a kind that is not to change who may do what, cannot delete
+a tenant, whatever the person acted as may do; a kind that is to keep it names it as an
+exception (`accesstypes.ExceptPermission`).
 
 With the last-owner rule (section 21, "The rules") an operator brings a customer's
 tenant in by inviting its first administrator and holds no role in it: the tenant is its
@@ -3486,7 +3683,7 @@ GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewS
 GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
 GET  <prefix>/crew-session-tokens, …/{id}                  List, Read on CrewSessionTokens
 GET  <prefix>/crew-session-mail-links, …/{id}              List, Read on CrewSessionMailLinks
-GET  <prefix>/crew-session-impersonations, …/{sessionId}   List, Read on CrewSessionImpersonations
+GET  <prefix>/crew-session-impersonations, …/{sessionId}   List, Read on CrewSessionImpersonations (newest first; `mask` is each session's mask in words)
 GET  <prefix>/crew-session-trusted-devices, …/{id}         List, Read on CrewSessionTrustedDevices (the remembered browsers)
 GET  <prefix>/crew-session-sign-in-attempts                List on CrewSessionSignInAttempts
 GET  <prefix>/crew-session-auth-events                     List on CrewSessionAuthEvents
@@ -3599,6 +3796,74 @@ act is, and the list whose rows it names is declared. The roles table is declare
 application's own resource or method under one of these names is refused at generation,
 as is a resource field named for a method of the generated set (`Resource`,
 `DefaultConfig`, `FileKeys`, `SearchBranches`).
+
+**The credential methods carry a class.** The methods that change how a person signs in
+are written with `@class(credential)` (`accesstypes.ClassCredential`), in the whole
+application's form and in a tenant's alike: the temporary password
+(`set-crew-temporary-password`), the required new password
+(`require-crew-password-change`), the removal of a password (`remove-crew-password`), the
+reset link an administrator sends (`send-crew-user-password-reset-link`), the unlinking
+of a sign-in identity (`unlink-crew-session-identity`), the rename (`rename-crew-user`)
+and the address set by hand (`set-crew-user-email`). The generated collection carries
+the class on each, and a session whose mask refuses the class is refused every one of
+them before any policy is read, and its permission digest leaves them out (section 6;
+the session package's "Impersonation is granted with a mask"). No method refuses an
+impersonated session by a rule of its own for being a credential action: the mask is the
+control.
+
+**The methods that change who may do what carry a class too.** The methods that give or
+take away what someone may do are written with `@class(access)`
+(`accesstypes.ClassAccess`), in both forms: a role given or removed (`assign-crew-role`,
+`remove-crew-role`), a role a person takes themselves for a set time (`take-crew-role`,
+which refuses every session that acts as someone else by itself as well), a group made or deleted and a person put in one or taken out
+(`create-crew-group`, `delete-crew-group`, `add-crew-group-member`,
+`remove-crew-group-member`), a role given to a group or taken from it
+(`give-crew-group-role`, `take-crew-group-role`), an invitation sent or withdrawn, the
+one that makes a tenant among them (`invite-crew-user`, `withdraw-crew-invitation`,
+`invite-crew-sector`, `withdraw-crew-invited-sector`), an account made, which is made
+with the roles its person holds (`create-crew-user`), a sign-in method opened to sign-up
+or made invite only
+(`open-crew-sign-up`, `make-crew-invite-only`), and the switch that lets people ask at
+the sign-in page for a link that resets their own password
+(`set-crew-self-service-reset`), which says who may get back into an account without an
+administrator. What the generator writes for a tenant record, which has no declaration
+to annotate, carries the class by its registration: the two methods of the tenant's
+directory, `open-sector-to-directory`, which gives a role to everyone who arrives
+through the directory, and `make-sector-invite-only`; the two that turn the switch
+that makes a tenant sign in with its directory alone, `make-sector-directory-only` and
+`end-sector-directory-only`, which say how a tenant's people must sign in to enter it;
+and the action of the create-your-tenant route, `CreateSector`, which makes its caller
+a tenant's administrator (section 16, "The first administrator"). A session that acts
+as a person under a grant declared "everything except the credential actions and the
+actions that change who may do what" is refused every one of both classes.
+
+What carries neither class: an account disabled, enabled or deleted
+(`disable-crew-user`, `enable-crew-user`, `delete-crew-user`), which is the work a
+person who stands in for an administrator is there to do, and which the rule on who is
+asking still refuses on the real person's own account ("The rules on who is asking");
+the name people read and a group's description
+(`set-crew-user-name`, `describe-crew-group`), which are words; the end of a session, of
+a person's sessions or of an impersonation, the revocation of a token or of the
+remembered browsers, and the unlock, each of which ends a sign-in already made or lets
+one be tried again and leaves what the person may do as it was; and the switch of a
+feature flag (`SetFeature`). An application puts no class on a record: the generator
+gives the class `access` to the writes of every record that carries a subject value or
+a subject set, to the change of a record such a value is read through, and to the
+delete of the tenant record, which takes every role held in the tenant with it, so a mask
+that refuses the class refuses them, and a mask names any other record it is to refuse
+(`accesstypes.RefuseWrites`). A value read through a table that no `@resource` struct
+declares has no record to carry the class. Generation warns of it at every run, naming
+the table (`SubjectPathWarning`): a route written by hand that changes a row of that
+table moves the standing of everyone the set reaches, and a mask that refuses the class
+does not refuse it until the table is declared or the route is registered as an action
+of the class.
+
+The generator's own tests list the methods and fail when one is written without the
+class its act is listed with, or with a class it is not listed with: `identityMethodActs`
+in `generation/identity_classes_test.go` for the generated identity methods, and
+`generatorActions` in `generation/classes_test.go` for the actions the generator
+declares with no struct to annotate, the tenant record's among them. They are the two
+tables to keep in step.
 
 **A tenant's lists.** An account is one row for the whole application, and a role held
 is a row that names where it is held, so neither table can be served under a tenant's
@@ -3764,8 +4029,10 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   application runs the whole application's method and names the tenant.
 - A method that names something names a row of one of the tenant's lists (`@target` on
   the view): a person by their row of `CrewSectorUsers`, a role held by its row of
-  `CrewSectorUserRoles` (`userId` and `role`, the two columns of the row's key, each a
-  `@target` field naming the column it carries), an invitation by its row of
+  `CrewSectorHeldRoles` (`userId`, `role` and `groupId`, the three columns of the row's
+  key, each a `@target` field naming the column it carries; `groupId` is the empty text
+  on a role held directly, which the method's metadata says it may be, so a page sends
+  it as the row holds it), an invitation by its row of
   `CrewSectorInvitations`, an identity by its row of `CrewSectorIdentities`.
   The frame locates the row within the tenant, so a person who holds no role there, or
   an invitation into another tenant, is not found (404), and
@@ -4511,16 +4778,202 @@ names one person, in a transaction of its own, so no request puts two in one; th
 is for an application that runs the methods in a transaction it opens itself. A temporary password is the one the session library has today: the
 operator chooses it and passes it on.
 
-**The rules on who is asking.** Who may run a method is the role file's to say. Four
+**The rules on who is asking.** Who may run a method is the role file's to say. Five
 rules of the user management are the methods' own, whatever the role file grants, and
 each judges the request's caller (a method an application runs in a transaction of its
 own, outside any request, has no caller and is the application's act):
 
 - Nobody disables or deletes their own account, which is the account of the real person
   behind the session: a person who views as someone else is refused their own account,
-  which they could not get back. They are refused the account they view as too ("you
+  which they could not get back. In a session that acts as someone else that refusal is
+  the next rule's, in its sentence and with its log line, so disabling, enabling and
+  deleting the real person's own account are refused the same way there. The rule is
+  asked by these methods and, beneath them, by the session API's three switches
+  (`DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`), which every
+  generated route goes through. The session store's own `DeactivateUser`,
+  `ActivateUser` and `DeleteUser` are the bare writes and are not held to it, so a
+  route an application wrote calls the Manager or the session API, never the store.
+  They are refused the account they view as too ("you
   cannot disable the account you are viewing as"): a session that views as a person
   does no more than that person may, and nobody disables or deletes themselves.
+- In a session that acts as someone else, nobody is the subject of what they do. It is
+  the rule above, widened for the person who impersonates to every change of their
+  account: a person who acts as an administrator holds, for the length of the session,
+  what the administrator may do, and an act on their own account would leave them
+  holding it afterward. The real person behind the session is refused a role given to
+  them or taken from them, a place in a group, a password set, required anew or
+  removed, a reset link, an address, a name, a rename, a disable, an enable, a delete,
+  the end of their own sessions, their remembered browsers, a sign-in identity and a
+  token of theirs, the
+  unlock of the counts kept for their account, and an invitation to the address their
+  account has confirmed. The refusal says so: "you are acting as someone else, so you
+  cannot give yourself a role: while you act as another person, nothing you do is done
+  to your own account. Stop acting as them first". The rule reads the session's record
+  and nothing else, so it holds whatever the session's mask keeps and whether or not
+  the application declared the kind of impersonation. It is for changes: the person's
+  own row is still listed and read. The same act on anyone else goes through, and the
+  impersonated session itself is still ended by the person who started it. An actor
+  from another application has no account here, so the rule has nobody to name.
+
+  An application's own action that names a person asks the same rule, before it
+  changes anything, with the id of the person's account:
+
+  ```go
+  if err := identity.RefuseImpersonatorAsSubject(ctx, account, "set your own clearance"); err != nil {
+      return errors.Wrap(err, "identity.RefuseImpersonatorAsSubject()")
+  }
+  ```
+
+  A route that answers whether to offer such an action asks the same question without
+  refusing anyone, `identity.ImpersonatorIs(ctx, account)`, so a page does not offer what
+  the action would refuse. The generated create-your-tenant route does both: its `POST`
+  asks the rule for its caller, who would become the tenant's administrator, and its
+  `GET` answers that none is offered (section 16, "The first administrator").
+
+  A record that decides what a person may do is held to the rule by its generated
+  write. Such a record is one the policy reads about the requester: a struct that
+  carries a `@subjectValue` or a `@subjectSet`, whose rows say what `subject.<name>` is
+  for the person each row names (a clearance, a spending limit, a place in a team). A
+  person who acts as an administrator would otherwise raise their own clearance by the
+  record's ordinary write, and keep it after the session ends. So every generated add,
+  change and removal of such a record, on the record's own patch route and in the
+  consolidated patch, asks `identity.RefuseImpersonatorAsRowSubject` once the operation
+  is decoded and before anything is written. The annotation places the call; an
+  application declares nothing for it. The rule is asked about the row twice:
+
+  - **Before the write**, about the person the stored row names, read by the key in the
+    operation's path inside the write's transaction. A change or a removal of the real
+    person's own row is refused ("you cannot change your own pilot record", "remove
+    your own pilot record"), and so is handing that row to someone else.
+  - **After the write**, about the person the operation's fields name. A row added for
+    the real person is refused ("add your own pilot record"), and so is another
+    person's row moved onto them ("make another pilot record your own").
+
+  The columns asked are the ones that name a person: the column each annotation is
+  written on, and every column a `who:` part compares to the requester (`Field =
+  subject`). The refusal names the record by its struct's name in lower-case words.
+
+  A row reaches a person by two more roads, and the generated write asks about each:
+
+  - **A row that names a set the person is in.** A column a `who:` part looks up in
+    another set (`TeamID IN subject.teams`) names a set and no person: a pass given to
+    a team is given to everyone in it. For each such column and set the write asks
+    `identity.RefuseImpersonatorAsSetSubject`, before the write about the value the
+    stored row holds and after it about the value the write gives the column. The real
+    person adds no such row for a set they are in ("add a pass record for one of your
+    own teams"), changes and removes none, and moves none onto their own set.
+  - **The row a person's value is read through.** A set or a value declared with a
+    dotted `value:` (`TeamID.DivisionID`) is read through a column of another record,
+    the team's own row. The write of that record asks
+    `identity.RefuseImpersonatorAsReadThroughSubject` for each such column: a change
+    that sets the column is refused on the row the real person's own value is read
+    through ("change the DivisionID of the team record that decides your own
+    divisions"). A change that leaves the column alone asks nothing and reads nothing,
+    and neither does an add or a removal.
+
+  The generated code names the column and the set, and nothing else. The library builds
+  the statement at run time from the set's own declaration
+  (`resource.PatchSet.SubjectSetHolds`, `resource.PatchSet.SubjectReadThrough`), with
+  the pieces a condition's `x IN subject.<set>` renders, so the rule and the policy
+  share one definition of who is in a set: its `who:`, its `where:` and the sets it
+  builds on. The real person is asked about by name, in no one tenant. Both questions
+  are asked on Spanner and on PostgreSQL, each in its own dialect of the one statement:
+  on Spanner through the transaction's reads, on PostgreSQL through the connection the
+  PostgreSQL transaction holds. On PostgreSQL the two questions are what is proven,
+  against real rows: this package's PostgreSQL client runs no generated write yet, so
+  the rule is proven from the request to the row there when that client does. A
+  question that cannot be asked (a patch decoded with
+  no collection, a PostgreSQL transaction that holds no connection) answers an error
+  and the write does not happen, never a pass. The
+  caller's grants and the session's mask answer first, so a person the record's write
+  is refused gets the same Forbidden as on any record and learns nothing from the
+  rule's sentence. Outside an impersonated session nothing is read: the same write
+  from the person's own session goes through as it always has, and inside one the same
+  write for anyone else goes through. The stored row is read by its key alone and is
+  not held to a tenant, since the read only decides whether to refuse; the write that
+  follows is held to its tenant as ever.
+
+  What the rule cannot see is whatever reaches the person by another road: a role
+  given to a group they are in, an account made for another address of theirs, an
+  invitation to an address they hold and never confirmed on the account, a colleague
+  who returns the favor, and an action of the application's own that does not ask.
+  These are the rule's stated limits. A session whose mask does not refuse the class
+  `access` gives such a role. To let someone act as a person with no mask is to give
+  them what the person holds. An application closes them through its mask: a kind of
+  impersonation that is not to change who may do what refuses the class `access`. The
+  generator gives that class to the create, the change and the delete of every record
+  that carries `@subjectValue` or `@subjectSet`, and to the change of a record a dotted
+  `value:` is read through, so the mask refuses those writes for every person and not
+  the real one alone, with no list of records kept by hand
+  (`resource.CollectionResource.WriteClasses`; a record that gains a subject value is
+  covered when the application is generated again). A kind that is to keep one of
+  those records names it as an exception to the class
+  (`accesstypes.RefuseClassExcept(class, accesstypes.ExceptWrites(record)...)`): the
+  session writes the record for other people, and the three questions above still
+  refuse the real person their own row, their own set and the row their own value is
+  read through.
+
+  A row removed with its parent, which may name the person, is a limit of its own. The
+  database removes the row when the parent's row is deleted (an interleaved table or a
+  foreign key declared `ON DELETE CASCADE`: a pass goes with the place it opens). No
+  write of the row is made, so the rule is not asked about the person it names, and a
+  mask that refuses the row's own writes does not refuse the parent's delete. Where
+  every such row gives something, the delete only takes away; where a row restricts (a
+  ban, a cap), the delete gives. An application closes it under the mask by refusing
+  each request that removes a row above it:
+
+  - the parent's delete (`accesstypes.RefusePermission(accesstypes.Delete, parent)`);
+  - the delete of each record further up while the cascade goes on, since the
+    grandparent's delete removes the parent and the row with it;
+  - an action that removes one of those rows in its own body, by name
+    (`accesstypes.RefuseAction(action)`): an action is asked for Execute on its name,
+    not for Delete on the record.
+
+  PostgreSQL has referential actions that change the row where it stands, again with
+  no write of it. `ON DELETE SET NULL` and `ON DELETE SET DEFAULT` rewrite the column
+  that named the parent when the parent is deleted, and the refusals above close them.
+  `ON UPDATE CASCADE`, `SET NULL` and `SET DEFAULT` rewrite it when the parent's key is
+  changed: a rank renamed is renamed on every row that holds it, the real person's
+  among them. Refusing the parent's update closes that
+  (`accesstypes.RefusePermission(accesstypes.Update, parent)`, or the same on the one
+  column the foreign key names, `parent.field`), with any action that changes the key.
+
+  A column that records who made a row is another. A grant may compare a column of a
+  record to the requester (`bookedBy = subject`). Such a column carries no
+  `@subjectValue` or `@subjectSet` annotation, so it is not among the columns asked,
+  though the row names a person and decides what they may do. While the application
+  stamps the column from the session and people cannot write it (an `output_only`
+  field with a `default_create_fn`), no write moves a row that exists onto the real
+  person, and a row made in a session that acts as a person is stamped with the person
+  acted as. A session that acts as a role is the stated case. A role is not anyone, so
+  the request's `User()` there is the person who started the session, and a stamp
+  taken from it puts their name on a row the role's powers made. What the grants give
+  the row's author (reading it, an action on it) is theirs from then on, after the
+  session has ended too, though their own roles might not have let them make the row.
+  An application that does not want that closes it one of two ways: the role kind's
+  mask refuses the record's create
+  (`accesstypes.RefusePermission(accesstypes.Create, record)`), or the function that
+  stamps the column answers nobody, a value that is no account's id, in a session that
+  acts as a role, so that no grant that compares the column to the requester holds for
+  the row. The session's record says it is one
+  (`imp, ok := sessioninfo.ImpersonationFromCtx(ctx); ok && imp.Principal.IsRole()`);
+  the request's principal does not, since a session of a person's own that the
+  application's principal resolver gave a role is a role to `PrincipalFromCtx` too, and
+  its `User()` is the row's true author. Where people can write such a column, the
+  application closes it by refusing the record's writes under the mask.
+
+  The unlock knows the person's counts by their username, their account and the address
+  they confirmed; a count kept under an address the account holds unconfirmed (the mail
+  of a first password, or of an address change asked for) is cleared like anyone's. A
+  mask that refuses the class `access` refuses the library's share of those. One limit
+  no class closes: an account disabled, enabled or deleted carries no class, and the
+  rule knows the real person by the account they signed in with, so a second account of
+  their own is someone else's to it. A person who acts as an administrator can enable
+  that account again, or disable or delete it, as the administrator can; an application
+  that must hold this refuses the three actions by name in the kind's mask
+  (`accesstypes.RefuseAction`). Every
+  method of the identity library that takes a person is held to the rule by a test that
+  lists them (`guardedMethods` in `identity/impersonator_listing_test.go`).
 - A person who removes a role from themselves in a tenant keeps an administrator role
   nobody else would hold there. The application names the roles that administer a tenant
   when it builds the client (`identity.WithAdministratorRoles(domain)`): they are judged

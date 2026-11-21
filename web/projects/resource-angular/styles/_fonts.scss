@@ -42,7 +42,8 @@ $roboto-subsets: (
 
 // The filled Material Icons: the ligature font mat-icon renders by default (its font set
 // class is material-icons). Its display is block, so an icon shows nothing rather than
-// its ligature's letters while the font loads.
+// its ligature's letters for the first three seconds the font is on its way; the last rule
+// of the icons below covers every second after.
 @font-face {
   font-family: 'Material Icons';
   font-style: normal;
@@ -67,6 +68,16 @@ $roboto-subsets: (
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   font-feature-settings: 'liga';
+}
+
+// An icon is never drawn as the letters of its name. The font's block display covers the
+// first three seconds it is on its way; after them a browser draws the name in other
+// letters, cut off at the icon's box. So the root element carries awaits-icon-font for as
+// long as the font is on its way (provideTheme starts what sets it, IconFontService of
+// ui-theme), and under it no icon is drawn at all. Each keeps its place, so nothing moves
+// when the font arrives.
+.awaits-icon-font .material-icons {
+  visibility: hidden;
 }
 
 // The Material typography's font with a fallback chain. A prebuilt theme sets every

@@ -16,13 +16,15 @@ import { SectorService } from '../sector.service';
 
 /**
  * The squadron roster: the sector's wings and squadrons (the Wing Commander sees only
- * Forge Wing's, through subject.wings), the crew, and the two impersonation moments.
- * "View as" mints a read-only session as another crew member; "Act as role" mints a
- * session under a role with subject still bound to you. Both controls render only
- * when the digest carries the manual Execute registrations — checked by the generated
- * Methods constants, never a hand-typed string.
+ * Forge Wing's, through subject.wings), the crew, and the three kinds of impersonation.
+ * "View as" mints a read-only session as another crew member; "Act as" mints one that
+ * does what they may do, except change how they sign in or who may do what; "Act as
+ * role" mints a session under a role with subject still bound to you. Each control
+ * renders only when the digest carries its own manual Execute registration, checked by
+ * the generated Methods constants, never a hand-typed string: the grant to view is not
+ * the grant to act.
  *
- * The page draws no form. Each of the two is a button that opens its picker in a dialog
+ * The page draws no form. Each of the three is a button that opens its picker in a dialog
  * over the page, as the library's lists open their create: the dialog is titled with the
  * button's words and carries Cancel and those words as its buttons, Cancel and Escape
  * close it with nothing minted, and a click outside does nothing. A mint the server
@@ -37,7 +39,7 @@ import { SectorService } from '../sector.service';
  * (cadet)"), by the username alone where the account has no name, and sent by the id of
  * the account.
  *
- * Demonstrates: impersonation.view-as, impersonation.act-as-role, @manualAddResource.execute, paging.limit-all, @subjectSet.dotted-value.
+ * Demonstrates: impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, @manualAddResource.execute, paging.limit-all, @subjectSet.dotted-value.
  */
 @Component({
   selector: 'app-roster',
@@ -69,13 +71,19 @@ export class RosterComponent {
   /** The open sector's name, as the session's sector list carries it. */
   sectorName = this.sectors.placeName;
   canListSquadrons = computed(() => this.sectors.can(Permissions.List, Resources.Squadrons));
-  // The people of the open sector, for "view as". The server names a person by the id of
-  // their account, which the sector's people list carries beside the username; a caller
-  // who cannot list the sector's people has nobody to pick, so the form is not offered.
+  // The people of the open sector, for "view as" and "act as". The server names a person
+  // by the id of their account, which the sector's people list carries beside the
+  // username; a caller who cannot list the sector's people has nobody to pick, so neither
+  // button is offered.
   people = this.sectors.sectorList((sector) => sector.crewSectorUsers, { limit: 200 });
   canViewAs = computed(
     () =>
       this.sectors.can(Permissions.Execute, Methods.ViewAsUser) &&
+      this.sectors.can(Permissions.List, Resources.CrewSectorUsers),
+  );
+  canActAs = computed(
+    () =>
+      this.sectors.can(Permissions.Execute, Methods.ActAsUser) &&
       this.sectors.can(Permissions.List, Resources.CrewSectorUsers),
   );
   canAssumeRole = computed(() => this.sectors.can(Permissions.Execute, Methods.AssumeRole));
@@ -85,8 +93,9 @@ export class RosterComponent {
 
   readonly roles = ['Dispatcher', 'Cadet', 'Pilot', 'Engineer', 'Archivist', 'BookingAgent', 'SectorMarshal'];
 
-  /** The id of the account of the person to view as. */
+  /** The id of the account of the person to view as, and of the person to act as. */
   viewAsUserId = '';
+  actAsUserId = '';
   assumeRoleName = '';
   // The picker that is open over the page, if one is.
   private opened: MatDialogRef<unknown> | undefined;
@@ -133,9 +142,10 @@ export class RosterComponent {
       .join(', ');
   }
 
-  /** Opens one of the two pickers, with nothing picked, in a dialog over the page. */
+  /** Opens one of the three pickers, with nothing picked, in a dialog over the page. */
   open(form: TemplateRef<unknown>): void {
     this.viewAsUserId = '';
+    this.actAsUserId = '';
     this.assumeRoleName = '';
     this.refusal.set(undefined);
     this.opened = openFormDialog(this.dialog, form);
@@ -150,6 +160,11 @@ export class RosterComponent {
   async viewAs(): Promise<void> {
     if (!this.viewAsUserId) return;
     await this.mint(() => this.impersonation.viewAs(this.viewAsUserId));
+  }
+
+  async actAs(): Promise<void> {
+    if (!this.actAsUserId) return;
+    await this.mint(() => this.impersonation.actAs(this.actAsUserId));
   }
 
   async assumeRole(): Promise<void> {

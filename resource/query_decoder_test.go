@@ -29,8 +29,7 @@ type TestResource struct {
 func (tr TestResource) Resource() accesstypes.Resource { return "testresources" }
 func (tr TestResource) DefaultConfig() Config {
 	return Config{
-		ChangeTrackingTable: "",
-		TrackChanges:        false,
+		TrackChanges: false,
 	}
 }
 

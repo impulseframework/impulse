@@ -16,7 +16,6 @@ import {
   RowWords,
   viewConfig,
 } from '@impulseframework/resource-angular/types';
-import { of } from 'rxjs';
 
 import {
   DeleteConfirmation,
@@ -25,7 +24,7 @@ import {
 } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { resourceValidators } from '../gui-constants';
 import { ResourceStore } from '../resource-store.service';
-import { ResourceViewComponent } from './resource-view.component';
+import { RECORD_NOT_LOADED, RECORD_NOT_PERMITTED, ResourceViewComponent } from './resource-view.component';
 
 describe('ResourceViewComponent', () => {
   let component: ResourceViewComponent;
@@ -436,6 +435,149 @@ describe('ResourceViewComponent over a row with untouched fields this build cann
   });
 });
 
+// What a row view says in place of its form where its record cannot be read, against the
+// server's answers as the server words them: a sentence of the page's own for a read the
+// person is not permitted, another for a read that failed, and nothing of what the server
+// said on the screen. That is written to the console, once, for whoever looks into it.
+describe('ResourceViewComponent over a record that cannot be read', () => {
+  const clients = 'Clients' as Resource;
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [clients]: {
+        resource: clients,
+        property: 'clients',
+        route: 'clients',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read'],
+      },
+    },
+  };
+  const meta: ResourceMeta = {
+    route: 'clients',
+    fields: [
+      { fieldName: 'id', displayType: 'uuid', required: false, isIndex: false, primaryKey: { ordinalPosition: 0 } },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+    ] as FieldMeta[],
+  };
+  // What the server says of a read it refuses, as it says it: the scope, the person's id,
+  // the permission and the resource. And of one that failed: the database's own complaint.
+  const refusal = 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (Read) on [Clients]';
+  const failure = 'spanner: code = "Unavailable", desc = "the session pool is closed"';
+  const serverWords = /scope \(|user \(|3f2a9c1e|does not have|\(Read\)|\[Clients\]|spanner|Unavailable|session pool/;
+
+  let fixture: ComponentFixture<ResourceViewComponent>;
+  let transport: ScriptedTransport;
+  let consoleError: ReturnType<typeof vi.spyOn>;
+
+  /**
+   * What was written to the console, as a console prints it: each line's words with the
+   * resource's name where the words keep its place (%s), and the server's own message of
+   * the error written after them.
+   */
+  const written = (): string[] =>
+    consoleError.mock.calls.map(([words, ...values]: unknown[]) => {
+      const error = values.pop();
+      const line = values.reduce<string>((text, value) => text.replace('%s', () => String(value)), String(words));
+      return `${line} ${error instanceof Error ? error.message : ''}`;
+    });
+
+  /** Draws the view of the client c-1 against a server that answers its read so, in a panel of its own or as the row of a page. */
+  const draw = async (answer: TransportResponse, rowOfPage: boolean): Promise<HTMLElement> => {
+    transport = scriptedTransport((request: TransportRequest): TransportResponse => {
+      const path = request.url.split('?')[0];
+      return request.method === 'GET' && path === '/api/clients/c-1'
+        ? answer
+        : { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+    });
+    await TestBed.configureTestingModule({
+      imports: [ResourceViewComponent],
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        provideNoopAnimations(),
+        ResourceStore,
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === clients ? meta : undefined),
+        },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(ResourceViewComponent);
+    fixture.componentRef.setInput('uuid', 'c-1');
+    fixture.componentRef.setInput('compoundResourceView', rowOfPage);
+    fixture.componentRef.setInput(
+      'config',
+      viewConfig({
+        primaryResource: clients,
+        title: 'Client',
+        showBackButton: false,
+        // A view that does not fold away: in a panel where it is on its own, and not as the row of a page.
+        collapsible: false,
+        elements: [field({ name: 'name' as FieldName, label: 'Name' })],
+      }),
+    );
+    fixture.detectChanges();
+    expect(fixture.componentInstance.useExpansionPanel()).toBe(!rowOfPage);
+    for (let i = 0; i < 30 && fixture.componentInstance.store.viewError() === undefined; i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  };
+  const said = (element: HTMLElement): (string | undefined)[] =>
+    Array.from(element.querySelectorAll('.refusal.message')).map((words) => words.textContent?.trim());
+
+  beforeEach(() => {
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    consoleError.mockRestore();
+  });
+
+  for (const rowOfPage of [false, true]) {
+    const where = rowOfPage ? 'as the row of a page' : 'in a panel of its own';
+
+    it(`says in its own words that the person may not see the record, where the server refuses the read, ${where}`, async () => {
+      const element = await draw({ status: 403, body: { message: refusal } }, rowOfPage);
+
+      expect(said(element)).toEqual([RECORD_NOT_PERMITTED]);
+      expect(RECORD_NOT_PERMITTED).toBe('You do not have permission to see this record.');
+      // Nothing the server said is on the screen; it is in the console, once, for whoever looks into it.
+      expect(element.textContent).not.toMatch(serverWords);
+      expect(written()).toEqual([`Clients: the record could not be loaded: ${refusal}`]);
+    });
+
+    it(`says in other words that the record could not be loaded, where the read failed, ${where}`, async () => {
+      const element = await draw({ status: 500, body: { message: failure } }, rowOfPage);
+
+      expect(said(element)).toEqual([RECORD_NOT_LOADED]);
+      expect(RECORD_NOT_LOADED).toBe('This record could not be loaded.');
+      expect(element.textContent).not.toMatch(serverWords);
+      expect(written()).toEqual([`Clients: the record could not be loaded: ${failure}`]);
+    });
+  }
+
+  it('writes what the server said once, however often the page is drawn again', async () => {
+    await draw({ status: 403, body: { message: refusal } }, false);
+    fixture.componentRef.setInput('pageTitle', 'Client');
+    fixture.detectChanges();
+    TestBed.tick();
+    fixture.detectChanges();
+
+    expect(written()).toEqual([`Clients: the record could not be loaded: ${refusal}`]);
+  });
+});
+
 // The leave-page question counts the unsaved forms, and a row's method buttons wait while
 // there is one. A row's edit form is one of them exactly while it holds a change that is
 // not saved: the count goes up once however the change was made, comes down once when the
@@ -721,27 +863,37 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
     return fixture.componentInstance;
   };
 
-  /** Opens the confirmation with the dialog answering as told, and says what was asked and how often the row was deleted. */
+  /**
+   * Opens the confirmation with the dialog answering as told, and says what was asked and
+   * how often the row was deleted. The dialog is handed the delete and runs it from its
+   * Delete button alone, so the stand-in runs it when the answer is true.
+   */
   const ask = (
     component: ResourceViewComponent,
     answer: boolean | undefined,
   ): { question: string; deleted: number } => {
-    const opened: { component: unknown; data: unknown }[] = [];
-    component.dialog.open = ((opening: unknown, config: { data: unknown }) => {
+    const opened: { component: unknown; data: DeleteConfirmation }[] = [];
+    component.dialog.open = ((opening: unknown, config: { data: DeleteConfirmation }) => {
       opened.push({ component: opening, data: config.data });
+      if (answer === true) {
+        void config.data.delete?.();
+      }
 
-      return { afterClosed: () => of(answer) };
+      return {};
     }) as unknown as typeof component.dialog.open;
     let deleted = 0;
-    component.deleteResource = (): void => {
+    component.deleteResource = (): Promise<void> => {
       deleted++;
+
+      return Promise.resolve();
     };
 
     component.confirmDeleteResource();
 
     expect(opened.map((o) => o.component)).toEqual([DeleteResourceConfirmationModalComponent]);
+    expect(opened[0].data.delete, 'the dialog is not handed the delete').toBeTypeOf('function');
 
-    return { question: deleteQuestion(opened[0].data as DeleteConfirmation | undefined), deleted };
+    return { question: deleteQuestion(opened[0].data), deleted };
   };
 
   it('by the list the row is in, and deletes it once the person says so', async () => {
@@ -782,5 +934,21 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
 
     expect(ask(component, false).deleted).toBe(0);
     expect(ask(component, undefined).deleted).toBe(0);
+  });
+
+  it('and opens no second question while one is open', async () => {
+    const component = await drawn({});
+    let opened = 0;
+    component.dialog.open = (() => {
+      opened++;
+
+      return {};
+    }) as unknown as typeof component.dialog.open;
+    const open = { componentInstance: Object.create(DeleteResourceConfirmationModalComponent.prototype) as unknown };
+    Object.defineProperty(component.dialog, 'openDialogs', { get: () => [open] });
+
+    component.confirmDeleteResource();
+
+    expect(opened).toBe(0);
   });
 });

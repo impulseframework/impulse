@@ -1,0 +1,17 @@
+//go:build !skipAuth
+
+package integration
+
+import (
+	"context"
+)
+
+// directoryRoundTrip needs the simulated directory. The staff auth's people sign in
+// through OpenID Connect, and only the session library's skipAuth build simulates the
+// directory: run the suite with `go test -tags skipAuth ./...`, as the Procfile and CI do.
+func (b *browser) directoryRoundTrip(_ context.Context, _, _ string) (status int, location string) {
+	b.t.Helper()
+	b.t.Skip("the staff auth signs in through a directory: run this suite with -tags skipAuth to simulate it")
+
+	return 0, ""
+}

@@ -183,7 +183,17 @@ func unusableName(collection PermissionCollection, g *policy.Grant) error {
 		return nil
 	}
 
-	resources, known := collection.List()[g.Perm]
+	return unlistedName(collection.List(), g)
+}
+
+// unlistedName is unusableName over what a collection lists (its List), for a
+// caller that asks about several grants and reads the list once.
+func unlistedName(listed map[accesstypes.Permission][]accesstypes.Resource, g *policy.Grant) error {
+	if g.Resource == "" {
+		return nil
+	}
+
+	resources, known := listed[g.Perm]
 	if !known {
 		return errors.Newf("this release has no permission %s", g.Perm)
 	}

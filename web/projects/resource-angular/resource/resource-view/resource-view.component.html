@@ -46,7 +46,7 @@
     <!-- The page's title, where the page hands it over, and the view's buttons: one row,
          the buttons at its far end or under the title, never over it. -->
     @if (pageTitle() !== '' || !showCreateForm()) {
-      <div class="header-container">
+      <div class="header-container show-background">
         @if (pageTitle() !== '') {
           <h1 class="page-title" [class.impulse-section]="pageTitleIsSection()">{{ pageTitle() }}</h1>
         }

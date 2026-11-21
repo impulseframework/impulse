@@ -10,7 +10,6 @@ import (
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/spxscan"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 	"google.golang.org/api/iterator"
@@ -72,7 +71,11 @@ func (c *SpannerClient) SpannerReadOnlyTransaction() spxapi.Querier {
 // (see translateCommitError); an error the function itself returns, and a commit refused
 // with any other code, pass through unchanged.
 //
-// Before the commit, a transaction whose patches release a file object of a store the
+// Before the commit, a delete of a record with rows under it is refused as a 409 that
+// says what is in the way ("This ship has 3 sorties. Delete them first."), from one
+// count per kind inside the transaction (delete_refusal.go); the rows the transaction
+// itself deleted or updated are left out, so the rows and the record go together in one
+// call, in either order. Then a transaction whose patches release a file object of a store the
 // client holds no store for is refused naming the store: the rows would go and the
 // object would stay with nothing to delete it. Once the commit lands, the file objects
 // the transaction's patches released (a deleted row's @file keys, the old key of a row
@@ -97,10 +100,16 @@ func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Cont
 		touched = newTouchedRows()
 		committed = newAfterCommit()
 		funcFailed = false
-		if err := f(ctx, newSpannerReadWriteTransaction(txn, buffered, released, touched, committed).WithSecretKeys(c.secrets)); err != nil {
+		wrapped := newSpannerReadWriteTransaction(txn, buffered, released, touched, committed).WithSecretKeys(c.secrets)
+		if err := f(ctx, wrapped); err != nil {
 			funcFailed = true
 
 			return errors.Wrap(err, "f()")
+		}
+		if err := wrapped.refuseDeletesOver(ctx); err != nil {
+			funcFailed = true
+
+			return err
 		}
 		if err := refuseUnwiredRelease(c.stores, released.list()); err != nil {
 			funcFailed = true
@@ -195,7 +204,9 @@ func (q *optionsQuerier) Query(ctx context.Context, statement spanner.Statement)
 	return q.Querier.Query(ctx, statement)
 }
 
-// Read reads a single resource from the database.
+// Read reads a single resource from the database. A row that is not there answers 404 in
+// plain words (recordNotFound): the statement's WHERE clause is kept for the server's
+// log and is never sent to the caller.
 func (c *spannerReader[Resource]) Read(ctx context.Context, stmt *Statement) (*Row[Resource], error) {
 	var res Resource
 	if envelopeScan(stmt) {
@@ -204,7 +215,7 @@ func (c *spannerReader[Resource]) Read(ctx context.Context, stmt *Statement) (*R
 			return nil, err
 		}
 		if row == nil {
-			return nil, httpio.NewNotFoundMessagef("%s (%s) not found", res.Resource(), stmt.resolvedWhereClause)
+			return nil, recordNotFound(res.Resource(), stmt.resolvedWhereClause)
 		}
 
 		return row, nil
@@ -213,7 +224,7 @@ func (c *spannerReader[Resource]) Read(ctx context.Context, stmt *Statement) (*R
 	row := new(Row[Resource])
 	if err := spxscan.Get(ctx, c.querier(stmt), &row.Data, stmt.SpannerStatement()); err != nil {
 		if errors.Is(err, spxapi.ErrNotFound) {
-			return nil, httpio.NewNotFoundMessagef("%s (%s) not found", res.Resource(), stmt.resolvedWhereClause)
+			return nil, recordNotFound(res.Resource(), stmt.resolvedWhereClause)
 		}
 
 		return nil, errors.Wrap(err, "spxscan.Get()")
@@ -449,6 +460,10 @@ type SpannerReadWriteTransaction struct {
 	// directories notes what the transaction's writes do to tenants' directories and
 	// directory-only switches, which its own reads do not see (TenantDirectoryRules).
 	directories *directoryWrites
+	// deleted notes the deletes to count over before the commit, and the rows the
+	// transaction's patches deleted or updated, which those counts leave out
+	// (delete_refusal.go).
+	deleted *transactionDeletes
 }
 
 // NewSpannerReadWriteTransaction creates a new SpannerReadWriteTransaction from a
@@ -458,7 +473,9 @@ type SpannerReadWriteTransaction struct {
 // store yourself. It also has no executor to hand the rows it wrote to the request's
 // collector, so nothing it writes reaches the live pages, and none to run what its
 // writes registered for after the commit (AfterCommit): call Committed once the commit
-// has landed. And it has no client to take the application's secret keys from: a
+// has landed. It has no executor to count the rows under a record it deletes either: a
+// delete the database refuses over them is answered by whoever translates the commit's
+// error. And it has no client to take the application's secret keys from: a
 // transaction whose patches set a secret field is given them with WithSecretKeys.
 func NewSpannerReadWriteTransaction(txn *spanner.ReadWriteTransaction) *SpannerReadWriteTransaction {
 	return newSpannerReadWriteTransaction(txn, newBufferedPatches(), newReleasedKeys(), newTouchedRows(), newAfterCommit())
@@ -477,6 +494,7 @@ func newSpannerReadWriteTransaction(txn *spanner.ReadWriteTransaction, buffered 
 		committed:        committed,
 		secrets:          nil,
 		directories:      newDirectoryWrites(),
+		deleted:          newTransactionDeletes(),
 	}
 }
 

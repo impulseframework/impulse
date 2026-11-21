@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -32,6 +34,16 @@ const (
 	versionsTable       = "SchemaMigrations"
 	migrationsDir       = "schema/migrations"
 	seedDir             = "schema/devseed"
+)
+
+// notThere is how the command names a database it could not open, here the one no case
+// creates: the database, the instance it is looked for on, and the time the command gave
+// it. A case of it arms the command's deadline at soon in place of that time, and fails
+// where the run is still going at stopsWithin.
+const (
+	notThere    = "the database nothing-here on the instance " + containerInstanceID + " could not be opened within one minute"
+	soon        = time.Second
+	stopsWithin = 30 * time.Second
 )
 
 // serviceName is the service name the migration run's core level reads
@@ -174,6 +186,9 @@ func TestExecute(t *testing.T) {
 		env map[string]string
 		// after checks the database once the run has returned; nil checks nothing.
 		after func(t *testing.T)
+		// stops is a run that goes on to a database that is not there, which nothing but
+		// the command ends: the case fails where the run is still going at stopsWithin.
+		stops bool
 	}{
 		{
 			name:      "the migrations with the seed apply every schema and data migration; with no mailbox no first administrator is invited, and the run says what to give",
@@ -310,11 +325,11 @@ func TestExecute(t *testing.T) {
 			wantErr:  "-reinvite-administrator applies no migration and reports no version: it goes with no other flag",
 		},
 		{
-			name:     "a fresh invitation for an auth that invites nobody is refused before the database is touched",
+			name:     "a fresh invitation under a name no auth can have, since an auth's name has no hyphen, is refused before the database is touched, whatever auth the application gains",
 			missing:  true,
-			args:     []string{"-reinvite-administrator", "partners"},
+			args:     []string{"-reinvite-administrator", "no-such-auth"},
 			wantCode: exitRefused,
-			wantErr:  "-reinvite-administrator partners: no auth of that name invites a first administrator; name one of staff, members",
+			wantErr:  "-reinvite-administrator no-such-auth: no auth of that name invites a first administrator; name one of staff, members",
 		},
 		{
 			name:     "a fresh invitation without its auth is refused",
@@ -460,6 +475,36 @@ func TestExecute(t *testing.T) {
 			wantCode: exitFailed,
 			wantErr:  "deploy.Versions()",
 		},
+		{
+			name:     "a release against a database that does not exist stops at the schema and names the database",
+			missing:  true,
+			stops:    true,
+			wantCode: exitFailed,
+			wantErr:  "instances/" + containerInstanceID + "/databases/nothing-here",
+		},
+		{
+			name:     "a fresh invitation against a database that does not exist stops at the deadline and names the database",
+			missing:  true,
+			stops:    true,
+			args:     []string{"-reinvite-administrator", staff.Name},
+			wantCode: exitFailed,
+			wantErr:  notThere,
+		},
+		{
+			name:     "a retirement against a database that does not exist stops at the deadline and names the database",
+			missing:  true,
+			stops:    true,
+			args:     []string{"-retire-secret", "APP_SECRET_KEY_1"},
+			env:      map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
+			wantCode: exitFailed,
+			wantErr:  notThere,
+		},
+		{
+			name:    "the help gives the time a run gives the database to answer",
+			missing: true,
+			args:    []string{"-h"},
+			wantErr: "gives the database one minute to answer",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -484,7 +529,12 @@ func TestExecute(t *testing.T) {
 			t.Cleanup(func() {
 				log.SetOutput(os.Stderr)
 			})
-			code := execute(t.Context(), tt.args, &stdout, &stderr)
+			var code int
+			if tt.stops {
+				code = stopped(t, tt.args, &stdout, &stderr)
+			} else {
+				code = execute(t.Context(), tt.args, &stdout, &stderr)
+			}
 			for where, wrote := range map[string]string{"stdout": stdout.String(), "stderr": stderr.String(), "the log": logged.String()} {
 				if strings.Contains(wrote, "invitation=") || strings.Contains(wrote, "/login?") {
 					t.Errorf("%s holds an invitation's link, which is for the mailed message alone:\n%s", where, wrote)
@@ -527,6 +577,50 @@ func TestExecute(t *testing.T) {
 			}
 		})
 	}
+}
+
+// stopped runs the command where nothing but the command ends the run, and answers its
+// exit code. The command's deadline is held to the minute its help and its error give,
+// and armed at soon, so the case does not wait the minute out. A run still going at
+// stopsWithin fails the case there: the command is waiting on a database that will never
+// answer, and left alone it would hold the suite until the suite's own time ran out. The
+// run is canceled then and given as long again to return, since its streams are the
+// case's to read only once it has.
+func stopped(t *testing.T, args []string, stdout, stderr io.Writer) int {
+	t.Helper()
+
+	arm := afterFunc
+	afterFunc = func(d time.Duration, f func()) *time.Timer {
+		if d != time.Minute {
+			t.Errorf("the command armed its deadline at %s, want %s", d, time.Minute)
+		}
+
+		return time.AfterFunc(soon, f)
+	}
+	defer func() {
+		afterFunc = arm
+	}()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan int, 1)
+	go func() {
+		done <- execute(ctx, args, stdout, stderr)
+	}()
+	select {
+	case code := <-done:
+		return code
+	case <-time.After(stopsWithin):
+	}
+	cancel()
+	select {
+	case <-done:
+		t.Fatalf("execute(%v) was still running after %s and returned only once the case canceled it: the command has no deadline of its own for a database that does not answer", args, stopsWithin)
+	case <-time.After(stopsWithin):
+		t.Fatalf("execute(%v) was still running after %s, and %s after the case canceled it", args, stopsWithin, stopsWithin)
+	}
+
+	return 0
 }
 
 // emulators points the test at the package's emulators the way a deployment's job finds

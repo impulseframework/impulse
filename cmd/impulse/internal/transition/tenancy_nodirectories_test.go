@@ -85,7 +85,7 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 		"pkg/config/data.go":              {"app.NewTenantDeclarationReader()", "app.NewTenantMaker(tenants, liveService)"},
 		"pkg/config/tenancy.go":           {"func (c *DataConfiguration) TenantDeclarations() resource.TenantDeclarations {\n\treturn c.tenants.Declarations\n}"},
 		"app/tenancy.go":                  {"\tTenantDeclarations() resource.TenantDeclarations\n", "func (a *App) TenantAdministratorRoles() []accesstypes.Role {"},
-		"app/app.go":                      {"\treturn resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations)\n"},
+		"app/app.go":                      {"\treturn resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations, a.collection)\n"},
 		src + "configs/tenants.config.ts": {"export const tenantsConfig = rootConfig({", "listColumns: [{ id: Tenants.fieldName.name }"},
 		src + "components/ui/new-tenant/new-tenant-dialog.component.ts": {"export function openNewTenantDialog("},
 		src + "app.menus.ts":  {"resourcePage(tenantsConfig, resourceMeta)", "scope: 'domain'"},
@@ -393,6 +393,7 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		"Left to wire, in this order:\n\n1. The bootstrap and the deployment.",
 		"How a tenant comes to exist. Nobody creates one directly: the record's create answers 400 with a sentence saying so.",
 		"`tenant-delete-rule`",
+		"A table that reaches its tenant through another row (`// @domain(via: ...)` on the column that names that row) carries `ON DELETE CASCADE` on that column's foreign key too, as every link of its way to the tenant table does",
 	}
 	for _, noDirectories := range []bool{false, true} {
 		meaning := Tenancy{Table: "Tenants", NoDirectories: noDirectories}.Meaning()

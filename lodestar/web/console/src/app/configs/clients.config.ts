@@ -5,6 +5,7 @@ import {
   nullBooleanConfig,
   rootConfig,
   section,
+  staticDefault,
 } from '@impulseframework/resource-angular/types';
 
 // Clients demonstrates conditional row filtering on a global resource: the
@@ -53,7 +54,14 @@ export const clientsConfig = rootConfig({
         label: 'Client',
         children: [
           field({ name: Clients.fieldName.name, label: 'Name', cols: 4 }),
-          field({ name: Clients.fieldName.trusted, label: 'Trusted', cols: 4 }),
+          // Trusted is a yes or no the table never leaves empty and gives no default of its
+          // own: a new client is not trusted until someone says so, and the form starts there.
+          field({
+            name: Clients.fieldName.trusted,
+            label: 'Trusted',
+            cols: 4,
+            default: staticDefault({ value: false }),
+          }),
           field({
             name: Clients.fieldName.insured,
             label: 'Insured',

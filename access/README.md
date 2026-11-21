@@ -249,6 +249,20 @@ A custom role's grant set changes through `ChangeRoleGrants`, one store write
 for the removals and the additions together, so a reader never sees a role
 with neither its old grant nor its new one.
 
+With the same collection, the writes that give a custom role a grant
+(`AddRoleGrant`, `AddRoleGrants`, `AddRolePermissionResources`, the additions
+of `ChangeRoleGrants`, and `AddRolePermission` for a grant that names no
+resource) refuse a grant the release cannot use by its name: a
+permission the release does not have, a permission it does not declare on the
+resource or the field, and an action no role is given. The refusal is a bad
+request that says which and why (`List on Ledgers cannot be given to a role:
+this release declares no List on Ledgers. ...`), and nothing of the call is
+written, the rows beside the refused one included. So the grants a load skips
+by name are the ones another release wrote, never ones this release was asked
+for and took. A removal is held to nothing: a grant the release no longer
+declares can always be taken away. A client handed no collection checks no
+name on a write, as it checks none on a load.
+
 ### Change signal
 
 The engine announces on the change signal once for every call that writes
@@ -724,6 +738,17 @@ without a description, declares a role twice or at both scopes, grants what
 the collection does not declare, or carries a condition the vocabulary refuses
 fails `New`, so a release whose default roles are wrong does not start.
 
+A collection may mark an action as one no role is given, as the generator marks the
+action of the create-your-tenant route (`NoRole: true` in the generated collection).
+Nothing asks for a grant of such an action: it is registered only so that a permission
+mask can refuse it to a session that acts as someone. A role file that grants one is
+refused, in a sentence that names the role and the action and says to remove the grant,
+and a grant of one that the store already holds for a custom role is skipped at the load
+and reported by `CheckPolicy`, as a grant on a name this release does not declare. The
+collection says which actions are marked through two optional methods,
+`IsNoRoleAction(action)` and `NoRoleActions()`, which the generated collection and
+`UnionCollection` carry; a collection without them marks none.
+
 Every role name follows one grammar, a default role's in the file and a custom
 role's given to `AddRole` alike: letters and digits starting with a capital
 letter, such as `Administrator` or `TenantAdministrator` — no underscore,
@@ -1013,6 +1038,9 @@ declarations, and every other question about a resource is answered by the first
 collection registering it. A resource several sites serve must be declared identically
 in each; `UnionCollection` refuses collections that disagree on a shared resource's
 permissions (fields included), scope, immutability, computed marking, or method target.
+An action one site marks as an action no role is given is no role's in the union, and a
+site that registers the same name for roles is refused: a name is one or the other in
+every site.
 
 ```go
 collection, err := access.UnionCollection(consolerouter.Collection(), portalrouter.Collection())

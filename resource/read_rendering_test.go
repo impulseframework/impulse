@@ -53,6 +53,10 @@ func (renderStubPermissions) Reaches(context.Context, accesstypes.Domain) (bool,
 	return true, nil
 }
 
+func (renderStubPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	return []accesstypes.Domain{}, nil
+}
+
 func (renderStubPermissions) User() accesstypes.User { return "u1" }
 
 // renderCollection declares the fixture vocabulary the conditions reference.

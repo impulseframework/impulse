@@ -56,14 +56,14 @@ func TestPortalTargetEmission(t *testing.T) {
 	columnTypes := []string{
 		"import { Point } from 'geojson';",
 		"  position?: Point;",
-		"{ fieldName: 'position', displayType: 'object', required: false, isIndex: false }",
+		"{ fieldName: 'position', displayType: 'object', required: false, isIndex: false, sortable: false }",
 		"  provenance?: MissionDocuments.Provenance;",
 		"export namespace MissionDocuments {\n  export interface Provenance {\n    system: string;\n    reference?: string;\n    receivedAt: Date;\n  }\n}",
-		"{ fieldName: 'provenance', displayType: 'object', required: false, isIndex: false }",
+		"{ fieldName: 'provenance', displayType: 'object', required: false, isIndex: false, sortable: false }",
 		"  digest?: string;",
-		"{ fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false }",
+		"{ fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false, sortable: false }",
 		"  layout?: unknown;",
-		"{ fieldName: 'layout', displayType: 'object', required: false, isIndex: false }",
+		"{ fieldName: 'layout', displayType: 'object', required: false, isIndex: false, sortable: false }",
 	}
 
 	tests := []struct {
@@ -107,7 +107,7 @@ func TestPortalTargetEmission(t *testing.T) {
 			source: consoleResources,
 			want: []string{
 				"  cargoBays?: number[];",
-				"{ fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false }",
+				"{ fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false, sortable: false }",
 			},
 		},
 		{
@@ -115,7 +115,7 @@ func TestPortalTargetEmission(t *testing.T) {
 			source: consoleResources,
 			want: []string{
 				"  callsigns?: string[];",
-				"{ fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, maxLength: 16 }",
+				"{ fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, sortable: false, maxLength: 16 }",
 			},
 		},
 		{

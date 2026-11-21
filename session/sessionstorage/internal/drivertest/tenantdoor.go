@@ -138,6 +138,8 @@ type doorWorld struct {
 	accounts Accounts
 	seeded   bool
 	resolve  func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
+	// noPassword says the application's Auth registers no password method.
+	noPassword bool
 	// admits is whom the sign-in method's registration admits, one organization when it
 	// is not set.
 	admits Admits
@@ -225,7 +227,7 @@ func (w *doorWorld) start(ctx context.Context, t *testing.T, h *AuthHarness) *Au
 		accounts = Open
 	}
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Resolve: w.resolve, Accounts: accounts, SeededUsers: w.seeded, Admits: w.admits, Accept: w.seats.accept,
+		Auth: true, Resolve: w.resolve, Accounts: accounts, SeededUsers: w.seeded, NoPassword: w.noPassword, Admits: w.admits, Accept: w.seats.accept,
 		Policy:    signin.TenantPolicy(w.seats, w.declaration),
 		Admission: &DirectoryAdmission{Directories: w.directories, Seat: w.seats.seat, OnlyIn: w.seats.onlyIn},
 	})

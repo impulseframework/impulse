@@ -103,7 +103,7 @@ func New(store Store, opts ...Option) (*Client, error) {
 	return &Client{
 		evaluator:            snapEngine,
 		snapEngine:           snapEngine,
-		userManager:          newUserManager(manager, defaults, snapEngine, options.tenantAdministrators),
+		userManager:          newUserManager(manager, defaults, snapEngine, options.tenantAdministrators, options.collection),
 		store:                store,
 		defaults:             defaults,
 		collection:           options.collection,

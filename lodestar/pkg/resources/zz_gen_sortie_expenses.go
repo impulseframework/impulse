@@ -628,7 +628,10 @@ func NewSortieExpenseDeletePatchFromPatchSet(id impulse.UUID, patchSet *resource
 		SetKey("ID", id).
 		SetPatchType(resource.DeletePatchType)
 
-	return &SortieExpenseDeletePatch{patchSet: patchSet}
+	patch := &SortieExpenseDeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
+
+	return patch
 }
 
 func NewSortieExpenseDeletePatch(id impulse.UUID) *SortieExpenseDeletePatch {
@@ -636,7 +639,21 @@ func NewSortieExpenseDeletePatch(id impulse.UUID) *SortieExpenseDeletePatch {
 		SetKey("ID", id).
 		SetPatchType(resource.DeletePatchType)
 
-	return &SortieExpenseDeletePatch{patchSet: patchSet}
+	patch := &SortieExpenseDeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
+
+	return patch
+}
+
+// registerValidateFunc hands the patch set the resource's delete rule
+// (@validateDeleteType): SortieExpenseDeleteRule.Validate is asked about the
+// row before it is deleted, by the delete of the one row and by a delete that takes the
+// row with a record it is under. An error it returns refuses the delete, and nothing
+// is deleted.
+func (p *SortieExpenseDeletePatch) registerValidateFunc() {
+	p.patchSet.RegisterValidateDeleteFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return new(SortieExpenseDeleteRule).Validate(ctx, txn, p)
+	})
 }
 
 func (p *SortieExpenseDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

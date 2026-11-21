@@ -6,7 +6,9 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/postgres"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/spanner"
@@ -54,7 +56,7 @@ func (o impersonationOption) applyPostgres(driver *postgres.SessionStorageDriver
 // WithImpersonation enables impersonated sessions on storage of either backend. The
 // record table is LEFT JOINed into every session read, so an impersonated session's
 // record reaches the request context together with the session, and it is written
-// atomically with the session insert by CreateImpersonatedSession. Without this option
+// atomically with the session insert when an impersonated session starts. Without this option
 // no session is ever impersonated and the impersonation APIs return a configuration
 // error. See the "Impersonated sessions" section of the README.
 func WithImpersonation(table *ImpersonationTable) Option {
@@ -80,12 +82,59 @@ func (s *sessionStorage) EndImpersonation(ctx context.Context, sessionID impulse
 	return nil
 }
 
-// CreateImpersonatedSession creates a new session for the request together with its
-// impersonation record, atomically, and returns the session ID. Custom session data
-// follows the session type's creation semantics inside the same transaction. The
-// request's Username is written as the session's effective identity; no user record is
-// consulted here — the session type resolved the identity before calling.
-func (s *sessionStorage) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+// ErrImpersonationSealed is returned for a write of an impersonated session the session
+// library did not make, and for a read that decides one: by a store that holds no write
+// and no read of the library's making (a mock of the store, or a store of an
+// application's own, which embeds NoImpersonatedSessions), and by a session the library
+// did not build. The storage beneath an impersonated session is written, and read for
+// what decides the session, by the session library alone.
+var ErrImpersonationSealed = sealed.ErrSealed
+
+// impersonatedSessionWrite is the write of an impersonated session a store embeds, under
+// a name of this package's. The field it makes in a store is unexported, so a program
+// that holds a store can neither take the write out of it nor put another in its place.
+type impersonatedSessionWrite = sealed.ImpersonatedSessionWrite
+
+// sessionRead is the read of a session a store embeds for the session library, under a
+// name of this package's, and userRead the reads of an account. Their fields in a store
+// are unexported for the reason the write's is.
+type (
+	sessionRead = sealed.SessionRead
+	userRead    = sealed.UserRead
+)
+
+// NoImpersonatedSessions gives a store written outside the session library the methods
+// of BaseStore and UserStore that no package outside the library can declare: the write
+// of an impersonated session, and the reads that decide one (the actor's own session,
+// the account acted as, and the session of every later request). The write it gives
+// refuses with ErrImpersonationSealed and writes nothing, and the reads answer the same
+// error, so the store that embeds it is a session store that starts no impersonated
+// session and whose sessions are never impersonated: a Session of its own that answers
+// one with an impersonation record is refused as an invalid session. It is for a test
+// double written by hand, and it is what the mocks of the store hold
+// (mock_sessionstorage).
+//
+// An application's store that wraps one of the library's embeds that store instead, and
+// has the library's write and reads by promotion.
+type NoImpersonatedSessions struct {
+	impersonatedSessionWrite
+	sessionRead
+	userRead
+}
+
+// impersonatedSessions is the storage's insert of an impersonated session and its
+// record through its driver: what the write of a store the library made runs
+// (newSessionStorage).
+type impersonatedSessions struct {
+	db db
+}
+
+// create creates a new session for the request together with its impersonation record,
+// atomically, and returns the session ID. Custom session data follows the session
+// type's creation semantics inside the same transaction. The request's Username is
+// written as the session's effective identity; no user record is consulted here: the
+// session type resolved the identity before calling.
+func (i impersonatedSessions) create(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -93,7 +142,7 @@ func (s *sessionStorage) CreateImpersonatedSession(ctx context.Context, req *ses
 		Username: req.Username,
 	}
 
-	id, err := s.db.InsertImpersonatedSession(ctx, session, req, dbtype.NewInsertImpersonation(imp))
+	id, err := i.db.InsertImpersonatedSession(ctx, session, req, dbtype.NewInsertImpersonation(imp))
 	if err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "db.InsertImpersonatedSession()")
 	}
@@ -128,10 +177,23 @@ func (s *sessionStorage) ActiveImpersonations(ctx context.Context, activeSince t
 
 	imps := make([]*sessioninfo.Impersonation, len(rows))
 	for i, row := range rows {
-		imps[i] = row.ToSessionInfo()
+		imps[i] = impersonationRecord(ctx, row)
 	}
 
 	return imps, nil
+}
+
+// impersonationRecord converts a stored row into the record the library works with. A
+// row whose mask column is no mask's text is read as keeping nothing
+// (dbtype.MaskFromColumn), and the fault is logged here with the session it holds: a
+// session that can do nothing because nobody can read its mask says so on the log,
+// where each of its denials names only a mask that keeps nothing.
+func impersonationRecord(ctx context.Context, row *dbtype.Impersonation) *sessioninfo.Impersonation {
+	if err := row.MaskFault(); err != nil {
+		logger.FromCtx(ctx).Errorf("impersonation: the mask stored for session %s (%q) does not read, so the session is held to nothing: %v", row.SessionID, *row.Mask, err)
+	}
+
+	return row.ToSessionInfo()
 }
 
 // DestroyImpersonatedSession expires one live impersonated session and ends its record
