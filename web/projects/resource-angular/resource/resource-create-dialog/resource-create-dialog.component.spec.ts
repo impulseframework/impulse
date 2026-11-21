@@ -1,6 +1,6 @@
 import { Injector } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { AbstractControl } from '@angular/forms';
+import { AbstractControl, Validators } from '@angular/forms';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { By } from '@angular/platform-browser';
 import { ApiDescriptor, createClient, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
@@ -236,6 +236,27 @@ describe('ResourceCreateDialogComponent', () => {
 
     expect(text(o, '.refusal')).toBe('Please complete or fix required fields.');
     expect(shown.map((element) => element.querySelector('mat-label')?.textContent?.trim())).toEqual(['Holder']);
+    expect(page(o).querySelector('mat-dialog-content')?.contains(shown[0])).toBe(true);
+    expect(adds(o)).toEqual([]);
+    expect(o.closed).toEqual([]);
+  });
+
+  // The door is not on the form: its value comes from the row the list sits under.
+  it('names a refused field that is not on the form, says it is not on this form, and brings that sentence into view', async () => {
+    const o = await open(created);
+    const door = control(o, 'doorId');
+    door.addValidators(Validators.required);
+    door.setValue('');
+    fill(o, 'Ada');
+
+    button(o, 'create').click();
+    o.fixture.detectChanges();
+
+    expect(text(o, '.refusal')).toBe('Door is missing or wrong, and it is not on this form.');
+    // No refused field is drawn to bring into view: the sentence under the fields is.
+    expect(shown.map((element) => `${element.tagName.toLowerCase()} ${element.textContent?.trim()}`)).toEqual([
+      'p Door is missing or wrong, and it is not on this form.',
+    ]);
     expect(page(o).querySelector('mat-dialog-content')?.contains(shown[0])).toBe(true);
     expect(adds(o)).toEqual([]);
     expect(o.closed).toEqual([]);
