@@ -869,7 +869,10 @@ another. The name is the one generation knows the auth by, the name of its
 package, and a file handed over under a name the collection's generation did
 not know is refused with the name given and the names known
 (`PermissionCollection.Auths`; the generated collection lists the application's
-auths as its run read them, and a union every site's). A grant of one auth's role whose condition reads a set that describes
+auths as its run read them, and a union every site's). Two sites that say one set
+name describes two different auths' people are refused where the union is built
+(`UnionCollection`), naming the set and both auths: a role file reads a set by its
+name alone, so one of the two sets takes another name. A grant of one auth's role whose condition reads a set that describes
 another auth's people is refused when the file is loaded (`New`,
 `ValidateRoles`), naming the grant, the set and both auths: the set is looked
 up by the other auth's ids, so the role's holders would get nothing of their

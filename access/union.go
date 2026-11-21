@@ -75,8 +75,43 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 			}
 		}
 	}
+	if err := refuseSetOfTwoAuths(collections); err != nil {
+		return nil, err
+	}
 
 	return u, nil
+}
+
+// refuseSetOfTwoAuths refuses collections that say one subject set describes two
+// different auths' people. subject.<name> is one name to a role file, and a grant is
+// held to the sets of its own auth by that name (SubjectSetAuth), so a name is one
+// auth's in every site. A set one collection labels and another leaves unsaid is taken,
+// the label standing for both. The sets asked about are the ones some collection lists
+// (SubjectSets): the set of a person's groups that the generator declares is listed by
+// none, so two sites that each generate one under one name for two auths are not seen
+// here, and the first collection's label answers for it.
+func refuseSetOfTwoAuths(collections []PermissionCollection) error {
+	names := make(map[string]struct{})
+	for _, c := range collections {
+		for name := range c.SubjectSets("") {
+			names[name] = struct{}{}
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(names)) {
+		first, firstAuth := 0, ""
+		for i, c := range collections {
+			auth := c.SubjectSetAuth(name)
+			if auth == "" || auth == firstAuth {
+				continue
+			}
+			if firstAuth != "" {
+				return errors.Newf("UnionCollection: collections %d and %d (in argument order) both declare subject set %q and disagree on whose people it describes: auth %q vs auth %q. A role file reads the set by its name alone, so give one of the two sets another name, or name the same auth on both (auth: in the @subjectSet)", first+1, i+1, name, firstAuth, auth)
+			}
+			first, firstAuth = i, auth
+		}
+	}
+
+	return nil
 }
 
 // registration is what one collection says about a resource it registers: the
@@ -258,8 +293,9 @@ func (u *unionCollection) Auths() []string {
 
 // SubjectSetAuth names the auth whose people a subject set describes, from the first
 // collection (in argument order) that names one for it: the subject namespace is
-// application-wide, and a site whose generation knew one auth may leave unsaid what
-// another site says.
+// application-wide, and a collection may leave unsaid what another says. Collections
+// that name two different auths for a set any of them lists are refused where the union
+// is built (UnionCollection), so the first answer is every collection's.
 func (u *unionCollection) SubjectSetAuth(name string) string {
 	for _, c := range u.collections {
 		if auth := c.SubjectSetAuth(name); auth != "" {

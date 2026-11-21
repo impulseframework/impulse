@@ -32,6 +32,10 @@ type stubCollection struct {
 	authSets map[string]map[string][]string
 	// auths are the auths the stub's generation knew.
 	auths []string
+	// unlistedSets are the sets the stub names an auth for and does not list, by the
+	// set's name: what the generated collection does for the set of a person's groups
+	// that the generator declares.
+	unlistedSets map[string]string
 }
 
 func (s *stubCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
@@ -108,8 +112,8 @@ func (s *stubCollection) Auths() []string {
 	return s.auths
 }
 
-// SubjectSetAuth names the auth a set is declared under in authSets, and none for a
-// set that names no auth or that the stub does not declare.
+// SubjectSetAuth names the auth a set is declared under in authSets or in unlistedSets,
+// and none for a set that names no auth or that the stub does not declare.
 func (s *stubCollection) SubjectSetAuth(name string) string {
 	for of, sets := range s.authSets {
 		if _, ok := sets[name]; ok {
@@ -117,7 +121,7 @@ func (s *stubCollection) SubjectSetAuth(name string) string {
 		}
 	}
 
-	return ""
+	return s.unlistedSets[name]
 }
 
 func (s *stubCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
@@ -489,5 +493,84 @@ func TestUnionCollection_subjectSets(t *testing.T) {
 		if got := union.SubjectSetAuth(name); got != wantAuth {
 			t.Errorf("SubjectSetAuth(%q) = %q, want %q", name, got, wantAuth)
 		}
+	}
+}
+
+// TestUnionCollection_oneSetNameForTwoAuths pins what the union refuses of the subject
+// namespace. subject.<name> is one name to a role file, and a grant is held to the sets
+// of its own auth by that name, so two collections that say one set describes two
+// different auths' people are refused where the union is built, with the set and both
+// auths named. A set the collections label alike is taken, and so is a set one labels
+// and another leaves unsaid, the label standing for both.
+func TestUnionCollection_oneSetNameForTwoAuths(t *testing.T) {
+	t.Parallel()
+
+	staffTeams := &stubCollection{authSets: map[string]map[string][]string{"staff": {"teams": nil}}}
+	membersTeams := &stubCollection{authSets: map[string]map[string][]string{"members": {"teams": nil}}}
+	unsaidTeams := &stubCollection{declaredSets: map[string][]string{"teams": nil}}
+	noSets := &stubCollection{}
+
+	tests := []struct {
+		name        string
+		collections []PermissionCollection
+		wantErr     []string
+		wantAuth    string
+	}{
+		{
+			name:        "two collections label one set for two auths",
+			collections: []PermissionCollection{staffTeams, membersTeams},
+			wantErr: []string{
+				`collections 1 and 2 (in argument order) both declare subject set "teams" and disagree on whose people it describes: auth "staff" vs auth "members"`,
+				"give one of the two sets another name, or name the same auth on both (auth: in the @subjectSet)",
+			},
+		},
+		{
+			name:        "the disagreeing collections are named by position, whatever stands between them",
+			collections: []PermissionCollection{noSets, membersTeams, unsaidTeams, staffTeams},
+			wantErr:     []string{`collections 2 and 4 (in argument order) both declare subject set "teams"`, `auth "members" vs auth "staff"`},
+		},
+		{
+			name: "a set one collection lists and another names an auth for without listing it",
+			collections: []PermissionCollection{
+				&stubCollection{unlistedSets: map[string]string{"groups": "staff"}},
+				&stubCollection{authSets: map[string]map[string][]string{"members": {"groups": nil}}},
+			},
+			wantErr: []string{`both declare subject set "groups"`, `auth "staff" vs auth "members"`},
+		},
+		{
+			name:        "both label the set for one auth",
+			collections: []PermissionCollection{staffTeams, &stubCollection{authSets: map[string]map[string][]string{"staff": {"teams": {"docks"}}}}},
+			wantAuth:    "staff",
+		},
+		{
+			name:        "one labels the set and the other leaves it unsaid",
+			collections: []PermissionCollection{unsaidTeams, membersTeams},
+			wantAuth:    "members",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			union, err := UnionCollection(tt.collections...)
+			if len(tt.wantErr) > 0 {
+				if err == nil {
+					t.Fatal("UnionCollection() error = nil, want a refusal")
+				}
+				for _, want := range tt.wantErr {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("UnionCollection() error = %v, want it to contain %q", err, want)
+					}
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("UnionCollection() error = %v", err)
+			}
+			if got := union.SubjectSetAuth("teams"); got != tt.wantAuth {
+				t.Errorf("SubjectSetAuth(\"teams\") = %q, want %q", got, tt.wantAuth)
+			}
+		})
 	}
 }
