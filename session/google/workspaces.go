@@ -29,7 +29,9 @@ var personalDomains = []string{"gmail.com", "googlemail.com"}
 // email_verified) confirms the address: it does only where Google is the address's own
 // authority. That is the address of a Workspace account, which the organization that
 // owns the domain gave the person (the token carries hd), and an address of Google's
-// own mail (personalDomains). A Google account can also be made with an address from
+// own mail (personalDomains), told by its ASCII domain alone: a domain written with a
+// letter from outside ASCII is not Google's mail, whatever Unicode lowercases the letter
+// to (signin.AddressDomain). A Google account can also be made with an address from
 // anywhere else, and of that address Google says no more than any provider says of
 // one: its word confirms nothing and reaches no account. The account's sign-in name is
 // that address all the same, so a first sign-in under the name of an account created

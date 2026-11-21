@@ -201,15 +201,29 @@ func Register[Tx any](core Core[Tx], reg *Registration[Tx]) Handlers {
 	return core.RegisterExternal(reg)
 }
 
-// AddressDomain is the domain of an email address, lowercased: what follows its last
-// @, or "" when it has none. A method's AdmitsAddress judges an address by it.
+// AddressDomain is the domain of an email address with its ASCII letters lowercased:
+// what follows its last @, or "" when it has none. A method's AdmitsAddress judges an
+// address by it, and Google's method tells an address of Google's own mail by it. Only
+// ASCII letters are lowercased: Unicode lowercases some letters from outside ASCII to
+// ASCII ones (the dotted capital I, U+0130, to i; the Kelvin sign, U+212A, to k), and a
+// domain written with one is another domain than the ASCII one it would then read as,
+// so it is left as it was written and equals no ASCII domain.
 func AddressDomain(email string) string {
 	i := strings.LastIndex(email, "@")
 	if i < 0 {
 		return ""
 	}
 
-	return strings.ToLower(email[i+1:])
+	return strings.Map(lowerASCII, email[i+1:])
+}
+
+// lowerASCII is r lowercased when it is an ASCII capital letter, and r otherwise.
+func lowerASCII(r rune) rune {
+	if 'A' <= r && r <= 'Z' {
+		return r + ('a' - 'A')
+	}
+
+	return r
 }
 
 // RoleNames returns names, or an empty list for nil. A role-synchronizing method always
