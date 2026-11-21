@@ -22,7 +22,7 @@ import (
 )
 
 // actingAsSomeoneElse opens the sentence the rule refuses with, whatever was asked.
-const actingAsSomeoneElse = "you are acting as someone else, so you cannot "
+const actingAsSomeoneElse = "You are acting as someone else, so you cannot "
 
 // TestImpersonation_nobodyIsTheSubject proves the rule on the served stack. The marshal
 // holds the grant to act as a role and acts as Headquarters, the role that manages the
@@ -229,7 +229,7 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 				act.prepare(herself)
 			}
 			status, answer := session.browser.do(ctx, http.MethodPost, crewMethod(act.route), []byte(act.body(herself)))
-			if want := actingAsSomeoneElse + act.says + ":"; status != http.StatusForbidden || !strings.Contains(string(answer), want) {
+			if want := actingAsSomeoneElse + act.says + "."; status != http.StatusForbidden || !strings.Contains(string(answer), want) {
 				t.Errorf("%s, %s on her own account: status %d, want 403 saying %q: %s", session.name, act.name, status, want, answer)
 			}
 			// On another person: the whole call runs, as a dry run, and would commit.
@@ -278,7 +278,7 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 
 			continue
 		}
-		if says := strings.Contains(string(answer), actingAsSomeoneElse+act.says+":"); says == act.classed {
+		if says := strings.Contains(string(answer), actingAsSomeoneElse+act.says+"."); says == act.classed {
 			t.Errorf("acting as the governor, %s on her own account: the answer carries the rule's sentence = %t, want %t (a classed act is the mask's to refuse, any other the rule's): %s",
 				act.name, says, !act.classed, answer)
 		}
@@ -367,9 +367,9 @@ func TestImpersonation_accountSwitchesNeverTheirOwn(t *testing.T) {
 		route string
 		says  string
 	}{
-		{route: "disable-crew-user", says: actingAsSomeoneElse + "disable your own account:"},
-		{route: "enable-crew-user", says: actingAsSomeoneElse + "enable your own account:"},
-		{route: "delete-crew-user", says: actingAsSomeoneElse + "delete your own account:"},
+		{route: "disable-crew-user", says: actingAsSomeoneElse + "disable your own account."},
+		{route: "enable-crew-user", says: actingAsSomeoneElse + "enable your own account."},
+		{route: "delete-crew-user", says: actingAsSomeoneElse + "delete your own account."},
 	}
 	for _, act := range own {
 		status, answer := acting.do(ctx, http.MethodPost, crewMethod(act.route), fmt.Appendf(nil, `{"userId":%q}`, marshal))
@@ -426,7 +426,7 @@ func TestImpersonation_applicationsOwnAction(t *testing.T) {
 
 	before := clearance(pilotWildeID)
 	status, answer, _ := rate(pilotWildeID)
-	if want := actingAsSomeoneElse + "set your own clearance:"; status != http.StatusForbidden || !strings.Contains(answer, want) {
+	if want := actingAsSomeoneElse + "set your own clearance."; status != http.StatusForbidden || !strings.Contains(answer, want) {
 		t.Errorf("acting as the Sector Marshal, rating his own record: status %d, want 403 saying %q: %s", status, want, answer)
 	}
 	if got := clearance(pilotWildeID); got != before {
@@ -479,7 +479,7 @@ func TestImpersonation_noSectorOfTheirOwn(t *testing.T) {
 
 	sectors, memberships := tableRows(ctx, t, s, "Sectors"), tableRows(ctx, t, s, "CrewUserRoles")
 	status, answer := acting.do(ctx, http.MethodPost, createSectorRoute, []byte(chartEmber))
-	if want := actingAsSomeoneElse + "create a sector of your own:"; status != http.StatusForbidden || !strings.Contains(string(answer), want) {
+	if want := actingAsSomeoneElse + "create a sector of your own."; status != http.StatusForbidden || !strings.Contains(string(answer), want) {
 		t.Errorf("acting as the Bulletin Officer, creating a sector of her own: status %d, want 403 saying %q: %s", status, want, answer)
 	}
 	if got := tableRows(ctx, t, s, "Sectors"); got != sectors {

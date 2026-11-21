@@ -6724,7 +6724,7 @@ func ({{ $.ReceiverName }} *{{ $.ApplicationName }}) {{ $.Resource.Name }}{{ $fi
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 			if !shown {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("{{ $.Resource.Name }} {{ $.Resource.KeyFormat }} does not exist", {{ $.Resource.KeyParamList }}))
+				return httpio.NewEncoder(w).ClientMessage(ctx, resource.TargetNotFound("{{ $.Resource.Name }}", {{ $.Resource.KeyParamList }}))
 			}
 		}
 
@@ -6753,7 +6753,7 @@ func ({{ $.ReceiverName }} *{{ $.ApplicationName }}) {{ $.Resource.Name }}{{ $fi
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if !shown {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("{{ $.Resource.Name }} {{ $.Resource.KeyFormat }} does not exist", {{ $.Resource.KeyParamList }}))
+			return httpio.NewEncoder(w).ClientMessage(ctx, resource.TargetNotFound("{{ $.Resource.Name }}", {{ $.Resource.KeyParamList }}))
 		}
 		{{- template "storedFileOfRow" $file }}
 

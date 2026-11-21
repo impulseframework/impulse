@@ -367,7 +367,7 @@ func TestImpersonationMask_creatingASector(t *testing.T) {
 	}
 	output.reset()
 	status, answer = asRole.do(ctx, http.MethodPost, createSectorRoute, []byte(chartEmber))
-	if want := actingAsSomeoneElse + "create a sector of your own:"; status != http.StatusForbidden || !strings.Contains(string(answer), want) {
+	if want := actingAsSomeoneElse + "create a sector of your own."; status != http.StatusForbidden || !strings.Contains(string(answer), want) {
 		t.Errorf("acting as the Bulletin Officer, creating a sector: status %d, want 403 saying %q, the rule's own words: %s", status, want, answer)
 	}
 	if logged := output.String(); strings.Contains(logged, "denied by mask") {

@@ -523,7 +523,41 @@ func holdsNoPassword(t *testing.T, made *authoredApplication, wantMethods []stri
 	}
 }
 
-// TestAuthoredApplication makes five applications the way their author does, with the
+// holdsDirectoryRoles holds an application that started from Directory roles to that,
+// whichever directory gives the roles: impulse audit reads the staff auth as the shape,
+// with the one method wanted and nothing of a password (holdsNoPassword); nobody is
+// invited and nothing in the application gives a role, so the auth has no foothold and
+// its generated management neither gives a role nor makes or invites a person; a
+// development run signs in the person the environment template names, with the roles it
+// lists there, in the one organization the author named, which the template sets as
+// wanted; and the brief says nobody is invited.
+func holdsDirectoryRoles(t *testing.T, made *authoredApplication, wantMethod, wantOrganization string) {
+	t.Helper()
+
+	if want := "3 Directory roles"; made.madeAs.Shape == nil || made.madeAs.Shape.String() != want {
+		t.Errorf("impulse audit reads the staff auth as %v, want %s", made.madeAs.Shape, want)
+	}
+	holdsNoPassword(t, made, []string{wantMethod})
+	if _, err := os.Stat(filepath.Join(made.dir, "pkg", "auth", "staff", "foothold.go")); err == nil {
+		t.Error("pkg/auth/staff/foothold.go is still there: an auth whose directory gives the roles invites no first administrator")
+	}
+	for _, handler := range []string{"assign_staff_role", "remove_staff_role", "give_staff_group_role", "create_staff_user", "invite_staff_user"} {
+		if _, err := os.Stat(filepath.Join(made.dir, "pkg", "identity", "staffhandlers", "zz_gen_"+handler+".go")); err == nil {
+			t.Errorf("pkg/identity/staffhandlers/zz_gen_%s.go is generated: the application gives a role or makes a person, in an auth whose directory does both", handler)
+		}
+	}
+	env := made.read(t, ".envrc.template")
+	for _, want := range []string{"\nexport APP_ROLES=SuperAdministrator,", "\nexport " + wantOrganization + "\n"} {
+		if !strings.Contains(env, want) {
+			t.Errorf(".envrc.template does not hold %q", want)
+		}
+	}
+	if want := "nobody is invited"; !strings.Contains(made.newBrief, want) {
+		t.Errorf("the brief impulse new left does not say %q", want)
+	}
+}
+
+// TestAuthoredApplication makes seven applications the way their author does, with the
 // commands and nothing else, and holds what the commands left to each application's own
 // formatting and lint and to the brief (author). The commands leave obligations, and
 // the brief is where each is named, so the test holds that nothing else is left. Each
@@ -562,13 +596,28 @@ func holdsNoPassword(t *testing.T, made *authoredApplication, wantMethods []stri
 // under both tag sets, and passes impulse check, which reads the three outlets and the
 // two browser applications.
 //
-// It costs about twelve minutes and under eight gigabytes on a machine whose Go caches and
-// emulator image are warm: each command regenerates against the emulator (about
-// twenty-five seconds), each application runs its tests as it is made (about as long, and
-// the fifth twice), and the rest is each application's build, vet and lint runs.
+// The sixth is an application whose second browser application is given an auth of its
+// own: impulse new with one outlet composed (--outlet), then impulse add auth for that
+// outlet, with the base's password sign-in. The command writes what the regenerated
+// router and the generated contract ask of the App for the auth, so the application
+// passes go vet and its tests as the command left it and is held to every step
+// (everyStepAsMade).
+//
+// The seventh is an application another identity provider gives every role of, the
+// fourth's start from a directory that is neither Google's nor Microsoft's: impulse new
+// with the shape Directory roles, the provider's registration named (--method oidc:okta)
+// and the provider by its issuer (--organization, an https URL). It is held to what the
+// fourth is, with the provider's method in the Google method's place and the issuer in
+// the Workspace's, and the tests the start wrote sign in through the simulated provider.
+//
+// It costs about eighteen minutes and under eight gigabytes on a machine whose Go caches
+// and emulator image are warm: each command regenerates against the emulator (about
+// twenty-five seconds), each application runs its tests as it is made (about as long; the
+// fifth twice and the sixth three times), and the rest is each application's build, vet
+// and lint runs.
 func TestAuthoredApplication(t *testing.T) {
 	if os.Getenv(runAuthored) == "" {
-		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy), each application's lint (golangci-lint) and each application's tests as it is made, about twelve minutes", runAuthored)
+		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy), each application's lint (golangci-lint) and each application's tests as it is made, about eighteen minutes", runAuthored)
 	}
 	if _, err := osexec.LookPath("golangci-lint"); err != nil {
 		t.Fatalf("%s is set and golangci-lint is not on the PATH: the application's own lint is what the result is held to", runAuthored)
@@ -733,32 +782,7 @@ func TestAuthoredApplication(t *testing.T) {
 
 	t.Run("roles from one directory, with no password sign-in", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
 		made := author(t, checkout, "pier", "directory-roles", []string{"--method", "google", "--organization", "fleet.example"}, nil)
-		if want := "3 Directory roles"; made.madeAs.Shape == nil || made.madeAs.Shape.String() != want {
-			t.Errorf("impulse audit reads the staff auth as %v, want %s", made.madeAs.Shape, want)
-		}
-		holdsNoPassword(t, made, []string{"google: the accounts of one Google Workspace; the directory gives the roles"})
-		// Nobody is invited and nothing in the application gives a role: the auth has no
-		// foothold, and its generated management neither gives a role nor makes or
-		// invites a person.
-		if _, err := os.Stat(filepath.Join(made.dir, "pkg", "auth", "staff", "foothold.go")); err == nil {
-			t.Error("pkg/auth/staff/foothold.go is still there: an auth whose directory gives the roles invites no first administrator")
-		}
-		for _, handler := range []string{"assign_staff_role", "remove_staff_role", "give_staff_group_role", "create_staff_user", "invite_staff_user"} {
-			if _, err := os.Stat(filepath.Join(made.dir, "pkg", "identity", "staffhandlers", "zz_gen_"+handler+".go")); err == nil {
-				t.Errorf("pkg/identity/staffhandlers/zz_gen_%s.go is generated: the application gives a role or makes a person, in an auth whose directory does both", handler)
-			}
-		}
-		// A development run signs in the person the environment template names, with the
-		// roles it lists there, in the one organization the author named.
-		env := made.read(t, ".envrc.template")
-		for _, want := range []string{"\nexport APP_ROLES=SuperAdministrator,", "\nexport APP_STAFF_GOOGLE_HOSTED_DOMAIN=fleet.example\n"} {
-			if !strings.Contains(env, want) {
-				t.Errorf(".envrc.template does not hold %q", want)
-			}
-		}
-		if want := "nobody is invited"; !strings.Contains(made.newBrief, want) {
-			t.Errorf("the brief impulse new left does not say %q", want)
-		}
+		holdsDirectoryRoles(t, made, "google: the accounts of one Google Workspace; the directory gives the roles", "APP_STAFF_GOOGLE_HOSTED_DOMAIN=fleet.example")
 	})
 
 	t.Run("a second browser application and a machine outlet", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
@@ -808,6 +832,11 @@ func TestAuthoredApplication(t *testing.T) {
 		everyStepAsMade(t, made, []string{
 			"2 browser application(s) bound to their outlets' auths",
 		})
+	})
+
+	t.Run("roles from another identity provider, with no password sign-in", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
+		made := author(t, checkout, "berth", "directory-roles", []string{"--method", "oidc:okta", "--organization", "https://id.fleet.example"}, nil)
+		holdsDirectoryRoles(t, made, "okta: the accounts of one organization's identity provider; the directory gives the roles", "APP_STAFF_OKTA_ISSUER=https://id.fleet.example")
 	})
 }
 

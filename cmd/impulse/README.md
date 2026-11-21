@@ -382,9 +382,9 @@ taken out of what the base writes, and the change says so. `impulse add auth` wr
 them for an auth added later that invites a first administrator. The
 application mails although it invites nobody: a sign-in the directory does not answer
 for with a second factor waits for a code mailed to the person's address, and through
-Microsoft each person's first sign-in waits for one whatever the directory says, since
-Microsoft Entra ID vouches for no address and the code is what proves the one the person
-gives. So each deployed environment needs its mailbox (`APP_MAIL_MAILBOX` with
+Microsoft or another identity provider each person's first sign-in waits for one whatever
+the directory says, since no provider but Google vouches for an address and the code is
+what proves the one the person gives. So each deployed environment needs its mailbox (`APP_MAIL_MAILBOX` with
 `APP_MAIL_APP_PASSWORD`) though no release asks for one, and the brief says so; without
 it the code is written to the server's log and reaches nobody. A
 development run signs in the person `APP_USERNAME` names with the roles `APP_ROLES`
