@@ -148,3 +148,97 @@ func TestResolveSubjectSetAuths(t *testing.T) {
 		})
 	}
 }
+
+// TestExtractResourcesBesideTheApplications_subjectSetAuths drives the same rule through
+// the step of a run that applies it, with the auths the run's own outlets declare and no
+// name handed in by the test: a run that skipped the check, or held the sets to no auth,
+// fails here. Two outlets that sign two auths in make an application of several auths,
+// so a set that says none is refused naming both, and a set that names neither is
+// refused as no auth of the application; one outlet makes an application of one auth,
+// whose sets need say nothing.
+func TestExtractResourcesBesideTheApplications_subjectSetAuths(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "subjectsetfixture"))
+
+	tests := []struct {
+		name    string
+		auths   []string
+		structs []string
+		want    map[string]string
+		wantErr []string
+	}{
+		{
+			name:    "two outlets with an auth each, and every set says whose people it describes",
+			auths:   []string{"staff", "patrons"},
+			structs: []string{"BayKeeper", "LoungeGuest"},
+			want:    map[string]string{"bays": "staff", "lounges": "patrons"},
+		},
+		{
+			name:    "two outlets with an auth each, and a set that says none",
+			auths:   []string{"staff", "patrons"},
+			structs: []string{"TeamMember", "BayKeeper"},
+			wantErr: []string{"struct TeamMember field UserID: @subjectSet(teams): the application has several auths (patrons, staff), and a set describes the people of one"},
+		},
+		{
+			name:    "two outlets with an auth each, and a set that names neither",
+			auths:   []string{"crew", "patrons"},
+			structs: []string{"BayKeeper", "LoungeGuest"},
+			wantErr: []string{"struct BayKeeper field UserID: @subjectSet(bays): auth: names staff, which is no auth of the application; its auths are: crew, patrons"},
+		},
+		{
+			name:    "one outlet with an auth, and a set that says none",
+			auths:   []string{"staff"},
+			structs: []string{"TeamMember", "BayKeeper"},
+			want:    map[string]string{"bays": "staff", "teams": ""},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: subjectSetFixtureClient(t, structs), genRoutes: true, routePrefix: "api"}
+			for i, auth := range tt.auths {
+				outlet := routerOutlet{auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/" + auth, methods: []AuthMethod{PasswordMethod()}}}
+				if i == 0 {
+					r.defaultOutlet = outlet
+
+					continue
+				}
+				outlet.name, outlet.prefix, outlet.servesSessions = auth, auth+"/api", true
+				r.extraOutlets = append(r.extraOutlets, outlet)
+			}
+			resources, err := r.structsToResources(subjectSetStructs(t, structs, tt.structs...))
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			r.resources = resources
+
+			err = r.extractResourcesBesideTheApplications(nil, nil)
+			if len(tt.wantErr) > 0 {
+				if err == nil {
+					t.Fatal("extractResourcesBesideTheApplications() error = nil, want a refusal")
+				}
+				for _, want := range tt.wantErr {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("extractResourcesBesideTheApplications() error = %q, want it to contain %q", err.Error(), want)
+					}
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("extractResourcesBesideTheApplications() error = %v", err)
+			}
+			got := make(map[string]string)
+			for _, res := range r.resources {
+				for _, set := range res.SubjectSets {
+					got[set.Name] = set.Auth
+				}
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("the auth each set names mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

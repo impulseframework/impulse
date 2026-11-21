@@ -85,14 +85,19 @@ func (s *stubCollection) SubjectSetComparisonType(name string) (accesstypes.Attr
 }
 
 // SubjectSets lists the stub's sets for one auth: those that name no auth, and those of
-// the auth asked for.
+// the auth asked for. An empty auth lists every set, whichever auth each names.
 func (s *stubCollection) SubjectSets(auth string) map[string][]string {
 	sets := maps.Clone(s.declaredSets)
-	for name, builds := range s.authSets[auth] {
-		if sets == nil {
-			sets = make(map[string][]string)
+	for of, named := range s.authSets {
+		if auth != "" && of != auth {
+			continue
 		}
-		sets[name] = builds
+		for name, builds := range named {
+			if sets == nil {
+				sets = make(map[string][]string)
+			}
+			sets[name] = builds
+		}
 	}
 
 	return sets
@@ -469,6 +474,13 @@ func TestUnionCollection_subjectSets(t *testing.T) {
 	want := map[string][]string{"berths": {"docks"}, "crews": nil, "docks": {"crews", "watches"}, "watches": nil}
 	if got := union.SubjectSets("crew"); !reflect.DeepEqual(got, want) {
 		t.Errorf("SubjectSets(crew) = %v, want %v", got, want)
+	}
+
+	// An empty auth lists every set, whichever auth's people each describes: the union
+	// asks every collection the same question and joins the answers.
+	wantEvery := map[string][]string{"accounts": nil, "berths": {"docks"}, "crews": nil, "docks": {"crews", "watches"}, "watches": nil}
+	if got := union.SubjectSets(""); !reflect.DeepEqual(got, wantEvery) {
+		t.Errorf("SubjectSets(\"\") = %v, want %v", got, wantEvery)
 	}
 
 	// Whose people a set describes is answered by the collection that says it, whichever
