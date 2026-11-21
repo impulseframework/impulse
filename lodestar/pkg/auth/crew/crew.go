@@ -833,9 +833,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// instance at the commit and on every other through the policy signal. The client
 	// knows the roles that administer a sector (identity.WithAdministratorRoles, the
 	// ones held in every sector), so a person who removes a role from themselves in a
-	// sector is judged by the rule on its last administrator: no sector is left without
-	// a marshal. The service as a whole is kept by the client's own rule on the last
-	// super administrator, whose role and account stay whoever asks. The store under it
+	// sector is judged by the rule on its last administrator: nobody leaves a sector
+	// without a marshal by giving up their own role. The service as a whole is kept by
+	// the client's own rule on the last super administrator, whose role and account
+	// stay whoever asks. The store under it
 	// writes a membership as a create that leaves a row that is there alone (the
 	// generated create patch's OrSkip), so a role given twice is written once and keeps
 	// the time it was first given.

@@ -98,9 +98,10 @@ func (t *Tenant) AssignRole(ctx context.Context, txn resource.ReadWriteTransacti
 }
 
 // RemoveRole buffers the removal of a role a person holds in the tenant, under the rules
-// of Manager.RemoveRole: the last administrator of the tenant keeps the role, and a
-// person left with no role anywhere is deleted. The person's id and the role are the key
-// of the row in the tenant's list of the roles held there.
+// of Manager.RemoveRole: the tenant's last administrator of its own cannot give the role
+// up, though someone whose role lets them take it from that person may, and a person
+// left with no role anywhere is deleted. The person's id and the role are the key of the
+// row in the tenant's list of the roles held there.
 //
 // The role goes where the tenant holds a membership of its own for it. A role the person
 // holds in every tenant alone is a row of the tenant's list too, and is not the tenant's

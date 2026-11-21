@@ -13,8 +13,9 @@ import (
 // AdministratorRoles are the roles that count as an administrator's, by where they are
 // held: the ones whose holder can give a role back. A person removes one held in a tenant
 // from themselves only while another person holds one there
-// (identity.WithAdministratorRoles), so nobody is the last to leave and a tenant always
-// has someone who manages its people. The application as a whole is kept by the Super
+// (identity.WithAdministratorRoles), so nobody is the last to leave: a tenant loses its
+// last administrator only where someone whose role lets them take the role away does
+// it. The application as a whole is kept by the Super
 // Administrator role instead (accesstypes.SuperAdministrator), whose last holder keeps it
 // whoever asks. A role that manages nothing of people is not among them, whoever holds it.
 func AdministratorRoles() (global, everyDomain []accesstypes.Role) {

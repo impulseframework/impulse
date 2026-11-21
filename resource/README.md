@@ -3522,8 +3522,8 @@ exception (`accesstypes.ExceptPermission`).
 
 With the last-owner rule (section 21, "The rules") an operator brings a customer's
 tenant in by inviting its first administrator and holds no role in it: the tenant is its
-administrator's from its first moment, and is never left with nobody to give the next
-role.
+administrator's from its first moment, and its last administrator cannot leave it with
+nobody to give the next role.
 
 **Tests.** The generated authorization matrix drives domain-scoped routes with one
 tenant, the generated router's `TestDomain` constant (an id's text), and the
@@ -4202,7 +4202,8 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   tenant's list and is not the tenant's to take: `RemoveCrewSectorRole` refuses it (409)
   whatever the role file says.
 - The rules are the whole application's, in the same code: nobody disables or deletes
-  their own account, the tenant's last administrator keeps the role, a rename moves the
+  their own account, the last administrator of a tenant's own cannot leave it or give
+  up the role (someone whose role lets them take the role away may), a rename moves the
   roles, the last role a person holds anywhere takes the account with it, an
   invitation gives at least one role. A tenant's administrators are counted as the
   permission engine counts them (`access.AdministersTenant`): the people who hold an

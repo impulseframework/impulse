@@ -643,7 +643,8 @@ func Auth(importPath string, methods ...AuthMethod) OutletOption {
 // members leaves them out of the members' file. A caller on this outlet is a person of
 // the outlet's own Auth and nobody of the managed one, whatever their username: the
 // managed Auth's rules on a person acting on themselves (nobody disables or deletes
-// their own account, the last administrator keeps the role) refuse nobody here.
+// their own account, the last administrator does not give up the role) refuse nobody
+// here.
 func Manages(importPath string) OutletOption {
 	return outletOption(func(o *routerOutlet) error {
 		if importPath == "" || strings.ContainsAny(importPath, " \t\n\"") || strings.Trim(importPath, "/") != importPath {

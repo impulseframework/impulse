@@ -382,8 +382,10 @@ type administratorHolding struct {
 // a holding whose period is over, or has not begun, is not the rule's to keep, though
 // nobody else administers the tenant. The role goes unless
 // it is an administrator role of the tenant and nobody else would hold one there after:
-// a tenant is never left without an administrator of its own, and a person who gives a
-// role up otherwise is given it back by one who remains. The holders counted are the
+// nobody leaves a tenant without an administrator of its own by giving up their own
+// role, and a person who gives a role up otherwise is given it back by one who remains.
+// The rule judges a person's own act and nobody else's: someone whose role lets them
+// take a role from another person takes the last administrator's too. The holders counted are the
 // tenant's own, the ones the permission engine counts (access.AdministersTenant): the
 // people who hold the role in the tenant itself, by a membership of their own or
 // through a group kept in the tenant, each inside its period and each with an account
