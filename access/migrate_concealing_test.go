@@ -66,6 +66,10 @@ func (concealingCollection) SubjectSets(string) map[string][]string {
 	return nil
 }
 
+func (concealingCollection) SubjectSetAuth(string) string {
+	return ""
+}
+
 func (concealingCollection) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
 }

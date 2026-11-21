@@ -276,7 +276,7 @@ func TestGeneratedCollection_SubjectSets(t *testing.T) {
 			Scope: accesstypes.GlobalPermissionScope,
 			SubjectSets: []SubjectBindingData{
 				{Name: "crews", UserColumn: "UserId", Column: "CrewId", Type: AttributeTypeString, Auth: "crew"},
-				{Name: "groups", UserColumn: "UserId", Column: "GroupId", Type: AttributeTypeString, Offered: true},
+				{Name: "groups", UserColumn: "UserId", Column: "GroupId", Type: AttributeTypeString, Offered: true, Auth: "crew"},
 			},
 		},
 		{
@@ -340,5 +340,14 @@ func TestGeneratedCollection_SubjectSets(t *testing.T) {
 				t.Errorf("SubjectSets(%q) mismatch (-want +got):\n%s", tt.auth, diff)
 			}
 		})
+	}
+
+	// Whose people a set describes is answered for every set, the generator's among
+	// them, which the listing leaves out.
+	wantAuths := map[string]string{"crews": "crew", "docks": "crew", "groups": "crew", "accounts": "members", "watches": "", "berths": ""}
+	for name, want := range wantAuths {
+		if got := g.SubjectSetAuth(name); got != want {
+			t.Errorf("SubjectSetAuth(%q) = %q, want %q", name, got, want)
+		}
 	}
 }

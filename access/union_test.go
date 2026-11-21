@@ -96,6 +96,18 @@ func (s *stubCollection) SubjectSets(auth string) map[string][]string {
 	return sets
 }
 
+// SubjectSetAuth names the auth a set is declared under in authSets, and none for a
+// set that names no auth or that the stub does not declare.
+func (s *stubCollection) SubjectSetAuth(name string) string {
+	for of, sets := range s.authSets {
+		if _, ok := sets[name]; ok {
+			return of
+		}
+	}
+
+	return ""
+}
+
 func (s *stubCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
 	typ, ok := s.subjectValues[name]
 
@@ -416,5 +428,13 @@ func TestUnionCollection_subjectSets(t *testing.T) {
 	want := map[string][]string{"berths": {"docks"}, "crews": nil, "docks": {"crews", "watches"}, "watches": nil}
 	if got := union.SubjectSets("crew"); !reflect.DeepEqual(got, want) {
 		t.Errorf("SubjectSets(crew) = %v, want %v", got, want)
+	}
+
+	// Whose people a set describes is answered by the collection that says it, whichever
+	// site declares the set, and a set no collection names an auth for has none.
+	for name, wantAuth := range map[string]string{"accounts": "members", "berths": "crew", "crews": "", "docks": "", "holds": ""} {
+		if got := union.SubjectSetAuth(name); got != wantAuth {
+			t.Errorf("SubjectSetAuth(%q) = %q, want %q", name, got, wantAuth)
+		}
 	}
 }

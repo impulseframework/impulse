@@ -95,6 +95,12 @@ func (grammarCollection) SubjectSets(string) map[string][]string {
 	return nil
 }
 
+// SubjectSetAuth names no auth: the fixture's sets say none (setsCollection labels
+// its own).
+func (grammarCollection) SubjectSetAuth(string) string {
+	return ""
+}
+
 // fixtureAuth is the name of the auth the fixtures' role files are of.
 const fixtureAuth = "crew"
 

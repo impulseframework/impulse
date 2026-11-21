@@ -76,6 +76,10 @@ func (probeCollection) SubjectSets(string) map[string][]string {
 	return nil
 }
 
+func (probeCollection) SubjectSetAuth(string) string {
+	return ""
+}
+
 func (probeCollection) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
 }

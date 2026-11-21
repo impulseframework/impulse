@@ -43,6 +43,15 @@ type PermissionCollection interface {
 	// oversight. A set listed here that no grant reads is flagged (see
 	// UnreadSetWarning).
 	SubjectSets(auth string) map[string][]string
+
+	// SubjectSetAuth names the auth whose people a declared subject set
+	// describes, as the auth's package names it: the auth: part of the set's
+	// @subjectSet, which the set of a person's groups that the generator
+	// declares for an auth always carries. It is empty for a set that names
+	// none, and for a name no set declares. A grant of one auth's role whose
+	// condition reads a set that names another auth is refused when the role
+	// file is loaded (see validateGrantSetAuth).
+	SubjectSetAuth(name string) string
 	SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool)
 
 	// IsComputedResource reports whether res is a computed resource: one whose
@@ -228,7 +237,10 @@ func (g Grant) expand() []accesstypes.Resource {
 // the answer the release's start would. auth is the name of the auth whose
 // roles these are, as its package names it (its Name): the subject sets that
 // describe another auth's people are no business of this file, so the check
-// holds it to its own auth's sets alone (see UnreadSetWarning).
+// holds it to its own auth's sets alone: it flags none of another auth's (see
+// UnreadSetWarning) and refuses a grant whose condition reads one. An empty
+// auth looks at every set and refuses no grant for whose people its set
+// describes.
 func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig, auth string) ([]Warning, error) {
 	defaults, err := compileDefaultRoles(store, roleConfig, nil, auth)
 	if err != nil {
@@ -268,7 +280,9 @@ type defaultRole struct {
 // the sets no role reads are not flagged for it, since it has no role file to
 // write the grant in and every set the release declares would be flagged. auth
 // names the auth whose roles these are: the subject sets held to them are that
-// auth's own.
+// auth's own, and a grant that reads a set of another auth's people is refused
+// (validateGrantSetAuth). An empty auth holds the file to every set and
+// refuses no grant for whose people its set describes.
 func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, methods []accesstypes.Resource, auth string) (*defaultRoles, error) {
 	roleFile := roleConfig
 	if roleConfig == nil {
@@ -297,6 +311,9 @@ func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, met
 	}
 	domainGrants, domainWarnings, err := expandAllRoleGrants(store, roleConfig.Roles.Domain, accesstypes.DomainPermissionScope)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateRoleSetAuths(store, auth, roleConfig.Roles); err != nil {
 		return nil, err
 	}
 	unread, err := unreadSetWarnings(store, auth, roleFile)

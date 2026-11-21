@@ -2,6 +2,7 @@ package access
 
 import (
 	"maps"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -32,6 +33,18 @@ func (c setsCollection) SubjectSets(auth string) map[string][]string {
 	}
 
 	return listed
+}
+
+// SubjectSetAuth names the auth a set is declared under in authSets, and none for a
+// set that names no auth.
+func (c setsCollection) SubjectSetAuth(name string) string {
+	for of, sets := range c.authSets {
+		if _, ok := sets[name]; ok {
+			return of
+		}
+	}
+
+	return ""
 }
 
 // readsCrews and readsBands are a domain role each: one reads subject.crews, the other
@@ -170,13 +183,6 @@ func TestValidateRoles_unreadSetsOfOneAuth(t *testing.T) {
 			want:     []Warning{UnreadSetWarning{Set: "hazardBands"}},
 		},
 		{
-			name:     "a grant of one auth that names another auth's set does not read it for that auth",
-			authSets: map[string]map[string][]string{"crew": {"crews": nil}, "members": {"hazardBands": nil}},
-			auth:     "members",
-			roles:    []*Role{readsCrews()},
-			want:     []Warning{UnreadSetWarning{Set: "hazardBands"}},
-		},
-		{
 			name:     "a check that names no auth looks at every set",
 			authSets: map[string]map[string][]string{"crew": {"crews": nil}, "members": {"hazardBands": nil}},
 			roles:    []*Role{readsNoSet()},
@@ -194,6 +200,136 @@ func TestValidateRoles_unreadSetsOfOneAuth(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("ValidateRoles() warnings mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestValidateRoles_grantThroughAnotherAuthsSet pins that a role file is refused a grant
+// whose condition reads a set that describes another auth's people: the set is looked up
+// by that auth's ids, so the grant gives the role's holders nothing unless an id of theirs
+// is also an id of the other auth's, and then it gives them another person's rows. A set
+// of the file's own auth, a set that names no auth, and a file handed over with no name
+// are accepted.
+func TestValidateRoles_grantThroughAnotherAuthsSet(t *testing.T) {
+	t.Parallel()
+
+	labeled := map[string]map[string][]string{"crew": {"crews": nil}, "members": {"hazardBands": nil}}
+	tests := []struct {
+		name     string
+		sets     map[string][]string
+		authSets map[string]map[string][]string
+		auth     string
+		roles    ScopedRoles
+		wantErr  string
+	}{
+		{
+			name:     "a grant of one auth's role through a set that describes another auth's people",
+			authSets: labeled,
+			auth:     "members",
+			roles:    ScopedRoles{Domain: []*Role{readsNoSet(), readsCrews()}},
+			wantErr:  "role Quartermaster: Read grant on Widgets: the condition reads subject.crews, which describes the people of crew (auth: crew in the set's @subjectSet), and this role file is handed over as the roles of members; the set is looked up by the ids of crew's people, so the role's holders get nothing of their own through it: read a set that describes the people of members, or move the grant to a role of crew",
+		},
+		{
+			name:     "the other auth's file is refused the first's set the same way",
+			authSets: labeled,
+			auth:     "crew",
+			roles:    ScopedRoles{Domain: []*Role{readsBands()}},
+			wantErr:  "role Inspector: Read grant on Widgets: the condition reads subject.hazardBands, which describes the people of members (auth: members in the set's @subjectSet), and this role file is handed over as the roles of crew",
+		},
+		{
+			name:     "a grant through a set of the file's own auth",
+			authSets: labeled,
+			auth:     "crew",
+			roles:    ScopedRoles{Domain: []*Role{readsCrews()}},
+		},
+		{
+			name:     "a grant through a set that names no auth",
+			sets:     map[string][]string{"crews": nil},
+			authSets: map[string]map[string][]string{"members": {"hazardBands": nil}},
+			auth:     "members",
+			roles:    ScopedRoles{Domain: []*Role{readsCrews(), readsBands()}},
+		},
+		{
+			name:     "a file handed over with no name is held to no auth's sets",
+			authSets: labeled,
+			roles:    ScopedRoles{Domain: []*Role{readsCrews(), readsBands()}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := setsCollection{sets: tt.sets, authSets: tt.authSets}
+			_, err := ValidateRoles(store, &RoleConfig{Roles: tt.roles}, tt.auth)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateRoles() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ValidateRoles() error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// crewsRoleFile is a role file over setsCollection whose one domain role reads
+// subject.crews.
+var crewsRoleFile = RoleFile(`{
+  "roles": {
+    "domain": [
+      {"name": "Quartermaster", "description": "Reads the widgets of their crews.", "permissions": {"Read": [{"resource": "Widgets", "condition": "owner IN subject.crews"}]}}
+    ]
+  }
+}`)
+
+// TestNew_grantThroughAnotherAuthsSet pins that New refuses the same grant when the role
+// file is handed over with WithDefaultRoles, and opens with the file of the set's own auth.
+func TestNew_grantThroughAnotherAuthsSet(t *testing.T) {
+	t.Parallel()
+
+	collection := setsCollection{authSets: map[string]map[string][]string{"crew": {"crews": nil}, "members": {"hazardBands": nil}}}
+	tests := []struct {
+		name    string
+		auth    string
+		wantErr []string
+	}{
+		{name: "the file of the set's own auth", auth: "crew"},
+		{
+			name: "the file of another auth",
+			auth: "members",
+			wantErr: []string{
+				"access.WithDefaultRoles(): the role file does not validate",
+				"role Quartermaster: Read grant on Widgets: the condition reads subject.crews, which describes the people of crew (auth: crew in the set's @subjectSet), and this role file is handed over as the roles of members",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, err := New(newFakeStore(), collection, WithDefaultRoles(crewsRoleFile, tt.auth))
+			if client != nil {
+				t.Cleanup(func() {
+					if err := client.Close(); err != nil {
+						t.Errorf("Client.Close() error = %v", err)
+					}
+				})
+			}
+			if len(tt.wantErr) == 0 {
+				if err != nil {
+					t.Fatalf("New() error = %v, want none", err)
+				}
+
+				return
+			}
+			for _, want := range tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Errorf("New() error = %v, want it to contain %q", err, want)
+				}
 			}
 		})
 	}

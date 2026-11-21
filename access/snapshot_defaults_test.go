@@ -64,6 +64,10 @@ func (defaultsCollection) SubjectSets(string) map[string][]string {
 	return nil
 }
 
+func (defaultsCollection) SubjectSetAuth(string) string {
+	return ""
+}
+
 func (defaultsCollection) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
 }

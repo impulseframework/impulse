@@ -239,6 +239,20 @@ func (u *unionCollection) SubjectSets(auth string) map[string][]string {
 	return sets
 }
 
+// SubjectSetAuth names the auth whose people a subject set describes, from the first
+// collection (in argument order) that names one for it: the subject namespace is
+// application-wide, and a site whose generation knew one auth may leave unsaid what
+// another site says.
+func (u *unionCollection) SubjectSetAuth(name string) string {
+	for _, c := range u.collections {
+		if auth := c.SubjectSetAuth(name); auth != "" {
+			return auth
+		}
+	}
+
+	return ""
+}
+
 // SubjectValueComparisonType resolves a subject value's comparison type from
 // whichever collection declares it.
 func (u *unionCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {

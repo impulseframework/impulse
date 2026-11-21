@@ -112,7 +112,8 @@ type DomainBindingData struct {
 // names it (auth: in the @subjectSet): the user column holds that auth's
 // people, so only that auth's roles can give anybody anything through the
 // set, and only that auth's role-file check looks at it
-// (GeneratedCollection.SubjectSets). It is empty on a set that says none,
+// (GeneratedCollection.SubjectSets); another auth's role file is refused a
+// grant that reads it (GeneratedCollection.SubjectSetAuth). It is empty on a set that says none,
 // which an application with one auth may leave so, every set being that
 // auth's, and on a subject value. Generation refuses a set that follows a
 // person through a set of another auth's people (a who: test against it).
@@ -270,6 +271,20 @@ func (g *GeneratedCollection) SubjectSetComparisonType(name string) (accesstypes
 	}
 
 	return anchor.Binding.Type, true
+}
+
+// SubjectSetAuth names the auth whose people a declared subject set describes
+// (SubjectBindingData.Auth), as the auth's package names it. It is empty for a
+// set that names none and for a name no set declares. The set of a person's
+// groups that the generator declares for an auth names that auth, so the answer
+// holds for it as for a set a person wrote, where SubjectSets leaves it out.
+func (g *GeneratedCollection) SubjectSetAuth(name string) string {
+	anchor, ok := g.SubjectSet(name)
+	if !ok {
+		return ""
+	}
+
+	return anchor.Binding.Auth
 }
 
 // SubjectSets lists the subject sets the application declares (@subjectSet)

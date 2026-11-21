@@ -67,6 +67,11 @@ func (declared) SubjectSets(string) map[string][]string {
 	return nil
 }
 
+// SubjectSetAuth implements access.PermissionCollection.
+func (declared) SubjectSetAuth(string) string {
+	return ""
+}
+
 // SubjectValueComparisonType implements access.PermissionCollection.
 func (declared) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
