@@ -541,6 +541,12 @@ func TestNewAuth(t *testing.T) {
 			wantErrHas: "differ from the session cookie name",
 		},
 		{
+			name:       "a pending cookie named like the cookie that carries the tenant an accepted invitation leads to",
+			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
+			options:    []AuthOption{WithPendingCookieName(defaultInvitationCookieName + "-seated")},
+			wantErrHas: "give the other cookie another name",
+		},
+		{
 			name:       "a pending timeout that is not positive",
 			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
 			options:    []AuthOption{WithPendingTimeout(0)},

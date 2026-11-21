@@ -3040,7 +3040,7 @@ tenant:
   acme.example and try again.";
 - a caller whose own account has no password, where their auth has the password method:
   "Directory only is turned on by a person who has a password: an administrator of this
-  tenant enters it with a password and a code sent to their email, and that is your way
+  tenant enters it with a password and a code sent to their email, and that is the way
   back in if the directory has a problem. Choose a password on Your account first, then
   try again." A person who has only ever signed in through the directory has none, and
   chooses one on their account page (the session library's "A person's first
@@ -3133,12 +3133,48 @@ under the Execute grant of either method in the tenant, held without a condition
 has no request for a condition to judge, so it is Forbidden under a grant that holds on
 one), and writes nothing (`resource.DirectoryOnlyStateHandler`). The tenant's
 administrator does not read the global record, and this is what a Sign-in page shows
-them. The browser client's `directoryOnlyState(api, tenant)` is the typed read, and the
+them.
+
+While the switch is off and the tenant has a directory, the read also says what turning
+it on takes of the caller (`conditions`, `resource.DirectoryOnlyCondition`), in the
+order the call checks: the sign-in through the tenant's directory, then the password
+where the caller's auth has the password method. Each is the `sentence` the refusal
+above opens with, whether the caller meets it (`met`), and, where they do not, what they
+do (`toDo`): the rest of that refusal. The call refuses with `sentence`, a space and
+`toDo` of the first one not met, built from the same parts, so the words are held in one
+place: a page shows the read's sentences before the person presses, and holds no copy of
+its own. The generated read is given the rules the two methods are given, each auth's
+`CallerPassword` with them (`PasswordsBy`), and stamps the caller it checked before it
+asks them; rules that ask no auth say the first condition alone, though the call still
+refuses for the second.
+
+```json
+{
+  "directoryOnly": false,
+  "conditions": [
+    {
+      "sentence": "Directory only is turned on by a person who is signed in through this tenant's directory, Google Workspace acme.example: that shows the directory works, and that you will not shut yourself out.",
+      "met": true
+    },
+    {
+      "sentence": "Directory only is turned on by a person who has a password: an administrator of this tenant enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem.",
+      "met": false,
+      "toDo": "Choose a password on Your account first, then try again."
+    }
+  ]
+}
+```
+
+A tenant with no directory is refused before anything is asked of the person, and a
+tenant that is directory only already has nothing to turn on, so the read names no
+condition for either. The browser client's `directoryOnlyState(api, tenant)` is the typed read, and the
 methods are handles of the tenant's client
 (`api.domain(tenant).make<Record>DirectoryOnly`, `.end<Record>DirectoryOnly`); the
 skeletons' Sign-in page runs each through the library's method dialog
 (`openMethodDialog`), which draws the warning with its list of people and the typed
-word, and turning the flag off is a plain confirmation.
+word, and turning the flag off is a plain confirmation. The page offers the method that
+turns it on only where the tenant has a directory, and shows the read's conditions
+beside it.
 
 The tenant's own list of its people (section 21) is made from who holds a role in the
 tenant, never from who can sign in, so a person the flag keeps out stays in it with

@@ -1064,14 +1064,18 @@ may give, by the grant of the method that gives one); `MakeSectorInviteOnly` cle
 The record's own
 update never writes the seat. The console's Sign-in page (Sector Ops menu, under the
 sector's URL) carries the declaration: a marshal signed in through his organization's
-directory makes it the sector's there with one button and removes it; a marshal signed
+directory makes it the sector's there with one button and removes it once he confirms;
+a marshal signed
 in with a password is told how a directory is set and offered no button. Everything
 else on the page is one of the four methods, run through the library's method dialog:
 opening the sector to its directory, with the role picked in the dialog beside what
 each role is for, and making it directory only each show the server's warning, with the
 people it names as a list, and hold the button until the word is typed; making it
 invite only and turning directory only off are plain confirmations, and a refusal is
-shown on the page with no dialog. The first
+shown on the page with no dialog. What turning directory only takes of the marshal, a
+sign-in through the sector's directory and a password of his own, is said on the page
+before he presses, in the server's sentences, and the button is offered only where the
+sector has a directory. The first
 person into a sector is its first marshal however it is made: an invitation's first
 sign-in seats the invited person as `SectorMarshal` in Dawn in the transaction that
 writes the row, as the create-sector route seats the pioneer in Ember (the roles

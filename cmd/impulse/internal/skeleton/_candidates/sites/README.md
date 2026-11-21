@@ -110,11 +110,13 @@ could give directly, picked from the list of the roles they may give
 `EndTenantDirectoryOnly` turn directory only (the `Tenants` record shows the flag and
 takes no write of it), which the server turns on only once the tenant has its directory
 and only for a person signed in through it who has a password of their own, their way
-back in if the directory has a problem. Opening the tenant and making it directory
+back in if the directory has a problem; the page says both before the person presses,
+in the server's own sentences, and offers the button only where the tenant has a
+directory. Opening the tenant and making it directory
 only each warn first: the dialog shows the server's sentence (who will enter and with
 what role; the count of the people it would keep out and, to a person who may list the
 tenant's people, their names as a list) and holds its button until the person has typed
-the method's word; the other two are plain confirmations. Every sentence names the
+the method's word; the other two, and removing the directory, are plain confirmations. Every sentence names the
 directory in words a person knows, the name a sign-in registration gives it or the
 label of its button, and never by a connection that is an id. Nobody types a directory in: it is set from a
 sign-in, by an administrator who is signed in through their organization's directory,

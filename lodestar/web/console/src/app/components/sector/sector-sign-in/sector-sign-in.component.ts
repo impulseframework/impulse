@@ -5,8 +5,16 @@ import { MatDialog } from '@angular/material/dialog';
 import { injectApi } from '@app/api/api';
 import { Methods, Permissions } from '@app/service/zz_gen_constants';
 import { SectorDirectories, Sectors } from '@app/service/zz_gen_resources';
-import { DirectoryOnlyState, directoryOnlyState, Domain, Method, Permission } from '@impulseframework/resource';
+import {
+  DirectoryOnlyCondition,
+  DirectoryOnlyState,
+  directoryOnlyState,
+  Domain,
+  Method,
+  Permission,
+} from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { askInDialog } from '@impulseframework/resource-angular/dialogs';
 import { openMethodDialog } from '@impulseframework/resource-angular/resource';
 import { storeSignal } from '@impulseframework/resource-angular/resource-client';
 import { METHOD_META, MethodPresentation } from '@impulseframework/resource-angular/types';
@@ -39,8 +47,8 @@ export const directoryKinds: Readonly<Record<string, string>> = {
  * make it the sector's, and the request names no directory, since the server sets the
  * one the session came through. A session that came by password or with a personal
  * account is offered no such action, and is told how a directory is set. The directory
- * is removed under the Delete grant, which the server refuses while the sector is
- * directory only.
+ * is removed under the Delete grant, once the person confirms it in a dialog that says
+ * what removing it does; the server refuses it while the sector is directory only.
  *
  * Everything else the page changes is one of the sector's own methods, run through the
  * library's method dialog, which draws each from its generated metadata. Two say how
@@ -59,7 +67,11 @@ export const directoryKinds: Readonly<Record<string, string>> = {
  * method declares. The page asks for the warning before it opens the dialog, so a
  * refusal (a sector with no directory, a person who is not signed in through the
  * sector's directory) is shown on the page in the server's words and no dialog opens.
- * Making the sector invite only and turning directory only off are plain confirmations.
+ * Making the sector invite only and turning directory only off are plain confirmations,
+ * and so is removing the directory. What turning directory only takes of the person, a
+ * sign-in through the sector's directory and a password of their own, is said on the
+ * page before they press, in the sentences the server refuses in: the read of the
+ * switch carries them for the person viewing, and the page holds no copy.
  * The server reloads what every instance knows after each write, so a change decides
  * the next request at once, and each write leaves a change event.
  *
@@ -115,6 +127,15 @@ export class SectorSignInComponent {
     const state = this.switchState.value();
     return state ? state.directoryOnly : this.sector.value()?.directoryOnly;
   });
+
+  /**
+   * What turning directory only takes of the person viewing the page, as the read of
+   * the switch says it for them: each condition in the sentence the server's refusal
+   * opens with, whether they meet it, and what they do where they do not. The page shows
+   * the server's sentences and holds none of its own, so what it says before the person
+   * presses and what the server answers a press with are the same words.
+   */
+  conditions = computed((): DirectoryOnlyCondition[] => this.switchState.value()?.conditions ?? []);
 
   /**
    * The sector's name: the record's where the role reads it, else the name the session's
@@ -185,6 +206,7 @@ export class SectorSignInComponent {
     await this.write(async () => {
       await this.own().sectorDirectories.create({});
       this.directories.reload();
+      this.switchState.reload();
     });
   }
 
@@ -195,11 +217,24 @@ export class SectorSignInComponent {
       : 'Invite only: a person from the directory enters once they are invited.';
   }
 
-  /** Removes the sector's directory, which the server refuses while the sector is directory only. */
+  /**
+   * Removes the sector's directory, once the person confirms: the dialog names the
+   * directory and says what removing it does, and a person who cancels writes nothing.
+   * The server refuses the removal while the sector is directory only.
+   */
   async remove(directory: SectorDirectories): Promise<void> {
+    const confirmed = await askInDialog(this.dialog, {
+      title: 'Remove the directory',
+      words: `${this.nameOf(directory)} will no longer be this sector's directory. The roles it gave stay in place, and it is free for another sector.`,
+      confirm: 'Remove the directory',
+    });
+    if (confirmed !== true) {
+      return;
+    }
     await this.write(async () => {
       await this.own().sectorDirectories.remove([directory.id]);
       this.directories.reload();
+      this.switchState.reload();
     });
   }
 
@@ -229,9 +264,10 @@ export class SectorSignInComponent {
   /**
    * Makes the sector directory only. The server says what it will do, who will be able
    * to enter and who of the people seated here will not, before the person types the
-   * word and confirms; it refuses a sector that has no directory and a person who is not
-   * signed in through the sector's directory, and its sentence is then shown on the page
-   * in place of a dialog.
+   * word and confirms; it refuses a person who is not signed in through the sector's
+   * directory and one who has no password, and its sentence is then shown on the page in
+   * place of a dialog. The page says both things beforehand, in the same sentences
+   * (`conditions`), and offers the action only where the sector has a directory.
    */
   async makeOnly(): Promise<void> {
     const name = this.sectorName();

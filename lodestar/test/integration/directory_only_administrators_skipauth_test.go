@@ -370,7 +370,7 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	if status, body := rigger.do(ctx, http.MethodPost, sectorPath(bastion, "end-sector-directory-only"), []byte(`{}`)); status != http.StatusOK {
 		t.Fatalf("turning Bastion's directory only off as its marshal, signed in with a password: status %d: %s", status, body)
 	}
-	if status, body := rigger.do(ctx, http.MethodGet, sectorPath(bastion, "directory-only"), nil); status != http.StatusOK || strings.TrimSpace(string(body)) != `{"directoryOnly":false}` {
+	if status, body := rigger.do(ctx, http.MethodGet, sectorPath(bastion, "directory-only"), nil); status != http.StatusOK || !strings.HasPrefix(strings.TrimSpace(string(body)), `{"directoryOnly":false`) {
 		t.Errorf("Bastion's switch once its marshal turned it off: status %d %s, want 200 saying it is off", status, body)
 	}
 	// Through the Workspace again, in a session opened since the change ended the one

@@ -46,6 +46,13 @@ type Invitation struct {
 	// An invitation that carries one names no tenant (TenantID is "") and no roles:
 	// the application's acceptance hook makes the tenant and seats the person in it.
 	NewTenant *NewTenant
+	// MadeTenantID is the tenant the acceptance made, "" until then and for an
+	// invitation that makes none. The application's acceptance hook sets it, for an
+	// invitation that carries NewTenant, to the key of the tenant it made and seated
+	// the person in, each time it runs. The library reads it once the acceptance has
+	// committed, so that the application opens for the person in the tenant their
+	// invitation made (SeatedTenantID).
+	MadeTenantID string
 	// SignInMethod and SignInConnection are how the person accepting signed in: the
 	// method and the connection of the identity the sign-in carries (a password; the
 	// Google Workspace or the Microsoft Entra tenant of a sign-in through a directory),
@@ -63,6 +70,18 @@ type Invitation struct {
 	AddressProven bool
 	// Accepted is set by the sign-in: whether this sign-in accepted the invitation.
 	Accepted bool
+}
+
+// SeatedTenantID answers the tenant the invitation's acceptance seated the person in:
+// the tenant it names, or the tenant its acceptance made (MadeTenantID). It is "" for
+// an invitation into the application's global surface, and for one that makes a tenant
+// whose acceptance hook did not say which it made.
+func (inv *Invitation) SeatedTenantID() string {
+	if inv.TenantID != "" {
+		return inv.TenantID
+	}
+
+	return inv.MadeTenantID
 }
 
 // NewTenant is the tenant an invitation makes when its first sign-in accepts it: an

@@ -384,6 +384,8 @@ export class AppGridComponent {
   private readonly tableBody = viewChild<ElementRef<HTMLTableSectionElement>>('tableBody');
   /** A length the stylesheet sets, drawn with the list: what the page scales the list by is read off it. */
   private readonly rule = viewChild<ElementRef<HTMLElement>>('rule');
+  /** What offers a cut-short text whole, and makes the cells whose text is cut stops of the Tab key. */
+  private readonly cutShort = viewChild(CutShortTooltipDirective);
 
   /**
    * How wide the frame around the table is, as the browser lays it out: read when the
@@ -609,9 +611,12 @@ export class AppGridComponent {
       look.observe(page.body, { attributes: true });
       // A font that arrives changes how wide every text is drawn. A list that waited for it
       // is read now, for the first time, and drawn; one that was read before is read again,
-      // and what a column needs only grows, so nothing a person has seen narrows.
+      // and what a column needs only grows, so nothing a person has seen narrows. A text is
+      // cut or whole by its letters, so the cells the Tab key stops on are looked for again
+      // at the key's next press.
       const lettered = (): void => {
         this.measureColumns();
+        this.cutShort()?.redrawn();
       };
       const fonts = page.fonts as FontFaceSet | undefined;
       fonts?.addEventListener('loadingdone', lettered);
@@ -638,6 +643,19 @@ export class AppGridComponent {
         this.indexedFilterActive();
         untracked(() => this.measureColumns());
       },
+    });
+
+    // The cells whose text is cut short are stops of the Tab key, and which they are is
+    // looked for when the key is pressed, never when the list is drawn. The list says here
+    // that what it draws has changed, its rows or anything a width comes from, so that the
+    // next press looks again: nothing is read off the page for it.
+    effect(() => {
+      this.visibleRows();
+      this.columnDefs();
+      this.needs();
+      this.frameWidth();
+      this.columnWidths();
+      untracked(() => this.cutShort()?.redrawn());
     });
 
     effect(() => {

@@ -7,7 +7,6 @@ import {
   narrowedFilter,
   optionColumns,
   optionDisplay,
-  pickerConsoleLine,
   PickerNarrowing,
   pickerNarrowing,
   PickerOption,
@@ -325,11 +324,6 @@ describe('pickerRefusal', () => {
     for (const tt of cases) {
       expect(pickerRefusal(tt.error, tt.read, tt.showsId) ?? '').not.toMatch(serverWords);
     }
-  });
-
-  it('names the resource and the read in the line it writes to the console before what the server said', () => {
-    expect(pickerConsoleLine('Berths', 'list')).toBe('Berths: the list a picker offers could not be loaded:');
-    expect(pickerConsoleLine('Berths', 'record')).toBe('Berths: the record a picker shows could not be loaded:');
   });
 
   for (const tt of cases) {

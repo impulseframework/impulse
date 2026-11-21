@@ -1094,13 +1094,17 @@ A person from a tenant's directory gets in by the tenant's choice, whether or no
 sign-in method is open to sign-up on the auth's Sign-in page.
 
 Opening the tenant to its directory and making it directory only each warn first, with
-who is affected, and are confirmed by typing a word (`open`, `close`).
+who is affected, and are confirmed by typing a word (`open`, `close`). Removing a
+tenant's directory asks first too, in a dialog that names the directory.
 
 A tenant's administrator can turn directory only on once the tenant has its directory,
 and must be signed in through that directory to do it. Where the auth has the password
 method, the administrator must also have a password of their own, which is their way back
 in if the directory stops working. A person who has only ever signed in through a
-directory chooses a password on the Your account page first. A tenant can also be
+directory chooses a password on the Your account page first. The tenant's Sign-in page
+says both to the person viewing it, with which of the two that person does not yet meet
+and what to do about it, in the sentences the refusal uses, and it offers directory only
+only where the tenant has a directory. A tenant can also be
 directory only from the start: the invitation that makes it says so, and is then accepted
 through an organization's directory and no other way. The password rule applies only
 when directory only is turned on from the page: the first administrator of a tenant made
@@ -1404,6 +1408,12 @@ alone. Once the person has a role in a second tenant, or a role for the whole
 application, the account is managed from the whole application's side. In each tenant a
 person is in, that tenant's administrator still controls the person's role there and can
 remove them from the tenant.
+
+A person who is in several tenants lands, after signing in, in the tenant they last
+worked in on that browser. A person who accepts an invitation into a tenant lands in
+that tenant, whatever other tenants they are in, and a person whose invitation makes a
+tenant lands in the tenant it made. The next time they sign in, they land where they
+last worked again.
 
 ### 7. Global users, invite only
 

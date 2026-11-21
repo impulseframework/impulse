@@ -137,7 +137,10 @@ switch in the tenant (`GET /api/tenants/{tenantID}/directory-only`). The server 
 turning it on only once the tenant has its directory, and only to a person who is signed
 in through that directory themselves and has a password of their own, which is their way
 back in if the directory has a problem: a person who has only ever signed in through a
-directory chooses one on Your account first, with a code sent to their confirmed address. Opening the tenant and making it directory only
+directory chooses one on Your account first, with a code sent to their confirmed address.
+The page says both things before the person presses, in the server's own sentences (the
+read of the switch carries them for the person viewing, with what they do about the one
+they do not meet), and offers the button only where the tenant has a directory. Opening the tenant and making it directory only
 each warn first: the dialog shows what the server says the call will do (who will
 enter and with what role; who will be able to enter, the count of the people it would
 keep out and, to a person who may list the tenant's people, their names as a list) and
@@ -146,8 +149,8 @@ refusal is shown on the page and no dialog opens. Every sentence names the direc
 words a person knows, the Workspace's name or its domain as the staff auth's Google
 registration gives it, and never by a connection that is an id (a Microsoft Entra
 tenant its registration lists by id alone reads "your organization's Microsoft
-directory", by the label of its button). Making the tenant invite only and
-turning directory only off are plain confirmations; while a tenant is directory only its
+directory", by the label of its button). Making the tenant invite only, turning
+directory only off and removing the directory are plain confirmations; while a tenant is directory only its
 routes answer the people it admits, so a tenant whose directory has stopped working is
 opened again by its own administrator, signed in with a password and the code, or by a
 super administrator. The tenant's People page marks the people it
