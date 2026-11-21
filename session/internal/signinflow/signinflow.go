@@ -203,11 +203,12 @@ type Rules[Tx any] struct {
 	Proven dbtype.PasswordProof
 	// ConfirmAddress says a sign-in through a directory that does not vouch for the
 	// person's address is held for the code that confirms one, while the account holds
-	// no confirmed address (addressHold), and that the standard rule's first link to an
-	// account created ahead, on a sign-in name the method does not vouch for, waits for
-	// the code mailed to the address the account holds (nameAloneHold). It is set by an
-	// Auth that sends mail, for a registration that is not the deployment's own
-	// provider of seeded accounts.
+	// no confirmed address (addressHold), and that a sign-in to an account that cannot
+	// take the address the method vouches for, because another account holds it, is
+	// refused (addressTaken). The standard rule's first link to an account created
+	// ahead, on a sign-in name the method does not vouch for, waits for the code
+	// whatever this says (nameAloneHold). It is set by an Auth that sends mail, for a
+	// registration that is not the deployment's own provider of seeded accounts.
 	ConfirmAddress bool
 	// WaitedOn is the user a pending sign-in waited on, for the sign-in that completes
 	// the wait; it is not valid for any other. The rules' answer for an identity that is

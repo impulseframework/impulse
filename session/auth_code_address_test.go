@@ -17,10 +17,11 @@ import (
 // to the address the account holds when the code is entered. A code mailed to an address
 // an administrator has since taken off the account, replaced or moved to another account
 // is dead, as one that expired is, on a sign-in that waits to be linked and on one a
-// password started: the completion stops before anything is consumed, linked or written,
-// so nothing is written over the administrator's change. A code mailed to the address
-// the account still holds confirms it, and an account that holds none takes the address
-// its own person gave at the step.
+// password started: the completion stops once the code is consumed and before the
+// pending sign-in is consumed or anything is linked or written, so nothing is written
+// over the administrator's change. A code mailed to the address the account still holds
+// confirms it, and an account that holds none takes the address its own person gave at
+// the step.
 func TestAuth_ACodeIsGoodOnlyForTheAddressTheAccountHolds(t *testing.T) {
 	t.Parallel()
 

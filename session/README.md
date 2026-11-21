@@ -1709,10 +1709,7 @@ How an address gets onto a user:
   whatever the sign-in policy says about a second factor (`PendingMFA`, the email code
   its one factor). The person gives the address where the account has none
   (`Pending().EnrollEmail()`), and the code confirms it; their next sign-in is not held
-  for it. An Auth that sends no mail holds nobody: nothing is ever mailed there, no
-  code, no link and no notice, so there is no unconfirmed address that could be mailed
-  to, and no code that could confirm one. A registration of seeded users holds nobody
-  either.
+  for it. A registration of seeded users holds nobody.
 - **Google writes its own**: a Google sign-in writes the address Google verified
   onto the user, verified at the time of the sign-in, when the user holds no verified
   address yet and no other user holds it. Google's word counts only where Google is

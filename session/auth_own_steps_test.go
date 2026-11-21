@@ -19,10 +19,11 @@ import (
 // reports its own authentication through, CompletePending and StartAuthenticatedSession,
 // to the application's own steps. An event under a method that records a step the
 // library runs itself (the mailed code, a remembered browser standing in for it, a
-// connection's attestation) is refused as an event without a method is, before anything
-// is read or consumed: the library's rules read those events as its own proof, so the
-// mailed code's event is what links a first sign-in made on a name alone and what
-// answers the hold for an unconfirmed address.
+// connection's attestation) is refused as an event without a method is, before a
+// pending sign-in is consumed, the user is read or anything is written: the library's
+// rules read those events as its own proof, so the mailed code's event is what links a
+// first sign-in made on a name alone and what answers the hold for an unconfirmed
+// address.
 func TestAuthAPI_anApplicationReportsNoStepOfTheLibrarys(t *testing.T) {
 	t.Parallel()
 
