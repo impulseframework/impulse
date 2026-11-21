@@ -29,6 +29,7 @@ export interface DistressCalls {
   filedByUserId?: string;
   filedByName?: string;
   position?: Point;
+  sectorName?: string;
 }
 
 export interface MembersHeldRoles {
@@ -244,6 +245,10 @@ export interface Missions {
   statusId?: string;
   notes?: string;
   settlement?: string;
+  sectorName?: string;
+  kindName?: string;
+  requiredCertName?: string;
+  statusName?: string;
 }
 
 export interface MissionDocuments {
@@ -342,6 +347,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'filedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'position', displayType: 'object', required: false, isIndex: false, sortable: false },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
   },
   [Resources.MembersHeldRoles]: {
     route: 'members-held-roles',
@@ -647,6 +653,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'settlement', displayType: 'number', required: false, isIndex: false },
     ],
     searchFields: ['title', 'deadline'],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }, { fieldName: 'kindName', of: 'kindId' }, { fieldName: 'requiredCertName', of: 'requiredCertId' }, { fieldName: 'statusName', of: 'statusId' }],
   },
   [Resources.MissionDocuments]: {
     route: 'sectors/{sectorID}/mission-documents',

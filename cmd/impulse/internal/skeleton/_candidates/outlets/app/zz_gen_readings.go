@@ -20,11 +20,12 @@ import (
 
 func (a *App) Readings() http.HandlerFunc {
 	type reading struct {
-		ID         impulse.UUID `json:"id"         index:"true" perm:"-"`
+		ID         impulse.UUID `json:"id"         index:"true"      perm:"-"`
 		TenantID   impulse.UUID `json:"tenantId"   index:"true"`
 		Source     string       `json:"source"`
 		Value      float64      `json:"value"`
 		RecordedAt time.Time    `json:"recordedAt" index:"true"`
+		TenantName *string      `json:"tenantName" nameof:"TenantID"`
 	}
 
 	type response []map[string]any
@@ -63,7 +64,7 @@ func (a *App) Readings() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*reading)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -110,11 +111,12 @@ func (a *App) Readings() http.HandlerFunc {
 
 func (a *App) Reading() http.HandlerFunc {
 	type response struct {
-		ID         impulse.UUID `json:"id"         index:"true" perm:"-"`
+		ID         impulse.UUID `json:"id"         index:"true"      perm:"-"`
 		TenantID   impulse.UUID `json:"tenantId"`
 		Source     string       `json:"source"`
 		Value      float64      `json:"value"`
 		RecordedAt time.Time    `json:"recordedAt"`
+		TenantName *string      `json:"tenantName" nameof:"TenantID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Reading, response](a, accesstypes.Read)
@@ -141,7 +143,7 @@ func (a *App) Reading() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {

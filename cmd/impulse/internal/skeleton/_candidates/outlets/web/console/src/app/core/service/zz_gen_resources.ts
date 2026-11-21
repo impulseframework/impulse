@@ -7,6 +7,7 @@ export interface Announcements {
   tenantId?: string;
   title?: string;
   body?: string;
+  tenantName?: string;
 }
 
 export interface StaffGroups {
@@ -371,6 +372,7 @@ export interface TenantDirectories {
   method?: string;
   connection?: string;
   defaultSeat?: string;
+  tenantName?: string;
 }
 
 export interface StaffInvitedTenants {
@@ -473,6 +475,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'title', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'body', displayType: 'string', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'tenantName', of: 'tenantId' }],
   },
   [Resources.StaffGroups]: {
     route: 'staff-groups',
@@ -987,6 +990,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'connection', displayType: 'string', required: true, isIndex: false, readOnly: true },
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, readOnly: true },
     ],
+    nameFields: [{ fieldName: 'tenantName', of: 'tenantId' }],
   },
   [Resources.StaffInvitedTenants]: {
     route: 'staff-invited-tenants',
