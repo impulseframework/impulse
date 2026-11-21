@@ -63,7 +63,7 @@ type ChangeSignal interface {
 //			return nil
 //		},
 //	)
-//	client, err := access.New(store, access.WithChangeSignal(policySignal))
+//	client, err := access.New(store, collection, access.WithChangeSignal(policySignal))
 //
 // Both functions must be set; a nil one panics here, at construction, rather
 // than at the first policy write or the first watch.
