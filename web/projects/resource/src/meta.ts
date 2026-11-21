@@ -165,6 +165,14 @@ export interface FieldMeta {
    * Use the validators config parameter in all other contexts
    */
   required: boolean;
+  /**
+   * The default the schema declares for a yes or no field, emitted by the generator from
+   * the column's `DEFAULT (TRUE)` or `DEFAULT (FALSE)`: what the server stores for a create
+   * that leaves the field out. A create form starts the field there, so the form shows
+   * what an untouched save stores. Absent where the column declares no default, or one
+   * that is neither word, and on every field that is not a yes or no.
+   */
+  schemaDefault?: boolean;
   primaryKey?: { ordinalPosition: number };
   displayType: ValidDisplayTypes;
   /** The resource whose rows a picker for this key lists; absent when the values are fixed (see enumeration). */

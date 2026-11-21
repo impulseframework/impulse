@@ -12,7 +12,7 @@ import {
   passwordRemovalConsequence,
   passwordsDiffer,
 } from './account-page.component';
-import { passwordMethods, provideFrameTesting, SpecServer, specTransport } from './frame-testing';
+import { notNamedFor, passwordMethods, provideFrameTesting, SpecServer, specTransport } from './frame-testing';
 
 // The person's account page holds a section only where their sign-in offers it: their name
 // where the server serves its change and the session is their own, the password change
@@ -137,12 +137,30 @@ describe('AccountPageComponent', () => {
 
   it("offers the person's name where the server serves its change, the box holding the name they have", async () => {
     await open({ methods: { changeName: passwordMethods.changeName }, session: { name: 'Gale Reyes' } });
-    expect(text('.name h2')).toBe('Your name');
-    expect(text('.name p')).toBe('Shown for you in place of your username, gale, which you still sign in with.');
+    expect(text('.impulse-account-page-name h2')).toBe('Your name');
+    expect(text('.impulse-account-page-name p')).toBe(
+      'Shown for you in place of your username, gale, which you still sign in with.',
+    );
     expect(box('personName')?.value).toBe('Gale Reyes');
     expect(box('personName')?.getAttribute('maxlength')).toBe('200');
-    expect(element().querySelector('.none')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
     expect(TestBed.inject(Account).any()).toBe(true);
+  });
+
+  it("names every element for the account page: an application's rule for its own .name, .none or .message lands on none", async () => {
+    await open({
+      methods: {
+        changeName: passwordMethods.changeName,
+        changePassword: passwordMethods.changePassword,
+        forgetBrowser: passwordMethods.forgetBrowser,
+      },
+      remembered: true,
+      session: { name: 'Gale Reyes' },
+    });
+
+    expect(notNamedFor('impulse-account-page-', element())).toEqual([]);
+    expect(element().querySelector('section.impulse-account-page-content')).not.toBeNull();
+    expect(text('.impulse-account-page-browser button.impulse-account-page-forget')).toBe('Forget this browser');
   });
 
   it('starts the box empty for a person without a name', async () => {
@@ -160,7 +178,7 @@ describe('AccountPageComponent', () => {
     await settle();
     expect(posted()).toEqual([passwordMethods.changeName]);
     expect(transport.requests.find((r) => r.method === 'POST')?.body).toEqual({ name: '  Gale R. ' });
-    expect(text('.name .message')).toBe('Your name is saved.');
+    expect(text('.impulse-account-page-name .impulse-account-page-message')).toBe('Your name is saved.');
     // The session was read again: it carries the name, and the box follows it.
     expect(TestBed.inject(AuthService).sessionInfo().name).toBe('Gale R.');
     expect(box('personName')?.value).toBe('Gale R.');
@@ -176,7 +194,9 @@ describe('AccountPageComponent', () => {
     await fixture.componentInstance.changeName();
     await settle();
     expect(transport.requests.find((r) => r.method === 'POST')?.body).toEqual({ name: '' });
-    expect(text('.name .message')).toBe('Your name is removed. Your username is shown instead.');
+    expect(text('.impulse-account-page-name .impulse-account-page-message')).toBe(
+      'Your name is removed. Your username is shown instead.',
+    );
     expect(TestBed.inject(AuthService).sessionInfo().name ?? undefined).toBeUndefined();
   });
 
@@ -189,7 +209,7 @@ describe('AccountPageComponent', () => {
     type('personName', 'Gale Reyes the Second');
     await fixture.componentInstance.changeName();
     await settle();
-    expect(text('.name .message')).toBe('a name is at most 200 characters');
+    expect(text('.impulse-account-page-name .impulse-account-page-message')).toBe('a name is at most 200 characters');
     expect(box('personName')?.value).toBe('Gale Reyes the Second');
     expect(TestBed.inject(AuthService).sessionInfo().name).toBe('Gale Reyes');
   });
@@ -209,12 +229,12 @@ describe('AccountPageComponent', () => {
     type('personName', 'Gale R.');
     await fixture.componentInstance.changeName();
     await settle();
-    expect(text('.name .message')).toBe('Your name is saved.');
+    expect(text('.impulse-account-page-name .impulse-account-page-message')).toBe('Your name is saved.');
     Object.assign(nameAnswer, { status: 500, body: { message: 'the server failed' } });
     type('personName', 'Gale Reyes');
     await expect(fixture.componentInstance.changeName()).rejects.toThrow();
     await settle();
-    expect(element().querySelector('.name .message')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-name .impulse-account-page-message')).toBeNull();
     expect(fixture.componentInstance.busy()).toBe(false);
   });
 
@@ -226,23 +246,27 @@ describe('AccountPageComponent', () => {
         impersonation: { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' },
       },
     });
-    expect(element().querySelector('.name')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-name')).toBeNull();
     expect(TestBed.inject(Account).name()).toBe(false);
-    expect(text('.none')).toBe('Your sign-in is managed by your organization, so there is nothing to change here.');
+    expect(text('.impulse-account-page-none')).toBe(
+      'Your sign-in is managed by your organization, so there is nothing to change here.',
+    );
   });
 
   it('offers the password change to a person whose auth has the password method', async () => {
     await open({ methods: { changePassword: passwordMethods.changePassword } });
-    expect(text('.password h2')).toBe('Change your password');
-    expect(element().querySelector('.browser')).toBeNull();
-    expect(element().querySelector('.none')).toBeNull();
+    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
+    expect(element().querySelector('.impulse-account-page-browser')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
     expect(TestBed.inject(Account).any()).toBe(true);
   });
 
   it('says there is nothing to change for a sign-in through the organization', async () => {
     await open({});
-    expect(text('.none')).toBe('Your sign-in is managed by your organization, so there is nothing to change here.');
-    expect(element().querySelector('.password')).toBeNull();
+    expect(text('.impulse-account-page-none')).toBe(
+      'Your sign-in is managed by your organization, so there is nothing to change here.',
+    );
+    expect(element().querySelector('.impulse-account-page-password')).toBeNull();
     expect(TestBed.inject(Account).any()).toBe(false);
   });
 
@@ -253,7 +277,7 @@ describe('AccountPageComponent', () => {
     type('newPasswordAgain', 'new two');
     await fixture.componentInstance.changePassword();
     fixture.detectChanges();
-    expect(text('.password .message')).toBe(passwordsDiffer);
+    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe(passwordsDiffer);
     expect(posted()).toEqual([]);
   });
 
@@ -265,7 +289,7 @@ describe('AccountPageComponent', () => {
     await fixture.componentInstance.changePassword();
     fixture.detectChanges();
     expect(posted()).toEqual([passwordMethods.changePassword]);
-    expect(text('.password .message')).toBe('Your password is changed.');
+    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe('Your password is changed.');
   });
 
   // A sign-in that offers the password and one directory, serves the password's removal
@@ -290,10 +314,14 @@ describe('AccountPageComponent', () => {
 
   it('offers the removal of the password where the server serves it, under the change', async () => {
     await open({ methods: removal, means: linkedToLakeside });
-    expect(text('.password h2')).toBe('Change your password');
-    expect(text('.remove-password h2')).toBe('Remove your password');
-    expect(text('.remove-password p')).toBe('If you also sign in another way, you can do without a password.');
-    expect(text('.remove-password button.remove-submit')).toBe('Remove password');
+    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
+    expect(text('.impulse-account-page-remove-password h2')).toBe('Remove your password');
+    expect(text('.impulse-account-page-remove-password p')).toBe(
+      'If you also sign in another way, you can do without a password.',
+    );
+    expect(text('.impulse-account-page-remove-password button.impulse-account-page-remove-submit')).toBe(
+      'Remove password',
+    );
     expect(TestBed.inject(Account).removePassword()).toBe(true);
   });
 
@@ -306,8 +334,8 @@ describe('AccountPageComponent', () => {
       },
       means: linkedToLakeside,
     });
-    expect(text('.password h2')).toBe('Change your password');
-    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
+    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
     expect(TestBed.inject(Account).removePassword()).toBe(false);
   });
 
@@ -319,22 +347,26 @@ describe('AccountPageComponent', () => {
         impersonation: { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' },
       },
     });
-    expect(text('.password h2')).toBe('Change your password');
-    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
+    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
     expect(TestBed.inject(Account).removePassword()).toBe(false);
   });
 
   it('asks before it removes, saying what is left to sign in through, and asks the server nothing when the person keeps the password', async () => {
     await open({ methods: removal, means: linkedToLakeside });
     type('removalPassword', 'old');
-    (element().querySelector('button.remove-submit') as HTMLButtonElement).click();
+    (element().querySelector('button.impulse-account-page-remove-submit') as HTMLButtonElement).click();
     await settle();
-    expect(text('.remove-password .question')).toBe('Remove your password? You will sign in through Lakeside only.');
-    expect(text('.remove-password button.remove-confirm')).toBe('Remove password');
+    expect(text('.impulse-account-page-remove-password .impulse-account-page-question')).toBe(
+      'Remove your password? You will sign in through Lakeside only.',
+    );
+    expect(text('.impulse-account-page-remove-password button.impulse-account-page-remove-confirm')).toBe(
+      'Remove password',
+    );
     expect(posted()).toEqual([]);
-    (element().querySelector('button.remove-keep') as HTMLButtonElement).click();
+    (element().querySelector('button.impulse-account-page-remove-keep') as HTMLButtonElement).click();
     await settle();
-    expect(element().querySelector('.remove-password .question')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-remove-password .impulse-account-page-question')).toBeNull();
     expect(box('removalPassword')).not.toBeNull();
     expect(posted()).toEqual([]);
   });
@@ -347,11 +379,13 @@ describe('AccountPageComponent', () => {
     await settle();
     expect(posted()).toEqual([passwordMethods.removePassword]);
     expect(transport.requests.find((r) => r.method === 'POST')?.body).toEqual({ password: 'old' });
-    expect(text('.password h2')).toBe('Your password');
-    expect(text('.password .message')).toBe('Your password is removed. You will sign in through Lakeside only.');
+    expect(text('.impulse-account-page-password h2')).toBe('Your password');
+    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe(
+      'Your password is removed. You will sign in through Lakeside only.',
+    );
     // Nothing is left to change or to remove.
     expect(box('oldPassword')).toBeNull();
-    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
   });
 
   it("shows the server's words when it refuses the removal, and leaves the password where it was", async () => {
@@ -366,10 +400,10 @@ describe('AccountPageComponent', () => {
     await fixture.componentInstance.removePassword();
     await settle();
     expect(posted()).toEqual([passwordMethods.removePassword]);
-    expect(text('.remove-password .message')).toBe(onlyWay);
-    expect(element().querySelector('.remove-password .question')).toBeNull();
+    expect(text('.impulse-account-page-remove-password .impulse-account-page-message')).toBe(onlyWay);
+    expect(element().querySelector('.impulse-account-page-remove-password .impulse-account-page-question')).toBeNull();
     expect(box('removalPassword')).not.toBeNull();
-    expect(text('.password h2')).toBe('Change your password');
+    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
     expect(fixture.componentInstance.passwordRemoved()).toBe(false);
   });
 
@@ -390,30 +424,32 @@ describe('AccountPageComponent', () => {
 
   it('offers the change and the removal to a person who holds a password and a linked directory, and names that directory alone', async () => {
     await open({ methods: told, means: signsInWith(true, true) });
-    expect(text('.password h2')).toBe('Change your password');
-    expect(text('.remove-password h2')).toBe('Remove your password');
+    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
+    expect(text('.impulse-account-page-remove-password h2')).toBe('Remove your password');
     type('removalPassword', 'old');
-    (element().querySelector('button.remove-submit') as HTMLButtonElement).click();
+    (element().querySelector('button.impulse-account-page-remove-submit') as HTMLButtonElement).click();
     await settle();
-    expect(text('.remove-password .question')).toBe(
+    expect(text('.impulse-account-page-remove-password .impulse-account-page-question')).toBe(
       'Remove your password? You will sign in through Fleet Google only.',
     );
   });
 
   it('offers the change and no removal to a person who holds a password and no linked directory', async () => {
     await open({ methods: told, means: signsInWith(true, false) });
-    expect(text('.password h2')).toBe('Change your password');
-    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
+    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
     expect(TestBed.inject(Account).removePassword()).toBe(false);
   });
 
   it('offers neither the change nor the removal to a person who holds no password', async () => {
     await open({ methods: told, means: signsInWith(false, true) });
-    expect(element().querySelector('.password')).toBeNull();
-    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-password')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
     expect(TestBed.inject(Account).password()).toBe(false);
     expect(TestBed.inject(Account).removePassword()).toBe(false);
-    expect(text('.none')).toBe('Your sign-in is managed by your organization, so there is nothing to change here.');
+    expect(text('.impulse-account-page-none')).toBe(
+      'Your sign-in is managed by your organization, so there is nothing to change here.',
+    );
   });
 
   it('holds no password section for a person whose auth registers no password method, beside the sections it does offer', async () => {
@@ -428,15 +464,15 @@ describe('AccountPageComponent', () => {
       },
       means: signsInWith(false, true),
     });
-    expect(text('.name h2')).toBe('Your name');
-    expect(element().querySelector('.password')).toBeNull();
-    expect(element().querySelector('.first-password')).toBeNull();
-    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(text('.impulse-account-page-name h2')).toBe('Your name');
+    expect(element().querySelector('.impulse-account-page-password')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-first-password')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
     expect(element().querySelector('input[type="password"]')).toBeNull();
     expect(TestBed.inject(Account).password()).toBe(false);
     expect(TestBed.inject(Account).firstPassword()).toBe(false);
     expect(TestBed.inject(Account).removePassword()).toBe(false);
-    expect(element().querySelector('.none')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
   });
 
   // The server serves the choice of a first password, as one whose auth has the password
@@ -450,16 +486,16 @@ describe('AccountPageComponent', () => {
 
   it('offers a person who holds no password the choice of one where the server serves it, asking for the code first', async () => {
     await open({ methods: choosing, means: signsInWith(false, true) });
-    expect(text('.first-password h2')).toBe('Choose a password');
-    expect(text('.first-password p')).toBe(
+    expect(text('.impulse-account-page-first-password h2')).toBe('Choose a password');
+    expect(text('.impulse-account-page-first-password p')).toBe(
       'You have no password here. To choose one, ask for a code first: we email it to the address on your account.',
     );
-    expect(text('button.first-code')).toBe('Email me a code');
+    expect(text('button.impulse-account-page-first-code')).toBe('Email me a code');
     // Nothing is typed until a code is on its way.
     expect(box('firstPasswordCode')).toBeNull();
     expect(box('firstPassword')).toBeNull();
-    expect(element().querySelector('.password')).toBeNull();
-    expect(element().querySelector('.none')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-password')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
     expect(TestBed.inject(Account).any()).toBe(true);
     expect(posted()).toEqual([]);
   });
@@ -487,19 +523,21 @@ describe('AccountPageComponent', () => {
   ]) {
     it(`offers no choice of a first password to ${tt.name}`, async () => {
       await open(tt.setup);
-      expect(element().querySelector('.first-password')).toBeNull();
+      expect(element().querySelector('.impulse-account-page-first-password')).toBeNull();
       expect(TestBed.inject(Account).firstPassword()).toBe(false);
     });
   }
 
   it('mails the code at the path the server names and says where it went, then sets the password with the code and says so', async () => {
     await open({ methods: choosing, means: signsInWith(false, true) });
-    click('button.first-code');
+    click('button.impulse-account-page-first-code');
     await settle();
     expect(posted()).toEqual([firstPasswordRoutes.sendCode]);
-    expect(text('.first-password .sent')).toBe('We sent a code to g•••@lakeside.edu. Enter it with your password.');
-    expect(text('button.first-code')).toBe('Email me a new code');
-    expect(text('button.first-submit')).toBe('Set the password');
+    expect(text('.impulse-account-page-first-password .impulse-account-page-sent')).toBe(
+      'We sent a code to g•••@lakeside.edu. Enter it with your password.',
+    );
+    expect(text('button.impulse-account-page-first-code')).toBe('Email me a new code');
+    expect(text('button.impulse-account-page-first-submit')).toBe('Set the password');
 
     type('firstPasswordCode', '483920');
     type('firstPassword', 'a harbor of my own');
@@ -511,11 +549,13 @@ describe('AccountPageComponent', () => {
       code: '483920',
       password: 'a harbor of my own',
     });
-    expect(text('.password h2')).toBe('Your password');
-    expect(text('.password .message')).toBe('Your password is set. You can sign in with it from now on.');
+    expect(text('.impulse-account-page-password h2')).toBe('Your password');
+    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe(
+      'Your password is set. You can sign in with it from now on.',
+    );
     // The choice is gone, and nothing says there is nothing to change.
-    expect(element().querySelector('.first-password')).toBeNull();
-    expect(element().querySelector('.none')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-first-password')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
     // The person holds a password now, wherever else the page is opened.
     expect(TestBed.inject(Account).firstPassword()).toBe(false);
     expect(TestBed.inject(Account).password()).toBe(true);
@@ -523,14 +563,14 @@ describe('AccountPageComponent', () => {
 
   it('refuses two passwords that differ without asking the server', async () => {
     await open({ methods: choosing, means: signsInWith(false, true) });
-    click('button.first-code');
+    click('button.impulse-account-page-first-code');
     await settle();
     type('firstPasswordCode', '483920');
     type('firstPassword', 'a harbor of my own');
     type('firstPasswordAgain', 'a harbor of my owm');
     await fixture.componentInstance.setFirstPassword();
     await settle();
-    expect(text('.first-password .refusal')).toBe(firstPasswordsDiffer);
+    expect(text('.impulse-account-page-first-password .impulse-account-page-refusal')).toBe(firstPasswordsDiffer);
     expect(posted()).toEqual([firstPasswordRoutes.sendCode]);
   });
 
@@ -542,12 +582,12 @@ describe('AccountPageComponent', () => {
       means: signsInWith(false, true),
       firstPasswordCode: { status: 409, body: { message: noAddress } },
     });
-    click('button.first-code');
+    click('button.impulse-account-page-first-code');
     await settle();
-    expect(text('.first-password .refusal')).toBe(noAddress);
-    expect(element().querySelector('.first-password .sent')).toBeNull();
+    expect(text('.impulse-account-page-first-password .impulse-account-page-refusal')).toBe(noAddress);
+    expect(element().querySelector('.impulse-account-page-first-password .impulse-account-page-sent')).toBeNull();
     expect(box('firstPasswordCode')).toBeNull();
-    expect(text('button.first-code')).toBe('Email me a code');
+    expect(text('button.impulse-account-page-first-code')).toBe('Email me a code');
   });
 
   it("shows the server's words when it refuses the password, and keeps the choice open with what was typed", async () => {
@@ -557,23 +597,23 @@ describe('AccountPageComponent', () => {
       means: signsInWith(false, true),
       firstPasswordSet: { status: 400, body: { message: wrongCode } },
     });
-    click('button.first-code');
+    click('button.impulse-account-page-first-code');
     await settle();
     type('firstPasswordCode', '000000');
     type('firstPassword', 'a harbor of my own');
     type('firstPasswordAgain', 'a harbor of my own');
     await fixture.componentInstance.setFirstPassword();
     await settle();
-    expect(text('.first-password .refusal')).toBe(wrongCode);
+    expect(text('.impulse-account-page-first-password .impulse-account-page-refusal')).toBe(wrongCode);
     expect(box('firstPasswordCode')?.value).toBe('000000');
-    expect(text('.first-password h2')).toBe('Choose a password');
+    expect(text('.impulse-account-page-first-password h2')).toBe('Choose a password');
     expect(TestBed.inject(Account).firstPassword()).toBe(true);
   });
 
   it('offers the change and no removal where the read of what the person signs in with fails: no answer is no offer', async () => {
     await open({ methods: told, means: { status: 500, body: { message: 'the database is away' } } });
-    expect(text('.password h2')).toBe('Change your password');
-    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
+    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
     expect(TestBed.inject(Account).removePassword()).toBe(false);
     // The page names no way in the server did not say is the person's.
     expect(TestBed.inject(Account).otherSignIns()).toEqual([]);
@@ -587,8 +627,8 @@ describe('AccountPageComponent', () => {
         removePassword: passwordMethods.removePassword,
       },
     });
-    expect(text('.password h2')).toBe('Change your password');
-    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(text('.impulse-account-page-password h2')).toBe('Change your password');
+    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
     expect(TestBed.inject(Account).removePassword()).toBe(false);
     expect(TestBed.inject(Account).otherSignIns()).toEqual([]);
   });
@@ -623,10 +663,12 @@ describe('AccountPageComponent', () => {
     fixture.componentInstance.askToRemovePassword();
     await fixture.componentInstance.removePassword();
     await settle();
-    expect(text('.password .message')).toBe('Your password is removed. You will sign in through Fleet Google only.');
+    expect(text('.impulse-account-page-password .impulse-account-page-message')).toBe(
+      'Your password is removed. You will sign in through Fleet Google only.',
+    );
     expect(box('oldPassword')).toBeNull();
-    expect(element().querySelector('.remove-password')).toBeNull();
-    expect(element().querySelector('.none')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-remove-password')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-none')).toBeNull();
     // The page read again what the person signs in with: no password is held now.
     expect(TestBed.inject(Account).password()).toBe(false);
   });
@@ -656,18 +698,18 @@ describe('AccountPageComponent', () => {
 
   it('offers no forgetting where the browser is not remembered', async () => {
     await open({ methods: { forgetBrowser: passwordMethods.forgetBrowser }, remembered: false });
-    expect(element().querySelector('.browser')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-browser')).toBeNull();
   });
 
   it('forgets a remembered browser at the path the server names, and says what comes next', async () => {
     await open({ methods: { forgetBrowser: passwordMethods.forgetBrowser }, remembered: true });
-    expect(text('.browser button.forget')).toBe('Forget this browser');
+    expect(text('.impulse-account-page-browser button.impulse-account-page-forget')).toBe('Forget this browser');
     await fixture.componentInstance.forgetBrowser();
     fixture.detectChanges();
     expect(posted()).toEqual([passwordMethods.forgetBrowser]);
-    expect(text('.browser .message')).toBe(
+    expect(text('.impulse-account-page-browser .impulse-account-page-message')).toBe(
       'This browser will ask for the emailed code the next time you sign in here.',
     );
-    expect(element().querySelector('.browser button.forget')).toBeNull();
+    expect(element().querySelector('.impulse-account-page-browser button.impulse-account-page-forget')).toBeNull();
   });
 });

@@ -144,7 +144,8 @@ export function notNamedFor(prefix: string, host: Element): string[] {
     .map((style) => style.textContent ?? '')
     .filter((sheet) => sheet.includes(`[${mark}]`))
     .flatMap((sheet) => Array.from(sheet.matchAll(/\.(-?[A-Za-z_][\w-]*)/g), (match) => match[1]));
-  // What Material, the CDK and Angular's forms put on an element are theirs to name.
-  const theirs = /^(mat|mdc|cdk|ng)-|^(notranslate|material-icons)$/;
+  // What Material, the CDK and Angular's forms put on an element are theirs to name; Material
+  // marks a button whose animations are off, as they are in a spec, `_mat-animation-noopable`.
+  const theirs = /^_?(mat|mdc|cdk|ng)-|^(notranslate|material-icons)$/;
   return [...new Set([...drawn, ...styled])].filter((name) => !name.startsWith(prefix) && !theirs.test(name)).sort();
 }
