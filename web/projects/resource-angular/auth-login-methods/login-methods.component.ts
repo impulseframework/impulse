@@ -377,6 +377,14 @@ export class LoginMethodsComponent implements OnInit {
   pending = signal<PendingSignIn | undefined>(undefined);
   /** The note for a step this page does not render (PAGE_OLDER_THAN_SERVER), for the template. */
   readonly pageOlderThanServer = PAGE_OLDER_THAN_SERVER;
+  /**
+   * Whether the server takes the password of a sign-in that waits for one: its list names
+   * the confirmation route where it has a password sign-in, and names none where nobody
+   * holds a password. The page offers the password form only where the route is named.
+   */
+  confirmOffered = computed(() => this.list()?.pending?.confirm !== undefined);
+  /** The note for a confirmation the server names no route for (NO_PASSWORD_CONFIRMATION), for the template. */
+  readonly noPasswordConfirmation = NO_PASSWORD_CONFIRMATION;
   /** The session carries `passwordChangeRequired`: the change form takes the list's place until the person sets a password of their own. */
   changing = signal(false);
   /** The sentence over the change form: the one the application holds for the server's code. */
@@ -703,10 +711,10 @@ export class LoginMethodsComponent implements OnInit {
     );
   }
 
-  /** Confirms the pending sign-in with the password of the user it matched. */
+  /** Confirms the pending sign-in with the password of the user it matched, where the server names the route for it. */
   confirm(): Promise<void> {
     const waiting = this.pending();
-    if (this.busy() || !waiting) {
+    if (this.busy() || !waiting || !this.confirmOffered()) {
       return Promise.resolve();
     }
     return this.step(async () => {
@@ -1678,6 +1686,15 @@ export const SIGN_IN_STEPS = ['confirmation', 'mfa:email-code'] as const;
 export const PAGE_OLDER_THAN_SERVER =
   "We can't finish this sign-in on this page, because the page is older than the server. " +
   'Reload the page and try again. If this keeps happening, tell whoever runs this application.';
+
+/**
+ * The note for a sign-in that waits for a password on a server that names no route to
+ * enter one, as a server with no password sign-in does: the page has no form to offer,
+ * and the person can only cancel.
+ */
+export const NO_PASSWORD_CONFIRMATION =
+  "We can't finish this sign-in here. It matches an account that has a password, and this application " +
+  'has no password sign-in. Cancel, and tell whoever runs this application.';
 
 /**
  * What accepts an invitation whose tenant is entered through its directory only: the

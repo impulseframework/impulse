@@ -114,11 +114,20 @@ func TestManager_AssignRole_superAdministrator(t *testing.T) {
 		{
 			name: "a person who views as a super administrator is not one: the session's actor is judged, not the person viewed as",
 			ctx: func(ctx context.Context) context.Context {
-				return viewedBy(asCallerThrough(ctx, managedAuth, erin), userID)
+				return viewedBy(asCallerThrough(ctx, managedAuth, erin), frankID)
 			},
 			held:  []access.MembershipKey{erinSuper, danaSteward},
 			scope: globalScope, role: accesstypes.SuperAdministrator,
 			wantErr: httpio.HasForbidden, wantSays: "Only a super administrator gives the Super Administrator role, and you do not hold the Super Administrator role",
+		},
+		{
+			name: "a person who views as a super administrator does not give the role to themselves: nobody is the subject of what they do while they act as someone else",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, managedAuth, erin), userID)
+			},
+			held:  []access.MembershipKey{erinSuper, danaSteward},
+			scope: globalScope, role: accesstypes.SuperAdministrator,
+			wantErr: httpio.HasForbidden, wantSays: "you are acting as someone else, so you cannot give yourself a role",
 		},
 		{
 			name: "a super administrator who views as someone else is a super administrator still",

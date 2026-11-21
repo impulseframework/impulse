@@ -185,6 +185,14 @@ type Rules[Tx any] struct {
 	// application's own (signin.Registration.SeededUsers): the standard rule's first
 	// link of a user created ahead is then made on the name alone; see firstLink.
 	SeededUsers bool
+	// NoPassword says the Auth registers no password method. No sign-in can then prove
+	// a password, so a password an account holds (one the application's API set, or
+	// one kept from a release that had the method) is no reason to hold a sign-in for
+	// a confirmation no route can take: the standard rule and the link decide such an
+	// account as they decide one with no password; see asRegistered. A rule of the
+	// registration's own that asks for the confirmation all the same is refused; see
+	// applyResolution.
+	NoPassword bool
 	// TrustedDevice reports whether the browser is a trusted device of the user, nil
 	// for none; see decideSignIn.
 	TrustedDevice TrustedDeviceCheck
@@ -1303,6 +1311,7 @@ func standardRule[Tx any](
 	if err != nil {
 		return accountDecision{}, nil, err
 	}
+	user = asRegistered(user, rules)
 	if user != nil && user.HasPassword {
 		// An account the invited address does not make the invited one is refused before
 		// its password is asked for, as one without a password is when it is linked.
@@ -1516,6 +1525,13 @@ func applyResolution[Tx any](
 
 		return sessioninfo.UserProvisioned, res.Tenant(), live, nil, nil
 	case signin.RequireConfirmation:
+		// A confirmation is the user's password, and an Auth with no password method
+		// serves nothing that takes one: the sign-in would wait on what nobody can
+		// give. It is refused, and never made a link, which would join the account on
+		// less proof than the rule asked for.
+		if rules.NoPassword {
+			return "", "", false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrConfirmNeedsPasswordMethod, "identity requires a confirmation that cannot be given"), nil
+		}
 		user, err := d.UserIn(ctx, tx, res.UserID())
 		if err != nil {
 			return "", "", false, nil, errors.Wrap(err, "Driver.UserIn()")
@@ -1551,9 +1567,9 @@ func linkUser[Tx any](
 ) (live bool, stop, err error) {
 	// The row is held until the transaction ends, so two link decisions for one
 	// user run one after the other and the second sees the first's link.
-	user, err := d.LockUserIn(ctx, tx, res.UserID())
+	user, err := lockedAsRegistered(ctx, d, tx, res.UserID(), rules)
 	if err != nil {
-		return false, nil, errors.Wrap(err, "Driver.LockUserIn()")
+		return false, nil, err
 	}
 	if stop, err := notTheInvited(ctx, d, tx, req.Invitation, provenAddress(req, rules.ConfirmAddress), user); err != nil || stop != nil {
 		return false, stop, err
@@ -1595,6 +1611,34 @@ func linkUser[Tx any](
 	live, err = consumeInvitation(ctx, d, tx, req, byInvitation || provenAddress(req, rules.ConfirmAddress) != "")
 
 	return live, nil, err
+}
+
+// asRegistered is user as the sign-in's rules decide it, nil for nil: under an Auth that
+// registers no password method (rules.NoPassword) a password the account holds counts
+// for nothing, since no sign-in can prove it and no route takes its confirmation, so
+// the account is decided as one with no password. The first link of such an account is
+// then held to what vouches for any account created ahead of its sign-in (firstLink),
+// and a second identity to the proof one needs (linkUser). The row is left as it is:
+// the password is still the account's once the method is registered again.
+func asRegistered[Tx any](user *dbtype.User, rules Rules[Tx]) *dbtype.User {
+	if user == nil || !rules.NoPassword || !user.HasPassword {
+		return user
+	}
+	decided := *user
+	decided.HasPassword = false
+
+	return &decided
+}
+
+// lockedAsRegistered holds the user's row until the transaction ends (Driver.LockUserIn)
+// and returns the user as the sign-in's rules decide it (asRegistered).
+func lockedAsRegistered[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impulse.UUID, rules Rules[Tx]) (*dbtype.User, error) {
+	user, err := d.LockUserIn(ctx, tx, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.LockUserIn()")
+	}
+
+	return asRegistered(user, rules), nil
 }
 
 // holdsAddress reports whether the user holds, verified, the address the method verified

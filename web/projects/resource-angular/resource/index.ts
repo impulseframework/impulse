@@ -14,6 +14,7 @@ export * from './padding-element/padding-element.component';
 export * from './paged-list';
 export * from './resource-array-view/resource-array-view.component';
 export * from './resource-create/resource-create.component';
+export * from './resource-create-dialog/resource-create-dialog.component';
 export * from './resource-field/base-field.directive';
 export * from './resource-field/resource-field.component';
 export * from './resource-layout/resource-layout.component';

@@ -16,11 +16,13 @@ import (
 // "Forgot your password?" while it is on and not while it is off. A link asked for
 // while it was on still works once it is off, until it is used or runs out, and a link
 // an administrator sends is never held to the choice. The change is kept with who made
-// it and when (StaffSessionSignInMethod's change events).
+// it and when (StaffSessionSignInMethod's change events). The setting decides who can get
+// back into an account from the sign-in page, so the action carries the class access.
 //
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type SetStaffSelfServiceReset struct {
 	// On says people may reset their own password.
 	On bool

@@ -54,7 +54,10 @@ const (
 // resolver) and role synchronization when entraRoles is set; the Google method under
 // workspaces with what was chosen for it and a custom rule when googleRule is set.
 // defaultRole is the default role of the open methods' rows, "" for none, which the
-// application's sign-up hook writes as the new user's membership row.
+// application's sign-up hook writes as the new user's membership row. password says the
+// password method is registered beside the directories: a person who holds a password
+// then confirms it before a directory identity is joined to their account, and with no
+// password method nobody is asked for one.
 type rulesShape struct {
 	tenants        azure.TenantSet
 	entraAccounts  accounts
@@ -64,6 +67,7 @@ type rulesShape struct {
 	googleAccounts accounts
 	googleRule     bool
 	defaultRole    string
+	password       bool
 }
 
 // oneOrganization is the shape of today's staff application: one tenant and one
@@ -177,6 +181,9 @@ func rulesAppOver[Tx any](t *testing.T, be backend[Tx], shape *rulesShape, db ap
 	auth.SetSignUpSeated(func(ctx context.Context, tx Tx, userID impulse.UUID, _, _, role string) (func(ctx context.Context), error) {
 		return nil, be.rows.addMember(ctx, tx, userID, role)
 	})
+	if shape.password {
+		session.PasswordSignIn(auth)
+	}
 
 	var entraRule azure.AccountRule[Tx]
 	if shape.entraRule {
@@ -779,7 +786,9 @@ func seamRulesMembersProvision[Tx any](ctx context.Context, t *testing.T, be bac
 
 // seamRulesMembersPreCreated is the scenario "open to sign-up: a pre-created user".
 func seamRulesMembersPreCreated[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
-	a := newRulesApp(ctx, t, be, oneOrganization(openSignUp))
+	shape := oneOrganization(openSignUp)
+	shape.password = true
+	a := newRulesApp(ctx, t, be, shape)
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
 	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")
 	kim := a.createUser(ctx, t, "kim@lakeside.edu")
@@ -818,7 +827,9 @@ func seamRulesMembersNoRoles[Tx any](ctx context.Context, t *testing.T, be backe
 
 // seamRulesInvitedUsersOnly is the scenario "invite only, a method with no row".
 func seamRulesInvitedUsersOnly[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
-	a := newRulesApp(ctx, t, be, oneOrganization(inviteOnly))
+	shape := oneOrganization(inviteOnly)
+	shape.password = true
+	a := newRulesApp(ctx, t, be, shape)
 	kim := a.createUser(ctx, t, "kim@lakeside.edu")
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
 	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")

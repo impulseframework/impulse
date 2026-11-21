@@ -1162,6 +1162,9 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	if err := provisionDemoAccess(ctx, crewAuth.Access(), membersAuth.Access()); err != nil {
 		t.Fatal(err)
 	}
+	if err := seedDemoGroupPasses(ctx, db); err != nil {
+		t.Fatal(err)
+	}
 	// The droid service account's key, seeded as its token the way the App's Start
 	// seeds the configured one: the account is found by its username.
 	if err := crewAuth.Handlers().SeedToken(ctx, droidUser, crew.DroidsOutlet, droidsAPIKey); err != nil {

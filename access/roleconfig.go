@@ -73,6 +73,26 @@ type PermissionCollection interface {
 	RequiredOnCreate(scope accesstypes.PermissionScope, res accesstypes.Resource) []accesstypes.Tag
 }
 
+// noRoleActions is what a permission collection answers beside PermissionCollection
+// when it marks actions no role is given: an action registered so that a permission
+// mask can refuse it to a session that acts as someone, where nothing asks for a grant
+// of it (the action of the generated create-your-tenant route, which admits a person
+// who holds nothing). Such an action is not in the collection's List, so a role's grant
+// that names it is refused whatever the collection answers here; a collection that
+// answers lets the refusal say why. The generated collection answers
+// (resource.GeneratedCollection), and UnionCollection answers for its members.
+type noRoleActions interface {
+	IsNoRoleAction(action accesstypes.Resource) bool
+	NoRoleActions() []accesstypes.Resource
+}
+
+// isNoRoleAction reports whether store marks action as one no role is given.
+func isNoRoleAction(store PermissionCollection, action accesstypes.Resource) bool {
+	marker, ok := store.(noRoleActions)
+
+	return ok && marker.IsNoRoleAction(action)
+}
+
 // RoleFile is the bytes of a role file: the release's default roles, authored
 // as JSON in the RoleConfig shape and embedded in the application binary
 // (//go:embed roles.json). It is handed to New through WithDefaultRoles,
@@ -596,6 +616,9 @@ func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.
 			}
 
 			for _, res := range grant.expand() {
+				if isNoRoleAction(store, res) {
+					return nil, errors.Newf("role %s grants %s on %s, which is an action no role is given: nothing asks for a grant of it, so the grant would do nothing, and the action is registered only so that a permission mask can refuse it to a session that acts as someone; remove the grant from the role", r.Name, perm, res)
+				}
 				scope := store.Scope(res)
 				if scope == "" {
 					return nil, errors.Newf("resource %s does not require a permission or does not exist", res)

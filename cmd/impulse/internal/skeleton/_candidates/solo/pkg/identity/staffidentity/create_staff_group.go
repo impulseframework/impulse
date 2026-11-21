@@ -22,6 +22,7 @@ type (
 	//
 	// @rpc
 	// @outlet(default)
+	// @class(access)
 	CreateStaffGroup struct {
 		Name        string `validate:"required"`
 		Description string `validate:"required"`

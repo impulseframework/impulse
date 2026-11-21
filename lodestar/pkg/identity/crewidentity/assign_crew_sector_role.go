@@ -36,6 +36,7 @@ import (
 // @permissionScope(domain)
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type AssignCrewSectorRole struct {
 	// @target(CrewSectorUser)
 	UserID impulse.UUID

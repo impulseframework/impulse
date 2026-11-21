@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"regexp"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
@@ -26,18 +28,25 @@ import (
 // the FK metadata loaded from the emulator. A @subjectSet may also write the
 // two parts of its definition, who: and where:, each a condition over the
 // fields of the same struct (resolveSubjectParts); with a who: written, the
-// annotation sits on one of the columns the who: names.
+// annotation sits on one of the columns the who: names. A @subjectSet on a
+// resource that is no tenant's may say where a row's tenant is found, domain:
+// (resolveSubjectDomain), so the set is kept to the request's tenant: a column
+// of the row itself, or a path from a foreign key of the row to the column of
+// another table. Where the table it ends on has a tenant column the run knows,
+// the end is held to that column (checkSubjectDomainEnds).
 
 // bindingViaArgKey names the join path of an @attribute or a @domain binding.
 const bindingViaArgKey = "via"
 
 // The named arguments of a subject binding: the column a set or a value yields,
-// and the two parts a set's definition may add, which rows are the requester's
-// (who:) and which of those rows count (where:).
+// the two parts a set's definition may add, which rows are the requester's
+// (who:) and which of those rows count (where:), and where a row's tenant is
+// found, which a set on a resource that is no tenant's may name (domain:).
 const (
-	subjectValueArgKey = "value"
-	subjectWhoArgKey   = "who"
-	subjectWhereArgKey = "where"
+	subjectValueArgKey  = "value"
+	subjectWhoArgKey    = "who"
+	subjectWhereArgKey  = "where"
+	subjectDomainArgKey = "domain"
 )
 
 // bindingName pins the attribute-name charset, agreed jointly with the
@@ -127,6 +136,17 @@ type subjectBinding struct {
 	// columns that says which of the requester's rows count; nil when the
 	// annotation writes none.
 	Where *subjectWhere
+
+	// Domain is a @subjectSet's domain: part, the set's own way to a row's
+	// tenant on a resource that is no tenant's: the column of the row that
+	// holds the tenant's key (an empty Path), or the foreign key a path leaves
+	// through and the path to the column that holds it. Nil when the annotation
+	// writes none.
+	Domain *domainBinding
+
+	// DomainSource is the domain: part as the annotation writes it, in Go field
+	// names, for the sentences that speak of it.
+	DomainSource string
 }
 
 // subjectWho is one resolved test of a who: part: Field holds the requester
@@ -164,6 +184,177 @@ func (s *subjectBinding) whoTests() []*subjectWho {
 	}
 
 	return []*subjectWho{{Field: s.Anchor, Type: string(resource.AttributeTypeString)}}
+}
+
+// SubjectUserFields are the record's columns that name the person its rows speak for:
+// the column each @subjectValue and @subjectSet of the record ties a row to the
+// requester by, which is the annotated column, or every column a who: part compares to
+// the requester. A who: test against another subject set (TeamID IN subject.teams)
+// names a set, not a person, and its column is left out. The fields come in the order
+// the struct declares them, each once.
+//
+// A record with such a column decides what the person it names may do, since the
+// policy reads its rows as subject.<name>. Its generated write asks the rule that
+// nobody is the subject of what they do while they act as someone else, about the
+// person each of these columns names (the subjectGuarded splice).
+func (r *resourceInfo) SubjectUserFields() []*resourceField {
+	named := make(map[string]bool)
+	for _, subject := range slices.Concat(r.SubjectValues, r.SubjectSets) {
+		for _, who := range subject.whoTests() {
+			if who.Set == "" {
+				named[who.Field.Name()] = true
+			}
+		}
+	}
+	if len(named) == 0 {
+		return nil
+	}
+
+	var fields []*resourceField
+	for _, field := range r.Fields {
+		if named[field.Name()] {
+			fields = append(fields, field)
+		}
+	}
+
+	return fields
+}
+
+// subjectSetTest is a column of a record that a who: part tests against another subject
+// set (TeamID IN subject.teams): a row that holds a value there speaks for every person
+// in the set of that value.
+type subjectSetTest struct {
+	Field *resourceField
+	Set   string
+}
+
+// SubjectSetTests are the record's columns that name a set of people its rows speak
+// for: each column a who: part of the record's subject sets looks up in another subject
+// set, with that set's name, each pair once, in the order the struct declares the
+// columns and then by the set's name.
+//
+// A row of such a record gives something to every person in the set its column names,
+// without naming any of them. Its generated write asks, for each pair, whether the real
+// person behind a session that acts as someone else is in the set the row names
+// (identity.RefuseImpersonatorAsSetSubject, the subjectGuarded splice): the generated
+// code names the column and the set, and the library builds the question from the set's
+// own declaration.
+func (r *resourceInfo) SubjectSetTests() []subjectSetTest {
+	sets := make(map[string][]string)
+	for _, subject := range slices.Concat(r.SubjectValues, r.SubjectSets) {
+		for _, who := range subject.whoTests() {
+			if who.Set != "" && !slices.Contains(sets[who.Field.Name()], who.Set) {
+				sets[who.Field.Name()] = append(sets[who.Field.Name()], who.Set)
+			}
+		}
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+
+	var tests []subjectSetTest
+	for _, field := range r.Fields {
+		names := sets[field.Name()]
+		slices.Sort(names)
+		for _, set := range names {
+			tests = append(tests, subjectSetTest{Field: field, Set: set})
+		}
+	}
+
+	return tests
+}
+
+// subjectReadThrough is a column of a record that a fact about a person, a subject set
+// or a subject value declared on another record, is read through: a hop of the fact's
+// dotted value lands on this record and reads this column (value: SquadID.DivisionID
+// reads DivisionID off the squad's row).
+type subjectReadThrough struct {
+	Field *resourceField
+	Fact  string
+}
+
+// SubjectReadThroughs are the record's columns that facts about people are read
+// through, with each fact's name, in the order the struct declares the columns and then
+// by the fact's name (attachSubjectReadThroughs, which needs every record of the run).
+//
+// A change that sets such a column moves every person whose fact is read through the
+// row. The record's generated write asks, for each pair, whether the real person behind
+// a session that acts as someone else is one of them
+// (identity.RefuseImpersonatorAsReadThroughSubject, the subjectGuarded splice).
+func (r *resourceInfo) SubjectReadThroughs() []subjectReadThrough {
+	return r.subjectReadThroughs
+}
+
+// SubjectGuarded reports whether the record's generated write carries the subjectGuarded
+// splice: its rows name a person, name a set of people, or are what a person's fact is
+// read through.
+func (r *resourceInfo) SubjectGuarded() bool {
+	return len(r.SubjectUserFields()) > 0 || len(r.SubjectSetTests()) > 0 || len(r.subjectReadThroughs) > 0
+}
+
+// subjectReadThroughs lists, for each record of resources by its table's name, the
+// columns facts about people are read through: every hop of every subject set's and
+// subject value's dotted value that lands on the record, as the field that holds the
+// hop's column and the fact's name, each pair once. A hop onto a table no record of the
+// run declares has no generated write to ask the rule in: the run warns of it, naming
+// the table (SubjectPathWarning).
+func subjectReadThroughs(resources []*resourceInfo, table func(*resourceInfo) string) map[*resourceInfo][]subjectReadThrough {
+	byTable := make(map[string]*resourceInfo, len(resources))
+	for _, res := range resources {
+		byTable[table(res)] = res
+	}
+
+	found := make(map[*resourceInfo][]subjectReadThrough)
+	for _, res := range resources {
+		for _, subject := range slices.Concat(res.SubjectValues, res.SubjectSets) {
+			for _, hop := range subject.Path {
+				through, ok := byTable[hop.Table]
+				if !ok {
+					continue
+				}
+				for _, field := range through.Fields {
+					column, ok := field.LookupTag(spannerTagKey)
+					if !ok || column != hop.Column {
+						continue
+					}
+					if !slices.ContainsFunc(found[through], func(have subjectReadThrough) bool {
+						return have.Field == field && have.Fact == subject.Name
+					}) {
+						found[through] = append(found[through], subjectReadThrough{Field: field, Fact: subject.Name})
+					}
+				}
+			}
+		}
+	}
+	for through, columns := range found {
+		order := make(map[*resourceField]int, len(through.Fields))
+		for i, field := range through.Fields {
+			order[field] = i
+		}
+		slices.SortFunc(columns, func(a, b subjectReadThrough) int {
+			return cmp.Or(cmp.Compare(order[a.Field], order[b.Field]), cmp.Compare(a.Fact, b.Fact))
+		})
+	}
+
+	return found
+}
+
+// attachSubjectReadThroughs gives every record of the run the columns facts about
+// people are read through (resourceInfo.SubjectReadThroughs), once every record's
+// bindings are resolved.
+func (r *resourceGenerator) attachSubjectReadThroughs() {
+	found := subjectReadThroughs(r.resources, func(res *resourceInfo) string {
+		return r.pluralize(res.Name())
+	})
+	for _, res := range r.resources {
+		res.subjectReadThroughs = found[res]
+	}
+}
+
+// SubjectRecordWords is the record's name as a refusal of the subjectGuarded splice
+// says it: the struct's name in lower case, its words apart ("pilot certification").
+func (r *resourceInfo) SubjectRecordWords() string {
+	return strings.ToLower(strcase.ToCase(r.Name(), strcase.LowerCase, ' '))
 }
 
 // resolveBindingAnnotations extracts and validates every binding annotation
@@ -258,6 +449,14 @@ func validateDomainBinding(res *resourceInfo, structName string) error {
 	if !res.IsDomainScoped() && res.DomainBinding != nil {
 		return errors.Newf("struct %s: @%s is only valid on a domain-scoped resource — a global resource has no tenant partition to resolve to; declare @%s(%s) or remove the binding",
 			structName, domainKeyword, permissionScopeKeyword, accesstypes.DomainPermissionScope)
+	}
+	if res.IsDomainScoped() {
+		for _, set := range res.SubjectSets {
+			if set.Domain != nil {
+				return errors.Newf("struct %s: @%s(%s) writes %s:, which says where a row's tenant is found on a resource that is no tenant's; %s is domain-scoped, and its @%s binding already keeps the set to the request's tenant — remove %s:",
+					structName, subjectSetKeyword, set.Name, subjectDomainArgKey, structName, domainKeyword, subjectDomainArgKey)
+			}
+		}
 	}
 
 	return nil
@@ -389,7 +588,7 @@ func (c *client) resolveDomain(anchor *resourceField, arg genlang.Arg, structsBy
 func subjectBindingArgSpec() *genlang.ArgSpec {
 	return &genlang.ArgSpec{
 		Positional:  1,
-		Keys:        []string{subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey},
+		Keys:        []string{subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey, subjectDomainArgKey},
 		Required:    []string{subjectValueArgKey},
 		Expressions: []string{subjectWhoArgKey, subjectWhereArgKey},
 	}
@@ -450,6 +649,9 @@ func (c *client) resolveSubjectBindings(res *resourceInfo, anchor *resourceField
 		if err := c.resolveSubjectParts(binding, &invocation, fieldByName); err != nil {
 			return nil, errors.Wrapf(err, "@%s(%s)", keyword, binding.Name)
 		}
+		if err := c.resolveSubjectDomain(binding, &invocation, fieldByName, structsByTable); err != nil {
+			return nil, errors.Wrapf(err, "@%s(%s)", keyword, binding.Name)
+		}
 		bindings = append(bindings, binding)
 	}
 
@@ -481,6 +683,54 @@ func (c *client) resolveSubjectParts(binding *subjectBinding, invocation *genlan
 		}
 		binding.Where = filter
 	}
+
+	return nil
+}
+
+// resolveSubjectDomain compiles a @subjectSet's domain: part: where a row's
+// tenant is found, for a set on a resource that is no tenant's. The part names
+// the column of the row that holds its tenant's key (TenantID), or, where the
+// rows belong to tenants through a parent, a foreign key of the row and then
+// the column of its table that holds the key (GroupID.DomainID), as a dotted
+// value: does. With it written, the set holds the request's tenant's rows alone
+// in a request that has a tenant, and every row in a request that has none. The
+// column it ends at holds text, as a tenant's key is; where the table it ends
+// on has a tenant column the run knows, the end is held to that column once
+// every resource is extracted (checkSubjectDomainEnds). A @subjectValue takes
+// none, and a domain-scoped resource is refused once its scope is known
+// (validateDomainBinding).
+func (c *client) resolveSubjectDomain(binding *subjectBinding, invocation *genlang.NamedArgs, fieldByName map[string]*resourceField, structsByTable map[string]*parser.Struct) error {
+	path, ok := invocation.Named(subjectDomainArgKey)
+	if !ok {
+		return nil
+	}
+	if binding.Scalar {
+		return errors.Newf("@%s takes the name and %s: alone; %s: is a part of a @%s", subjectValueKeyword, subjectValueArgKey, subjectDomainArgKey, subjectSetKeyword)
+	}
+
+	segments := splitPathSegments(path)
+	local, ok := fieldByName[segments[0]]
+	if !ok {
+		return errors.Newf("%s: names %s, which is not a field of the resource; write the column of the row that holds its tenant's key, or a foreign key of the row and then the column of its table that holds it (GroupID.DomainID), each named by its Go field", subjectDomainArgKey, segments[0])
+	}
+	terminal := &local.TypeInfo
+	var hops []bindingHop
+	if len(segments) > 1 {
+		var err error
+		hops, terminal, err = c.resolveRemotePath(local, segments[1:], structsByTable)
+		if err != nil {
+			return errors.Wrapf(err, "%s:", subjectDomainArgKey)
+		}
+	}
+	tenantType, err := attributeTypeFor(terminal)
+	if err != nil {
+		return errors.Wrapf(err, "%s: %s cannot hold a tenant's key", subjectDomainArgKey, path)
+	}
+	if tenantType != string(resource.AttributeTypeString) {
+		return errors.Newf("%s: %s ends at a %s column, and a tenant's key is text; end it at the column that holds the tenant's key", subjectDomainArgKey, path, tenantType)
+	}
+	binding.Domain = &domainBinding{Anchor: local, Path: hops}
+	binding.DomainSource = path
 
 	return nil
 }
@@ -773,6 +1023,121 @@ func resolveSubjectSetReferences(resources []*resourceInfo) error {
 	}
 
 	return nil
+}
+
+// checkSubjectDomainEnds holds the end of every set's domain: to the tenant
+// column of the table it ends on, wherever the run knows which column that is,
+// once every resource of an extraction is known. Text is all a column's type
+// says, and a tenant's key compared to another text column of the same table
+// would leave the set empty in every tenant's request, or hold another tenant's
+// rows where the two happen to match. Three tables say where their tenant is: a
+// resource with a @domain of its own keeps it in the column the @domain sits
+// on, the tenant record's rows are the tenants, so its key is the one column
+// that names one, and an auth's groups table keeps a group's tenant in the
+// column the permission store writes it in (groupTenantColumn). A table that is
+// no tenant's and declares none of these tells the run nothing, so there the
+// end is held to text alone, as resolveSubjectDomain holds it.
+func (c *client) checkSubjectDomainEnds(resources []*resourceInfo) error {
+	byTable := make(map[string]*resourceInfo, len(resources))
+	for _, res := range resources {
+		byTable[c.pluralize(res.Name())] = res
+	}
+
+	var errs []error
+	for _, res := range resources {
+		for _, set := range res.SubjectSets {
+			if set.Domain == nil {
+				continue
+			}
+			if err := c.checkSubjectDomainEnd(res, set, byTable); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Wrap(errors.Join(errs...), "subject set error")
+	}
+
+	return nil
+}
+
+// checkSubjectDomainEnd holds one set's domain: to the tenant column of the
+// table it ends on, where byTable or the run's auths say which column that is.
+// The refusal names the field the part must end at and writes the part out
+// with it.
+func (c *client) checkSubjectDomainEnd(res *resourceInfo, set *subjectBinding, byTable map[string]*resourceInfo) error {
+	table, column := c.pluralize(res.Name()), fieldColumn(set.Domain.Anchor)
+	if hops := set.Domain.Path; len(hops) > 0 {
+		table, column = hops[len(hops)-1].Table, hops[len(hops)-1].Column
+	}
+	segments := splitPathSegments(set.DomainSource)
+	written := segments[len(segments)-1]
+	endingAt := func(field string) string {
+		return strings.Join(append(slices.Clone(segments[:len(segments)-1]), field), ".")
+	}
+	// fix says what to write: the one name where the part is one, the path with
+	// its end changed where it is a path.
+	fix := func(field string) string {
+		if len(segments) == 1 {
+			return fmt.Sprintf("name %s", field)
+		}
+
+		return fmt.Sprintf("end it at %s, as %s", field, endingAt(field))
+	}
+	where := fmt.Sprintf("struct %s field %s: @%s(%s): %s: %s", res.Name(), set.Anchor.Name(), subjectSetKeyword, set.Name, subjectDomainArgKey, set.DomainSource)
+	end := byTable[table]
+
+	if c.isGroupsTable(table) {
+		if column == groupTenantColumn {
+			return nil
+		}
+		field := groupTenantColumn
+		if end != nil {
+			for _, candidate := range end.Fields {
+				if fieldColumn(candidate) == groupTenantColumn {
+					field = candidate.Name()
+				}
+			}
+		}
+
+		return errors.Newf("%s ends at %s of %s, the permission store's table of groups, which keeps a group's tenant in its %s column; %s", where, written, table, groupTenantColumn, fix(field))
+	}
+	if end == nil {
+		return nil
+	}
+	if end.IsTenant {
+		key := end.PrimaryKey()
+		if key == nil || column == fieldColumn(key) {
+			return nil
+		}
+
+		return errors.Newf("%s ends at %s of %s, the tenant record, whose rows are the tenants: a tenant's key is its %s and no other column of it; %s", where, written, table, key.Name(), fix(key.Name()))
+	}
+	tenant := end.DomainBinding
+	switch {
+	case tenant == nil:
+		return nil
+	case len(tenant.Path) > 0:
+		last := tenant.Path[len(tenant.Path)-1]
+
+		return errors.Newf("%s ends at %s of %s, which holds no tenant's key itself: its rows find their tenant through %s (@%s(%s:)); continue it through %s to the tenant column of %s, as %s and on", where, written, table, tenant.Anchor.Name(), domainKeyword, bindingViaArgKey, tenant.Anchor.Name(), last.Table, endingAt(tenant.Anchor.Name()))
+	case column != fieldColumn(tenant.Anchor):
+		return errors.Newf("%s ends at %s of %s, and %s keeps its tenant in %s, the column its @%s sits on; %s", where, written, table, table, tenant.Anchor.Name(), domainKeyword, fix(tenant.Anchor.Name()))
+	}
+
+	return nil
+}
+
+// isGroupsTable reports whether table is the permission store's table of
+// groups under one of the run's auths.
+func (c *client) isGroupsTable(table string) bool {
+	for _, inst := range c.identity {
+		if inst.policy.Groups == table {
+			return true
+		}
+	}
+
+	return false
 }
 
 // resolveRemotePath resolves dotted remote segments (Go field names on each
@@ -1073,6 +1438,9 @@ func collectionSubjectBinding(subject *subjectBinding) resource.SubjectBindingDa
 	}
 	for _, test := range subject.Who {
 		data.Who = append(data.Who, resource.SubjectWhoData{Column: fieldColumn(test.Field), Set: test.Set})
+	}
+	if subject.Domain != nil {
+		data.Domain = &resource.DomainBindingData{Column: fieldColumn(subject.Domain.Anchor), Path: collectionHops(subject.Domain.Path)}
 	}
 	if subject.Where != nil {
 		data.Where = &resource.SubjectWhereData{Condition: subject.Where.Expr.String()}

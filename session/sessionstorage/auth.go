@@ -559,7 +559,10 @@ func NewSpannerAuth(client *cloudspanner.Client, opts ...SpannerOption) *Auth[*c
 		opt.applySpanner(driver)
 	}
 
-	return &Auth[*cloudspanner.ReadWriteTransaction]{userStorage: userStorage{sessionStorage: sessionStorage{db: driver}}, flow: driver, custom: spannerCustomData{driver}}
+	store := &Auth[*cloudspanner.ReadWriteTransaction]{userStorage: userStorage{sessionStorage: newSessionStorage(driver)}, flow: driver, custom: spannerCustomData{driver}}
+	store.own(store)
+
+	return store
 }
 
 // NewPostgresAuth creates PostgreSQL Auth storage over the auth schema (the base
@@ -573,7 +576,10 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 		opt.applyPostgres(driver)
 	}
 
-	return &Auth[pgx.Tx]{userStorage: userStorage{sessionStorage: sessionStorage{db: driver}}, flow: driver, custom: postgresCustomData{driver}}
+	store := &Auth[pgx.Tx]{userStorage: userStorage{sessionStorage: newSessionStorage(driver)}, flow: driver, custom: postgresCustomData{driver}}
+	store.own(store)
+
+	return store
 }
 
 // SignInRules are the application's rules a sign-in runs under, handed to
@@ -596,6 +602,10 @@ type SignInRules[Tx any] struct {
 	// application's own (signin.Registration.SeededUsers): a user created ahead is
 	// then linked on the name alone.
 	SeededUsers bool
+	// NoPassword says the Auth registers no password method: a password an account
+	// holds then holds no sign-in for a confirmation, which no sign-in could give, and
+	// the account is decided as one with no password.
+	NoPassword  bool
 	Policy      signin.Policy[Tx]
 	Accept      signinflow.InvitationAcceptor[Tx]
 	SignUp      signinflow.SignUpSeater[Tx]
@@ -632,7 +642,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 
 	flowRules := signinflow.Rules[Tx]{
 		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
-		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn,
+		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, NoPassword: rules.NoPassword,
 		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven, ConfirmAddress: rules.ConfirmAddress,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {

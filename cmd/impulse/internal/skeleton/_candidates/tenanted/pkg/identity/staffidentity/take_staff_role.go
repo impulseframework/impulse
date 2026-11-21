@@ -30,6 +30,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type TakeStaffRole struct {
 	// Domain is the tenant the role is taken in, picked from the
 	// Tenant records the caller may list.

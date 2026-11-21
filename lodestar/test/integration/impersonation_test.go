@@ -1,13 +1,14 @@
 package integration
 
-// impersonation_test (design plan §9, P9): the two impersonation moments through the
+// impersonation_test (design plan §9, P9): the impersonation moments through the
 // SERVED stack (session cookies, XSRF, the hand-written mint route) over the real
 // engines. View as: mint as Cass with a List, Read mask and assert the flight deck's
 // Execute list is empty, a PATCH is refused, and the digest carries no write
 // permission. Act as a role: mint as role Dispatcher and assert the change event's
 // source names the actor and the role, a deadline extension succeeds while a squadron
 // assignment is refused because subject resolved to Greer, not to a dispatcher. Minting
-// from an impersonated session is refused.
+// from an impersonated session is refused. The masks the three kinds carry, and what a
+// session acting as a person is refused, are impersonation_mask_skipauth_test's.
 
 import (
 	"context"
@@ -37,7 +38,51 @@ func (b *browser) impersonate(ctx context.Context, body string) (status int, res
 func viewAs(t *testing.T, username accesstypes.User, reason string) string {
 	t.Helper()
 
-	return fmt.Sprintf(`{"kind":"user","principal":%q,"reason":%q}`, account(t, username), reason)
+	return fmt.Sprintf(`{"kind":"view","principal":%q,"reason":%q}`, account(t, username), reason)
+}
+
+// The mask Lodestar's act kind gives, as the mint route, the session's record, the watch
+// desk and the log say it: everything, except what is classed access or credential. The
+// generator classes access the writes of every record that decides what a person may do
+// and a squadron's change, which is where its wing is written, so the mask names none
+// to refuse it. It names one to keep it: the writes of HangarPasses are the kind's
+// exception to the class access, said in the words and kept in the stored form.
+const (
+	// actMaskRefusalWords is what the act kind refuses, in words.
+	actMaskRefusalWords = "access actions (still allowed: writing HangarPasses) and credential actions"
+	// actMaskWords is the kind's widest mask, in words.
+	actMaskWords = "everything except " + actMaskRefusalWords
+	// actMaskRefusalText is what the act kind refuses, in the form a mask is stored and
+	// logged in.
+	actMaskRefusalText = "-class:access;+class:access:Create:HangarPasses;+class:access:Delete:HangarPasses;+class:access:Update:HangarPasses;-class:credential"
+	// actMaskText is the kind's widest mask, in the form a mask is stored and logged in.
+	actMaskText = "*;" + actMaskRefusalText
+)
+
+// actAs is the mint route's body for a session that acts as a person, a persona of the
+// cast named by the id of their account: what the person may do, except what the act
+// kind refuses (actMaskWords). more is appended to the body as it is, for a narrower
+// mask (`,"mask":["List","Read","Execute"]`).
+func actAs(t *testing.T, username accesstypes.User, reason, more string) string {
+	t.Helper()
+
+	return fmt.Sprintf(`{"kind":"act","principal":%q,"reason":%q%s}`, account(t, username), reason, more)
+}
+
+// giveMarshalStandIn gives the marshal the StandIn role as the governor signed in on a
+// browser of his own: the grant to act as a person (Execute on ActAsUser), which the
+// role file gives on purpose and the cast gives the governor alone. The marshal is the
+// person the suites have act as someone: she holds the grant to view and to act as a
+// role already.
+func giveMarshalStandIn(ctx context.Context, t *testing.T, s *served) {
+	t.Helper()
+
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	body := fmt.Appendf(nil, `{"userId":%q,"role":"StandIn"}`, account(t, "marshal"))
+	if status, answer := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), body); status != http.StatusNoContent {
+		t.Fatalf("the governor giving the marshal the StandIn role: status %d, want 204: %s", status, answer)
+	}
 }
 
 // Demonstrates: impersonation.view-as, impersonation.act-as-role, impersonation.mask, impersonation.identity-proof, impersonation.end, event-source, @manualAddResource.execute, impersonation.session-permissions.
@@ -56,7 +101,7 @@ func TestImpersonatedSessions(t *testing.T) {
 
 		// The person to view as is named by the id of their account: a username names
 		// nobody, and the request is refused before any session is minted.
-		status, body := maren.impersonate(ctx, `{"kind":"user","principal":"cadet","reason":"walkthrough"}`)
+		status, body := maren.impersonate(ctx, `{"kind":"view","principal":"cadet","reason":"walkthrough"}`)
 		assertStatus(t, status, http.StatusBadRequest, body)
 		if info := maren.session(ctx); info["username"] != "marshal" || info["impersonation"] != nil {
 			t.Errorf("session after the refused request = %v, want the marshal's own", info)

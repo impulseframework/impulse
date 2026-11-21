@@ -123,6 +123,7 @@ type Configurer interface {
 type App struct {
 	access      access.Controller
 	consoleDist string
+	collection  *resource.GeneratedCollection
 }
 
 // New constructs an App.
@@ -135,7 +136,7 @@ func New(cfg Configurer) *App {
 
 // UserPermissions returns the permission checker for a request.
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
-	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, nil, nil)
+	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, nil, nil, a.collection)
 }
 `
 
@@ -344,7 +345,7 @@ func TestTenancyApply(t *testing.T) {
 					}
 				}
 				application := read(t, a, "app/app.go")
-				for _, want := range []string{"\tTenancyConfigurer\n}", "\ttenants      *resource.TenantRoster\n", "\tdeclarations resource.TenantDeclarations\n", "\t\ttenants:      cfg.TenantRoster(),\n", "\t\tdeclarations: cfg.TenantDeclarations(),\n", "resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations)"} {
+				for _, want := range []string{"\tTenancyConfigurer\n}", "\ttenants      *resource.TenantRoster\n", "\tdeclarations resource.TenantDeclarations\n", "\t\ttenants:      cfg.TenantRoster(),\n", "\t\tdeclarations: cfg.TenantDeclarations(),\n", "resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations, a.collection)"} {
 					if !strings.Contains(application, want) {
 						t.Errorf("app.go lacks %q:\n%s", want, application)
 					}
@@ -401,10 +402,12 @@ func TestTenancyApply(t *testing.T) {
 		wantSkipped []string
 		check       func(t *testing.T, a *app.App)
 	}{
-		name:        "the base with an auth package",
-		files:       authShape,
-		wantDid:     withAuthDid,
-		wantSkipped: []string{noSignals, noPermissions, noMenus},
+		name:    "the base with an auth package",
+		files:   authShape,
+		wantDid: withAuthDid,
+		// The fixture's auth package has no foothold, so the role a tenant's
+		// administrator holds is left to the author, with the step.
+		wantSkipped: []string{noSignals, noPermissions, noMenus, "pkg/auth/staff/foothold.go: not there, so the role a tenant's administrator holds was not written: " + Tenancy{Table: "Tenants"}.roleHandStep("staff")},
 		check: func(t *testing.T, a *app.App) {
 			t.Helper()
 			config := read(t, a, "pkg/config/tenancy.go")
@@ -590,7 +593,7 @@ func TestTenancyApply_theBaseSuites(t *testing.T) {
 	fates := map[string]string{
 		"test/integration/sign_up_test.go":             "test/integration/sign_up_test.go proves sign-up in an application without tenants, where opening a sign-in method names the role each new person gets; a tenanted application opens a method with no role, and a person who signs up creates a tenant of their own, so remove the file and prove sign-up as the reference's self_service_test.go does",
 		"test/integration/sign_up_role_test.go":        "test/integration/sign_up_role_test.go proves the list the role of a person who signs up is picked from, which the generator no longer writes once the application has tenants (its generated file is removed by the regeneration); remove the file",
-		"test/integration/first_administrator_test.go": "test/integration/first_administrator_test.go still holds, since the first administrator signs in as before; it is written against the base's harness, so where the harness takes the reference's sign-in helpers this file's calls of them follow",
+		"test/integration/first_administrator_test.go": "test/integration/first_administrator_test.go proves what tenancy leaves as it was, since the first administrator signs in as before; it is written against the base's harness, so where the harness takes the reference's sign-in helpers this file's calls of them follow",
 	}
 	tests := []struct {
 		name  string
@@ -878,7 +881,7 @@ func TestTenancyApply_theCommentFollowsTheDeclarations(t *testing.T) {
 	if both == permissionsApp || !strings.Contains(both, untenanted) {
 		t.Fatal("the fixture App no longer carries the comment this test replaces with the base's")
 	}
-	rosterAlone := strings.Replace(both, "a.access.ForRole, nil, nil)", "a.access.ForRole, nil)", 1)
+	rosterAlone := strings.Replace(both, "a.access.ForRole, nil, nil, a.collection)", "a.access.ForRole, nil, a.collection)", 1)
 	if rosterAlone == both {
 		t.Fatal("the fixture App no longer passes the two nils this test reduces to one")
 	}

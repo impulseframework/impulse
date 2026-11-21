@@ -34,7 +34,7 @@ const older = [
   '--app-background-color',
   '--layout-label-background-white',
   '--layout-label-background-off-white',
-  '--layout-label-background-grey',
+  '--layout-label-background-gray',
 ];
 
 describe('the theming contract', () => {
@@ -56,6 +56,14 @@ describe('the theming contract', () => {
     for (const name of older) expect(theme).toMatch(new RegExp(`^\\s*${name}\\s*:\\s*var\\(--mat-sys-`, 'm'));
     for (const line of theme.split('\n').filter((l) => /^\s*--/.test(l)))
       expect(line).toMatch(/var\(--mat-sys-[a-z0-9-]+\)/);
+  });
+
+  // The gray preset was first named in another spelling, and an application's stylesheet
+  // may still say that name: it stays declared, as the preset's value, so it follows the
+  // theme by following the preset and the theme sheet sets the one name.
+  it('keeps the gray preset under the name it had first, as the value of the name it has now', () => {
+    expect(styles).toMatch(/^\s*--layout-label-background-grey\s*:\s*var\(--layout-label-background-gray\)\s*;/m);
+    expect(theme).not.toContain('--layout-label-background-grey');
   });
 
   it('leaves no literal color in a component stylesheet', () => {
@@ -149,5 +157,35 @@ describe('the sizes of the titles', () => {
         });
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+// An icon is never drawn as the letters of its name. The fonts sheet declares the icons'
+// font with nothing drawn in its place at first, and draws no icon at all while the root
+// element carries the class IconFontService marks it with; the sheet and the service name
+// the same family and the same class.
+describe('the icons while their font is on its way', () => {
+  const fonts = read(join(root, 'styles', '_fonts.scss'));
+  const service = read(join(root, 'ui-theme', 'icon-font.service.ts'));
+  // The text the service gives a constant, read from every constant it gives text to.
+  const texts = [...service.matchAll(/(\w+) = '([^']+)'/g)];
+  const named = (constant: string): string => texts.find(([, name]) => name === constant)?.[2] ?? '';
+
+  it('draws no icon under the class the service marks the root element with', () => {
+    const mark = named('AWAITS_ICON_FONT');
+    expect(mark).not.toBe('');
+    const rule = new RegExp(`\\.${mark} \\.material-icons \\{([^}]*)\\}`).exec(fonts)?.[1] ?? '';
+    expect(rule).toMatch(/visibility:\s*hidden;/);
+  });
+
+  it('declares the font under the family the service asks for, and draws the icons in it', () => {
+    const family = named('ICON_FONT_FAMILY');
+    expect(family).not.toBe('');
+    const faces = [...fonts.matchAll(/@font-face \{([^}]*)\}/g)]
+      .map((m) => m[1])
+      .filter((face) => face.includes(`font-family: '${family}';`));
+    expect(faces).toHaveLength(1);
+    expect(faces[0]).toMatch(/font-display:\s*block;/);
+    expect(/\.material-icons \{([^}]*)\}/.exec(fonts)?.[1] ?? '').toContain(`font-family: '${family}';`);
   });
 });

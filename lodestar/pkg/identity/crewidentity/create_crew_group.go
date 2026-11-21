@@ -23,6 +23,7 @@ type (
 	//
 	// @rpc
 	// @outlet(default)
+	// @class(access)
 	CreateCrewGroup struct {
 		Name        string `validate:"required"`
 		Description string `validate:"required"`

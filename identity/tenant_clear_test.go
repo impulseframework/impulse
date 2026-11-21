@@ -9,6 +9,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -203,6 +204,94 @@ func TestManager_ClearTenant(t *testing.T) {
 					t.Fatalf("ClearTenant() error = %v, want the failure", err)
 				}
 			} else if err != nil {
+				t.Fatalf("ClearTenant() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+			if engine.changed != tt.wantChanged {
+				t.Errorf("the engine was told the policy changed %d time(s), want %d", engine.changed, tt.wantChanged)
+			}
+		})
+	}
+}
+
+// TestManager_ClearTenant_theImpersonatorsOwnAccount holds the delete of a tenant to
+// the rule that nobody is the subject of what they do in a session that acts as someone
+// else. Mira holds her roles in the tenant alpha alone, so the tenant's going deletes
+// her account. While she acts as someone who may delete alpha, the clear is refused
+// before anything is buffered, in the rule's sentence. The same clear goes through, and
+// deletes her account, in a session of anyone's own and in a session that acts as
+// someone else and was started by a person the tenant's going leaves standing.
+func TestManager_ClearTenant_theImpersonatorsOwnAccount(t *testing.T) {
+	t.Parallel()
+
+	var (
+		miraID    = mustUUID("0190a000-0000-7000-8000-000000000001")
+		danaID    = mustUUID("0190a000-0000-7000-8000-000000000002")
+		miraLogin = mustUUID("0190a000-0000-7000-8000-000000000012")
+
+		miraAlpha = access.NewMembershipKey(alphaScope, User(miraID), "Reader")
+		danaAlpha = access.NewMembershipKey(alphaScope, User(danaID), "Reader")
+		danaBeta  = access.NewMembershipKey(accesstypes.DomainPolicyScope("beta"), User(danaID), "Reader")
+	)
+	const refusal = "you are acting as someone else, so you cannot delete the only tenant your own account holds a role in: " +
+		"while you act as another person, nothing you do is done to your own account. Stop acting as them first"
+	cleared := []string{
+		"delete membership " + membershipText(&miraAlpha),
+		"delete membership " + membershipText(&danaAlpha),
+		"end session " + miraLogin.String(),
+		"delete user " + miraID.String(),
+	}
+
+	tests := []struct {
+		name string
+		// session makes the request's session; nil leaves the call with none.
+		session     func(ctx context.Context) context.Context
+		wantRefused bool
+		wantWrites  []string
+		wantChanged int
+	}{
+		{
+			name:        "the person who started the session holds roles in the tenant alone: refused, and nothing is buffered",
+			session:     func(ctx context.Context) context.Context { return viewedBy(ctx, miraID) },
+			wantRefused: true,
+		},
+		{
+			name:        "the person who started the session holds a role elsewhere: the tenant is cleared",
+			session:     func(ctx context.Context) context.Context { return viewedBy(ctx, danaID) },
+			wantWrites:  cleared,
+			wantChanged: 1,
+		},
+		{
+			name:        "a call with no session, a job of the application's own: the tenant is cleared",
+			wantWrites:  cleared,
+			wantChanged: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{
+				memberships: map[access.MembershipKey]bool{miraAlpha: true, danaAlpha: true, danaBeta: true},
+				roles:       map[access.RoleKey]bool{},
+				usernames:   map[impulse.UUID]string{miraID: "mira", danaID: "dana"},
+				sessions:    map[impulse.UUID][]impulse.UUID{miraID: {miraLogin}},
+			}
+			m, engine := newManager(t, store, engineRoles)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				if tt.session != nil {
+					ctx = tt.session(ctx)
+				}
+
+				return m.ClearTenant(ctx, txn, "alpha")
+			})
+			switch {
+			case tt.wantRefused && (!httpio.HasForbidden(err) || httpio.Message(err) != refusal):
+				t.Fatalf("ClearTenant() error = %v, want the refusal %q", err, refusal)
+			case !tt.wantRefused && err != nil:
 				t.Fatalf("ClearTenant() error = %v", err)
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {

@@ -63,6 +63,7 @@ var vocabularyLeaves = []struct {
 }{
 	{name: "string", ts: stringTSType},
 	{name: "number", ts: numberTSType},
+	{name: "decimal", ts: decimalTSType},
 	{name: "boolean", ts: booleanStr},
 	{name: "Date", ts: dateTSType},
 	{name: "civilDate", ts: civilDateTSType},

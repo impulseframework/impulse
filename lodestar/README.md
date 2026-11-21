@@ -53,7 +53,8 @@ document the instances notify each other through,
 [further below](#one-channel-between-instances); Firestore needs no schema, so the
 bootstrap leaves it alone), bootstraps the database (schema, the demo world, and the
 cast's accounts, each created under the fixed id `cmd/bootstrap/users.json` gives it:
-the personas, the clients the demo world's rows name, and the droid service account; the
+the personas, each with the name people read (Armorer Arlo, who signs in as `armorer`),
+the clients the demo world's rows name, and the droid service account; the
 roles need no step, since each auth's role file rides in
 the binary and the bootstrap only checks the store against it; a database that already
 holds data is refused unless the bootstrap runs with `-reset`, which empties the data and
@@ -550,15 +551,38 @@ the members' alike, and the sector's directory, whether the sector is directory 
 not, so the directory is free for another sector; a person who held roles in that sector
 alone goes with it, while one who holds a role elsewhere stays and signs in as before.
 No role Lodestar ships holds Delete on `Sectors`; the suite gives the governor one to
-prove it (`test/integration/tenant_delete_skipauth_test.go`). The sector's rows go with
+prove it (`test/integration/tenant_delete_skipauth_test.go`). The delete carries the
+class `access`, so a person who acts as the governor under the `act` kind is refused it
+(`TestImpersonation_sectorDeletedActingAsAPerson`). The sector's rows go with
 it by the schema: each of the seven tables that carry a sector's key (Wings, Hangars,
 HangarPasses, Missions, Consignments, DroidReports, DistressCalls) references `Sectors`
 with `ON DELETE CASCADE`, as the skeletons' sample tenant table does, and `impulse check`
 holds every such table to the rule (`tenant-delete-rule`). A table that reaches its
-sector through another row (a squadron through its wing, a ship through its hangar, a
-sortie through its mission) goes as its own foreign key says, and Lodestar's say nothing
-there: a hangar that still holds a ship is not deleted (`commit.referential-refusal`),
-and neither is the sector that hangar is in, until the ship is gone.
+sector through another row carries the rule on every link of that way, and the check
+holds it to that too: a squadron goes with its wing and a membership with its squadron,
+a ship with its hangar, a refit with its ship and its tasks with it, a sortie and a
+document with their mission, an expense with its sortie. So a sector whose hangar holds
+a ship is deleted in the one request, and the ship is gone with it. Each rule is the
+database's, so it fires for the row deleted by itself too: a wing takes its squadrons
+and their memberships, a squadron its memberships, a hangar its ships with their
+refits, a ship its refits, a mission its sorties, their expenses and its documents, a
+sortie its expenses (`test/integration/commit_refusal_test.go` deletes a hangar that
+holds ships). Rows the database removes this way are removed past their own resource's
+Delete grant and row condition: whoever may delete the hangar deletes its ships. They
+leave no change event, and a document's stored file is the orphaned-file cleanup's, as
+the audit pass says below. The references on no table's way to its sector say nothing
+of a delete, and that is where a delete is refused: a sortie and a droid's report name a
+ship, and a mission the squadron it is assigned to, so a ship that has flown or been
+reported on is not deleted by itself, nor the hangar that would take it along, nor a
+squadron a mission is assigned to. The ship and the squadron are refused before the
+commit, with a sentence that counts what is in the way and that the person may list
+(`delete.rows-under-refusal`, `test/integration/delete_refusal_test.go`: "This ship has
+2 sorties. Delete them first."; and "This squadron has 8 missions. Move or delete them
+first.", since a mission's assigned squadron may be empty and the missions can be given
+to another squadron). The hangar that would take such a ship along, and
+the wing that would take such a squadron, are refused by the database at the commit
+(`commit.referential-refusal`). A hangar pass is the exception among those references:
+it goes with its hangar and with the squadron it is issued to.
 
 How it is wired:
 
@@ -1081,15 +1105,130 @@ over the auth's people (`@enumerate(CrewSessionUsers)` on a pilot's account, the
 accounts; `@enumerate(CrewSectorUsers)` on a squadron member, the sector's people), which
 whoever may add the record may list. The marshal views the console as the cadet with
 `POST /console/api/impersonate` and
-`{"kind":"user","principal":"f0000000-0000-4000-8000-000000000003"}`, the id of the
+`{"kind":"view","principal":"f0000000-0000-4000-8000-000000000003"}`, the id of the
 cadet's account (a username there is refused, 400); the session route and the governor's
 watch desk then name the cadet by username; and
 `{"kind":"role","principal":"Dispatcher"}` operates the session as a role.
 
+Impersonation is granted with a mask: to let someone impersonate a person with no mask
+is to give them what that person holds, and the mask is the control. The console
+declares three kinds (`app/impersonate.go`, `session.NewImpersonations`), each with the
+grant that allows it and the widest mask that grant gives, and the role file gives each
+grant on purpose. The declaration is the only way to start an impersonated session: the
+mint route takes its request from it (`Impersonations.Request`), and a request written
+out by hand does not compile:
+
+| Kind | Grant | Role | The widest mask |
+| --- | --- | --- | --- |
+| `view`: view as a person | Execute on `ViewAsUser` | `CommandStaff` (the governor, the marshal) | Reading only |
+| `act`: act as a person | Execute on `ActAsUser` | `StandIn` (the governor) | Everything except the actions classed `credential`, the actions classed `access` and the writes of the records that decide what a person may do: the session cannot set, require or remove a password, send a reset link, unlink a sign-in identity, or change a username or an address; it cannot give or remove a role, change a group or what it holds, invite anyone, make an account, change who may sign in (a sign-in method opened or made invite only, a sector opened to its directory, a sector's directory-only switch, the crew's reset link at the sign-in page), create a sector of the person's own (`CreateSector`), or rate a pilot (`SetSectorPilotClearance`, which Lodestar classes `access`); and it cannot add, change or remove a pilot's registry row, a certification, a client's contact or a place in a squadron, change a squadron, whose row says which wing its members are in, or delete a sector, which takes every role held in it. It keeps one of those records, the hangar passes: it gives, changes and withdraws a pass, for anyone but the real person and the squadrons they are in |
+| `role`: act as a role | Execute on `AssumeRole` | `CommandStaff` | Everything the role holds |
+
+A request may ask for less than its kind gives: permission kinds to keep
+(`"mask":["List","Read","Execute"]`), classes to refuse beside the kind's
+(`"refuseClasses":["irreversible"]`, the class Lodestar marks `ScrapShip` with) and
+actions to refuse by name (`"refuseActions":["ScrapShip"]`). A request for more than its
+kind gives (`"kind":"view"` with `Execute` in its mask) is refused, 403, with nothing
+started, and so is `"kind":"act"` from a holder of `CommandStaff` alone: the grant to
+view is not the grant to act. The answer, the session route's `impersonation.maskWords`,
+the banner and the watch desk say the session's mask in words ("reading only", and for
+the `act` kind "everything except access actions (still allowed: writing HangarPasses)
+and credential actions"), and so does the generated list of
+the impersonation records (`crew-session-impersonations`), whose `mask` column reads the
+stored text as words.
+
+Whatever the kind and its mask, nobody is the subject of what they do in such a session.
+The marshal who acts as the `Headquarters` role holds, for the length of the session,
+everything headquarters may do to the crew's accounts, and is refused each of those
+things on her own account ("you are acting as someone else, so you cannot give yourself
+a role: while you act as another person, nothing you do is done to your own account.
+Stop acting as them first"): a role, a place in a group, a password, an address, an
+enable, the unlock of her own name, an invitation to her own address. The same act on
+anyone else goes through, and her own row is still listed. The rule is the identity
+library's and needs no line in the application. An action of Lodestar's own that names a
+person asks it too: `SetSectorPilotClearance` reads the pilot's account off the registry
+and calls `identity.RefuseImpersonatorAsSubject`, so nobody raises their own clearance
+through someone else's grant.
+
+The rule covers the records that decide what a person may do, and again Lodestar writes
+no line for it. A `Pilots` row carries the clearance and the fee limit the policy reads
+as `subject.clearance` and `subject.feeLimit`; a `PilotCertifications` row, a
+`SquadronMemberships` row, a `HangarPasses` row and a `ClientContacts` row each put a
+value in one of a person's subject sets. Each carries a `@subjectValue` or a
+`@subjectSet`, so its generated write asks the rule about the person the row names,
+before the write and after it. The cadet who acts as the `Headquarters` role, whose
+mask refuses nothing, is refused a higher clearance on their own row ("you are acting
+as someone else, so you cannot change your own pilot record"), that row handed to
+someone else or removed, a certification of their own, and a veteran's row moved onto
+their account ("make another pilot record your own"); the same write for another pilot
+goes through, and in a session of their own a person writes their own row as they
+always could.
+
+The `act` kind goes further than the rule, which holds the real person alone. Its mask
+refuses the class `access`, for what the rule cannot see (a role that reaches a person
+through a group or a colleague), and the generator gives that class to the writes of
+those five records, to the writes of a place in a group of the crew (a record the
+application offers no write of, since the identity library's own actions write it)
+and to the change of a squadron, whose row says which wing each
+member is in, and to the delete of a sector, which takes every role held in it, so the
+kind names no record and a record that gains a subject value is
+covered when Lodestar is generated again. A stand-in therefore changes no role, no
+group and no record that decides what a person may do, but for a hangar pass, which
+the kind keeps, and that is what the `StandIn`
+role's description promises: everything the person may do, except change how they sign
+in or who may do what. Two things stay outside it, each stated where the kind is
+declared: a stand-in can still disable, enable and delete another person's account,
+which carry no class, and delete a hangar, which removes its passes with it. `SetSectorPilotClearance` carries the class `access` for the
+same reason, so the kind refuses the action as it refuses the record's write. A mask
+names a record's permission and not one plain field of it, so the squadron's name and
+callsigns are refused with its wing.
+
+Creating a sector is among what the kind refuses. The generated `create-sector` route
+takes no grant, so in a session that acts as a person it would make the person acted
+as a new sector's marshal, with no permission checked for a mask to deny. The route
+carries an action's name for that, `CreateSector`, classed `access`, and asks the
+session's mask before anything else: the stand-in who acts as the pioneer is refused
+("you are acting as someone else, and this session cannot create a sector: the mask
+refuses the class access. ...") with nothing written and the denial logged as the
+mask's, and the route's `GET` answers that none is offered. The `role` kind is refused
+the same route by the rule and not by a mask, since it has none: the marshal behind a
+session that acts as a role would become the sector's marshal herself ("you are acting
+as someone else, so you cannot create a sector of your own"). An application that
+declares a kind of acting as a person with no mask allows the creation, and the person
+acted as is the sector's marshal: that is what no mask means. `CreateSector` is an
+action no role is given: nothing asks a role for it, so the generated collection marks
+it (`NoRole: true`), a role file that grants it is refused, with the reason, by the
+permission engine and by `impulse check`, and the console's generated `Methods`
+constants leave it out.
+
+The rule also sees a row that reaches a person without naming them. The marshal who
+acts as the `Headquarters` role is refused a role, a pass or a place in a squadron
+given to her own account, and she is refused a hangar pass given to a squadron she is
+in, and her own squadron moved to another wing ("you are acting as someone else, so you
+cannot add a hangar pass record for one of your own squadrons"). The generated writes
+of `HangarPasses` and `Squadrons` name the column and the set, and the library asks the
+set by its own declaration, so the rule and the policy agree on who is in a squadron.
+A squadron's new name asks nothing: only a change that sets the wing does. The `act`
+kind keeps the writes of `HangarPasses` out of its refusal of the class `access`
+(`accesstypes.RefuseClassExcept`), because giving passes is the marshal's daily work:
+a person standing in for the marshal gives a pass to another person or another
+squadron, is refused one for themselves or a squadron they are in, and is refused
+everything else the class holds. The banner and the watch desk say the exception in
+words ("everything except access actions (still allowed: writing HangarPasses) and
+credential actions"), a request to start the session may drop it (`refuseClasses:
+["access"]` with no `exceptWrites`), and a request that names a record the kind does
+not keep is refused with nothing started. What the rule cannot see is a role given to
+a group she is in: that stays open to a session whose mask does not refuse the class
+`access`, and it is a stated limit of the rule. A hangar pass also goes with its hangar,
+its squadron or its sector when one is deleted, whoever the pass names. No write of the
+pass is made, so neither the rule nor the `act` kind's mask is asked, and neither kind
+refuses those deletes: every pass gives something, so such a delete only takes away.
+An application whose rows restrict refuses the parent's delete in the kind's mask.
+
 | Login | Who | What their view proves |
 | --- | --- | --- |
-| `governor` | Governor Greer, headquarters | The fleet's super administrator (`SuperAdministrator`, the role the framework defines in every auth): the one person no sector's sign-in settings shut out, who gives any role of the crew to anyone and whose role and account stay while he is the last who can sign in. Beside it, every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Runs the watch desk over every live impersonated session and can revoke one. On the console's Break glass page he takes a role in a sector for a set time (1 hour, 4 hours, 8 hours or 1 day) and says why (`take-crew-role`): the role is his from then until the time is over, the sector's Marshal reads the reason beside it, and whoever may take the role away ends it early; "Held right now" and "Ended" list the roles held that way. Headquarters holds the grants, and taking needs what giving himself the role would. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, computed.pushdown, auth.reasons. |
-| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant). Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
+| `governor` | Governor Greer, headquarters | The fleet's super administrator (`SuperAdministrator`, the role the framework defines in every auth): the one person no sector's sign-in settings shut out, who gives any role of the crew to anyone and whose role and account stay while he is the last who can sign in. Beside it, every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Runs the watch desk over every live impersonated session, which says what each may do, and can revoke one. Holds each grant to impersonate on purpose: `CommandStaff` (view as a person, reading only; act as a role) and `StandIn` (act as a person: everything they may do, except change how anyone signs in or who may do what). On the console's Break glass page he takes a role in a sector for a set time (1 hour, 4 hours, 8 hours or 1 day) and says why (`take-crew-role`): the role is his from then until the time is over, the sector's Marshal reads the reason beside it, and whoever may take the role away ends it early; "Held right now" and "Ended" list the roles held that way. Headquarters holds the grants, and taking needs what giving himself the role would. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, impersonation.act-as-user, impersonation.grant-mask, computed.pushdown, auth.reasons. |
+| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant); views the console as another crew member, reading only (`CommandStaff`), and is refused acting as one, which is a grant of its own. Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
 | `cadet` | Cadet Cass | `hazard IN (1, 2)`; the flight deck with only Claim lit; the two-input distress-call form (create-form narrowing). Demonstrates: execute-condition, create-form-narrowing, capability-envelope. |
 | `pilot` | Pilot Pax, clearance 3 | `hazard <= subject.clearance AND (requiredCert IS NULL OR requiredCert IN subject.certifications)`; `hangarZone != 'quarantine'` on ships and on HailShip, the touch that answers No Content. Demonstrates: @subjectValue, @subjectSet.global, @attribute.nullable-fk, @attribute.join-path, touch, @answers.no-content. |
 | `veteran` | Veteran Vela | `NOT (hazard IN (1, 2) OR fee < 5000)`. Demonstrates: condition.prefix-not. |
@@ -1111,7 +1250,8 @@ watch desk then name the cadet by username; and
 | `hazards` | Hazard Analyst Hale | A conditional (row-free `now`) grant on a computed resource, the whole board through `limit=all`. Demonstrates: computed.conditional-grant, paging.limit-all, computed.fold. |
 | `dock` / `watch` | Dockmaster Dara / Night Watch Nadia | `timeOfDay(now, local)` and the wrap-around `timeOfDay(now, 'America/Denver')` window; `dayOfWeek(now, local) NOT IN ('sat', 'sun')`. At any hour exactly one sees the hangar deck. Demonstrates: condition.time-of-day, condition.day-of-week, condition.local-zone. |
 | `harbormaster` | Harbormaster Hollis, Anvil | List and Read on Ships, nothing else of her own: the live fleet board. Her list and the ship she has open are subscribed when they are read, the engineer's refit (or a hail) lands on both without a reload, a board left and reopened inside five minutes is the browser's own, and the hazard analyst watching Cinder's fleet and the cadet, who holds no List on Ships, receive nothing. Demonstrates: live.pages. |
-| `armorer` | Armorer Arlo, Tongs | No pilot and no SectorCrew: his whole view of the hangars is the two sets the hangar passes yield, `hangar IN subject.hangarsOpen` on List and Read and `hangar IN subject.hangarsRun` on Update. A pass names a person or a squadron, at a level, until it expires, and the set's own definition says which passes are his (`who: UserID = subject OR SquadronID IN subject.squadrons`, a set that follows the squadron set) and which of those count (`where:` the level, and `ExpiresAt IS NULL OR ExpiresAt > now`). He holds no pass that counts in his own name, so everything he reaches he reaches through Tongs: he lists Anvil Dock One, which Tongs runs, and the Quarantine Bay, which Tongs visits; he re-zones the dock and is refused the bay, which Hammer runs and his own expired pass no longer opens. Over the API; the console draws no page for the passes. Demonstrates: @subjectSet.who, @subjectSet.where, @subjectSet.on-set. |
+| `armorer` | Armorer Arlo, Tongs | No pilot and no SectorCrew: his whole view of the hangars is the two sets the hangar passes yield, `hangar IN subject.hangarsOpen` on List and Read and `hangar IN subject.hangarsRun` on Update. A pass names one holder, a person, a squadron or a group, at a level, until it expires, and the set's own definition says which passes are his (`who: UserID = subject OR SquadronID IN subject.squadrons OR GroupID IN subject.groups`, a set that follows the squadron set and the groups set) and which of those count (`where:` the level, and `ExpiresAt IS NULL OR ExpiresAt > now`). He holds no pass that counts in his own name, so everything he reaches he reaches through Tongs: he lists Anvil Dock One, which Tongs runs, and the Quarantine Bay, which Tongs visits; he re-zones the dock and is refused the bay, which Hammer runs and his own expired pass no longer opens. On the Hangars page he sees those two hangars and no button to add one; the passes are the Marshal's to list and write, on the hangar's own page. Demonstrates: @subjectSet.who, @subjectSet.where, @subjectSet.on-set. |
+| `sentry` | Sentry Sol, the Bay keepers | The armorer's role and none of his ties: no pass in his own name and no squadron. The Bay keepers, a group kept in Anvil, hold a pass to run the Quarantine Bay, and the sentry is in the group, so the bay is the one hangar he lists and his to re-zone; Anvil Dock One, which no pass of the group's names, is not on his list. The third holder is one more test in the same two sets (`OR GroupID IN subject.groups`), and the groups set is the one the generated members declaration yields, kept to the request's sector by its `domain: GroupID.DomainID`: a pass that names Bastion's group, or a group kept for the whole fleet, is written and opens nothing in Anvil, and the pass form's picker offers neither. A person put in the group reaches the bay at their next request and one taken out loses it at theirs; a group that is deleted takes its passes with it. The Marshal gives a group a pass on the Hangars page: a hangar's page lists its passes, and Add a pass opens a dialog whose three pickers (a person, a squadron, a group of the sector) are the lists the generated metadata names, a person read by name with the login beside it ("Armorer Arlo - armorer"), as the list of passes reads its Person column; two holders, or none, is refused in the dialog in the server's words. Demonstrates: @subjectSet.on-groups, list.create-dialog. |
 | `deckhand` | Deckhand Dev, the deck crew | No role in a sector of their own: Anvil's deck crew, a group kept in the sector, holds `Cadet` and `SectorCrew` there, and the deckhand is in it, so the deckhand's board is the cadet's and Bastion is concealed. A group holds roles the way a person does, and whoever is in it holds them wherever the group does, at their next request; the Marshal makes and manages the sector's groups on the Groups page, whose list says how many people each group has and which roles it holds and offers Delete only on a group that holds nothing ("1 person and 2 roles: empty it first" on the deck crew); taking a role away from a group says how many people lose it; a person's page has one list of roles that says "Their own" or names the group each comes through, with a link to the group's page; and the sector crew see the groups they are in themselves (`group IN subject.groups`, the set the generated members declaration yields). Demonstrates: auth.groups, auth.holdings. |
 | `relief` | Relief Rae, on a tour of Anvil | `Cadet` and `SectorCrew` at Anvil for a tour: thirty days from the bootstrap, each role given with an end and the reason for it (`tours` in `users.json`: "Covering Anvil's deck while the hangar is refitted"), which the Marshal reads beside the role and its end wherever Rae's roles are listed. While the tour lasts her board is the cadet's; once it is over the roles grant nothing, Anvil is gone from her sectors and from the sector's list of its people, and nothing was written at that moment: everything that reads a role leaves out one outside its period. The rows themselves go when she next signs in, through the hook the crew auth sets for a sign-in that stands (`crewidentity.Client.SignedIn`); no job runs on a schedule. The Marshal gives a role, a place in a group or a group's role for a period on the same pages she gives them on (the Starts and Ends fields), gives a new period by giving again, and ends one now by taking it away; the lists of roles show the period. The Super Administrator role takes none. Demonstrates: auth.periods, auth.reasons. |
 | `adjutant` | Adjutant Alba, headquarters | The commendations desk, the one resource behind a feature flag, and the key that turns it: `FeatureAdministrator` (List and Read on `FeatureFlags`, Execute on `SetFeature`, global) beside `Adjutant` (List, Read and Create on `Commendations`). Off, the desk's routes answer the router's own 404, the digest leaves the desk and the card's `commendations` field out, and the field named in a request is unknown; she turns the flag on through `SetFeature`, the desk answers, Pax's card counts his citations, and a second server process serves the desk at its next request with no restart; off again, both refuse. Demonstrates: @feature, @feature.field. |
@@ -1119,7 +1259,7 @@ watch desk then name the cadet by username; and
 | `pioneer` | Pioneer Pia, on no manifest | Signs up with any Google account (the crew auth's `sign-up` registration, once the governor has opened it to sign-up on the console's Sign-in page: no roles, the application the authority), a crew login holding nothing, and charts her own sector through the generated `create-sector` route: who may chart one is apart from who may enter one and is headquarters' choice in the running application, so while a sign-in method is open the route, given the sector's fields and no key, writes Ember under an id it generates and answers, seats her as its marshal (`SectorMarshal`, the roles `SectorAdministratorRoles` names) and hands it to the roster in one call, and her chart lights Ember at once; a second sector is refused her, as the route is refused the marshal and the governor, who hold sectors already. Sign in first, then name the sector. Demonstrates: tenancy.self-service, auth.open-sign-up. |
 | `rigger` | Rigger Rook, Anvil and Bastion, no global role | `SectorCrew` in Anvil and in Bastion, by password, and nothing global: Bastion admits its people through its directory only (`Sector.DirectoryOnly`), so her chart lights Anvil alone, names Bastion closed to this sign-in with the reason, and Bastion answers her as a sector that does not exist, until a marshal turns Bastion's directory only off and her chart lights it at once. Bastion's People page keeps her row, which says she cannot enter while it is on. Demonstrates: tenancy.directory-only. |
 | `bosun` | Bosun Bram, Bastion only | `SectorCrew` in Bastion alone, by password: every sector of his is directory only, so his sign-in is refused naming the rule (`directory_only`), and admitted once a marshal turns Bastion's directory only off. Demonstrates: tenancy.directory-only. |
-| `liaison` | Liaison Lark, Anvil and Cinder | `Cadet` and `SectorCrew` in Anvil, `Archivist` in Cinder, nothing in Bastion: the list across tenants. `Mission` declares `@listAcrossTenants`, so its list is also served without the sector's segment (`GET /console/api/missions`), and her one request reads the missions of every sector she reaches in which she may list them, with one filter, one sort, one page and one count across them. Each row is checked under her roles in its own sector and names it (`zzTenant`): Anvil's fourteen low-hazard missions carry no fee and no client, Cinder's closed sweep carries both, and Bastion, where she holds no role, contributes nothing and is never named, asked for by name (`domains=`) or not. The search box and every filter apply in each sector; `MissionsByDeadline` serves the list's order across sectors. Her page is Missions in every sector, in Headquarters: the library's list with `acrossTenants` on its config, the sector named in a first column and each row a link to the mission itself inside its own sector. The link is the mission's own route under the sector's Missions page, which asks Read on the mission and nothing of the mission board that page lists, so her click opens the mission though her sector roles do not list the board; a row in a sector where a person may list missions and read none would draw no link. The config names no permission for the page: the server tells the global digest whether a person may list missions in at least one sector they reach, so the liaison sees the entry in Records and the yeoman, who may list missions in no sector, sees none and is turned away from its route. A list across tenants is plain unless its page asks, and this page asks (`live: true`): her one request registers one subscription over the sectors her list reads, so a mission changed in Anvil or in Cinder reaches her change set as that sector's list and her page fetches once, a mission changed in Bastion never reaches her, and the renewal works her set out again. Demonstrates: list.across-tenants, list.across-tenants.live. |
+| `liaison` | Liaison Lark, Anvil and Cinder | `Cadet` and `SectorCrew` in Anvil, `Archivist` in Cinder, nothing in Bastion: the list across tenants. `Mission` declares `@listAcrossTenants`, so its list is also served without the sector's segment (`GET /console/api/missions`), and her one request reads the missions of every sector she reaches in which she may list them, with one filter, one sort, one page and one count across them. Each row is checked under her roles in its own sector and names it (`zzTenant`): Anvil's fourteen low-hazard missions carry no fee and no client, Cinder's closed sweep carries both, and Bastion, where she holds no role, contributes nothing and is never named, asked for by name (`domains=`) or not. The search box and every filter apply in each sector; `MissionsByDeadline` serves the list's order across sectors. Her page is Missions in every sector, in Headquarters: the library's list with `acrossTenants` on its config, the mission's title first, the sector named in the column after it, and each row a link to the mission itself inside its own sector. The link is the mission's own route under the sector's Missions page, which asks Read on the mission and nothing of the mission board that page lists, so her click opens the mission though her sector roles do not list the board; a row in a sector where a person may list missions and read none would draw no link. The config names no permission for the page: the server tells the global digest whether a person may list missions in at least one sector they reach, so the liaison sees the entry in Records and the yeoman, who may list missions in no sector, sees none and is turned away from its route. A list across tenants is plain unless its page asks, and this page asks (`live: true`): her one request registers one subscription over the sectors her list reads, so a mission changed in Anvil or in Cinder reaches her change set as that sector's list and her page fetches once, a mission changed in Bastion never reaches her, and the renewal works her set out again. Demonstrates: list.across-tenants, list.across-tenants.live. |
 | `client` | Client Cleo, portal only | Signs in through her company's directory, whose groups are her roles, held in every sector: her session enters every sector that is not directory only, and Bastion, whose directory is not the one she came through, stays on her portal's sector list marked closed to this sign-in; the second browser app over the second TypeScript target; `client = subject.client` from the ClientContact anchor; a conditional Execute fired from a portal session; a PII field an external user writes; the portal-only client statement. Demonstrates: auth.directory-roles, auth.skipauth-directory, typescript.second-target, outlet.session, @subjectValue.second-anchor, @manualAddResource.outlet. |
 | `droid-r7` | R7, service account, no login | The droids outlet, behind the crew auth's bearer tokens (the bootstrap creates its account, without a password, and gives it its roles; the server finds the account by its username at start and seeds its configured key as its application token): telemetry with no human route, one reading per call, each carrying the firmware's raw frame, a type declared in the droid link's own package whose generated methods the generator writes there (`WithTypes`); releases through the shared method under its own read grant; the program the release ships to the droids (`cmd/droid`), which sends one frame and upgrades itself from the outlet. Demonstrates: outlet.tokens, outlet.exclusive, machine-identity, rpc.row-free, typescript.types-package, outlet.programs. |
 
@@ -1161,10 +1301,11 @@ watch desk then name the cadet by username; and
   the patch machinery, and the generator's audit pass names such tables without saying
   so on every run: `RefitTask.PhotoKey` stores a task photo on a table interleaved in
   Refits `ON DELETE CASCADE`
-  ([`audit.cascade-release`](pkg/resources/refit_tasks.go)), so `go run
-  ./cmd/generate/resourcegenerator -audit` prints the one `Audit:` line naming it after
-  the nine `Warning:` lines, `go generate ./...` prints the nine alone, and
-  `cmd/generate/audit_test.go` pins the finding as a typed value.
+  ([`audit.cascade-release`](pkg/resources/refit_tasks.go)), and `MissionDocument`
+  stores its file on a table that references Missions with the delete rule, so `go run
+  ./cmd/generate/resourcegenerator -audit` prints the two `Audit:` lines naming them
+  after the nine `Warning:` lines, `go generate ./...` prints the nine alone, and
+  `cmd/generate/audit_test.go` pins the findings as typed values.
 - `pkg/telemetry`: the droid link's own package, the one package the generator writes
   into without reading a resource from it: `cmd/generate` names it with `WithTypes`, so
   the frame type a `DroidReports` column holds gets its JSON and Spanner methods generated
@@ -1249,7 +1390,32 @@ watch desk then name the cadet by username; and
   which declares none (read whole with `limit=all`); its Hangar column resolves each
   page's hangars with one `in` request over the page's keys
   ([`column.referenced-in`](web/console/src/app/configs/ships.config.ts)) where its
-  Class column maps the catalog read whole once. Lodestar is also the browser library's
+  Class column maps the catalog read whole once. The
+  [Hangars page](web/console/src/app/configs/hangars.config.ts) lists a sector's hangars,
+  and a hangar's own page lists its passes: who the hangar is open to. Both lists open
+  their create in a dialog, as every list of the console does
+  ([`list.create-dialog`](web/console/src/app/configs/hangars.config.ts)): the button
+  above a list opens the form over the page under the button's own words, and no list
+  draws a form on its page. Three pages of Lodestar's own follow the same rule, the Flight
+  deck, the Roster and the portal's tracker: each action that adds or changes something
+  is a button that opens its form in a dialog, and what the server refuses of it is shown
+  in the dialog. Add a pass opens the form with three pickers side by side, a person of
+  the sector, a squadron and a group of the sector, each a list the generated metadata
+  names; the pass names one of them, and one that names two, or none, is refused inside
+  the dialog in the server's words. An empty person is nobody, in the validator and in
+  the table's holder check alike. A pass's holder never changes: the three holder
+  columns are immutable (`conditions:"immutable"` on `UserID`, `SquadronID` and
+  `GroupID`), so an update that names one of them is refused for every role with
+  `400 json field groupId is immutable`, as the request is decoded and before a grant or
+  a row is read. An update that names two of them is refused for both in one sentence,
+  in the order of their names (`400 json fields groupId and userId are immutable`),
+  whatever order the body gives them in. The answer is therefore the same for a pass of
+  the sector, a pass of another sector and an id that is no pass, and nothing tells them
+  apart. A pass that
+  should be somebody else's is deleted and written again; its level and its expiry are
+  what the Marshal's update changes. The walkthrough's "the Hangars page" section sends
+  what the page sends: the marshal adds a hangar and a pass for the Bay keepers, and the
+  sentry has both hangars through that group alone. Lodestar is also the browser library's
   application: `@impulseframework/resource` and `@impulseframework/resource-angular` live in
   this repository's `web/` workspace, hold no application of their own, and are proven
   here, linked from their local build ("Running it"). The
@@ -1284,7 +1450,7 @@ watch desk then name the cadet by username; and
   (`LODESTAR_LOG` names the file the server's output goes to, where the walkthrough reads the
   sign-in code each password sign-in waits for: `overmind start 2>&1 | tee stack.log`), including the
   droid channel, the portal through the simulated directory, the dry runs, the watch desk,
-  both impersonation moments, the feature flag's flip with a second server process built
+  the three kinds of impersonation and their masks, the feature flag's flip with a second server process built
   from the tree on `LODESTAR_SECOND_PORT` (default 8091), and the three-minute wait for
   the overdue flip (`LODESTAR_SKIP_FLIP=1` to skip). Export the `.envrc` variables before
   running it.

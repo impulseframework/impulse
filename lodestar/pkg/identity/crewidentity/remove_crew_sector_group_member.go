@@ -31,6 +31,7 @@ import (
 // @permissionScope(domain)
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type RemoveCrewSectorGroupMember struct {
 	// @target(CrewSectorGroupUser, key: GroupID)
 	GroupID impulse.UUID

@@ -62,7 +62,7 @@
   </div>
 } @else if (pending(); as waiting) {
   <div class="impulse-login-pending">
-    @if (waiting.reason === 'confirmation') {
+    @if (waiting.reason === 'confirmation' && confirmOffered()) {
       <p class="impulse-login-pending-note">{{ confirmationNote(waiting) }}</p>
       <form class="impulse-login-form" (ngSubmit)="confirm()">
         <mat-form-field appearance="outline" class="impulse-login-field">
@@ -77,6 +77,8 @@
         </mat-form-field>
         <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Confirm</button>
       </form>
+    } @else if (waiting.reason === 'confirmation') {
+      <p class="impulse-login-pending-note">{{ noPasswordConfirmation }}</p>
     } @else if (waiting.emailCode; as step) {
       @if (step.enrollEmail) {
         <p class="impulse-login-pending-note">

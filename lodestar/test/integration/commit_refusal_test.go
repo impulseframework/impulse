@@ -3,10 +3,20 @@ package integration
 
 // This suite pins what a commit Spanner refuses answers: a 4xx with a message the resource
 // library composes from the resources the transaction buffered, decided on the gRPC code
-// alone. Below a sector Lodestar's foreign keys are NO ACTION apart from three cascades (the
-// tables that carry a sector's key go with the sector, by a rule of their own on that key), so
-// any referenced parent reproduces the referential refusal (409), and the combined deletes
-// prove that detecting at commit keeps a child-and-parent delete legal in either order. A
+// alone. A sector's rows go with it, so every link of a table's way to its sector
+// carries the delete rule: a hangar takes its ships, a ship its refits, a mission its
+// sorties and documents, a sortie its expenses, a wing its squadrons, whether the sector
+// is deleted or the row alone (TestDeleteAlone_takesTheRowsOnItsWay). The referential
+// refusal (409) is reproduced by the references that are on no table's way to its sector
+// and say nothing of a delete: a sortie names the ship that flew it and a droid's report
+// the ship it read, each a row of one sector named from outside its own way, and a mission
+// names the squadron it is assigned to. A ship or a squadron named so is refused before
+// the commit, in a sentence that counts what names it (TestDeleteRefusal). The commit's
+// own refusal is what a delete reaches when the row in the way is under a row the
+// database removes with the one deleted: the hangar that would take along a ship that
+// has flown, and the wing that would take along a squadron a mission is assigned to. The
+// combined deletes of a squadron and its mission prove that a child-and-parent delete
+// stays legal in either order. A
 // refit task created under a task number the refit already holds (a client-supplied compound
 // key) and a ship created under a seeded registry (ShipsByRegistry) are the duplicate-key and
 // duplicate-unique-value refusals on a create (409); a client renamed to another client's name
@@ -22,6 +32,9 @@ import (
 	"net/http"
 	"testing"
 
+	"cloud.google.com/go/spanner"
+	"google.golang.org/grpc/codes"
+
 	"github.com/impulseframework/impulse/accesstypes"
 )
 
@@ -36,7 +49,7 @@ func TestCommitRefusal(t *testing.T) {
 	}
 
 	h := newTestApp(db, grants{
-		accesstypes.Delete: {"Hangars", "Ships", "Sorties", "SortieExpenses"},
+		accesstypes.Delete: {"Hangars", "Wings", "Squadrons", missionsResource},
 		accesstypes.Create: append(
 			append(
 				withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"),
@@ -54,8 +67,11 @@ func TestCommitRefusal(t *testing.T) {
 	mission := func(clientID, title string, hazard int) string {
 		return fmt.Sprintf(`{"op":"add","path":%q,"value":{"clientId":%q,"kindId":"courier","title":%q,"hazard":%d,"fee":100,"deadline":%q}}`, opPath(anvil, "missions"), clientID, title, hazard, deadline(365))
 	}
+	removeIn := func(sector, rest string) string {
+		return fmt.Sprintf(`{"op":"remove","path":%q}`, opPath(sector, rest))
+	}
 	remove := func(rest string) string {
-		return fmt.Sprintf(`{"op":"remove","path":%q}`, opPath(anvil, rest))
+		return removeIn(anvil, rest)
 	}
 
 	tests := []struct {
@@ -67,35 +83,38 @@ func TestCommitRefusal(t *testing.T) {
 	}{
 		{
 			// Hangar is excluded from consolidation, so the refusal rides its standalone
-			// PATCH surface; the Quarantine Bay still holds two ships.
-			name:        "a delete of a hangar that still holds ships answers 409 naming Hangars",
+			// PATCH surface. Anvil Dock One's ships would go with it, by the delete rule on
+			// a ship's way to its sector, and several of them have flown and been reported
+			// on: a sortie and a droid's report each name their ship from outside their own
+			// way, so the commit is refused, and the message names the hangar, never the
+			// ships it would have taken, the sorties or the reports.
+			name:        "a delete of a hangar whose ships have flown or been reported on answers 409 naming Hangars",
 			target:      sectorPath(anvil, "hangars"),
-			ops:         fmt.Sprintf(`[{"op":"remove","path":"/%s"}]`, hangarQuarantineID),
+			ops:         fmt.Sprintf(`[{"op":"remove","path":"/%s"}]`, hangarAnvilDockID),
 			wantStatus:  http.StatusConflict,
 			wantMessage: "Hangars: this record cannot be deleted while other records still reference it.",
 		},
 		{
-			// Ship is change-tracked: the delete buffers a DataChangeEvents row beside
-			// it, which the message must not name.
-			name:        "a delete of a tracked ship under refit names the ship alone",
+			// Forge Wing's squadrons would go with it, by the delete rule on a squadron's
+			// way to its sector, and missions are assigned to both of them: a mission
+			// names its squadron from outside its own way, so the commit is refused, and
+			// the message names the wing, never the squadrons or the missions.
+			name:        "a delete of a wing whose squadrons have missions assigned answers 409 naming Wings",
 			target:      "/console/api/resources",
-			ops:         "[" + remove("ships/"+shipStubbornMuleID) + "]",
+			ops:         "[" + remove("wings/"+wingForgeID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Ships: this record cannot be deleted while other records still reference it.",
+			wantMessage: "Wings: this record cannot be deleted while other records still reference it.",
 		},
 		{
-			name:        "a delete of a sortie with expenses answers 409 naming Sorties",
+			// Mission is change-tracked: its delete buffers a DataChangeEvents row beside
+			// it, which the message must not name. The stood-down bullion run has nothing
+			// under it and is assigned to no squadron; the wing beside it is what the
+			// commit refuses.
+			name:        "deletes on two resources in a refused commit list both in buffering order",
 			target:      "/console/api/resources",
-			ops:         "[" + remove("sorties/"+sortiePodID) + "]",
+			ops:         "[" + remove("wings/"+wingForgeID) + "," + remove("missions/"+missionBullionID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "Sorties: this record cannot be deleted while other records still reference it.",
-		},
-		{
-			name:        "refused deletes on two resources list both in buffering order",
-			target:      "/console/api/resources",
-			ops:         "[" + remove("sorties/"+sortiePodID) + "," + remove("ships/"+shipLanternID) + "]",
-			wantStatus:  http.StatusConflict,
-			wantMessage: "Sorties, Ships: a record cannot be deleted while other records still reference it.",
+			wantMessage: "Wings, Missions: a record cannot be deleted while other records still reference it.",
 		},
 		{
 			// Mission is change-tracked too; its client is not its tenancy hop, so the
@@ -109,20 +128,25 @@ func TestCommitRefusal(t *testing.T) {
 		{
 			name:        "a batch mixing a write and a delete answers the sentence covering both causes",
 			target:      "/console/api/resources",
-			ops:         "[" + mission(missingClientID, "Booked beside a refused delete", 1) + "," + remove("sorties/"+sortiePodID) + "]",
+			ops:         "[" + mission(missingClientID, "Booked beside a refused delete", 1) + "," + remove("wings/"+wingForgeID) + "]",
 			wantStatus:  http.StatusConflict,
 			wantMessage: "The request could not be applied: a deleted record is still referenced, or a referenced record does not exist.",
 		},
 		{
-			name:       "children then their parent in one transaction succeed",
+			// The sweep is the one mission assigned to Ashfall, in Cinder: the mission
+			// that names the squadron goes first, then the squadron it named.
+			name:       "the row that names another, then the row it names, in one transaction succeed",
 			target:     "/console/api/resources",
-			ops:        "[" + remove("sortie-expenses/"+expenseConvoyFuelID) + "," + remove("sortie-expenses/"+expenseConvoyMedID) + "," + remove("sorties/"+sortieConvoyID) + "]",
+			ops:        "[" + removeIn(cinder, "missions/"+missionSweepID) + "," + removeIn(cinder, "squadrons/"+squadronAshfallID) + "]",
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "a parent then its child in one transaction succeed",
+			// The patrol is the one mission assigned to Portcullis, in Bastion: the
+			// squadron goes first, while the mission still names it, and the commit
+			// finds nothing left that does.
+			name:       "the row another names, then the row that names it, in one transaction succeed",
 			target:     "/console/api/resources",
-			ops:        "[" + remove("sorties/"+sortieCourierID) + "," + remove("sortie-expenses/"+expenseCourierFuelID) + "]",
+			ops:        "[" + removeIn(bastion, "squadrons/"+squadronPortcullisID) + "," + removeIn(bastion, "missions/"+missionPatrolID) + "]",
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -199,5 +223,75 @@ func TestCommitRefusal(t *testing.T) {
 				t.Errorf("message = %q, want %q", resp.Message, tt.wantMessage)
 			}
 		})
+	}
+}
+
+// TestDeleteAlone_takesTheRowsOnItsWay pins what the delete rule on a table's way to its
+// sector does for a row deleted by itself: the rule is the database's, so it fires for
+// the hangar as it does for the sector. The Quarantine Bay holds the Lantern and the Slow
+// Boat, neither of which has flown or been reported on, each with a refit, and the
+// Lantern's refit is given a task here. A caller who holds Delete on Hangars and on
+// nothing else deletes the hangar: the ships, their refits and the task go with it, past
+// the grants their own resources ask for, and the hangar across the dock keeps its ships.
+func TestDeleteAlone_takesTheRowsOnItsWay(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const refitSlowBoatID = "a0000000-0000-4000-8000-000000000011"
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("RefitTasks", map[string]any{
+		"Id": refitLanternID, "TaskNumber": 1, "Instructions": "Seal the reactor housing", "Done": false,
+	})}); err != nil {
+		t.Fatalf("spanner.Apply(RefitTasks): %v", err)
+	}
+	rows := []struct {
+		table string
+		key   spanner.Key
+		// taken is whether the row goes with the Quarantine Bay.
+		taken bool
+	}{
+		{"Hangars", spanner.Key{hangarQuarantineID}, true},
+		{"Ships", spanner.Key{shipLanternID}, true},
+		{"Ships", spanner.Key{shipSlowBoatID}, true},
+		{"Refits", spanner.Key{refitLanternID}, true},
+		{"Refits", spanner.Key{refitSlowBoatID}, true},
+		{"RefitTasks", spanner.Key{refitLanternID, 1}, true},
+		{"Hangars", spanner.Key{hangarAnvilDockID}, false},
+		{"Ships", spanner.Key{shipStubbornMuleID}, false},
+		{"Refits", spanner.Key{refitMuleID}, false},
+		{"RefitTasks", spanner.Key{refitMuleID, 1}, false},
+	}
+	stands := func(table string, key spanner.Key) bool {
+		t.Helper()
+		_, err := db.Single().ReadRow(ctx, table, key, []string{"Id"})
+		switch {
+		case err == nil:
+			return true
+		case spanner.ErrCode(err) == codes.NotFound:
+			return false
+		default:
+			t.Fatalf("ReadRow(%s, %v): %v", table, key, err)
+
+			return false
+		}
+	}
+	for _, row := range rows {
+		if !stands(row.table, row.key) {
+			t.Fatalf("%s %v does not stand before the delete: the seed moved, and this test with it", row.table, row.key)
+		}
+	}
+
+	h := newTestApp(db, grants{accesstypes.Delete: {"Hangars"}})
+	status, body := doRequest(t, h, http.MethodPatch, sectorPath(anvil, "hangars"), fmt.Sprintf(`[{"op":"remove","path":"/%s"}]`, hangarQuarantineID))
+	assertStatus(t, status, http.StatusOK, body)
+
+	for _, row := range rows {
+		if got := stands(row.table, row.key); got == row.taken {
+			t.Errorf("%s %v stands after the delete of the Quarantine Bay = %t, want %t", row.table, row.key, got, !row.taken)
+		}
 	}
 }

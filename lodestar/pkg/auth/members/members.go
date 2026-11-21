@@ -219,16 +219,12 @@ func (h *Handlers) EmailConfirm() http.HandlerFunc {
 	return h.Email().Confirm()
 }
 
-// PendingStatus reports the sign-in that waits for a password confirmation or for the
-// second factor, if any; a member has no password, so only the factor's wait happens,
-// for a member whose directory the fleet does not administer.
+// PendingStatus reports the sign-in that waits for the second factor, if any. A member
+// has no password, so no sign-in waits for one to be confirmed and the portal serves no
+// route for it; the factor's wait happens for a member whose directory the fleet does
+// not administer.
 func (h *Handlers) PendingStatus() http.HandlerFunc {
 	return h.Pending().Status()
-}
-
-// PendingConfirmWithPassword completes a waiting sign-in with the user's password.
-func (h *Handlers) PendingConfirmWithPassword() http.HandlerFunc {
-	return h.Pending().ConfirmWithPassword()
 }
 
 // PendingCancel discards a waiting sign-in.

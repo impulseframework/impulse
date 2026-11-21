@@ -105,9 +105,11 @@ impulse new <dir>
   --auth string
   --dev-root string
   --files bool
+  --method string
   --module string (required)
   --name string
   --one-tenant-per-person bool
+  --organization string
   --outlet stringArray
   --shape string
   --site stringArray
@@ -192,6 +194,8 @@ checks:
   file-store
   secret-holders
   pins
+  framework-modules
+  framework-linkname
   gofmt
   prettier
   gowork-off

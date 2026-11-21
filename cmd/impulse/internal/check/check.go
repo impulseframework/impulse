@@ -224,6 +224,8 @@ func All() []Check {
 		fileStore{},
 		secretHolders{},
 		pins{},
+		frameworkModules{},
+		frameworkLinkname{},
 		gofmtCheck{},
 		prettierCheck{},
 		goworkOff{},

@@ -8,6 +8,17 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+// The classes the application's actions carry (@class) and the ones the generator
+// gives the writes of its records, each under the name a permission mask refuses it
+// by: accesstypes.RefuseClass(ClassAccess). A mask written against a class
+// nothing carries any more does not compile, since its constant is gone from this file.
+const (
+	// ClassAccess is the class access.
+	ClassAccess accesstypes.ActionClass = "access"
+	// ClassCredential is the class credential.
+	ClassCredential accesstypes.ActionClass = "credential"
+)
+
 // Collection returns the application's permission collection, computed by the Resource
 // Generator from the resource definitions and generated routes, for deployment tooling
 // such as role migration and bootstrap.
@@ -18,6 +29,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "AddStaffTenantGroupMember",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantGroups",
 			},
 			{
@@ -40,6 +52,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "AssignStaffTenantRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Role", Type: "string"},
 				},
@@ -49,11 +62,13 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "CreateStaffTenantGroup",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "DeleteStaffTenantGroup",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantGroups",
 			},
 			{
@@ -90,11 +105,13 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "EndTenantDirectoryOnly",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "GiveStaffTenantGroupRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Role", Type: "string"},
 				},
@@ -104,6 +121,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "InviteStaffTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Roles", Type: "string", List: true},
 				},
@@ -112,45 +130,53 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "MakeTenantDirectoryOnly",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "MakeTenantInviteOnly",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "OpenTenantToDirectory",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "RemoveStaffTenantGroupMember",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantGroupUsers",
 			},
 			{
 				Name:        "RemoveStaffTenantPassword",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantUsers",
 			},
 			{
 				Name:        "RemoveStaffTenantRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantHeldRoles",
 			},
 			{
 				Name:        "RenameStaffTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantUsers",
 			},
 			{
 				Name:        "RequireStaffTenantPasswordChange",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantUsers",
 			},
 			{
@@ -163,12 +189,14 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SendStaffTenantUserPasswordResetLink",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantUsers",
 			},
 			{
 				Name:        "SetStaffTenantUserEmail",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantUsers",
 			},
 			{
@@ -446,6 +474,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "TakeStaffTenantGroupRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantGroupRoles",
 			},
 			{
@@ -467,24 +496,28 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "UnlinkStaffTenantSessionIdentity",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantIdentities",
 			},
 			{
 				Name:        "WithdrawStaffTenantInvitation",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffTenantInvitations",
 			},
 			{
 				Name:        "AddStaffGroupMember",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffListedGroups",
 			},
 			{
 				Name:        "AssignStaffRole",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Role", Type: "string"},
 				},
@@ -493,11 +526,20 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "CreateStaffGroup",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
+				Name:        "CreateTenant",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+				NoRole:      true,
 			},
 			{
 				Name:        "DeleteStaffGroup",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffListedGroups",
 			},
 			{
@@ -553,6 +595,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "GiveStaffGroupRole",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Role", Type: "string"},
 				},
@@ -562,6 +605,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "InviteStaffTenant",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Attributes: []resource.AttributeData{
 					{Name: "directoryOnly", Column: "TenantDirectoryOnly", Type: "bool"},
 					{Name: "role", Column: "DefaultRole", Type: "string"},
@@ -571,6 +615,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "InviteStaffUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Roles", Type: "string", List: true},
 				},
@@ -579,39 +624,46 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "MakeStaffInviteOnly",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "OpenStaffSignUp",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "RemoveStaffGroupMember",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffGroupUsers",
 			},
 			{
 				Name:        "RemoveStaffPassword",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionUsers",
 			},
 			{
 				Name:        "RemoveStaffRole",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "RenameStaffUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionUsers",
 			},
 			{
 				Name:        "RequireStaffPasswordChange",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionUsers",
 			},
 			{
@@ -630,6 +682,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SendStaffUserPasswordResetLink",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionUsers",
 			},
 			{
@@ -641,11 +694,13 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetStaffSelfServiceReset",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "SetStaffUserEmail",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionUsers",
 			},
 			{
@@ -675,6 +730,11 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "StaffGroupMembers",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List},
+				WriteClasses: []resource.WriteClassData{
+					{Permission: accesstypes.Create, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{ClassAccess}},
+					{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{ClassAccess}},
+				},
 				Tags: []resource.TagData{
 					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "endsAt", Permissions: []accesstypes.Permission{accesstypes.List}},
@@ -686,7 +746,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "group", Column: "GroupId", Type: "string"},
 				},
 				SubjectSets: []resource.SubjectBindingData{
-					{Name: "groups", UserColumn: "UserId", Column: "GroupId", Type: "string", Where: &resource.SubjectWhereData{Condition: "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)", Columns: []resource.SubjectColumnData{{Name: "EndsAt", Column: "EndsAt", Type: "timestamp"}, {Name: "StartsAt", Column: "StartsAt", Type: "timestamp"}}}},
+					{Name: "groups", UserColumn: "UserId", Column: "GroupId", Type: "string", Where: &resource.SubjectWhereData{Condition: "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)", Columns: []resource.SubjectColumnData{{Name: "EndsAt", Column: "EndsAt", Type: "timestamp"}, {Name: "StartsAt", Column: "StartsAt", Type: "timestamp"}}}, Domain: &resource.DomainBindingData{Column: "GroupId", Path: []resource.BindingHop{{Table: "StaffGroups", JoinColumn: "Id", Column: "DomainId"}}}},
 				},
 				Order: []accesstypes.Tag{"userId"},
 			},
@@ -1113,11 +1173,13 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "TakeStaffGroupRole",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
 				Name:        "TakeStaffRole",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Role", Type: "string"},
 				},
@@ -1126,6 +1188,9 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "Tenants",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
+				WriteClasses: []resource.WriteClassData{
+					{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{ClassAccess}},
+				},
 				Tags: []resource.TagData{
 					{Name: "directoryOnly", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "id"},
@@ -1139,6 +1204,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "UnlinkStaffSessionIdentity",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionIdentities",
 			},
 			{
@@ -1151,12 +1217,14 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "WithdrawStaffInvitation",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Target:      "StaffSessionMailLinks",
 			},
 			{
 				Name:        "WithdrawStaffInvitedTenant",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 		},
 	})

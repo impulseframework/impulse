@@ -258,6 +258,15 @@ func (a outletAuth) packageName() string {
 	return assumedPackageName(a.importPath)
 }
 
+// hasPassword reports whether the auth registers the password method. The generated
+// router serves what only a password answers (the sign-up, the first password, the
+// password reset and the password confirmation of a pending sign-in) where it does.
+func (a outletAuth) hasPassword() bool {
+	return slices.ContainsFunc(a.methods, func(m AuthMethod) bool {
+		return m.kind == methodPassword
+	})
+}
+
 // suffix returns the outlet's contribution to generated identifiers
 // (Generated<suffix>Handlers, generated<suffix>Routes, Patch<suffix>Resources);
 // empty for the default outlet, whose identifiers carry no outlet name.
@@ -1480,6 +1489,13 @@ const (
 	// bytesTSType is the display type of a byte slice: a string in the interface, since
 	// encoding/json carries a []byte as a base64 string and a nil one as null.
 	bytesTSType = "bytes"
+	// decimalTSType is the table's name for a decimal (decimal.Decimal,
+	// decimal.NullDecimal, spanner.NullNumeric): a string in the interface, since each
+	// writes its JSON as a quoted string that keeps every digit, and a number in the
+	// metadata, so a browser draws it with the number control. It is the one row whose
+	// name is neither its interface type nor its display type (tsDataType,
+	// leafDisplayType), and never reaches a generated file.
+	decimalTSType = "decimal"
 	// nullBooleanTSType is the wire type of a nullable boolean, a value type the
 	// generated TypeScript imports from @impulseframework/resource.
 	nullBooleanTSType = "NullBoolean"
@@ -1489,7 +1505,8 @@ const (
 // by qualified Go type name: the basic types, the library types a column or a wire
 // field may carry (UUIDs, decimals, times, dates), the Spanner Null wrappers
 // (nullability comes from the schema, so a nullable spanner.NullBool column renders
-// nullboolean exactly as *bool does), securehash.Hash as its text form, resource.Secret
+// nullboolean exactly as *bool does), the three decimal types as the decimal row (a
+// string in the interface, as their JSON is), securehash.Hash as its text form, resource.Secret
 // as the text a stored secret is given as (the Create and Patch shapes carry a string,
 // and the row interface carries nothing of a field that is never served), and
 // spanner.NullJSON and json.RawMessage as unknown, a value with no fixed shape (the two
@@ -1501,8 +1518,8 @@ func defaultTypescriptOverrides() map[string]string {
 	return map[string]string{
 		reflect.TypeFor[impulse.UUID]().String():        uuidTSType,
 		reflect.TypeFor[impulse.NullUUID]().String():    uuidTSType,
-		reflect.TypeFor[decimal.Decimal]().String():     numberTSType,
-		reflect.TypeFor[decimal.NullDecimal]().String(): numberTSType,
+		reflect.TypeFor[decimal.Decimal]().String():     decimalTSType,
+		reflect.TypeFor[decimal.NullDecimal]().String(): decimalTSType,
 		reflect.TypeFor[time.Time]().String():           dateTSType,
 		reflect.TypeFor[civil.Date]().String():          civilDateTSType,
 		reflect.TypeFor[spanner.NullString]().String():  stringTSType,
@@ -1510,7 +1527,7 @@ func defaultTypescriptOverrides() map[string]string {
 		reflect.TypeFor[spanner.NullInt64]().String():   numberTSType,
 		reflect.TypeFor[spanner.NullFloat32]().String(): numberTSType,
 		reflect.TypeFor[spanner.NullFloat64]().String(): numberTSType,
-		reflect.TypeFor[spanner.NullNumeric]().String(): numberTSType,
+		reflect.TypeFor[spanner.NullNumeric]().String(): decimalTSType,
 		reflect.TypeFor[spanner.NullBool]().String():    booleanStr,
 		reflect.TypeFor[spanner.NullTime]().String():    dateTSType,
 		reflect.TypeFor[spanner.NullDate]().String():    civilDateTSType,

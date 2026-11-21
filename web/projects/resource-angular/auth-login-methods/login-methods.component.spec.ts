@@ -21,6 +21,7 @@ import { of } from 'rxjs';
 import packageJson from '../package.json';
 import {
   LoginMethodsComponent,
+  NO_PASSWORD_CONFIRMATION,
   PAGE_OLDER_THAN_SERVER,
   PASSWORDS_DIFFER,
   SIGN_IN_STEPS,
@@ -1046,6 +1047,57 @@ describe('LoginMethodsComponent renders the pending step', () => {
       expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
     });
   }
+
+  describe('on a server with no password sign-in, whose list names no confirmation route', () => {
+    const directoryList: LoginMethods = {
+      methods: [google],
+      pending: {
+        status: pendingRoutes.status,
+        cancel: pendingRoutes.cancel,
+        sendCode: pendingRoutes.sendCode,
+        verifyCode: pendingRoutes.verifyCode,
+        enrollEmail: pendingRoutes.enrollEmail,
+      },
+    };
+
+    it('a sign-in that waits for the mailed code shows the code form', async () => {
+      const body = { ...waiting, reason: 'mfa', factors: ['email-code'], emailCode: { ...codeMailed } };
+      const page = await pageOver(server({ methods: directoryList, status: { status: 200, body } }), {
+        pending: 'mfa',
+      });
+      expect(page.component.confirmOffered()).toBe(false);
+      expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+      expect(page.element.querySelector('input[name="confirmation"]')).toBeNull();
+      expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
+    });
+
+    it('a sign-in that waits for a password offers no password form, says why, and posts nothing but the cancel', async () => {
+      const page = await pageOver(server({ methods: directoryList, status: { status: 200, body: waiting } }), {
+        pending: 'confirmation',
+      });
+      expect(page.element.querySelector('input[name="confirmation"]')).toBeNull();
+      expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).toBe(
+        NO_PASSWORD_CONFIRMATION,
+      );
+      page.component.confirmation = 'lodestar';
+      await page.component.confirm();
+      expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', 'GET /console/api/user/pending']);
+      expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
+      await page.component.cancel();
+      expect(sent(page.transport).slice(2)).toEqual([
+        'GET /console/api/user/methods',
+        'POST /console/api/user/pending/cancel',
+      ]);
+    });
+  });
+
+  it('a list that names the confirmation route offers the password form', async () => {
+    const page = await pageOver(server({ status: { status: 200, body: waiting } }), { pending: 'confirmation' });
+    expect(page.component.confirmOffered()).toBe(true);
+    expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).not.toBe(
+      NO_PASSWORD_CONFIRMATION,
+    );
+  });
 
   it('declares the steps it renders in the package as in the code', () => {
     expect(packageJson.impulseframework.signInSteps).toEqual([...SIGN_IN_STEPS]);
@@ -2768,6 +2820,86 @@ describe('LoginMethodsComponent shows the directory buttons that could admit the
     await page.settle();
     expect(page.component.invitation()).toBeUndefined();
     expect(buttonsOf(page)).toEqual(['Sign in with Google', 'Sign in with Fleet Google']);
+  });
+});
+
+describe('LoginMethodsComponent over an auth that registers no password method', () => {
+  /**
+   * What the methods route of such an auth answers: its two directory methods, and none
+   * of the password method's routes (the change of a password, the reset of one, signing
+   * up with one, an account with a password for an invitation), which the server names
+   * only where the method is registered.
+   */
+  const directoryList: LoginMethods = {
+    methods: [google, entra],
+    pending: pendingRoutes,
+    invitation: { open: invitationRoutes.open, accept: invitationRoutes.accept },
+    email: emailRoutes,
+  };
+
+  it('offers the directory buttons alone: no password form, no "Forgot your password?" and no account to create', async () => {
+    const page = await pageOver(server({ methods: directoryList }));
+    expect(buttonsOf(page)).toEqual(['Sign in with Google', 'Sign in with Lakeside staff']);
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-forgot')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-sign-up')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(orderOf(page)).toEqual([
+      'impulse-login-redirect',
+      'impulse-login-redirect',
+      'impulse-login-different-account',
+    ]);
+    // Nothing of the password method is asked for, whatever is called.
+    page.transport.requests.length = 0;
+    page.component.username = 'gale';
+    page.component.password = 'orbit-and-anchor';
+    await page.component.login();
+    page.component.beginReset();
+    page.component.beginSignUp();
+    await page.settle();
+    expect(sent(page.transport)).toEqual([]);
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it('an invitation is accepted through a directory button: no password form and no account with a password', async () => {
+    const page = await pageOver(
+      server({
+        methods: directoryList,
+        invitationOpen: {
+          status: 200,
+          body: {
+            ...invited,
+            signUp: false,
+            methods: ['google', 'lakeside-entra'],
+            accountExists: false,
+            hasPassword: false,
+          },
+        },
+      }),
+      { invitation: 'tok-1' },
+      { home: '/dashboard' },
+    );
+    expect(page.component.invitationPaths()).toEqual({
+      known: true,
+      redirects: [google, entra],
+      password: false,
+      create: false,
+    });
+    expect(buttonsOf(page)).toEqual([
+      'Continue with Google as ensign@fleet.example',
+      'Continue with Lakeside staff as ensign@fleet.example',
+    ]);
+    expect(page.element.querySelector('.impulse-login-invitation-note')?.textContent?.trim()).toBe(
+      'The invitation is for ensign@fleet.example.',
+    );
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(page.component.account()).toBeUndefined();
+    page.component.signInThrough(entra);
+    expect(page.left).toEqual([
+      `/console/api/user/lakeside-entra/login?returnUrl=${encodeURIComponent('/dashboard')}&login_hint=${encodeURIComponent('ensign@fleet.example')}`,
+    ]);
   });
 });
 

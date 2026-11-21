@@ -6,12 +6,16 @@
 // edge per hop, drawn once however many paths share it: solid for @attribute,
 // dotted for @domain, dashed for a subject binding, labeled `name: column` on a
 // continuing hop and `name: column ⇒ column` where the path terminates; a thin
-// grey edge points a bare binding on a foreign key at its table. Facts only: no
+// gray edge points a bare binding on a foreign key at its table. Facts only: no
 // grant or condition is drawn.
 // A subject set that writes a who: or a where: part lists each under the set, in
 // the columns' names: who: says which rows are the requester's, where: which of
 // those rows count. A set that builds on another is a dashed edge from the
 // resource declaring that other set, labeled `name: column IN subject.other`.
+// A subject set that writes a domain: part says where its rows' tenant is found,
+// and in a request with a tenant the set holds that tenant's rows alone. The path
+// is drawn dotted, as @domain's is, under the set's name: `name domain: column` on
+// a continuing hop and `name domain: column ⇒ column` where it reads the tenant.
 digraph Bindings {
 	rankdir=LR;
 	node [shape=box];
@@ -36,7 +40,7 @@ digraph Bindings {
 	"CrewUserGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewUserGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"DistressCall" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>DistressCall</b></td></tr><tr><td align="left">filedBy: FiledByUserId</td></tr></table>>];
 	"Hangar" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>Hangar</b></td></tr><tr><td align="left">hangar: Id</td></tr></table>>];
-	"HangarPass" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>HangarPass</b></td></tr><tr><td align="left">subject.hangarsOpen: HangarId</td></tr><tr><td align="left">subject.hangarsOpen who: UserId = subject OR SquadronId IN subject.squadrons</td></tr><tr><td align="left">subject.hangarsOpen where: LevelId IN (&#39;visit&#39;, &#39;run&#39;) AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr><tr><td align="left">subject.hangarsRun: HangarId</td></tr><tr><td align="left">subject.hangarsRun who: UserId = subject OR SquadronId IN subject.squadrons</td></tr><tr><td align="left">subject.hangarsRun where: LevelId = &#39;run&#39; AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr></table>>];
+	"HangarPass" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>HangarPass</b></td></tr><tr><td align="left">subject.hangarsOpen: HangarId</td></tr><tr><td align="left">subject.hangarsOpen who: UserId = subject OR SquadronId IN subject.squadrons OR GroupId IN subject.groups</td></tr><tr><td align="left">subject.hangarsOpen where: LevelId IN (&#39;visit&#39;, &#39;run&#39;) AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr><tr><td align="left">subject.hangarsRun: HangarId</td></tr><tr><td align="left">subject.hangarsRun who: UserId = subject OR SquadronId IN subject.squadrons OR GroupId IN subject.groups</td></tr><tr><td align="left">subject.hangarsRun where: LevelId = &#39;run&#39; AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr></table>>];
 	"MembersSectorHeldRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersSectorHeldRole</b></td></tr><tr><td align="left">everyDomain: EveryDomain</td></tr><tr><td align="left">role: Role</td></tr></table>>];
 	"MembersSectorIdentity" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersSectorIdentity</b></td></tr><tr><td align="left">heldElsewhere: HeldElsewhere</td></tr><tr><td align="left">heldGlobally: HeldGlobally</td></tr></table>>];
 	"MembersSectorInvitation" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersSectorInvitation</b></td></tr><tr><td align="left">pending: Pending</td></tr><tr><td align="left">role: RoleNames</td></tr></table>>];
@@ -65,6 +69,7 @@ digraph Bindings {
 	"Ship" -> "ShipClass" [label="shipRole: ClassId ⇒ RoleId"];
 	"Sortie" -> "Mission" [label="state: MissionId ⇒ StatusId"];
 	"SortieExpense" -> "Sortie" [label="state: SortieId"];
+	"CrewGroupMember" -> "CrewGroup" [style=dotted, label="groups domain: GroupId ⇒ DomainId"];
 	"MissionDocument" -> "Mission" [style=dotted, label="domain: MissionId ⇒ SectorId"];
 	"Refit" -> "Ship" [style=dotted, label="domain: ShipId"];
 	"RefitTask" -> "Refit" [style=dotted, label="domain: Id"];
@@ -73,6 +78,8 @@ digraph Bindings {
 	"SortieExpense" -> "Sortie" [style=dotted, label="domain: SortieId"];
 	"Squadron" -> "Wing" [style=dotted, label="domain: WingId ⇒ SectorId"];
 	"SquadronMembership" -> "Squadron" [style=dotted, label="domain: SquadronId"];
+	"CrewGroupMember" -> "HangarPass" [style=dashed, label="hangarsOpen: GroupId IN subject.groups"];
+	"CrewGroupMember" -> "HangarPass" [style=dashed, label="hangarsRun: GroupId IN subject.groups"];
 	"SquadronMembership" -> "HangarPass" [style=dashed, label="hangarsOpen: SquadronId IN subject.squadrons"];
 	"SquadronMembership" -> "HangarPass" [style=dashed, label="hangarsRun: SquadronId IN subject.squadrons"];
 	"SquadronMembership" -> "Squadron" [style=dashed, label="wings: SquadronId ⇒ WingId"];

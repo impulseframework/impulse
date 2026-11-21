@@ -165,6 +165,9 @@ type AuthConfig struct {
 	// SeededUsers is the registration's declaration that its provider's names are the
 	// application's own (signin.Registration.SeededUsers).
 	SeededUsers bool
+	// NoPassword has the instance's SignIn run as under an Auth that registers no
+	// password method (signinflow.Rules.NoPassword).
+	NoPassword bool
 	// Admits is whom the instance's sign-in method admits now, as its registration
 	// fixes it; the zero value is MethodAudience. A scenario of a registration that
 	// code changed after an administrator opened it names another audience here and
@@ -464,7 +467,7 @@ func NewSignIn[Tx any](
 		}
 		rules := signinflow.Rules[Tx]{
 			Account: rule, Method: MethodName, Audience: cfg.audience(), SeededUsers: cfg.SeededUsers, Policy: policy, Accept: accept, SignUp: signUp,
-			Directories: directories, Seat: seat, OnlyIn: onlyIn, Proven: oneProof(proven),
+			Directories: directories, Seat: seat, OnlyIn: onlyIn, Proven: oneProof(proven), NoPassword: cfg.NoPassword,
 			ConfirmAddress: cfg.ConfirmAddress,
 		}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
@@ -524,6 +527,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a session's auth events go with it", run: testAuthEventsCascade},
 		{name: "a linked identity signs in to its user without the resolver", run: testLinkedIdentitySignsIn},
 		{name: "the resolver's outcome decides an unlinked identity", run: testResolverOutcomes},
+		{name: "an Auth that registers no password method holds no sign-in for a password an account holds: the account is decided as one with no password, by the standard rule and at a link, and keeps its password", run: testNoPasswordMethod},
 		{name: "the standard account rule decides an unlinked identity by its sign-in name and by what was chosen for its method: no row is invite only, which refuses a stranger and writes nothing", run: testStandardAccountRules},
 		{name: "a sign-in method's row is written whole at the database's time, replaced by the next write, and listed by name", run: testSignInMethodRows},
 		{name: "a person who comes through a directory that does not vouch for their address is held for the code until the row holds a confirmed address, as the sign-in's transaction reads it", run: testAddressConfirmedFirst},

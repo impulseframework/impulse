@@ -271,6 +271,11 @@ func bearerToken(r *http.Request) (string, bool) {
 // validateToken authenticates the request by its bearer token for the outlet and
 // returns the context the request runs in: the session the token stands in for, its
 // user, the principal and the evidence, as validateRequest gives a browser request.
+//
+// The token's account is the store's User, held as a session's is to the account the
+// token names and to whether the library's own row holds that account disabled
+// (heldToTheAccountAsked): a store that wraps the library's cannot run a token as
+// another account, and cannot keep a disabled account's token working.
 func (a *Auth[S, U, Tx]) validateToken(ctx context.Context, evidence trace.Span, r *http.Request, outlet string) (context.Context, error) {
 	secret, ok := bearerToken(r)
 	if !ok {
@@ -294,6 +299,9 @@ func (a *Auth[S, U, Tx]) validateToken(ctx context.Context, evidence trace.Span,
 		}
 
 		return ctx, errors.Wrap(err, "sessionstorage.AuthStore.User()")
+	}
+	if err := a.heldToTheAccountAsked(ctx, accountOfToken, tok.UserID, user); err != nil {
+		return ctx, err
 	}
 	info, err := enabledUser(user)
 	if err != nil {

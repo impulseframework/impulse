@@ -110,7 +110,7 @@ type (
 	// it did not, why (Reason).` + identityTenantUserNote + `
 	//
 	// @rpc` + identityTenantScope + `
-	// @outlet({{ .Outlets }})
+	// @outlet({{ .Outlets }})` + identityCredentialClass + `
 	Set{{ .Subject }}UserEmail struct {
 		// @target({{ .SubjectUser }})
 		UserID impulse.UUID
@@ -167,7 +167,7 @@ type (
 	// mailed too often.` + identityTenantResetNote + `
 	//
 	// @rpc` + identityTenantScope + `
-	// @outlet({{ .Outlets }})
+	// @outlet({{ .Outlets }})` + identityCredentialClass + `
 	Send{{ .Subject }}UserPasswordResetLink struct {
 		// @target({{ .SubjectUser }})
 		UserID impulse.UUID
@@ -481,7 +481,7 @@ import (
 // @rpc
 // @permissionScope(domain)
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Assign{{ .Subject }}Role struct {
 	// @target({{ .TenantUser }})
 	UserID impulse.UUID
@@ -550,7 +550,7 @@ import (
 // @rpc
 // @permissionScope(domain)
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Remove{{ .Subject }}Role struct {
 	// @target({{ .TenantHeldRole }}, key: UserID)
 	UserID impulse.UUID
@@ -614,7 +614,7 @@ type (
 	//
 	// @rpc
 	// @permissionScope(domain)
-	// @outlet({{ .Outlets }})
+	// @outlet({{ .Outlets }})` + identityAccessClass + `
 	Invite{{ .Subject }}User struct {
 		Email string ` + "`validate:\"required\"`" + `
 		Name  *string

@@ -217,14 +217,23 @@ export function filledBody(method: OfferedMethod, row: RecordData | undefined): 
  * carries part of the row's key, filled from the row's field it carries. A row that
  * lacks one of them cannot be named, and is refused naming the field: the list requests
  * every key field of its rows, so this is a page built on a row that is not the
- * method's target.
+ * method's target. The empty text is a value where the method says the part may be
+ * empty (`target.mayBeEmpty`), as the group of a role held directly is, and is sent as
+ * it is; in every other part of the key it names no row, and the row is refused saying
+ * the field is empty.
  */
 export function targetBody(method: string, meta: MethodMeta, row: RecordData): Record<string, unknown> {
   const body: Record<string, unknown> = {};
+  const mayBeEmpty = meta.target?.mayBeEmpty ?? [];
   for (const [requestField, rowField] of Object.entries(meta.target?.key ?? {})) {
     const value = row[rowField];
-    if (value === undefined || value === null || value === '') {
+    if (value === undefined || value === null) {
       throw new Error(`${method} names its target row by ${rowField}, which this row does not carry`);
+    }
+    if (value === '' && !mayBeEmpty.includes(requestField)) {
+      throw new Error(
+        `${method} names its target row by ${rowField}, which is empty on this row: only a text field of the key that the method does not declare required may be empty`,
+      );
     }
     body[requestField] = value;
   }

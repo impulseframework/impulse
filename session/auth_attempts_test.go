@@ -921,3 +921,53 @@ func TestSignInAttemptName(t *testing.T) {
 		})
 	}
 }
+
+// TestAccountAttemptKeys holds the rows named as one account's to the keys the library
+// itself counts under: the username's failed sign-ins, the mail and the reset links the
+// address is sent, and the guesses at the code of the first password. A count the
+// library adds for an account joins the list, or a caller that asks whether a row is an
+// account's misses it.
+func TestAccountAttemptKeys(t *testing.T) {
+	t.Parallel()
+
+	id := impulse.UUID{}
+	if err := id.UnmarshalText([]byte("0191a5b0-7c1e-7000-8000-000000000001")); err != nil {
+		t.Fatalf("impulse.UUID.UnmarshalText() error = %v", err)
+	}
+	tests := []struct {
+		name  string
+		email string
+		want  []string
+	}{
+		{
+			name:  "an account with an address",
+			email: "Pat@Example.com",
+			want:  []string{"pat", firstPasswordKey(id), mailLimitKey("pat@example.com"), resetLimitKey("pat@example.com")},
+		},
+		{name: "an account with no address has no mail to count", email: " ", want: []string{"pat", firstPasswordKey(id)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := AccountAttemptKeys(id, "Pat", tt.email)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("AccountAttemptKeys() (-want +got):\n%s", diff)
+			}
+			// A row as the list shows it is found among them, whatever the case it was
+			// asked for in.
+			for _, key := range got {
+				if SignInAttemptKey(key) != key {
+					t.Errorf("SignInAttemptKey(%q) = %q: the key of a listed row is not itself", key, SignInAttemptKey(key))
+				}
+			}
+		})
+	}
+	// Every kind of count the library keeps beside the names is one of an account's.
+	all := strings.Join(AccountAttemptKeys(id, "pat", "pat@example.com"), "\n")
+	for _, kind := range []string{attempts.KindMail, attempts.KindReset, attempts.KindFirstPassword} {
+		if !strings.Contains(all, kind+":") {
+			t.Errorf("AccountAttemptKeys() names no row of the kind %s", kind)
+		}
+	}
+}

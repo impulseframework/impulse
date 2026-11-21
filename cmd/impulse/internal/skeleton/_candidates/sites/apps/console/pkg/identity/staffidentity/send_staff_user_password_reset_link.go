@@ -23,6 +23,7 @@ type (
 	//
 	// @rpc
 	// @outlet(default)
+	// @class(credential)
 	SendStaffUserPasswordResetLink struct {
 		// @target(StaffSessionUser)
 		UserID impulse.UUID

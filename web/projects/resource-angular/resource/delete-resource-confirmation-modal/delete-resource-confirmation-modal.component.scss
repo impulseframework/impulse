@@ -1,0 +1,9 @@
+.question {
+  margin: 0;
+}
+
+// The server's refusal of the delete, under the question it answers.
+.refusal {
+  margin: 12px 0 0;
+  color: var(--mat-sys-error, #b3261e);
+}

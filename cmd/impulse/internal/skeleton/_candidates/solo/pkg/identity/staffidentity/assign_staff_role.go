@@ -34,6 +34,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type AssignStaffRole struct {
 	UserID impulse.UUID
 	// Role is the role the person is given, picked from the roles that exist where it is

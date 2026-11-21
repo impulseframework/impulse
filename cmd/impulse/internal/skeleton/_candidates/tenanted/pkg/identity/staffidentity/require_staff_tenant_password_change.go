@@ -26,6 +26,7 @@ import (
 // @permissionScope(domain)
 // @outlet(default)
 // @answers(204)
+// @class(credential)
 type RequireStaffTenantPasswordChange struct {
 	// @target(StaffTenantUser)
 	UserID impulse.UUID

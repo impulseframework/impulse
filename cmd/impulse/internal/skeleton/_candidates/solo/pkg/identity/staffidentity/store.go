@@ -184,7 +184,7 @@ func (store) DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransacti
 
 func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (token *identity.Token, found bool, err error) {
 	row, err := staffresources.NewStaffSessionTokenQuery().
-		AddColumns(staffresources.NewStaffSessionTokenColumns().FamilyID().ExpiresAt().RevokedAt()).
+		AddColumns(staffresources.NewStaffSessionTokenColumns().UserID().FamilyID().ExpiresAt().RevokedAt()).
 		SetID(id).
 		Read(ctx, txn)
 	if err != nil {
@@ -195,7 +195,7 @@ func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id im
 		return nil, false, errors.Wrap(err, "staffresources.StaffSessionTokenQuery.Read()")
 	}
 
-	return &identity.Token{FamilyID: row.Data.FamilyID, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
+	return &identity.Token{UserID: row.Data.UserID, FamilyID: row.Data.FamilyID, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
 }
 
 func (store) FamilyTokens(ctx context.Context, txn resource.ReadWriteTransaction, family impulse.UUID) ([]impulse.UUID, error) {

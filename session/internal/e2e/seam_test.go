@@ -20,7 +20,6 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/internal/testkey"
-	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 )
 
@@ -47,6 +46,31 @@ type impersonateRequest struct {
 	MaxDurationMS int    `json:"maxDurationMs"`
 }
 
+// The kinds of impersonation the scenarios' applications declare when who may
+// impersonate is not what a scenario is about: a session that views as a person,
+// reading only, and one that acts as a person with no mask, which the declaration says
+// in so many words.
+const (
+	kindView = "view"
+	kindFull = "full"
+)
+
+// declaredForAnyone is that declaration. The applications that use it are a session
+// type on its own, with no generated permission collection, so they name the grants of
+// their kinds themselves (session.NamedActions).
+func declaredForAnyone() *session.Impersonations {
+	return session.MustNewImpersonations(session.NamedActions(grantView, grantFull),
+		session.ImpersonatesUser(kindView, grantView, accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
+		session.ImpersonatesUser(kindFull, grantFull, accesstypes.AllowAll()),
+	)
+}
+
+// anyoneMay is the grant check of those applications: whoever is signed in holds every
+// grant, which is what the scenarios need.
+func anyoneMay(context.Context, accesstypes.Resource) (bool, error) {
+	return true, nil
+}
+
 func newApp(ctx context.Context, t *testing.T) *app {
 	t.Helper()
 
@@ -62,6 +86,7 @@ func newApp(ctx context.Context, t *testing.T) *app {
 		t.Fatalf("session.NewPreauth() error = %v", err)
 	}
 	api := auth.API()
+	impersonations := declaredForAnyone()
 
 	ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
 
@@ -97,15 +122,21 @@ func newApp(ctx context.Context, t *testing.T) *app {
 
 				return
 			}
-			req := &session.ImpersonationRequest{
-				// The actor is whoever holds the validated session; the source session
-				// defaults to it.
-				Actor:       sessioninfo.FromCtx(r.Context()).Username,
-				Principal:   accesstypes.UserPrincipal(accesstypes.User(body.User)),
-				MaxDuration: time.Duration(body.MaxDurationMS) * time.Millisecond,
-			}
+			// The declaration makes the request: the actor is whoever holds the validated
+			// session, which is the actor's own, and the kind gives the mask.
+			kind := kindFull
 			if body.ReadOnly {
-				req.Mask = accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)
+				kind = kindView
+			}
+			req, err := impersonations.Request(r.Context(), &session.ImpersonationAsk{
+				Kind:        kind,
+				Principal:   body.User,
+				MaxDuration: time.Duration(body.MaxDurationMS) * time.Millisecond,
+			}, anyoneMay)
+			if err != nil {
+				_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+				return
 			}
 			id, err := api.StartImpersonatedSession(r.Context(), w, req)
 			if err != nil {

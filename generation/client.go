@@ -489,6 +489,28 @@ func (t *tableMetadata) addIndexResult(result *indexSchemaResult) {
 	})
 }
 
+// addForeignKeyResult folds one row of the foreign key query into the table's foreign
+// keys: rows arrive grouped by constraint, its columns in constraint order.
+func (t *tableMetadata) addForeignKeyResult(result *foreignKeySchemaResult) {
+	if len(t.ForeignKeys) == 0 || t.ForeignKeys[len(t.ForeignKeys)-1].Name != result.ConstraintName {
+		t.ForeignKeys = append(t.ForeignKeys, foreignKeyMeta{
+			Name:            result.ConstraintName,
+			ReferencedTable: valueOrEmpty(result.ReferencedTable),
+			DeleteRule:      valueOrEmpty(result.DeleteRule),
+		})
+	}
+
+	foreignKey := &t.ForeignKeys[len(t.ForeignKeys)-1]
+	foreignKey.Columns = append(foreignKey.Columns, result.ColumnName)
+	if result.ReferencedColumn == nil {
+		// A column with no match leaves the constraint unresolved as a whole.
+		foreignKey.ReferencedTable = ""
+
+		return
+	}
+	foreignKey.ReferencedColumns = append(foreignKey.ReferencedColumns, *result.ReferencedColumn)
+}
+
 // deriveIndexFlags sets the per-column index flags from the index composition. A
 // column that leads some index, the PRIMARY_KEY index and Spanner's managed
 // foreign-key indexes included, is indexed: a filter on it alone has a seek path, a
@@ -566,8 +588,10 @@ func (c *client) templateFuncs() map[string]any {
 		"PermissionConstant":      permissionConstant,
 		"ScopeConstant":           scopeConstant,
 		"MaskingConstant":         maskingConstant,
+		"ClassConstant":           classConstantName,
 		"BindingHops":             bindingHopsLiteral,
 		"SubjectParts":            subjectPartsLiteral,
+		"SubjectDomain":           subjectDomainLiteral,
 		// The feature flag routes under an outlet's prefix and the read route's
 		// parameter, from the resource package's constants, so the routes, the router
 		// tests and the TypeScript descriptor spell them once.
@@ -664,6 +688,17 @@ func subjectPartsLiteral(who []resource.SubjectWhoData, where *resource.SubjectW
 	}
 
 	return b.String()
+}
+
+// subjectDomainLiteral renders a subject set's own way to a row's tenant as the
+// trailing Domain field of its SubjectBindingData literal. A set that names none
+// renders nothing, so its literal is the one it has always had.
+func subjectDomainLiteral(domain *resource.DomainBindingData) string {
+	if domain == nil {
+		return ""
+	}
+
+	return fmt.Sprintf(", Domain: &resource.DomainBindingData{Column: %q%s}", domain.Column, bindingHopsLiteral(domain.Path))
 }
 
 // permissionConstant renders a permission as its accesstypes constant when one exists,

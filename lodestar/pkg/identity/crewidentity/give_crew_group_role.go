@@ -37,6 +37,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type GiveCrewGroupRole struct {
 	// @target(CrewListedGroup)
 	GroupID impulse.UUID

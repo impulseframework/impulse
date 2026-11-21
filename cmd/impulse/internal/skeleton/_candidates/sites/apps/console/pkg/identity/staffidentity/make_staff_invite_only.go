@@ -20,6 +20,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type MakeStaffInviteOnly struct {
 	// Name is the name the sign-in method is registered under.
 	Name string `validate:"required"`

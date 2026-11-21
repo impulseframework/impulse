@@ -35,6 +35,7 @@ import (
 // @rpc
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type AssignMembersRole struct {
 	UserID      impulse.UUID
 	Domain      *string

@@ -203,14 +203,9 @@ type Handlers struct {
 	directory *azure.Method
 }
 
-// PendingStatus reports the sign-in that waits for a password confirmation, if any.
+// PendingStatus reports the sign-in that waits for the second factor, if any.
 func (h *Handlers) PendingStatus() http.HandlerFunc {
 	return h.Pending().Status()
-}
-
-// PendingConfirmWithPassword completes a waiting sign-in with the user's password.
-func (h *Handlers) PendingConfirmWithPassword() http.HandlerFunc {
-	return h.Pending().ConfirmWithPassword()
 }
 
 // PendingCancel discards a waiting sign-in.

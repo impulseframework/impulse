@@ -35,6 +35,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type AssignCrewRole struct {
 	UserID impulse.UUID
 	// Domain is the one Sector the role is given in, picked from the

@@ -404,7 +404,7 @@ func Test_prepareIdentity_invitedTenant(t *testing.T) {
 	invite := identitySource(t, "crewidentity/invite_crew_citadel.go")
 	assertContains(t, "invite_crew_citadel.go", invite, []string{
 		generationHeader,
-		"// @rpc\n // @outlet(default)\n InviteCrewCitadel struct {",
+		"// @rpc\n // @outlet(default)\n // @class(access)\n InviteCrewCitadel struct {",
 		"Email string `validate:\"required\"`\n Name *string\n",
 		// The record's fields, each under the record's name, required as the create
 		// requires them.
@@ -475,7 +475,7 @@ func Test_prepareIdentity_invitedTenant(t *testing.T) {
 	withdraw := identitySource(t, "crewidentity/withdraw_crew_invited_citadel.go")
 	assertContains(t, "withdraw_crew_invited_citadel.go", withdraw, []string{
 		generationHeader,
-		"// @rpc\n// @outlet(default)\n// @answers(204)\ntype WithdrawCrewInvitedCitadel struct {",
+		"// @rpc\n// @outlet(default)\n// @answers(204)\n// @class(access)\ntype WithdrawCrewInvitedCitadel struct {",
 		"InvitationID impulse.UUID\n}",
 		"func (m *WithdrawCrewInvitedCitadel) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {",
 		"client.manager.WithdrawTenantInvitation(ctx, txn, m.InvitationID)",

@@ -29,6 +29,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "rename your own account"); err != nil {
+		return err
+	}
 	name := strings.TrimSpace(username)
 	if name == "" {
 		return httpio.NewBadRequestMessage("a username is required")
@@ -102,7 +105,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 // transaction has committed. Nobody
 // deletes themselves: the person acting, the real person behind the session, is refused
 // their own account, and a session that views as someone else the account it views as
-// (refuseOwnAccount). A super
+// (refuseOwnAccount). In a session that acts as someone else the refusal of the real
+// person's own account is the one DisableUser and EnableUser give there, in the same
+// sentence form and with the same log line. A super
 // administrator's account is deleted by a super administrator alone, and the last one
 // who can sign in by nobody (requireSuperAdministrator, refuseLastSuperAdministrator).
 //
@@ -192,6 +197,9 @@ func (m *Manager) SendPasswordResetLink(ctx context.Context, txn resource.ReadWr
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "send yourself a password reset link"); err != nil {
+		return err
+	}
 	if _, found, err := m.store.Username(ctx, txn, userID); err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")
 	} else if !found {
@@ -219,6 +227,9 @@ func (m *Manager) RevokeTrustedDevices(ctx context.Context, txn resource.ReadWri
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "revoke your own trusted devices"); err != nil {
+		return err
+	}
 	devices, err := m.store.TrustedDevices(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.TrustedDevices()")
@@ -255,6 +266,9 @@ func (m *Manager) UnlockSignIn(ctx context.Context, txn resource.ReadWriteTransa
 
 	if strings.TrimSpace(name) == "" {
 		return httpio.NewBadRequestMessage("a name is required: the name the failed sign-ins are counted under")
+	}
+	if err := m.refuseImpersonatorsName(ctx, txn, name); err != nil {
+		return err
 	}
 	if err := m.store.ClearAttempts(ctx, txn, session.SignInAttemptKey(name)); err != nil {
 		return errors.Wrap(err, "identity.Store.ClearAttempts()")

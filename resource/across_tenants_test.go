@@ -641,7 +641,7 @@ func TestAcrossTenants_superAdministrator(t *testing.T) {
 
 			ctx := sessionCtx("erin", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword})
 			checker := &stubPermissions{user: "erin", domains: []accesstypes.Domain{"open", "sealed"}, global: tt.global, super: tt.super}
-			perms := SessionPermissions(ctx, func(accesstypes.User) *stubPermissions { return checker }, RolePrincipalsUnsupported, roster, declarations)
+			perms := SessionPermissions(ctx, func(accesstypes.User) *stubPermissions { return checker }, RolePrincipalsUnsupported, roster, declarations, nil)
 
 			req := acrossRequest(t, "/crates?columns=id").WithContext(ctx)
 			qSet, err := crateDecoder(t).DecodeAcrossTenants(req, perms)

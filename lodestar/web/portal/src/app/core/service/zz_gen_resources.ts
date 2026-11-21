@@ -237,7 +237,7 @@ export interface Missions {
   brief?: string;
   briefingTemplateId?: string;
   hazard?: number;
-  fee?: number;
+  fee?: string;
   deadline?: Date;
   requiredCertId?: string;
   bookedByUserId?: string;
@@ -245,7 +245,7 @@ export interface Missions {
   assignedSquadronId?: string;
   statusId?: string;
   notes?: string;
-  settlement?: number;
+  settlement?: string;
 }
 
 export interface MissionDocuments {
@@ -342,7 +342,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'caseNumber', displayType: 'string', required: false, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'filedByUserId', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'filedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
-      { fieldName: 'position', displayType: 'object', required: false, isIndex: false },
+      { fieldName: 'position', displayType: 'object', required: false, isIndex: false, sortable: false },
     ],
   },
   [Resources.MembersHeldRoles]: {
@@ -445,7 +445,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'email', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false },
+      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false, sortable: false },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
@@ -516,7 +516,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'seq', primaryKey: { ordinalPosition: 1 }, displayType: 'number', required: true, isIndex: false },
       { fieldName: 'method', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'idpAmr', displayType: 'string[]', required: false, isIndex: false },
+      { fieldName: 'idpAmr', displayType: 'string[]', required: false, isIndex: false, sortable: false },
       { fieldName: 'occurredAt', displayType: 'date', required: true, isIndex: false },
     ],
   },
@@ -552,7 +552,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessionUsers },
       { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'everyTenant', displayType: 'boolean', required: false, isIndex: false },
-      { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false },
+      { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false, sortable: false },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
@@ -667,8 +667,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'uploadedByUserId', displayType: 'string', required: true, isIndex: false, maxLength: 36 },
       { fieldName: 'uploadedByName', displayType: 'string', required: true, isIndex: false, readOnly: true },
       { fieldName: 'uploadedAt', displayType: 'date', required: true, isIndex: false },
-      { fieldName: 'provenance', displayType: 'object', required: false, isIndex: false },
-      { fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false },
+      { fieldName: 'provenance', displayType: 'object', required: false, isIndex: false, sortable: false },
+      { fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false, sortable: false },
     ],
   },
   [Resources.BriefingTemplates]: {
@@ -683,7 +683,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'audience', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'summary', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'layout', displayType: 'object', required: false, isIndex: false },
+      { fieldName: 'layout', displayType: 'object', required: false, isIndex: false, sortable: false },
     ],
   },
   [Resources.FeatureFlags]: {

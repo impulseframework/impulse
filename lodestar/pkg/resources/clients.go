@@ -44,9 +44,15 @@ type (
 	// name only on a trusted row, and an explicit `contactEmail:contains:` from that role
 	// is a 403. A quoted value carries the grammar's separators (`name:eq:"Halvard Freight"`).
 	//
-	// Demonstrates: pii, pii.filter-placement, allow_filter, @attribute.bool, @attribute.nullable-bool, consolidation.exclusion, commit.constraint-refusal, nullboolean, search.box, search.match, @searchAlso, search.pii-posts, search.denied-field, search.conditional-field, search.quoted-value, metadata.search.
+	// A client's delete is declared (@deleteCascade): its contacts go with it, and a
+	// mission or a consignment for the client refuses it. A mission's sorties and
+	// documents are under a client only through the mission, so they need no place in
+	// the list.
+	//
+	// Demonstrates: pii, pii.filter-placement, allow_filter, @attribute.bool, @attribute.nullable-bool, consolidation.exclusion, commit.constraint-refusal, nullboolean, search.box, search.match, @searchAlso, search.pii-posts, search.denied-field, search.conditional-field, search.quoted-value, metadata.search, @deleteCascade, delete.rows-under-refusal.
 	//
 	// @resource
+	// @deleteCascade(ClientContact, refusedBy: Mission, Consignment)
 	// @searchAlso(ClientContact.DisplayName)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)

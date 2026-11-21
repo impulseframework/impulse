@@ -35,6 +35,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type AssignStaffRole struct {
 	UserID impulse.UUID
 	// Domain is the one Tenant the role is given in, picked from the

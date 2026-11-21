@@ -40,6 +40,12 @@ func (s *domainsStubPermissions) Reaches(context.Context, accesstypes.Domain) (b
 	return true, nil
 }
 
+// HeldDomains is the stub's list: it runs under no mask and no admission, so what it
+// lists is what its person holds.
+func (s *domainsStubPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	return s.domains, s.err
+}
+
 func (s *domainsStubPermissions) User() accesstypes.User { return "dana" }
 
 // stubNames names the domains it holds and no other.
@@ -238,7 +244,7 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			}
 			reader := &declarationReader{declarations: declarations}
 			handler := UserDomainsHandler(func(r *http.Request) UserPermissions {
-				return SessionPermissions(r.Context(), forUser, RolePrincipalsUnsupported, roster, reader.read)
+				return SessionPermissions(r.Context(), forUser, RolePrincipalsUnsupported, roster, reader.read, nil)
 			}, WithDomainNames(stubNames{anvil: "Anvil Works"}), WithDirectoryNames(tt.namers...))
 
 			req := httptest.NewRequestWithContext(tt.ctx, http.MethodGet, "/api/user-domains", http.NoBody)

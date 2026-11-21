@@ -127,6 +127,9 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 		return impulse.NilUUID, errors.Wrap(err, "identity.SessionAPI.PrepareInvitation()")
 	}
 	row := prepared.Row()
+	if err := m.refuseImpersonatorsAddress(ctx, txn, row.Email); err != nil {
+		return impulse.NilUUID, err
+	}
 	if err := m.refuseInvitedElsewhere(ctx, txn, inv.Domain, row.Email); err != nil {
 		return impulse.NilUUID, err
 	}

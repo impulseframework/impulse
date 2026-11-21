@@ -24,9 +24,9 @@ import { missionsEverySectorConfig } from './missionsEverySector.config';
 // The server as the spec plays it answers the liaison: the list served without the
 // sector's segment, each row naming its sector, Anvil's rows without the fee her Cadet
 // role there does not show and Cinder's closed sweep with it. The page asks that one
-// route, names each row's sector first, leaves the Fee cell empty where the server sent
-// none, and opens a row on the mission itself inside its own sector, where her roles let
-// her read a mission. The page is hers because she may list missions in a sector she
+// route, names each row's sector after its title, leaves the Fee cell empty where the
+// server sent none, and opens a row on the mission itself inside its own sector, where
+// her roles let her read a mission. The page is hers because she may list missions in a sector she
 // reaches, which the server tells the global digest: its menu entry and its route ask
 // that, and a person who may list missions in no sector is shown neither.
 
@@ -157,11 +157,11 @@ describe('the Missions in every sector page', () => {
       expect(transport.requests.some((request) => request.url.includes('/sectors/'))).toBe(false);
     });
 
-    it("names each row's sector first and leaves the fee empty where her roles in the sector hide it", () => {
+    it("names each row's sector after its title and leaves the fee empty where her roles in the sector hide it", () => {
       const element: HTMLElement = fixture.nativeElement;
       expect(Array.from(element.querySelectorAll('th .col-header')).map((th) => th.textContent?.trim())).toEqual([
-        'Sector',
         'Title',
+        'Sector',
         'Kind',
         'Hazard',
         'Status',
@@ -172,9 +172,9 @@ describe('the Missions in every sector page', () => {
         Array.from(row.querySelectorAll('td.data-col:not(.action-col)')).map((cell) => cell.textContent?.trim()),
       );
       expect(cells.map((row) => [row[0], row[1], row[6]])).toEqual([
-        ['Cinder', 'Cinder Verge salvage sweep', '60000'],
-        ['Anvil', 'Quarantine relief courier', ''],
-        ['Anvil', 'Stranded hauler off Anvil Reach', ''],
+        ['Cinder Verge salvage sweep', 'Cinder', '60000'],
+        ['Quarantine relief courier', 'Anvil', ''],
+        ['Stranded hauler off Anvil Reach', 'Anvil', ''],
       ]);
       expect(element.querySelector('.impulse-grid-pager .pager-rows')?.textContent?.trim()).toBe('1–3 of 3');
     });

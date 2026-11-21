@@ -5,10 +5,10 @@ import (
 
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/workos"
 	"github.com/impulseframework/impulse/session/oidc"
 	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -54,7 +54,7 @@ func TestAuthAPI_DirectoryName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := mock_sessionstorage.NewMockAuthStore[mockTx](gomock.NewController(t))
+			store := mockstore.NewAuthStore[mockTx](gomock.NewController(t))
 			store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 			store.EXPECT().SetUsernameIsEmail(gomock.Any()).AnyTimes()
 			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())

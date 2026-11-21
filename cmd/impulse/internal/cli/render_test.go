@@ -169,6 +169,52 @@ Next steps
      then sign in as admin with the password "password".
 `,
 		},
+		{
+			name: "no password sign-in, and no browser apps",
+			report: renderReport{
+				candidate: "solo", dir: "x", modulePath: "example.com/x",
+				rendered: &skeleton.Rendered{Files: 1}, goProcs: []string{"spanner", "server"},
+				signIn: &developmentSignIn{method: "persona", as: "the persona admin"},
+			},
+			want: `Rendered solo into x as example.com/x (1 files).
+
+Next steps
+  1. cd x
+  2. cp .envrc.template .envrc && direnv allow
+  3. overmind start
+     The first run compiles and bootstraps before it listens. Wait for "Starting Server",
+     then sign in through the persona method.
+     A development run answers that sign-in as the persona admin.
+`,
+		},
+		{
+			name: "no password sign-in, the Go side first",
+			report: renderReport{
+				candidate: "solo", dir: "x", modulePath: "example.com/x",
+				rendered: &skeleton.Rendered{Files: 1}, goProcs: []string{"spanner", "server"},
+				web:    []webWorkspace{{Dir: "web", Projects: []webProject{{Name: "console"}}}},
+				signIn: &developmentSignIn{method: "google", as: "the person APP_USERNAME names in the environment template, with the roles APP_ROLES names there"},
+			},
+			want: `Rendered solo into x as example.com/x (1 files).
+
+Next steps
+  1. cd x
+  2. cp .envrc.template .envrc && direnv allow
+  3. overmind start -l spanner,server
+     The Go side alone. The first run compiles and bootstraps before it listens; wait for
+     "Starting Server", then sign in against the API through the google method.
+     A development run answers that sign-in as the person APP_USERNAME names in the environment template, with the roles APP_ROLES names there.
+  4. (cd web && bun install)
+     Once, for the browser apps: installs the packages each web root pins and writes its bun.lock,
+     which the workflows install from (bun ci, with bun 1.4.0). Commit bun.lock: impulse check fails
+     while a web root has none.
+  5. impulse check --only prettier --fix
+     Once, after the install: holds the browser files to the prettier each web root pins, which
+     the install brings, and wraps again any line your names made longer or shorter. Where they
+     left every line as it was, it changes nothing; impulse check fails on a file that needs it.
+  6. overmind start
+`,
+		},
 	}
 
 	for _, tt := range tests {

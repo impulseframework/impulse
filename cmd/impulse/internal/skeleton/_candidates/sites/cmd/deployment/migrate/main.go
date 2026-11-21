@@ -4,6 +4,11 @@
 // Administrator role, by an invitation mailed to the address the placement names. It
 // reads the core and data configuration levels and nothing above them.
 //
+// A run that opens the data level, which every run but -version and a force does, gives
+// the database one minute to answer. A database that has not answered by then stops the
+// run with one sentence that names the database and its instance, and a non-zero exit:
+// the command does not wait on a database that is not there.
+//
 // Three flags make it the instrument for the states the migration runner refuses to
 // guess at. -version prints what each migrations table (schema, data) says about the
 // database and exits; -force <n> and -force-data <n> set a table to a version, clean
@@ -43,6 +48,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/pkg/auth/staff"
@@ -59,6 +65,17 @@ const (
 
 // errRefused marks arguments the flag package refused and reported itself.
 var errRefused = errors.New("the arguments were refused")
+
+// reachDeadline is how long a run gives the database to answer as it opens the data
+// level, and reachWords is how the command's help and its error give that time.
+const (
+	reachDeadline = time.Minute
+	reachWords    = "one minute"
+)
+
+// afterFunc arms the deadline. It is time.AfterFunc, and a variable so that the command's
+// test holds the deadline to its length without waiting it out.
+var afterFunc = time.AfterFunc
 
 func main() {
 	os.Exit(execute(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
@@ -133,6 +150,10 @@ func (f *versionFlag) Set(s string) error {
 func parse(args []string, stderr io.Writer) (*options, error) {
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprintf(stderr, "Usage of migrate:\n  Every run but -version and a force opens the application's data and gives the database %s to answer: a database that has not answered by then stops the run, which names the database and its instance.\n", reachWords)
+		fs.PrintDefaults()
+	}
 	var o options
 	fs.BoolVar(&o.seed, "seed", false, "apply the development seed (schema/devseed) after the schema migrations, as data migrations; the pipeline passes it in test environments and never in production")
 	fs.BoolVar(&o.version, "version", false, "print what the schema and data migrations tables say about the database (no version, a version, or dirty at one with the progress recorded) and exit; nothing is applied")
@@ -185,9 +206,9 @@ func run(ctx context.Context, o *options, out io.Writer) error {
 	case o.force.set || o.forceData.set:
 		return force(ctx, settings, o, out)
 	case o.retireSecret != "":
-		return retireSecret(ctx, o.retireSecret, out)
+		return retireSecret(ctx, settings, o.retireSecret, out)
 	case o.reinviteAdministrator != "":
-		return reinviteAdministrator(ctx, o.reinviteAdministrator, out)
+		return reinviteAdministrator(ctx, settings, o.reinviteAdministrator, out)
 	}
 
 	return migrate(ctx, settings, o.seed, out)
@@ -253,12 +274,12 @@ func row(ctx context.Context, settings config.DatabaseSettings, table deploy.Tab
 // whose resource client holds the secret keys built from every version in the
 // environment, and writes every stored secret that names the version again under the
 // current one.
-func retireSecret(ctx context.Context, variable string, out io.Writer) error {
-	data, err := config.NewDataConfiguration(ctx)
+func retireSecret(ctx context.Context, settings config.DatabaseSettings, variable string, out io.Writer) error {
+	data, closeData, err := reachData(ctx, settings)
 	if err != nil {
-		return errors.Wrap(err, "config.NewDataConfiguration()")
+		return err
 	}
-	defer data.Close()
+	defer closeData()
 
 	if err := deploy.RetireSecret(ctx, data.ResourceClient(), variable, out); err != nil {
 		return errors.Wrap(err, "deploy.RetireSecret()")
@@ -270,12 +291,12 @@ func retireSecret(ctx context.Context, variable string, out io.Writer) error {
 // reinviteAdministrator sends the named auth's first administrator's invitation again:
 // it opens the data level, whose auths mail through the environment's mailbox, withdraws
 // the standing invitation and mails a fresh one to the address the placement names.
-func reinviteAdministrator(ctx context.Context, auth string, out io.Writer) error {
-	data, err := config.NewDataConfiguration(ctx)
+func reinviteAdministrator(ctx context.Context, settings config.DatabaseSettings, auth string, out io.Writer) error {
+	data, closeData, err := reachData(ctx, settings)
 	if err != nil {
-		return errors.Wrap(err, "config.NewDataConfiguration()")
+		return err
 	}
-	defer data.Close()
+	defer closeData()
 
 	if err := deploy.ReinviteAdministrator(ctx, data, auth, out); err != nil {
 		return errors.Wrap(err, "deploy.ReinviteAdministrator()")
@@ -302,11 +323,11 @@ func migrate(ctx context.Context, settings config.DatabaseSettings, seed bool, o
 		}
 	}
 
-	data, err := config.NewDataConfiguration(ctx)
+	data, closeData, err := reachData(ctx, settings)
 	if err != nil {
-		return errors.Wrap(err, "config.NewDataConfiguration()")
+		return err
 	}
-	defer data.Close()
+	defer closeData()
 
 	// The default roles travel with the release: opening the data level validated the
 	// staff role file against the collection, so a release whose roles are wrong stopped
@@ -336,4 +357,35 @@ func migrate(ctx context.Context, settings config.DatabaseSettings, seed bool, o
 	}
 
 	return nil
+}
+
+// reachData opens the data level and gives the database reachDeadline to answer. The
+// level's clients wait for the database for as long as their context lives, which on a
+// database that is not there is forever, so past the deadline the opening is called off
+// and the run fails with one sentence that names the database and its instance. The
+// level keeps the context it opened under, so closeData closes the level and ends the
+// context after it.
+func reachData(ctx context.Context, settings config.DatabaseSettings) (data *config.DataConfiguration, closeData func(), err error) {
+	ctx, cancel := context.WithCancel(ctx)
+	deadline := afterFunc(reachDeadline, cancel)
+	data, err = config.NewDataConfiguration(ctx)
+	if !deadline.Stop() {
+		cancel()
+		if err == nil {
+			data.Close()
+			err = context.DeadlineExceeded
+		}
+
+		return nil, nil, errors.Wrapf(err, "the database %s on the instance %s could not be opened within %s, so the run stopped: check that both exist and that the environment names them", settings.DatabaseName, settings.InstanceID, reachWords)
+	}
+	if err != nil {
+		cancel()
+
+		return nil, nil, errors.Wrap(err, "config.NewDataConfiguration()")
+	}
+
+	return data, func() {
+		data.Close()
+		cancel()
+	}, nil
 }

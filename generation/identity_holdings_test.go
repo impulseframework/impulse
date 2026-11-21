@@ -114,7 +114,7 @@ func Test_prepareIdentity_holdings(t *testing.T) {
 		// With no tenant record the taking names no tenant: the role is the whole
 		// application's.
 		"crewidentity/take_crew_role.go": {
-			"// @rpc\n// @outlet(default)\n// @answers(204)\ntype TakeCrewRole struct {\n\t// Role is the role taken",
+			"// @rpc\n// @outlet(default)\n// @answers(204)\n// @class(access)\ntype TakeCrewRole struct {\n\t// Role is the role taken",
 			"// @attribute(role)\n\t// @enumerate(CrewTakeableRoles)\n\tRole string `validate:\"required\"`",
 			"// @enumerate(CrewTakeLengths)\n\tLength string `validate:\"required\"`",
 			"Reason string `validate:\"required\"`\n}",

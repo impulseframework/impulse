@@ -32,6 +32,7 @@ type (
 	//
 	// @rpc
 	// @outlet(default)
+	// @class(access)
 	InviteStaffUser struct {
 		Email string `validate:"required"`
 		Name  *string

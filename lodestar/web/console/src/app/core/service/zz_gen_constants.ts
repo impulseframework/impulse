@@ -210,6 +210,7 @@ export const Methods = {
   WithdrawCrewInvitation: 'WithdrawCrewInvitation' as Method,
   WithdrawCrewInvitedSector: 'WithdrawCrewInvitedSector' as Method,
   WithdrawCrewSectorInvitation: 'WithdrawCrewSectorInvitation' as Method,
+  ActAsUser: 'ActAsUser' as Method,
   AssumeRole: 'AssumeRole' as Method,
   EndSectorDirectoryOnly: 'EndSectorDirectoryOnly' as Method,
   MakeSectorDirectoryOnly: 'MakeSectorDirectoryOnly' as Method,
@@ -1345,6 +1346,7 @@ export namespace FeeByKinds {
 export namespace HangarPasses {
   export const fieldName = {
     expiresAt: 'expiresAt' as FieldName,
+    groupId: 'groupId' as FieldName,
     hangarId: 'hangarId' as FieldName,
     id: 'id' as FieldName,
     levelId: 'levelId' as FieldName,
@@ -1354,6 +1356,7 @@ export namespace HangarPasses {
   };
   export const resourceName = {
     expiresAt: 'HangarPasses.expiresAt' as Resource,
+    groupId: 'HangarPasses.groupId' as Resource,
     hangarId: 'HangarPasses.hangarId' as Resource,
     id: 'HangarPasses.id' as Resource,
     levelId: 'HangarPasses.levelId' as Resource,

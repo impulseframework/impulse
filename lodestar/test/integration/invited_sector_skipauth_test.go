@@ -89,16 +89,15 @@ func openInvitation(ctx context.Context, t *testing.T, b *browser, token string)
 // foundSector makes a sector the way one comes to exist, for a suite that needs a sector
 // of its own: Headquarters sends the invitation with the sector's details, the invited
 // person follows the mailed link, signs up with a password and completes the second
-// factor. It answers the new sector's id and the browser of its founder, who is its
-// first marshal.
-func foundSector(ctx context.Context, t *testing.T, s *served, hq *browser, name, region, established, username string) (sector string, founder *browser) {
+// factor. It answers the new sector's id; its founder is its first marshal.
+func foundSector(ctx context.Context, t *testing.T, s *served, hq *browser, name, region, established, username string) string {
 	t.Helper()
 
 	email := username + "@" + strings.ToLower(name) + ".example"
 	status, body, _ := inviteSector(ctx, t, hq, map[string]any{"email": email, "sectorName": name, "sectorRegion": region, "sectorEstablished": established})
 	assertStatus(t, status, http.StatusOK, body)
 	_, token := lastMailTo(t, s, email, "invitation")
-	founder = newBrowser(t, s, consoleAPI)
+	founder := newBrowser(t, s, consoleAPI)
 	openInvitation(ctx, t, founder, token)
 	if status, body := founder.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/sign-up", jsonBody(t, map[string]string{"username": username, "password": signUpPassword})); status != http.StatusOK {
 		t.Fatalf("signing up at the invitation that makes %s: status %d: %s", name, status, body)
@@ -109,7 +108,7 @@ func foundSector(ctx context.Context, t *testing.T, s *served, hq *browser, name
 		t.Fatalf("no sector %s after its invitation was accepted", name)
 	}
 
-	return cell[string](t, made, "id"), founder
+	return cell[string](t, made, "id")
 }
 
 // mailLinksTo counts the crew's mail links written for an address, of every kind.

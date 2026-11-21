@@ -156,7 +156,7 @@ func (p *PatchSet[Resource]) enforceWriteConditions(ctx context.Context, txn Rea
 		if errors.Is(err, iterator.Done) {
 			// Update and delete locate the target row; no row is NotFound,
 			// kept distinguishable from a failing condition's Forbidden.
-			return httpio.NewNotFoundMessagef("%s (%s) not found", p.Resource(), p.PrimaryKey().RowID())
+			return recordNotFound(p.Resource(), p.PrimaryKey().RowID())
 		}
 
 		return errors.Wrap(err, "spanner.RowIterator.Next()")
@@ -183,7 +183,7 @@ func (p *PatchSet[Resource]) enforceWriteConditions(ctx context.Context, txn Rea
 			// The proposed foreign key does not land in the request's
 			// partition: the referenced row does not exist in this
 			// partition's world.
-			return httpio.NewNotFoundMessagef("%s: referenced %s row not found", p.Resource(), tenancy.hopTable())
+			return referencedNotFound(p.Resource(), tenancy.hopTable())
 		}
 	}
 

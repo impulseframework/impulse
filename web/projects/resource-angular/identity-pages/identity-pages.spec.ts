@@ -827,6 +827,15 @@ describe("identityPages, a tenant's side", () => {
     ]);
   });
 
+  it("says of a person who left the list that they no longer hold a role here, on a tenant's side alone", () => {
+    // A tenant's people are those who hold a role in it, so the last role taken away
+    // takes the person off the list: the list says so by the person's username.
+    expect(list(people).rowGone?.({ id: 'u-1', username: 'ada' })).toBe('ada no longer holds a role here.');
+    expect(list(people).rowGone?.({ id: 'u-1' })).toBe('This person no longer holds a role here.');
+    const [accounts] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+    expect(list(accounts).rowGone).toBeUndefined();
+  });
+
   it('names the tenant record in its words and leaves out what the side does not have', () => {
     expect(columns(list(people)).at(-1)).toEqual(['heldElsewhere', 'Also in another sector']);
     // No password method on this side of the description: no column for it.

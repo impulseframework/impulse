@@ -61,7 +61,7 @@ func (trackedFileRow) Resource() accesstypes.Resource {
 }
 
 func (trackedFileRow) Config() Config {
-	return Config{}.SetChangeTrackingTable("Changes")
+	return Config{}.SetTrackChanges(true)
 }
 
 func (trackedFileRow) DefaultConfig() Config {
@@ -534,8 +534,8 @@ func TestMetadata_fileKeys(t *testing.T) {
 	}
 
 	// The override's own configuration stands beside the keys.
-	if got := NewMetadata[trackedFileRow]().changeTrackingTable; got != "Changes" {
-		t.Errorf("changeTrackingTable = %q, want Changes", got)
+	if !NewMetadata[trackedFileRow]().trackChanges {
+		t.Errorf("trackChanges = false, want the override's true")
 	}
 }
 

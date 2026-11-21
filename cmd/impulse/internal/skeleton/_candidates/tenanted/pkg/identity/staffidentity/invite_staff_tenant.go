@@ -39,6 +39,7 @@ type (
 	//
 	// @rpc
 	// @outlet(default)
+	// @class(access)
 	InviteStaffTenant struct {
 		// Email is the address the invitation is mailed to, and Name the name the sender
 		// gives the person.

@@ -263,7 +263,8 @@ func TestSecretField(t *testing.T) {
 }
 
 // The generated browser metadata says the field is write-only and a secret, which is what
-// makes the console type it into a masked box; the row interface has no property for it.
+// makes the console type it into a masked box, and that no list sorts by it, as the server
+// refuses a sort that names it; the row interface has no property for it.
 func TestSecretFieldGeneratedMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -271,7 +272,7 @@ func TestSecretFieldGeneratedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const entry = "{ fieldName: 'transponderKey', displayType: 'string', required: false, isIndex: false, maxLength: 64, writeOnly: true, secret: true },"
+	const entry = "{ fieldName: 'transponderKey', displayType: 'string', required: false, isIndex: false, sortable: false, maxLength: 64, writeOnly: true, secret: true },"
 	if !strings.Contains(string(meta), entry) {
 		t.Errorf("zz_gen_resources.ts is missing the secret's metadata entry %q", entry)
 	}

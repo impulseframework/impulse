@@ -48,15 +48,22 @@ export interface LoginMethod {
  * cancel, and the sign-in code's three, present on a server that routes them: `sendCode`,
  * where the page has the code mailed; `verifyCode`, where it posts the code entered; and
  * `enrollEmail`, where a person whose account holds no email address gives one for the code.
+ *
+ * `confirm` is where a person whose sign-in matched an account with a password enters it.
+ * A server with no password sign-in names none, since nobody there holds a password: the
+ * page then offers no password confirmation.
  */
 export interface PendingRoutes {
   readonly status: string;
-  readonly confirm: string;
+  readonly confirm?: string;
   readonly cancel: string;
   readonly sendCode?: string;
   readonly verifyCode?: string;
   readonly enrollEmail?: string;
 }
+
+/** The pending routes of a server that sends mail: the sign-in code's three are named. */
+type CodeRoutes = PendingRoutes & Required<Pick<PendingRoutes, 'sendCode' | 'verifyCode' | 'enrollEmail'>>;
 
 /**
  * The invitation block of the methods list: the paths of the invitation handlers, and the
@@ -862,10 +869,14 @@ export class AuthClient {
    * server's refusal: a wrong password answers 401 with the server's words and leaves the
    * pending sign-in in place, an expired one answers `pending_expired`, and a name whose
    * failed attempts reached the server's limit answers 429 with `too_many_attempts` and
-   * the wait (`retryAfter`), the pending sign-in still in place.
+   * the wait (`retryAfter`), the pending sign-in still in place. It throws on a server
+   * whose methods list names no confirmation route, as one with no password sign-in does.
    */
   async confirmPending(password: string): Promise<SignInResult> {
     const routes = await this.pendingRoutes(true);
+    if (!routes.confirm) {
+      throw new Error('this server names no route that confirms a sign-in with a password in its methods list');
+    }
     const response = await this.options.request<SignInAnswer | RefusalAnswer | null>('POST', routes.confirm, {
       body: { password },
       absolute: true,
@@ -1459,7 +1470,7 @@ export class AuthClient {
 
   /** The list as the page may render it: each method with its fields as strings, the kinds this client drives only. */
   /** The pending routes with the sign-in code's three, the list read again first; a server that names none sends no code. */
-  private async codeRoutes(): Promise<Required<PendingRoutes>> {
+  private async codeRoutes(): Promise<CodeRoutes> {
     const routes = await this.pendingRoutes(true);
     if (!routes.sendCode || !routes.verifyCode || !routes.enrollEmail) {
       throw new Error(
@@ -1487,10 +1498,10 @@ export class AuthClient {
     }
     const list: ListDraft = { methods };
     const pending = answer?.pending;
-    if (pending?.status && pending.confirm && pending.cancel) {
+    if (pending?.status && pending.cancel) {
       list.pending = {
         status: pending.status,
-        confirm: pending.confirm,
+        ...(pending.confirm ? { confirm: pending.confirm } : {}),
         cancel: pending.cancel,
         ...(pending.sendCode && pending.verifyCode && pending.enrollEmail
           ? { sendCode: pending.sendCode, verifyCode: pending.verifyCode, enrollEmail: pending.enrollEmail }

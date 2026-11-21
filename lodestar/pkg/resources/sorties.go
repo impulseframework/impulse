@@ -25,6 +25,11 @@ type (
 	// lead's grant names all four (pkg/deploy pins that no role raises the warning, and
 	// test/integration/required_on_create_test.go runs the lead's create).
 	//
+	// A sortie goes with its mission and its expenses go with it, by the delete rule on
+	// each link of their way to the sector: the database removes them with the row they
+	// reach, whoever may delete that row and whatever state the sortie is in, and no
+	// change event is written for them.
+	//
 	// Demonstrates: @stateRoot, @domain.join-path, create-under-parent, warning.required-field.
 	//
 	// @resource
