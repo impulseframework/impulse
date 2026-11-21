@@ -513,7 +513,10 @@ func Test_rpcHandlerTemplate_transition(t *testing.T) {
 			"resources.NewStatefulTaskQuery().",
 			"AddColumns(resources.NewStatefulTaskColumns().State()).",
 			"SetID(p.TaskID).",
-			`httpio.NewNotFoundMessagef("StatefulTask %s does not exist", p.TaskID)`,
+			// A row the read does not find answers as another tenant's row does, in
+			// the library's own words for a method's row that is not there.
+			"if httpio.HasNotFound(err) {\n\t\t\t\t\t\t// No row has the key.",
+			`return resource.TargetNotFound("StatefulTask", p.TaskID)`,
 			"switch row.Data.State {",
 			`case "open", "approved":`,
 			// One refusal for the state check and the grant condition, the library's
@@ -540,7 +543,7 @@ func Test_rpcHandlerTemplate_transition(t *testing.T) {
 		for _, want := range []string{
 			"AddColumns(resources.NewCrewSeatColumns().GroupID()).",
 			"SetGroupID(p.GroupID).\n\t\t\t\t\tSetUserID(p.UserID).\n\t\t\t\t\tRead(ctx, txn)",
-			`httpio.NewNotFoundMessagef("CrewSeat %s, %s does not exist", p.GroupID, p.UserID)`,
+			`return resource.TargetNotFound("CrewSeat", p.GroupID, p.UserID)`,
 			`gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "CrewSeats", Label: "CrewSeat", PKColumns: []string{"GroupId", "UserId"}}, p.GroupID, p.UserID)`,
 		} {
 			if !strings.Contains(out, want) {
@@ -557,7 +560,7 @@ func Test_rpcHandlerTemplate_transition(t *testing.T) {
 			"decoder := NewTargetedRPCDecoder[bindingfixture.PlainTargetTask, request](a, accesstypes.Execute)",
 			"params, gate, err := decoder.Decode(r, accesstypes.GlobalScope())",
 			"AddColumns(resources.NewStatefulTaskColumns().ID()).",
-			`httpio.NewNotFoundMessagef("StatefulTask %s does not exist", p.TaskID)`,
+			`return resource.TargetNotFound("StatefulTask", p.TaskID)`,
 			`gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "StatefulTasks", Label: "StatefulTask", PKColumns: []string{"Id"}}, p.TaskID)`,
 		} {
 			if !strings.Contains(out, want) {
@@ -717,7 +720,7 @@ func Test_rpcHandlerTemplate_transition(t *testing.T) {
 			rpcMethod.Fields = append(rpcMethod.Fields, &rpcField{Field: field})
 		}
 		out := render(t, rpcMethod)
-		for _, notWant := range []string{"Declared target", "TenantKeyEquals", "UpdatePatch", "NotFoundMessagef", "gate", "Targeted"} {
+		for _, notWant := range []string{"Declared target", "TenantKeyEquals", "UpdatePatch", "NotFoundMessagef", "TargetNotFound", "gate", "Targeted"} {
 			if strings.Contains(out, notWant) {
 				t.Errorf("plain RPC handler must not contain %q:\n%s", notWant, out)
 			}
