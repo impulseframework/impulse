@@ -138,7 +138,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 			// The rule asks what the Auth registers: with no password method no sign-in
 			// can prove a password, so one an account holds holds no sign-in for it.
 			NoPassword:    !a.registered().passwordRegistered(),
-			TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
+			TrustedDevice: a.trustedDeviceOf, Proven: at.proof, WaitedOn: at.expectUserID,
 			// A person who comes through a directory that does not vouch for their address
 			// confirms one by the mailed code before their first session, where the Auth
 			// can mail it; the accounts a deployment seeds for its own provider are given

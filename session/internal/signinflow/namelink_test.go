@@ -1,6 +1,7 @@
 package signinflow
 
 import (
+	"context"
 	"testing"
 
 	"github.com/go-playground/errors/v5"
@@ -131,6 +132,104 @@ func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 			}
 			if len(store.links) != 0 {
 				t.Errorf("the store holds %d identity link(s), want none: the link is written once the code is entered", len(store.links))
+			}
+			if store.sessions != 0 {
+				t.Errorf("the store holds %d session(s), want none", store.sessions)
+			}
+		})
+	}
+}
+
+// TestSignIn_aWaitLinksOnlyTheUserItWaitedOn proves the sign-in that completes a wait
+// links its identity to the user the wait was for, or to nobody. The step the person
+// answered was that user's: the code went to their address. The name the identity
+// asserts may have moved to another account during the wait, and the rules decide the
+// identity again at the completion, so their answer is held to the wait's user before
+// anything is written: a link to another user, and an account made new, are refused
+// with identity_rejected, and no link, account or session is left behind.
+func TestSignIn_aWaitLinksOnlyTheUserItWaitedOn(t *testing.T) {
+	t.Parallel()
+
+	const name = "alice@corp.example"
+	outside := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "google", Subject: "g-1", SignInName: name, Email: name}
+	code := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodGoogle}, {Method: sessioninfo.MethodEmailCode}}
+	tests := []struct {
+		name string
+		// moved says the name went to another account during the wait. rule is the
+		// registration's own account rule, given the wait's user and the other account;
+		// nil is the standard rule.
+		moved       bool
+		rule        func(waited, other impulse.UUID) signin.AccountRule[*memTx]
+		wantRefused bool
+	}{
+		{name: "the account the wait was for is still the one under the name: it is linked"},
+		{name: "the name moved to another account during the wait: nothing is linked", moved: true, wantRefused: true},
+		{
+			name: "a rule of the registration's own that links the wait's user is applied",
+			rule: func(waited, _ impulse.UUID) signin.AccountRule[*memTx] {
+				return func(context.Context, *memTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+					return signin.Link(waited, true), nil
+				}
+			},
+		},
+		{
+			name: "a rule of the registration's own that links another user is refused",
+			rule: func(_, other impulse.UUID) signin.AccountRule[*memTx] {
+				return func(context.Context, *memTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+					return signin.Link(other, true), nil
+				}
+			},
+			wantRefused: true,
+		},
+		{
+			name: "a rule that would make a new account for the identity is refused: no account is made",
+			rule: func(_, _ impulse.UUID) signin.AccountRule[*memTx] {
+				return func(context.Context, *memTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+					return signin.Provision(&signin.NewUser{Username: "alice.new@corp.example"}, nil), nil
+				}
+			},
+			wantRefused: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMemStore()
+			waited, other := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
+			store.users[waited] = &memUser{username: name, email: name, confirmed: true}
+			store.users[other] = &memUser{username: "bob@corp.example", email: "bob@corp.example", confirmed: true}
+			if tt.moved {
+				store.users[waited].username, store.users[other].username = "alice.old@corp.example", name
+			}
+			rules := Rules[*memTx]{ConfirmAddress: true, WaitedOn: impulse.NullUUIDFromUUID(waited)}
+			if tt.rule != nil {
+				rules.Account = tt.rule(waited, other)
+			}
+			identity := *outside
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, AuthEvents: code, Identity: &identity}
+
+			err := SignIn(t.Context(), &memDriver{store: store}, impulse.Must(impulse.NewUUID()), &dbtype.InsertSession{}, req, rules)
+
+			if !tt.wantRefused {
+				if err != nil {
+					t.Fatalf("SignIn() error = %v, want the identity linked and a session", err)
+				}
+				if linked, ok := store.links[linkKey(identity.Method, identity.Connection, identity.Subject)]; !ok || linked != waited {
+					t.Errorf("the identity is linked to %v (linked %t), want the user the wait was for, %s", linked, ok, waited)
+				}
+
+				return
+			}
+			var refusal *sessioninfo.LoginRefusal
+			if !errors.As(err, &refusal) || refusal.Code() != sessioninfo.RefusedIdentityRejected || !errors.Is(err, signin.ErrIdentityRejected) {
+				t.Errorf("SignIn() error = %v, want the completion refused (identity_rejected)", err)
+			}
+			if len(store.links) != 0 {
+				t.Errorf("the store holds %d identity link(s), want none: the identity is linked to the wait's user or to nobody", len(store.links))
+			}
+			if len(store.users) != 2 {
+				t.Errorf("the store holds %d users, want the two that stood: no account is made for the identity", len(store.users))
 			}
 			if store.sessions != 0 {
 				t.Errorf("the store holds %d session(s), want none", store.sessions)

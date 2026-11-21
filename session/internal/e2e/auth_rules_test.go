@@ -252,7 +252,7 @@ func rulesAppOver[Tx any](t *testing.T, be backend[Tx], shape *rulesShape, db ap
 	t.Cleanup(server.Close)
 
 	return &rulesApp[Tx]{
-		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail},
+		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail, setEmail: store.SetUserEmail},
 		entra:   entraIDP, google: googleIDP, provider: providerIDP, store: store,
 	}
 }
@@ -561,6 +561,14 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			name: "an account that holds no address is linked on no name: the sign-in is refused with identity_rejected, nothing waits, nothing is mailed and no address is taken",
 			run:  seamRulesNameLinkNeedsAddress[Tx],
 		},
+		{
+			name: "an account whose address is taken away while a first link waits takes no address from the sign-in that waits: the step refuses the address given, nothing is mailed, and nobody is linked or signed in",
+			run:  seamRulesNameLinkTakesNoAddress[Tx],
+		},
+		{
+			name: "a sign-in name that moves to another account while a first link waits links nobody: the code mailed to the first account's address is refused at the completion, and neither account gains a link or a session",
+			run:  seamRulesNameLinkAfterTheNameMoved[Tx],
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -640,6 +648,76 @@ func seamRulesNameLinkWaitsForCode[Tx any](ctx context.Context, t *testing.T, be
 	next := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, next, claims), "/home", url.Values{})
 	signedInAs(ctx, t, next, "alice@corp.example")
+}
+
+// seamRulesNameLinkTakesNoAddress is the scenario "an account whose address is taken
+// away while a first link waits takes no address from the sign-in that waits".
+func seamRulesNameLinkTakesNoAddress[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, nameLinkShape())
+	alice := a.createUser(ctx, t, "alice@corp.example")
+	a.confirmedAddress(ctx, t, alice, "alice@corp.example")
+
+	// A Google account made under alice's name, with an address outside Google, waits
+	// for the code mailed to the address alice's account holds.
+	b := a.browser(t)
+	b.prime(ctx)
+	assertRedirect(t, a.googleSignIn(ctx, b, outsideGoogleClaims("g-sub-other", "alice@corp.example")), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+
+	// An administrator takes the address off the account while the sign-in waits. The
+	// step has no address to mail the code to, and takes none from the person who
+	// waits: nothing but the name ties them to the account.
+	if err := a.setEmail(ctx, alice, nil); err != nil {
+		t.Fatalf("SetUserEmail() error = %v", err)
+	}
+	if status, _ := b.do(ctx, http.MethodPost, "/pending/email", map[string]string{"email": "mallory@elsewhere.example"}); status != http.StatusConflict {
+		t.Fatalf("giving the step an address = %d, want 409: the sign-in is not yet the account's", status)
+	}
+	if sent := a.mail.Messages(); len(sent) != 0 {
+		t.Errorf("mail after the address was refused = %d messages, want none", len(sent))
+	}
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if links := a.links(ctx, t, alice.String()); len(links) != 0 {
+		t.Errorf("identity links of the account = %d, want none", len(links))
+	}
+	if _, err := a.api.UserByEmail(ctx, "mallory@elsewhere.example"); !httpio.HasNotFound(err) {
+		t.Errorf("UserByEmail() error = %v, want NotFound: the address given is written on no account", err)
+	}
+}
+
+// seamRulesNameLinkAfterTheNameMoved is the scenario "a sign-in name that moves to
+// another account while a first link waits links nobody".
+func seamRulesNameLinkAfterTheNameMoved[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, nameLinkShape())
+	dana := a.createUser(ctx, t, "dana@corp.example")
+	a.confirmedAddress(ctx, t, dana, "dana@corp.example")
+
+	// The sign-in waits for the code mailed to the address dana's account holds, and
+	// the person asks for it.
+	b := a.browser(t)
+	b.prime(ctx)
+	assertRedirect(t, a.googleSignIn(ctx, b, outsideGoogleClaims("g-sub-moved", "dana@corp.example")), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+
+	// While it waits, dana's account is renamed and another account takes the name.
+	if err := a.api.ChangeSessionUserUsername(ctx, dana, "dana.old@corp.example"); err != nil {
+		t.Fatalf("ChangeSessionUserUsername() error = %v", err)
+	}
+	bob := a.createUser(ctx, t, "dana@corp.example")
+	a.confirmedAddress(ctx, t, bob, "bob@corp.example")
+
+	// The code answers for dana's address. The name finds bob's account now, whose
+	// address nobody answered for: the completion is refused, and the identity is
+	// linked to neither account.
+	if status, _ := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, "dana@corp.example")}); status == http.StatusOK {
+		t.Fatalf("the code's verification after the name moved = %d, want it refused", status)
+	}
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if links := a.links(ctx, t, bob.String()); len(links) != 0 {
+		t.Errorf("identity links of the account that took the name = %d, want none: nobody answered for its address", len(links))
+	}
+	if links := a.links(ctx, t, dana.String()); len(links) != 0 {
+		t.Errorf("identity links of the account the wait was for = %d, want none: the name is no longer its own", len(links))
+	}
 }
 
 // seamRulesNameLinkLeavesNothing is the scenario "a first link that waits leaves nothing

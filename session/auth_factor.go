@@ -273,7 +273,8 @@ func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*
 }
 
 // enrollEmail mails the code to the address a user without one gives. An address
-// another account holds is told so by mail, and the screen is answered as sent.
+// another account holds is told so by mail, and the screen is answered as sent. A
+// sign-in that is not yet the account's gives none (identityIsTheUsers).
 func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email string) (*emailCodeAnswer, error) {
 	m, err := a.mailOf()
 	if err != nil {
@@ -289,6 +290,9 @@ func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email
 	}
 	if held != "" {
 		return nil, httpio.NewConflictMessage("the user already holds an email address: the code goes there")
+	}
+	if err := a.identityIsTheUsers(ctx, p); err != nil {
+		return nil, err
 	}
 	holder, err := a.storage.UserByEmail(ctx, bare)
 	if err != nil && !httpio.HasNotFound(err) {
@@ -306,6 +310,31 @@ func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email
 	}
 
 	return a.sendEmailCode(ctx, p, bare)
+}
+
+// identityIsTheUsers refuses an address at the mailed code's step of a pending sign-in
+// that is not yet its user's. The step takes an address from a person the sign-in
+// already ties to the account: one who proved the account's password, and one whose
+// identity is linked to the account, as a directory's person is from their first
+// sign-in. A sign-in that waits to be linked on the code mailed to the account's
+// address has nothing else that ties it to the account: where the account's address
+// was taken away during the wait, an address the person gives would have them
+// answer for a mailbox of their own choosing and be linked to the account on its code.
+// So the step takes none, and the person signs in again once the account holds an
+// address.
+func (a *Auth[S, U, Tx]) identityIsTheUsers(ctx context.Context, p *pendingState) error {
+	if namesItsUser(&p.Identity) {
+		return nil
+	}
+	link, err := a.storage.Identity(ctx, p.Identity.Method, p.Identity.Connection, p.Identity.Subject)
+	if err != nil && !httpio.HasNotFound(err) {
+		return errors.Wrap(err, "sessionstorage.AuthStore.Identity()")
+	}
+	if link != nil && link.UserID == p.UserID.UUID {
+		return nil
+	}
+
+	return httpio.NewConflictMessage("the account holds no email address, and this sign-in is not yet linked to the account: ask an administrator to give the account its address, then sign in again")
 }
 
 // errInvalidCode and errCodeExpired are the refusals of a code that is not the one

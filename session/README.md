@@ -315,7 +315,16 @@ DML what a later rule must read.
   to mail the code, and an address given at the sign-in would show only that the
   person reads their own mail: that sign-in is refused (`identity_rejected`,
   `signin.ErrLinkNeedsAddress`) and nothing is linked, so an account made ahead of
-  its person is made with their address (`CreateUserRequest.Email`). The wait is the
+  its person is made with their address (`CreateUserRequest.Email`). The wait is for
+  the account it began with and for the address that account holds, whatever changes
+  while it lasts. An account whose address is taken away while a sign-in waits takes
+  none from the person who waits: the step's `EnrollEmail` is refused (`409`, saying
+  that an administrator gives the account its address) and nothing is mailed, so the
+  person signs in again once the account holds one. A sign-in name that moves to
+  another account while a sign-in waits links nobody: the code answered for the first
+  account's address and for no other's, so the sign-in that carries it is refused
+  (`identity_rejected`) before anything is written, and neither account gains a link.
+  The wait is the
   mailed code's, so it needs mail: an Auth without `WithMail` mails no code and links
   such an account under its name. A
   declaration naming a **default seat** admits a stranger, who is provisioned and
@@ -1192,7 +1201,11 @@ the person reaches.
    gives one at the step (`Pending().EnrollEmail()`, `{"email"}`), which is written on
    the user verified when its code is entered; an address another account holds is
    answered as sent and told so by mail to that address, as the add-address step does,
-   so the screen reveals nothing. The `AuthAPI` offers the same as `SendEmailCode`,
+   so the screen reveals nothing. The step takes an address only from a sign-in that
+   is already the account's: a password's, or an identity linked to the user. A
+   sign-in that waits to be linked on the account's code (see "A first link on a name
+   alone") is given none, since nothing but the name ties it to the account, and is
+   answered `409` with the reason. The `AuthAPI` offers the same as `SendEmailCode`,
    `EnrollEmail` and `VerifyEmailCode`.
 
 A code mailed to the mailbox of the account that just signed in adds little against a

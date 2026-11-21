@@ -208,6 +208,11 @@ type Rules[Tx any] struct {
 	// Auth that sends mail, for a registration that is not the deployment's own
 	// provider of seeded accounts.
 	ConfirmAddress bool
+	// WaitedOn is the user a pending sign-in waited on, for the sign-in that completes
+	// the wait; it is not valid for any other. The rules' answer for an identity that is
+	// still linked to nobody is held to that user before anything is written
+	// (waitedOnAnother).
+	WaitedOn impulse.NullUUID
 }
 
 // SignIn establishes session id for a request that carries a verified identity, in two
@@ -945,13 +950,17 @@ type unlinkedUser struct {
 }
 
 // resolveUnlinked resolves an identity that is linked to no user: the account rules
-// decide it and their answer is applied.
+// decide it and their answer is applied. The sign-in that completes a wait applies an
+// answer for the wait's user and no other (waitedOnAnother).
 func resolveUnlinked[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rules Rules[Tx],
 ) (resolved unlinkedUser, stop, err error) {
 	decided, stop, err := decideAccount(ctx, d, tx, req, rules)
 	if err != nil || stop != nil {
 		return unlinkedUser{}, stop, err
+	}
+	if stop := waitedOnAnother(rules.WaitedOn, decided.res); stop != nil {
+		return unlinkedUser{}, stop, nil
 	}
 	source, tenant, live, stop, err := applyResolution(ctx, d, tx, req, decided, rules)
 	if err != nil || stop != nil {
@@ -970,6 +979,33 @@ func resolveUnlinked[Tx any](
 	}
 
 	return resolved, nil, nil
+}
+
+// waitedOnAnother refuses the completion of a wait whose identity the account rules no
+// longer give to the user the wait was for (Rules.WaitedOn). The step the person
+// answered was that user's: the code went to the address their account holds, or their
+// password confirmed the link. The rules decide the identity again at the completion,
+// and the name it asserts may have moved to another account during the wait, so their
+// answer is held to the wait's user here, before anything is written: a link to
+// another user, a confirmation by another user and an account made new are refused,
+// and no link or account is left behind. It returns nil for a sign-in that completes
+// no wait, and for an answer that refuses the identity itself.
+func waitedOnAnother(waitedOn impulse.NullUUID, res *signin.Resolution) error {
+	if !waitedOn.Valid || res == nil {
+		return nil
+	}
+	switch res.Outcome() {
+	case signin.LinkIdentity, signin.RequireConfirmation:
+		if res.UserID() == waitedOn.UUID {
+			return nil
+		}
+	case signin.ProvisionUser:
+		// A new account is nobody the wait was for.
+	case signin.RejectIdentity, signin.ApplyStandardRule:
+		return nil
+	}
+
+	return Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "the identity no longer resolves to the user it was pending for")
 }
 
 // accountDecision is what the account rules answered for an unlinked identity: the
