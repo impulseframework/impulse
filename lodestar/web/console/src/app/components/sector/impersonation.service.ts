@@ -141,7 +141,8 @@ export class ImpersonationService {
    * answers' place, so the landing is decided for the new session. The navigation then
    * leaves the page that was open; a sector it lands in reads its own digest on the way
    * in. Only after it are the digests the old session left behind read again as the new
-   * one.
+   * one, and that read forgets a sector the new session is not in: nothing the old session
+   * held there is kept.
    */
   private async rebind(): Promise<void> {
     await firstValueFrom(this.auth.checkUserSession());

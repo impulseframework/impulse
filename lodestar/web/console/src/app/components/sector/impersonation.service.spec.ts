@@ -18,7 +18,8 @@ import { ImpersonationService } from './impersonation.service';
 // Taking a session swaps who the browser is while a page is open. The permission cache is
 // never emptied under a page that is drawn: the sector's page that was open keeps the
 // answers it was drawn from until the navigation leaves it, and the landing is decided
-// for the new session.
+// for the new session. Once the new session is in, nothing the old one held in a sector
+// the new one is not in is kept.
 
 @Component({ template: 'the page' })
 class PageComponent {}
@@ -128,5 +129,11 @@ describe('ImpersonationService', () => {
     expect(
       auth.hasPermission({ resource: Resources.Missions, permission: Permissions.List, domain: bastionID as Domain }),
     ).toBe(true);
+
+    // The cadet is not in Anvil: what the marshal held there is forgotten, not kept.
+    expect(auth.hasDigest(anvilID as Domain)).toBe(false);
+    expect(
+      auth.hasPermission({ resource: Resources.Missions, permission: Permissions.List, domain: anvilID as Domain }),
+    ).toBe(false);
   });
 });

@@ -77,7 +77,17 @@ const again: NavigationBehaviorOptions = { onSameUrlNavigation: 'reload' };
  * (AuthService.refreshPermissions). The client keeps what it knew, so the page is never
  * drawn again as the page of a person who holds nothing, and the service sends the browser
  * to the refusal page: the page that was open could not be loaded, with a way to try
- * again, or 404 Not Found where the server refused the read.
+ * again, or 404 Not Found where the read was refused. A refusal is the one case where the
+ * client keeps nothing (it forgets what the person held in the tenant): the service starts
+ * the way to the refusal page in the turn it hears of the read, so the open page is taken
+ * down and never drawn again from the forgotten digest.
+ *
+ * Nothing reads the digest when a person moves inside the tenant: the segment is reused and
+ * its guard does not run. A seat taken away meanwhile is found by the page's next request
+ * instead. The server answers a request under a tenant the session does not reach with
+ * 404, and the client reads the tenant's digest again before that request's caller hears
+ * of it; a tenant that has left the list is refused by that read, and the refusal page
+ * takes the page's place before the page can say the server's words.
  */
 @Injectable({ providedIn: 'root' })
 export class TenantService {
@@ -263,7 +273,9 @@ export class TenantService {
   /**
    * turnAway takes the open tenant's page down when a read of the tenant's digest fails
    * while it is open. The page stays as it was drawn until the refusal page stands in for
-   * it, since the client keeps the digest it had. A failure leaves the browser's address
+   * it: the client keeps the digest it had, or, for a refusal, forgets it in the same turn
+   * as this navigation starts, and the refusal page, which loads with the frame, lands
+   * before anything is drawn again. A failure leaves the browser's address
    * as it is and carries the address to ask for again: the one a navigation under way is
    * going to, or else the page that is open. A refusal moves the address to the refusal
    * page in the open page's stead, so going back does not ask for the refused page again.

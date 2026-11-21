@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { RedirectCommand, Router, Routes } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import {
+  ApiError,
   ClientBase,
   Domain,
   Permission,
@@ -645,7 +646,9 @@ describe('tenantGuard', () => {
           refused = true;
           await refresh(harness);
 
+          // The page was never drawn again, though what the person held in the tenant is forgotten.
           expect(page.said).toEqual(['granted']);
+          expect(TestBed.inject(AuthService).hasDigest('acme' as Domain)).toBe(false);
           expect(shown(harness)).toBe('404 Not Found');
           expect((harness.routeNativeElement as HTMLElement).querySelector('button')).toBeNull();
           expect(tenants.current()).toBe('');
@@ -763,7 +766,9 @@ describe('tenantGuard', () => {
         await firstValueFrom(TestBed.inject(AuthService).refreshPermissions());
         await settle(harness);
 
+        // The page was never drawn again, though what the person held in the tenant is forgotten.
         expect(page.said).toEqual(['granted']);
+        expect(TestBed.inject(AuthService).hasDigest('acme' as Domain)).toBe(false);
         expect(shown(harness)).toBe('404 Not Found');
         expect((harness.routeNativeElement as HTMLElement).querySelector('button')).toBeNull();
         expect(tenants.current()).toBe('');
@@ -774,6 +779,70 @@ describe('tenantGuard', () => {
         location.back();
         await settle(harness);
         expect(location.path()).toBe('/elsewhere');
+      });
+
+      /** What a page's own request under acme ended as: the status of the server's refusal. */
+      const asked = async (path: string): Promise<number | undefined> => {
+        try {
+          await TestBed.inject(RESOURCE_CLIENT).request('GET', path);
+          return undefined;
+        } catch (error) {
+          return error instanceof ApiError ? error.status : undefined;
+        }
+      };
+
+      it("says 404 Not Found when the open tenant's own request is answered 404 and the tenant has left the list", async () => {
+        const now: Now = { listed: ['acme', 'beta'], acme: held };
+        await appServing(now);
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+        await harness.navigateByUrl('/elsewhere');
+        const page = (await harness.navigateByUrl('/tenants/acme/page')) as PageComponent;
+        await settle(harness);
+        const digestsBefore = digestReads('acme');
+        const listsBefore = listLoads();
+
+        // The seat is taken away while the page is open, and the person moves inside the
+        // tenant: no guard runs, and the first to hear is the page's own request, which the
+        // server answers 404 for a tenant the session does not reach.
+        seatTaken(now);
+        expect(await asked('tenants/acme/users')).toBe(404);
+        await settle(harness);
+
+        // One read of the digest and one of the list said the tenant is gone.
+        expect(digestReads('acme') - digestsBefore).toBe(1);
+        expect(listLoads() - listsBefore).toBe(1);
+        expect(page.said).toEqual(['granted']);
+        expect(TestBed.inject(AuthService).hasDigest('acme' as Domain)).toBe(false);
+        expect(shown(harness)).toBe('404 Not Found');
+        expect((harness.routeNativeElement as HTMLElement).querySelector('button')).toBeNull();
+        expect(tenants.current()).toBe('');
+        expect(tenants.unread()).toBe('');
+        const location = TestBed.inject(Location);
+        expect(location.path()).toBe(`/tenants/acme/${refusedSegment}`);
+        location.back();
+        await settle(harness);
+        expect(location.path()).toBe('/elsewhere');
+      });
+
+      it("keeps the open page when the tenant's own request is answered 404 and the person is still in the tenant", async () => {
+        const now: Now = { listed: ['acme', 'beta'], acme: held };
+        await appServing(now);
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+        const page = (await harness.navigateByUrl('/tenants/acme/page')) as PageComponent;
+        await settle(harness);
+        const digestsBefore = digestReads('acme');
+
+        // A record that is not there: the same 404, in a tenant the person is still in.
+        expect(await asked('tenants/acme/users/u404')).toBe(404);
+        await settle(harness);
+
+        expect(digestReads('acme') - digestsBefore).toBe(1);
+        expect(shown(harness)).toBe('the page');
+        expect(page.said).toEqual(['granted']);
+        expect(tenants.current()).toBe('acme');
+        expect(TestBed.inject(Location).path()).toBe('/tenants/acme/page');
       });
 
       it('opens a tenant the list still names as one where the person holds nothing, once the list has been read again', async () => {

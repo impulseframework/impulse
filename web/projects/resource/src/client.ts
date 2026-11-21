@@ -615,7 +615,7 @@ export function createClient<G, D, A = Record<never, never>>(
   // The live session is built over the requester, and the requester hands it each
   // write's answer: the session takes its place here below, before any request is made.
   const session: { live?: LiveSession } = {};
-  const requestResponse = createRequester(baseUrl, transport, {
+  const answered = createRequester(baseUrl, transport, {
     onError: options.onError,
     apiVersion: options.apiVersion,
     olderServerRetryDelays: options.olderServerRetryDelays,
@@ -624,12 +624,16 @@ export function createClient<G, D, A = Record<never, never>>(
     serverEnvironment,
     wrote: (changes) => session.live?.wrote(changes),
   });
+  // The permission cache reads over the requester as it is: its two routes are under no
+  // domain, and the check below is made of its reads.
+  const permissions = new PermissionStore(
+    async <T>(method: HttpMethod, path: string, requestOptions?: RequestOptions): Promise<T> =>
+      (await answered<T>(method, path, requestOptions)).body,
+    { digest: descriptor.permissionDigestRoute, domains: descriptor.userDomainsRoute },
+  );
+  const requestResponse = checkingDomains(answered, baseUrl, descriptor, permissions);
   const request: Requester = async <T>(method: HttpMethod, path: string, requestOptions?: RequestOptions): Promise<T> =>
     (await requestResponse<T>(method, path, requestOptions)).body;
-  const permissions = new PermissionStore(request, {
-    digest: descriptor.permissionDigestRoute,
-    domains: descriptor.userDomainsRoute,
-  });
   const warn = warnOnce(options.warn);
   const live = new LiveSession({ ...options.live, request, baseUrl, routes: descriptor.live, warn });
   session.live = live;
@@ -852,6 +856,94 @@ function createRequester(baseUrl: string, transport: Transport, requester: Reque
       return { status: response.status, body: response.body as T, headers: response.headers ?? {} };
     }
   };
+}
+
+/** The scheme and host a URL opens with, where it has them. */
+const originPattern = /^https?:\/\/[^/]+/i;
+
+/**
+ * Holds what the cache keeps of a domain to the server's answers under it. The server
+ * answers every request under a domain the session does not reach with 404, the answer it
+ * also gives for a record that is not there, and nothing in the answer tells the two apart.
+ * So where a request under a domain is answered 404 and the cache holds the domain's
+ * digest, the digest is read again before the caller hears of the answer. A domain the
+ * person has left is refused by that read: the cache forgets it and every `onUnread`
+ * listener hears of it, as for any refused read, so a page open in the domain is taken
+ * down and not left to draw the server's words. A domain the person is still in keeps its
+ * digest, and the 404 is the record's. The caller is answered as the server answered,
+ * whatever the read finds. A domain the cache holds nothing of is not read: nothing is
+ * drawn from it.
+ */
+function checkingDomains(
+  answered: ResponseRequester,
+  baseUrl: string,
+  descriptor: ApiDescriptor,
+  permissions: PermissionStore,
+): ResponseRequester {
+  const check = async (status: number, path: string, options: RequestOptions | undefined): Promise<void> => {
+    if (status !== 404) {
+      return;
+    }
+    const domain = requestDomain(descriptor, baseUrl, path, options?.absolute);
+    if (domain === undefined || !permissions.hasDigest(domain)) {
+      return;
+    }
+    // A read that fails has told its listeners; the caller's answer is the request's own.
+    await permissions.loadDigest(domain).catch(() => undefined);
+  };
+  return async <T>(method: HttpMethod, path: string, options?: RequestOptions): Promise<ClientResponse<T>> => {
+    let response: ClientResponse<T>;
+    try {
+      response = await answered<T>(method, path, options);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        await check(error.status, path, options);
+      }
+      throw error;
+    }
+    await check(response.status, path, options);
+    return response;
+  };
+}
+
+/**
+ * The domain a request is made under: the one its path names after the domain route's
+ * segment. Undefined for a request under no domain, and where the API declares no domain
+ * route. A reference the server handed out (a Link relation) carries the API prefix, which
+ * is taken off first.
+ */
+function requestDomain(
+  descriptor: ApiDescriptor,
+  baseUrl: string,
+  path: string,
+  absolute: boolean | undefined,
+): Domain | undefined {
+  const segment = descriptor.domainRoute?.segment;
+  if (!segment) {
+    return undefined;
+  }
+  let under = path;
+  if (absolute) {
+    const prefix = `${baseUrl.replace(originPattern, '')}/`;
+    const reference = path.replace(originPattern, '');
+    if (!reference.startsWith(prefix)) {
+      return undefined;
+    }
+    under = reference.slice(prefix.length);
+  }
+  const lead = `${segment}/`;
+  if (!under.startsWith(lead)) {
+    return undefined;
+  }
+  const named = /^[^/?#]+(?=\/)/.exec(under.slice(lead.length))?.[0];
+  if (!named) {
+    return undefined;
+  }
+  try {
+    return decodeURIComponent(named) as Domain;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The server's release when the response is its refusal of this build's release (a 412 carrying the version header), else undefined. */

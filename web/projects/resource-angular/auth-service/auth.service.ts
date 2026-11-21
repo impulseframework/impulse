@@ -321,7 +321,10 @@ export class AuthService {
    * drawn again as the page of a person who holds nothing, or is in no tenant, because a
    * read failed; where it is the open tenant's, the
    * frame's TenantService puts the refusal page in the open page's stead, saying the page
-   * could not be loaded, or 404 Not Found where the server refused the read.
+   * could not be loaded, or 404 Not Found where the read was refused. A tenant the reload
+   * is refused (the server's 403 or 404, or a tenant that has left the person's list) is
+   * forgotten: nothing the person held there is kept, and where its page is open the
+   * refusal page takes its place.
    */
   refreshPermissions(): Observable<void> {
     return from(this.permissions.refresh().catch(() => undefined));

@@ -192,6 +192,13 @@ export type UnreadListener = (domain: Domain | undefined, failure: DigestFailure
  * the person holds nothing. A domain that has left the list is a refusal, heard like the
  * server's own; one the list still names is held as empty, which is then true.
  *
+ * A domain whose read is refused, either way, is the one failure that does not leave the
+ * cache as it was: what it held of the domain is forgotten (`hasDigest` is false again).
+ * The person is in the domain no more, so nothing they held there is kept, and what one
+ * session held is not left behind for the session that takes its place. A read that
+ * failed any other way forgets nothing, and what the person holds outside every domain is
+ * never forgotten by a read.
+ *
  * The list of domains is held to the same: a read of it that fails rejects, and is never
  * kept as an empty list, which would say the person is in no domain. A list never read
  * stays unread (`hasDomains` is false, and `domainsUnread` is true once a read has
@@ -277,12 +284,16 @@ export class PermissionStore {
    * one request. A read that fails leaves the cache as it was (a scope never read stays
    * unloaded, a scope read before keeps its last answer), tells the `onUnread` listeners
    * and rethrows, so callers see the failure; `digestFailure` says of what was thrown
-   * whether the read was refused.
+   * whether the read was refused. A domain's read that is refused (the server's 403 or
+   * 404, or a domain that has left the person's list) is the one failure that does not
+   * leave the cache as it was: what it held of the domain is forgotten before anyone
+   * hears of the refusal.
    *
    * A domain's digest that reads empty is not kept until the person's list of domains,
    * read again, still names the domain. A domain that has left the list is a read that
-   * failed as a refusal (DomainUnlistedError); a list that cannot be read fails the read
-   * of the digest, since nothing then says which of the two the empty digest was.
+   * failed as a refusal (DomainUnlistedError). A list that cannot be read fails the read
+   * of the digest, since nothing then says which of the two the empty digest was, and the
+   * scope keeps its last answer.
    */
   loadDigest(domain?: Domain): Promise<PermissionDigest> {
     const key = digestKey(domain);
@@ -304,6 +315,9 @@ export class PermissionStore {
     const fail = (error: unknown): never => {
       this.inflight.delete(key);
       const failure = digestFailure(error);
+      if (domain && failure === 'refused') {
+        this.forget(key);
+      }
       for (const listener of this.unreadListeners) {
         listener(domain, failure);
       }
@@ -392,5 +406,17 @@ export class PermissionStore {
 
   private setDigest(key: string, digest: PermissionDigest): void {
     this.snapshot.update((snapshot) => ({ ...snapshot, digests: new Map(snapshot.digests).set(key, digest) }));
+  }
+
+  /** Drops what the cache holds of one scope; a scope it holds nothing of changes nothing. */
+  private forget(key: string): void {
+    if (!this.snapshot.get().digests.has(key)) {
+      return;
+    }
+    this.snapshot.update((snapshot) => {
+      const digests = new Map(snapshot.digests);
+      digests.delete(key);
+      return { ...snapshot, digests };
+    });
   }
 }

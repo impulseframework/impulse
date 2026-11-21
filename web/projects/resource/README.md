@@ -264,16 +264,30 @@ or one per domain), loaded on demand and cached for the session.
   keeps its last answer, and no failure is cached as an empty digest, which would say the
   person holds nothing. `digestFailure(error)` says which failure it was: `refused` for
   the server's 403 or 404 (the scope is not there for this session), `failed` for anything
-  else (a 500, a request that never arrived), which can be tried again.
+  else (a 500, a request that never arrived), which can be tried again. A domain whose
+  read is refused is the one failure that does not leave the cache as it was: what it held
+  of the domain is forgotten (`hasDigest(domain)` is false again), since the person is in
+  the domain no more, and nothing one session held there is kept for a session that takes
+  its place.
   `onUnread(listener)` calls the listener with the domain and the failure each time a read
   fails, whoever asked for it, so a page drawn from the scope can say it could not be read.
   A domain's digest that reads empty is checked against the person's list of domains,
   read again for it, before it is kept: the server gives the same empty digest for a
   domain the session no longer reaches (a seat taken away) as for one where the person
   holds nothing. A domain the list names no more is a refusal (the read rejects with
-  `DomainUnlistedError`, `refused`, and the scope keeps its last answer); one the list
-  still names is kept as empty; and where the list cannot be read the read of the digest
-  fails with it.
+  `DomainUnlistedError`, `refused`, and what the cache held of the domain is forgotten,
+  as for the server's own refusal); one the list still names is kept as empty; and where
+  the list cannot be read the read of the digest fails with it, and the scope keeps its
+  last answer.
+  A request under a domain that the server answers 404 is held to the same check. The
+  server answers every request under a domain the session does not reach with 404, as it
+  does for a record that is not there, so where the cache holds the domain's digest the
+  client reads it again before the request's caller is answered. A domain the person has
+  left is refused by that read: forgotten, and heard of by every `onUnread` listener, so
+  a page open in the domain can be taken down before anything draws the server's words. A
+  domain the person is still in keeps its digest, and the 404 is the record's. The caller
+  is answered as the server answered either way, and a domain the cache holds no digest
+  of is not read.
 - `loadDomains()` fetches the
   domains where the user holds any grant, each with its name (`user-domains` answers
   `[{ "domain", "name" }]`), and `domainName(domain)` answers a listed domain's name for a
