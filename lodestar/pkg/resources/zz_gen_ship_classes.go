@@ -58,6 +58,7 @@ type shipClassRead struct {
 	RoleID      string       `json:"roleId"`
 	Tonnage     int64        `json:"tonnage"`
 	Hardened    bool         `json:"hardened"`
+	InService   bool         `json:"inService"`
 }
 
 var shipClassReadSets resource.SetCache[ShipClass, shipClassRead]
@@ -71,6 +72,7 @@ type shipClassWrite struct {
 	RoleID      string       `json:"roleId"      sqltype:"STRING(64)"`
 	Tonnage     int64        `json:"tonnage"`
 	Hardened    bool         `json:"hardened"`
+	InService   bool         `json:"inService"`
 }
 
 var shipClassWriteSets resource.SetCache[ShipClass, shipClassWrite]
@@ -196,6 +198,7 @@ func (c *ShipClassColumns) All() *ShipClassColumns {
 		"RoleID",
 		"Tonnage",
 		"Hardened",
+		"InService",
 	}
 
 	return c
@@ -227,6 +230,12 @@ func (c *ShipClassColumns) Tonnage() *ShipClassColumns {
 
 func (c *ShipClassColumns) Hardened() *ShipClassColumns {
 	c.fields = append(c.fields, "Hardened")
+
+	return c
+}
+
+func (c *ShipClassColumns) InService() *ShipClassColumns {
+	c.fields = append(c.fields, "InService")
 
 	return c
 }
@@ -339,6 +348,10 @@ func (c *shipClassSort) Tonnage() *ShipClassSort {
 
 func (c *shipClassSort) Hardened() *ShipClassSort {
 	return c.addField("Hardened")
+}
+
+func (c *shipClassSort) InService() *ShipClassSort {
+	return c.addField("InService")
 }
 
 type ShipClassSort struct {
@@ -490,6 +503,22 @@ func (p *ShipClassCreatePatch) Hardened() bool {
 
 func (p *ShipClassCreatePatch) HardenedIsSet() bool {
 	return p.patchSet.IsSet("Hardened")
+}
+
+func (p *ShipClassCreatePatch) SetInService(v bool) *ShipClassCreatePatch {
+	p.patchSet.Set("InService", v)
+
+	return p
+}
+
+func (p *ShipClassCreatePatch) InService() bool {
+	v, _ := p.patchSet.Get("InService").(bool)
+
+	return v
+}
+
+func (p *ShipClassCreatePatch) InServiceIsSet() bool {
+	return p.patchSet.IsSet("InService")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -646,6 +675,22 @@ func (p *ShipClassUpdatePatch) Hardened() bool {
 
 func (p *ShipClassUpdatePatch) HardenedIsSet() bool {
 	return p.patchSet.IsSet("Hardened")
+}
+
+func (p *ShipClassUpdatePatch) SetInService(v bool) *ShipClassUpdatePatch {
+	p.patchSet.Set("InService", v)
+
+	return p
+}
+
+func (p *ShipClassUpdatePatch) InService() bool {
+	v, _ := p.patchSet.Get("InService").(bool)
+
+	return v
+}
+
+func (p *ShipClassUpdatePatch) InServiceIsSet() bool {
+	return p.patchSet.IsSet("InService")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

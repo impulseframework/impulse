@@ -2099,6 +2099,7 @@ export namespace ShipClasses {
     designation: 'designation' as FieldName,
     hardened: 'hardened' as FieldName,
     id: 'id' as FieldName,
+    inService: 'inService' as FieldName,
     roleId: 'roleId' as FieldName,
     tonnage: 'tonnage' as FieldName,
     roleName: 'roleName' as FieldName,
@@ -2107,6 +2108,7 @@ export namespace ShipClasses {
     designation: 'ShipClasses.designation' as Resource,
     hardened: 'ShipClasses.hardened' as Resource,
     id: 'ShipClasses.id' as Resource,
+    inService: 'ShipClasses.inService' as Resource,
     roleId: 'ShipClasses.roleId' as Resource,
     tonnage: 'ShipClasses.tonnage' as Resource,
   };
