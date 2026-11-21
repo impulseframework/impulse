@@ -210,6 +210,24 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 			wantCustom: &CustomStringData{CustomString: "support"},
 		},
 		{
+			// The column keeps a mask's whole text: the kinds it keeps and what it
+			// refuses inside them, a class and a permission on a resource whose name
+			// carries the text's own marks, which the text escapes.
+			name: "user principal whose mask refuses a class and a named resource inside the kinds it keeps",
+			cfg:  Config{Impersonation: true},
+			req:  &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob@partner.org"},
+			imp: &dbtype.InsertImpersonation{
+				ActorUsername:   "alice@example.com",
+				PrincipalKind:   dbtype.PrincipalKindUser,
+				PrincipalUserID: strPtr("bob@partner.org"),
+				Mask: dbtype.MaskColumn(accesstypes.AllowAll().Refusing(
+					accesstypes.RefuseClass(accesstypes.ClassCredential),
+					accesstypes.RefusePermission(accesstypes.Update, "Led;gers,-on:all"),
+				)),
+				ExpiresAt: expires,
+			},
+		},
+		{
 			name:    "refused without the configuration",
 			req:     &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice@example.com"},
 			imp:     &dbtype.InsertImpersonation{ActorUsername: "alice@example.com", PrincipalKind: dbtype.PrincipalKindRole, PrincipalRole: strPtr("Editor"), ExpiresAt: expires},
@@ -257,6 +275,11 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 			}
 			if diff := cmp.Diff(want, got.Impersonation); diff != "" {
 				t.Errorf("Session().Impersonation mismatch (-want +got):\n%s", diff)
+			}
+			// The mask the column is read as is the mask that was written, refusals
+			// and all.
+			if wrote, read := dbtype.MaskFromColumn(tt.imp.Mask), dbtype.MaskFromColumn(got.Impersonation.Mask); !read.Equal(wrote) {
+				t.Errorf("the mask read back = %s, want the mask written, %s", read, wrote)
 			}
 			if diff := cmp.Diff(tt.wantCustom, got.CustomData); diff != "" {
 				t.Errorf("Session().CustomData mismatch (-want +got):\n%s", diff)

@@ -414,10 +414,16 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 	roleCases := func(prefix string) []string {
 		return methodCases(prefix, "open-harbor-to-directory", "make-harbor-invite-only")
 	}
+	// The two methods of the default role give and take away what a directory's people
+	// may do, and the two of the switch decide who may sign in to the tenant at all, so
+	// the action of each carries the class access.
 	execute := func(names ...string) []resource.CollectionResource {
 		var out []resource.CollectionResource
 		for _, name := range names {
-			out = append(out, resource.CollectionResource{Name: accesstypes.Resource(name), Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}})
+			out = append(out, resource.CollectionResource{
+				Name: accesstypes.Resource(name), Scope: accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess},
+			})
 		}
 
 		return out
@@ -587,7 +593,7 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			}
 			var gotMethods []resource.CollectionResource
 			for _, res := range b.Data().Resources {
-				gotMethods = append(gotMethods, resource.CollectionResource{Name: res.Name, Scope: res.Scope, Permissions: res.Permissions})
+				gotMethods = append(gotMethods, resource.CollectionResource{Name: res.Name, Scope: res.Scope, Permissions: res.Permissions, Classes: res.Classes})
 			}
 			slices.SortFunc(gotMethods, func(a, b resource.CollectionResource) int { return strings.Compare(string(a.Name), string(b.Name)) })
 			if diff := cmp.Diff(tt.wantMethods, gotMethods); diff != "" {

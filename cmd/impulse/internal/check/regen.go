@@ -148,7 +148,7 @@ func warningLines(out []byte) []string {
 }
 
 // skippedDirs are trees that never hold generated sources and are expensive to walk.
-var skippedDirs = map[string]bool{".git": true, "node_modules": true, ".angular": true, "dist": true, "vendor": true}
+var skippedDirs = map[string]bool{gitDir: true, "node_modules": true, ".angular": true, "dist": true, "vendor": true}
 
 // generatedTrees lists the directories a generator owns whole, slash-separated and
 // relative to the application's root: every file under one is generated, whatever its

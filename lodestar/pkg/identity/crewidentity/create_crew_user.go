@@ -28,6 +28,7 @@ type (
 	//
 	// @rpc
 	// @outlet(default)
+	// @class(access)
 	CreateCrewUser struct {
 		Username string `validate:"required"`
 		Name     *string

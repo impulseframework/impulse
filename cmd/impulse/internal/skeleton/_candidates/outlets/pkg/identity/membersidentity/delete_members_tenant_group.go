@@ -24,6 +24,7 @@ import (
 // @permissionScope(domain)
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type DeleteMembersTenantGroup struct {
 	// @target(MembersTenantGroup)
 	GroupID impulse.UUID

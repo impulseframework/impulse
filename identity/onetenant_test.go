@@ -158,6 +158,109 @@ func TestManager_AssignRole_oneTenantPerPerson(t *testing.T) {
 	})
 }
 
+// TestManager_HoldsTenant pins the read the generated create-your-tenant route makes in
+// the transaction that writes the tenant: whether the person holds a role in some
+// tenant. A membership of their own held in one tenant counts, and so does a place in a
+// group kept in one; a role held for the whole application or in every tenant is no
+// tenant's, a role another account holds is not theirs, and a membership whose period
+// has ended places them nowhere. The answer is the same whether or not the application
+// declared one tenant per person: the route's rule is its own.
+func TestManager_HoldsTenant(t *testing.T) {
+	t.Parallel()
+
+	holds := func(scope accesstypes.PolicyScope, role accesstypes.Role) access.MembershipKey {
+		return access.NewMembershipKey(scope, dana, role)
+	}
+	crewID := impulse.Must(impulse.UUIDFromString("0190b000-0000-7000-8000-0000000007a1"))
+	inGroup := access.GroupMemberKey{Group: GroupID(crewID), User: User(userID)}
+	tests := []struct {
+		name  string
+		holds []access.MembershipKey
+		// ended are the memberships whose period has ended.
+		ended []access.MembershipKey
+		// group is the scope a group the person is in is kept in, nil for no group.
+		group *accesstypes.PolicyScope
+		want  bool
+	}{
+		{name: "a person who holds nothing holds no tenant"},
+		{name: "a role in a tenant", holds: []access.MembershipKey{holds(alphaScope, "Reader")}, want: true},
+		{name: "a role for the whole application is no tenant's", holds: []access.MembershipKey{holds(globalScope, "Steward")}},
+		{name: "a role in every tenant is no tenant's", holds: []access.MembershipKey{holds(everyScope, "Reader")}},
+		{name: "a role for the whole application beside one in a tenant", holds: []access.MembershipKey{holds(globalScope, "Steward"), holds(betaScope, "Reader")}, want: true},
+		{name: "a role another account holds in a tenant is not the person's", holds: []access.MembershipKey{access.NewMembershipKey(betaScope, erin, "Reader")}},
+		{name: "a role in a tenant whose period has ended places the person nowhere", holds: []access.MembershipKey{holds(alphaScope, "Reader")}, ended: []access.MembershipKey{holds(alphaScope, "Reader")}},
+		{name: "a place in a group kept in a tenant", group: &alphaScope, want: true},
+		{name: "a place in a group kept for the whole application is no tenant's", group: &globalScope},
+	}
+	for _, tt := range tests {
+		for _, declared := range []bool{false, true} {
+			name := tt.name
+			if declared {
+				name += ", where a person belongs to one tenant"
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				store := &fakeStore{memberships: map[access.MembershipKey]bool{}, roles: map[access.RoleKey]bool{}}
+				for _, key := range tt.holds {
+					store.memberships[key] = true
+				}
+				past := time.Now().Add(-time.Hour)
+				store.membershipPeriods = map[access.MembershipKey]accesstypes.Period{}
+				for _, key := range tt.ended {
+					store.membershipPeriods[key] = accesstypes.Period{End: past}
+				}
+				if tt.group != nil {
+					key := access.NewMembershipKey(*tt.group, "", "")
+					store.groups = map[impulse.UUID]*Group{crewID: {Kind: key.Kind, Axis: key.Axis, Domain: key.Domain, Name: "Crew"}}
+					store.groupMembers = map[access.GroupMemberKey]bool{inGroup: true}
+				}
+				var opts []Option
+				if declared {
+					opts = append(opts, WithOneTenantPerPerson())
+				}
+				m, _ := newManager(t, store, tenantRoles, opts...)
+
+				var got bool
+				err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					var err error
+					got, err = m.HoldsTenant(ctx, txn, userID)
+
+					return err
+				})
+				if err != nil {
+					t.Fatalf("HoldsTenant() error = %v", err)
+				}
+				if got != tt.want {
+					t.Errorf("HoldsTenant() = %v, want %v", got, tt.want)
+				}
+				if len(store.writes) != 0 {
+					t.Errorf("HoldsTenant() buffered %v, want a read alone", store.writes)
+				}
+			})
+		}
+	}
+
+	t.Run("a failed read of what the person holds fails the call", func(t *testing.T) {
+		t.Parallel()
+
+		store := &fakeStore{memberships: map[access.MembershipKey]bool{}, roles: map[access.RoleKey]bool{}, failOn: "Memberships"}
+		m, _ := newManager(t, store, tenantRoles)
+
+		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			held, err := m.HoldsTenant(ctx, txn, userID)
+			if held {
+				t.Errorf("HoldsTenant() = true beside its error")
+			}
+
+			return err
+		})
+		if !errors.Is(err, errStore) {
+			t.Errorf("HoldsTenant() error = %v, want the store's failure", err)
+		}
+	})
+}
+
 // TestManager_CreateUser_oneTenantPerPerson pins what the rule of one tenant per person
 // finds on a person created in a tenant: nothing. A role is held by an account and never
 // by a name, and an account that is created holds nothing, so the person is created with

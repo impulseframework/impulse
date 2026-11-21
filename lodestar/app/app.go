@@ -32,6 +32,7 @@ import (
 	"github.com/impulseframework/impulse/resource/jobs"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/resource/scheduled"
+	"github.com/impulseframework/impulse/session"
 )
 
 const (
@@ -188,12 +189,19 @@ type App struct {
 	// from the directory the configuration names, with the resource package's cache rule
 	// and deep-link rewrite. The generated router's asset and deep-link handlers below
 	// delegate to them.
-	consoleApp     *resource.BrowserApp
-	portalApp      *resource.BrowserApp
-	droidsAPIKey   string
-	scheduler      *scheduled.Guard
-	tenants        *resource.TenantRoster
-	declarations   resource.TenantDeclarations
+	consoleApp   *resource.BrowserApp
+	portalApp    *resource.BrowserApp
+	droidsAPIKey string
+	scheduler    *scheduled.Guard
+	tenants      *resource.TenantRoster
+	declarations resource.TenantDeclarations
+	// collection is the generated permission collection, built once: the session
+	// permissions read each action's classes off it, since the mask of an
+	// impersonated session may refuse a class of actions.
+	collection *resource.GeneratedCollection
+	// impersonations declares the kinds of impersonation the console offers, each
+	// with its grant and the widest mask the grant gives (impersonationKinds).
+	impersonations *session.Impersonations
 	rpcClient      *rpc.Client
 	computedClient *computedresources.Client
 	live           live.Service
@@ -221,9 +229,12 @@ func New(cfg Configurer) *App {
 	// and the RPC client takes the Documents store, which its document methods read
 	// back from.
 	resourceClient := cfg.ResourceClient()
+	collection := router.Collection()
 	a := &App{
 		access:          engine,
 		engines:         map[string]access.Controller{},
+		collection:      collection,
+		impersonations:  session.MustNewImpersonations(collection, impersonationKinds()...),
 		resourceClient:  resourceClient,
 		cursorKey:       cfg.CursorKey(),
 		validate:        cfg.Validator(),
@@ -419,7 +430,9 @@ func (a *App) SchedulerAuth(next http.Handler) http.Handler {
 // UserPermissions returns the permission checker for a request, composed from the
 // session's principal: the engine of the auth the request came through, bound to the
 // user for an ordinary or impersonated-user session, bound to the role for a session
-// established as a role, and attenuated by the session's permission mask. The sectors
+// established as a role, and attenuated by the session's permission mask, which reads
+// each action's classes off the generated collection (a session that acts as a person
+// is refused the actions classed credential). The sectors
 // the session lists are the tenant roster filtered by where the checker holds a grant
 // and by what each sector declares about who may enter it (the configuration's
 // TenantDeclarations), so the place switcher and the tenant guard can never disagree, and
@@ -429,7 +442,7 @@ func (a *App) SchedulerAuth(next http.Handler) http.Handler {
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
 	engine := a.engine(r.Context())
 
-	return resource.SessionPermissions(r.Context(), engine.ForUser, engine.ForRole, a.tenants.Domains, a.declarations)
+	return resource.SessionPermissions(r.Context(), engine.ForUser, engine.ForRole, a.tenants.Domains, a.declarations, a.collection)
 }
 
 // TenantRoster is the application's tenant roster (resource.TenantRoster): the sectors

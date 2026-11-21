@@ -26,6 +26,7 @@ type (
 	//
 	// @rpc
 	// @outlet(portal)
+	// @class(access)
 	CreateMembersUser struct {
 		Username string `validate:"required"`
 		Name     *string

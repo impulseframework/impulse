@@ -232,6 +232,17 @@ func (p *acrossPermissions) Reaches(_ context.Context, domain accesstypes.Domain
 	return slices.Contains(p.reach, domain), nil
 }
 
+// HeldDomains lists the tenants the person holds a grant in, reached or not.
+func (p *acrossPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	held := make([]accesstypes.Domain, 0, len(p.grants))
+	for domain := range p.grants {
+		held = append(held, domain)
+	}
+	slices.Sort(held)
+
+	return held, nil
+}
+
 func (*acrossPermissions) User() accesstypes.User { return acrossRequester }
 
 // everyGrant is a tenant in which the person's roles grant everything outright.

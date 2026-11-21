@@ -30,6 +30,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type RemoveStaffGroupMember struct {
 	// @target(StaffGroupUser, key: GroupID)
 	GroupID impulse.UUID

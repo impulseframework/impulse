@@ -335,7 +335,8 @@ type UserManager interface {
 
 	// AddRolePermission grants permission to role scope-wide: the permission is
 	// held with no resource attachment. Errors if role is not a custom role
-	// held in scope.
+	// held in scope, and, where the Client was handed the release's permission
+	// collection, if the release has no such permission.
 	AddRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error
 
 	// DeleteRolePermission removes a scope-wide permission from role. Errors
@@ -343,18 +344,32 @@ type UserManager interface {
 	DeleteRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error
 
 	// AddRolePermissionResources grants permission on resources to role.
-	// Errors if role is not a custom role held in scope.
+	// Errors if role is not a custom role held in scope. A resource the
+	// release does not declare the permission on refuses the whole call, as
+	// AddRoleGrant refuses one.
 	AddRolePermissionResources(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
 
 	// AddRoleGrant grants permission on one resource to role, limited by
 	// condition ("" is unconditional). Errors if role is not a custom role
 	// held in scope.
+	//
+	// A Client that knows what the running release declares (WithDefaultRoles,
+	// WithPermissionCollection) writes a role no grant the release cannot
+	// use: a permission the release does not have, a permission it does not
+	// declare on the resource or the field, and an action no role is given are
+	// each refused as a bad request that says which and why, and nothing of
+	// the call is written. Such a grant would be left out when the policy
+	// loads (SkippedGrant) and give nothing, and a name nobody declared is one
+	// nobody can say the meaning of. All of a resource's fields ("Resource.*")
+	// is the resource's own name. A Client handed no collection checks no
+	// name, as its load of the policy checks none.
 	AddRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
 
 	// AddRoleGrants writes the grants to role as one store write rather than
 	// one per grant; grants the role already holds are left as they are.
 	// Errors if role is not a custom role held in scope or a grant names no
-	// resource.
+	// resource. One grant the release does not declare refuses the whole call,
+	// as AddRoleGrant refuses one.
 	AddRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, grants ...GrantRow) error
 
 	// ChangeRoleGrants removes the removals from role and adds the additions
@@ -362,7 +377,10 @@ type UserManager interface {
 	// change or after it, never between, and a failure leaves them as they
 	// were. Additions the role already holds are left as they are; removals
 	// it does not hold are ignored. Errors if role is not a custom role held
-	// in scope or a grant names no resource.
+	// in scope or a grant names no resource. An addition is held to what the
+	// release declares, as AddRoleGrant holds it, and one that is refused
+	// refuses the whole change. A removal is held to nothing, so a grant the
+	// release no longer declares can be taken away.
 	ChangeRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []GrantRow) error
 
 	// DeleteRolePermissionResources removes every grant of permission on the

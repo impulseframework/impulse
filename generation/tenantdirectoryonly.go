@@ -35,7 +35,9 @@ import (
 //     auth whose people the tenant seats), holding its button until the person has
 //     typed the warning's word. End<Record>DirectoryOnly,
 //     POST <prefix>/<tenants>/{tenant}/end-<record>-directory-only, turns it off, which
-//     is plain. Each writes the flag through the record's update patch;
+//     is plain. Each writes the flag through the record's update patch, and each
+//     action carries the class access (accesstypes.ClassAccess) in the generated
+//     collection, so a session whose permission mask refuses the class runs neither;
 //   - the switch as it stands, GET <prefix>/<tenants>/{tenant}/directory-only
 //     (resource.DirectoryOnlyStateHandler), asked under the grant of either method.
 //
@@ -56,11 +58,15 @@ const (
 var directoryOnlyNamingFields = []string{"username", "name"}
 
 // tenantOwnMethod is a method the generator writes in the tenant's scope beside the
-// tenant record's declaration: its name, as grants and the client name it, and the word
-// its warning has a person type, empty for a method that declares none.
+// tenant record's declaration: its name, as grants and the client name it, the word its
+// warning has a person type, empty for a method that declares none, and the classes its
+// action carries. A method the application declares says its classes with @class; these
+// have no declaration to annotate, so the generator says them where it registers the
+// action, and a permission mask that refuses a class refuses them as it does any other.
 type tenantOwnMethod struct {
-	Name  string
-	Typed string
+	Name    string
+	Typed   string
+	Classes []accesstypes.ActionClass
 }
 
 // Route is the method's route segment under the tenant's own route.
@@ -81,11 +87,16 @@ func endDirectoryOnlyMethodName(record string) string {
 }
 
 // directoryOnlyMethodsOf are the two methods of the record's switch: the one that turns
-// it on, which warns, and the one that turns it off.
+// it on, which warns, and the one that turns it off. The switch decides who may sign in
+// to the tenant at all: on, it keeps out everyone who does not come through the
+// directory, and off, it lets them back in. So both actions carry the class access, and
+// a session whose permission mask refuses the class turns the switch neither way.
 func directoryOnlyMethodsOf(record string) []tenantOwnMethod {
+	changesAccess := []accesstypes.ActionClass{accesstypes.ClassAccess}
+
 	return []tenantOwnMethod{
-		{Name: makeDirectoryOnlyMethodName(record), Typed: resource.DirectoryOnlyWord},
-		{Name: endDirectoryOnlyMethodName(record), Typed: ""},
+		{Name: makeDirectoryOnlyMethodName(record), Typed: resource.DirectoryOnlyWord, Classes: changesAccess},
+		{Name: endDirectoryOnlyMethodName(record), Typed: "", Classes: changesAccess},
 	}
 }
 
@@ -246,6 +257,7 @@ func (r *resourceGenerator) collectDirectoryOnlyRegistrations(b *resource.Collec
 			if err := b.AddMethodResource(accesstypes.DomainPermissionScope, accesstypes.Execute, accesstypes.Resource(method.Name)); err != nil {
 				return errors.Wrapf(err, "registering %s", method.Name)
 			}
+			b.SetActionClasses(accesstypes.DomainPermissionScope, accesstypes.Resource(method.Name), method.Classes)
 		}
 
 		return nil

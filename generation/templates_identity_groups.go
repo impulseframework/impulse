@@ -1072,7 +1072,7 @@ type (
 	// role. It answers the new group's id.
 	//
 	// @rpc` + identityTenantScope + `
-	// @outlet({{ .Outlets }})
+	// @outlet({{ .Outlets }})` + identityAccessClass + `
 	Create{{ .Subject }}Group struct {
 		Name        string ` + "`validate:\"required\"`" + `
 		Description string ` + "`validate:\"required\"`" + `
@@ -1186,7 +1186,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Delete{{ .Subject }}Group struct {
 	// @target({{ .SubjectGroup }})
 	GroupID impulse.UUID
@@ -1466,7 +1466,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Add{{ .Subject }}GroupMember struct {
 	// @target({{ .SubjectGroup }})
 	GroupID impulse.UUID
@@ -1534,7 +1534,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Remove{{ .Subject }}GroupMember struct {
 	// @target({{ .SubjectGroupUser }}, key: GroupID)
 	GroupID impulse.UUID
@@ -1603,7 +1603,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Give{{ .Subject }}GroupRole struct {
 	// @target({{ .SubjectGroup }})
 	GroupID impulse.UUID
@@ -1688,7 +1688,7 @@ import (
 // @rpc
 // @permissionScope(domain)
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Take{{ .Subject }}GroupRole struct {
 	// @target({{ .SubjectGroupRole }}, key: GroupID)
 	GroupID impulse.UUID
@@ -1706,7 +1706,7 @@ type Take{{ .Subject }}GroupRole struct {
 //
 // @rpc
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Take{{ .Subject }}GroupRole struct {
 	GroupID     impulse.UUID
 	Role        string ` + "`validate:\"required\"`" + `

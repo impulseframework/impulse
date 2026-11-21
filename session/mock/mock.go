@@ -7,6 +7,7 @@ package mock
 //go:generate mockgen -source ../signin/rolemanager.go -destination mock_signin/mock_rolemanager.go
 //go:generate mockgen -source ../session_iface.go -destination mock_session/mock_session_iface.go
 //go:generate mockgen -source ../internal/cookie/cookie_iface.go -destination mock_cookie/mock_cookie_iface.go
-//go:generate mockgen -source ../sessionstorage/sessionstorage_iface.go -destination ../sessionstorage/mock/mock_sessionstorage/mock_sessionstorage.go -exclude_interfaces db
-//go:generate mockgen -source ../sessionstorage/auth.go -destination ../sessionstorage/mock/mock_sessionstorage/mock_auth.go -package mock_sessionstorage -aux_files github.com/impulseframework/impulse/session/sessionstorage=../sessionstorage/sessionstorage_iface.go
+//go:generate mockgen -source ../sessionstorage/sessionstorage_iface.go -destination ../sessionstorage/mock/mock_sessionstorage/mock_sessionstorage.go -exclude_interfaces db -mock_names BaseStore=MockBaseStoreMethods,PreauthStore=MockPreauthStoreMethods,UserStore=MockUserStoreMethods
+//go:generate mockgen -source ../sessionstorage/auth.go -destination ../sessionstorage/mock/mock_sessionstorage/mock_auth.go -package mock_sessionstorage -aux_files github.com/impulseframework/impulse/session/sessionstorage=../sessionstorage/sessionstorage_iface.go -mock_names AuthStore=MockAuthStoreMethods
 //go:generate mockgen -source ../sessionstorage/sessionstorage_iface.go -destination ../sessionstorage/db_mock_test.go -package sessionstorage -exclude_interfaces BaseStore,PreauthStore
+//go:generate mockgen -source ../internal/mockstore/mockstore.go -destination ../internal/mockstore/mock_sealedwrite.go -package mockstore

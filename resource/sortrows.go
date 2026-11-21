@@ -159,10 +159,25 @@ func compareNumbers[N int64 | uint64 | float64](a, b N) int {
 	}
 }
 
+// Unordered is implemented by the type of a field whose value is not the value its
+// column holds, which therefore cannot be ordered by: the database orders a list by the
+// column, and a page's cursor is built from the field, so the two would disagree and a
+// page would skip or repeat rows. A mask read as words (accesstypes.NullMaskWords) is
+// one. A sort on such a field is refused, and an order declared on one is refused where
+// the list is built.
+type Unordered interface {
+	// Unordered marks the type. It is never called.
+	Unordered()
+}
+
 // sortableType reports whether a field's type can be ordered by: text, numbers,
 // booleans, timestamps, dates, decimals, UUIDs, and pointers or Null* wrappers
-// of them. A slice, a map, or a plain struct (a nested computed field) cannot.
+// of them. A slice, a map, a plain struct (a nested computed field) or a type whose
+// value is not its column's (Unordered) cannot.
 func sortableType(t reflect.Type) bool {
+	if t.Implements(reflect.TypeFor[Unordered]()) {
+		return false
+	}
 	t = nullableBaseType(t)
 	if t == reflect.TypeFor[time.Time]() || t == reflect.TypeFor[civil.Date]() || t == reflect.TypeFor[decimal.Decimal]() {
 		return true

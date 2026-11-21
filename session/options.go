@@ -49,12 +49,18 @@ func WithXSRFHeaderName(name string) CookieOption {
 }
 
 // BaseSessionOption configures the session itself. It is an option of every session
-// type.
+// type. The With functions of this package that return one are the only way to make an
+// option that sets something: the type is an opaque value with no exported field and
+// no method, which a program passes to a constructor and can do nothing else with. It
+// is not a function, so no generic function instantiated with it learns the type of
+// the session it configures, and nothing about it hands a program that session. The
+// zero value, which a program can declare, sets nothing and is refused by every
+// constructor.
 type BaseSessionOption = sessioncore.BaseSessionOption
 
 // WithLogHandler sets the LogHandler. (default: httpio.Log)
 func WithLogHandler(l LogHandler) BaseSessionOption {
-	return BaseSessionOption(func(b *basesession.BaseSession) {
+	return sessioncore.NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.Handle = l
 	})
 }
@@ -64,14 +70,14 @@ func WithLogHandler(l LogHandler) BaseSessionOption {
 // digits or underscores) is refused by the session type's constructor, as every
 // table-name option's is.
 func WithSessionTableName(name string) BaseSessionOption {
-	return BaseSessionOption(func(b *basesession.BaseSession) {
+	return sessioncore.NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.TableNames = append(b.TableNames, basesession.TableName{Option: "WithSessionTableName", Name: name, Set: b.Storage.SetSessionTableName})
 	})
 }
 
 // WithUserTableName sets the name of the user table. (default: SessionUsers)
 func WithUserTableName(name string) BaseSessionOption {
-	return BaseSessionOption(func(b *basesession.BaseSession) {
+	return sessioncore.NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.TableNames = append(b.TableNames, basesession.TableName{Option: "WithUserTableName", Name: name, Set: b.Storage.SetUserTableName})
 	})
 }
@@ -80,7 +86,7 @@ var defaultSessionTimeout = sessioncore.DefaultSessionTimeout
 
 // WithSessionTimeout sets the session timeout. (default: 10m)
 func WithSessionTimeout(d time.Duration) BaseSessionOption {
-	return BaseSessionOption(func(b *basesession.BaseSession) {
+	return sessioncore.NewBaseSessionOption(func(b *basesession.BaseSession) {
 		b.SessionTimeout = d
 	})
 }

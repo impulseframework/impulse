@@ -18,10 +18,10 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/cookie"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/testkey"
 	"github.com/impulseframework/impulse/session/mock/mock_cookie"
 	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	"go.uber.org/mock/gomock"
 )
 
@@ -216,7 +216,7 @@ func TestBaseSessionValidateSession(t *testing.T) {
 		name       string
 		fields     fields
 		args       args
-		prepare    func(storageManager *mock_sessionstorage.MockBaseStore)
+		prepare    func(storageManager *mockstore.BaseStore)
 		wantStatus int
 	}{
 		{
@@ -227,7 +227,7 @@ func TestBaseSessionValidateSession(t *testing.T) {
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, "", "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
-			prepare: func(storageManager *mock_sessionstorage.MockBaseStore) {
+			prepare: func(storageManager *mockstore.BaseStore) {
 				storageManager.EXPECT().Session(gomock.Any(), impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).
 					Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 						ID:        impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
@@ -246,7 +246,7 @@ func TestBaseSessionValidateSession(t *testing.T) {
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodPost, "", "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
-			prepare: func(storageManager *mock_sessionstorage.MockBaseStore) {
+			prepare: func(storageManager *mockstore.BaseStore) {
 				storageManager.EXPECT().Session(gomock.Any(), impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).
 					Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 						ID:        impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
@@ -265,7 +265,7 @@ func TestBaseSessionValidateSession(t *testing.T) {
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, "", "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
-			prepare: func(storageManager *mock_sessionstorage.MockBaseStore) {
+			prepare: func(storageManager *mockstore.BaseStore) {
 				storageManager.EXPECT().Session(gomock.Any(), impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(nil, errors.New("big fat error"))
 			},
 			wantStatus: http.StatusUnauthorized,
@@ -278,7 +278,7 @@ func TestBaseSessionValidateSession(t *testing.T) {
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, "", "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
-			prepare: func(storageManager *mock_sessionstorage.MockBaseStore) {
+			prepare: func(storageManager *mockstore.BaseStore) {
 				storageManager.EXPECT().Session(gomock.Any(), impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).
 					Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 						ID:        impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
@@ -294,7 +294,7 @@ func TestBaseSessionValidateSession(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			storageManager := mock_sessionstorage.NewMockBaseStore(ctrl)
+			storageManager := mockstore.NewBaseStore(ctrl)
 
 			tt.prepare(storageManager)
 
@@ -333,7 +333,7 @@ func TestBaseSession_ValidateSessionAPI(t *testing.T) {
 		name             string
 		fields           fields
 		args             args
-		prepare          func(storageManager *mock_sessionstorage.MockBaseStore, tt test)
+		prepare          func(storageManager *mockstore.BaseStore, tt test)
 		wantUnauthorized bool
 		want             *sessioninfo.SessionInfo
 		wantMsg          string
@@ -353,7 +353,7 @@ func TestBaseSession_ValidateSessionAPI(t *testing.T) {
 				Username:  "specialUser",
 				UpdatedAt: time.Now().Add(-10 * time.Second),
 			},
-			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
+			prepare: func(storageManager *mockstore.BaseStore, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(&sessioninfo.SessionData{SessionInfo: tt.want}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(nil)
 			},
@@ -371,7 +371,7 @@ func TestBaseSession_ValidateSessionAPI(t *testing.T) {
 				Username:  "specialUser",
 				UpdatedAt: time.Now(),
 			},
-			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
+			prepare: func(storageManager *mockstore.BaseStore, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(&sessioninfo.SessionData{SessionInfo: tt.want}, nil)
 			},
 		},
@@ -384,7 +384,7 @@ func TestBaseSession_ValidateSessionAPI(t *testing.T) {
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, "", "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			},
 			want: &sessioninfo.SessionInfo{ID: impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now().Add(-10 * time.Second)},
-			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
+			prepare: func(storageManager *mockstore.BaseStore, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(&sessioninfo.SessionData{SessionInfo: tt.want}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(errors.New("big fat error"))
 			},
@@ -399,7 +399,7 @@ func TestBaseSession_ValidateSessionAPI(t *testing.T) {
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, "", "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			},
 			want: &sessioninfo.SessionInfo{ID: impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now().Add(-10 * time.Second), Expired: true},
-			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
+			prepare: func(storageManager *mockstore.BaseStore, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(&sessioninfo.SessionData{SessionInfo: tt.want}, nil)
 			},
 			wantUnauthorized: true,
@@ -415,7 +415,7 @@ func TestBaseSession_ValidateSessionAPI(t *testing.T) {
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, "", "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
 			want: &sessioninfo.SessionInfo{ID: impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), Username: "specialUser", UpdatedAt: time.Now().Add(-time.Hour)},
-			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
+			prepare: func(storageManager *mockstore.BaseStore, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(&sessioninfo.SessionData{SessionInfo: tt.want}, nil)
 			},
 			wantUnauthorized: true,
@@ -427,7 +427,7 @@ func TestBaseSession_ValidateSessionAPI(t *testing.T) {
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, "", "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
-			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, _ test) {
+			prepare: func(storageManager *mockstore.BaseStore, _ test) {
 				storageManager.EXPECT().Session(gomock.Any(), impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(nil, errors.New("big fat error"))
 			},
 			wantUnauthorized: true,
@@ -439,7 +439,7 @@ func TestBaseSession_ValidateSessionAPI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			storageManager := mock_sessionstorage.NewMockBaseStore(ctrl)
+			storageManager := mockstore.NewBaseStore(ctrl)
 
 			tt.prepare(storageManager, tt)
 
@@ -523,13 +523,13 @@ func TestBaseSession_Authenticated(t *testing.T) {
 	tests := []struct {
 		name           string
 		expectedStatus int
-		prepare        func(*mock_sessionstorage.MockBaseStore)
+		prepare        func(*mockstore.BaseStore)
 		cookieError    bool
 		want           *response
 	}{
 		{
 			name: "success but unauthorized",
-			prepare: func(storage *mock_sessionstorage.MockBaseStore) {
+			prepare: func(storage *mockstore.BaseStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(nil, errors.New("invalid session")).Times(1)
 			},
 			expectedStatus: http.StatusOK,
@@ -537,7 +537,7 @@ func TestBaseSession_Authenticated(t *testing.T) {
 		},
 		{
 			name: "fails to check the user's session",
-			prepare: func(storage *mock_sessionstorage.MockBaseStore) {
+			prepare: func(storage *mockstore.BaseStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{UpdatedAt: time.Now().Add(-10 * time.Second)}}, nil).Times(1)
 				storage.EXPECT().UpdateSessionActivity(gomock.Any(), gomock.Any()).Return(errors.New("failed to update session activity")).Times(1)
 			},
@@ -545,7 +545,7 @@ func TestBaseSession_Authenticated(t *testing.T) {
 		},
 		{
 			name: "successful authentication",
-			prepare: func(storage *mock_sessionstorage.MockBaseStore) {
+			prepare: func(storage *mockstore.BaseStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 					Username:  "test Username",
 					UpdatedAt: time.Now().Add(-10 * time.Second),
@@ -564,7 +564,7 @@ func TestBaseSession_Authenticated(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			storage := mock_sessionstorage.NewMockBaseStore(ctrl)
+			storage := mockstore.NewBaseStore(ctrl)
 
 			session := &BaseSession{
 				SessionTimeout: 15 * time.Minute,
@@ -608,13 +608,13 @@ func TestBaseSession_Logout(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name           string
-		prepare        func(*mock_sessionstorage.MockBaseStore)
+		prepare        func(*mockstore.BaseStore)
 		expectedStatus int
 		wantSessionID  impulse.UUID
 	}{
 		{
 			name: "success logging out, fails to destroy session in db",
-			prepare: func(u *mock_sessionstorage.MockBaseStore) {
+			prepare: func(u *mockstore.BaseStore) {
 				u.EXPECT().DestroySession(gomock.Any(), impulse.Must(impulse.UUIDFromString("bbee630a-0255-4dee-9283-8b7277bad0b0"))).Return(httpio.NewNotFoundMessagef("session not found")).Times(1)
 			},
 			expectedStatus: http.StatusNotFound,
@@ -622,7 +622,7 @@ func TestBaseSession_Logout(t *testing.T) {
 		},
 		{
 			name: "success logging out",
-			prepare: func(u *mock_sessionstorage.MockBaseStore) {
+			prepare: func(u *mockstore.BaseStore) {
 				u.EXPECT().DestroySession(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 			},
 			expectedStatus: http.StatusOK,
@@ -632,7 +632,7 @@ func TestBaseSession_Logout(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			storage := mock_sessionstorage.NewMockBaseStore(gomock.NewController(t))
+			storage := mockstore.NewBaseStore(gomock.NewController(t))
 			tt.prepare(storage)
 			a := &BaseSession{
 				SessionTimeout: 15 * time.Minute,
