@@ -66,6 +66,60 @@ function pointsAlong(path: string): Spot[] {
   return spots;
 }
 
+/** The room each state's box takes on a drawn graph. */
+function stateRooms(graph: Element): Room[] {
+  return Array.from(graph.querySelectorAll('.node')).map((node): Room => {
+    const box = node.querySelector('rect');
+    const left = box ? attribute(box, 'x') : 0;
+    const top = box ? attribute(box, 'y') : 0;
+    return {
+      name: `the state ${(node.textContent ?? '').trim()}`,
+      left,
+      top,
+      right: left + (box ? attribute(box, 'width') : 0),
+      bottom: top + (box ? attribute(box, 'height') : 0),
+    };
+  });
+}
+
+/** Whether a point is inside a room grown by a margin on every side (shrunk by a negative one). */
+function within(room: Room, spot: Spot, margin: number): boolean {
+  return (
+    spot.x >= room.left - margin &&
+    spot.x <= room.right + margin &&
+    spot.y >= room.top - margin &&
+    spot.y <= room.bottom + margin
+  );
+}
+
+/**
+ * What a drawn workflow graph has wrong with its arrows: each line that does not start
+ * and end on the edge of a state's box. The boxes are drawn over the lines, so a line
+ * that runs on inside a box ends under it and its arrowhead is not seen; a line that
+ * ends short of every box points at nothing. A graph with nothing wrong gives an empty
+ * list. A line's ends are read to half a unit, since a path carries tenths.
+ */
+export function arrowFaults(graph: Element): string[] {
+  const states = stateRooms(graph);
+  const faults: string[] = [];
+  graph.querySelectorAll('.edge').forEach((edge) => {
+    const words = (edge.querySelector('text')?.textContent ?? '').trim();
+    const line = pointsAlong(edge.querySelector('path')?.getAttribute('d') ?? '');
+    const ends: [string, Spot | undefined][] = [
+      ['starts', line[0]],
+      ['ends', line[line.length - 1]],
+    ];
+    for (const [which, spot] of ends) {
+      if (!spot) continue;
+      const onEdge = states.some((state) => within(state, spot, 0.5) && !within(state, spot, -0.5));
+      if (onEdge) continue;
+      const inside = states.find((state) => within(state, spot, 0));
+      faults.push(`the line of "${words}" ${which} ${inside ? `inside ${inside.name}` : 'at no state'}`);
+    }
+  });
+  return faults;
+}
+
 /**
  * What a drawn workflow graph has wrong with its labels: each label that shares room with
  * another label or with a state's box, each that leaves the drawing, and each that
@@ -90,18 +144,7 @@ export function labelFaults(graph: Element): string[] {
       bottom: y + 2,
     };
   });
-  const states = Array.from(graph.querySelectorAll('.node')).map((node): Room => {
-    const box = node.querySelector('rect');
-    const left = box ? attribute(box, 'x') : 0;
-    const top = box ? attribute(box, 'y') : 0;
-    return {
-      name: `the state ${(node.textContent ?? '').trim()}`,
-      left,
-      top,
-      right: left + (box ? attribute(box, 'width') : 0),
-      bottom: top + (box ? attribute(box, 'height') : 0),
-    };
-  });
+  const states = stateRooms(graph);
   const lines = Array.from(graph.querySelectorAll('.edge')).map((edge) =>
     pointsAlong(edge.querySelector('path')?.getAttribute('d') ?? ''),
   );

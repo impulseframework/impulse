@@ -9,7 +9,7 @@ import { provideResourceTesting } from '@impulseframework/resource-angular/testi
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
-import { labelFaults } from './graph/testing';
+import { arrowFaults, labelFaults } from './graph/testing';
 import { serverWords } from './server-words';
 import { TrackerComponent } from './tracker.component';
 
@@ -444,6 +444,7 @@ describe('TrackerComponent for a signed-in client', () => {
     expect(edges.map((edge) => text(edge.querySelector('text')))).toEqual(['Stand down', 'Stand down', 'Stand down']);
     expect(edges.map((edge) => edge.getAttribute('aria-label'))).toEqual(['Stand down', 'Stand down', 'Stand down']);
     expect(labelFaults(graph)).toEqual([]);
+    expect(arrowFaults(graph)).toEqual([]);
     expect(text(element())).not.toMatch(/StandDownMission|state graph|edge|descriptor|manual resource|change log/i);
   });
 
@@ -482,6 +483,7 @@ describe('TrackerComponent for a signed-in client', () => {
         'Stand down',
       ]);
       expect(labelFaults(graph)).toEqual([]);
+      expect(arrowFaults(graph)).toEqual([]);
     } finally {
       vi.unstubAllGlobals();
     }
