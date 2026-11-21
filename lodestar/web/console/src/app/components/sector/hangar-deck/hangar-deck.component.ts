@@ -101,7 +101,8 @@ export class HangarDeckComponent {
   select(refit: Refits): void {
     this.selectedID.set(this.selectedID() === refit.id ? undefined : refit.id);
     this.report.set(undefined);
-    this.editEstimate = refit.estimate ?? null;
+    // An estimate is a decimal, which arrives as a string that keeps every digit; the form edits it as a number.
+    this.editEstimate = refit.estimate === undefined ? null : Number(refit.estimate);
     this.editNotes = refit.notes ?? '';
     this.newTaskInstructions = '';
     this.refusal.set(undefined);
@@ -191,8 +192,12 @@ export class HangarDeckComponent {
   async saveEdits(refit: Refits): Promise<void> {
     const handle = this.sectors.sectorApi().refits;
     const patch: Record<string, unknown> = {};
-    if (this.canEdit(refit, 'estimate') && this.editEstimate !== null && this.editEstimate !== refit.estimate)
-      patch['estimate'] = this.editEstimate;
+    if (
+      this.canEdit(refit, 'estimate') &&
+      this.editEstimate !== null &&
+      (refit.estimate === undefined || this.editEstimate !== Number(refit.estimate))
+    )
+      patch['estimate'] = String(this.editEstimate);
     if (this.canEdit(refit, 'notes') && this.editNotes !== (refit.notes ?? '')) patch['notes'] = this.editNotes;
     if (Object.keys(patch).length === 0) return;
     await handle.patch(handle.keyOf(refit), patch);

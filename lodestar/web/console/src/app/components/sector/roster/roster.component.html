@@ -1,78 +1,120 @@
-<h1>Squadron Roster</h1>
-<p>
-  The sector's wings, squadrons, and who flies with whom — the anchors behind <code>subject.squadrons</code> and
-  <code>subject.wings</code>. Headquarters and the Marshal may also view the console as another crew member, read-only,
-  or act as a role: the role lends its grants, never anyone's identity.
-</p>
+<!--
+  The page draws once it knows: nothing until the grants and its lists are in, then all of
+  it. Nothing below is drawn and then taken away.
+-->
+@if (ready()) {
+  <h1>Squadron Roster</h1>
+  <p>
+    The sector's wings and squadrons, and who flies with whom. Headquarters and the Marshal may also see the console as
+    another crew member does, read-only, or act as a role: the role lends what it may do, never anyone's identity.
+  </p>
 
-@if (sectors.refusalOf(squadrons); as refusal) {
-  <mat-card appearance="outlined" class="table-card refusal-slot">
-    <p class="refusal"><b>Refused by the server:</b> {{ refusal }}</p>
-  </mat-card>
-} @else if (!canListSquadrons()) {
-  <mat-card appearance="outlined" class="table-card">
-    <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover the squadron roster.</p>
-  </mat-card>
-} @else {
-  <mat-card appearance="outlined" class="table-card">
-    <table mat-table [dataSource]="squadrons.value()">
-      <ng-container matColumnDef="name">
-        <th mat-header-cell *matHeaderCellDef>Squadron</th>
-        <td mat-cell *matCellDef="let row">{{ row.name }}</td>
-      </ng-container>
-      <ng-container matColumnDef="wing">
-        <th mat-header-cell *matHeaderCellDef>Wing</th>
-        <td mat-cell *matCellDef="let row">{{ wingName(row.wingId) }}</td>
-      </ng-container>
-      <ng-container matColumnDef="members">
-        <th mat-header-cell *matHeaderCellDef>Flies with</th>
-        <td mat-cell *matCellDef="let row">{{ members(row.id) || '—' }}</td>
-      </ng-container>
-      <tr mat-header-row *matHeaderRowDef="columns"></tr>
-      <tr mat-row *matRowDef="let row; columns: columns"></tr>
-    </table>
-    @if (!squadrons.value().length) {
-      <p class="empty">No squadrons visible in {{ sectorName() }} for your posting.</p>
-    }
-  </mat-card>
+  @if (sectors.saidBy(squadrons); as said) {
+    <mat-card appearance="outlined" class="table-card refusal-slot">
+      <p class="refusal">The server would not list the squadrons: {{ said }}</p>
+    </mat-card>
+  } @else if (!canListSquadrons()) {
+    <mat-card appearance="outlined" class="table-card">
+      <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover the squadron roster.</p>
+    </mat-card>
+  } @else {
+    <mat-card appearance="outlined" class="table-card">
+      <table mat-table [dataSource]="squadrons.value()">
+        <ng-container matColumnDef="name">
+          <th mat-header-cell *matHeaderCellDef>Squadron</th>
+          <td mat-cell *matCellDef="let row">{{ row.name }}</td>
+        </ng-container>
+        <ng-container matColumnDef="wing">
+          <th mat-header-cell *matHeaderCellDef>Wing</th>
+          <td mat-cell *matCellDef="let row">{{ wingName(row.wingId) }}</td>
+        </ng-container>
+        <ng-container matColumnDef="members">
+          <th mat-header-cell *matHeaderCellDef>Flies with</th>
+          <td mat-cell *matCellDef="let row">{{ members(row.id) || '—' }}</td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="columns"></tr>
+        <tr mat-row *matRowDef="let row; columns: columns"></tr>
+      </table>
+      @if (!squadrons.value().length) {
+        <p class="empty">No squadrons visible in {{ sectorName() }} for your posting.</p>
+      }
+    </mat-card>
+  }
+
+  @if ((canViewAs() || canAssumeRole()) && !alreadyImpersonating()) {
+    <mat-card appearance="outlined" class="impersonation-card">
+      <mat-card-header>
+        <mat-card-title>Viewing as, acting as</mat-card-title>
+        <mat-card-subtitle>
+          While you view as someone or act as a role, that session takes the place of yours: end it from the banner. You
+          cannot start another from inside one.
+        </mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="actions">
+          @if (canViewAs() && people.value().length) {
+            <button mat-stroked-button type="button" class="view-as" (click)="open(viewAsForm)">View as</button>
+          }
+          @if (canAssumeRole()) {
+            <button mat-stroked-button type="button" class="assume-role" (click)="open(assumeRoleForm)">
+              Act as role
+            </button>
+          }
+        </div>
+      </mat-card-content>
+    </mat-card>
+  }
 }
 
-@if ((canViewAs() || canAssumeRole()) && !alreadyImpersonating()) {
-  <mat-card appearance="outlined" class="create-card">
-    <mat-card-header>
-      <mat-card-title>Viewing as, acting as</mat-card-title>
-      <mat-card-subtitle>
-        A minted session replaces yours: end it from the banner. Chaining is refused — an impersonated session cannot
-        mint another.
-      </mat-card-subtitle>
-    </mat-card-header>
-    <mat-card-content>
-      @if (canViewAs() && people.value().length) {
-        <form class="inline-form" (ngSubmit)="viewAs()">
-          <mat-form-field appearance="outline">
-            <mat-label>View as (read-only)</mat-label>
-            <mat-select name="viewAs" [(ngModel)]="viewAsUserId">
-              @for (person of people.value(); track person.id) {
-                <mat-option [value]="person.id">{{ personLabel(person.username) }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-          <button mat-flat-button type="submit">View as</button>
-        </form>
+<!--
+  The two pickers. Each opens in a dialog over the page from the button that names it:
+  the title and the button that mints are that button's words, Cancel and Escape close it
+  with nothing minted, and what the server refuses is shown in the dialog.
+-->
+<ng-template #viewAsForm>
+  <div mat-dialog-title>View as</div>
+  <form class="dialog-form" (ngSubmit)="viewAs()">
+    <mat-dialog-content>
+      <p class="hint">You see the console as that crew member does, read-only.</p>
+      <mat-form-field appearance="outline">
+        <mat-label>Crew member</mat-label>
+        <mat-select name="viewAs" [(ngModel)]="viewAsUserId" required>
+          @for (person of people.value(); track person.id) {
+            <mat-option [value]="person.id">{{ personLabel(person) }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      @if (refusal(); as refusal) {
+        <p class="refusal" role="alert">{{ refusal }}</p>
       }
-      @if (canAssumeRole()) {
-        <form class="inline-form" (ngSubmit)="assumeRole()">
-          <mat-form-field appearance="outline">
-            <mat-label>Act as role</mat-label>
-            <mat-select name="assumeRole" [(ngModel)]="assumeRoleName">
-              @for (role of roles; track role) {
-                <mat-option [value]="role">{{ role }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-          <button mat-flat-button type="submit">Assume role</button>
-        </form>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+      <button mat-raised-button type="submit" color="accent" class="send">View as</button>
+    </mat-dialog-actions>
+  </form>
+</ng-template>
+
+<ng-template #assumeRoleForm>
+  <div mat-dialog-title>Act as role</div>
+  <form class="dialog-form" (ngSubmit)="assumeRole()">
+    <mat-dialog-content>
+      <p class="hint">The role lends you what it may do, never anyone's identity: you stay yourself.</p>
+      <mat-form-field appearance="outline">
+        <mat-label>Role</mat-label>
+        <mat-select name="assumeRole" [(ngModel)]="assumeRoleName" required>
+          @for (role of roles; track role) {
+            <mat-option [value]="role">{{ roleWords(role) }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      @if (refusal(); as refusal) {
+        <p class="refusal" role="alert">{{ refusal }}</p>
       }
-    </mat-card-content>
-  </mat-card>
-}
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+      <button mat-raised-button type="submit" color="accent" class="send">Act as role</button>
+    </mat-dialog-actions>
+  </form>
+</ng-template>

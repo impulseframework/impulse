@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
@@ -21,7 +22,9 @@ import (
 // declared. The key is Id unless named here; the Level columns are foreign keys
 // into the Levels enumeration table, whose rows the schema read loads; Stake's
 // ProjectId is a foreign key into Projects, which its dotted value leaves through;
-// and the indexes are the ones each struct's doc comment speaks of.
+// every PoolId, DepotId, RackId, RealmId and GroupId is a foreign key into Pools,
+// Depots, Racks, Realms and StaffGroups, which a domain: leaves through; and the
+// indexes are the ones each struct's doc comment speaks of.
 func subjectSetFixtureClient(t *testing.T, structs map[string]*parser.Struct) *client {
 	t.Helper()
 
@@ -41,7 +44,13 @@ func subjectSetFixtureClient(t *testing.T, structs map[string]*parser.Struct) *c
 		"ValueWithStringPart": {"UserId"},
 		"KeyedByBoth":         {"ProjectId", "UserId"},
 		"SecondaryThenKey":    {"ProjectId"},
+		"PoolMember":          {"PoolId", "UserId"},
+		"DomainOnValue":       {"UserId"},
+		"DepotKeeper":         {"DepotId", "UserId"},
+		"RackKeeper":          {"RackId", "UserId"},
+		"StaffGroupMember":    {"GroupId", "UserId"},
 	}
+	parents := map[string]string{"PoolId": "Pools", "DepotId": "Depots", "RackId": "Racks", "RealmId": "Realms", "GroupId": "StaffGroups"}
 	index := func(name string, nullFiltered bool, columns ...string) indexMeta {
 		meta := indexMeta{Name: name, NullFiltered: nullFiltered}
 		for _, column := range columns {
@@ -105,6 +114,9 @@ func subjectSetFixtureClient(t *testing.T, structs map[string]*parser.Struct) *c
 			}
 			if name == "Stake" && column == "ProjectId" {
 				meta.IsForeignKey, meta.ReferencedTable, meta.ReferencedColumn = true, "Projects", "Id"
+			}
+			if parent, ok := parents[column]; ok {
+				meta.IsForeignKey, meta.ReferencedTable, meta.ReferencedColumn = true, parent, "Id"
 			}
 			table.Columns[column] = meta
 		}
@@ -234,6 +246,26 @@ func TestResolveSubjectSetParts(t *testing.T) {
 						Condition: "ExpiresAt IS NULL OR ExpiresAt > now",
 						Columns:   []resource.SubjectColumnData{{Name: "ExpiresAt", Column: "ExpiresAt", Type: resource.AttributeTypeTimestamp}},
 					},
+				},
+			},
+		},
+		{
+			name:       "a set on a table that is no tenant's carries the path its domain: names to a row's tenant",
+			structName: "PoolMember",
+			want: []resource.SubjectBindingData{
+				{
+					Name: "pools", UserColumn: "UserId", Column: "PoolId", Type: resource.AttributeTypeString,
+					Domain: &resource.DomainBindingData{Column: "PoolId", Path: []resource.BindingHop{{Table: "Pools", JoinColumn: "Id", Column: "TenantId"}}},
+				},
+			},
+		},
+		{
+			name:       "a set whose rows carry their tenant themselves names the column, and its domain: has no path",
+			structName: "Keyholder",
+			want: []resource.SubjectBindingData{
+				{
+					Name: "keys", UserColumn: "UserId", Column: "KeyId", Type: resource.AttributeTypeString,
+					Domain: &resource.DomainBindingData{Column: "TenantId"},
 				},
 			},
 		},
@@ -438,6 +470,36 @@ func TestResolveSubjectSetParts_refusals(t *testing.T) {
 			name:       "a part written on a subject value, a parenthesis in its string",
 			structName: "ValueWithStringPart",
 			want:       []string{"@subjectValue(seatCode)", "@subjectValue takes the name and value: alone; who: and where: are the parts of a @subjectSet"},
+		},
+		{
+			name:       "a domain: on a table that carries its tenant itself",
+			structName: "DomainOnTenantTable",
+			want:       []string{"@subjectSet(tenantPools) writes domain:", "DomainOnTenantTable is domain-scoped, and its @domain binding already keeps the set to the request's tenant", "remove domain:"},
+		},
+		{
+			name:       "a domain: naming a column of the row that is a number",
+			structName: "DomainOwnNumber",
+			want:       []string{"@subjectSet(byFloor)", "domain: Floor ends at a number column, and a tenant's key is text", "end it at the column that holds the tenant's key"},
+		},
+		{
+			name:       "a domain: starting at a field the row does not have",
+			structName: "DomainUnknownField",
+			want:       []string{"@subjectSet(strayPath)", "domain: names CrewID, which is not a field of the resource", "write the column of the row that holds its tenant's key, or a foreign key of the row and then the column of its table that holds it (GroupID.DomainID)"},
+		},
+		{
+			name:       "a domain: starting at a column that is no foreign key",
+			structName: "DomainNotForeignKey",
+			want:       []string{"@subjectSet(looseEnd)", "domain:", "a join path must leave through a foreign key, and Note is not one"},
+		},
+		{
+			name:       "a domain: ending at a number",
+			structName: "DomainNumber",
+			want:       []string{"@subjectSet(sized)", "domain: PoolID.Size ends at a number column, and a tenant's key is text", "end it at the column that holds the tenant's key"},
+		},
+		{
+			name:       "a domain: on a subject value",
+			structName: "DomainOnValue",
+			want:       []string{"@subjectValue(homePool)", "@subjectValue takes the name and value: alone; domain: is a part of a @subjectSet"},
 		},
 	}
 
@@ -743,6 +805,153 @@ func Test_resourceKeywords_expressions(t *testing.T) {
 	}
 }
 
+// Test_collectionTemplate_subjectSetDomain renders the generated collection file for
+// a set that names its own way to a row's tenant: the set's literal ends with the
+// binding, the foreign key the path leaves through and the hop to the tenant's key.
+func Test_collectionTemplate_subjectSetDomain(t *testing.T) {
+	t.Parallel()
+
+	formatted := renderSubjectSetCollection(t, "Pool", "PoolMember")
+
+	want := `					{Name: "pools", UserColumn: "UserId", Column: "PoolId", Type: "string", Domain: &resource.DomainBindingData{Column: "PoolId", Path: []resource.BindingHop{{Table: "Pools", JoinColumn: "Id", Column: "TenantId"}}}},
+`
+	if !strings.Contains(formatted, want) {
+		t.Errorf("rendered collection file does not hold the subject set as\n%s\ngot:\n%s", want, formatted)
+	}
+	if got := subjectDomainLiteral(nil); got != "" {
+		t.Errorf("subjectDomainLiteral(nil) = %q, want nothing", got)
+	}
+
+	// A set whose rows carry their tenant themselves: the binding is the column, with
+	// no hop after it.
+	formatted = renderSubjectSetCollection(t, "Keyholder")
+	want = `					{Name: "keys", UserColumn: "UserId", Column: "KeyId", Type: "string", Domain: &resource.DomainBindingData{Column: "TenantId"}},
+`
+	if !strings.Contains(formatted, want) {
+		t.Errorf("rendered collection file does not hold the subject set as\n%s\ngot:\n%s", want, formatted)
+	}
+}
+
+// TestCheckSubjectDomainEnds pins where a set's domain: must end, driven through
+// structsToResources as a generation run drives it. Text is all a column's type
+// says, so wherever the run knows which column of the table the part ends on holds
+// its tenant, the end is that column and nothing else: the column a tenant's table
+// carries its @domain on, the key of the tenant record, and the column the
+// permission store keeps a group's tenant in. A tenant's table that finds its
+// tenant through a parent holds no such column, so a part that ends on it is told
+// to go on through the parent. A table that is no tenant's and says nothing of one
+// is held to text alone, which is what the store's groups table is to a run that
+// generates no management of the auth.
+func TestCheckSubjectDomainEnds(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "subjectsetfixture"))
+	staff := []*identityInstance{{auth: "Staff", policy: access.Tables{Groups: "StaffGroups"}}}
+
+	tests := []struct {
+		name     string
+		structs  []string
+		identity []*identityInstance
+		want     []string
+	}{
+		{
+			name:    "a path that ends at the column a tenant's table carries its @domain on",
+			structs: []string{"Depot", "DepotKeeper"},
+		},
+		{
+			name:    "a path that ends at another text column of a tenant's table",
+			structs: []string{"Depot", "DomainOtherColumn"},
+			want: []string{
+				"struct DomainOtherColumn field UserID: @subjectSet(byRegion): domain: DepotID.Region ends at Region of Depots, and Depots keeps its tenant in TenantID, the column its @domain sits on",
+				"end it at TenantID, as DepotID.TenantID",
+			},
+		},
+		{
+			name:    "a path that goes on through a table that finds its tenant through a parent",
+			structs: []string{"Depot", "Rack", "RackKeeper"},
+		},
+		{
+			name:    "a path that ends on a table that finds its tenant through a parent",
+			structs: []string{"Depot", "Rack", "DomainShortOfTenant"},
+			want: []string{
+				"struct DomainShortOfTenant field UserID: @subjectSet(byLabel): domain: RackID.Label ends at Label of Racks, which holds no tenant's key itself: its rows find their tenant through DepotID (@domain(via:))",
+				"continue it through DepotID to the tenant column of Depots, as RackID.DepotID and on",
+			},
+		},
+		{
+			name:    "a path that ends at the tenant record's key",
+			structs: []string{"Realm", "RealmKeeper"},
+		},
+		{
+			name:    "a path that ends at the tenant record's name",
+			structs: []string{"Realm", "DomainTenantName"},
+			want: []string{
+				"struct DomainTenantName field UserID: @subjectSet(byRealmName): domain: RealmID.Name ends at Name of Realms, the tenant record, whose rows are the tenants: a tenant's key is its ID and no other column of it",
+				"end it at ID, as RealmID.ID",
+			},
+		},
+		{
+			name:    "one name on the tenant record itself that is not its key",
+			structs: []string{"DomainOwnTenantName"},
+			want: []string{
+				"struct DomainOwnTenantName field OwnerID: @subjectSet(ownedRealms): domain: Name ends at Name of DomainOwnTenantNames, the tenant record",
+				"a tenant's key is its ID and no other column of it; name ID",
+			},
+		},
+		{
+			name:     "a path that ends at the column the permission store keeps a group's tenant in",
+			structs:  []string{"StaffGroup", "StaffGroupMember"},
+			identity: staff,
+		},
+		{
+			name:     "a path that ends at a group's name",
+			structs:  []string{"StaffGroup", "DomainGroupName"},
+			identity: staff,
+			want: []string{
+				"struct DomainGroupName field UserID: @subjectSet(byGroupName): domain: GroupID.Name ends at Name of StaffGroups, the permission store's table of groups, which keeps a group's tenant in its DomainId column",
+				"end it at DomainID, as GroupID.DomainID",
+			},
+		},
+		{
+			name:    "the same path in a run that generates no management: the table says nothing of a tenant, and text is all that is held",
+			structs: []string{"StaffGroup", "DomainGroupName"},
+		},
+		{
+			name:    "a path that ends on a table that is no tenant's and declares no tenant column",
+			structs: []string{"Pool", "PoolMember"},
+		},
+		{
+			name:    "one name on a table that is no tenant's",
+			structs: []string{"Keyholder"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := subjectSetFixtureClient(t, structs)
+			c.identity = tt.identity
+			_, err := c.structsToResources(subjectSetStructs(t, structs, tt.structs...))
+			if len(tt.want) == 0 {
+				if err != nil {
+					t.Fatalf("structsToResources() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil {
+				t.Fatal("structsToResources() error = nil, want a refusal")
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("structsToResources() error = %q, want it to contain %q", err.Error(), want)
+				}
+			}
+		})
+	}
+}
+
 // Test_subjectPartsLiteral pins that a set which writes neither part adds nothing
 // to its literal, which is what keeps every collection file written before the
 // parts existed the file it is.
@@ -796,7 +1005,7 @@ func TestGenerateBindingsGraph_subjectSetParts(t *testing.T) {
 // edge per hop, drawn once however many paths share it: solid for @attribute,
 // dotted for @domain, dashed for a subject binding, labeled ` + "`name: column`" + ` on a
 // continuing hop and ` + "`name: column ⇒ column`" + ` where the path terminates; a thin
-// grey edge points a bare binding on a foreign key at its table. Facts only: no
+// gray edge points a bare binding on a foreign key at its table. Facts only: no
 // grant or condition is drawn.
 // A subject set that writes a who: or a where: part lists each under the set, in
 // the columns' names: who: says which rows are the requester's, where: which of
@@ -845,5 +1054,133 @@ digraph Bindings {
 `
 	if got := string(content); got != want {
 		t.Errorf("bindings graph mismatch\n--- got\n%s\n--- want\n%s", got, want)
+	}
+}
+
+// TestGenerateBindingsGraph_subjectSetDomain pins what the bindings graph shows of a
+// set's domain: part, the path to the tenant of the set's rows: drawn as an @domain
+// path is, dotted, from the resource declaring the set to the table that holds the
+// tenant's key, labeled with the set's name, the column the path leaves through and
+// the column it reads. A set that writes no domain: (TeamMember's) draws no such
+// edge. The header says how to read the path only in a graph that has one: a package
+// whose sets write none keeps its file (TestGenerateBindingsGraph,
+// TestGenerateBindingsGraph_subjectSetParts).
+func TestGenerateBindingsGraph_subjectSetDomain(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "subjectsetfixture"))
+	c := subjectSetFixtureClient(t, structs)
+	resources, err := c.structsToResources(subjectSetStructs(t, structs, "Pool", "PoolMember", "TeamMember"))
+	if err != nil {
+		t.Fatalf("structsToResources() error = %v", err)
+	}
+
+	dir := t.TempDir()
+	r := &resourceGenerator{client: c}
+	r.resources = resources
+	r.resource = packageDir(dir)
+	if err := r.generateBindingsGraph(); err != nil {
+		t.Fatalf("generateBindingsGraph() error = %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "zz_gen_bindings.dot"))
+	if err != nil {
+		t.Fatalf("reading bindings graph: %v", err)
+	}
+
+	want := `// Code generated by resourcegeneration. DO NOT EDIT.
+// Bindings: every attribute and subject binding this package declares. A box per
+// declaring resource lists its bare bindings as ` + "`name: column`" + `; dashed boxes are
+// the tables a path lands on or a foreign key points at; the subject ellipse is
+// the requester, entering each anchor once with every name it yields there. One
+// edge per hop, drawn once however many paths share it: solid for @attribute,
+// dotted for @domain, dashed for a subject binding, labeled ` + "`name: column`" + ` on a
+// continuing hop and ` + "`name: column ⇒ column`" + ` where the path terminates; a thin
+// gray edge points a bare binding on a foreign key at its table. Facts only: no
+// grant or condition is drawn.
+// A subject set that writes a domain: part says where its rows' tenant is found,
+// and in a request with a tenant the set holds that tenant's rows alone. The path
+// is drawn dotted, as @domain's is, under the set's name: ` + "`name domain: column`" + ` on
+// a continuing hop and ` + "`name domain: column ⇒ column`" + ` where it reads the tenant.
+digraph Bindings {
+	rankdir=LR;
+	node [shape=box];
+	"PoolMember" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>PoolMember</b></td></tr><tr><td align="left">subject.pools: PoolId</td></tr></table>>];
+	"TeamMember" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>TeamMember</b></td></tr><tr><td align="left">subject.teams: TeamId</td></tr></table>>];
+	"Pool" [style=dashed];
+	"subject" [shape=ellipse];
+	"PoolMember" -> "Pool" [style=dotted, label="pools domain: PoolId ⇒ TenantId"];
+	"subject" -> "PoolMember" [style=dashed, label="pools: UserId"];
+	"subject" -> "TeamMember" [style=dashed, label="teams: UserId"];
+	"PoolMember" -> "Pool" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="subject.pools"];
+	subgraph cluster_legend {
+		label="legend";
+		"declares a binding" [shape=box];
+		"landed on / pointed at" [shape=box, style=dashed];
+		"requester" [shape=ellipse];
+		"legend:attribute" [shape=point];
+		"legend:attribute:to" [shape=point];
+		"legend:domain" [shape=point];
+		"legend:domain:to" [shape=point];
+		"legend:subject" [shape=point];
+		"legend:subject:to" [shape=point];
+		"legend:reference" [shape=point];
+		"legend:reference:to" [shape=point];
+		"legend:attribute" -> "legend:attribute:to" [label="@attribute path"];
+		"legend:domain" -> "legend:domain:to" [style=dotted, label="@domain path"];
+		"legend:subject" -> "legend:subject:to" [style=dashed, label="@subjectSet / @subjectValue"];
+		"legend:reference" -> "legend:reference:to" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="bare binding on a foreign key"];
+	}
+}
+`
+	if got := string(content); got != want {
+		t.Errorf("bindings graph mismatch\n--- got\n%s\n--- want\n%s", got, want)
+	}
+}
+
+// TestGenerateBindingsGraph_subjectSetDomainColumn pins what the bindings graph shows
+// of a set whose domain: names a column of its own rows: the part goes nowhere, so
+// no edge is drawn for it, and it is listed under the set in the set's box as the
+// other parts are. The header says how to read the line only in a graph that has
+// one, and says nothing of a path or of who: and where:, which this graph has none of.
+func TestGenerateBindingsGraph_subjectSetDomainColumn(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "subjectsetfixture"))
+	c := subjectSetFixtureClient(t, structs)
+	resources, err := c.structsToResources(subjectSetStructs(t, structs, "Keyholder", "TeamMember"))
+	if err != nil {
+		t.Fatalf("structsToResources() error = %v", err)
+	}
+
+	dir := t.TempDir()
+	r := &resourceGenerator{client: c}
+	r.resources = resources
+	r.resource = packageDir(dir)
+	if err := r.generateBindingsGraph(); err != nil {
+		t.Fatalf("generateBindingsGraph() error = %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "zz_gen_bindings.dot"))
+	if err != nil {
+		t.Fatalf("reading bindings graph: %v", err)
+	}
+	got := string(content)
+
+	for _, want := range []string{
+		"// grant or condition is drawn.\n" +
+			"// A subject set whose domain: part names a column of its own rows lists it under\n" +
+			"// the set, `subject.name domain: column`: in a request with a tenant the set\n" +
+			"// holds the rows whose column is that tenant's key.\n" +
+			"digraph Bindings {\n",
+		`	"Keyholder" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>Keyholder</b></td></tr><tr><td align="left">subject.keys: KeyId</td></tr><tr><td align="left">subject.keys domain: TenantId</td></tr></table>>];` + "\n",
+		`	"subject" -> "Keyholder" [style=dashed, label="keys: UserId"];` + "\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("bindings graph does not hold\n%s\ngot:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"style=dotted, label=\"keys", "says where its rows' tenant is found", "who: or a where:"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("bindings graph holds %q, which a set that names a column of its own rows draws nothing of\ngot:\n%s", unwanted, got)
+		}
 	}
 }

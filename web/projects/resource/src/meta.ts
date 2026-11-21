@@ -17,6 +17,11 @@ import { Resource } from './brands';
  */
 export type ValidDisplayTypes =
   | 'string'
+  /**
+   * An integer, a float, or a decimal. A decimal is a string in the interface, because
+   * its JSON is a quoted string that keeps every digit, and this name says it is drawn
+   * and entered as a number.
+   */
   | 'number'
   | 'boolean'
   /** A nullable BOOL column: null, true, or false (NullBoolean), one tri-state control. */

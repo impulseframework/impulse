@@ -1,4 +1,4 @@
-// Demonstrates: auth.groups, auth.generated-identity, auth.tenant-methods, execute-condition.request-field, @subjectSet.global.
+// Demonstrates: auth.groups, auth.generated-identity, auth.tenant-methods, execute-condition.request-field.
 package integration
 
 // generated_identity_groups_test: the groups of people the generated management of the
@@ -13,8 +13,9 @@ package integration
 //
 // The people are the ones of the lists' suite (ada and fay Cadets at Anvil, bo a Pilot at
 // Anvil and at Bastion), the cast's Marshal of Anvil, and the governor, who runs
-// headquarters. The cast's own group, Anvil's deck crew, is in every world; the
-// deckhand's account is not in this one, so the lists hold the people the test makes.
+// headquarters. The cast's own groups, Anvil's deck crew and its bay keepers, are in every
+// world; the deckhand's account and the sentry's are not in this one, so the lists hold
+// the people the test makes.
 
 import (
 	"fmt"
@@ -88,7 +89,7 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 	member := func(name string) string { return fmt.Sprintf(`{"groupId":%q,"userId":%q}`, group, w.ids[name]) }
 	role := func(name string) string { return fmt.Sprintf(`{"groupId":%q,"role":%q}`, group, name) }
 
-	if got, want := namesOf(t, list("marshal", anvil, sectorGroupsPath), "name"), []string{"Deck crew", "Hangar hands"}; !slices.Equal(got, want) {
+	if got, want := namesOf(t, list("marshal", anvil, sectorGroupsPath), "name"), []string{"Bay keepers", "Deck crew", "Hangar hands"}; !slices.Equal(got, want) {
 		t.Errorf("Anvil's groups = %v, want %v", got, want)
 	}
 	if got := list("governor", bastion, sectorGroupsPath); len(got) != 0 {
@@ -250,7 +251,7 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = post("marshal", anvil, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q}`, group))
 	assertStatus(t, status, http.StatusNoContent, body)
-	if got, want := namesOf(t, list("marshal", anvil, sectorGroupsPath), "name"), []string{"Deck crew"}; !slices.Equal(got, want) {
+	if got, want := namesOf(t, list("marshal", anvil, sectorGroupsPath), "name"), []string{"Bay keepers", "Deck crew"}; !slices.Equal(got, want) {
 		t.Errorf("Anvil's groups after the delete = %v, want %v", got, want)
 	}
 }

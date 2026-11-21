@@ -128,7 +128,7 @@ export interface CompileBriefingResult {
   missions: number;
   openMissions: number;
   worstHazard: number;
-  feesOutstanding: number;
+  feesOutstanding: string;
   feesRedacted: number;
   overdue: string[];
   hazardBoard: CompileBriefing.HazardLine[];
@@ -150,9 +150,9 @@ export interface CompleteMission {
 }
 /** The result CompleteMission answers with. */
 export interface CompleteMissionResult {
-  fee: number;
-  expenses: number;
-  net: number;
+  fee: string;
+  expenses: string;
+  net: string;
   sorties: CompleteMission.SortieCost[];
 }
 /** The statuses CompleteMission declares; the method chooses one per response. */
@@ -165,7 +165,7 @@ export interface CompleteMissionAnswer {
 export namespace CompleteMission {
   export interface SortieCost {
     sortieId: string;
-    expenses: number;
+    expenses: string;
   }
 }
 

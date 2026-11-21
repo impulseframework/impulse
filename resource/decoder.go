@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 
 	"cloud.google.com/go/spanner"
@@ -320,6 +322,55 @@ func decodeBody[Request any](fieldMapper *RequestFieldMapper, req *http.Request)
 	return keys, request, nil
 }
 
+// requestField finds the request field a name of the body reaches: the name as the
+// request declares it, or, because the typed decode fills a field from its name in any
+// case, the name in lower case.
+func requestField(fieldMapper *RequestFieldMapper, jsonField string) (accesstypes.Field, bool) {
+	if fieldName, ok := fieldMapper.StructFieldName(jsonField); ok {
+		return fieldName, true
+	}
+
+	return fieldMapper.StructFieldName(strings.ToLower(jsonField))
+}
+
+// immutableRefusal answers an update whose body names a field that never changes: 400,
+// naming every such field of the body in one sentence, in the order of their names, so
+// a form learns all of them in one round trip and the same body is always refused in
+// the same words. A name is judged by the field it reaches, not by how the body spells
+// it: a name the request accepts in another case is refused like the declared one, and
+// the sentence gives the declared name. It comes before every other refusal of a field.
+func immutableRefusal(immutable map[accesstypes.Tag]struct{}, fieldMapper *RequestFieldMapper, jsonFields []string) error {
+	if len(immutable) == 0 {
+		return nil
+	}
+
+	declared := fieldMapper.JSONNames()
+	var refused []string
+	for _, jsonField := range jsonFields {
+		fieldName, ok := requestField(fieldMapper, jsonField)
+		if !ok {
+			continue
+		}
+		name := declared[fieldName]
+		if _, found := immutable[accesstypes.Tag(name)]; found {
+			refused = append(refused, name)
+		}
+	}
+	slices.Sort(refused)
+	refused = slices.Compact(refused)
+
+	switch len(refused) {
+	case 0:
+		return nil
+	case 1:
+		return httpio.NewBadRequestMessagef("json field %s is immutable", refused[0])
+	default:
+		last := len(refused) - 1
+
+		return httpio.NewBadRequestMessagef("json fields %s and %s are immutable", strings.Join(refused[:last], ", "), refused[last])
+	}
+}
+
 // decodeToPatch decodes the body into the request struct and a patch set. hidden names
 // the request fields behind a feature flag that is off: a body naming one is refused
 // as it would be for a field the struct does not declare.
@@ -334,20 +385,24 @@ func decodeToPatch[Resource Resourcer, Request any](rSet *Set[Resource], fieldMa
 		vValue = vValue.Elem()
 	}
 
-	changes := make(map[accesstypes.Field]any)
-	for jsonField, jsonValue := range jsonData {
-		if operationPerm == accesstypes.Update {
-			if _, found := rSet.immutableFields[accesstypes.Tag(jsonField)]; found {
-				return nil, nil, httpio.NewBadRequestMessagef("json field %s is immutable", jsonField)
-			}
-		}
+	// A map hands its keys out in a different order every time it is ranged over, so the
+	// body's names are walked in the order of the names themselves: the same body is
+	// refused in the same words every time.
+	jsonFields := slices.Sorted(maps.Keys(jsonData))
 
-		fieldName, ok := fieldMapper.StructFieldName(jsonField)
+	if operationPerm == accesstypes.Update {
+		if err := immutableRefusal(rSet.immutableFields, fieldMapper, jsonFields); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	changes := make(map[accesstypes.Field]any)
+	for _, jsonField := range jsonFields {
+		jsonValue := jsonData[jsonField]
+
+		fieldName, ok := requestField(fieldMapper, jsonField)
 		if !ok {
-			fieldName, ok = fieldMapper.StructFieldName(strings.ToLower(jsonField))
-			if !ok {
-				return nil, nil, httpio.NewBadRequestMessagef("invalid field in json - %s", jsonField)
-			}
+			return nil, nil, httpio.NewBadRequestMessagef("invalid field in json - %s", jsonField)
 		}
 		if _, isHidden := hidden[fieldName]; isHidden {
 			return nil, nil, httpio.NewBadRequestMessagef("invalid field in json - %s", jsonField)

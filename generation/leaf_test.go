@@ -422,6 +422,94 @@ func Test_wireWalker_declaredLeaves(t *testing.T) {
 	}
 }
 
+// Test_decimalTypescriptType pins what a decimal is in generated TypeScript on every
+// path: decimal.Decimal, decimal.NullDecimal and spanner.NullNumeric each write their
+// JSON as a quoted string, so the interface says string (a row's, a write shape's, a
+// method's or a computed row's, and a nested struct's), a list of one says string[], and
+// the metadata keeps the number display type, which chooses the number control. An
+// integer beside them stays a number.
+func Test_decimalTypescriptType(t *testing.T) {
+	t.Parallel()
+
+	c, structs := columnFixtureClient(t)
+	res := fixtureResource(t, structs, "Priced", nil)
+	if err := columnFixtureGenerator(c).resourceFieldsTypescriptType(res); err != nil {
+		t.Fatalf("resourceFieldsTypescriptType() error = %v", err)
+	}
+	columns := make(map[string]*resourceField, len(res.Fields))
+	for _, f := range res.Fields {
+		columns[f.Name()] = f
+	}
+	shape, err := newWireWalker(c.leaves(), "columnfixture").walk(structs["Settlement"])
+	if err != nil {
+		t.Fatalf("walk(Settlement) error = %v", err)
+	}
+	wire := make(map[string]*wireField, len(shape.Fields))
+	for _, f := range shape.Fields {
+		wire[f.Name] = f
+	}
+
+	tests := []struct {
+		name        string
+		field       string
+		wantData    string
+		wantDisplay string
+	}{
+		{name: "a decimal is a string under the number display type", field: "Fee", wantData: "string", wantDisplay: "number"},
+		{name: "a NullDecimal is the same", field: "Rebate", wantData: "string", wantDisplay: "number"},
+		{name: "a pointer to a decimal is the same", field: "Reserve", wantData: "string", wantDisplay: "number"},
+		{name: "spanner.NullNumeric is the same", field: "Levy", wantData: "string", wantDisplay: "number"},
+		{name: "a list of decimals is a list of strings", field: "Fees", wantData: "string[]", wantDisplay: "number[]"},
+		{name: "an integer stays a number", field: "Count", wantData: "number", wantDisplay: "number"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			column := columns[tt.field]
+			if column == nil {
+				t.Fatalf("column %q not on the fixture", tt.field)
+			}
+			if got := column.TypescriptDataType(); got != tt.wantData {
+				t.Errorf("column TypescriptDataType() = %q, want %q", got, tt.wantData)
+			}
+			if got := column.TypescriptDisplayType(); got != tt.wantDisplay {
+				t.Errorf("column TypescriptDisplayType() = %q, want %q", got, tt.wantDisplay)
+			}
+			if _, err := renderDisplayType(column.TypescriptDisplayType()); err != nil {
+				t.Errorf("renderDisplayType(%q) error = %v", column.TypescriptDisplayType(), err)
+			}
+			if got := newTSAPIField(column, true).Type; got != tt.wantData {
+				t.Errorf("the write shape's type = %q, want %q", got, tt.wantData)
+			}
+
+			field := wire[tt.field]
+			if field == nil {
+				t.Fatalf("wire field %q not on the fixture", tt.field)
+			}
+			if got := field.TypescriptType("Settlement"); got != tt.wantData {
+				t.Errorf("wire TypescriptType() = %q, want %q", got, tt.wantData)
+			}
+			if got := field.TypescriptDisplayType(); got != tt.wantDisplay {
+				t.Errorf("wire TypescriptDisplayType() = %q, want %q", got, tt.wantDisplay)
+			}
+			method := &rpcField{wire: field, namespace: "Settlement", typescriptType: field.TypescriptDisplayType()}
+			if got := method.TypescriptDataType(); got != tt.wantData {
+				t.Errorf("method field TypescriptDataType() = %q, want %q", got, tt.wantData)
+			}
+			computed := &computedField{wire: field, namespace: "Settlement", typescriptType: field.TypescriptDisplayType()}
+			if got := computed.TypescriptDataType(); got != tt.wantData {
+				t.Errorf("computed field TypescriptDataType() = %q, want %q", got, tt.wantData)
+			}
+		})
+	}
+
+	wantNamespace := "export namespace Settlement {\n  export interface SettlementLine {\n    label: string;\n    amount: string;\n  }\n}\n"
+	if got := typescriptNamespace("Settlement", shape); got != wantNamespace {
+		t.Errorf("typescriptNamespace() = %q, want %q", got, wantNamespace)
+	}
+}
+
 // Test_groupImports pins the import lines: one per module, modules and names sorted,
 // names once, built-ins left out, nil entries ignored.
 func Test_groupImports(t *testing.T) {

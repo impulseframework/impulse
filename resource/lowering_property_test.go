@@ -43,10 +43,12 @@ func loweringFixtureVocabulary(t *testing.T, collection *GeneratedCollection) co
 	data := collection.Data()
 	for i := range data.Resources {
 		res := &data.Resources[i]
-		for _, set := range res.SubjectSets {
+		for j := range res.SubjectSets {
+			set := &res.SubjectSets[j]
 			vocab.SubjectSets = append(vocab.SubjectSets, conditiontest.SubjectBinding{Name: set.Name, Type: set.Type})
 		}
-		for _, value := range res.SubjectValues {
+		for j := range res.SubjectValues {
+			value := &res.SubjectValues[j]
 			vocab.SubjectValues = append(vocab.SubjectValues, conditiontest.SubjectBinding{Name: value.Name, Type: value.Type})
 		}
 	}

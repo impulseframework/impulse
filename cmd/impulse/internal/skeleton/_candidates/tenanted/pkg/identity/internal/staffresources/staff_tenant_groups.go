@@ -15,9 +15,9 @@ type (
 	// DomainId is the tenant. A group kept for the whole application is no tenant's and
 	// is not listed, whichever tenants it holds a role in. A tenant's group is managed in
 	// the tenant, holds roles there alone, and counts in a grant's condition
-	// (subject.groups) wherever the tenant's rows name it. The id is read by a
-	// condition itself (group), so a role file can show a person the groups they are in
-	// (group IN subject.groups).
+	// (subject.groups) in the tenant's own requests and in no other tenant's. The
+	// id is read by a condition itself (group), so a role file can show a person the
+	// groups they are in (group IN subject.groups).
 	//
 	// People is how many people are in the group, and Roles the roles it holds, a line
 	// each, by name. Both are what has not ended, a place or a role whose period has not
