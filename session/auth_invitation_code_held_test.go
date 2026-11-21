@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	gomock "go.uber.org/mock/gomock"
@@ -33,6 +34,11 @@ type namedInvitedWait struct {
 	carriesInvited, carriesOther context.Context
 	// code is the code mailed for invited.
 	code string
+	// user is the account the wait names, as the store answers it (User), and links
+	// the fixture's mail links table, whose accounts the store reports as holding an
+	// address (UserByEmail).
+	user  *sessionstorage.SessionUser
+	links *mailLinks
 	// wrote are the addresses the store was asked to confirm on the account outside a
 	// sign-in, consumed how often the wait was consumed, and signIns the sign-ins that
 	// reached the store, each of which the store refuses.
@@ -48,7 +54,7 @@ func newNamedInvitedWait(t *testing.T) *namedInvitedWait {
 
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	links.expectAccounts(f)
-	w := &namedInvitedWait{f: f, codes: expectFactorCodes(f)}
+	w := &namedInvitedWait{f: f, codes: expectFactorCodes(f), links: links}
 	carried := func(email string) (*sessioninfo.Invitation, context.Context) {
 		if _, err := f.auth.API().Invite(t.Context(), &InvitationRequest{Email: email, TenantID: "lakeside"}); err != nil {
 			t.Fatal(err)
@@ -65,6 +71,7 @@ func newNamedInvitedWait(t *testing.T) *namedInvitedWait {
 	w.other, w.carriesOther = carried("lee@lakeside.edu")
 
 	user := &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: "sam"}
+	w.user = user
 	f.store.EXPECT().User(gomock.Any(), user.ID).Return(user, nil).AnyTimes()
 	f.store.EXPECT().VerifyUserEmail(gomock.Any(), user.ID, gomock.Any()).DoAndReturn(func(_ context.Context, _ impulse.UUID, email string) error {
 		w.wrote = append(w.wrote, email)
@@ -219,5 +226,90 @@ func TestAuth_invitationCodeWritesNoAddressBeforeTheAcceptance(t *testing.T) {
 	}
 	if got := w.entered(w.invited); got != 1 || w.consumed != 1 {
 		t.Errorf("the count of codes entered for the invitation = %d and the wait was consumed %d time(s), want one of each", got, w.consumed)
+	}
+}
+
+// TestAuth_invitationCodeIsHeldToTheAccountsAddress holds the code mailed for an
+// invitation, on a wait that names its account, to the address the account holds when
+// the code is entered, as the account's own code is held (codeHolder). The right code,
+// entered in the browser that carries its invitation, is dead once the account holds
+// another address, once the account holds none and the sign-in is not yet the
+// account's own, and once another account holds the invited address: it is refused as
+// a code that expired, the wait is not consumed, nothing is written and nobody signs
+// in. While the account holds none, the sign-in is its own and nobody holds the invited
+// address, the code goes on to the sign-in that accepts the invitation.
+func TestAuth_invitationCodeIsHeldToTheAccountsAddress(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		// during changes what the store holds once the code is mailed, before it is
+		// entered.
+		during func(w *namedInvitedWait)
+		// wantDead is a code that is no longer good; otherwise the store is asked for the
+		// sign-in that accepts the invitation.
+		wantDead bool
+	}{
+		{
+			name: "the account was given another address during the wait, and the code is dead",
+			during: func(w *namedInvitedWait) {
+				w.user.Email = new("sam@lakeside.edu")
+			},
+			wantDead: true,
+		},
+		{
+			name: "the account holds no address and the sign-in is a directory's identity linked to nobody, and the code is dead",
+			during: func(w *namedInvitedWait) {
+				w.pending.Identity = sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "google", Subject: "g-1", SignInName: w.invited.Email, Email: w.invited.Email}
+				w.f.store.EXPECT().Identity(gomock.Any(), sessioninfo.MethodGoogle, "google", "g-1").Return(nil, httpio.NewNotFoundMessage("no identity link")).AnyTimes()
+			},
+			wantDead: true,
+		},
+		{
+			name: "another account came to hold the invited address during the wait, and the code is dead",
+			during: func(w *namedInvitedWait) {
+				w.links.holds(w.invited.Email, &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: "pat", Email: new(w.invited.Email)})
+			},
+			wantDead: true,
+		},
+		{
+			name: "the account holds no address, the sign-in is its own and nobody holds the invited address, and the code goes on to the acceptance",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			w := newNamedInvitedWait(t)
+			if tt.during != nil {
+				tt.during(w)
+			}
+
+			_, err := w.f.auth.completeWithEmailCode(w.carriesInvited, httptest.NewRecorder(), w.pending, w.code, false)
+
+			if len(w.wrote) != 0 {
+				t.Errorf("the account was given the address %v confirmed, want nothing written: a code mailed for an invitation writes its address in that invitation's acceptance alone", w.wrote)
+			}
+			if got := w.entered(w.invited); got != 1 {
+				t.Errorf("the count of codes entered for the invitation = %d, want 1", got)
+			}
+			if tt.wantDead {
+				if got := sessioninfo.LoginRefusalCodeOf(err); got != sessioninfo.RefusedCodeExpired {
+					t.Errorf("completeWithEmailCode() error = %v (code %q), want the refusal %q: the code is held to the address the account holds now", err, got, sessioninfo.RefusedCodeExpired)
+				}
+				if w.consumed != 0 || len(w.signIns) != 0 {
+					t.Errorf("the wait was consumed %d time(s) and %d sign-in(s) reached the store, want neither: a dead code completes nothing", w.consumed, len(w.signIns))
+				}
+
+				return
+			}
+			if err == nil || len(w.signIns) != 1 {
+				t.Fatalf("completeWithEmailCode() error = %v with %d sign-in(s) at the store, want the one sign-in this test's store refuses", err, len(w.signIns))
+			}
+			if inv := w.signIns[0].Invitation; inv == nil || inv.ID != w.invited.ID || !inv.AddressProven {
+				t.Errorf("the sign-in carries the invitation %+v, want the one the code was mailed for, its address proven by the code", inv)
+			}
+			if w.consumed != 1 {
+				t.Errorf("the wait was consumed %d time(s), want once", w.consumed)
+			}
+		})
 	}
 }
