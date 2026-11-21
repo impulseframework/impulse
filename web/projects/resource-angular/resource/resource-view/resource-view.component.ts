@@ -67,7 +67,8 @@ import { maxLengthValidator, metadataTypeCoercion, unchangedFieldWarning } from 
 import { rowMessage, rowWordsOf } from '../row-words';
 
 /** What a row view says in place of its form where the record is not there: the server found no row for the key. */
-export const RECORD_NOT_HERE = 'This record is not here. It may have been removed, or it may no longer be yours to see.';
+export const RECORD_NOT_HERE =
+  'This record is not here. It may have been removed, or it may no longer be yours to see.';
 
 /** What a row view says in place of its form where the person may not see the record: the server refused the read as not permitted. */
 export const RECORD_NOT_PERMITTED = 'You do not have permission to see this record.';

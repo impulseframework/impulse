@@ -5,7 +5,16 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialogRef } from '@angular/material/dialog';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, ROUTES } from '@angular/router';
-import { ApiDescriptor, ApiError, createClient, Method, MethodMeta, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
+import {
+  ApiDescriptor,
+  ApiError,
+  createClient,
+  Method,
+  MethodMeta,
+  Resource,
+  TransportRequest,
+  TransportResponse,
+} from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
@@ -47,15 +56,56 @@ describe('ResourceViewComponent row methods', () => {
     userDomainsRoute: 'user-domains',
     features: { route: 'features' },
     resources: {
-      [accounts]: { resource: accounts, property: 'accounts', route: 'accounts', scope: 'global', consolidated: false, keys: ['id'], operations: ['list', 'read'] },
-      [ships]: { resource: ships, property: 'ships', route: 'ships', scope: 'global', consolidated: false, keys: ['id'], operations: ['list', 'read'] },
+      [accounts]: {
+        resource: accounts,
+        property: 'accounts',
+        route: 'accounts',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read'],
+      },
+      [ships]: {
+        resource: ships,
+        property: 'ships',
+        route: 'ships',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read'],
+      },
     },
     methods: {
-      DisableAccount: { method: 'DisableAccount' as Method, property: 'disableAccount', route: 'disable-account', scope: 'global' },
-      EnableAccount: { method: 'EnableAccount' as Method, property: 'enableAccount', route: 'enable-account', scope: 'global' },
-      RenameAccount: { method: 'RenameAccount' as Method, property: 'renameAccount', route: 'rename-account', scope: 'global' },
-      DeleteAccount: { method: 'DeleteAccount' as Method, property: 'deleteAccount', route: 'delete-account', scope: 'global' },
-      IssueBulletin: { method: 'IssueBulletin' as Method, property: 'issueBulletin', route: 'issue-bulletin', scope: 'global' },
+      DisableAccount: {
+        method: 'DisableAccount' as Method,
+        property: 'disableAccount',
+        route: 'disable-account',
+        scope: 'global',
+      },
+      EnableAccount: {
+        method: 'EnableAccount' as Method,
+        property: 'enableAccount',
+        route: 'enable-account',
+        scope: 'global',
+      },
+      RenameAccount: {
+        method: 'RenameAccount' as Method,
+        property: 'renameAccount',
+        route: 'rename-account',
+        scope: 'global',
+      },
+      DeleteAccount: {
+        method: 'DeleteAccount' as Method,
+        property: 'deleteAccount',
+        route: 'delete-account',
+        scope: 'global',
+      },
+      IssueBulletin: {
+        method: 'IssueBulletin' as Method,
+        property: 'issueBulletin',
+        route: 'issue-bulletin',
+        scope: 'global',
+      },
     },
   };
   const onAccount = (extra: MethodMeta['fields'] = []): MethodMeta => ({
@@ -73,8 +123,18 @@ describe('ResourceViewComponent row methods', () => {
   const fieldMeta = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
     ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
   const metas: Record<string, ResourceMeta> = {
-    [accounts]: { route: 'accounts', fields: [fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }), fieldMeta('username'), fieldMeta('disabled', { displayType: 'boolean' })] },
-    [ships]: { route: 'ships', fields: [fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }), fieldMeta('name')] },
+    [accounts]: {
+      route: 'accounts',
+      fields: [
+        fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }),
+        fieldMeta('username'),
+        fieldMeta('disabled', { displayType: 'boolean' }),
+      ],
+    },
+    [ships]: {
+      route: 'ships',
+      fields: [fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }), fieldMeta('name')],
+    },
   };
 
   let fixture: ComponentFixture<ResourceViewComponent>;
@@ -127,7 +187,10 @@ describe('ResourceViewComponent row methods', () => {
     await TestBed.configureTestingModule({
       imports: [ResourceViewComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         provideNoopAnimations(),
         ResourceStore,
         { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta | undefined => metas[resource] },
@@ -204,7 +267,12 @@ describe('ResourceViewComponent row methods', () => {
   const labels = (): string[] => component.rowMethods().map((method) => method.label);
 
   beforeEach(() => {
-    row = { id: 'a-1', username: 'ada', disabled: false, zzCapabilities: { Execute: ['DisableAccount', 'EnableAccount', 'RenameAccount'] } };
+    row = {
+      id: 'a-1',
+      username: 'ada',
+      disabled: false,
+      zzCapabilities: { Execute: ['DisableAccount', 'EnableAccount', 'RenameAccount'] },
+    };
     deleteHeld = undefined;
     deleteRefused = undefined;
   });
@@ -286,16 +354,21 @@ describe('ResourceViewComponent row methods', () => {
 
   it("runs a method through the dialog with the row's key, says it ran, and reads the row again", async () => {
     await create({
-      rowMethods: [{ method: 'DisableAccount' as Method, label: 'Disable', confirm: (r) => `Disable ${String(r['username'])}?` }],
+      rowMethods: [
+        { method: 'DisableAccount' as Method, label: 'Disable', confirm: (r) => `Disable ${String(r['username'])}?` },
+      ],
     });
     const notices: string[] = [];
-    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
 
     row = { id: 'a-1', username: 'ada', disabled: true, zzCapabilities: { Execute: ['EnableAccount'] } };
     component.runMethod(component.rowMethods()[0]);
     await settle(() => asked().length === 2 && component.store.viewStatus() === 'resolved');
 
-    expect(opened).toEqual([{ method: 'DisableAccount', label: 'Disable', preset: { accountId: 'a-1' }, confirm: 'Disable ada?' }]);
+    expect(opened).toEqual([
+      { method: 'DisableAccount', label: 'Disable', preset: { accountId: 'a-1' }, confirm: 'Disable ada?' },
+    ]);
     expect(notices).toEqual(['"Disable" is done.']);
     expect(asked()).toEqual(['Update,Delete,Execute', 'Update,Delete,Execute']);
     expect(labels()).toEqual(['Enable account']);
@@ -329,10 +402,15 @@ describe('ResourceViewComponent row methods', () => {
 
   it('leaves the page of a row route for the list the row was of, in its own place in the history, and the list says what the config has to say of the row', async () => {
     // The page is opened at its own address, with no page before it: there is nowhere to go back to.
-    await create({ rowGone: (was) => `${String(was['username'])} no longer holds a role here.` }, 'a-1', '/accounts/a-1');
+    await create(
+      { rowGone: (was) => `${String(was['username'])} no longer holds a role here.` },
+      'a-1',
+      '/accounts/a-1',
+    );
     const router = TestBed.inject(Router);
     const notices: string[] = [];
-    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
 
     row = undefined;
     component.runMethod(component.rowMethods()[0]);
@@ -350,7 +428,8 @@ describe('ResourceViewComponent row methods', () => {
     await create({}, 'a-1', '/accounts/a-1');
     const router = TestBed.inject(Router);
     const notices: string[] = [];
-    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
 
     row = undefined;
     component.runMethod(component.rowMethods()[0]);
@@ -361,10 +440,15 @@ describe('ResourceViewComponent row methods', () => {
   });
 
   it('leaves when a read no method of the page asked for finds the row gone: the live session reads the row again after a method of a child list, before the list has said that it ran', async () => {
-    await create({ rowGone: (was) => `${String(was['username'])} no longer holds a role here.` }, 'a-1', '/accounts/a-1');
+    await create(
+      { rowGone: (was) => `${String(was['username'])} no longer holds a role here.` },
+      'a-1',
+      '/accounts/a-1',
+    );
     const router = TestBed.inject(Router);
     const notices: string[] = [];
-    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
 
@@ -384,10 +468,15 @@ describe('ResourceViewComponent row methods', () => {
   });
 
   it('leaves once for a row, however many reads find it gone', async () => {
-    await create({ rowGone: (was) => `${String(was['username'])} no longer holds a role here.` }, 'a-1', '/accounts/a-1');
+    await create(
+      { rowGone: (was) => `${String(was['username'])} no longer holds a role here.` },
+      'a-1',
+      '/accounts/a-1',
+    );
     const router = TestBed.inject(Router);
     const notices: string[] = [];
-    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
 
@@ -408,14 +497,17 @@ describe('ResourceViewComponent row methods', () => {
     await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` }, 'a-1', '/accounts/a-1');
     const router = TestBed.inject(Router);
     const notices: string[] = [];
-    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
 
     void component.deleteResource();
     await settle(() => router.url === '/accounts');
 
-    expect(transport.requests.filter((r) => r.method === 'PATCH').map((r) => r.body)).toEqual([[{ op: 'remove', path: '/a-1' }]]);
+    expect(transport.requests.filter((r) => r.method === 'PATCH').map((r) => r.body)).toEqual([
+      [{ op: 'remove', path: '/a-1' }],
+    ]);
     expect(router.url).toBe('/accounts');
     expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
     expect(wentBack).toBe(0);
@@ -429,7 +521,8 @@ describe('ResourceViewComponent row methods', () => {
     await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` }, 'a-1', '/accounts/a-1');
     const router = TestBed.inject(Router);
     const notices: string[] = [];
-    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
     let answer = (): void => undefined;
@@ -456,7 +549,8 @@ describe('ResourceViewComponent row methods', () => {
     await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` }, 'a-1', '/accounts/a-1');
     const router = TestBed.inject(Router);
     const notices: string[] = [];
-    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
 
@@ -475,7 +569,8 @@ describe('ResourceViewComponent row methods', () => {
   it("says the same after the row's own Delete and goes back to where the page was opened from, where the page is no row route's own", async () => {
     await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` });
     const notices: string[] = [];
-    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
 
@@ -553,7 +648,8 @@ describe('ResourceViewComponent row methods', () => {
     fixture.componentRef.setInput('navAfterDelete', false);
     const router = TestBed.inject(Router);
     const notices: string[] = [];
-    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
 
@@ -568,10 +664,15 @@ describe('ResourceViewComponent row methods', () => {
   });
 
   it('stays when the page is handed the key of a row that is not there, though another row was on hand before', async () => {
-    await create({ rowGone: (was) => `${String(was['username'])} no longer holds a role here.` }, 'a-1', '/accounts/a-1');
+    await create(
+      { rowGone: (was) => `${String(was['username'])} no longer holds a role here.` },
+      'a-1',
+      '/accounts/a-1',
+    );
     const router = TestBed.inject(Router);
     const notices: string[] = [];
-    component.notifications.addGlobalNotification = ((notice: { message: string }) => notices.push(notice.message)) as never;
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
 

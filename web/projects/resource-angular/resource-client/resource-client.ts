@@ -222,7 +222,7 @@ export function provideResourceClient(
       }
       if (releaseVersion(inject(API_VERSION)) !== undefined && !inject(VERSION_REFUSAL_HANDLER, { optional: true })) {
         throw new Error(
-          "API_VERSION names a release, so the server can refuse this build, and nothing handles the refusal: add " +
+          'API_VERSION names a release, so the server can refuse this build, and nothing handles the refusal: add ' +
             "provideAppUpdate() from @impulseframework/resource-angular/ui-app-update to the application's providers.",
         );
       }
