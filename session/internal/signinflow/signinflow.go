@@ -1365,6 +1365,13 @@ func linkUser[Tx any](
 			}
 		}
 	}
+	if rules.ConfirmAddress {
+		// An account that could not take the address the method vouches for is not
+		// signed in to, and so is linked nothing.
+		if stop, err = addressTaken(ctx, d, tx, req, user); err != nil || stop != nil {
+			return false, stop, err
+		}
+	}
 	if err := d.LinkIdentityIn(ctx, tx, res.UserID(), req.Identity, res.Tenant()); err != nil {
 		return false, nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
 	}
@@ -1726,6 +1733,11 @@ func decideAndInsert[Tx any](
 		if confirmAddress && v.proceeds() {
 			v = addressHold(req, user)
 		}
+		if confirmAddress && v.proceeds() {
+			if v.stop, err = addressTaken(ctx, d, tx, req, user); err != nil {
+				return err
+			}
+		}
 		if v.proceeds() {
 			if err := d.InsertSessionIn(ctx, tx, id, insertSession, req); err != nil {
 				return errors.Wrap(err, "Driver.InsertSessionIn()")
@@ -1851,6 +1863,46 @@ func addressHold(req *sessioninfo.NewSessionRequest, user *dbtype.User) verdict 
 	}
 
 	return verdict{stop: pending}
+}
+
+// addressTaken refuses a sign-in to an account that could not hold its address. A
+// method that vouches for the address (Identity.EmailVerified) spares the sign-in the
+// wait for the mailed code because the address is written on the account as the
+// session starts (addressHold). Where another user holds that address, confirmed, it
+// is written on nobody, and the person would be signed in to an account with no
+// confirmed address: an account created ahead under the address as its sign-in name is
+// reached so, by the name, beside the account that holds the address. Which of the two
+// is the person's is an administrator's to settle, by removing the duplicate account
+// or its sign-in name, so the sign-in is refused (identity_rejected, with
+// signin.ErrAddressHeldByAnother as its cause, which names both users for the log) and
+// the person is told what any sign-in the rules reject is told, which says nothing of
+// the other account. linkUser asks before it links, so a first sign-in that is refused
+// links nothing, and decideAndInsert asks for an identity linked before.
+//
+// It answers nil for a user who holds a confirmed address, for a session the rules
+// hold for no address (holdsForAddress), for an identity the method does not vouch
+// for, whose address the mailed code answers for, and where no other user holds the
+// address confirmed: an address another user holds unconfirmed was only typed there,
+// and refuses nobody.
+func addressTaken[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User) (stop, err error) {
+	identity := req.Identity
+	if user.EmailConfirmed || !dbtype.IsExternal(identity) || !holdsForAddress(req.Reason) {
+		return nil, nil
+	}
+	if !identity.EmailVerified || identity.Email == "" {
+		return nil, nil
+	}
+	holder, err := d.UserByVerifiedEmailIn(ctx, tx, identity.Email)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.UserByVerifiedEmailIn()")
+	}
+	if holder == nil || holder.ID == user.ID {
+		return nil, nil
+	}
+	cause := fmt.Errorf("%w: user %s (%s) holds the verified address %s, and the sign-in reached user %s (%s)",
+		signin.ErrAddressHeldByAnother, holder.Username, holder.ID, identity.Email, user.Username, user.ID)
+
+	return Refusal("", sessioninfo.RefusedIdentityRejected, cause, "identity rejected"), nil
 }
 
 // holdsForAddress reports whether a session created for reason is one a person signs in

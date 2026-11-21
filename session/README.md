@@ -1697,7 +1697,16 @@ How an address gets onto a user:
   address yet and no other user holds it. Google's word counts only where Google is
   the address's authority: a Gmail address (`gmail.com`, `googlemail.com`) and the
   address of a Workspace account (the token carries `hd`). A Google account made with
-  an address from anywhere else is treated as another provider's. No other method's
+  an address from anywhere else is treated as another provider's. Where another user
+  holds the address verified and the user the sign-in reaches holds no verified
+  address, the address would be written on nobody and the person signed in to an
+  account with no confirmed address, so the sign-in is refused (`identity_rejected`;
+  the cause in the log is `signin.ErrAddressHeldByAnother`, which names both users)
+  and links nothing. An account made ahead under the address as its sign-in name,
+  beside the account that holds the address, is reached so, and an administrator
+  settles which is the person's by removing the duplicate account or its sign-in name.
+  An address another user holds unconfirmed refuses nobody, and neither does a
+  registration that holds no sign-in for an address (the point above). No other method's
   word is kept, whatever it puts in `Identity.EmailVerified` and whatever it is
   named: the people who run a provider can mark any address verified, so an Entra
   user's address, or one an OpenID Connect provider calls verified, stays a prefill
@@ -2895,7 +2904,7 @@ table is the wire contract:
 | `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
 | `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
-| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, a password-less user who has never signed in and holds no email address was matched by a sign-in name the method does not vouch for, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
+| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, a password-less user who has never signed in and holds no email address was matched by a sign-in name the method does not vouch for, provisioned a new user for an identity whose verified address another user holds verified, a sign-in whose method vouches for its address reached a user who holds no verified address while another user holds that address verified, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
