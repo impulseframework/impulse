@@ -78,11 +78,11 @@ func TestSignUp_theDefaultRoleIsOneTheOpenerMayGive(t *testing.T) {
 		t.Errorf("the roles the picker lists the administrator = %v, want Administrator, FeatureAdministrator and %s", roles, role)
 	}
 
-	// A role the greeter may not give is refused in one sentence that names no role, at
+	// A role the greeter may not give is refused in one sentence that names the role, at
 	// the warning and at the save, and nothing is written.
 	for _, refused := range []string{"Administrator", string(role)} {
 		request := `{"name":"password","defaultRole":"` + refused + `"}`
-		want := "Opening the method gives every person who signs up a role you may not give."
+		want := "Opening the method gives every person who signs up the role " + refused + ", which you may not give."
 		if status, body := openWarning(ctx, greeter, request); status != http.StatusForbidden || !strings.Contains(string(body), want) {
 			t.Errorf("the warning of opening with the role %s, as the greeter: status %d: %s, want 403 saying %q", refused, status, body, want)
 		}
