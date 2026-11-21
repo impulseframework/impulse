@@ -22,6 +22,56 @@ func (Client) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what a delete of a Client takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the Client and what the delete of one of its
+// rows costs.
+func (Client) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Clients",
+		Words:  resource.DeleteWords{One: "client", Many: "clients"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "ClientContacts",
+				Words:    resource.DeleteWords{One: "client contact", Many: "client contacts"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+		RefusedBy: []resource.DeleteKind{
+			{
+				Resource: "Missions",
+				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Consignments",
+				Words:    resource.DeleteWords{One: "consignment", Many: "consignments"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
 // SearchBranches names the child text the resource's search box also searches
 // (@searchAlso), each reached through the foreign key joining the child to this row;
 // the child field's own permission governs each branch.

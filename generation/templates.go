@@ -62,6 +62,23 @@ func ({{ .Resource.Name }}) FileKeys() []resource.FileKey {
 	}
 }
 {{- end }}
+{{- if .Resource.HasDeleteTree }}
+{{ if .Resource.IsTenant }}
+// DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it, as the library
+// declares for the tenant record: every kind of the application's rows under the tenant
+// goes with it, and nothing refuses it. The kinds are in the order their rows are
+// deleted, deepest first, each with its ways up to the {{ .Resource.Name }} and what the delete
+// of one of its rows costs.
+{{- else }}
+// DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the {{ .Resource.Name }} and what the delete of one of its
+// rows costs.
+{{- end }}
+func ({{ .Resource.Name }}) DeleteTree() *resource.DeleteTree {
+	return {{ .Resource.DeleteTreeLiteral }}
+}
+{{- end }}
 {{- if .Resource.SearchBranches }}
 
 // SearchBranches names the child text the resource's search box also searches

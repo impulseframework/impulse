@@ -9,8 +9,9 @@ import (
 
 // deleteFixtureTables is the schema of the deletefixture package: a client's projects
 // and invoices by foreign key, a project's tasks by foreign key and its notes by
-// interleave, and a task's comments by foreign key. No delete rule is on any of them: a
-// row is deleted in code.
+// interleave, and a task's comments by foreign key. A ledger holds a client's key with
+// no foreign key on it, and a supplier is under nothing. No delete rule is on any
+// foreign key: a row is deleted in code. Tasks carry an index besides their key.
 func deleteFixtureTables() map[string]*tableMetadata {
 	pk := columnMeta{IsPrimaryKey: true}
 	key := func(ordinal int64) columnMeta {
@@ -19,18 +20,37 @@ func deleteFixtureTables() map[string]*tableMetadata {
 	foreignKey := func(ordinal int64, table string) columnMeta {
 		return columnMeta{IsForeignKey: true, ReferencedTable: table, ReferencedColumn: "Id", DeleteRule: "NO ACTION", OrdinalPosition: ordinal}
 	}
+	to := func(column, table string) []foreignKeyMeta {
+		return []foreignKeyMeta{{Name: "FK_" + column, Columns: []string{column}, ReferencedTable: table, ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"}}
+	}
 
 	return map[string]*tableMetadata{
-		"Clients":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": {OrdinalPosition: 1}}},
-		"Projects": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "ClientId": foreignKey(1, "Clients"), "Name": {OrdinalPosition: 2}}},
-		"Tasks":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "ProjectId": foreignKey(1, "Projects"), "Title": {OrdinalPosition: 2}}},
-		"TaskComments": {PkCount: 1, Columns: map[string]columnMeta{
-			"Id": pk, "TaskId": foreignKey(1, "Tasks"), "Body": {OrdinalPosition: 2},
-		}},
+		"Clients": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": {OrdinalPosition: 1}}},
+		"Projects": {
+			PkCount: 1, ForeignKeys: to("ClientId", "Clients"),
+			Columns: map[string]columnMeta{"Id": pk, "ClientId": foreignKey(1, "Clients"), "Name": {OrdinalPosition: 2}},
+		},
+		"Tasks": {
+			PkCount: 1, ForeignKeys: to("ProjectId", "Projects"),
+			Columns: map[string]columnMeta{"Id": pk, "ProjectId": foreignKey(1, "Projects"), "Title": {OrdinalPosition: 2}},
+			Indexes: []indexMeta{
+				{Name: "PRIMARY_KEY", PrimaryKey: true, Unique: true, Key: []indexColumn{{Column: "Id"}}},
+				{Name: "TasksByProject", Key: []indexColumn{{Column: "ProjectId"}}},
+			},
+		},
+		"TaskComments": {
+			PkCount: 1, ForeignKeys: to("TaskId", "Tasks"),
+			Columns: map[string]columnMeta{"Id": pk, "TaskId": foreignKey(1, "Tasks"), "Body": {OrdinalPosition: 2}},
+		},
 		"ProjectNotes": {PkCount: 2, IsInterleaved: true, ParentTable: "Projects", Columns: map[string]columnMeta{
 			"Id": key(0), "Sequence": key(1), "Body": {OrdinalPosition: 2},
 		}},
-		"Invoices": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "ClientId": foreignKey(1, "Clients"), "Number": {OrdinalPosition: 2}}},
+		"Invoices": {
+			PkCount: 1, ForeignKeys: to("ClientId", "Clients"),
+			Columns: map[string]columnMeta{"Id": pk, "ClientId": foreignKey(1, "Clients"), "Number": {OrdinalPosition: 2}},
+		},
+		"Ledgers":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "ClientId": {OrdinalPosition: 1}, "Balance": {OrdinalPosition: 2}}},
+		"Suppliers": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": {OrdinalPosition: 1}}},
 	}
 }
 

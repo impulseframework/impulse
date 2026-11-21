@@ -106,6 +106,7 @@ var Demonstrations = []Demonstration{
 	{"@defaultsUpdateType", "A defaults type run inside the update transaction."},
 	{"@validateUpdateType", "A validator type run inside the update transaction."},
 	{"@validateDeleteType", "A delete rule run inside the delete's transaction before the row goes: a refusal no grant gets around, answered as 400 in the rule's own sentence."},
+	{"@deleteCascade", "What a delete of a record takes with it and what refuses it, declared on the record and held to the schema: the generator writes the kinds taken, deepest first, with each kind's way up to the record."},
 	{"allow_filter", "An unindexed column made filterable."},
 	{"nullboolean", "A nullable BOOL column: typed NullBoolean in the generated TypeScript, display type nullboolean in its metadata, rendered by the console as a three-way picker, and written back to NULL by a null in a PATCH body."},
 	{"index.tenant-second", "A column directly after the tenant column in an index key is indexed on a bare @domain resource: the list binds the tenant by equality, so a filter on the column alone seeks the index, and the column carries index:\"true\" and filterable: 'always'."},

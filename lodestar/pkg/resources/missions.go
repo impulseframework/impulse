@@ -86,10 +86,17 @@ type (
 	//
 	// Demonstrates: list.across-tenants.
 	//
-	// Demonstrates: @state, @attribute, @attribute.decimal, @attribute.timestamp, @attribute.nullable-fk, output_only, default_create_fn, @defaultsCreateType, @validateCreateType, change-tracking, outlet.shared, @order, @page, cell-masking, paging.masked-sort, masking.positional, filter.typed-values, filter.validated-at-decode, condition.now, condition.not-in, condition.prefix-not, condition.subject-scalar, condition.old-vs-new, write-grouping, @attribute.join-path-global, @enumerate.plain-column, @enumerate.key-view, metadata.filterable, index.tenant-second, commit.constraint-refusal, decode.value-limit, search.box, search.date, search.partitioned, condition.key-only-read.
+	// A mission's delete is declared (@deleteCascade): its sorties, their expenses and its
+	// documents are the kinds of row under a mission, and the declaration names all three
+	// as going with it. The generator holds the list to the schema and writes the
+	// description (DeleteTree in the generated file): expenses first, then sorties and
+	// documents.
+	//
+	// Demonstrates: @state, @attribute, @attribute.decimal, @attribute.timestamp, @attribute.nullable-fk, output_only, default_create_fn, @defaultsCreateType, @validateCreateType, change-tracking, outlet.shared, @order, @page, cell-masking, paging.masked-sort, masking.positional, filter.typed-values, filter.validated-at-decode, condition.now, condition.not-in, condition.prefix-not, condition.subject-scalar, condition.old-vs-new, write-grouping, @attribute.join-path-global, @enumerate.plain-column, @enumerate.key-view, metadata.filterable, index.tenant-second, commit.constraint-refusal, decode.value-limit, search.box, search.date, search.partitioned, condition.key-only-read, @deleteCascade.
 	//
 	// @resource
 	// @permissionScope(domain)
+	// @deleteCascade(Sortie, SortieExpense, MissionDocument)
 	// @listAcrossTenants
 	// @outlet(default, portal)
 	// @order(Deadline asc)
