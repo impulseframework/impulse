@@ -30,19 +30,35 @@ const (
 // The change-event rows a tracked resource writes beside its patches are not recorded:
 // they are the library's own bookkeeping, never a resource the caller addressed, and
 // counting them would turn every tracked delete into the mixed shape.
+//
+// For the 404 of an update whose row is gone at the commit, the record also keeps each
+// resource's record label, from the first patch recorded for it that gives one
+// (recordLabeler), and how many creates, updates and create-or-updates it recorded in
+// all, so that one update is said as every record that is not there is said.
 type bufferedPatches struct {
-	order []accesstypes.Resource
-	types map[accesstypes.Resource]map[PatchType]bool
+	order   []accesstypes.Resource
+	types   map[accesstypes.Resource]map[PatchType]bool
+	labels  map[accesstypes.Resource]string
+	written int
+}
+
+// recordLabeler is how the record of buffered patches asks a patch for its record's
+// struct name, the label a sentence says the record by (labelOf). A PatchSet answers;
+// a patch that does not answer has no label, and its record is "this record".
+type recordLabeler interface {
+	recordLabel() string
 }
 
 // newBufferedPatches returns an empty record.
 func newBufferedPatches() *bufferedPatches {
 	return &bufferedPatches{
-		types: make(map[accesstypes.Resource]map[PatchType]bool),
+		types:  make(map[accesstypes.Resource]map[PatchType]bool),
+		labels: make(map[accesstypes.Resource]string),
 	}
 }
 
-// record notes one buffered patch by its resource and patch type.
+// record notes one buffered patch by its resource and patch type, its record's label
+// where it is the first of its resource to give one, and whether it writes.
 func (b *bufferedPatches) record(patch PatchSetMetadata) {
 	if _, isEvent := patch.(*DataChangeEvent); isEvent {
 		return
@@ -54,6 +70,13 @@ func (b *bufferedPatches) record(patch PatchSetMetadata) {
 		b.types[res] = make(map[PatchType]bool)
 	}
 	b.types[res][patch.PatchType()] = true
+	if labeler, ok := patch.(recordLabeler); ok && b.labels[res] == "" {
+		b.labels[res] = labeler.recordLabel()
+	}
+	switch patch.PatchType() {
+	case CreatePatchType, UpdatePatchType, CreateOrUpdatePatchType:
+		b.written++
+	}
 }
 
 // deletes returns the resources a delete was buffered for, in first-buffered order.
@@ -137,10 +160,12 @@ func (b *bufferedPatches) outOfRangeMessage() string {
 }
 
 // notFoundError composes the error for a commit Spanner refused with NotFound. A record
-// of updates only means the row being updated does not exist: 404. A record with a create
-// means an interleaved parent does not exist, which is a referenced record: 409, as the
-// referential write sentence says. A record with nothing in it gets the sentence covering
-// both causes at 409.
+// of updates only means the row being updated does not exist: 404, said as every record
+// that is not there is said, "This client does not exist." for one update, the record by
+// its struct's name in words, and "One of the clients or pilots this request changes
+// does not exist." for several. A record with a create means an interleaved parent does
+// not exist, which is a referenced record: 409, as the referential write sentence says.
+// A record with nothing in it gets the sentence covering both causes at 409.
 func (b *bufferedPatches) notFoundError(err error) error {
 	writes, anyCreate := b.writes()
 
@@ -149,8 +174,15 @@ func (b *bufferedPatches) notFoundError(err error) error {
 		return httpio.NewConflictMessageWithError(err, notFoundFallback)
 	case anyCreate:
 		return httpio.NewConflictMessageWithError(err, strings.Join(writes, ", ")+": a referenced record does not exist.")
+	case b.written == 1:
+		return httpio.NewNotFoundMessageWithError(err, doesNotExist(b.labels[accesstypes.Resource(writes[0])]))
 	default:
-		return httpio.NewNotFoundMessageWithError(err, strings.Join(writes, ", ")+": this record does not exist.")
+		things := make([]string, 0, len(writes))
+		for _, res := range writes {
+			things = append(things, inWords(res))
+		}
+
+		return httpio.NewNotFoundMessageWithError(err, "One of the "+eitherOf(things)+" this request changes does not exist.")
 	}
 }
 

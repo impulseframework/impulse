@@ -1639,7 +1639,8 @@ or a count:
 | | Nothing buffered | 409 | `The request could not be applied: a record with this key or a unique value already exists.` |
 | `OutOfRange` (a violated `CHECK` constraint) | Any write | 400 | `Missions: a value is outside the range the record allows.` |
 | | Nothing buffered | 400 | `The request could not be applied: a value is outside the range the record allows.` |
-| `NotFound` (an update of a row that does not exist; an interleaved child whose parent does not exist) | Updates only | 404 | `Clients: this record does not exist.` |
+| `NotFound` (an update of a row that does not exist; an interleaved child whose parent does not exist) | One update | 404 | `This client does not exist.` |
+| | Several updates | 404 | `One of the clients or pilots this request changes does not exist.` |
 | | Any create | 409 | `RefitTasks: a referenced record does not exist.` |
 | | Nothing buffered | 409 | `The request could not be applied: a record to update does not exist, or a referenced record does not exist.` |
 | anything else (`InvalidArgument`, `Internal`, `Aborted`, …) | | 500 | passes through unchanged |
@@ -1648,7 +1649,9 @@ or a count:
 code but `FailedPrecondition`, so deletes buffered beside writes do not change the other
 codes' sentences. A tracked resource's change-event rows do not count among the buffered
 patches. An error the transaction function itself returns passes through unchanged, whatever
-its code.
+its code. The 404 is said as every record that is not there is said: where one update was
+buffered, the record by its struct's name in words ("this record" for a patch that is not a
+`PatchSet`); where several were, the resources by their names in words.
 
 ### A delete with rows under the record
 

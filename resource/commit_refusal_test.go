@@ -29,6 +29,21 @@ func (p recordedPatch) PrimaryKey() KeySet {
 	return KeySet{}
 }
 
+// labeledPatch is a buffered patch that also says its record's struct name, as a
+// PatchSet does.
+type labeledPatch struct {
+	recordedPatch
+
+	label string
+}
+
+func (p labeledPatch) recordLabel() string {
+	return p.label
+}
+
+// clientUpdate is one update of Clients by a patch whose record's struct is Client.
+var clientUpdate = labeledPatch{recordedPatch{"Clients", UpdatePatchType}, "Client"}
+
 // The ruled sentences, each named once so the tables below read as shapes.
 const (
 	hangarsDeleteSentence  = "Hangars: this record cannot be deleted while other records still reference it."
@@ -228,18 +243,53 @@ func TestTranslateCommitError(t *testing.T) {
 		},
 		// NotFound: updates only means the row is missing; a create means its parent is.
 		{
-			name:        "NotFound over updates only answers 404 for the record",
+			name:        "NotFound over one update answers 404 for the record by its struct's name",
 			err:         status.Error(codes.NotFound, "Row [missing] in table Clients is missing. Row cannot be updated."),
-			patches:     []PatchSetMetadata{recordedPatch{"Clients", UpdatePatchType}},
+			patches:     []PatchSetMetadata{clientUpdate},
 			wantStatus:  http.StatusNotFound,
-			wantMessage: "Clients: this record does not exist.",
+			wantMessage: "This client does not exist.",
 		},
 		{
-			name:        "NotFound over updates on two resources lists both in buffering order",
+			name:        "NotFound over one update by a PatchSet says the record by its struct's name",
 			err:         status.Error(codes.NotFound, "missing"),
-			patches:     []PatchSetMetadata{recordedPatch{"Clients", UpdatePatchType}, recordedPatch{"Pilots", UpdatePatchType}},
+			patches:     []PatchSetMetadata{NewPatchSet(NewMetadata[goneRow]()).SetPatchType(UpdatePatchType)},
 			wantStatus:  http.StatusNotFound,
-			wantMessage: "Clients, Pilots: this record does not exist.",
+			wantMessage: "This gone row does not exist.",
+		},
+		{
+			name:        "NotFound over one update by a patch that gives no label says this record",
+			err:         status.Error(codes.NotFound, "missing"),
+			patches:     []PatchSetMetadata{recordedPatch{"Clients", UpdatePatchType}},
+			wantStatus:  http.StatusNotFound,
+			wantMessage: "This record does not exist.",
+		},
+		{
+			name:        "NotFound over one tracked update does not count its change event",
+			err:         status.Error(codes.NotFound, "missing"),
+			patches:     []PatchSetMetadata{clientUpdate, &DataChangeEvent{TableName: "Clients"}},
+			wantStatus:  http.StatusNotFound,
+			wantMessage: "This client does not exist.",
+		},
+		{
+			name:        "NotFound over two updates of one resource says one of them does not exist",
+			err:         status.Error(codes.NotFound, "missing"),
+			patches:     []PatchSetMetadata{clientUpdate, clientUpdate},
+			wantStatus:  http.StatusNotFound,
+			wantMessage: "One of the clients this request changes does not exist.",
+		},
+		{
+			name:        "NotFound over updates on two resources says both in words in buffering order",
+			err:         status.Error(codes.NotFound, "missing"),
+			patches:     []PatchSetMetadata{clientUpdate, labeledPatch{recordedPatch{"Pilots", UpdatePatchType}, "Pilot"}},
+			wantStatus:  http.StatusNotFound,
+			wantMessage: "One of the clients or pilots this request changes does not exist.",
+		},
+		{
+			name:        "NotFound over updates on three resources says all three in words",
+			err:         status.Error(codes.NotFound, "missing"),
+			patches:     []PatchSetMetadata{clientUpdate, recordedPatch{"Pilots", UpdatePatchType}, recordedPatch{"RefitTasks", UpdatePatchType}},
+			wantStatus:  http.StatusNotFound,
+			wantMessage: "One of the clients, pilots or refit tasks this request changes does not exist.",
 		},
 		{
 			name:        "NotFound over a create answers 409 for the referenced parent",
@@ -258,9 +308,9 @@ func TestTranslateCommitError(t *testing.T) {
 		{
 			name:        "NotFound ignores deletes buffered beside the update",
 			err:         status.Error(codes.NotFound, "missing"),
-			patches:     []PatchSetMetadata{recordedPatch{"Clients", UpdatePatchType}, recordedPatch{"Sorties", DeletePatchType}},
+			patches:     []PatchSetMetadata{clientUpdate, recordedPatch{"Sorties", DeletePatchType}},
 			wantStatus:  http.StatusNotFound,
-			wantMessage: "Clients: this record does not exist.",
+			wantMessage: "This client does not exist.",
 		},
 		{
 			name:        "NotFound over nothing buffered answers 409 with the covering sentence",
