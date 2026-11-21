@@ -40,9 +40,15 @@ const methodMeta = (method: Method): MethodMeta => generatedMethodMeta(method) a
 
 const fieldNames = (resource: Resource): string[] => resourceMeta(resource).fields.map((meta) => meta.fieldName);
 
-/** A row holding a value in every field of the resource, for a fill to read. */
-const sampleRow = (resource: Resource): RecordData =>
-  Object.fromEntries(fieldNames(resource).map((name) => [name, `${name}-value`]));
+/**
+ * Rows for a fill to read: one holding a value in every field of the resource, and the
+ * same row as a group kept in one tenant has it (its kind is "domain"), which is the row
+ * a group's "Give a role" fills its tenant from.
+ */
+const sampleRows = (resource: Resource): RecordData[] => {
+  const row: RecordData = Object.fromEntries(fieldNames(resource).map((name) => [name, `${name}-value`]));
+  return [row, { ...row, kind: 'domain' }];
+};
 
 describe("the library's pages over an auth's generated management", () => {
   it('are the accounts, groups, mailed links, invited sectors, sessions, failed sign-ins, sign-in methods and Break glass of the whole service, and the people, groups and invitations of a sector', () => {
@@ -213,15 +219,21 @@ describe("the library's pages over an auth's generated management", () => {
           for (const presentation of (list.rowMethods || []) as MethodPresentation[]) {
             expect(Object.values(Methods)).toContain(presentation.method);
             const meta = methodMeta(presentation.method);
-            if (presentation.fill) {
-              // A method that names no target row: the page fills it from the row, with fields the method takes.
-              expect(meta.target, presentation.method).toBeUndefined();
-              const takes = meta.fields.map((field) => field.fieldName);
-              for (const name of Object.keys(presentation.fill(sampleRow(list.primaryResource)))) {
+            if (meta.target) {
+              // A method that names a target row runs against the row it is offered on.
+              expect(meta.target.resource, presentation.method).toBe(list.primaryResource);
+            } else {
+              // A method that names no target row: the page fills it from the row.
+              expect(presentation.fill, presentation.method).toBeDefined();
+            }
+            // What the page fills from the row are fields the method takes, whether or not
+            // the method names the row: a group's "Give a role" names the group and takes
+            // where the group is kept from its row.
+            const takes = meta.fields.map((field) => field.fieldName);
+            for (const row of sampleRows(list.primaryResource)) {
+              for (const name of Object.keys(presentation.fill?.(row) ?? {})) {
                 expect(takes, `${presentation.method}.${name}`).toContain(name);
               }
-            } else {
-              expect(meta.target?.resource, presentation.method).toBe(list.primaryResource);
             }
           }
           for (const presentation of list.listMethods ?? []) {
