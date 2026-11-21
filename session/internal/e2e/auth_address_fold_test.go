@@ -18,7 +18,7 @@ import (
 // kelvinKim is kim@lakeside.edu written with the Kelvin sign (U+212A) for its k: under
 // Unicode's lowercasing and case folding it reads as kim's address, and under the rule
 // the library compares two addresses by it is another one.
-const kelvinKim = "Kim@lakeside.edu"
+const kelvinKim = "\u212Aim@lakeside.edu"
 
 // TestAuthSeams_AddressFold runs the scenarios on each backend.
 func TestAuthSeams_AddressFold(t *testing.T) {

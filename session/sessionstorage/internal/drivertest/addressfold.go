@@ -100,13 +100,13 @@ var foldPairs = []struct {
 	one           bool
 }{
 	{name: "ASCII capitals", stored: "Kim@Lakeside.EDU", asked: "kim@lakeside.edu", one: true},
-	{name: "ASCII capitals beside a letter from outside ASCII", stored: "éMILIE@lakeside.edu", asked: "émilie@lakeside.edu", one: true},
-	{name: "the Kelvin sign", stored: "Kim@lakeside.edu", asked: "kim@lakeside.edu"},
-	{name: "the long s", stored: "moſs@lakeside.edu", asked: "moss@lakeside.edu"},
-	{name: "the dotted capital I", stored: "İrem@lakeside.edu", asked: "irem@lakeside.edu"},
-	{name: "the sharp s", stored: "straße@lakeside.edu", asked: "strasse@lakeside.edu"},
-	{name: "an accented letter in one code point and in two", stored: "josé@lakeside.edu", asked: "josé@lakeside.edu"},
-	{name: "a capital letter from outside ASCII", stored: "Émilie@lakeside.edu", asked: "émilie@lakeside.edu"},
+	{name: "ASCII capitals beside a letter from outside ASCII", stored: "\u00E9MILIE@lakeside.edu", asked: "\u00E9milie@lakeside.edu", one: true},
+	{name: "the Kelvin sign", stored: "\u212Aim@lakeside.edu", asked: "kim@lakeside.edu"},
+	{name: "the long s", stored: "mo\u017Fs@lakeside.edu", asked: "moss@lakeside.edu"},
+	{name: "the dotted capital I", stored: "\u0130rem@lakeside.edu", asked: "irem@lakeside.edu"},
+	{name: "the sharp s", stored: "stra\u00DFe@lakeside.edu", asked: "strasse@lakeside.edu"},
+	{name: "an accented letter in one code point and in two", stored: "jos\u00E9@lakeside.edu", asked: "jose\u0301@lakeside.edu"},
+	{name: "a capital letter from outside ASCII", stored: "\u00C9milie@lakeside.edu", asked: "\u00E9milie@lakeside.edu"},
 }
 
 func testAddressFold(ctx context.Context, t *testing.T, h *AuthHarness) {
