@@ -1,11 +1,14 @@
 package resource
 
 import (
+	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 // nameFieldRequest is a request type as the generator writes one for a resource with
@@ -14,6 +17,63 @@ type nameFieldRequest struct {
 	ID           string  `json:"id"           perm:"-"`
 	SquadronID   string  `json:"squadronId"`
 	SquadronName *string `json:"squadronName" nameof:"SquadronID"`
+}
+
+// nameFieldResource is the resource behind nameFieldRequest: its columns, with no
+// column for the name.
+type nameFieldResource struct {
+	ID         string `spanner:"Id"`
+	SquadronID string `spanner:"SquadronId"`
+}
+
+// Resource names the resource in grants and routes.
+func (nameFieldResource) Resource() accesstypes.Resource {
+	return "hangarPasses"
+}
+
+// DefaultConfig is the resource's configuration.
+func (nameFieldResource) DefaultConfig() Config {
+	return Config{}
+}
+
+// TestQueryDecoder_nameFieldRefused pins what a request naming a name field is told
+// while no statement looks the name up: the decoder knows the request type's columns
+// alone, so the name is no column to select, no field to sort by and no field to filter
+// by, each a Bad Request that names it.
+func TestQueryDecoder_nameFieldRefused(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		query   url.Values
+		wantErr string
+	}{
+		{name: "selected", query: url.Values{"columns": []string{"id,squadronName"}}, wantErr: "unknown column: squadronName"},
+		{name: "sorted by", query: url.Values{"sort": []string{"squadronName:asc"}}, wantErr: "unknown sort field: squadronName"},
+		{name: "filtered by", query: url.Values{"filter": []string{"squadronName:eq:Red"}}, wantErr: "'squadronName' is not filterable"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			resSet, err := NewSet[nameFieldResource, nameFieldRequest](accesstypes.List)
+			if err != nil {
+				t.Fatalf("NewSet() error = %v", err)
+			}
+			decoder, err := NewQueryDecoder[nameFieldResource, nameFieldRequest](resSet)
+			if err != nil {
+				t.Fatalf("NewQueryDecoder() error = %v", err)
+			}
+
+			_, err = decoder.parseQuery(tt.query, nil, "")
+			if err == nil {
+				t.Fatal("parseQuery() expected an error, got nil")
+			}
+			if !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("parseQuery() error = %v, want Bad Request containing %q", err, tt.wantErr)
+			}
+		})
+	}
 }
 
 // Test_tagToFieldMap_nameField pins that a name field is no column of the resource: the
