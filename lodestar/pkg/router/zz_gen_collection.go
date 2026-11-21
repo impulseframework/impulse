@@ -2452,6 +2452,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "designation", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read}},
 					{Name: "hardened", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "id"},
+					{Name: "inService", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "roleId", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "tonnage", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 				},

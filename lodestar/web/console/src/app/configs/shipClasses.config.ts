@@ -20,6 +20,7 @@ export const shipClassesConfig = rootConfig({
       { id: ShipClasses.fieldName.roleId },
       { id: ShipClasses.fieldName.tonnage },
       { id: ShipClasses.fieldName.hardened },
+      { id: ShipClasses.fieldName.inService },
     ],
     elements: [
       section({
@@ -32,6 +33,11 @@ export const shipClassesConfig = rootConfig({
           // own, so the form starts it unchecked: a new class is not hardened until its form
           // says so.
           field({ name: ShipClasses.fieldName.hardened, label: 'Radiation hardened', cols: 3 }),
+          // In service is a yes or no the table gives a default of its own: the column
+          // declares yes, the generated metadata carries it, and the form starts the box
+          // checked with nothing written here. A class enters the catalog in service, and a
+          // person unchecks the box for a hull the yards no longer build.
+          field({ name: ShipClasses.fieldName.inService, label: 'In service', cols: 3 }),
         ],
       }),
     ],
