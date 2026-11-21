@@ -1670,8 +1670,12 @@ How an address gets onto a user:
   any address after it was mailed. A sign-in code never replaces an address the
   account holds, confirmed or not: a code mailed to an address the account no longer
   holds (replaced, taken off the account or moved to another account) is dead
-  (`code_expired`), and nothing is written. Nothing writes an address onto an account
-  unconfirmed after its creation.
+  (`code_expired`), and nothing is written. Taking an address off an account
+  (`AuthStore.SetUserEmail` with no address) ends, in the same transaction, the
+  sign-in codes mailed for the account's sign-ins before it, so a code mailed before
+  an administrator's change and entered after it is dead and writes nothing back; the
+  code for an address the person then gives at the step writes it. Nothing writes an
+  address onto an account unconfirmed after its creation.
 - **A directory keeps its people's**: the address of a person with an identity linked
   through an organization's directory (`signin.Directory.Organization()`) is changed in
   the directory. Their own add and verify, an administrator's request and the

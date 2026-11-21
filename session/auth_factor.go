@@ -200,10 +200,12 @@ func (a *Auth[S, U, Tx]) factorAddress(ctx context.Context, p *pendingState) (st
 // linked to the account (signInIsTheUsers). The code mailed to the address they gave
 // is good while no other account holds that address. A sign-in that waits to be linked
 // gives the account no address, so once its account holds none its code is dead. The
-// step keeps no record of whose the address was when the code was mailed, so on the
-// account's own person's sign-in a code mailed to an address since taken off the
-// account is read as one mailed to an address the person gave, which that person may
-// give at this step.
+// step keeps no record of whose the address was when the code was mailed, and needs
+// none: the store ends the live codes of the account's pending sign-ins as an address
+// is taken off the account (SetUserEmail), in one transaction, so a code still live on
+// an account that holds no address was mailed after the change, to an address the
+// person gave. A change that commits while a code is being entered, after the code is
+// consumed and before its address is written, is not seen here.
 func (a *Auth[S, U, Tx]) codeStands(ctx context.Context, p *pendingState, user *sessionstorage.SessionUser, email string) (bool, error) {
 	if user.Email != nil {
 		return strings.EqualFold(*user.Email, email), nil
