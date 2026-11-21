@@ -22,16 +22,13 @@ func under(table accesstypes.Resource, one, many, column, record string, removed
 	}
 }
 
-// movable is the kind with every one of its ways up to the record through columns the
+// movableUnderWing is a kind with rows directly under a wing (under), by a column the
 // row may leave empty.
-func movable(kind DeleteKind) DeleteKind {
-	paths := make([]DeletePath, 0, len(kind.Paths))
-	for _, path := range kind.Paths {
-		cleared := append(DeletePath(nil), path...)
-		cleared[0].MayBeEmpty = true
-		paths = append(paths, cleared)
+func movableUnderWing(table accesstypes.Resource, one, many, column string) DeleteKind {
+	kind := under(table, one, many, column, "RefusalWings")
+	for i := range kind.Paths {
+		kind.Paths[i][0].MayBeEmpty = true
 	}
-	kind.Paths = paths
 
 	return kind
 }
@@ -41,7 +38,7 @@ func movable(kind DeleteKind) DeleteKind {
 // as the wing that pays for them, which may not. Its pilots name it in a column that may
 // not be empty.
 func wingTree() *DeleteTree {
-	patrols := movable(under("RefusalPatrols", "patrol", "patrols", "FlownByWingId", "RefusalWings"))
+	patrols := movableUnderWing("RefusalPatrols", "patrol", "patrols", "FlownByWingId")
 	patrols.Paths = append(patrols.Paths, DeletePath{{Columns: []string{"PaidByWingId"}, Table: "RefusalWings", References: []string{"Id"}}})
 
 	return &DeleteTree{
@@ -49,10 +46,10 @@ func wingTree() *DeleteTree {
 		Words:  DeleteWords{One: "wing", Many: "wings"},
 		Key:    []string{"Id"},
 		Under: []DeleteKind{
-			movable(under("RefusalLiaisons", "liaison", "liaisons", "WingId", "RefusalWings")),
+			movableUnderWing("RefusalLiaisons", "liaison", "liaisons", "WingId"),
 			patrols,
 			under("RefusalPilots", "pilot", "pilots", "WingId", "RefusalWings"),
-			movable(under("RefusalSquadrons", "squadron", "squadrons", "WingId", "RefusalWings")),
+			movableUnderWing("RefusalSquadrons", "squadron", "squadrons", "WingId"),
 		},
 	}
 }
@@ -241,7 +238,7 @@ func TestTransactionDeletes_refuse(t *testing.T) {
 					Record:    "RefusalWings",
 					Words:     DeleteWords{One: "wing", Many: "wings"},
 					Key:       []string{"Id"},
-					RefusedBy: []DeleteKind{movable(under("RefusalSquadrons", "squadron", "squadrons", "WingId", "RefusalWings"))},
+					RefusedBy: []DeleteKind{movableUnderWing("RefusalSquadrons", "squadron", "squadrons", "WingId")},
 				},
 				key: map[string]any{"Id": "w1"},
 			}},

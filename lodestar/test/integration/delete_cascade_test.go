@@ -7,9 +7,10 @@ package integration
 // holds each list to the schema and writes the description the test reads.
 
 import (
+	"reflect"
+	"slices"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
@@ -32,8 +33,8 @@ func TestDeleteCascade_description(t *testing.T) {
 
 	mission := resources.Mission{}.DeleteTree()
 	// An expense is on a sortie, so it is deleted before the sortie it is on.
-	if diff := cmp.Diff([]accesstypes.Resource{"SortieExpenses", "MissionDocuments", "Sorties"}, kinds(mission.Taken)); diff != "" {
-		t.Errorf("the kinds a mission's delete takes mismatch (-want +got):\n%s", diff)
+	if got, want := kinds(mission.Taken), []accesstypes.Resource{"SortieExpenses", "MissionDocuments", "Sorties"}; !slices.Equal(got, want) {
+		t.Errorf("a mission's delete takes %v, want %v", got, want)
 	}
 	if len(mission.RefusedBy) != 0 {
 		t.Errorf("a mission's delete is refused by %v, want nothing", kinds(mission.RefusedBy))
@@ -42,8 +43,8 @@ func TestDeleteCascade_description(t *testing.T) {
 		{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
 		{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
 	}}
-	if diff := cmp.Diff(wantWay, mission.Taken[0].Paths); diff != "" {
-		t.Errorf("an expense's way up to its mission mismatch (-want +got):\n%s", diff)
+	if got := mission.Taken[0].Paths; !reflect.DeepEqual(got, wantWay) {
+		t.Errorf("an expense's way up to its mission is %v, want %v", got, wantWay)
 	}
 	// A document stores a file, and its release is in what a row's delete costs.
 	if got := mission.Taken[1].Cost.Files; got != 1 {
@@ -51,10 +52,10 @@ func TestDeleteCascade_description(t *testing.T) {
 	}
 
 	client := resources.Client{}.DeleteTree()
-	if diff := cmp.Diff([]accesstypes.Resource{"ClientContacts"}, kinds(client.Taken)); diff != "" {
-		t.Errorf("the kinds a client's delete takes mismatch (-want +got):\n%s", diff)
+	if got, want := kinds(client.Taken), []accesstypes.Resource{"ClientContacts"}; !slices.Equal(got, want) {
+		t.Errorf("a client's delete takes %v, want %v", got, want)
 	}
-	if diff := cmp.Diff([]accesstypes.Resource{"Missions", "Consignments"}, kinds(client.RefusedBy)); diff != "" {
-		t.Errorf("the kinds that refuse a client's delete mismatch (-want +got):\n%s", diff)
+	if got, want := kinds(client.RefusedBy), []accesstypes.Resource{"Missions", "Consignments"}; !slices.Equal(got, want) {
+		t.Errorf("a client's delete is refused by %v, want %v", got, want)
 	}
 }

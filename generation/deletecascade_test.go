@@ -11,16 +11,16 @@ import (
 // deleteFixtureResources extracts the deletefixture package over its schema: every
 // cross-resource pass has run, the one that holds a @deleteCascade to the schema among
 // them.
-func deleteFixtureResources(t *testing.T) (*client, map[string]*resourceInfo) {
+func deleteFixtureResources(t *testing.T) (c *client, byName map[string]*resourceInfo) {
 	t.Helper()
 
-	c := &client{tableMap: deleteFixtureTables()}
+	c = &client{tableMap: deleteFixtureTables()}
 	resources, err := c.structsToResources(loadFixture(t, "deletefixture").Structs)
 	if err != nil {
 		t.Fatalf("structsToResources() error = %v", err)
 	}
 
-	byName := make(map[string]*resourceInfo, len(resources))
+	byName = make(map[string]*resourceInfo, len(resources))
 	for _, res := range resources {
 		byName[res.Name()] = res
 	}

@@ -236,8 +236,8 @@ func (w *rowsUnderWriter) notWritten(alias string, table accesstypes.Resource) s
 // holding the record's key, and none of them a row the transaction wrote.
 func (w *rowsUnderWriter) way(index int, path DeletePath, recordKey map[string]any) (string, error) {
 	last := path[len(path)-1]
+	tables := make([]string, 0, len(path)-1)
 	var (
-		tables     []string
 		conditions []string
 		excluded   string
 	)
