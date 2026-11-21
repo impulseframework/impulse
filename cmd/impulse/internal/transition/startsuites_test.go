@@ -218,6 +218,35 @@ func TestDirectoryStart_Apply_directoryRolesSuitesMicrosoft(t *testing.T) {
 	}
 }
 
+// TestDirectoryStart_Apply_directoryRolesSuitesProvider holds the same tests in the form
+// of another identity provider: the method's own settings, with the issuer its
+// registration validates, and its variables and routes.
+func TestDirectoryStart_Apply_directoryRolesSuitesProvider(t *testing.T) {
+	t.Parallel()
+
+	start := providerStart(providerIssuer)
+	a, _ := started(t, &start)
+
+	checkWritten(t, a, directoryRolesWritten)
+	for rel, wants := range map[string][]string{
+		"test/integration/harness_test.go":          {"Okta: staff.OktaSettings{Issuer: directoryIssuer, RedirectURL:", "directoryIssuer = \"https://id.fleet.example\""},
+		"test/integration/sign_in_skipauth_test.go": {`"APP_OKTA_USERNAME"`, `"APP_OKTA_ROLES"`, `"/api/user/okta/login?returnUrl="`},
+		migrateTest: {`t.Setenv("APP_STAFF_OKTA_ISSUER", "https://id.fleet.example")`, `t.Setenv("APP_STAFF_OKTA_REDIRECT_URL", "http://solo.test/api/user/okta/callback")`},
+	} {
+		src := read(t, a, rel)
+		for _, want := range wants {
+			if !strings.Contains(src, want) {
+				t.Errorf("%s does not contain %q", rel, want)
+			}
+		}
+		for _, other := range []string{"GoogleSettings", "AzureSettings", "HostedDomain", "TenantID", "directoryTenant", "APP_GOOGLE_", "APP_AZURE_", "GROUP_PREFIX"} {
+			if strings.Contains(src, other) {
+				t.Errorf("%s contains %q, which is another method's", rel, other)
+			}
+		}
+	}
+}
+
 // TestDirectoryStart_Apply_byDirectorySuites holds the start of Tenant-owned users, by
 // directory, to writing the application's tests for the sign-in it has and the tenants it
 // is given after it: the harnesses build the roster and the maker by the record's name,
@@ -339,6 +368,15 @@ func TestDirectoryStart_Apply_loginPageSpec(t *testing.T) {
 			},
 			wantMethods: [][3]string{{"azure", "azure", "Microsoft"}},
 			wantButtons: "expect(redirects).toEqual(['Sign in with Microsoft']);",
+			wantLinks:   "await arriveWith({ verify: 'token' });",
+		},
+		{
+			name: "Directory roles through another identity provider",
+			start: func() DirectoryStart {
+				return providerStart(providerIssuer)
+			},
+			wantMethods: [][3]string{{"okta", "oidc", "Okta"}},
+			wantButtons: "expect(redirects).toEqual(['Sign in with Okta']);",
 			wantLinks:   "await arriveWith({ verify: 'token' });",
 		},
 		{
@@ -502,6 +540,7 @@ func TestDirectoryStart_Apply_menuSpec(t *testing.T) {
 	}{
 		{name: "through Google", start: directoryRolesStart(app.MethodGoogle, "fleet.example")},
 		{name: "through Microsoft", start: directoryRolesStart(app.MethodAzure, "3f2504e0-4f89-11d3-9a0c-0305e82c3301")},
+		{name: "through another identity provider", start: providerStart(providerIssuer)},
 	}
 	for _, tt := range tests {
 		t.Run("Directory roles "+tt.name, func(t *testing.T) {
@@ -810,8 +849,9 @@ func Test_renderSuites(t *testing.T) {
 		data *suiteData
 		want []string
 	}{
-		{set: directoryRolesSuites, data: &suiteData{Method: "google", Field: "Google", Upper: "GOOGLE", Google: true}, want: withLoginPageSpec(directoryRolesWritten)},
-		{set: directoryRolesSuites, data: &suiteData{Method: "azure", Field: "Azure", Upper: "AZURE"}, want: withLoginPageSpec(directoryRolesWritten)},
+		{set: directoryRolesSuites, data: &suiteData{Method: "google", Field: "Google", Upper: "GOOGLE", Google: true, Kind: "google", Label: "Google"}, want: withLoginPageSpec(directoryRolesWritten)},
+		{set: directoryRolesSuites, data: &suiteData{Method: "azure", Field: "Azure", Upper: "AZURE", Kind: "azure", Label: "Microsoft"}, want: withLoginPageSpec(directoryRolesWritten)},
+		{set: directoryRolesSuites, data: &suiteData{Method: "okta", Field: "Okta", Upper: "OKTA", Provider: true, Kind: "oidc", Label: "Okta"}, want: withLoginPageSpec(directoryRolesWritten)},
 		{set: byDirectorySuites, data: &suiteData{Record: "Tenant", OneTenant: true, North: devTenantNorth}, want: withLoginPageSpec(byDirectoryWritten)},
 		{set: passwordTenantsSuites, data: &suiteData{Record: "Tenant", Directories: true, North: devTenantNorth}, want: passwordTenantsWritten},
 		{set: passwordTenantsSuites, data: &suiteData{Record: "ServiceArea", OneTenant: true, North: devTenantNorth}, want: passwordTenantsWritten},

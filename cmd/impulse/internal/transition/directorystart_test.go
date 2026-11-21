@@ -41,6 +41,19 @@ func directoryRolesStart(kind, organization string) DirectoryStart {
 	}
 }
 
+// providerIssuer is the issuer the tests name another identity provider by.
+const providerIssuer = "https://id.fleet.example"
+
+// providerStart is the start of Directory roles from another identity provider, as
+// impulse new composes it on the staff auth: the provider's one method, registered under
+// the application's word for the provider, with the provider named by its issuer.
+func providerStart(issuer string) DirectoryStart {
+	return DirectoryStart{
+		Auth: "staff", ShapeKey: "directory-roles", ShapeName: "3 Directory roles", Organization: issuer,
+		Methods: []authpkg.Method{{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityDirectory}},
+	}
+}
+
 // newBase renders the base skeleton with its first auth named, as impulse new does
 // before it composes an option, and reads it as an application.
 func newBase(t *testing.T, auth string) *app.App {
@@ -179,6 +192,8 @@ func TestDirectoryStart_Validate(t *testing.T) {
 		{name: "tenant-owned users, by directory", start: byDirectoryStart("staff")},
 		{name: "directory roles through one Workspace", start: directoryRolesStart(app.MethodGoogle, "fleet.example")},
 		{name: "directory roles through one Entra tenant", start: directoryRolesStart(app.MethodAzure, "3f2504e0-4f89-11d3-9a0c-0305e82c3301")},
+		{name: "directory roles through another identity provider", start: providerStart(providerIssuer)},
+		{name: "another identity provider under a path of its host", start: providerStart(providerIssuer + "/realms/fleet")},
 		{name: "directory roles with no organization named keeps the placeholder", start: directoryRolesStart(app.MethodGoogle, "")},
 		{name: "no method", start: DirectoryStart{Auth: "staff", ShapeName: "6 Tenant-owned users, by directory"}, wantErr: "names no sign-in method to write in the password's place"},
 		{
@@ -197,6 +212,31 @@ func TestDirectoryStart_Validate(t *testing.T) {
 			name:    "an Entra tenant that is not a tenant id",
 			start:   directoryRolesStart(app.MethodAzure, "fleet.example"),
 			wantErr: "--organization fleet.example: a Microsoft method's one organization is a Microsoft Entra tenant, named by its tenant id",
+		},
+		{
+			name:    "an issuer that is not https",
+			start:   providerStart("http://id.fleet.example"),
+			wantErr: "--organization http://id.fleet.example: another identity provider's one organization is the provider, named by its issuer: an https URL with a host and no query or fragment (https://id.fleet.example)",
+		},
+		{
+			name:    "a provider named by its domain",
+			start:   providerStart("id.fleet.example"),
+			wantErr: "--organization id.fleet.example: another identity provider's one organization is the provider, named by its issuer: an https URL",
+		},
+		{
+			name:    "an issuer with a query",
+			start:   providerStart(providerIssuer + "?realm=fleet"),
+			wantErr: "--organization " + providerIssuer + "?realm=fleet: another identity provider's one organization is the provider, named by its issuer: an https URL",
+		},
+		{
+			name:    "an issuer with a fragment",
+			start:   providerStart(providerIssuer + "#fleet"),
+			wantErr: "--organization " + providerIssuer + "#fleet: another identity provider's one organization is the provider, named by its issuer: an https URL",
+		},
+		{
+			name:    "an issuer with no host",
+			start:   providerStart("https:///fleet"),
+			wantErr: "--organization https:///fleet: another identity provider's one organization is the provider, named by its issuer: an https URL",
 		},
 		{name: "an auth the application does not have", start: byDirectoryStart("crew"), wantErr: "crew"},
 	}
@@ -249,6 +289,10 @@ func TestDirectoryStart_Command(t *testing.T) {
 			want: "impulse new --shape directory-roles --method google:google --organization fleet.example",
 		},
 		{name: "directory roles with no organization named", start: directoryRolesStart(app.MethodAzure, ""), want: "impulse new --shape directory-roles --method azure:azure"},
+		{
+			name: "directory roles from another identity provider names its issuer", start: providerStart(providerIssuer),
+			want: "impulse new --shape directory-roles --method oidc:okta --organization " + providerIssuer,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -265,8 +309,10 @@ func TestDirectoryStart_Command(t *testing.T) {
 // that the environment needs its mailbox. A release of such an application invites
 // nobody, so it asks for none, and the application still mails the sign-in code: to every
 // sign-in the directory does not answer for, and, through Microsoft, to each person's
-// first, since that directory vouches for no address. A start that invites a first
-// administrator says nothing of it here: its release refuses without the mailbox.
+// first, since that directory vouches for no address, and through another identity
+// provider to the first of a person whose address the provider's token does not say it
+// verified. A start that invites a first administrator says nothing of it here: its
+// release refuses without the mailbox.
 func TestDirectoryStart_Meaning_mailbox(t *testing.T) {
 	t.Parallel()
 
@@ -293,6 +339,13 @@ func TestDirectoryStart_Meaning_mailbox(t *testing.T) {
 			wants: []string{
 				mailbox + "a sign-in waits for a code mailed to the person's address unless the tenant is one the deployment administers (`APP_STAFF_AZURE_ADMINISTERED_TENANTS`), the directory's token says a second factor was passed, or the browser is one the person asked to be remembered. " + first + " " + noSender,
 			},
+		},
+		{
+			name: "directory roles through another identity provider", start: providerStart(providerIssuer),
+			wants: []string{
+				mailbox + "a sign-in waits for a code mailed to the person's address unless the provider's token says a second factor was passed (its `amr` claim names `mfa`), or the browser is one the person asked to be remembered. A person's first sign-in waits for one whatever the token says of a second factor where it does not say the provider verified their address (`email_verified`): the login page asks the person for theirs where the account holds none, and the code proves it. " + noSender,
+			},
+			never: []string{first, "Workspace", "tenant is one", "administers"},
 		},
 		{name: "tenant-owned users, by directory", start: byDirectoryStart("members"), never: []string{"its mailbox", "APP_MAIL_MAILBOX"}},
 	}
@@ -661,6 +714,33 @@ func TestDirectoryStart_Apply_directoryRolesMicrosoft(t *testing.T) {
 	}
 	if exists(a, "pkg/auth/staff/foothold.go") || !exists(a, "pkg/auth/staff/azure.go") {
 		t.Error("the staff auth keeps its foothold or has no azure.go")
+	}
+}
+
+// TestDirectoryStart_Apply_directoryRolesProvider holds the one organization of another
+// identity provider's method: the provider, written by its issuer as the development
+// value of the method's issuer setting, in the placeholder's place.
+func TestDirectoryStart_Apply_directoryRolesProvider(t *testing.T) {
+	t.Parallel()
+
+	start := providerStart(providerIssuer)
+	a, ch := started(t, &start)
+
+	if m := a.Auths[0].Methods[0]; len(a.Auths[0].Methods) != 1 || m.Kind != app.MethodOIDC || m.Name != "okta" || m.Authority != app.AuthorityDirectory {
+		t.Errorf("the staff auth registers %+v, want the one okta method, an identity provider's, with the directory's roles", a.Auths[0].Methods)
+	}
+	env := read(t, a, ".envrc.template")
+	if want := "export APP_STAFF_OKTA_ISSUER=" + providerIssuer + "\n"; !strings.Contains(env, want) {
+		t.Errorf(".envrc.template does not contain %q", want)
+	}
+	if strings.Contains(env, placeholderProviderIssuer) {
+		t.Errorf(".envrc.template keeps the placeholder issuer %s, and the start named the provider's", placeholderProviderIssuer)
+	}
+	if got := linesWith(ch.Did, ".envrc.template: APP_STAFF_OKTA_ISSUER="+providerIssuer, []string{"the one organization whose directory gives the roles"}); len(got) != 1 {
+		t.Errorf("the change does not say once that the issuer was written as the development value: %q", ch.Did)
+	}
+	if exists(a, "pkg/auth/staff/foothold.go") || !exists(a, "pkg/auth/staff/okta.go") {
+		t.Error("the staff auth keeps its foothold or has no okta.go")
 	}
 }
 

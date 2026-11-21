@@ -433,14 +433,22 @@ func Test_settleStart_byDirectory(t *testing.T) {
 // Test_settleStart_directoryRoles settles the one directory of a new application that
 // starts from Directory roles: --method names it and --organization its one
 // organization, each required where no person is at the terminal to ask, as a test has
-// none. The step composed writes the directory's method alone, the directory giving the
-// roles, and nothing is composed beside it; a directory impulse new does not start
-// from, an organization its provider does not know one by, and a choice the shape rules
-// out are refused before anything is rendered.
+// none. The directory is a Google Workspace, a Microsoft Entra tenant or another
+// identity provider, which --organization names by its issuer, an https URL. The step
+// composed writes the directory's method alone, the directory giving the roles, and
+// nothing is composed beside it; a method that has no directory, an organization its
+// provider does not know one by, and a choice the shape rules out are refused before
+// anything is rendered.
 func Test_settleStart_directoryRoles(t *testing.T) {
 	t.Parallel()
 
-	const tenant = "0f0c7a52-6f0c-4e3b-9d7e-3f6f2f1d9a10"
+	const (
+		tenant = "0f0c7a52-6f0c-4e3b-9d7e-3f6f2f1d9a10"
+		issuer = "https://id.fleet.example"
+		// notAnIssuer is what the refusal of an organization that is no issuer says after
+		// naming it.
+		notAnIssuer = ": another identity provider's one organization is the provider, named by its issuer: an https URL with a host and no query or fragment (https://id.fleet.example), where the provider's configuration is read (<issuer>/.well-known/openid-configuration)"
+	)
 	tests := []struct {
 		name         string
 		args         []string
@@ -476,8 +484,20 @@ func Test_settleStart_directoryRoles(t *testing.T) {
 			},
 		},
 		{
+			name: "another identity provider, by its issuer", args: []string{"--method", "oidc:okta", "--organization", issuer},
+			want: transition_.DirectoryStart{
+				Auth: "staff", ShapeKey: "directory-roles", ShapeName: "3 Directory roles", Organization: issuer,
+				Methods: []authpkg.Method{{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityDirectory}},
+			},
+			wantDescribe: "the staff auth's sign-in in the password's place (oidc)", wantMethod: "okta",
+			wantSays: []string{
+				"The okta method admits the accounts of one organization's identity provider and nobody else, and its directory gives the roles",
+				"The staff auth has no password sign-in and invites no first administrator",
+			},
+		},
+		{
 			name:    "no directory named, and nobody to ask",
-			wantErr: "--method is required with --shape directory-roles: name the one directory that gives the roles, google (a Google Workspace) or azure (a Microsoft Entra tenant), and its one organization with --organization",
+			wantErr: "--method is required with --shape directory-roles: name the one directory that gives the roles, google (a Google Workspace), azure (a Microsoft Entra tenant) or oidc:<registration> (another identity provider), and its one organization with --organization",
 		},
 		{
 			name: "no organization named, and nobody to ask", args: []string{"--method", "google"},
@@ -488,12 +508,28 @@ func Test_settleStart_directoryRoles(t *testing.T) {
 			wantErr: "--organization is required with --shape directory-roles: name the Microsoft Entra tenant whose directory gives the roles, by its tenant id",
 		},
 		{
-			name: "another identity provider's directory", args: []string{"--method", "oidc:okta", "--organization", "fleet.example"},
-			wantErr: "--method oidc:okta: impulse new starts Directory roles from a Google Workspace (google) or a Microsoft Entra tenant (azure), with :<registration> to name the registration. Another identity provider's directory is an auth of its own, added with impulse add auth <name> --shape directory-roles --method oidc:<registration>",
+			name: "no issuer named, and nobody to ask", args: []string{"--method", "oidc:okta"},
+			wantErr: "--organization is required with --shape directory-roles: name the identity provider whose directory gives the roles, by its issuer, an https URL (https://id.fleet.example)",
+		},
+		{
+			name: "an issuer that is not https", args: []string{"--method", "oidc:okta", "--organization", "http://id.fleet.example"},
+			wantErr: "--organization http://id.fleet.example" + notAnIssuer,
+		},
+		{
+			name: "a provider named by its domain", args: []string{"--method", "oidc:okta", "--organization", "fleet.example"},
+			wantErr: "--organization fleet.example" + notAnIssuer,
+		},
+		{
+			name: "an issuer with a query", args: []string{"--method", "oidc:okta", "--organization", issuer + "/?realm=fleet"},
+			wantErr: "--organization " + issuer + "/?realm=fleet" + notAnIssuer,
+		},
+		{
+			name: "another identity provider under no registration name", args: []string{"--method", "oidc", "--organization", issuer},
+			wantErr: "--method oidc: an identity provider's registration needs a name, oidc:<registration>: the application's word for the provider (okta, company-sso), which is the segment of its routes and the connection every link made through it carries",
 		},
 		{
 			name: "the password method", args: []string{"--method", "password", "--organization", "fleet.example"},
-			wantErr: "--method password: impulse new starts Directory roles from a Google Workspace (google) or a Microsoft Entra tenant (azure), with :<registration> to name the registration. Another identity provider's directory is an auth of its own, added with impulse add auth <name> --shape directory-roles --method oidc:<registration>",
+			wantErr: "--method password: impulse new starts Directory roles from a Google Workspace (google), a Microsoft Entra tenant (azure) or another identity provider (oidc:<registration>), and the google and azure methods take :<registration> too, to name the registration",
 		},
 		{
 			name: "a Workspace named by something that is no domain", args: []string{"--method", "google", "--organization", "Fleet Example"},

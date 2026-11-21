@@ -15,9 +15,9 @@ const METHODS: LoginMethods = {
   methods: [
     {
       name: '[[.Method]]',
-      method: '[[if .Google]]google[[else]]azure[[end]]',
+      method: '[[.Kind]]',
       kind: 'redirect',
-      label: '[[if .Google]]Google[[else]]Microsoft[[end]]',
+      label: '[[.Label]]',
       path: `${environment.apiUrl}/user/[[.Method]]/login`,
     },
   ],
@@ -79,7 +79,7 @@ describe('LoginComponent', () => {
     const redirects = Array.from(element.querySelectorAll('button.impulse-login-redirect')).map((button) =>
       button.textContent?.trim(),
     );
-    expect(redirects).toEqual(['Sign in with [[if .Google]]Google[[else]]Microsoft[[end]]']);
+    expect(redirects).toEqual(['Sign in with [[.Label]]']);
     expect(element.querySelector('.impulse-login-message')).toBeNull();
   });
 

@@ -365,9 +365,13 @@ signs its administrator in as that persona, and the bootstrap seeds no password 
 `--shape directory-roles` writes the first auth with one sign-in method, a directory's,
 with the directory giving every role, and no password method. `--method` names the
 directory, `google` (a Google Workspace) or `azure` (a Microsoft Entra tenant), with
-`:<registration>` to name the registration, and `--organization` names its one
-organization, a Workspace by its domain or an Entra tenant by its tenant id; each is
-asked for when it is not given, and refused as missing where nobody is at the terminal.
+`:<registration>` to name the registration, or `oidc:<registration>` (another identity
+provider, which always takes a name), and `--organization` names its one organization, a
+Workspace by its domain, an Entra tenant by its tenant id or another identity provider by
+its issuer, an `https` URL with no query or fragment (`https://id.fleet.example`), which
+becomes the development value of `APP_<AUTH>_<METHOD>_ISSUER`; each is asked for when it
+is not given, and refused as missing where nobody is at the terminal, and an organization
+that is not what its provider knows one by is refused before anything is written.
 No first administrator is invited and nothing in the application gives a role, so the
 application holds nothing that invites one: the deployment package's
 `InviteAdministrators` and `ReinviteAdministrator`, the migrate command's invitation
@@ -385,9 +389,7 @@ it the code is written to the server's log and reaches nobody. A
 development run signs in the person `APP_USERNAME` names with the roles `APP_ROLES`
 names, both in the environment template, through the simulated directory. The shape has
 no tenants, so it is refused beside `--tenancy` and the tenants' flags, and `--method`
-and `--organization` are refused with any other start. Another identity provider's
-directory is an auth of its own (`impulse add auth --shape directory-roles --method
-oidc:<registration>`).
+and `--organization` are refused with any other start.
 
 The tests the base starts with are written for a password sign-in, so either start
 writes the application's tests for the sign-in it has. The served suite
@@ -421,6 +423,7 @@ impulse new ./harbor --module example.com/harbor --auth staff --tenancy --outlet
 impulse new ./fleet --module example.com/fleet --auth crew --site console --site portal
 impulse new ./depot --module example.com/depot --auth staff --shape tenant-owned-users-by-directory
 impulse new ./ferry --module example.com/ferry --auth staff --shape directory-roles --method google --organization ferry.example
+impulse new ./quay --module example.com/quay --auth staff --shape directory-roles --method oidc:okta --organization https://id.quay.example
 impulse new ./yard --module example.com/yard --auth staff --tenancy --tenant-directories=false
 ```
 
