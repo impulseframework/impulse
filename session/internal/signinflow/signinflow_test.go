@@ -119,6 +119,9 @@ func (tx *memTx) buffer(write func()) {
 type memDriver struct {
 	store *memStore
 	runs  int
+	// usernamesAreAddresses says the store's usernames are the addresses
+	// (UsernameIsEmail), false unless a test sets it.
+	usernamesAreAddresses bool
 }
 
 var _ Driver[*memTx] = (*memDriver)(nil)
@@ -285,7 +288,7 @@ func (d *memDriver) UserByEmailIn(_ context.Context, _ *memTx, email string) (*d
 }
 
 func (d *memDriver) UsernameIsEmail() bool {
-	return false
+	return d.usernamesAreAddresses
 }
 
 func (d *memDriver) SignInMethodIn(_ context.Context, tx *memTx, name string) (*dbtype.SignInMethod, error) {
