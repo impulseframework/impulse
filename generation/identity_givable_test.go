@@ -10,6 +10,9 @@ import (
 // alone, listed for the whole application by the manager (GivableRoles) for the one
 // method the request's filter names and for no request that names none, and named by
 // the role field of every method that gives one by hand, after where the role is held.
+// The auth keeps groups, so the list takes the group the method that gives a group a
+// role is asked for, and lists what that group may hold (GivableGroupRoles) and no role
+// where the request names none.
 // An auth whose directory writes the roles gives none by hand, and is written no list.
 func Test_prepareIdentity_givableRoles(t *testing.T) {
 	t.Chdir(t.TempDir())
@@ -27,7 +30,8 @@ func Test_prepareIdentity_givableRoles(t *testing.T) {
 			"// @primarykey\n\t// @attribute(name)\n\tName        string `spanner:\"Name\"`\n\tDescription string `spanner:\"Description\"`\n",
 			// The method a role is listed for is a field a request filters by, and no key:
 			// a picker's value is the role's name still.
-			"\tMethod string `spanner:\"Method\" allow_filter:\"true\"`\n}",
+			"\tMethod string `spanner:\"Method\" allow_filter:\"true\"`\n\t// Group is the group the role is listed for,",
+			"\tGroup string `spanner:\"Group\" allow_filter:\"true\"`\n}",
 			`return "CrewGivableRoles"`,
 			"func ListCrewGivableRole(ctx context.Context, qSet *resource.QuerySet[CrewGivableRole], db resource.Client, client *Client) iter.Seq2[*CrewGivableRole, error] {",
 			`places, err := identity.GivingPlaces(qSet.Resource(), "", nil)`,
@@ -38,7 +42,12 @@ func Test_prepareIdentity_givableRoles(t *testing.T) {
 				"InviteCrewUser{}.Method(),\n\t\t\tGiveCrewGroupRole{}.Method(),\n\t\t}, qSet.Filter().Take(\"Method\"))",
 			// A request that names no method is listed no role, after its places were read:
 			// a filter that is wrong is refused whether a method is named or not.
-			"\t\tif !named {\n\t\t\treturn\n\t\t}\n\t\tfor _, place := range places {\n\t\t\troles, err := client.manager.GivableRoles(ctx, db, method, place)",
+			// The method that gives a group a role is asked with the group, and the list then
+			// holds what that group may hold; with no group it holds no rows either.
+			"group, grouped, err := identity.GivingGroup(qSet.Resource(), GiveCrewGroupRole{}.Method(), method, qSet.Filter().Take(\"Group\"))",
+			"\t\tif !named || !grouped {\n\t\t\treturn\n\t\t}\n\t\tfor _, place := range places {\n\t\t\tvar roles []access.RoleInfo\n\t\t\tif group == nil {\n\t\t\t\troles, err = client.manager.GivableRoles(ctx, db, method, place)\n\t\t\t} else {\n\t\t\t\troles, err = client.manager.GivableGroupRoles(ctx, db, method, *group, place)\n\t\t\t}",
+			"\t\t\t\tif group != nil {\n\t\t\t\t\trow.Group = group.String()\n\t\t\t\t}",
+			"(method:eq:GiveCrewGroupRole,group:eq:<id>)",
 			"row := &CrewGivableRole{Name: string(role.Name), Description: role.Description, Method: string(method)}",
 			"//\tAssignCrewRole, InviteCrewUser, GiveCrewGroupRole\n",
 			"(method:eq:AssignCrewRole)",
@@ -57,7 +66,8 @@ func Test_prepareIdentity_givableRoles(t *testing.T) {
 // Test_prepareIdentity_givableRolesWithTenants pins the same list in an application
 // with tenants: it names the place each role is held in, lists one tenant's roles for a
 // filter on the tenant and otherwise the whole application's and every tenant's, and
-// the methods ask for the tenant before the role.
+// the methods ask for the tenant before the role. The auth keeps no groups here, so the
+// list takes no group.
 func Test_prepareIdentity_givableRolesWithTenants(t *testing.T) {
 	t.Chdir(t.TempDir())
 
@@ -75,8 +85,9 @@ func Test_prepareIdentity_givableRolesWithTenants(t *testing.T) {
 			"EveryDomain bool `spanner:\"EveryDomain\" allow_filter:\"true\"`",
 			`places, err := identity.GivingPlaces(qSet.Resource(), "ship", qSet.Filter().Take("Domain"))`,
 			"row.Domain, row.EveryDomain = string(domain), place.IsEveryDomain()",
+			"\t\tif !named {\n\t\t\treturn\n\t\t}\n\t\tfor _, place := range places {\n\t\t\troles, err := client.manager.GivableRoles(ctx, db, method, place)",
 		},
-		nil,
+		[]string{"GivingGroup", "GivableGroupRoles", "spanner:\"Group\""},
 	)
 	assertFileContains(t, "crewidentity/invite_crew_user.go",
 		[]string{"// @enumerate(Ships)\n\t\tDomain      *string\n\t\tEveryDomain bool\n\t\t// Roles are the roles the person is given", "// @enumerate(CrewGivableRoles)\n\t\tRoles []string"},

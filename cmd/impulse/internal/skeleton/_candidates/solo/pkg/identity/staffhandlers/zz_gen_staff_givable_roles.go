@@ -20,6 +20,7 @@ func (h *Handlers) StaffGivableRoles() http.HandlerFunc {
 		Name        string `json:"name"        perm:"-"`
 		Description string `json:"description"`
 		Method      string `json:"method"      allow_filter:"true" search:"memory"`
+		Group       string `json:"group"       allow_filter:"true" search:"memory"`
 	}
 
 	type response []map[string]any
@@ -68,6 +69,8 @@ func (h *Handlers) StaffGivableRoles() http.HandlerFunc {
 					rmap["description"] = rec.Description
 				case "Method":
 					rmap["method"] = rec.Method
+				case "Group":
+					rmap["group"] = rec.Group
 				}
 			}
 			resp = append(resp, rmap)

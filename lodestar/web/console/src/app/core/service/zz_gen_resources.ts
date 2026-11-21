@@ -850,6 +850,7 @@ export interface CrewGivableRoles {
   name: string;
   description?: string;
   method?: string;
+  group?: string;
   domain?: string;
   everyDomain?: boolean;
 }
@@ -2202,10 +2203,11 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'group', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'domain', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'everyDomain', displayType: 'boolean', required: false, isIndex: false, filterable: 'always' },
     ],
-    searchFields: ['method', 'domain'],
+    searchFields: ['method', 'group', 'domain'],
   },
   [Resources.CrewInvitedSectors]: {
     route: 'crew-invited-sectors',

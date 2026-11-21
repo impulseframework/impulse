@@ -8,6 +8,7 @@ import (
 	"iter"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
@@ -31,13 +32,19 @@ import (
 // is listed no role. The Super Administrator role is listed for the whole application
 // alone, and to a caller who holds it.
 //
+// A group's roles are listed for one group at a time. GiveStaffGroupRole is asked with
+// the group beside it (method:eq:GiveStaffGroupRole,group:eq:<id>), and the list leaves
+// out a role that group may not hold (identity.Manager.GivableGroupRoles), by the rule
+// the method holds the group to: the Super Administrator role, which no group holds. Asked with no
+// group, that method is listed no role.
+//
 // It is a computed resource. The role file's roles are held by the permission engine
 // and only a custom role is a row of a table, so the engine is asked and no query
 // selects the list. The role file grants it like any resource, and a condition on the
 // role's name there (name != 'Administrator') narrows it further: the library judges
 // each role the list answers. A caller filters by the fields they may read, and a
 // computed list filters only by a field granted with no condition: the role is granted
-// method among the fields of a grant with no condition, or, beside a
+// method and group among the fields of a grant with no condition, or, beside a
 // grant that carries one, each as a grant of the field alone
 // (StaffGivableRoles.method).
 //
@@ -53,6 +60,10 @@ type StaffGivableRole struct {
 	// Method is the method the role is listed for, the one the request's filter
 	// names: the caller could give the role with it.
 	Method string `spanner:"Method" allow_filter:"true"`
+	// Group is the group the role is listed for, by its id, where the request's
+	// filter names one beside GiveStaffGroupRole: that group may hold the role. "" for
+	// a method that gives a person a role.
+	Group string `spanner:"Group" allow_filter:"true"`
 }
 
 // Resource implements resource.Resourcer.
@@ -66,6 +77,8 @@ func (StaffGivableRole) Resource() accesstypes.Resource {
 // the sort and the page over them. The rule is handed the database and not a
 // transaction: it reads the roles from the permission engine outside any, and asks the
 // grant of the method in one of its own.
+// For GiveStaffGroupRole the roles are the ones the group the filter names may hold,
+// and none where it names no group.
 func ListStaffGivableRole(ctx context.Context, qSet *resource.QuerySet[StaffGivableRole], db resource.Client, client *Client) iter.Seq2[*StaffGivableRole, error] {
 	return func(yield func(*StaffGivableRole, error) bool) {
 		method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{
@@ -84,11 +97,22 @@ func ListStaffGivableRole(ctx context.Context, qSet *resource.QuerySet[StaffGiva
 
 			return
 		}
-		if !named {
+		group, grouped, err := identity.GivingGroup(qSet.Resource(), GiveStaffGroupRole{}.Method(), method, qSet.Filter().Take("Group"))
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.GivingGroup()"))
+
+			return
+		}
+		if !named || !grouped {
 			return
 		}
 		for _, place := range places {
-			roles, err := client.manager.GivableRoles(ctx, db, method, place)
+			var roles []access.RoleInfo
+			if group == nil {
+				roles, err = client.manager.GivableRoles(ctx, db, method, place)
+			} else {
+				roles, err = client.manager.GivableGroupRoles(ctx, db, method, *group, place)
+			}
 			if err != nil {
 				yield(nil, errors.Wrap(err, "identity.Manager.GivableRoles()"))
 
@@ -96,6 +120,9 @@ func ListStaffGivableRole(ctx context.Context, qSet *resource.QuerySet[StaffGiva
 			}
 			for _, role := range roles {
 				row := &StaffGivableRole{Name: string(role.Name), Description: role.Description, Method: string(method)}
+				if group != nil {
+					row.Group = group.String()
+				}
 				if !yield(row, nil) {
 					return
 				}

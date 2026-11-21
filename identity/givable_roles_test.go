@@ -1,11 +1,13 @@
 package identity
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -148,6 +150,167 @@ func TestManager_GivableRoles(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestManager_GivableGroupRoles pins the list the dialog that gives a group a role
+// picks from: the roles the caller could give there with the method that the group
+// itself may hold there, by the rule the method holds the group to. A group kept in one
+// tenant is offered that tenant's roles in that tenant and no role anywhere else, and
+// the grants are asked nothing about a role the group may not hold. No group is offered
+// the Super Administrator role, whoever asks: the caller of every case holds it, and a
+// call outside any request is held to the group's rule too. A group that does not
+// exist is refused.
+func TestManager_GivableGroupRoles(t *testing.T) {
+	t.Parallel()
+
+	const gives accesstypes.Resource = "GiveMembersGroupRole"
+	roles := maps.Clone(givableRoles)
+	roles[betaScope] = []accesstypes.Role{"Reader"}
+	asked := func(scope accesstypes.PolicyScope, names ...string) []string {
+		questions := make([]string, 0, len(names))
+		for _, name := range names {
+			questions = append(questions, string(gives)+" could give "+scope.String()+" "+name)
+		}
+
+		return questions
+	}
+	tests := []struct {
+		name      string
+		group     impulse.UUID
+		scope     accesstypes.PolicyScope
+		outside   bool
+		want      []string
+		wantAsked []string
+	}{
+		{
+			name: "a group kept in one tenant, in that tenant: the tenant's roles", group: nightID, scope: alphaScope,
+			want: []string{"Reader", "Warden"}, wantAsked: asked(alphaScope, "Reader", "Warden"),
+		},
+		{name: "a group kept in one tenant, for the whole application: no role", group: nightID, scope: globalScope, want: []string{}},
+		{name: "a group kept in one tenant, in every tenant: no role", group: nightID, scope: everyScope, want: []string{}},
+		{name: "a group kept in one tenant, in another tenant: no role", group: nightID, scope: betaScope, want: []string{}},
+		{
+			name: "a group kept for the whole application, there: never the Super Administrator role", group: staffID, scope: globalScope,
+			want: []string{"Steward"}, wantAsked: asked(globalScope, "Steward"),
+		},
+		{
+			name: "a group kept for the whole application, in every tenant", group: staffID, scope: everyScope,
+			want: []string{"Reader"}, wantAsked: asked(everyScope, "Reader"),
+		},
+		{
+			name: "a group kept for the whole application, in one tenant", group: staffID, scope: alphaScope,
+			want: []string{"Reader", "Warden"}, wantAsked: asked(alphaScope, "Reader", "Warden"),
+		},
+		{
+			name: "outside any request the group's rule holds still: no Super Administrator role", group: staffID, scope: globalScope, outside: true,
+			want: []string{"Steward"},
+		},
+		{
+			name: "outside any request, a group kept in one tenant holds no role for the whole application", group: nightID, scope: globalScope, outside: true,
+			want: []string{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			grants := &fakeGrants{}
+			store := superStore(erinSuper)
+			store.groups = groupStore().groups
+			m, _ := newManager(t, store, roles, WithRoleGrants(grants))
+			ctx := t.Context()
+			if !tt.outside {
+				ctx = asCallerThrough(ctx, managedAuth, erin)
+			}
+
+			offered, err := m.GivableGroupRoles(ctx, fakeDatabase{}, gives, tt.group, tt.scope)
+			if err != nil {
+				t.Fatalf("GivableGroupRoles() error = %v", err)
+			}
+			got := make([]string, 0, len(offered))
+			for _, role := range offered {
+				got = append(got, string(role.Name))
+			}
+			slices.Sort(got)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("GivableGroupRoles() (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantAsked, grants.asked); diff != "" {
+				t.Errorf("what the grants were asked (-want +got):\n%s", diff)
+			}
+			if len(store.writes) != 0 {
+				t.Errorf("buffered writes = %v, want none: the list writes nothing", store.writes)
+			}
+		})
+	}
+
+	t.Run("a group that does not exist is refused, as the method refuses it", func(t *testing.T) {
+		t.Parallel()
+
+		m, _ := newManager(t, superStore(erinSuper), roles, WithRoleGrants(&fakeGrants{}))
+		_, err := m.GivableGroupRoles(asCallerThrough(t.Context(), managedAuth, erin), fakeDatabase{}, gives, nightID, alphaScope)
+		if !httpio.HasNotFound(err) {
+			t.Errorf("GivableGroupRoles() error = %v, want not found", err)
+		}
+	})
+}
+
+// TestGivingGroup pins which group a list of the roles to give answers for, from the
+// filter on the group: the one group one equality names beside the method that gives a
+// group a role; no rows for that method asked with no group, since a group's list is
+// one group's; no group, and the rows, for a method that gives a person a role; and
+// anything else refused in words that say what to send.
+func TestGivingGroup(t *testing.T) {
+	t.Parallel()
+
+	const gives accesstypes.Resource = "GiveMembersGroupRole"
+	eq := func(value any) resource.Condition {
+		return resource.Condition{Field: "Group", Operator: "eq", Value: value}
+	}
+	tests := []struct {
+		name      string
+		method    accesstypes.Resource
+		on        []resource.Condition
+		want      *impulse.UUID
+		wantOK    bool
+		wantSaid  string
+		wantError bool
+	}{
+		{name: "the group's method with its group", method: gives, on: []resource.Condition{eq(nightID.String())}, want: &nightID, wantOK: true},
+		{name: "the group's method with no group holds no rows", method: gives},
+		{name: "a person's method names no group", method: assigns, wantOK: true},
+		{name: "no method and no group", method: "", wantOK: true},
+		{name: "a group beside a person's method", method: assigns, on: []resource.Condition{eq(nightID.String())}, wantError: true, wantSaid: "method:eq:GiveMembersGroupRole,group:eq:<id>"},
+		{name: "a group beside no method", method: "", on: []resource.Condition{eq(nightID.String())}, wantError: true, wantSaid: "method:eq:GiveMembersGroupRole,group:eq:<id>"},
+		{name: "two groups", method: gives, on: []resource.Condition{eq(nightID.String()), eq(staffID.String())}, wantError: true, wantSaid: "group:eq:<id>"},
+		{name: "a set of groups", method: gives, on: []resource.Condition{{Field: "Group", Operator: "in", Values: []any{nightID.String()}}}, wantError: true, wantSaid: "group:eq:<id>"},
+		{name: "a value that is no id", method: gives, on: []resource.Condition{eq("night shift")}, wantError: true, wantSaid: "night shift is no group's id"},
+		{name: "no id", method: gives, on: []resource.Condition{eq("")}, wantError: true, wantSaid: "group:eq:<id>"},
+		{name: "a value that is no text", method: gives, on: []resource.Condition{eq(7)}, wantError: true, wantSaid: "group:eq:<id>"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok, err := GivingGroup("MembersGivableRoles", gives, tt.method, tt.on)
+			if tt.wantError {
+				if !httpio.HasBadRequest(err) {
+					t.Errorf("GivingGroup() error = %v, want a bad request", err)
+				}
+				if message := httpio.Message(err); !strings.Contains(message, "MembersGivableRoles") || !strings.Contains(message, tt.wantSaid) {
+					t.Errorf("GivingGroup() refusal = %q, want the list named and %q", message, tt.wantSaid)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("GivingGroup() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" || ok != tt.wantOK {
+				t.Errorf("GivingGroup() ok = %t, want %t; group (-want +got):\n%s", ok, tt.wantOK, diff)
+			}
+		})
+	}
 }
 
 // TestGivingMethod pins which method a list of the roles to give answers for, from the

@@ -164,6 +164,7 @@ export namespace StaffGivableRoles {
     description: 'description' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    group: 'group' as FieldName,
     method: 'method' as FieldName,
     name: 'name' as FieldName,
   };
@@ -171,6 +172,7 @@ export namespace StaffGivableRoles {
     description: 'StaffGivableRoles.description' as Resource,
     domain: 'StaffGivableRoles.domain' as Resource,
     everyDomain: 'StaffGivableRoles.everyDomain' as Resource,
+    group: 'StaffGivableRoles.group' as Resource,
     method: 'StaffGivableRoles.method' as Resource,
     name: 'StaffGivableRoles.name' as Resource,
   };

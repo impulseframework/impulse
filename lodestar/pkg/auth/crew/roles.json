@@ -309,6 +309,7 @@
               "fields": [
                 "description",
                 "method",
+                "group",
                 "domain",
                 "everyDomain"
               ]

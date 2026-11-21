@@ -338,6 +338,7 @@ export namespace CrewGivableRoles {
     description: 'description' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    group: 'group' as FieldName,
     method: 'method' as FieldName,
     name: 'name' as FieldName,
   };
@@ -345,6 +346,7 @@ export namespace CrewGivableRoles {
     description: 'CrewGivableRoles.description' as Resource,
     domain: 'CrewGivableRoles.domain' as Resource,
     everyDomain: 'CrewGivableRoles.everyDomain' as Resource,
+    group: 'CrewGivableRoles.group' as Resource,
     method: 'CrewGivableRoles.method' as Resource,
     name: 'CrewGivableRoles.name' as Resource,
   };

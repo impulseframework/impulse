@@ -52,8 +52,10 @@ export interface MethodDialogData {
   /**
    * How a picker among the inputs narrows its options by what the dialog holds, by the
    * request field's name: the filter its list is asked with, from the values of the
-   * inputs as they stand. The picker asks again as they change, and a choice made before
-   * the filter changed is cleared, since it was made among other options.
+   * inputs as they stand over the ones the dialog was opened with (`preset`), so a value
+   * the page filled narrows as one a person picked would. The picker asks again as the
+   * inputs change, and a choice made before the filter changed is cleared, since it was
+   * made among other options.
    */
   narrows?: Record<string, (values: RecordData) => string>;
 }
@@ -136,6 +138,14 @@ export class MethodDialogComponent {
     }),
   );
   /**
+   * What a narrowing is handed: the values the dialog was opened with, under its inputs
+   * as they stand.
+   */
+  private narrowedBy(values: RecordData | undefined): RecordData {
+    return { ...(this.data.preset as RecordData), ...(values ?? {}) };
+  }
+
+  /**
    * How the picker of an input lists its options, where the page said: the fields it
    * named, joined in order, in the list and once one is chosen, and the filter its list
    * is asked with, from the values of the other inputs (`narrows`), which the dialog
@@ -150,7 +160,7 @@ export class MethodDialogComponent {
     }
     const options: EnumeratedConfigOptions = { listDisplay: shown, viewDisplay: shown };
     if (narrow) {
-      options.filter = (values: RecordData | undefined): string => narrow(values ?? {});
+      options.filter = (values: RecordData | undefined): string => narrow(this.narrowedBy(values));
       options.filterType = 'parentResource';
     }
     return { enumeratedConfig: enumeratedConfig(options) };
@@ -270,9 +280,10 @@ export class MethodDialogComponent {
       if (!control) {
         continue;
       }
-      let narrowed = narrow(this.form.getRawValue() as RecordData);
+      const held = (): string => narrow(this.narrowedBy(this.form.getRawValue() as RecordData));
+      let narrowed = held();
       this.form.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
-        const now = narrow(this.form.getRawValue() as RecordData);
+        const now = held();
         if (now !== narrowed) {
           narrowed = now;
           control.setValue(this.pristine[name]);

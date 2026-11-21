@@ -42,9 +42,15 @@ import (
 // check let through is told from any other failure: it answers 500 and the stand-in
 // was handed it, with the role, where a refused check answers 403 and hands it nothing.
 //
-// The cases share the world and run in parallel. The one write among them gives the
-// Headquarters person a role that carries no grant to give any, so it changes nothing
-// another case reads.
+// The method that gives a group a role is asked with the group beside it, and is then
+// listed the roles that group may hold: a group kept in Anvil is offered Anvil's roles
+// in Anvil and no role anywhere else, no group is offered the Super Administrator
+// role, and the method takes what the list offered and refuses what it left out. Asked
+// with no group the method is listed no role.
+//
+// The cases share the world and run in parallel. Two writes are among them: one gives
+// the Headquarters person a role that carries no grant to give any, and one gives a
+// group nobody is in a role in Anvil, so neither changes what another case reads.
 func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -64,6 +70,25 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	deskID := w.seedCrewUser(ctx, t, "hqdesk", "Headquarters", "CrewCommon")
 	desk := userOf(deskID)
 
+	// The groups of the cases: one kept for the whole application, which holds a role
+	// anywhere a person can, and one kept in Anvil.
+	newGroup := func(name, in string) string {
+		t.Helper()
+		request := map[string]any{"name": name, "description": "A group the roles to give are listed for."}
+		if in != "" {
+			request["domain"] = in
+		}
+		sent, err := json.Marshal(request)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+		status, body := doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/create-crew-group", string(sent))
+		assertStatus(t, status, http.StatusOK, body)
+
+		return cell[string](t, decodeRow(t, body), "id")
+	}
+	fleetStaff, nightWatch := newGroup("Fleet staff", ""), newGroup("Night watch", anvil)
+
 	const rolesPath = consoleAPI + "/crew-givable-roles?limit=all"
 	type place struct {
 		domain      string
@@ -74,6 +99,11 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	list := func(t *testing.T, user accesstypes.User, method, filter string) map[place][]string {
 		t.Helper()
 		by := "method:eq:" + method
+		// The group's method lists one group's roles: the whole application's group,
+		// where the case names no other.
+		if method == giveGroup && !strings.Contains(filter, "group:") {
+			by += ",group:eq:" + fleetStaff
+		}
 		if filter != "" {
 			by += "," + filter
 		}
@@ -148,6 +178,73 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 				t.Errorf("%s offers %v for the whole application, want Headquarters among them", method, held[whole])
 			}
 		}
+	})
+
+	// The dialog that gives a group a role offers what the group itself may hold, by the
+	// rule the method keeps. The governor asks, a super administrator: nobody is offered
+	// more.
+	t.Run("a group kept in Anvil is offered Anvil's roles in Anvil alone, and no group the Super Administrator role", func(t *testing.T) {
+		t.Parallel()
+		ofDeck := "group:eq:" + nightWatch
+		for _, elsewhere := range []string{"", ",everyDomain:eq:false", ",everyDomain:eq:true", ",domain:eq:" + bastion} {
+			if held := list(t, "governor", giveGroup, ofDeck+elsewhere); len(held) != 0 {
+				t.Errorf("the group kept in Anvil, asked with %q, is offered %v, want no role: it holds roles in Anvil alone", elsewhere, held)
+			}
+		}
+		held := list(t, "governor", giveGroup, ofDeck+",domain:eq:"+anvil)
+		if len(held) != 1 {
+			t.Fatalf("the group kept in Anvil, asked for Anvil, is offered roles at %v, want Anvil's alone", held)
+		}
+		for _, role := range []string{"SectorMarshal", "Cadet", "Pilot"} {
+			if !slices.Contains(held[inAnvil], role) {
+				t.Errorf("Anvil's roles offered the group kept there = %v, want %s among them", held[inAnvil], role)
+			}
+		}
+		// The method takes what the list offered, and refuses what it left out.
+		give := func(where string) (int, []byte) {
+			return doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/give-crew-group-role", fmt.Sprintf(`{"groupId":%q,"role":"Cadet",%s}`, nightWatch, where))
+		}
+		status, body := give(fmt.Sprintf(`"domain":%q`, anvil))
+		assertStatus(t, status, http.StatusNoContent, body)
+		status, body = give(`"everyDomain":true`)
+		assertStatus(t, status, http.StatusBadRequest, body)
+
+		// A group kept for the whole application is offered a role anywhere a person is,
+		// and never the Super Administrator role, which the governor is offered for a person.
+		staff := list(t, "governor", giveGroup, "")
+		if !slices.Contains(staff[whole], "Headquarters") || !slices.Contains(staff[everySector], "Cadet") {
+			t.Errorf("the whole application's group is offered %v, want the whole application's roles and every sector's", staff)
+		}
+		for at, names := range staff {
+			if slices.Contains(names, string(accesstypes.SuperAdministrator)) {
+				t.Errorf("the whole application's group is offered the Super Administrator role at %+v: %v", at, names)
+			}
+		}
+	})
+
+	t.Run("the group's method asked with no group is listed no role, and a group named any other way is refused", func(t *testing.T) {
+		t.Parallel()
+		ask := func(filter string) (int, []byte) {
+			return doRequestAs(t, w.h, "governor", http.MethodGet, rolesPath+"&filter="+url.QueryEscape(filter), "")
+		}
+		status, body := ask("method:eq:" + giveGroup)
+		assertStatus(t, status, http.StatusOK, body)
+		if rows := decodeRows(t, body); len(rows) != 0 {
+			t.Errorf("%s asked with no group is listed %v, want no role", giveGroup, rows)
+		}
+		for _, filter := range []string{
+			"method:eq:" + assign + ",group:eq:" + nightWatch,
+			"group:eq:" + nightWatch,
+			"method:eq:" + giveGroup + ",group:eq:deck-crew",
+			"method:eq:" + giveGroup + ",group:in:(" + nightWatch + "," + fleetStaff + ")",
+		} {
+			if status, body := ask(filter); status != http.StatusBadRequest || !strings.Contains(string(body), "group:eq:") {
+				t.Errorf("filter %q: status %d, want 400 with the filter to send: %s", filter, status, body)
+			}
+		}
+		// A group that does not exist is refused as the method refuses it.
+		status, body = ask("method:eq:" + giveGroup + ",group:eq:" + cinder)
+		assertStatus(t, status, http.StatusNotFound, body)
 	})
 
 	t.Run("a request that names no method is listed no role", func(t *testing.T) {

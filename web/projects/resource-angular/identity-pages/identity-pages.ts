@@ -387,6 +387,7 @@ class SideBuilder {
               icon: 'badge',
               labels: { ...this.where(), ...periodWords },
               throughDay: periodEnds,
+              fill: (row) => this.keptPlace(row),
               ...this.rolesWhere('role', methods.giveGroupRole),
             },
           ],
@@ -1141,7 +1142,8 @@ class SideBuilder {
       hidden: true,
     }));
     // The method runs against the group the list sits under, and picks the role as the
-    // same method does from the group's row: among the roles of the place the dialog holds.
+    // same method does from the group's row: among the roles that group may hold in the
+    // place the dialog holds.
     const give = this.present([
       [
         methods.giveGroupRole,
@@ -1150,6 +1152,7 @@ class SideBuilder {
           icon: 'badge',
           labels: { ...this.where(), ...periodWords },
           throughDay: periodEnds,
+          fill: (row) => this.keptPlace(row),
           ...this.rolesWhere('role', methods.giveGroupRole),
         },
       ],
@@ -1462,19 +1465,44 @@ class SideBuilder {
    * A list that carries no `method` field lists the same roles for every method (a
    * tenant's roles, where nothing answers what the caller could give), and is asked for
    * none.
+   *
+   * The dialog that gives a group a role names the group too, by the id the dialog was
+   * opened with, where the list takes one (`group`): the server then lists the roles
+   * that group may hold, by the rule its method keeps, so the page holds no copy of it.
    */
   private rolesWhere(field: 'roles' | 'role', method: string | undefined): Pick<MethodPresentation, 'narrows'> {
     const list = this.side.lists.rolesToGive as Resource | undefined;
     const asked = method !== undefined && list !== undefined && this.has(list, 'method') ? `method:eq:${method}` : '';
     const placed = !this.tenant && this.identity.tenant !== undefined;
+    const grouped =
+      asked !== '' && method === this.side.methods.giveGroupRole && list !== undefined && this.has(list, 'group');
     if (!asked && !placed) {
       return {};
     }
     return {
       narrows: {
-        [field]: (values) => [asked, placed ? heldWhere(values) : ''].filter((part) => part !== '').join(','),
+        [field]: (values) =>
+          [asked, grouped ? ofGroup(values) : '', placed ? heldWhere(values) : '']
+            .filter((part) => part !== '')
+            .join(','),
       },
     };
+  }
+
+  /**
+   * Where a group is given a role without the dialog asking: a group kept in one tenant
+   * holds roles in that tenant alone, so the whole application's dialog is opened with
+   * the tenant the group's row names and puts no question a person could only answer one
+   * way. A group kept for the whole application holds a role anywhere a person can, and
+   * its dialog asks where. The roles offered are the server's either way (rolesWhere).
+   * Nothing in a tenant's own pages, whose method names no place, nor in an application
+   * without tenants, whose methods have no field that says where.
+   */
+  private keptPlace(row: RecordData): Record<string, unknown> {
+    if (this.tenant || !this.identity.tenant || row['kind'] !== heldInOneTenant) {
+      return {};
+    }
+    return { domain: row['domainId'], everyDomain: false };
   }
 
   /**
@@ -1733,6 +1761,16 @@ function heldWhere(values: RecordData): string {
     return `domain:eq:${quoteFilterValue(domain)}`;
   }
   return `everyDomain:eq:${values['everyDomain'] === true}`;
+}
+
+/**
+ * The filter that names the group a dialog gives a role to, from the id the dialog was
+ * opened with (`groupId`, the method's target). Nothing where the dialog holds none:
+ * the server then lists no role for the method, which gives a role to a group alone.
+ */
+function ofGroup(values: RecordData): string {
+  const group = values['groupId'];
+  return typeof group === 'string' && group !== '' ? `group:eq:${quoteFilterValue(group)}` : '';
 }
 
 /**

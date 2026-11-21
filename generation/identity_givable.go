@@ -94,6 +94,38 @@ func (d *identitySourceData) GlobalGivingMethods() string {
 	return strings.Join(names, ", ")
 }
 
+// GroupGiving is the method of the whole application that gives a group a role, ""
+// where the instance writes none. The list of the roles to give then takes the group
+// the method is asked for, and lists what that group may hold.
+func (d *identitySourceData) GroupGiving() string {
+	name := "Give" + d.auth + "GroupRole"
+	if !slices.ContainsFunc(d.globalGivings(), func(giving globalGiving) bool {
+		return giving.Method == name
+	}) {
+		return ""
+	}
+
+	return name
+}
+
+// GivableFilters names the fields a request filters the list of the roles to give by,
+// as a comment reads them: the method, the group where the instance gives a group a
+// role, and the two of a place where the application has tenants.
+func (d *identitySourceData) GivableFilters() string {
+	filters := []string{"method"}
+	if d.GroupGiving() != "" {
+		filters = append(filters, "group")
+	}
+	if d.TenantWord() != "" {
+		filters = append(filters, "domain", "everyDomain")
+	}
+	if len(filters) == 1 {
+		return filters[0]
+	}
+
+	return strings.Join(filters[:len(filters)-1], ", ") + " and " + filters[len(filters)-1]
+}
+
 // GivablePicker is the list the whole application's role fields pick from, "" where the
 // instance writes none: then the field is typed. The list is written where the methods
 // are and served on their outlets.
@@ -120,6 +152,9 @@ import (
 	"iter"
 
 	"github.com/go-playground/errors/v5"
+	{{- if .GroupGiving }}
+	"github.com/impulseframework/impulse/access"
+	{{- end }}
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
@@ -142,6 +177,17 @@ import (
 // another refuses is in the first one's list alone, and a request that names no method
 // is listed no role. The Super Administrator role is listed for the whole application
 // alone, and to a caller who holds it.
+{{- if .GroupGiving }}
+//
+// A group's roles are listed for one group at a time. {{ .GroupGiving }} is asked with
+// the group beside it (method:eq:{{ .GroupGiving }},group:eq:<id>), and the list leaves
+// out a role that group may not hold (identity.Manager.GivableGroupRoles), by the rule
+// the method holds the group to: the Super Administrator role, which no group holds
+{{- if .TenantWord }},
+// and for a group kept in one {{ .TenantWord }} every role held anywhere else
+{{- end }}. Asked with no
+// group, that method is listed no role.
+{{- end }}
 {{- if .TenantWord }}
 //
 // The list names the place a role is held in. Filtered by one {{ .TenantWord }} (domain:eq:<id>)
@@ -160,7 +206,7 @@ import (
 // role's name there (name != 'Administrator') narrows it further: the library judges
 // each role the list answers. A caller filters by the fields they may read, and a
 // computed list filters only by a field granted with no condition: the role is granted
-// method{{ if .TenantWord }}, domain and everyDomain{{ end }} among the fields of a grant with no condition, or, beside a
+// {{ .GivableFilters }} among the fields of a grant with no condition, or, beside a
 // grant that carries one, each as a grant of the field alone
 // ({{ Pluralize .GivableRole }}.method).
 //
@@ -176,6 +222,12 @@ type {{ .GivableRole }} struct {
 	// Method is the method the role is listed for, the one the request's filter
 	// names: the caller could give the role with it.
 	Method string ` + "`spanner:\"Method\" allow_filter:\"true\"`" + `
+	{{- if .GroupGiving }}
+	// Group is the group the role is listed for, by its id, where the request's
+	// filter names one beside {{ .GroupGiving }}: that group may hold the role. "" for
+	// a method that gives a person a role.
+	Group string ` + "`spanner:\"Group\" allow_filter:\"true\"`" + `
+	{{- end }}
 	{{- if .TenantWord }}
 	// Domain is the one {{ .TenantName }} the role is held in, "" for a role held for
 	// the whole application or in every {{ .TenantWord }}.
@@ -196,6 +248,10 @@ func ({{ .GivableRole }}) Resource() accesstypes.Resource {
 // the sort and the page over them. The rule is handed the database and not a
 // transaction: it reads the roles from the permission engine outside any, and asks the
 // grant of the method in one of its own.
+{{- if .GroupGiving }}
+// For {{ .GroupGiving }} the roles are the ones the group the filter names may hold,
+// and none where it names no group.
+{{- end }}
 func List{{ .GivableRole }}(ctx context.Context, qSet *resource.QuerySet[{{ .GivableRole }}], db resource.Client, client *Client) iter.Seq2[*{{ .GivableRole }}, error] {
 	return func(yield func(*{{ .GivableRole }}, error) bool) {
 		method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{
@@ -218,11 +274,32 @@ func List{{ .GivableRole }}(ctx context.Context, qSet *resource.QuerySet[{{ .Giv
 
 			return
 		}
+		{{- if .GroupGiving }}
+		group, grouped, err := identity.GivingGroup(qSet.Resource(), {{ .GroupGiving }}{}.Method(), method, qSet.Filter().Take("Group"))
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.GivingGroup()"))
+
+			return
+		}
+		if !named || !grouped {
+			return
+		}
+		{{- else }}
 		if !named {
 			return
 		}
+		{{- end }}
 		for _, place := range places {
+			{{- if .GroupGiving }}
+			var roles []access.RoleInfo
+			if group == nil {
+				roles, err = client.manager.GivableRoles(ctx, db, method, place)
+			} else {
+				roles, err = client.manager.GivableGroupRoles(ctx, db, method, *group, place)
+			}
+			{{- else }}
 			roles, err := client.manager.GivableRoles(ctx, db, method, place)
+			{{- end }}
 			if err != nil {
 				yield(nil, errors.Wrap(err, "identity.Manager.GivableRoles()"))
 
@@ -233,6 +310,11 @@ func List{{ .GivableRole }}(ctx context.Context, qSet *resource.QuerySet[{{ .Giv
 			{{- end }}
 			for _, role := range roles {
 				row := &{{ .GivableRole }}{Name: string(role.Name), Description: role.Description, Method: string(method)}
+				{{- if .GroupGiving }}
+				if group != nil {
+					row.Group = group.String()
+				}
+				{{- end }}
 				{{- if .TenantWord }}
 				row.Domain, row.EveryDomain = string(domain), place.IsEveryDomain()
 				{{- end }}

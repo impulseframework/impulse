@@ -422,6 +422,32 @@ describe('MethodDialogComponent', () => {
     expect(domain?.enumeratedConfig.filter({ domain: 'anvil' })).toBe('');
   });
 
+  it('hands a narrowing what the dialog was opened with beside its inputs: a value the page filled narrows as one a person picked', async () => {
+    const asked: Record<string, unknown>[] = [];
+    const o = await open(
+      {
+        method: 'InviteSomewhere',
+        label: 'Invite',
+        preset: { domain: 'anvil' },
+        narrows: {
+          roles: (values) => {
+            asked.push(values);
+            return `domain:eq:${String(values['domain'])}`;
+          },
+        },
+      },
+      scriptedTransport({ status: 200, body: undefined }),
+    );
+    const roles = o.component.elements.find((element) => element.name === 'roles');
+    // The tenant was filled and is not asked, so no input holds it: the filter reads it
+    // from what the dialog was opened with.
+    expect(o.component.elements.some((element) => element.name === 'domain')).toBe(false);
+    expect(roles?.enumeratedConfig.filter(o.component.values())).toBe('domain:eq:anvil');
+    expect(asked.at(-1)?.['domain']).toBe('anvil');
+    // An input's own value stands over one the dialog was opened with.
+    expect(roles?.enumeratedConfig.filter({ domain: 'bastion' })).toBe('domain:eq:bastion');
+  });
+
   it('clears a narrowed choice when its filter changes, and keeps it while the filter stands', async () => {
     const o = await open(
       {

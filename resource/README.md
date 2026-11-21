@@ -3765,11 +3765,22 @@ condition on `name` that narrows it further. Two rules hold whatever the grants 
 Super Administrator role is listed for the whole application alone, and only to a
 caller who holds it, since only a super administrator gives it; and a tenant's
 administrator's role of a tenant that is directory only is listed only to a caller the
-tenant admits (section "Directory only", the rule the methods keep). The role file
-grants the list to the roles that give one:
+tenant admits (section "Directory only", the rule the methods keep).
+
+Where the Auth keeps groups, the list has one more filter key, `group`. The method
+that gives a group a role is asked with the group beside it
+(`filter=method:eq:GiveCrewGroupRole,group:eq:<id>,domain:eq:<id>`), and the list then
+holds the roles that group may hold there (`identity.Manager.GivableGroupRoles`), by
+the rule the method holds the group to (`access.GroupMayHold`): never the Super
+Administrator role, and for a group kept in one tenant that tenant's roles alone, so
+no role for the whole application, in every tenant or in another tenant. Asked with no
+group, `GiveCrewGroupRole` is answered no role; a group named beside another method,
+or any other way than by one id, is refused (400), and a group that does not exist is
+404. The role file grants the list to the roles that give one, `group` among its
+fields where the role gives a group a role:
 
 ```json
-"List": [{ "resource": "CrewGivableRoles", "fields": ["description", "method", "domain", "everyDomain"] }]
+"List": [{ "resource": "CrewGivableRoles", "fields": ["description", "method", "group", "domain", "everyDomain"] }]
 ```
 
 An Auth whose directory writes the roles gives none by hand and has neither list. The

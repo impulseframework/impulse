@@ -8,6 +8,7 @@ import (
 	"iter"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
@@ -31,6 +32,13 @@ import (
 // is listed no role. The Super Administrator role is listed for the whole application
 // alone, and to a caller who holds it.
 //
+// A group's roles are listed for one group at a time. GiveCrewGroupRole is asked with
+// the group beside it (method:eq:GiveCrewGroupRole,group:eq:<id>), and the list leaves
+// out a role that group may not hold (identity.Manager.GivableGroupRoles), by the rule
+// the method holds the group to: the Super Administrator role, which no group holds,
+// and for a group kept in one sector every role held anywhere else. Asked with no
+// group, that method is listed no role.
+//
 // The list names the place a role is held in. Filtered by one sector (domain:eq:<id>)
 // it lists that sector's roles; otherwise it lists the roles held for the whole
 // application (everyDomain false) and the ones held in every sector (everyDomain
@@ -46,7 +54,7 @@ import (
 // role's name there (name != 'Administrator') narrows it further: the library judges
 // each role the list answers. A caller filters by the fields they may read, and a
 // computed list filters only by a field granted with no condition: the role is granted
-// method, domain and everyDomain among the fields of a grant with no condition, or, beside a
+// method, group, domain and everyDomain among the fields of a grant with no condition, or, beside a
 // grant that carries one, each as a grant of the field alone
 // (CrewGivableRoles.method).
 //
@@ -62,6 +70,10 @@ type CrewGivableRole struct {
 	// Method is the method the role is listed for, the one the request's filter
 	// names: the caller could give the role with it.
 	Method string `spanner:"Method" allow_filter:"true"`
+	// Group is the group the role is listed for, by its id, where the request's
+	// filter names one beside GiveCrewGroupRole: that group may hold the role. "" for
+	// a method that gives a person a role.
+	Group string `spanner:"Group" allow_filter:"true"`
 	// Domain is the one Sector the role is held in, "" for a role held for
 	// the whole application or in every sector.
 	Domain string `spanner:"Domain" allow_filter:"true"`
@@ -80,6 +92,8 @@ func (CrewGivableRole) Resource() accesstypes.Resource {
 // the sort and the page over them. The rule is handed the database and not a
 // transaction: it reads the roles from the permission engine outside any, and asks the
 // grant of the method in one of its own.
+// For GiveCrewGroupRole the roles are the ones the group the filter names may hold,
+// and none where it names no group.
 func ListCrewGivableRole(ctx context.Context, qSet *resource.QuerySet[CrewGivableRole], db resource.Client, client *Client) iter.Seq2[*CrewGivableRole, error] {
 	return func(yield func(*CrewGivableRole, error) bool) {
 		method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{
@@ -98,11 +112,22 @@ func ListCrewGivableRole(ctx context.Context, qSet *resource.QuerySet[CrewGivabl
 
 			return
 		}
-		if !named {
+		group, grouped, err := identity.GivingGroup(qSet.Resource(), GiveCrewGroupRole{}.Method(), method, qSet.Filter().Take("Group"))
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.GivingGroup()"))
+
+			return
+		}
+		if !named || !grouped {
 			return
 		}
 		for _, place := range places {
-			roles, err := client.manager.GivableRoles(ctx, db, method, place)
+			var roles []access.RoleInfo
+			if group == nil {
+				roles, err = client.manager.GivableRoles(ctx, db, method, place)
+			} else {
+				roles, err = client.manager.GivableGroupRoles(ctx, db, method, *group, place)
+			}
 			if err != nil {
 				yield(nil, errors.Wrap(err, "identity.Manager.GivableRoles()"))
 
@@ -111,6 +136,9 @@ func ListCrewGivableRole(ctx context.Context, qSet *resource.QuerySet[CrewGivabl
 			domain, _ := place.Domain()
 			for _, role := range roles {
 				row := &CrewGivableRole{Name: string(role.Name), Description: role.Description, Method: string(method)}
+				if group != nil {
+					row.Group = group.String()
+				}
 				row.Domain, row.EveryDomain = string(domain), place.IsEveryDomain()
 				if !yield(row, nil) {
 					return

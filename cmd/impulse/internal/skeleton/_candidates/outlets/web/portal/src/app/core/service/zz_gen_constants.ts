@@ -140,6 +140,7 @@ export namespace MembersGivableRoles {
     description: 'description' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    group: 'group' as FieldName,
     method: 'method' as FieldName,
     name: 'name' as FieldName,
   };
@@ -147,6 +148,7 @@ export namespace MembersGivableRoles {
     description: 'MembersGivableRoles.description' as Resource,
     domain: 'MembersGivableRoles.domain' as Resource,
     everyDomain: 'MembersGivableRoles.everyDomain' as Resource,
+    group: 'MembersGivableRoles.group' as Resource,
     method: 'MembersGivableRoles.method' as Resource,
     name: 'MembersGivableRoles.name' as Resource,
   };

@@ -191,6 +191,7 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.List},
 				Tags: []resource.TagData{
 					{Name: "description", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "group", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "name"},
 				},

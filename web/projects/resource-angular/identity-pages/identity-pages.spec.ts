@@ -45,7 +45,7 @@ const metas: Record<string, ResourceMeta> = {
   ),
   CrewUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
   // The lists a role is picked from: each answers for the method its filter names.
-  CrewGivableRoles: fields('name', 'description', 'method', 'domain', 'everyDomain'),
+  CrewGivableRoles: fields('name', 'description', 'method', 'group', 'domain', 'everyDomain'),
   CrewSectorRoles: fields('name', 'description', 'method'),
   CrewSessionIdentities: fields('id', 'userId', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
   CrewSessionMailLinks: fields(
@@ -1282,12 +1282,22 @@ describe('identityPages, an Auth that keeps groups', () => {
       presentation(groups.rowMethods, 'GiveCrewGroupRole'),
       presentation(held.listMethods, 'GiveCrewGroupRole'),
     ]) {
-      expect(narrowed(give, 'role')({ domain: '', everyDomain: true })).toBe(
-        'method:eq:GiveCrewGroupRole,everyDomain:eq:true',
+      // The dialog was opened with the group's id, which names the group beside the
+      // method: the server lists what that group may hold, by the rule its method keeps.
+      expect(narrowed(give, 'role')({ groupId: 'g-1', domain: '', everyDomain: true })).toBe(
+        'method:eq:GiveCrewGroupRole,group:eq:g-1,everyDomain:eq:true',
       );
-      expect(narrowed(give, 'role')({ domain: 's-1', everyDomain: false })).toBe(
-        'method:eq:GiveCrewGroupRole,domain:eq:s-1',
+      expect(narrowed(give, 'role')({ groupId: 'g-1', domain: 's-1', everyDomain: false })).toBe(
+        'method:eq:GiveCrewGroupRole,group:eq:g-1,domain:eq:s-1',
       );
+      // A group kept in one sector holds roles there alone, so its dialog is opened
+      // with that sector and does not ask where; one kept for the whole application
+      // is asked.
+      expect(give.fill?.({ id: 'g-1', kind: 'domain', domainId: 's-1' })).toEqual({
+        domain: 's-1',
+        everyDomain: false,
+      });
+      expect(give.fill?.({ id: 'g-2', kind: 'global', domainId: '' })).toEqual({});
     }
     expect(methodsOf(groups.listMethods)).toEqual([['CreateCrewGroup', 'Add a group']]);
     expect(presentation(groups.listMethods, 'CreateCrewGroup').labels).toEqual({
@@ -1731,7 +1741,7 @@ describe('identityPages, an application without tenants', () => {
   const officeMetas: Record<string, ResourceMeta> = {
     OfficeSessionUsers: fields('id', 'username', 'name', 'email', 'disabled', 'lastSignInAt'),
     OfficeUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
-    OfficeGivableRoles: fields('name', 'description', 'method'),
+    OfficeGivableRoles: fields('name', 'description', 'method', 'group'),
     OfficeSessionMailLinks: fields(
       'id',
       'kind',
@@ -1800,6 +1810,13 @@ describe('identityPages, an application without tenants', () => {
     expect(filled(presentation(list(groups).rowMethods, 'GiveOfficeGroupRole'), { id: 'g-1' })).toEqual({});
     expect(filled(presentation(groupRoles.listMethods, 'GiveOfficeGroupRole'), { id: 'g-1' })).toEqual({});
     expect(filled(presentation(list(groups).listMethods, 'CreateOfficeGroup'), {})).toEqual({});
+    // The group's dialog names the group beside its method, and no place.
+    for (const give of [
+      presentation(list(groups).rowMethods, 'GiveOfficeGroupRole'),
+      presentation(groupRoles.listMethods, 'GiveOfficeGroupRole'),
+    ]) {
+      expect(narrowed(give, 'role')({ groupId: 'g-1' })).toBe('method:eq:GiveOfficeGroupRole,group:eq:g-1');
+    }
     // A method that never named a place is filled with none either.
     expect(presentation(list(groups).rowMethods, 'DescribeOfficeGroup').fill).toBeUndefined();
     expect(presentation(list(groups).rowMethods, 'AddOfficeGroupMember').fill).toBeUndefined();

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -37,10 +38,39 @@ import (
 // the database to ask in (db): the roles are read first, as the permission engine reads
 // the custom ones on a client of its own, and the questions are then asked in one
 // transaction of the list's own, which writes nothing.
+//
+// It is the list of a method that gives a person a role, or starts one with it. The
+// method that gives a group a role picks from GivableGroupRoles, which holds each role
+// to the group's own rule too.
 func (m *Manager) GivableRoles(ctx context.Context, db resource.Executor, method accesstypes.Resource, scope accesstypes.PolicyScope) ([]access.RoleInfo, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	return m.givable(ctx, db, method, scope, nil)
+}
+
+// GivableGroupRoles lists the roles a person picks from to give a group one by hand
+// from the whole application's management, with the method that gives a group a role
+// (method), where the role is to be held (scope): the roles GivableRoles lists there
+// for the method that the group may hold there. The group's rule is the one the method
+// holds its row to before it writes it (access.GroupMayHold), asked of where the
+// group's row says it is kept, read in the list's transaction, so the list offers what
+// the method takes: never the Super Administrator role, which a person holds through
+// no group, and for a group kept in one tenant that tenant's roles alone, so no role
+// for the whole application, for every tenant or for another tenant. A group that does
+// not exist is refused as the method refuses it. The rule is the group's and not the
+// caller's: a call outside any request is held to it too.
+func (m *Manager) GivableGroupRoles(ctx context.Context, db resource.Executor, method accesstypes.Resource, groupID impulse.UUID, scope accesstypes.PolicyScope) ([]access.RoleInfo, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return m.givable(ctx, db, method, scope, &groupID)
+}
+
+// givable lists the roles that exist in scope that the request's caller could give
+// there with method (GivableRoles) and, where groupID names a group, that the group may
+// hold there (GivableGroupRoles).
+func (m *Manager) givable(ctx context.Context, db resource.Executor, method accesstypes.Resource, scope accesstypes.PolicyScope, groupID *impulse.UUID) ([]access.RoleInfo, error) {
 	roles, err := m.access.UserManager().Roles(ctx, scope)
 	if err != nil {
 		return nil, errors.Wrap(err, "access.UserManager.Roles()")
@@ -49,14 +79,24 @@ func (m *Manager) GivableRoles(ctx context.Context, db resource.Executor, method
 	if err != nil {
 		return nil, err
 	}
-	if !judged {
+	if !judged && groupID == nil {
 		return roles, nil
 	}
 	var offered []access.RoleInfo
 	if err := db.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		mayHold, err := m.groupMayHold(ctx, txn, groupID, scope)
+		if err != nil {
+			return err
+		}
 		// The database may run the function again, so each run starts its own list.
-		var err error
 		offered, err = rolesOffered(roles, func(role accesstypes.Role) (bool, error) {
+			if !mayHold(role) {
+				return false, nil
+			}
+			if !judged {
+				return true, nil
+			}
+
 			return m.couldGiveIn(ctx, txn, method, scope, role)
 		})
 
@@ -66,6 +106,30 @@ func (m *Manager) GivableRoles(ctx context.Context, db resource.Executor, method
 	}
 
 	return offered, nil
+}
+
+// groupMayHold answers the rule a list of the roles to give holds each role to for the
+// group named: whether the group, kept where its row says, may hold the role in scope
+// (access.GroupMayHold). With no group named every role passes, since a person is
+// given the role.
+func (m *Manager) groupMayHold(ctx context.Context, txn resource.ReadWriteTransaction, groupID *impulse.UUID, scope accesstypes.PolicyScope) (func(accesstypes.Role) bool, error) {
+	if groupID == nil {
+		return func(accesstypes.Role) bool {
+			return true
+		}, nil
+	}
+	group, err := m.requireGroup(ctx, txn, *groupID)
+	if err != nil {
+		return nil, err
+	}
+	kept, err := group.kept()
+	if err != nil {
+		return nil, err
+	}
+
+	return func(role accesstypes.Role) bool {
+		return access.GroupMayHold(kept, scope, role)
+	}, nil
 }
 
 // couldGiveIn reports whether the request's caller could give the role in the scope by
@@ -122,6 +186,41 @@ func GivingMethod(list accesstypes.Resource, methods []accesstypes.Resource, nam
 	}
 
 	return accesstypes.Resource(name), true, nil
+}
+
+// GivingGroup reads the group a list of the roles to give was asked about, from the
+// conditions the request's filter holds on the group (resource.FilterShape.Take).
+// method is the one GivingMethod read, "" where the request named none, and
+// groupMethod the method that gives a group a role. That method is asked with the
+// group beside it, one equality on the group's id, and the list then holds what that
+// group may hold (Manager.GivableGroupRoles); asked with no group it holds no rows, for
+// which ok is false, since a dialog that asked without its group would otherwise offer
+// a role the method refuses that group. Any other method gives a person a role and
+// names no group: group is nil and ok is true. A request that names a group beside
+// another method or beside none, or names groups any other way, by a set, a range, two
+// conditions or a value that is no id, is refused with what to send; list names the
+// list in the refusal.
+func GivingGroup(list, groupMethod, method accesstypes.Resource, named []resource.Condition) (group *impulse.UUID, ok bool, err error) {
+	if method != groupMethod {
+		if len(named) != 0 {
+			return nil, false, httpio.NewBadRequestMessagef("%s takes a group beside the method that gives a group a role alone: name the two together (method:eq:%s,group:eq:<id>), or take the filter on group away", list, groupMethod)
+		}
+
+		return nil, true, nil
+	}
+	if len(named) == 0 {
+		return nil, false, nil
+	}
+	if len(named) != 1 || named[0].Operator != filterEquals {
+		return nil, false, httpio.NewBadRequestMessagef("%s lists the roles one group may be given at a time: filter it by one group's id alone (group:eq:<id>)", list)
+	}
+	text, _ := named[0].Value.(string)
+	id, parseErr := impulse.UUIDFromString(text)
+	if parseErr != nil {
+		return nil, false, httpio.NewBadRequestMessagef("%s lists the roles one group may be given at a time, and %v is no group's id: filter it by one group's id (group:eq:<id>)", list, named[0].Value)
+	}
+
+	return &id, true, nil
 }
 
 // methodNames lists methods as a refusal names them.
