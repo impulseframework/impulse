@@ -6,7 +6,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
-	"github.com/impulseframework/impulse/httpio"
 )
 
 // RPCDecoder decodes an HTTP request for an RPC-style endpoint, validates the request body,
@@ -95,7 +94,7 @@ func (s *RPCDecoder[Request]) DecodeCaller(request *http.Request, scope accessty
 		return nil, nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return nil, nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", userPermissions.User(), scope, s.requiredPermission, denied)
+		return nil, nil, methodRefused(errors.Newf("user %s, scope %s, does not have %s on %s", userPermissions.User(), scope, s.requiredPermission, denied))
 	}
 	if conditional := decisions.ConditionalResources(); len(conditional) > 0 {
 		// A condition that reads the method's own request
@@ -120,7 +119,7 @@ func (s *RPCDecoder[Request]) DecodeCaller(request *http.Request, scope accessty
 		if !truth.Value {
 			// The words a caller with no grant hears: the wire does not say a
 			// condition refused.
-			return nil, nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", userPermissions.User(), scope, s.requiredPermission, conditional)
+			return nil, nil, methodRefused(errors.Newf("user %s, scope %s, does not have %s on %s", userPermissions.User(), scope, s.requiredPermission, conditional))
 		}
 	}
 

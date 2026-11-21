@@ -472,7 +472,7 @@ describe('FlightDeckComponent', () => {
   });
 
   it("a booking the server refuses is shown in the dialog in the server's words, and the form stays as it was filled", async () => {
-    const sentence = 'user booking does not have Create on Missions: the fee is over the limit of the grant';
+    const sentence = 'You may add some missions here, but not this one.';
     await pageFor({ grants: marshal, write: { status: 403, body: { message: sentence } } });
     await press('Book a mission');
     await fillBooking();
@@ -791,7 +791,7 @@ describe('FlightDeckComponent', () => {
         ],
       },
       ahead: {
-        'hold-mission': { status: 403, body: { message: 'user lead does not have Update on Missions.notes' } },
+        'hold-mission': { status: 403, body: { message: 'You may not change the notes of missions here.' } },
         'resume-mission': { status: 409, body: { message: 'ResumeMission: the mission is not on hold' } },
         // The declared answer of a completion comes with figures and no words.
         'complete-mission': { status: 409, body: { expenses: '1750', fee: '900', net: '-850' } },
@@ -804,7 +804,7 @@ describe('FlightDeckComponent', () => {
     expect(texts('.detail-card .edges .edge')).toEqual([
       'Claim The server would accept this now.',
       'Launch The server would accept this now.',
-      'Put on hold The server would refuse this: user lead does not have Update on Missions.notes',
+      'Put on hold The server would refuse this: You may not change the notes of missions here.',
       'Resume The server would refuse this: ResumeMission: the mission is not on hold',
       'Complete The server would refuse this: The expenses (1,750 cr) are more than the fee (900 cr).',
       'Mark as failed The server would refuse this: The server gave no reason.',
@@ -852,7 +852,7 @@ describe('FlightDeckComponent', () => {
   });
 
   it('an edge refused ahead for a reason the dialog cannot change says so in its dialog and cannot be sent', async () => {
-    const sentence = 'user lead does not have Update on Missions.notes';
+    const sentence = 'You may not change the notes of missions here.';
     await pageFor({
       grants: marshal,
       capabilities: { Execute: ['HoldMission'] },
@@ -910,14 +910,12 @@ describe('FlightDeckComponent', () => {
       {
         grants: marshal,
         slow: true,
-        board: { status: 403, body: { message: 'user cadet does not have List on Missions' } },
+        board: { status: 403, body: { message: 'You may not list missions here.' } },
       },
       '.refusal',
     );
 
-    expect(texts('.refusal')).toEqual([
-      'The server would not list the missions: user cadet does not have List on Missions',
-    ]);
+    expect(texts('.refusal')).toEqual(['The server would not list the missions: You may not list missions here.']);
     expect(texts('.empty')).toEqual([]);
     expect(element().querySelector('.pager')).toBeNull();
     expect(film[0]).toBe('');
@@ -1004,7 +1002,7 @@ describe('FlightDeckComponent', () => {
   });
 
   it("a save the server refuses is shown in the dialog in the server's words", async () => {
-    const sentence = 'user dispatcher does not have Update on Missions.notes';
+    const sentence = 'You may not change the notes of missions here.';
     await pageFor({ grants: marshal, write: { status: 403, body: { message: sentence } } });
     await openMission();
     await press('Edit call sheet');

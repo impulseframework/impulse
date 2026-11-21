@@ -262,8 +262,8 @@ func TestMissionDocument_portalListing(t *testing.T) {
 
 	status, content := doRequestAs(t, h, "client", http.MethodGet, portalPath(anvil, "mission-documents/"+id+"/content"), "")
 	assertStatus(t, status, http.StatusForbidden, content)
-	if !strings.Contains(string(content), "MissionDocuments.content") {
-		t.Errorf("refusal = %s, want it to name the content field", content)
+	if got, want := refusalMessage(t, content), "You may not see the content of mission documents here."; got != want {
+		t.Errorf("refusal = %q, want %q: the field in a person's words", got, want)
 	}
 }
 
@@ -327,7 +327,7 @@ func TestMissionDocument_fileRoute(t *testing.T) {
 			user:        "cadet",
 			target:      target,
 			wantStatus:  http.StatusForbidden,
-			wantMessage: "does not have (Read) on [MissionDocuments",
+			wantMessage: "You may not see mission documents here.",
 		},
 		{
 			name:       "the governor, a marshal in every sector, asks under bastion: another sector's document is indistinguishable from none",

@@ -79,7 +79,7 @@ func TestExpenseManifest_renderedFile(t *testing.T) {
 			user:        "marshal",
 			target:      target,
 			wantStatus:  http.StatusForbidden,
-			wantMessage: "does not have (Read) on [ExpenseManifests",
+			wantMessage: "You may not see expense manifests here.",
 		},
 		{
 			name:       "the cadet neither",

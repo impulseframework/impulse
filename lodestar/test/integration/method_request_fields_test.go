@@ -257,7 +257,7 @@ func TestMethodRequestFieldsNoTarget(t *testing.T) {
 	t.Parallel()
 	w := newRequestFieldWorld(t)
 
-	const refusal = "does not have Execute on [AssignCrewRole]"
+	const refusal = "You may not do this here."
 	fires := []struct {
 		name       string
 		user       accesstypes.User
@@ -301,7 +301,7 @@ func TestMethodRequestFieldsList(t *testing.T) {
 	address := func(name string) string {
 		return name + "-" + suffix + "@example.com"
 	}
-	const refusal = "does not have Execute on [InviteCrewUser]"
+	const refusal = "You may not do this here."
 	fires := []struct {
 		name       string
 		email      string

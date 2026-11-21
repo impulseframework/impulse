@@ -745,7 +745,7 @@ describe('MethodDialogComponent with a method that takes files', () => {
 // each change; a refusal as not permitted turns the inputs a condition may read red and
 // holds the button until a marked input changes.
 describe('MethodDialogComponent rehearsing a method whose grant is conditional', () => {
-  const notPermitted = 'user ada, scope anvil, does not have Execute on [GiveRole]';
+  const notPermitted = 'You may not do this here.';
   /** What the server answers a dry run with, by the role it names; a test replaces it. */
   let dryRun: (body: Record<string, unknown>) => TransportResponse | Promise<TransportResponse>;
   let digest: PermissionDigest;
@@ -1209,12 +1209,12 @@ describe('MethodDialogComponent running a method that warns', () => {
   it("shows a refusal of the question in the server's words, and holds the button though the word is typed", async () => {
     warning = () => ({
       status: 403,
-      body: { message: 'user ada, scope global, does not have Execute on [OpenSignUp]' },
+      body: { message: 'You may not do this here.' },
     });
     const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
     await settle(o);
 
-    expect(text(o, '.refusal')).toBe('user ada, scope global, does not have Execute on [OpenSignUp]');
+    expect(text(o, '.refusal')).toBe('You may not do this here.');
     expect((o.fixture.nativeElement as HTMLElement).querySelector('.warning')).toBeNull();
 
     o.component.typed.setValue('open');

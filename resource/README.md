@@ -626,6 +626,45 @@ a domain. The answer reports grants, not tenants — a domain the application ha
 removed still lists while grants in it remain; existence is the tenant roster's
 (`@tenant`, section 16). An empty membership is `[]`, never `null`.
 
+### What a refused caller is told
+
+A request the caller's grants refuse is answered 403 with one sentence a person can
+read, the same in every application:
+
+| What was refused | The sentence |
+|---|---|
+| a permission on a resource | "You may not change hangar passes here." |
+| a permission on a field alone | "You may not change the budget of hangar passes here." |
+| on several fields | "You may not change the budget, the due date or the notes of hangar passes here." |
+| a method, or a permission the application declares | "You may not do this here." |
+| a sort or filter by a field the caller may not see | "You may not sort or filter hangar passes by the budget here." |
+| a search of a computed resource by such a field | "You may not search hangar passes by the budget here." |
+| a write whose grant holds for some rows and not for this one | "You may change some hangar passes here, but not this one." |
+| the same, where the grant is on a field | "You may change the budget of some hangar passes here, but not of this one." |
+| a column, a sort or a filter no tenant of a list across tenants grants | the same sentences, ending "anywhere." |
+
+The verb is the permission's: Create is "add", Read is "see", Update is "change", Delete
+is "delete" and List is "list". The resource is its name split into lower-case words
+(`HangarPasses` is "hangar passes"), and a field is its JSON name split the same way
+(`dueDate` is "the due date"). The sentence carries no id, no permission's code name and
+no table's name. Those stay in the request's log line, which names the scope, the
+person, the permission and the resources as it always has
+(`scope (…), user (…) does not have (Update) on [HangarPasses.budget]`), with the
+sentence the caller was sent after it.
+
+A handler that checks a permission itself answers its refusal in the same words with
+`resource.NotPermitted`, which takes what the log keeps, the permission and the
+resources refused:
+
+```go
+if !decisions[resources.ShipsLogEntries].IsGranted() {
+	return httpio.NewEncoder(w).ClientMessage(ctx, resource.NotPermitted(
+		errors.Newf("user %s does not have List on %s in %s", user, resources.ShipsLogEntries, domain),
+		accesstypes.List, resources.ShipsLogEntries,
+	))
+}
+```
+
 ## 6. Impersonated sessions
 
 The `session` package can establish a session that operates as another user or as a role

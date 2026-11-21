@@ -6,13 +6,12 @@ package integration
 // subject.squadrons`; grant B covers notes and deadline under `state NOT IN (...) AND
 // new.deadline >= deadline`. One PATCH touching both field sets is checked as AND
 // across the groups, a notes-only patch reads the untouched deadline as itself (the
-// tautology), an assignment to a foreign squadron fails and the message names the
-// failing group's columns, and nothing partially commits.
+// tautology), an assignment to a foreign squadron fails and the message says the
+// failing group's columns in a person's words, and nothing partially commits.
 
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -55,12 +54,13 @@ func TestDispatcherWriteGrouping(t *testing.T) {
 	assertStatus(t, status, http.StatusOK, body)
 
 	// Assignment to a squadron Dunn does not fly with fails grant A, and the refusal
-	// names the group's column; the notes in the same PATCH do not commit.
+	// says the group's column in a person's words; the notes in the same PATCH do not
+	// commit.
 	before := readColumn[spanner.NullString](ctx, t, db, "Missions", spanner.Key{missionQuarantineID}, "Notes")
 	status, body = patch(missionQuarantineID, fmt.Sprintf(`{"assignedSquadronId":%q,"notes":"partial?"}`, squadronAshfallID))
 	assertStatus(t, status, http.StatusForbidden, body)
-	if !strings.Contains(string(body), "assignedSquadronId") {
-		t.Errorf("the refusal must name the failing group's column: %s", body)
+	if got, want := refusalMessage(t, body), "You may change the assigned squadron id of some missions here, but not of this one."; got != want {
+		t.Errorf("refusal = %q, want %q: the failing group's column in a person's words", got, want)
 	}
 	after := readColumn[spanner.NullString](ctx, t, db, "Missions", spanner.Key{missionQuarantineID}, "Notes")
 	if before != after {
