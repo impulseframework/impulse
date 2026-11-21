@@ -30,9 +30,18 @@ import (
 // create-your-tenant route) is no role's in the union: it is in no List, a role's grant
 // that names it is refused, and a collection that registers the same name for roles is
 // refused here.
+//
+// A collection handed over as nil (the nil interface, or a nil pointer of a collection's
+// type, which a variable nothing was assigned to hands over) is refused with a sentence
+// that says which one, before anything is asked of it.
 func UnionCollection(collections ...PermissionCollection) (PermissionCollection, error) {
 	if len(collections) == 0 {
 		return nil, errors.New("UnionCollection: at least one collection is required")
+	}
+	for i, c := range collections {
+		if isNilCollection(c) {
+			return nil, errors.Newf("UnionCollection: collection %d (in argument order) is nil: pass each site's permission collection, its generated router's Collection()", i+1)
+		}
 	}
 
 	u := &unionCollection{

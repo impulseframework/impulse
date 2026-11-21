@@ -1059,7 +1059,8 @@ in each; `UnionCollection` refuses collections that disagree on a shared resourc
 permissions (fields included), scope, immutability, computed marking, or method target.
 An action one site marks as an action no role is given is no role's in the union, and a
 site that registers the same name for roles is refused: a name is one or the other in
-every site.
+every site. A collection passed as nil is refused with a sentence that says which
+argument it was.
 
 ```go
 collection, err := access.UnionCollection(consolerouter.Collection(), portalrouter.Collection())
