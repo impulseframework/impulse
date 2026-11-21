@@ -500,9 +500,10 @@ func notTheInvited[Tx any](ctx context.Context, d Driver[Tx], tx Tx, inv *sessio
 // library mails to the invited address. The person is known, so the wait names the
 // account; nothing is written before the code is entered, and the invitation is
 // accepted in the transaction of the sign-in that carries the code. That transaction
-// is the one place the invited address is written on the account: the code is the
-// invitation's and no second factor of the account, so a sign-in that entered it and
-// finds the invitation dead ends there, with nobody signed in and no address taken.
+// is the one place the invited address is written on an account that did not already
+// hold it: the code is the invitation's and no second factor of the account, so a
+// sign-in that entered it and finds the invitation dead ends there, with nobody signed
+// in and no address taken.
 func namedCodeWait(user *dbtype.User, _ *sessioninfo.Invitation) error {
 	return &signin.PendingSignInError{
 		Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(user.ID), Username: user.Username, Tenant: "", Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},

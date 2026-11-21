@@ -364,6 +364,17 @@ If you did not try to add this address, ignore this message. Nothing changes.
 `},
 		},
 		{
+			name: "an address an invitation waits for: no code, how the invitation adds it, and what to do if it was not them",
+			got:  m.addressInvitedMessage("pat@lakeside.edu"),
+			want: mail.Message{To: "pat@lakeside.edu", Subject: "Your email address and Harbor", Text: `Someone just tried to add this address to a Harbor account. Nothing was changed: an invitation to Harbor is waiting for this address, and the address is added to an account when that invitation is accepted.
+
+If that was you, open the link in your invitation and sign in to your account there. A code is then mailed to this address, and entering it accepts the invitation and adds the address to your account.
+
+Didn't do this?
+If you did not try to add this address, ignore this message. Nothing changes.
+`},
+		},
+		{
 			name: "a sign-up link: open it and choose a password, how long it is good for, then the two notices",
 			got:  m.signUpMessage("new@lakeside.edu", "tok_3", 6*time.Hour),
 			want: mail.Message{To: "new@lakeside.edu", Subject: "Finish creating your Harbor account", Text: `You asked to create a Harbor account with this address.

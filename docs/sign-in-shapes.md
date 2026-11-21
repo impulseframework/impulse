@@ -306,20 +306,25 @@ The link only opens the invitation. A mailed link can be forwarded, so holding o
 not show that the mailbox is the person's. A person who chooses a password from an
 invitation is mailed a code at the invited address, and the account is made, with that
 address confirmed, once they enter it. A person who signs in with a password to an
-account that has not confirmed the invited address is mailed a code the same way, and the
-account takes the address when they enter it. A person who is already signed in to such
-an account is told to sign in again from the invitation's link, which mails
-the code. The code comes in a message of its own, which says that it accepts an
-invitation and that somebody else has the invitation's link if the person did not open
-it themselves. An invitation takes twenty-five codes: after twenty-five were entered and
-none of them accepted it, no more are mailed for it and none is taken, however long it
-stands, and the person asks whoever invited them for a new invitation. A code counts
-toward the twenty-five of the invitation it was mailed for, and it works only in a
-browser that has that invitation's link open: entered anywhere else it is refused, and
-it still counts. The invited address is put on an account only as the invitation is
-accepted, so the code of an invitation that was used, withdrawn or has taken its
-twenty-five changes nothing. An account that
-has confirmed the invited address accepts with no code.
+account that holds no address is mailed the invitation's code the same way, and the
+account takes the address as the invitation is accepted. An account that already holds
+the invited address and has not confirmed it is mailed its own sign-in code there
+instead, under the limits of any sign-in code: entering it confirms the address, and the
+sign-in then accepts the invitation. A person who is already signed in to such an
+account is told to sign in again from the invitation's link, which mails the code. The
+code comes in a message of its own, which says that it accepts an invitation and that
+somebody else has the invitation's link if the person did not open it themselves. An
+invitation takes twenty-five codes: after twenty-five were entered and none of them
+accepted it, no more are mailed for it and none is taken, however long it stands, and
+the person asks whoever invited them for a new invitation. A code counts toward the
+twenty-five of the invitation it was mailed for, and it works only in a browser that has
+that invitation's link open: entered anywhere else it is refused, and it still counts.
+While an invitation stands, an account that does not already hold the invited address
+gets it only as the invitation is accepted: a person who types that address to be mailed
+a code is mailed none, and the mailbox is sent a message that says to open the
+invitation's link. So the code of an invitation that was used, withdrawn or has taken
+its twenty-five accepts nothing and puts no address on an account. An account that has
+confirmed the invited address accepts with no code.
 This is described under "Invitations" and "The first administrator's invitation" in
 [session/README.md](../session/README.md).
 

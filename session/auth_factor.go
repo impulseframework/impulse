@@ -417,12 +417,16 @@ func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*
 }
 
 // enrollEmail mails the code to the address a user without one gives. An address
-// another account holds is told so by mail, and the screen is answered as sent. Both
-// are mail somebody asked for by typing an address, and are held to that address's
-// count of such mail (limitMail), never to the count of its own sign-in codes. A wait
-// that accepts an invitation takes no address: its code goes to the invited one
-// (codeDestination), whatever is typed. A sign-in that is not yet the account's gives
-// none (identityIsTheUsers).
+// another account holds is told so by mail, and the screen is answered as sent. An
+// address that an invitation which stands was mailed to is answered the same way: no
+// code is made, the mailbox is sent a message that says to open the invitation's link
+// (addressInvitedMessage), and the screen is answered as sent. While an invitation
+// stands, an account that does not hold its address takes it only as that invitation
+// is accepted. All three are mail somebody asked for by typing an address, and are held
+// to that address's count of such mail (limitMail), never to the count of its own
+// sign-in codes. A wait that accepts an invitation takes no address: its code goes to
+// the invited one (codeDestination), whatever is typed. A sign-in that is not yet the
+// account's gives none (identityIsTheUsers).
 func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email string) (*emailCodeAnswer, error) {
 	m := a.settings.mail
 	bare, err := address(email)
@@ -451,6 +455,20 @@ func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email
 			return nil, err
 		}
 		if err := a.send(ctx, m.addressHeldMessage(bare)); err != nil {
+			return nil, err
+		}
+
+		return &emailCodeAnswer{CodeEmail: maskAddress(bare), CodeSent: true}, nil
+	}
+	invited, err := a.invitationStandsFor(ctx, bare)
+	if err != nil {
+		return nil, err
+	}
+	if invited {
+		if err := a.limitMail(ctx, bare); err != nil {
+			return nil, err
+		}
+		if err := a.send(ctx, m.addressInvitedMessage(bare)); err != nil {
 			return nil, err
 		}
 

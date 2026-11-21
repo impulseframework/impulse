@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
@@ -74,6 +75,10 @@ func runInvitationByMailedCodeSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "the code mailed for an invitation is held to that invitation: entered in a browser that dropped the invitation's cookie, or that carries another invitation's, the right code is refused, takes its place in its own invitation's count and writes nothing, and the code of an invitation that is spent or was withdrawn accepts nothing",
 			run:  seamInvitationCodeHeldToItsInvitation[Tx],
+		},
+		{
+			name: "an address an invitation waits for is mailed no code when it is typed at the address step of an account that holds none: the step answers as sent, the mailbox is told to open the invitation, a code entered accepts nothing and the account takes no address, and the invitation's link opened again accepts by its code",
+			run:  seamInvitedAddressTypedIsMailedNoCode[Tx],
 		},
 	}
 	for _, tt := range tests {
@@ -767,4 +772,83 @@ func seamInvitationCodeHeldToItsInvitation[Tx any](ctx context.Context, t *testi
 		t.Errorf("the account's address after the code of a withdrawn invitation = %q, want none", email)
 	}
 	a.assertStanding(ctx, t, "after the code of a withdrawn invitation", forPat, forLee)
+}
+
+// seamInvitedAddressTypedIsMailedNoCode is the scenario "an address an invitation
+// waits for is mailed no code when it is typed at the address step of an account that
+// holds none".
+func seamInvitedAddressTypedIsMailedNoCode[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newTenantInvitationApp(ctx, t, be)
+
+	// Sam's account has a password and holds no address. Its person opens the link of
+	// an invitation mailed to an address no account holds and signs in: the sign-in
+	// waits for the code mailed to that address.
+	a.seed(ctx, t, "sam")
+	const invited = "pat@lakeside.edu"
+	inv, err := a.api.Invite(ctx, &session.InvitationRequest{Email: invited})
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	token := lastInvitationToken(t, a.mail)
+	b := a.browser(t)
+	b.prime(ctx)
+	a.openInvitation(ctx, t, b)
+	if status, mfa := b.loginAs(ctx, "sam"); status != http.StatusOK || !mfa {
+		t.Fatalf("the password sign-in from the invitation = %d (mfaIsRequired %v), want 200 held for the code mailed to the invited address", status, mfa)
+	}
+
+	// The browser drops the invitation's cookie, so the wait asks for an address, and
+	// the invited address is typed there: the step answers as sent, the mailbox is
+	// told to open the invitation, and no code is mailed.
+	dropped := b.withoutCookie("auth-invitation")
+	if status := dropped.pendingStatus(ctx); status.EmailCode == nil || !status.EmailCode.EnrollEmail {
+		t.Fatalf("the wait without the invitation's cookie = %+v, want the step asking for an address", status.EmailCode)
+	}
+	before := len(a.mail.Messages())
+	var answer struct {
+		CodeEmail     string     `json:"codeEmail"`
+		CodeSent      bool       `json:"codeSent"`
+		CodeExpiresAt *time.Time `json:"codeExpiresAt"`
+	}
+	if err := json.Unmarshal(dropped.expect(ctx, http.StatusOK, http.MethodPost, "/pending/email", map[string]string{"email": invited}), &answer); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if answer.CodeEmail != "p•••@lakeside.edu" || !answer.CodeSent || answer.CodeExpiresAt != nil {
+		t.Errorf("the answer to the invited address typed = %+v, want it answered as sent to p•••@lakeside.edu with no code's expiry", answer)
+	}
+	sent := a.mail.Messages()[before:]
+	if len(sent) != 1 || sent[0].To != invited || !strings.HasPrefix(sent[0].Subject, "Your email address and ") || !strings.Contains(sent[0].Text, "is waiting for this address") || codePattern.MatchString(sent[0].Subject) {
+		t.Fatalf("mailed after the invited address was typed: %d message(s), want the one message to %s that says to open the invitation, and no code", len(sent), invited)
+	}
+
+	// A code entered stands for nothing: none was mailed. The account takes no
+	// address, and the invitation stands with no code entered for it.
+	if status, body := dropped.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": "123456"}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"code_expired"`) {
+		t.Fatalf("a code entered after the invited address was typed = %d %s, want 401 code_expired: no code was mailed", status, body)
+	}
+	dropped.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if email, _ := a.address(ctx, t, "sam"); email != "" {
+		t.Fatalf("the account's address after the invited address was typed = %q, want none", email)
+	}
+	a.assertStanding(ctx, t, "after the invited address was typed", inv)
+	if got := a.codesEntered(ctx, t, inv.ID); got != 0 {
+		t.Errorf("the count of codes entered for the invitation = %d, want none", got)
+	}
+
+	// The link is opened again in that browser: the code is mailed to the invited
+	// address, and entering it accepts the invitation and gives the account the
+	// address, confirmed.
+	dropped.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": token}, dropped.xsrfToken())
+	dropped.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	if body := dropped.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, invited)}); !strings.Contains(string(body), `"mfaIsRequired":false`) {
+		t.Fatalf("the invitation's code, once its link was opened again = %s, want the sign-in completed", body)
+	}
+	signedInAs(ctx, t, dropped, "sam")
+	if email, confirmed := a.address(ctx, t, "sam"); email != invited || !confirmed {
+		t.Errorf("the account's address after the acceptance = %q (confirmed %v), want the invited address confirmed by the code", email, confirmed)
+	}
+	a.assertStanding(ctx, t, "after the acceptance")
+	if handed := a.handed(); len(handed) != 1 || handed[0].ID != inv.ID {
+		t.Errorf("the hook was handed %d invitation(s), want the one accepted", len(handed))
+	}
 }

@@ -279,6 +279,28 @@ If you did not try to add this address, ignore this message. Nothing changes.
 	}
 }
 
+// addressInvitedMessage is the mail sent when an address that an invitation which
+// stands was mailed to is typed at the sign-in code's step of an account: no code is
+// mailed, the mailbox's owner learns that nothing changed and that the address is added
+// to an account as the invitation is accepted, is told how to do that if it was them
+// (open the invitation's link, sign in there, enter the code then mailed), then what to
+// do if it was not them.
+func (m *mailSettings) addressInvitedMessage(to string) mail.Message {
+	app := m.settings.Application
+
+	return mail.Message{
+		To:      to,
+		Subject: fmt.Sprintf("Your email address and %s", app),
+		Text: fmt.Sprintf(`Someone just tried to add this address to a %s account. Nothing was changed: an invitation to %s is waiting for this address, and the address is added to an account when that invitation is accepted.
+
+If that was you, open the link in your invitation and sign in to your account there. A code is then mailed to this address, and entering it accepts the invitation and adds the address to your account.
+
+Didn't do this?
+If you did not try to add this address, ignore this message. Nothing changes.
+`, app, app),
+	}
+}
+
 // signUpMessage is the mail a sign-up starts from: the link to open and choose a
 // password at and how long it is good for (lifetime), then what to do if no account
 // was asked for and a word to keep the link to oneself.

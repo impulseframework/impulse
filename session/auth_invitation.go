@@ -114,6 +114,24 @@ func (a *Auth[S, U, Tx]) invitationOf(ctx context.Context) (*sessioninfo.Invitat
 	return invitationOf(link), nil
 }
 
+// invitationStandsFor reports whether an invitation that stands was mailed to email:
+// one the store holds as live (not used, not withdrawn, not run out), whatever the
+// browser carries. An invitation that has taken its twenty-five codes still stands, and
+// counts here.
+func (a *Auth[S, U, Tx]) invitationStandsFor(ctx context.Context, email string) (bool, error) {
+	links, err := a.storage.LiveMailLinks(ctx, sessionstorage.MailLinkInvitation)
+	if err != nil {
+		return false, errors.Wrap(err, "sessionstorage.AuthStore.LiveMailLinks()")
+	}
+	for _, link := range links {
+		if sameAddress(strings.TrimSpace(link.Email), email) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // invitationOf renders a mail link row as the invitation a sign-in carries.
 func invitationOf(link *sessionstorage.MailLink) *sessioninfo.Invitation {
 	return &sessioninfo.Invitation{

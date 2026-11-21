@@ -1261,8 +1261,11 @@ the person reaches.
    gives one at the step (`Pending().EnrollEmail()`, `{"email"}`), which is written on
    the user verified when its code is entered; an address another account holds is
    answered as sent and told so by mail to that address, as the add-address step does,
-   so the screen reveals nothing. The step takes an address only from a sign-in that
-   is already the account's: a password's, or an identity linked to the user. A
+   so the screen reveals nothing. An address that an invitation which stands was mailed
+   to is treated the same way: no code is made, the mailbox is sent a message that says
+   to open the invitation's link, and the screen is answered as sent. The step takes an
+   address only from a sign-in that is already the account's: a password's, or an
+   identity linked to the user. A
    sign-in that waits to be linked on the account's code (see "A first link on a name
    alone") is given none, since nothing but the name ties it to the account, and is
    answered `409` with the reason. The `AuthAPI` offers the same as `SendEmailCode`,
@@ -2010,10 +2013,11 @@ one it sends.
   address unconfirmed is mailed its own sign-in code there. Until the code is entered
   the invitation stands, nothing is granted and the account takes no address; entering
   it accepts the invitation and writes the address on the account, confirmed. The
-  invitation's code is held to its invitation here as well: the invited address reaches
-  the account in the acceptance's transaction and nowhere else, so the code entered in
-  a browser that does not carry that invitation, or once the invitation was used,
-  withdrawn or has taken its twenty-five codes, signs nobody in and writes nothing. The
+  invitation's code is held to its invitation here as well: an account that does not
+  already hold the invited address gets it in the acceptance's transaction and nowhere
+  else, so the code entered in a browser that does not carry that invitation, or once
+  the invitation was used, withdrawn or has taken its twenty-five codes, signs nobody
+  in, takes its place in the invitation's count and writes nothing else. The
   acceptance by hand of a person signed in
   (`Invitation().Accept()`) is held to the address the same way, answered 403 with the
   sentence. A session cannot wait for a code, so a person whose account has not
