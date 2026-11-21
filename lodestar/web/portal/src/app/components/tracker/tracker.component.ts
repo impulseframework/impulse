@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe } from '@angular/common';
 import { Component, computed, DestroyRef, inject, resource, ResourceRef, signal, TemplateRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -15,6 +15,7 @@ import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { storeSignal } from '@impulseframework/resource-angular/resource-client';
 import { nameInWords } from '@impulseframework/resource-angular/types';
 import { ApiError, Domain, Method, Page, ResourceHandle, rowCapabilities } from '@impulseframework/resource';
+import { credits } from './credits';
 import { TrackerGraphComponent } from './graph/tracker-graph.component';
 import { serverWords } from './server-words';
 
@@ -63,7 +64,6 @@ const edgeWords: Readonly<Record<string, string>> = {
   selector: 'app-tracker',
   imports: [
     DatePipe,
-    DecimalPipe,
     FormsModule,
     MatButtonModule,
     MatCardModule,
@@ -295,6 +295,9 @@ export class TrackerComponent {
 
   /** What the page calls an edge of the graph: its own words, else the method's name in words. */
   readonly words = (method: string): string => edgeWords[method] ?? nameInWords(method);
+
+  /** A fee as the tracker writes it: the server's own text, the thousands apart. */
+  readonly credits = credits;
 
   /** A state as a person reads it: "on hold" for on_hold. */
   stateWords(state: string | null | undefined): string {

@@ -54,7 +54,7 @@
               @if (feeMasked(mission)) {
                 <span class="redacted">REDACTED</span>
               } @else {
-                {{ mission.fee | number: '1.0-0' }} cr
+                {{ credits(mission.fee) }}
               }
             </span>
           </div>
@@ -145,7 +145,7 @@
             <ul class="expenses">
               @for (expense of expensesOf(sortie); track expense.id) {
                 <li>
-                  {{ categoryWords(expense.category) }} — {{ expense.amount | number: '1.0-0' }} cr
+                  {{ categoryWords(expense.category) }} — {{ credits(expense.amount) }}
                   {{ expense.memo ? '(' + expense.memo + ')' : '' }}
                 </li>
               }

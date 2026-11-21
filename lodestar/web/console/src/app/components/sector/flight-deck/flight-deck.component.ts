@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe, formatNumber } from '@angular/common';
+import { DatePipe } from '@angular/common';
 import {
   Component,
   computed,
@@ -35,6 +35,7 @@ import {
 import { ApiError, Method, MethodHandle, MethodMeta, Page, rowCapabilities } from '@impulseframework/resource';
 import { ResourceFieldComponent } from '@impulseframework/resource-angular/resource';
 import { field, nameInWords } from '@impulseframework/resource-angular/types';
+import { credits } from '../credits';
 import { openFormDialog } from '../form-dialog';
 import { SectorService, serverWords } from '../sector.service';
 import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.component';
@@ -161,7 +162,6 @@ const sortiesPerRead = 50;
   selector: 'app-flight-deck',
   imports: [
     DatePipe,
-    DecimalPipe,
     FormsModule,
     MatButtonModule,
     MatCardModule,
@@ -801,6 +801,9 @@ export class FlightDeckComponent {
     return d > 0 ? `${sign}${d}d ${h}h` : `${sign}${h}h ${m}m ${s}s`;
   }
 
+  /** A fee or an expense as the deck writes it: the server's own text, the thousands apart. */
+  readonly credits = credits;
+
   pips(hazard: number | undefined): string {
     const n = hazard ?? 0;
     return '●'.repeat(n) + '○'.repeat(Math.max(0, 5 - n));
@@ -1044,11 +1047,6 @@ function isSettlement(body: unknown): body is Settlement {
     typeof (body as Settlement).expenses === 'string' &&
     typeof (body as Settlement).fee === 'string'
   );
-}
-
-/** An amount of credits as the deck writes a fee: whole credits, the thousands apart. */
-function credits(amount: string): string {
-  return `${formatNumber(Number(amount), 'en-US', '1.0-0')} cr`;
 }
 
 /** Why a mission cannot be completed, with the server's figures: its sorties cost more than its fee. */

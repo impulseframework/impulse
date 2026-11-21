@@ -1190,6 +1190,31 @@ describe('FlightDeckComponent', () => {
     expect(texts('.detail-card .expenses li')).toEqual(['medical supplies — 75 cr']);
   });
 
+  it('a call sheet writes the fee as the server holds it: every digit, the thousands apart', async () => {
+    const mission = (id: string, fee: string): Record<string, unknown> => ({
+      id,
+      title: `Mission ${id}`,
+      kindId: 'rescue',
+      clientId: 'c-1',
+      hazard: 2,
+      fee,
+      deadline: '2031-01-01T08:00:00Z',
+      statusId: 'open',
+      zzCapabilities: everything,
+    });
+    await pageFor({
+      grants: marshal,
+      board: {
+        status: 200,
+        body: [mission('m-1', '950.50'), mission('m-2', '12345678901234567.25'), mission('m-3', '900')],
+      },
+    });
+
+    // No rounding to whole credits, and no number in between: a number holds neither the
+    // closing zero nor the seventeenth digit.
+    expect(texts('.sheet .fee')).toEqual(['950.50 cr', '12,345,678,901,234,567.25 cr', '900 cr']);
+  });
+
   it('says an expense in the words the Add expense form offers it under, and its amount as a fee is written', async () => {
     await pageFor({
       grants: marshal,
@@ -1207,7 +1232,7 @@ describe('FlightDeckComponent', () => {
     expect(texts('.detail-card .expenses li')).toEqual([
       'tow gear — 1,500 cr (spare line)',
       'medical supplies — 20,000 cr',
-      'dock fees — 12 cr',
+      'dock fees — 12.4 cr',
     ]);
 
     await press('Add expense');

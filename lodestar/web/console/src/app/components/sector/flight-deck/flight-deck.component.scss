@@ -61,9 +61,13 @@
     color: var(--lodestar-amber);
   }
 
+  // A fee is written with every digit it holds: one too long for its sheet breaks onto a
+  // second line, still set to the right, and never runs out of the sheet.
   .fee {
     font-size: 20px;
     font-weight: 500;
+    overflow-wrap: anywhere;
+    text-align: right;
   }
 
   .deadline {
