@@ -4,15 +4,18 @@ import { Menu } from '@impulseframework/resource-angular/auth-frame';
 import { featureFlagsPage } from '@impulseframework/resource-angular/feature-flags';
 import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';
 import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';
-import { deckPages, sectorSignInPage, watchDeskPage } from '@components/sector/sector.routes';
+import { deckPages, sectorSignInPage } from '@components/sector/sector.routes';
 import { clientsConfig } from './configs/clients.config';
 import { commendationsConfig } from './configs/commendations.config';
+import { consignmentsConfig } from './configs/consignments.config';
+import { crewSessionImpersonationsConfig } from './configs/crewSessionImpersonations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
 import { hangarsConfig } from './configs/hangars.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
 import { missionsEverySectorConfig } from './configs/missionsEverySector.config';
 import { pilotsConfig, sectorPilotsConfig } from './configs/pilots.config';
+import { sectorHazardBoardsConfig } from './configs/sectorHazardBoards.config';
 import { sectorsConfig } from './configs/sectors.config';
 import { shipClassesConfig } from './configs/shipClasses.config';
 import { shipsConfig } from './configs/ships.config';
@@ -66,7 +69,6 @@ export function appMenus(): Menu[] {
             resourcePage(hangarsConfig, resourceMeta),
             resourcePage(squadronsConfig, resourceMeta),
             resourcePage(missionDocumentsConfig, resourceMeta),
-            resourcePage(distressCallsConfig, resourceMeta),
             resourcePage(sectorPilotsConfig, resourceMeta),
           ],
         },
@@ -79,10 +81,11 @@ export function appMenus(): Menu[] {
           entries: [
             deckPages.flightDeck,
             deckPages.hangarDeck,
-            deckPages.salvageHold,
-            deckPages.callLog,
+            // The salvage hold, the call log and the hazard board are the library's lists.
+            resourcePage(consignmentsConfig, resourceMeta),
+            resourcePage(distressCallsConfig, resourceMeta),
             deckPages.roster,
-            deckPages.hazardBoard,
+            resourcePage(sectorHazardBoardsConfig, resourceMeta),
             deckPages.shipsLog,
             deckPages.briefing,
           ],
@@ -131,7 +134,9 @@ export function appMenus(): Menu[] {
             // The feature flags Lodestar declares, each with who last turned it on or off:
             // the library's page, shown under List on the flags, in Headquarters.
             featureFlagsPage(resourceMeta),
-            watchDeskPage,
+            // The watch desk: the sessions people hold as someone else, shown under List
+            // on the crew auth's impersonation records.
+            resourcePage(crewSessionImpersonationsConfig, resourceMeta),
           ],
         },
       ],

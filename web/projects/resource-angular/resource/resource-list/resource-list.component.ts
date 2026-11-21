@@ -14,6 +14,7 @@ import {
   runInInjectionContext,
   signal,
   Type,
+  untracked,
 } from '@angular/core';
 import { ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -35,7 +36,6 @@ import {
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
 import { Domain, TenantProperty } from '@impulseframework/resource';
-import { firstValueFrom } from 'rxjs';
 import {
   AlertType,
   ChildResourceConfig,
@@ -340,6 +340,14 @@ export class ResourceListComponent implements OnInit {
    */
   across = computed(() => this.config().acrossTenants === true);
   /**
+   * The tenants whose digest this list has asked for, for the links of a list across
+   * tenants: each is asked once while the list is on the screen, answered or not, and
+   * again only when the person asks (retryLinks).
+   */
+  private readonly askedDigests = new Set<string>();
+  /** The tenants whose digest this list asked for and whose read has ended: answered, refused or failed. */
+  private readonly endedDigests = signal<ReadonlySet<string>>(new Set());
+  /**
    * The page a row of a list across tenants opens on: where the application mounts a row
    * route for the record a row opens (rowPageRoute), as its config wrote the route.
    * Undefined when the application mounts none, and then the rows draw no link: a link
@@ -589,10 +597,11 @@ export class ResourceListComponent implements OnInit {
   /**
    * The fields the search box searches for this caller: the listed resource's search
    * fields less those the digest denies for List, a branch judged by the child field's
-   * grant on the child resource. The resource decides the set, never the page; a page
-   * that should search fewer fields lists a view projecting fewer.
+   * grant on the child resource, a key field searched by whoever lists its resource. The
+   * resource decides the set, never the page; a page that should search fewer fields
+   * lists a view projecting fewer.
    */
-  searchFields = computed(() => searchedFields(this.meta(), this.listableFields(), this.listableOf));
+  searchFields = computed(() => searchedFields(this.meta(), this.listableFields(), this.listableOf, this.resourceMeta));
 
   /** Whether the box reaches a PII field, its own or a branch's: the request then travels in the body. */
   searchPII = computed(() => searchReachesPII(this.meta(), this.searchFields()));
@@ -618,7 +627,7 @@ export class ResourceListComponent implements OnInit {
   /** What the box says under itself: the search fields the caller's role leaves out, if any. */
   searchHint = computed(() =>
     searchDeniedHint(
-      deniedSearchFields(this.meta(), this.listableFields(), this.listableOf).map((field) =>
+      deniedSearchFields(this.meta(), this.listableFields(), this.listableOf, this.resourceMeta).map((field) =>
         searchFieldLabel(field, this.columnHeaders()),
       ),
     ),
@@ -783,9 +792,10 @@ export class ResourceListComponent implements OnInit {
         });
       } else {
         // A cell without a configured format is written by the field's display type: a
-        // size for bytes, the elements for an array, one-line JSON for an object, a
-        // calendar date for a date, the value's text for the rest. A yes-or-no value is
-        // not written at all: the table draws it as a mark (processedRowData).
+        // size for bytes, the elements for an array, a place in words or one-line JSON
+        // for an object, a calendar date for a date, the value's text for the rest. A
+        // yes-or-no value is not written at all: the table draws it as a mark
+        // (processedRowData).
         const displayType = this.meta()?.fields?.find((field) => field.fieldName === col.id)?.displayType;
         const valueFormatter = (params: DataType | null): string => {
           if (col.formatType) {
@@ -1073,8 +1083,98 @@ export class ResourceListComponent implements OnInit {
     });
   }
 
+  /** The tenants the rows of a list across tenants are in, where the rows link to their own pages; none otherwise. */
+  private linkTenants = computed<readonly string[]>(() => {
+    if (!this.acrossRowRoute()) {
+      return [];
+    }
+    const tenants = new Set<string>();
+    for (const row of this.store.page().rows) {
+      const tenant = row[TenantProperty];
+      if (typeof tenant === 'string' && tenant !== '') {
+        tenants.add(tenant);
+      }
+    }
+    return [...tenants];
+  });
+
+  /**
+   * Whether a link some row shows is still on its way: the digest of a tenant on the page
+   * is not held and its read has not ended. A row's link is drawn where the tenant's digest
+   * lets the person read the record, so until the digest answers nothing says whether the
+   * row has one.
+   */
+  private linksAwaited = computed(() => {
+    const ended = this.endedDigests();
+    return this.linkTenants().some((tenant) => !this.auth.hasDigest(tenant as Domain) && !ended.has(tenant));
+  });
+
+  /**
+   * Whether the links of some rows could not be worked out: the digest of a tenant on the
+   * page could not be read, so nothing is known of what the person may open there. Those
+   * rows draw no link, which is not a person who may read none of them, and the list says
+   * so above its rows, with a way to try again. A tenant the server refuses is an answer:
+   * its rows have no link, and nothing is said.
+   */
+  linksUnread = computed(() => this.linkTenants().some((tenant) => this.auth.digestUnread(tenant as Domain)));
+
+  /** Whether the digests that could not be read are being read again: Try again waits for the answer. */
+  linksRetrying = computed(() => this.linksUnread() && this.linksAwaited());
+
+  /** retryLinks asks again for the digest of every tenant on the page whose read failed. */
+  retryLinks(): void {
+    for (const tenant of this.linkTenants()) {
+      if (this.auth.digestUnread(tenant as Domain)) {
+        void this.askDigest(tenant);
+      }
+    }
+  }
+
+  /**
+   * Asks for one tenant's digest, for the links of its rows, and notes when the read has
+   * ended. What it returns settles then, however the read ended, and never rejects.
+   */
+  private askDigest(tenant: string): Promise<void> {
+    this.askedDigests.add(tenant);
+    this.endedDigests.update((ended) => new Set([...ended].filter((asked) => asked !== tenant)));
+    return new Promise<void>((resolve) => {
+      const end = (): void => {
+        this.endedDigests.update((ended) => new Set(ended).add(tenant));
+        resolve();
+      };
+      this.auth.loadDigest(tenant as Domain).subscribe({ complete: end, error: end });
+    });
+  }
+
+  /**
+   * Whether a name some column shows is still on its way: a related resource read for
+   * the first time, or asked for keys it has not answered for. A related resource read
+   * again keeps the names it had, so it is not waited for.
+   */
+  private namesAwaited = computed(() => {
+    for (const ref of this.resourceRefMap().values()) {
+      if (ref.status() === 'loading') {
+        return true;
+      }
+    }
+    return false;
+  });
+
+  /**
+   * The rows the table draws: the page's rows, once every name their columns show is
+   * known, and on a list across tenants once the digest of every tenant on the page has
+   * answered or failed. While a related resource or a digest is being read the table keeps
+   * the rows it had (none, on a list just opened), so a row is never drawn with a key, or
+   * with the words for a row that has no related record, where its name is drawn a moment
+   * later, and never without a link that is drawn a moment later.
+   */
+  tableRowData = linkedSignal<{ rows: RecordData[]; awaited: boolean }, RecordData[]>({
+    source: () => ({ rows: this.processedRowData(), awaited: this.namesAwaited() || this.linksAwaited() }),
+    computation: (now, previous) => (now.awaited ? (previous?.value ?? []) : now.rows),
+  });
+
   loadingRowData = computed(() => {
-    if (this.store.pageStatus() === 'loading') {
+    if (this.store.pageStatus() === 'loading' || this.linksAwaited()) {
       return true;
     }
     for (const ref of this.resourceRefMap().values()) {
@@ -1172,20 +1272,26 @@ export class ResourceListComponent implements OnInit {
    * once, where a row of a list across tenants links to its own page: the tenant's digest
    * says whether the person may read the record there, and so whether the row draws its
    * link. The page waits for them, so a row and its link are drawn together. A digest that
-   * could not be read is kept as one that grants nothing, and its rows draw no link.
+   * could not be read does not fail the page: its rows draw no link, the list says so
+   * above them (linksUnread), and it is asked again only when the person asks (retryLinks).
    */
   private async readTenantDigests(rows: readonly RecordData[]): Promise<void> {
     if (!this.acrossRowRoute()) {
       return;
     }
-    const tenants = new Set<Domain>();
+    const tenants = new Set<string>();
     for (const row of rows) {
       const tenant = row[TenantProperty];
-      if (typeof tenant === 'string' && tenant !== '' && !this.auth.hasDigest(tenant as Domain)) {
-        tenants.add(tenant as Domain);
+      if (
+        typeof tenant === 'string' &&
+        tenant !== '' &&
+        !this.askedDigests.has(tenant) &&
+        !this.auth.hasDigest(tenant as Domain)
+      ) {
+        tenants.add(tenant);
       }
     }
-    await Promise.all(Array.from(tenants, (tenant) => firstValueFrom(this.auth.loadDigest(tenant))));
+    await Promise.all(Array.from(tenants, (tenant) => this.askDigest(tenant)));
   }
 
   ngOnInit(): void {
@@ -1271,6 +1377,22 @@ export class ResourceListComponent implements OnInit {
           signal([...entry.columns]),
         );
         this.resourceRefMap.update((map) => new Map(map).set(refKey, ref));
+      });
+
+      effect(() => {
+        // A row of a list across tenants links to its own page where its tenant's digest
+        // lets the person read it: the digests of the tenants on a page are read before
+        // the page is the list's (readTenantDigests), each once, and here for a tenant
+        // whose rows come to link after their page landed. A digest that could not be
+        // read is not asked again by a later page: nothing is known of the tenant, its
+        // rows stay without a link, and the list says the links could not be loaded, with
+        // a way to try again.
+        for (const tenant of this.linkTenants()) {
+          if (this.askedDigests.has(tenant) || this.auth.hasDigest(tenant as Domain)) {
+            continue;
+          }
+          untracked(() => void this.askDigest(tenant));
+        }
       });
 
       effect(() => {

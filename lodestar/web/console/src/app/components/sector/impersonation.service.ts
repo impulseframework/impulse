@@ -164,11 +164,20 @@ export class ImpersonationService {
   /**
    * The cookie now names a different session: re-establish the client-side session and
    * its permission cache as the new principal, then start over at the dashboard.
+   *
+   * The cache is never emptied under a page that is drawn: a sector's page left open over
+   * an empty cache is the page of a person who holds nothing there, which nobody said.
+   * What the new session holds outside every sector, and its sectors, are read in the old
+   * answers' place, so the landing is decided for the new session. The navigation then
+   * leaves the page that was open; a sector it lands in reads its own digest on the way
+   * in. Only after it are the digests the old session left behind read again as the new
+   * one, and that read forgets a sector the new session is not in: nothing the old session
+   * held there is kept.
    */
   private async rebind(): Promise<void> {
-    this.auth.permissions.clear();
     await firstValueFrom(this.auth.checkUserSession());
-    await this.auth.permissions.refresh();
+    await Promise.all([this.auth.permissions.loadDigest(), this.auth.permissions.loadDomains()]);
     await this.router.navigateByUrl('/dashboard');
+    await firstValueFrom(this.auth.refreshPermissions());
   }
 }

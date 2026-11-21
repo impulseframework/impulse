@@ -1,21 +1,45 @@
-import { computed, effect, inject, Injectable, signal, untracked } from '@angular/core';
+import { computed, DestroyRef, effect, inject, Injectable, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   ActivatedRouteSnapshot,
+  NavigationBehaviorOptions,
+  NavigationEnd,
   PRIMARY_OUTLET,
+  RedirectCommand,
   ResolveEnd,
   Router,
   UrlSegment,
   UrlSegmentGroup,
+  UrlTree,
 } from '@angular/router';
-import { Domain, Method, Permission, PermissionDigestState, Resource } from '@impulseframework/resource';
+import { DigestFailure, Domain, Method, Permission, PermissionDigestState, Resource } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { filter } from 'rxjs';
 import { Frame } from './frame';
 
-/** The segment under a tenant where a URL naming a tenant the session cannot reach lands. */
+/**
+ * The segment under a tenant where a navigation that cannot open the tenant is sent: a URL
+ * naming a tenant the session cannot reach, a tenant whose permission digest the server
+ * refuses to read, or one whose digest could not be read.
+ */
 export const refusedSegment = 'refused';
+
+/**
+ * What a navigation to the refusal page carries, as its `info`, when a tenant's permission
+ * digest could not be read: the address that was asked for.
+ */
+class UnreadTenant {
+  constructor(readonly url: string) {}
+}
+
+/**
+ * How every navigation to the refusal page is asked for: it runs though the refusal page is
+ * where the router already is. The page says one of two things, and a second answer for the
+ * same tenant (a refusal after a failure, a failure after a refusal) lands on the page that
+ * is on the screen; the router would otherwise drop a navigation to its own address.
+ */
+const again: NavigationBehaviorOptions = { onSameUrlNavigation: 'reload' };
 
 /**
  * TenantService holds the one piece of state the tenant's pages share, the tenant the page
@@ -33,9 +57,41 @@ export const refusedSegment = 'refused';
  * under the chosen tenant (`open`). So a link to a tenant's page can be shared, and a
  * bookmark lands where it points.
  *
- * Entering a tenant loads its permission digest into the client's cache; `can` and
- * `state` answer from it, and a question asked inside reactive code is asked again when
+ * The tenant guard reads the tenant's permission digest into the client's cache before
+ * it enters the tenant, so the digest is in when a page under the segment first draws. A
+ * tenant entered with no digest in the cache loads it on entering. `can` and `state`
+ * answer from the digest, and a question asked inside reactive code is asked again when
  * it loads.
+ *
+ * A tenant whose digest could not be read is not entered: the guard sends the navigation
+ * to the refusal page with the address that was asked for (`unreadRedirect`), and `unread`
+ * holds that address while the page stands in for it, so the page can say the read failed
+ * and offer to try again. A navigation sent there writes it once every guard has passed,
+ * and it is cleared only when another navigation has landed, its page drawn: a page asked
+ * for again may still be on its way once its guards have passed (an application loads its
+ * pages when they are first asked for), and until it is in, the refusal page is what the
+ * person sees and says what it said, never 404 Not Found for a tenant they are in. A
+ * digest the server refuses to read (its 403 or 404) is the plain refusal: the page says
+ * 404 Not Found, as for a tenant the session cannot reach. A tenant that has left the
+ * person's list is refused the same way: the client reads the list again where a tenant's
+ * digest reads empty, and takes a tenant the list names no more as a refusal.
+ *
+ * The same holds for a read that fails while the tenant is open: the read on entering a
+ * tenant with no digest in the cache, or a reload of every digest after a change
+ * (AuthService.refreshPermissions). The client keeps what it knew, so the page is never
+ * drawn again as the page of a person who holds nothing, and the service sends the browser
+ * to the refusal page: the page that was open could not be loaded, with a way to try
+ * again, or 404 Not Found where the read was refused. A refusal is the one case where the
+ * client keeps nothing (it forgets what the person held in the tenant): the service starts
+ * the way to the refusal page in the turn it hears of the read, so the open page is taken
+ * down and never drawn again from the forgotten digest.
+ *
+ * Nothing reads the digest when a person moves inside the tenant: the segment is reused and
+ * its guard does not run. A seat taken away meanwhile is found by the page's next request
+ * instead. The server answers a request under a tenant the session does not reach with
+ * 404, and the client reads the tenant's digest again before that request's caller hears
+ * of it; a tenant that has left the list is refused by that read, and the refusal page
+ * takes the page's place before the page can say the server's words.
  */
 @Injectable({ providedIn: 'root' })
 export class TenantService {
@@ -54,14 +110,30 @@ export class TenantService {
   /** The tenant the page is open in; empty outside the tenant segment. */
   readonly current = this.routed.asReadonly();
 
+  // The address the landed navigation was asked for and could not open, because the
+  // tenant's digest could not be read: written by the navigation sent to the refusal page
+  // for it, cleared by the next navigation that lands, nothing else.
+  private unreadUrl = signal('');
+
+  /**
+   * The address of the page that could not be opened because what the session holds in its
+   * tenant could not be read, while the refusal page stands in for it; empty otherwise.
+   */
+  readonly unread = this.unreadUrl.asReadonly();
+
   constructor() {
-    // Entering a tenant re-scopes every permission question, so the tenant's digest loads
-    // into the client's cache. The load runs untracked, so the effect never adopts the
-    // reads a request makes as dependencies.
+    // Entering a tenant re-scopes every permission question. The tenant guard has read
+    // the tenant's digest by then; a tenant entered with none in the cache loads it here.
+    // The check and the load run untracked, so the effect never adopts the reads they make
+    // as dependencies. A load that fails is heard below, like any other read of the open
+    // tenant's digest.
     effect(() => {
       const tenant = this.current();
       if (!tenant) return;
-      untracked(() => void this.client.permissions.loadDigest(tenant as Domain).catch(() => undefined));
+      untracked(() => {
+        if (this.client.permissions.hasDigest(tenant as Domain)) return;
+        void this.client.permissions.loadDigest(tenant as Domain).catch(() => undefined);
+      });
     });
 
     // The landing navigation settles the tenant: past every guard, the URL it lands on is
@@ -79,7 +151,36 @@ export class TenantService {
         } else if (!tenant && this.routed()) {
           this.leave();
         }
+        // A navigation on its way to the refusal page for an unread tenant brings what the
+        // page says before the page is drawn. Nothing is cleared here: the page a
+        // navigation is going to may not be in yet.
+        this.settleUnread(false);
       });
+
+    // What the refusal page says is settled when a navigation ends, its page drawn. A
+    // navigation that has passed its guards may still wait for its page (one loaded when
+    // it is first asked for), and the refusal page is on the screen until that page is
+    // in: cleared any sooner, it would say 404 Not Found of a tenant that is opening. A
+    // navigation that lands where the router already is (the refusal page, reached again
+    // while it is on the screen) activates nothing and reports no ResolveEnd, and is
+    // settled here too.
+    this.router.events
+      .pipe(
+        filter((event) => event instanceof NavigationEnd),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => this.settleUnread(true));
+
+    // A read of the open tenant's digest that fails, whoever asked for it, is not a tenant
+    // the person holds nothing in: the page that is open is turned away. A read for a
+    // tenant that is not open is its caller's to answer (the guard's, before it enters).
+    inject(DestroyRef).onDestroy(
+      this.client.permissions.onUnread((domain, failure) => {
+        if (domain && domain === this.routed()) {
+          this.turnAway(domain, failure);
+        }
+      }),
+    );
   }
 
   /**
@@ -93,6 +194,29 @@ export class TenantService {
   /** leave closes the tenant: the navigation landed outside the segment. */
   leave(): void {
     this.routed.set('');
+  }
+
+  /**
+   * unreadRedirect is where the tenant guard sends a navigation whose tenant's digest could
+   * not be read: the refusal page under the tenant, carrying the address that was asked
+   * for (`url`), which `unread` then holds. The browser's address is left as it is, so a
+   * deep link keeps its address and a reload asks for the page again.
+   */
+  unreadRedirect(tenant: string, url: string): RedirectCommand {
+    return new RedirectCommand(this.refusal(tenant), {
+      ...again,
+      skipLocationChange: true,
+      info: new UnreadTenant(url),
+    });
+  }
+
+  /**
+   * refusedRedirect is where the tenant guard sends a navigation whose tenant is refused:
+   * one the session cannot reach, or one whose digest the server refuses to read. The
+   * refusal page under the tenant says 404 Not Found.
+   */
+  refusedRedirect(tenant: string): RedirectCommand {
+    return new RedirectCommand(this.refusal(tenant), again);
   }
 
   /**
@@ -139,6 +263,53 @@ export class TenantService {
       resource: target,
       permission,
       domain: scope === 'domain' ? (tenant as Domain) : undefined,
+    });
+  }
+
+  /**
+   * settleUnread takes what the refusal page says from the navigation under way. Only a
+   * navigation sent there for an unread tenant carries the address that was asked for, and
+   * the page has it as soon as that navigation has passed its guards. Any other
+   * navigation, the page opening on a second try or the server's refusal among them,
+   * clears it, and only once it has landed: until its page is drawn the refusal page is
+   * still on the screen, saying what it said. A navigation that never lands (its page
+   * could not be fetched, or another navigation took its place) clears nothing.
+   */
+  private settleUnread(landed: boolean): void {
+    const info = this.router.currentNavigation()?.extras.info;
+    if (info instanceof UnreadTenant) {
+      this.unreadUrl.set(info.url);
+    } else if (landed) {
+      this.unreadUrl.set('');
+    }
+  }
+
+  /** The refusal page's address under a tenant. */
+  private refusal(tenant: string): UrlTree {
+    return this.router.createUrlTree(['/', this.frame.segment, tenant, refusedSegment]);
+  }
+
+  /**
+   * turnAway takes the open tenant's page down when a read of the tenant's digest fails
+   * while it is open. The page stays as it was drawn until the refusal page stands in for
+   * it: the client keeps the digest it had, or, for a refusal, forgets it in the same turn
+   * as this navigation starts, and the refusal page, which loads with the frame, lands
+   * before anything is drawn again. A failure leaves the browser's address
+   * as it is and carries the address to ask for again: the one a navigation under way is
+   * going to, or else the page that is open. A refusal moves the address to the refusal
+   * page in the open page's stead, so going back does not ask for the refused page again.
+   */
+  private turnAway(tenant: string, failure: DigestFailure): void {
+    if (failure === 'refused') {
+      void this.router.navigateByUrl(this.refusal(tenant), { ...again, replaceUrl: true });
+      return;
+    }
+    const underWay = this.router.currentNavigation();
+    const asked = underWay ? this.router.serializeUrl(underWay.finalUrl ?? underWay.extractedUrl) : this.router.url;
+    void this.router.navigateByUrl(this.refusal(tenant), {
+      ...again,
+      skipLocationChange: true,
+      info: new UnreadTenant(asked),
     });
   }
 
