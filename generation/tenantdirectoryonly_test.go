@@ -117,7 +117,6 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 			Make: tenantOwnMethod{Name: "MakeHarborDirectoryOnly", Typed: "close"}, End: tenantOwnMethod{Name: "EndHarborDirectoryOnly"},
 			StateFunc: "DirectoryOnly", StateRoute: "directory-only",
 			DomainRoute: "harbors/{harborID}", KeyType: "impulse.UUID", KeyIsUUID: true, People: people,
-			Rules:               "NewHarborDirectoryRules()",
 			SwitchRules:         "NewHarborDirectoryRules()",
 			LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
 			ResourcePackage:     "resources", RouterPackage: "router", ApplicationName: "App", ReceiverName: "a",
@@ -131,9 +130,9 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 		&directoryOnlyPeople{Accessor: "StaffIdentity", List: "StaffHarborUsers", Fields: []string{"username", "name"}},
 		&directoryOnlyPeople{Accessor: "MembersIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}},
 	)
-	named.Rules = namedRules
 	// The frame that turns the switch asks each auth's client whether the caller has a
-	// password; the read of the switch as it stands asks nobody.
+	// password, and so does the read of the switch as it stands, which says what turning
+	// it on takes of the caller before they try.
 	const switchRules = namedRules + ".PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword)"
 	named.SwitchRules = switchRules
 	tests := []struct {
@@ -176,7 +175,7 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
 				"func (a *App) DirectoryOnly() http.HandlerFunc {",
-				"return resource.DirectoryOnlyStateHandler(a.ResourceClient(), " + namedRules + `, a.UserPermissions, router.Domain, "MakeHarborDirectoryOnly", "EndHarborDirectoryOnly")`,
+				"return resource.DirectoryOnlyStateHandler(a.ResourceClient(), " + switchRules + `, a.UserPermissions, router.Domain, "MakeHarborDirectoryOnly", "EndHarborDirectoryOnly")`,
 			},
 			wantContains: []string{
 				"POST <prefix>/harbors/{harborID}/make-harbor-directory-only",

@@ -457,12 +457,13 @@ func (r *resourceGenerator) namedDirectoryRules(record *resourceInfo) string {
 }
 
 // switchDirectoryRules is the expression of the rules the frame of a tenant's
-// directory-only switch asks: the named rules (namedDirectoryRules), told what each of
-// the program's auths says of the caller's password
-// (resource.TenantDirectoryRules.PasswordsBy), the CallerPassword of the generated
-// identity client of every auth whose management the program generates, in declaration
-// order. The switch is turned on by a person who has a password, where their auth has
-// passwords; a program that generates no auth's management asks nothing.
+// directory-only switch asks, and the read of the switch as it stands with it, which
+// says the same things to the caller before they try: the named rules
+// (namedDirectoryRules), told what each of the program's auths says of the caller's
+// password (resource.TenantDirectoryRules.PasswordsBy), the CallerPassword of the
+// generated identity client of every auth whose management the program generates, in
+// declaration order. The switch is turned on by a person who has a password, where
+// their auth has passwords; a program that generates no auth's management asks nothing.
 func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 	rules := r.namedDirectoryRules(record)
 	if len(r.identity) == 0 {

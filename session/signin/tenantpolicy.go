@@ -215,8 +215,12 @@ type tenantPolicy[Tx any] struct {
 //  6. Otherwise every tenant of the person is directory only and none has the way they
 //     signed in as its directory: nothing would be reachable, and the sign-in is
 //     refused. A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect
-//     provider) is refused with connection_not_in_tenant, and any other with
-//     directory_only.
+//     provider) is refused with connection_not_in_tenant, a sign-in with a personal
+//     account (through Google or Microsoft, with an account that is in no
+//     organization's directory) with directory_only_personal_account, and any other, a
+//     password or a session the application starts itself, with directory_only. The
+//     codes are apart so that a login page says what is true of how the person signed
+//     in: a person who used no password is not told to stop using one.
 //
 // A refusal is a sessioninfo.LoginRefusal with its code, and errors.Is matches
 // ErrSignInDenied and the rule's own cause (ErrNoTenant, ErrConnectionNotInTenant,
@@ -288,6 +292,11 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 	}
 	if throughDirectory(method, connection) {
 		return denyBecause(sessioninfo.RefusedConnectionNotInTenant, ErrConnectionNotInTenant), nil
+	}
+	// A directory method that came through no directory a tenant can declare is a
+	// personal account: the person used no password, and the code says so.
+	if method.ThroughDirectory() {
+		return denyBecause(sessioninfo.RefusedDirectoryOnlyPersonalAccount, ErrDirectoryOnly), nil
 	}
 
 	return denyBecause(sessioninfo.RefusedDirectoryOnly, ErrDirectoryOnly), nil

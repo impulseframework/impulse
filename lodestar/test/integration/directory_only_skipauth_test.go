@@ -163,10 +163,21 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	turn := func(b *browser, sector string, on bool) (int, []byte) {
 		return b.do(ctx, http.MethodPost, sectorPath(sector, method[on]), []byte(`{}`))
 	}
+	// state reads the switch as it stands. What the read says turning it on takes of
+	// the reader (its conditions) is left out here, and held where it is asked below.
 	state := func(b *browser, sector string) (int, string) {
 		status, body := b.do(ctx, http.MethodGet, sectorPath(sector, "directory-only"), nil)
+		var read struct {
+			DirectoryOnly *bool `json:"directoryOnly"`
+		}
+		if status != http.StatusOK || json.Unmarshal(body, &read) != nil || read.DirectoryOnly == nil {
+			return status, strings.TrimSpace(string(body))
+		}
+		if *read.DirectoryOnly {
+			return status, `{"directoryOnly":true}`
+		}
 
-		return status, strings.TrimSpace(string(body))
+		return status, `{"directoryOnly":false}`
 	}
 	// warns asks the method that turns the switch on for its warning: what the call
 	// would do, with nothing saved.
@@ -379,6 +390,28 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	}
 	if status, got := state(warden, bastion); status != http.StatusOK || got != off {
 		t.Fatalf("Bastion's switch after the calls of a marshal who has no password: status %d %s, want 200 %s: nothing was written", status, got, off)
+	}
+	// The Sign-in page says both things turning it on takes before the person presses:
+	// the read of the switch answers them for the person reading, the first met and the
+	// second not, with what to do, in the words the refusal above uses.
+	var asked struct {
+		Conditions []struct {
+			Sentence string `json:"sentence"`
+			Met      bool   `json:"met"`
+			ToDo     string `json:"toDo"`
+		} `json:"conditions"`
+	}
+	if status, body := warden.do(ctx, http.MethodGet, sectorPath(bastion, "directory-only"), nil); status != http.StatusOK || json.Unmarshal(body, &asked) != nil {
+		t.Fatalf("reading Bastion's switch as the warden: status %d: %s", status, body)
+	}
+	if len(asked.Conditions) != 2 {
+		t.Fatalf("what the read of Bastion's switch says turning it on takes of the warden = %+v, want two things: a sign-in through the sector's directory, and a password", asked.Conditions)
+	}
+	if through := asked.Conditions[0]; !through.Met || through.ToDo != "" || !strings.HasPrefix(through.Sentence, "Directory only is turned on by a person who is signed in through this sector's directory") {
+		t.Errorf("the first thing = %+v, want the sign-in through the sector's directory, met: the warden signed in through it", through)
+	}
+	if password := asked.Conditions[1]; password.Met || password.Sentence+" "+password.ToDo != noPassword {
+		t.Errorf("the second thing = %+v, want the password, not met, in the words of the refusal %q", password, noPassword)
 	}
 
 	// He chooses one on Your account. A person who has no password chooses their first
