@@ -1520,14 +1520,23 @@ transaction, and answers the first delete that has one with a 409:
 
 | Under the record | Message |
 | --- | --- |
-| Rows of one kind | `This squadron has 8 missions. Delete them first.` |
-| One row | `This squadron has 1 mission. Delete it first.` |
+| Rows of one kind | `This ship has 2 sorties. Delete them first.` |
+| One row | `This ship has 1 sortie. Delete it first.` |
 | Rows of several kinds | `This ship has 9 droid reports and 2 sorties. Delete them first.` |
+| Rows that can be taken from under the record | `This squadron has 8 missions. Move or delete them first.` |
+| One such row | `This squadron has 1 mission. Move or delete it first.` |
 | A row of a kind the record lists under `refusedBy` (`@deleteCascade`) | `This client has 10 missions and 5 consignments, so it can't be deleted.` |
 | Rows of kinds the person may list none of | `This ship has records under it that you can't see, so it can't be deleted.` |
 
 - The sentence names the record by its kind, in the words of its resource
   (`DeleteTree.RowName`, the one place a row's name comes from).
+- "Move or delete" is said where every kind the sentence names can be taken from under
+  the record without being deleted: each of the kind's references to the record has a
+  column that may be empty and is no part of the row's key (`DeleteLink.MayBeEmpty`,
+  which the generator writes from the schema). A mission's assigned squadron may be
+  empty, so the missions can be given to another squadron or to none; a sortie always
+  names a ship. A kind with one reference that may not be empty, or one such kind among
+  those named, and the sentence says only to delete them.
 - A kind the record lists under `refusedBy` answers before any other, counted by every
   way it leads up to the record, and keeps the record from being deleted at all. The
   kinds a record lists as going with it are counted like any other kind under it: the

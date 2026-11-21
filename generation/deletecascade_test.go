@@ -256,6 +256,140 @@ func Test_kindsUnder(t *testing.T) {
 	}
 }
 
+// Test_deleteLink_mayBeEmpty pins which steps a row can be taken off without being
+// deleted: a foreign key with a column that takes NULL and is no part of the row's key,
+// alone or beside a column that takes none. A foreign key whose columns all take a
+// value is not one, nor is one whose only column that takes NULL is part of the row's
+// key, nor an interleave, with or without a foreign key on its columns. A table's
+// foreign key to itself is one by the same rule. The description carries the fact on
+// each step, for a kind taken with the record as for a kind under it, and the record's
+// file writes it for those steps alone.
+func Test_deleteLink_mayBeEmpty(t *testing.T) {
+	t.Parallel()
+
+	key := func(ordinal int64) columnMeta {
+		return columnMeta{IsPrimaryKey: true, KeyOrdinalPosition: ordinal}
+	}
+	empty := columnMeta{IsNullable: true}
+	to := func(table string, columns, references []string) foreignKeyMeta {
+		return foreignKeyMeta{Name: "FK_" + strings.Join(columns, ""), Columns: columns, ReferencedTable: table, ReferencedColumns: references, DeleteRule: "NO ACTION"}
+	}
+	id := []string{"Id"}
+	both := []string{"TenantId", "Id"}
+
+	c := &client{tableMap: map[string]*tableMetadata{
+		"Hangars": {PkCount: 2, Columns: map[string]columnMeta{"TenantId": key(0), "Id": key(1)}},
+		"Crews":   {PkCount: 1, Columns: map[string]columnMeta{"Id": key(0)}},
+		"Ships": {
+			PkCount: 2,
+			Columns: map[string]columnMeta{
+				"TenantId": key(0), "Id": key(1),
+				"HomeHangarId": {}, "AwayHangarId": empty, "CrewId": empty, "BuiltByCrewId": {},
+				"LeadShipId": empty, "TwinShipId": {},
+			},
+			ForeignKeys: []foreignKeyMeta{
+				to("Hangars", []string{"TenantId", "HomeHangarId"}, both),
+				to("Hangars", []string{"TenantId", "AwayHangarId"}, both),
+				to("Crews", []string{"CrewId"}, id),
+				to("Crews", []string{"BuiltByCrewId"}, id),
+				to("Ships", []string{"TenantId", "LeadShipId"}, both),
+				to("Ships", []string{"TenantId", "TwinShipId"}, both),
+			},
+		},
+		// A berth is keyed by the crew that holds it, in a key column that takes NULL.
+		"Berths": {
+			PkCount:     2,
+			Columns:     map[string]columnMeta{"CrewId": {IsPrimaryKey: true, IsNullable: true}, "Slot": key(1)},
+			ForeignKeys: []foreignKeyMeta{to("Crews", []string{"CrewId"}, id)},
+		},
+		// A log is interleaved in its ship, and a second table holds a foreign key on the
+		// interleave's own columns as well.
+		"ShipLogs": {
+			PkCount: 3, IsInterleaved: true, ParentTable: "Ships",
+			Columns: map[string]columnMeta{"TenantId": key(0), "Id": key(1), "Sequence": key(2)},
+		},
+		"ShipMarks": {
+			PkCount: 3, IsInterleaved: true, ParentTable: "Ships",
+			Columns:     map[string]columnMeta{"TenantId": key(0), "Id": key(1), "Mark": key(2)},
+			ForeignKeys: []foreignKeyMeta{to("Ships", both, both)},
+		},
+	}}
+
+	step := func(table string, columns, references []string, mayBeEmpty bool) deleteLink {
+		return deleteLink{Columns: columns, Table: table, References: references, MayBeEmpty: mayBeEmpty}
+	}
+	wantLinks := map[string][]deleteLink{
+		"Ships": {
+			step("Hangars", []string{"TenantId", "HomeHangarId"}, both, false),
+			step("Hangars", []string{"TenantId", "AwayHangarId"}, both, true),
+			step("Crews", []string{"CrewId"}, id, true),
+			step("Crews", []string{"BuiltByCrewId"}, id, false),
+		},
+		"Berths":    {step("Crews", []string{"CrewId"}, id, false)},
+		"ShipLogs":  {step("Ships", both, both, false)},
+		"ShipMarks": {step("Ships", both, both, false)},
+	}
+	if diff := cmp.Diff(wantLinks, c.schemaLinks()); diff != "" {
+		t.Errorf("schemaLinks() mismatch (-want +got):\n%s", diff)
+	}
+	wantSelf := map[string][]deleteLink{
+		"Ships": {
+			step("Ships", []string{"TenantId", "LeadShipId"}, both, true),
+			step("Ships", []string{"TenantId", "TwinShipId"}, both, false),
+		},
+	}
+	if diff := cmp.Diff(wantSelf, c.selfLinks()); diff != "" {
+		t.Errorf("selfLinks() mismatch (-want +got):\n%s", diff)
+	}
+
+	// The description of a record carries the fact on every step of every way: a project
+	// that may be left with no client makes the way from a task, two steps down, one
+	// that may be empty at its second step.
+	fixture, byName := deleteFixtureResources(t)
+	tables := deleteFixtureTables()
+	clientID := tables["Projects"].Columns["ClientId"]
+	clientID.IsNullable = true
+	tables["Projects"].Columns["ClientId"] = clientID
+	fixture.tableMap = tables
+	if err := fixture.resolveDeleteTrees(resourceList(byName)); err != nil {
+		t.Fatalf("resolveDeleteTrees() error = %v", err)
+	}
+
+	projectToClient := step("Clients", []string{"ClientId"}, id, true)
+	invoiceToClient := step("Clients", []string{"ClientId"}, id, false)
+	tree := byName["Client"].DeleteTree
+	paths := func(kinds []*deleteKind) map[string][][]deleteLink {
+		byTable := make(map[string][][]deleteLink, len(kinds))
+		for _, kind := range kinds {
+			byTable[kind.Table] = kind.Paths
+		}
+
+		return byTable
+	}
+	wantUnder := map[string][][]deleteLink{"Invoices": {{invoiceToClient}}, "Projects": {{projectToClient}}}
+	if diff := cmp.Diff(wantUnder, paths(tree.Under)); diff != "" {
+		t.Errorf("the ways of the kinds under a client mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([][]deleteLink{{link("ProjectId", "Projects"), projectToClient}}, paths(tree.Taken)["Tasks"]); diff != "" {
+		t.Errorf("the way of a task up to its client mismatch (-want +got):\n%s", diff)
+	}
+
+	var b strings.Builder
+	writeDeleteKinds(&b, "Under", tree.Under)
+	rendered := b.String()
+	for _, wantLine := range []string{
+		`{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}, MayBeEmpty: true},`,
+		`{Columns: []string{"ClientId"}, Table: "Clients", References: []string{"Id"}},`,
+	} {
+		if !strings.Contains(rendered, wantLine) {
+			t.Errorf("the rendered kinds are missing %q in:\n%s", wantLine, rendered)
+		}
+	}
+	if got := strings.Count(rendered, "MayBeEmpty"); got != 1 {
+		t.Errorf("the rendered kinds name MayBeEmpty %d times, want once, on the project's step alone:\n%s", got, rendered)
+	}
+}
+
 // Test_removedWith pins the tables whose row's delete makes the database remove a
 // table's rows: every table up from it by links the database follows, however many
 // steps, the table itself where a row goes with the row of its own kind it is under,

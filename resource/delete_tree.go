@@ -34,6 +34,12 @@ type DeleteLink struct {
 	Columns    []string
 	Table      string
 	References []string
+	// MayBeEmpty marks a step the row can be taken off without being deleted: a foreign
+	// key with a column that may be left empty and is no part of the row's own key. The
+	// generator writes it from the schema. A row under a record by such steps alone can
+	// be moved from under it, and the sentence that refuses the record's delete says so
+	// (DeleteKind.movable).
+	MayBeEmpty bool
 }
 
 // DeletePath is the steps from a kind's row up to the record, nearest first: the last
@@ -100,6 +106,23 @@ type DeleteKind struct {
 	// deletes a row of one of those tables may take the kind's rows from under the
 	// record, so the kind is then not counted, and the commit answers.
 	RemovedWith []string
+}
+
+// movable reports whether a row of the kind can be taken from under the record without
+// being deleted: each of its ways up to the record starts on columns the row may leave
+// empty (DeleteLink.MayBeEmpty). A kind with one way that cannot be cleared is not
+// movable, since a row under the record by that way stays under it.
+func (k *DeleteKind) movable() bool {
+	if len(k.Paths) == 0 {
+		return false
+	}
+	for _, path := range k.Paths {
+		if len(path) == 0 || !path[0].MayBeEmpty {
+			return false
+		}
+	}
+
+	return true
 }
 
 // DeleteTree describes what a delete of a record takes with it and what refuses it. The

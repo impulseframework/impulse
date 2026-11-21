@@ -78,6 +78,11 @@ type deleteLink struct {
 	// row it is under (a foreign key or an interleave declared ON DELETE CASCADE).
 	// It is no part of what makes two links the same step (equal).
 	Cascades bool
+	// MayBeEmpty marks a step the row can be taken off without being deleted: a foreign
+	// key with a column that takes NULL and is no part of the row's own key
+	// (tableMetadata.mayBeEmpty). An interleave is never one, since a row's key is
+	// never changed. Like Cascades it is no part of what makes two links the same step.
+	MayBeEmpty bool
 }
 
 // from spells the link from the table it leaves: "Tasks.ProjectId to Projects.Id".
@@ -167,6 +172,18 @@ func (t *tableMetadata) keyColumns() []string {
 	return columns
 }
 
+// mayBeEmpty reports whether a row of the table can leave the columns of a foreign key
+// empty: one of them takes NULL and is no part of the row's key. The database holds a
+// foreign key only for a row with a value in every column of it, so such a row is under
+// nothing by that key once the column is cleared, and a key column is never changed.
+func (t *tableMetadata) mayBeEmpty(columns []string) bool {
+	return slices.ContainsFunc(columns, func(name string) bool {
+		column, ok := t.Columns[name]
+
+		return ok && column.IsNullable && !column.IsPrimaryKey
+	})
+}
+
 // secondaryIndexes is the number of indexes on the table besides its key.
 func (t *tableMetadata) secondaryIndexes() int {
 	count := 0
@@ -183,8 +200,9 @@ func (t *tableMetadata) secondaryIndexes() int {
 // foreign key the schema read resolved, and one for an interleave, whose rows open
 // their key with their parent's. Two foreign keys on the same columns to the same table
 // are one step, and so are an interleave and a foreign key on its columns: the one step
-// cascades when any of them does, since the database then removes the row. A table's
-// foreign keys to itself are not among them (selfLinks).
+// cascades when any of them does, since the database then removes the row, and may be
+// empty only when each of them may. A table's foreign keys to itself are not among them
+// (selfLinks).
 func (c *client) schemaLinks() map[string][]deleteLink {
 	links := make(map[string][]deleteLink, len(c.tableMap))
 	for name, table := range c.tableMap {
@@ -199,7 +217,7 @@ func (c *client) schemaLinks() map[string][]deleteLink {
 			if foreignKey.ReferencedTable == "" || foreignKey.ReferencedTable == name {
 				continue
 			}
-			up = addDeleteLink(up, foreignKey.link())
+			up = addDeleteLink(up, foreignKey.link(table))
 		}
 		if len(up) > 0 {
 			links[name] = up
@@ -217,7 +235,7 @@ func (c *client) selfLinks() map[string][]deleteLink {
 	for name, table := range c.tableMap {
 		for _, foreignKey := range table.ForeignKeys {
 			if foreignKey.ReferencedTable == name {
-				links[name] = addDeleteLink(links[name], foreignKey.link())
+				links[name] = addDeleteLink(links[name], foreignKey.link(table))
 			}
 		}
 	}
@@ -225,16 +243,25 @@ func (c *client) selfLinks() map[string][]deleteLink {
 	return links
 }
 
-// link is the foreign key as a step up to the table it references.
-func (f *foreignKeyMeta) link() deleteLink {
-	return deleteLink{Columns: f.Columns, Table: f.ReferencedTable, References: f.ReferencedColumns, Cascades: f.DeleteRule == cascadeDeleteAction}
+// link is the foreign key as a step up to the table it references, from the table that
+// holds it.
+func (f *foreignKeyMeta) link(from *tableMetadata) deleteLink {
+	return deleteLink{
+		Columns:    f.Columns,
+		Table:      f.ReferencedTable,
+		References: f.ReferencedColumns,
+		Cascades:   f.DeleteRule == cascadeDeleteAction,
+		MayBeEmpty: from.mayBeEmpty(f.Columns),
+	}
 }
 
 // addDeleteLink adds a step to a table's steps, folding it into the same step where
-// that is there already: the step cascades when either does.
+// that is there already: the step cascades when either does, and may be empty only when
+// both may, since the row is held by each of them.
 func addDeleteLink(up []deleteLink, link deleteLink) []deleteLink {
 	if i := slices.IndexFunc(up, link.equal); i >= 0 {
 		up[i].Cascades = up[i].Cascades || link.Cascades
+		up[i].MayBeEmpty = up[i].MayBeEmpty && link.MayBeEmpty
 
 		return up
 	}
@@ -653,7 +680,7 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 		for _, path := range kind.Paths {
 			b.WriteString("{\n")
 			for _, link := range path {
-				fmt.Fprintf(b, "{Columns: %s, Table: %q, References: %s},\n", stringsLiteral(link.Columns), link.Table, stringsLiteral(link.References))
+				fmt.Fprintf(b, "{Columns: %s, Table: %q, References: %s%s},\n", stringsLiteral(link.Columns), link.Table, stringsLiteral(link.References), mayBeEmptyLiteral(link))
 			}
 			b.WriteString("},\n")
 		}
@@ -664,6 +691,16 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 		b.WriteString("},\n")
 	}
 	b.WriteString("},\n")
+}
+
+// mayBeEmptyLiteral is the field a step that may be empty adds to its literal, and
+// nothing for any other step.
+func mayBeEmptyLiteral(link deleteLink) string {
+	if !link.MayBeEmpty {
+		return ""
+	}
+
+	return ", MayBeEmpty: true"
 }
 
 // stringsLiteral is a list of strings as a Go slice literal.

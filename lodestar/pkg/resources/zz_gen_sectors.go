@@ -55,7 +55,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 					{
 						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
 						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
-						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
 						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
@@ -73,7 +73,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 					},
 					{
 						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
-						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
 						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
@@ -110,7 +110,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 					},
 					{
 						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
-						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
 						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
@@ -146,7 +146,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 					{
-						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
 						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
@@ -162,7 +162,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 					{
-						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
 						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},

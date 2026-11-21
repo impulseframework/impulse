@@ -76,13 +76,14 @@ func TestDeleteRefusal(t *testing.T) {
 		wantMessage string
 	}{
 		{
-			// Hammer has eight missions assigned to it, and declares nothing of its delete.
-			name:        "a squadron with missions assigned to it says how many",
+			// Hammer has eight missions assigned to it, and declares nothing of its delete. A
+			// mission's assigned squadron may be empty, so the missions can be moved.
+			name:        "a squadron with missions assigned to it says how many, and that they can be moved",
 			lists:       []accesstypes.Resource{missionsResource},
 			target:      batch,
 			ops:         "[" + remove(anvil, "squadrons/"+squadronHammerID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "This squadron has 8 missions. Delete them first.",
+			wantMessage: "This squadron has 8 missions. Move or delete them first.",
 		},
 		{
 			// Portcullis has the patrol alone.
@@ -91,11 +92,12 @@ func TestDeleteRefusal(t *testing.T) {
 			target:      batch,
 			ops:         "[" + remove(bastion, "squadrons/"+squadronPortcullisID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "This squadron has 1 mission. Delete it first.",
+			wantMessage: "This squadron has 1 mission. Move or delete it first.",
 		},
 		{
 			// The Stubborn Mule flew two sorties and nine droid reports read it. Ship is
-			// change-tracked, and the sentence names nothing of the change history.
+			// change-tracked, and the sentence names nothing of the change history. A sortie
+			// and a droid report always name a ship, so neither can be moved from under one.
 			name:        "a ship that has flown and been reported on counts each kind",
 			lists:       []accesstypes.Resource{"Sorties", "DroidReports"},
 			target:      batch,
@@ -125,7 +127,7 @@ func TestDeleteRefusal(t *testing.T) {
 			target:      batch,
 			ops:         "[" + remove(anvil, "squadrons/"+squadronHammerID) + "," + remove(anvil, "ships/"+shipKingfisherID) + "]",
 			wantStatus:  http.StatusConflict,
-			wantMessage: "This squadron has 8 missions. Delete them first.",
+			wantMessage: "This squadron has 8 missions. Move or delete them first.",
 		},
 		{
 			// Halvard Freight has ten missions and five consignments, the kinds a client

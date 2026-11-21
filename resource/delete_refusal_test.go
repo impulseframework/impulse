@@ -22,6 +22,41 @@ func under(table accesstypes.Resource, one, many, column, record string, removed
 	}
 }
 
+// movable is the kind with every one of its ways up to the record through columns the
+// row may leave empty.
+func movable(kind DeleteKind) DeleteKind {
+	paths := make([]DeletePath, 0, len(kind.Paths))
+	for _, path := range kind.Paths {
+		cleared := append(DeletePath(nil), path...)
+		cleared[0].MayBeEmpty = true
+		paths = append(paths, cleared)
+	}
+	kind.Paths = paths
+
+	return kind
+}
+
+// wingTree describes a record whose squadrons name it in a column that may be empty,
+// and whose patrols name it twice: as the wing that flies them, which may be empty, and
+// as the wing that pays for them, which may not. Its pilots name it in a column that may
+// not be empty.
+func wingTree() *DeleteTree {
+	patrols := movable(under("RefusalPatrols", "patrol", "patrols", "FlownByWingId", "RefusalWings"))
+	patrols.Paths = append(patrols.Paths, DeletePath{{Columns: []string{"PaidByWingId"}, Table: "RefusalWings", References: []string{"Id"}}})
+
+	return &DeleteTree{
+		Record: "RefusalWings",
+		Words:  DeleteWords{One: "wing", Many: "wings"},
+		Key:    []string{"Id"},
+		Under: []DeleteKind{
+			movable(under("RefusalLiaisons", "liaison", "liaisons", "WingId", "RefusalWings")),
+			patrols,
+			under("RefusalPilots", "pilot", "pilots", "WingId", "RefusalWings"),
+			movable(under("RefusalSquadrons", "squadron", "squadrons", "WingId", "RefusalWings")),
+		},
+	}
+}
+
 // squadronTree describes a record that declares nothing: its missions refuse its
 // plain delete, and the database removes a mission with its sector.
 func squadronTree() *DeleteTree {
@@ -101,7 +136,10 @@ func whoLists(decisions accesstypes.Decisions) *Caller {
 // before any other and keeps the record from being deleted at all; a kind the person
 // may not list, or may list only by a grant with a condition, is never named or
 // counted for them; a kind whose rows the database may remove with another row the
-// transaction deleted is not counted; and one count runs per kind.
+// transaction deleted is not counted; and one count runs per kind. Where every kind
+// named reaches the record only through columns that may be empty, the sentence says
+// the rows may be moved or deleted; beside one kind that does not, it says only to
+// delete them.
 func TestTransactionDeletes_refuse(t *testing.T) {
 	t.Parallel()
 
@@ -150,6 +188,66 @@ func TestTransactionDeletes_refuse(t *testing.T) {
 			rows:      map[string]int64{"RefusalDroidReports": 1, "RefusalInspections": 4, "RefusalSorties": 2},
 			want:      "This ship has 1 droid report, 4 inspections, and 2 sorties. Delete them first.",
 			wantAsked: []string{"RefusalDroidReports", "RefusalInspections", "RefusalSorties"},
+		},
+		{
+			name:      "rows that can be taken from under the record may be moved or deleted",
+			deletes:   []recordedDelete{{tree: wingTree(), key: map[string]any{"Id": "w1"}}},
+			rows:      map[string]int64{"RefusalSquadrons": 3},
+			want:      "This wing has 3 squadrons. Move or delete them first.",
+			wantAsked: []string{"RefusalLiaisons", "RefusalPatrols", "RefusalPilots", "RefusalSquadrons"},
+		},
+		{
+			name:      "one row that can be taken from under the record",
+			deletes:   []recordedDelete{{tree: wingTree(), key: map[string]any{"Id": "w1"}}},
+			rows:      map[string]int64{"RefusalSquadrons": 1},
+			want:      "This wing has 1 squadron. Move or delete it first.",
+			wantAsked: []string{"RefusalLiaisons", "RefusalPatrols", "RefusalPilots", "RefusalSquadrons"},
+		},
+		{
+			name:      "two kinds that can both be taken from under the record",
+			deletes:   []recordedDelete{{tree: wingTree(), key: map[string]any{"Id": "w1"}}},
+			rows:      map[string]int64{"RefusalLiaisons": 1, "RefusalSquadrons": 3},
+			want:      "This wing has 1 liaison and 3 squadrons. Move or delete them first.",
+			wantAsked: []string{"RefusalLiaisons", "RefusalPatrols", "RefusalPilots", "RefusalSquadrons"},
+		},
+		{
+			name:      "beside a kind that cannot be moved, the sentence says only to delete",
+			deletes:   []recordedDelete{{tree: wingTree(), key: map[string]any{"Id": "w1"}}},
+			rows:      map[string]int64{"RefusalPilots": 2, "RefusalSquadrons": 3},
+			want:      "This wing has 2 pilots and 3 squadrons. Delete them first.",
+			wantAsked: []string{"RefusalLiaisons", "RefusalPatrols", "RefusalPilots", "RefusalSquadrons"},
+		},
+		{
+			name:      "a kind with one way that may not be empty cannot be moved",
+			deletes:   []recordedDelete{{tree: wingTree(), key: map[string]any{"Id": "w1"}}},
+			rows:      map[string]int64{"RefusalPatrols": 4},
+			want:      "This wing has 4 patrols. Delete them first.",
+			wantAsked: []string{"RefusalLiaisons", "RefusalPatrols", "RefusalPilots", "RefusalSquadrons"},
+		},
+		{
+			name: "a kind that cannot be moved and that the person may not list does not change the sentence",
+			deletes: []recordedDelete{{
+				tree: wingTree(), key: map[string]any{"Id": "w1"},
+				caller: whoLists(accesstypes.Decisions{"RefusalPilots": accesstypes.Denied()}),
+			}},
+			rows:      map[string]int64{"RefusalPilots": 2, "RefusalSquadrons": 3},
+			want:      "This wing has 3 squadrons. Move or delete them first.",
+			wantAsked: []string{"RefusalLiaisons", "RefusalPatrols", "RefusalPilots", "RefusalSquadrons"},
+		},
+		{
+			name: "a refusing kind keeps the record from being deleted, whether its rows can be moved or not",
+			deletes: []recordedDelete{{
+				tree: &DeleteTree{
+					Record:    "RefusalWings",
+					Words:     DeleteWords{One: "wing", Many: "wings"},
+					Key:       []string{"Id"},
+					RefusedBy: []DeleteKind{movable(under("RefusalSquadrons", "squadron", "squadrons", "WingId", "RefusalWings"))},
+				},
+				key: map[string]any{"Id": "w1"},
+			}},
+			rows:      map[string]int64{"RefusalSquadrons": 3},
+			want:      "This wing has 3 squadrons, so it can't be deleted.",
+			wantAsked: []string{"RefusalSquadrons"},
 		},
 		{
 			name:      "a kind listed under refusedBy answers before any other, and no other is counted",

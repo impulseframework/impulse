@@ -40,7 +40,7 @@ func (Squadron) DeleteTree() *resource.DeleteTree {
 				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
 				Paths: []resource.DeletePath{
 					{
-						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
 					},
 				},
 				RemovedWith: []string{"Sectors"},

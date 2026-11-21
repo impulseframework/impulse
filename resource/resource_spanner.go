@@ -72,7 +72,7 @@ func (c *SpannerClient) SpannerReadOnlyTransaction() spxapi.Querier {
 // with any other code, pass through unchanged.
 //
 // Before the commit, a delete of a record with rows under it is refused as a 409 that
-// says what is in the way ("This squadron has 3 missions. Delete them first."), from one
+// says what is in the way ("This ship has 3 sorties. Delete them first."), from one
 // count per kind inside the transaction (delete_refusal.go); the rows the transaction
 // itself deleted or updated are left out, so the rows and the record go together in one
 // call, in either order. Then a transaction whose patches release a file object of a store the

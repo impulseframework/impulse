@@ -574,8 +574,10 @@ ship, and a mission the squadron it is assigned to, so a ship that has flown or 
 reported on is not deleted by itself, nor the hangar that would take it along, nor a
 squadron a mission is assigned to. The ship and the squadron are refused before the
 commit, with a sentence that counts what is in the way and that the person may list
-(`delete.rows-under-refusal`, `test/integration/delete_refusal_test.go`: "This squadron
-has 8 missions. Delete them first."). The hangar that would take such a ship along, and
+(`delete.rows-under-refusal`, `test/integration/delete_refusal_test.go`: "This ship has
+2 sorties. Delete them first."; and "This squadron has 8 missions. Move or delete them
+first.", since a mission's assigned squadron may be empty and the missions can be given
+to another squadron). The hangar that would take such a ship along, and
 the wing that would take such a squadron, are refused by the database at the commit
 (`commit.referential-refusal`). A hangar pass is the exception among those references:
 it goes with its hangar and with the squadron it is issued to.

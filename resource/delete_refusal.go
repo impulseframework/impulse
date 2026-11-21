@@ -14,10 +14,12 @@ import (
 )
 
 // A delete of a record with rows under it is refused before the commit, in a sentence
-// that says what is in the way: "This squadron has 3 missions. Delete them first." The
-// record's description (DeleteTree) names the kinds to count: the kinds its
-// @deleteCascade lists under refusedBy, and the kinds with a row directly under the
-// record that the database does not remove with it (Under). The count runs once the
+// that says what is in the way: "This ship has 3 sorties. Delete them first.", or "This
+// squadron has 3 missions. Move or delete them first." where the rows can be taken from
+// under the record without being deleted (DeleteLink.MayBeEmpty). The record's
+// description (DeleteTree) names the kinds to count: the kinds its @deleteCascade lists
+// under refusedBy, and the kinds with a row directly under the record that the
+// database does not remove with it (Under). The count runs once the
 // transaction's function has returned, over every delete it buffered, so a request that
 // deletes the rows and the record together, in either order, is not refused: a read
 // inside the transaction does not see its own buffered writes, and each count leaves
@@ -430,28 +432,38 @@ func (d *recordedDelete) seen(ctx context.Context, kinds []kindRows) ([]kindRows
 // deleteRefusedSentence is the sentence a person reads when a delete is refused over
 // the rows under the record: the kinds they may see, each with its count, and what to
 // do. A kind listed under refusedBy keeps the record from being deleted at all; any
-// other is in the way until its rows are deleted. With no kind the person may see, the
-// sentence says only that something is there.
+// other is in the way until its rows are deleted, or moved from under the record where
+// every kind named can be (DeleteKind.movable): a mission names its squadron in a
+// column that may be empty, so a person would sooner give the missions to another
+// squadron than delete them. With no kind the person may see, the sentence says only
+// that something is there.
 func deleteRefusedSentence(tree *DeleteTree, seen []kindRows, refusedBy bool) string {
 	if len(seen) == 0 {
 		return tree.RowName() + " has records under it that you can't see, so it can't be deleted."
 	}
 
 	var total int64
+	movable := true
 	counts := make([]string, 0, len(seen))
 	for _, k := range seen {
 		total += k.rows
+		movable = movable && k.kind.movable()
 		counts = append(counts, k.kind.Words.Count(int(k.rows)))
 	}
 	has := tree.RowName() + " has " + joinCounts(counts)
+
+	todo := "Delete"
+	if movable {
+		todo = "Move or delete"
+	}
 
 	switch {
 	case refusedBy:
 		return has + ", so it can't be deleted."
 	case total == 1:
-		return has + ". Delete it first."
+		return has + ". " + todo + " it first."
 	default:
-		return has + ". Delete them first."
+		return has + ". " + todo + " them first."
 	}
 }
 
