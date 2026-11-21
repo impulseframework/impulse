@@ -57,29 +57,39 @@ export function initialsOf(name: string): string[] {
   template: `
     <button
       type="button"
-      class="person"
+      class="impulse-person-menu-button"
       [cdkMenuTriggerFor]="menu"
       [attr.aria-label]="'Signed in as ' + name() + '. Your menu'">
-      <span class="initial" [class.two]="initials().length > 1" aria-hidden="true">{{ initialsText() }}</span>
-      <span class="name">{{ name() }}</span>
-      <mat-icon class="chevron">expand_more</mat-icon>
+      <span
+        class="impulse-person-menu-initial"
+        [class.impulse-person-menu-two]="initials().length > 1"
+        aria-hidden="true"
+        >{{ initialsText() }}</span
+      >
+      <span class="impulse-person-menu-name">{{ name() }}</span>
+      <mat-icon class="impulse-person-menu-chevron">expand_more</mat-icon>
     </button>
 
     <ng-template #menu>
       <impulse-menu-list [groups]="groups()">
-        <div class="who">
-          <span class="initial large" [class.two]="initials().length > 1" aria-hidden="true">{{ initialsText() }}</span>
-          <span class="lines">
-            <span class="who-name">{{ name() }}</span>
+        <div class="impulse-person-menu-who">
+          <span
+            class="impulse-person-menu-initial impulse-person-menu-large"
+            [class.impulse-person-menu-two]="initials().length > 1"
+            aria-hidden="true"
+            >{{ initialsText() }}</span
+          >
+          <span class="impulse-person-menu-lines">
+            <span class="impulse-person-menu-who-name">{{ name() }}</span>
             @if (name() !== username()) {
-              <span class="who-login">{{ username() }}</span>
+              <span class="impulse-person-menu-who-login">{{ username() }}</span>
             }
             @if (email()) {
-              <span class="who-email">{{ email() }}</span>
+              <span class="impulse-person-menu-who-email">{{ email() }}</span>
             }
           </span>
         </div>
-        <div class="line" role="separator"></div>
+        <div class="impulse-person-menu-line" role="separator"></div>
       </impulse-menu-list>
     </ng-template>
   `,

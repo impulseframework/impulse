@@ -19,22 +19,26 @@ import { PlaceSwitcherComponent } from './place-switcher.component';
   imports: [MatIconModule, MenuBarComponent, PersonMenuComponent, PlaceSwitcherComponent, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <header class="bar">
+    <header class="impulse-frame-bar-header">
       @if (layout.phone()) {
-        <button type="button" class="menu-button" aria-label="Open the menu" (click)="menuOpened.emit()">
+        <button
+          type="button"
+          class="impulse-frame-bar-menu-button"
+          aria-label="Open the menu"
+          (click)="menuOpened.emit()">
           <mat-icon>menu</mat-icon>
         </button>
       }
       @if (frame.name) {
-        <a class="brand" routerLink="/">{{ frame.name }}</a>
+        <a class="impulse-frame-bar-brand" routerLink="/">{{ frame.name }}</a>
       }
       @if (frame.tenanted) {
-        <impulse-place-switcher class="place" />
+        <impulse-place-switcher class="impulse-frame-bar-place" />
       }
       @if (layout.phone()) {
-        <span class="spacer"></span>
+        <span class="impulse-frame-bar-spacer"></span>
       } @else {
-        <impulse-menu-bar class="menus" [menus]="menus.menus()" />
+        <impulse-menu-bar class="impulse-frame-bar-menus" [menus]="menus.menus()" />
       }
       <impulse-person-menu />
     </header>

@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { notNamedFor } from './frame-testing';
 import { ShownMenu } from './menu';
 import { MenuDrawerComponent } from './menu-drawer.component';
 
@@ -35,11 +36,13 @@ describe('MenuDrawerComponent', () => {
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
   /** The labels on the page in view. */
   const inView = (): string[] =>
-    Array.from(element().querySelectorAll('.page:not([inert]) .label')).map((l) => l.textContent?.trim() ?? '');
-  const tap = (selector: string, text: string): void => {
-    const button = Array.from(element().querySelectorAll<HTMLButtonElement>(`.page:not([inert]) ${selector}`)).find(
-      (b) => b.textContent?.includes(text),
+    Array.from(element().querySelectorAll('.impulse-menu-drawer-page:not([inert]) .impulse-menu-drawer-label')).map(
+      (l) => l.textContent?.trim() ?? '',
     );
+  const tap = (selector: string, text: string): void => {
+    const button = Array.from(
+      element().querySelectorAll<HTMLButtonElement>(`.impulse-menu-drawer-page:not([inert]) ${selector}`),
+    ).find((b) => b.textContent?.includes(text));
     button?.click();
     fixture.detectChanges();
   };
@@ -57,16 +60,16 @@ describe('MenuDrawerComponent', () => {
 
   it('opens on the menus, under its own bar with the name and the close button', () => {
     expect(inView()).toEqual(['Records', 'Help']);
-    expect(element().querySelector('.top .name')?.textContent).toBe('Lodestar');
-    expect(element().querySelector('.top button.close')).not.toBeNull();
+    expect(element().querySelector('.impulse-menu-drawer-top .impulse-menu-drawer-name')?.textContent).toBe('Lodestar');
+    expect(element().querySelector('.impulse-menu-drawer-top button.impulse-menu-drawer-close')).not.toBeNull();
   });
 
   it('slides into a menu and a submenu, each with a back row naming it, and back again', () => {
-    tap('button.row', 'Records');
+    tap('button.impulse-menu-drawer-row', 'Records');
     expect(inView()).toEqual(['Records', 'Customers', 'Agents']);
-    tap('button.row', 'Agents');
+    tap('button.impulse-menu-drawer-row', 'Agents');
     expect(inView()).toEqual(['Agents', 'History']);
-    tap('button.back', 'Agents');
+    tap('button.impulse-menu-drawer-back', 'Agents');
     expect(inView()).toEqual(['Records', 'Customers', 'Agents']);
   });
 
@@ -75,18 +78,36 @@ describe('MenuDrawerComponent', () => {
     const chosen = vi.fn();
     fixture.componentInstance.closing.subscribe(closing);
     fixture.componentInstance.chosen.subscribe(chosen);
-    (element().querySelector('.top button.close') as HTMLButtonElement).click();
-    tap('button.row', 'Help');
-    tap('button.row', 'Guides');
+    (element().querySelector('.impulse-menu-drawer-top button.impulse-menu-drawer-close') as HTMLButtonElement).click();
+    tap('button.impulse-menu-drawer-row', 'Help');
+    tap('button.impulse-menu-drawer-row', 'Guides');
     expect(closing).toHaveBeenCalledTimes(1);
     expect(chosen).toHaveBeenCalledTimes(1);
   });
 
   it('reset brings back the first page', () => {
-    tap('button.row', 'Records');
+    tap('button.impulse-menu-drawer-row', 'Records');
     fixture.componentInstance.reset();
     fixture.detectChanges();
     expect(inView()).toEqual(['Records', 'Help']);
-    expect(element().querySelectorAll('.page').length).toBe(1);
+    expect(element().querySelectorAll('.impulse-menu-drawer-page').length).toBe(1);
+  });
+
+  it("names every element for the panel: an application's rule for its own .row, .page or .menu lands on none", () => {
+    tap('button.impulse-menu-drawer-row', 'Records');
+
+    expect(notNamedFor('impulse-menu-drawer-', element())).toEqual([]);
+    expect(inView()).toEqual(['Records', 'Customers', 'Agents']);
+  });
+
+  it('gives the focus to the back row of the page that slides in, and back to the row that opened it', () => {
+    tap('button.impulse-menu-drawer-row', 'Records');
+    TestBed.tick();
+    expect(document.activeElement?.classList.contains('impulse-menu-drawer-back')).toBe(true);
+
+    tap('button.impulse-menu-drawer-back', 'Records');
+    TestBed.tick();
+    expect(document.activeElement?.classList.contains('impulse-menu-drawer-row')).toBe(true);
+    expect(document.activeElement?.textContent).toContain('Records');
   });
 });
