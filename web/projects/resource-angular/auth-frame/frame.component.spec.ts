@@ -41,7 +41,7 @@ describe('FrameComponent', () => {
 
   it("draws the application's banner above the bar", async () => {
     const element = await render({ banner: SpecBannerComponent });
-    const main = element.querySelector('.main');
+    const main = element.querySelector('.impulse-frame-main');
     const banner = main?.querySelector('app-spec-banner');
     const bar = main?.querySelector('impulse-frame-bar');
     expect(banner?.textContent).toContain('Viewing as Cadet Cass');
@@ -52,7 +52,7 @@ describe('FrameComponent', () => {
   it('draws no banner when the application gives none', async () => {
     const element = await render({});
     expect(element.querySelector('app-spec-banner')).toBeNull();
-    expect(element.querySelector('.main impulse-frame-bar')).not.toBeNull();
+    expect(element.querySelector('.impulse-frame-main impulse-frame-bar')).not.toBeNull();
   });
 
   describe('what scrolls', () => {
@@ -60,7 +60,7 @@ describe('FrameComponent', () => {
     const sheet = (): string => {
       return Array.from(document.querySelectorAll('style'))
         .map((style) => style.textContent ?? '')
-        .filter((text) => text.includes('.page-scroll'))
+        .filter((text) => text.includes('.impulse-frame-scroll'))
         .join('\n');
     };
     const onPaper = /@media print\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g;
@@ -86,36 +86,36 @@ describe('FrameComponent', () => {
 
     it('is the page, under the banner and the bar, which are never among what scrolls', async () => {
       const element = await render({ banner: SpecBannerComponent });
-      const scrolls = element.querySelector('.main > .page-scroll') as HTMLElement;
+      const scrolls = element.querySelector('.impulse-frame-main > .impulse-frame-scroll') as HTMLElement;
 
       expect(scrolls).not.toBeNull();
-      expect(scrolls.querySelector(':scope > main.page-content router-outlet')).not.toBeNull();
+      expect(scrolls.querySelector(':scope > main.impulse-frame-page router-outlet')).not.toBeNull();
       expect(scrolls.querySelector('impulse-frame-bar, app-spec-banner')).toBeNull();
-      const bar = element.querySelector('.main > impulse-frame-bar') as HTMLElement;
+      const bar = element.querySelector('.impulse-frame-main > impulse-frame-bar') as HTMLElement;
       expect(bar.compareDocumentPosition(scrolls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(declares('.page-scroll')).toMatch(/overflow:\s*auto/);
+      expect(declares('.impulse-frame-scroll')).toMatch(/overflow:\s*auto/);
     });
 
     it('is not the document: the frame is as high as the window, however long the page is', async () => {
       await render({});
 
-      expect(declares('.shell')).toMatch(/(^|[;\s])height:\s*100dvh/);
-      expect(declares('.shell')).not.toContain('min-height');
-      expect(declares('.main')).not.toContain('min-height');
+      expect(declares('.impulse-frame-shell')).toMatch(/(^|[;\s])height:\s*100dvh/);
+      expect(declares('.impulse-frame-shell')).not.toContain('min-height');
+      expect(declares('.impulse-frame-main')).not.toContain('min-height');
     });
 
     it('takes the height the banner and the bar leave, and the page fills it or is longer', async () => {
       await render({});
 
-      expect(declares('.main')).toMatch(/flex-direction:\s*column/);
-      expect(declares('.page-scroll')).toMatch(/(^|[;\s])flex:\s*1\s*(;|$)/);
-      expect(declares('.page-scroll > .page-content')).toMatch(/(^|[;\s])flex:\s*1 0 auto/);
+      expect(declares('.impulse-frame-main')).toMatch(/flex-direction:\s*column/);
+      expect(declares('.impulse-frame-scroll')).toMatch(/(^|[;\s])flex:\s*1\s*(;|$)/);
+      expect(declares('.impulse-frame-scroll > .impulse-frame-page')).toMatch(/(^|[;\s])flex:\s*1 0 auto/);
     });
 
     it('carries what a page places by hand, so that it scrolls with the page', async () => {
       await render({});
 
-      expect(declares('.page-scroll')).toMatch(/position:\s*relative/);
+      expect(declares('.impulse-frame-scroll')).toMatch(/position:\s*relative/);
     });
 
     it('is known to the overlays, so a pop-up opened from the page follows the page as it scrolls', async () => {
@@ -124,14 +124,45 @@ describe('FrameComponent', () => {
         (scrollable) => scrollable.getElementRef().nativeElement as HTMLElement,
       );
 
-      expect(known).toContain(element.querySelector('.page-scroll'));
+      expect(known).toContain(element.querySelector('.impulse-frame-scroll'));
     });
 
     it('is nothing on paper: the frame is as long as the page there', async () => {
       await render({});
 
-      expect(declares('.shell', 'print')).toMatch(/(^|[;\s])height:\s*auto/);
-      expect(declares('.page-scroll', 'print')).toMatch(/overflow:\s*visible/);
+      expect(declares('.impulse-frame-shell', 'print')).toMatch(/(^|[;\s])height:\s*auto/);
+      expect(declares('.impulse-frame-scroll', 'print')).toMatch(/overflow:\s*visible/);
+    });
+
+    it('is named for the frame, as every element of the frame is: a rule an application writes for its own content lands on none', async () => {
+      const element = await render({ banner: SpecBannerComponent });
+      // What scrolls is the frame's own element, straight under Material's: Material keeps a
+      // scrolling element of its own inside the side panel, which is not the frame's to name.
+      const own = [
+        'mat-sidenav-container',
+        'mat-sidenav',
+        'mat-sidenav-content',
+        'mat-sidenav-content > [cdkScrollable]',
+        'main',
+      ].map((selector) => element.querySelector(selector) as HTMLElement);
+
+      for (const part of own) {
+        const named = Array.from(part.classList).filter((name) => !/^(mat|mdc|cdk|ng)-/.test(name));
+        expect(named.length).toBeGreaterThan(0);
+        expect(named.filter((name) => !name.startsWith('impulse-frame-'))).toEqual([]);
+      }
+      // The names the frame's own elements had, which an application's stylesheet is likely
+      // to hold for its own content.
+      const likely = '.page-content, .page-scroll, .main, .panel, .shell, .content, .page';
+      expect(own.filter((part) => part.matches(likely))).toEqual([]);
+    });
+
+    it("keeps the room around the page itself: the application's stylesheet names it, or it is the library's own", async () => {
+      await render({});
+
+      expect(declares('.impulse-frame-scroll > .impulse-frame-page')).toMatch(
+        /padding:\s*var\(--impulse-page-padding,\s*16px 24px\)/,
+      );
     });
 
     describe('takes the keys that scroll a page while nothing has the focus', () => {
@@ -145,7 +176,7 @@ describe('FrameComponent', () => {
         const element = await render({});
         (document.activeElement as HTMLElement | null)?.blur();
         expect(document.activeElement).toBe(document.body);
-        return element.querySelector('.page-scroll') as HTMLElement;
+        return element.querySelector('.impulse-frame-scroll') as HTMLElement;
       };
 
       for (const key of ['PageDown', 'PageUp', ' ', 'ArrowDown', 'ArrowUp', 'Home', 'End']) {
@@ -163,7 +194,7 @@ describe('FrameComponent', () => {
         const scrolls = await scrollerOf();
 
         expect(scrolls.getAttribute('tabindex')).toBe('-1');
-        expect(declares('.page-scroll:focus')).toMatch(/outline:\s*none/);
+        expect(declares('.impulse-frame-scroll:focus')).toMatch(/outline:\s*none/);
       });
 
       it('leaves every other key where it is', async () => {

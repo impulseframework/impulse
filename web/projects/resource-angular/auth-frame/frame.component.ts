@@ -33,7 +33,7 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
  * the sign-in and sign-out pages, routed outside it, never are.
  *
  * The frame is as high as the window, and the page scrolls inside it: the banner and the
- * bar stay at the top, and what is under them (`.page-scroll`) is what scrolls, up and
+ * bar stay at the top, and what is under them (`.impulse-frame-scroll`) is what scrolls, up and
  * down and sideways, never the document. So a row a page keeps at the top of what scrolls
  * (`position: sticky; top: 0`) stays right under the bar, and the side panel is as high as
  * the window however long the page is. What scrolls is known to the overlays
@@ -44,6 +44,12 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
  * End) to what has the focus, and to the document while nothing has it, which here never
  * scrolls. So while nothing has the focus, the first of those keys gives it to what
  * scrolls, and the key scrolls the page as it does on any page.
+ *
+ * Every element of the frame is named for the frame (`impulse-frame-…`), so a rule an
+ * application writes for its own content (`.main`, `.panel`, `.page-content`) never lands
+ * on the frame. The room around the page is the frame's own: `--impulse-page-padding`,
+ * 16px above and below and 24px beside it unless the application's stylesheet says
+ * otherwise.
  */
 @Component({
   selector: 'impulse-frame',
@@ -51,8 +57,13 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown)': 'keyToThePage($event)' },
   template: `
-    <mat-sidenav-container class="shell">
-      <mat-sidenav #panel class="panel" mode="over" [autoFocus]="'first-tabbable'" (closed)="drawer.reset()">
+    <mat-sidenav-container class="impulse-frame-shell">
+      <mat-sidenav
+        #panel
+        class="impulse-frame-panel"
+        mode="over"
+        [autoFocus]="'first-tabbable'"
+        (closed)="drawer.reset()">
         <impulse-menu-drawer
           #drawer
           [name]="frame.name ?? ''"
@@ -60,13 +71,13 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
           (chosen)="panel.close()"
           (closing)="panel.close()" />
       </mat-sidenav>
-      <mat-sidenav-content class="main">
+      <mat-sidenav-content class="impulse-frame-main">
         @if (frame.config.banner; as banner) {
           <ng-container *ngComponentOutlet="banner" />
         }
         <impulse-frame-bar (menuOpened)="panel.open()" />
-        <div #scroller class="page-scroll" tabindex="-1" cdkScrollable>
-          <main class="page-content">
+        <div #scroller class="impulse-frame-scroll" tabindex="-1" cdkScrollable>
+          <main class="impulse-frame-page">
             <router-outlet />
           </main>
         </div>
@@ -75,25 +86,25 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
   `,
   styles: `
     /* As high as the window, and no higher: the page scrolls inside the frame. */
-    .shell {
+    .impulse-frame-shell {
       height: 100dvh;
       background: transparent;
     }
 
-    .panel {
+    .impulse-frame-panel {
       width: min(320px, 85vw);
       background: var(--mat-sys-surface-container-low);
     }
 
     /* The banner and the bar, each as high as it is, and under them what scrolls. */
-    .main {
+    .impulse-frame-main {
       display: flex;
       flex-direction: column;
     }
 
     /* What scrolls: the rest of the height of the window, however long or wide the page is.
        What a page places by hand (position: absolute) is placed in it, and scrolls with it. */
-    .page-scroll {
+    .impulse-frame-scroll {
       position: relative;
       display: flex;
       flex: 1;
@@ -103,24 +114,26 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
 
     /* It takes the focus only to take the keys that scroll, and is no control: it shows no
        line around the page while it has it. */
-    .page-scroll:focus {
+    .impulse-frame-scroll:focus {
       outline: none;
     }
 
-    /* The page is at least as high as what scrolls, and as high as what it holds. */
-    .page-scroll > .page-content {
+    /* The page is at least as high as what scrolls, and as high as what it holds, with the
+       room around it that the application's stylesheet names, or the library's own. */
+    .impulse-frame-scroll > .impulse-frame-page {
       flex: 1 0 auto;
       min-width: 0;
+      padding: var(--impulse-page-padding, 16px 24px);
     }
 
     /* On paper nothing scrolls: the frame is as long as the page, as it was on the screen
        before the page scrolled inside it. */
     @media print {
-      .shell {
+      .impulse-frame-shell {
         height: auto;
       }
 
-      .page-scroll {
+      .impulse-frame-scroll {
         overflow: visible;
       }
     }
