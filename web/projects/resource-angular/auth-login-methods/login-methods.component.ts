@@ -10,13 +10,13 @@ import {
   PendingTasks,
   signal,
 } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import {
   EmailCodeResult,
   EmailCodeStep,
@@ -37,7 +37,7 @@ import { RESOURCE_CLIENT, storeSignal } from '@impulseframework/resource-angular
 import { FRONTEND_LOGIN_PATH, FRONTEND_SIGN_OUT_PATH, SessionInfo } from '@impulseframework/resource-angular/types';
 import { MailHold, UiCoreService } from '@impulseframework/resource-angular/ui-core-service';
 import { firstValueFrom } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { filter, map } from 'rxjs/operators';
 
 /**
  * The form an account with a password is created on: from an opened invitation, which the
@@ -141,7 +141,9 @@ export interface Landing {
  * fragment, which a browser sends to no server, so the token is in no request line and no
  * request log. On arrival the component reads the link (`mailedLink`), takes it out of the
  * address at once (`dropLink`), and posts the token in the body of the request that uses
- * it. From then on the address the tab shows, the entry Back returns to, and an address or
+ * it. A link opened in a tab that already shows the page changes the fragment alone and
+ * loads nothing, so the page loads itself again for it (`loadAgain`) and arrives as on a
+ * first load. From then on the address the tab shows, the entry Back returns to, and an address or
  * bookmark a person takes from the page carry no token. The browser's own history of the
  * pages it has visited is not the page's to clear, and it keeps the address the mail
  * opened, token and all: a link opened and not used can be opened again from that
@@ -506,6 +508,24 @@ export class LoginMethodsComponent implements OnInit {
    * no click.
    */
   choosing = computed(() => this.afterRefusal() || this.differentAccount());
+
+  constructor() {
+    // A mailed link opened in the tab that already shows this page changes the fragment
+    // alone: nothing loads and no arrival runs, so the page loads itself again for it. The
+    // link the page was opened with is the arrival's to read, so an address is looked at
+    // here only once the arrival has read its own; taking that link out leaves an address
+    // with no link in it.
+    this.router.events
+      .pipe(
+        filter((event) => event instanceof NavigationEnd),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => {
+        if (this.linkRead && mailedLink(this.router.parseUrl(this.router.url).fragment) !== undefined) {
+          this.loadAgain();
+        }
+      });
+  }
 
   ngOnInit(): void {
     void this.tracked(() => this.arrive());
@@ -1624,6 +1644,17 @@ export class LoginMethodsComponent implements OnInit {
   /** Sends the browser to a URL: a redirect method's, or the page the server chose for a pending step. */
   protected leaveFor(url: string): void {
     this.document.location.assign(url);
+  }
+
+  /**
+   * Loads the page again at the address the tab shows. A mailed link opened in a tab that
+   * already shows this page changes the address's fragment alone, which loads nothing, so
+   * the page loads itself for it: the page that comes reads the link and takes it out of
+   * the address as on any arrival, and nothing done here before the link stands in its
+   * way. A fragment goes to no server, on this load as on the first.
+   */
+  protected loadAgain(): void {
+    this.document.location.reload();
   }
 }
 

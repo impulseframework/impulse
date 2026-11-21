@@ -444,7 +444,9 @@ names. A browser sends a fragment to no server,
 so a link a person opens writes its token to no request log. On arrival the component reads the
 link (`mailedLink`, from `@impulseframework/resource`), takes it out of the address before its
 first request, by a router navigation that replaces the tab's history entry, and posts the token in
-the body of the request that uses it. From then on the address the tab shows, the entry Back
+the body of the request that uses it. A link opened in a tab that already shows the login page
+changes the fragment alone, which loads nothing, so the page loads itself again and the link opens
+as it does in a new tab. From then on the address the tab shows, the entry Back
 returns to and an address or bookmark a person takes from the page carry no token. The browser's
 own history of visited pages is not the page's to clear and keeps the address the mail opened,
 token and all, so a link opened and not used can be opened again from that browser until it is used

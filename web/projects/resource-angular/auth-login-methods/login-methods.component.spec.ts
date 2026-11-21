@@ -3253,6 +3253,44 @@ describe('LoginMethodsComponent takes a mailed link out of the address', () => {
     expect(page.transport.requests.find((r) => r.url === resetRoutes.open)?.body).toEqual({ token: 'tok-9' });
   });
 
+  /** Stands in for the page loading itself again, and counts the times it was asked to. */
+  function loadsAgain(): ReturnType<typeof vi.spyOn> {
+    return vi
+      .spyOn(LoginMethodsComponent.prototype as unknown as { loadAgain(): void }, 'loadAgain')
+      .mockImplementation(() => undefined);
+  }
+
+  it('loads the page again for a mailed link opened in the tab that already shows it, and leaves the link in the address for the page that comes', async () => {
+    const loads = loadsAgain();
+    const page = await opened('/login?returnUrl=%2Fhome');
+    await page.router.navigateByUrl('/login?returnUrl=%2Fhome#invitation=tok-2');
+    expect(loads).toHaveBeenCalledTimes(1);
+    expect(page.router.url).toBe('/login?returnUrl=%2Fhome#invitation=tok-2');
+    for (const request of page.transport.requests) {
+      expect(JSON.stringify([request.url, request.body ?? null])).not.toContain('tok-2');
+    }
+    loads.mockRestore();
+  });
+
+  it('loads the page again for a second link, after it has used the one it was opened with', async () => {
+    const loads = loadsAgain();
+    const page = await opened('/login#reset=tok-9');
+    expect(loads).not.toHaveBeenCalled();
+    expect(page.router.url).toBe('/login');
+    await page.router.navigateByUrl('/login#invitation=tok-2');
+    expect(loads).toHaveBeenCalledTimes(1);
+    loads.mockRestore();
+  });
+
+  it('does not load the page again for a fragment that is no link', async () => {
+    const loads = loadsAgain();
+    const page = await opened('/login');
+    await page.router.navigateByUrl('/login#help');
+    expect(loads).not.toHaveBeenCalled();
+    expect(page.router.url).toBe('/login#help');
+    loads.mockRestore();
+  });
+
   it('Try again, after reads that failed, opens the link read on arrival: the address no longer carries it', async () => {
     let down = true;
     const answering = transportOf(server({ methods: mailingList }));
