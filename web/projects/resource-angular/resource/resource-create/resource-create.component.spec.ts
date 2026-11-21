@@ -14,6 +14,7 @@ import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource
 import { FormStateService } from '@impulseframework/resource-angular/resource-services';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
+  ConfigElement,
   field,
   FieldMeta,
   FieldName,
@@ -314,6 +315,14 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
   };
   const labelOf = (element: Element): string | undefined => element.querySelector('mat-label')?.textContent?.trim();
   const sent = (): number => transport.requests.filter((request) => request.method === 'PATCH').length;
+  /** What the form says beside its buttons about a create it did not send. */
+  const sentence = (): string | undefined =>
+    (fixture.nativeElement as HTMLElement).querySelector('.state-buttons .invalid.message')?.textContent?.trim();
+  /** Draws the form again with these elements in place of the ones every test starts with. */
+  const showing = (elements: ConfigElement[]): void => {
+    fixture.componentRef.setInput('resourceConfig', viewConfig({ primaryResource: probes, elements }));
+    fixture.detectChanges();
+  };
 
   beforeEach(async () => {
     shown = [];
@@ -388,6 +397,42 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
 
     expect(sent()).toBe(0);
     expect(shown.map(({ element }) => labelOf(element))).toEqual(['Call sign']);
+  });
+
+  // A field that is not shown keeps its control in the form, and that control can be the
+  // first one refused: nothing of it is on the screen to bring into view.
+  it('the first refused field that is drawn, when the first control refused is of a field not shown, and still says so', () => {
+    showing([
+      field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
+      field({ name: 'notes' as FieldName, label: 'Notes' }),
+      field({ name: 'name' as FieldName, label: 'Name' }),
+    ]);
+    fill('notes', 'Hold at the outer marker.');
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(sent()).toBe(0);
+    expect(shown.map(({ element }) => `${element.tagName.toLowerCase()} ${labelOf(element)}`)).toEqual([
+      'mat-form-field Name',
+    ]);
+    expect(sentence()).toBe('Please complete or fix required fields.');
+  });
+
+  it('nothing, when no field it refuses is drawn, and still says so', () => {
+    showing([
+      field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
+      field({ name: 'notes' as FieldName, label: 'Notes' }),
+      field({ name: 'name' as FieldName, label: 'Name' }),
+    ]);
+    fill('name', 'Kestrel');
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(sent()).toBe(0);
+    expect(shown).toEqual([]);
+    expect(sentence()).toBe('Please complete or fix required fields.');
   });
 
   it('nothing, once the form refuses no field: the create is sent', async () => {

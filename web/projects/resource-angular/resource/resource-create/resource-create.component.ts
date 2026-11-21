@@ -269,12 +269,18 @@ export class ResourceCreateComponent implements OnInit {
    * on every element they keep a mark on at all. An element that carries the form's
    * group is marked for the whole form, whatever its own control holds, and a text, a
    * number and a date field carry it on their `mat-form-field`: a field that is filled
-   * is marked as refused while another is not. So the refused control is the first
-   * marked element that holds no other element of the form's.
+   * is marked as refused while another is not. So a refused control is a marked element
+   * that holds no other element of the form's. A field that is not shown keeps its control
+   * in the form, inside an element the library's stylesheet takes off the screen
+   * (`hidden-field`), and it can be the first one refused: there is nothing of it to bring
+   * into view, so the field brought into view is the first refused one that is drawn.
    */
   private showFirstRefused(): void {
     const marked = Array.from(this.host.nativeElement.querySelectorAll('form .ng-invalid'));
-    const control = marked.find((element) => element.querySelector('.ng-touched, .ng-untouched') === null);
+    const control = marked.find(
+      (element) =>
+        element.querySelector('.ng-touched, .ng-untouched') === null && element.closest('.hidden-field') === null,
+    );
     const field = control?.closest('mat-form-field') ?? control;
     field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
