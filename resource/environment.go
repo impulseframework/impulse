@@ -45,7 +45,9 @@ func RequestEnvironment() accesstypes.Environment {
 // decode-time-only permission check: an RPC method without a target row.
 // Conditions that read a row evaluate where the row is, and such a method has
 // none, so a condition here is unenforceable: the deployment invariant is
-// that MigrateRoles rejects row-referencing conditions on those grants, and
+// that no such grant carries a row-referencing condition (access.ValidateRoles
+// refuses one in a role file, a write to a custom role is refused it, and a
+// load of the policy leaves out one the store holds), and
 // row-free conditions fold inside the check itself. Reaching this is a
 // 500-class invariant breach — never an allow, never a 403. (A computed
 // resource is no longer one of these: its rows are judged as its function
