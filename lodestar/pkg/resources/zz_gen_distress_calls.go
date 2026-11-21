@@ -43,7 +43,7 @@ func (DistressCall) DeleteTree() *resource.DeleteTree {
 				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
 				Paths: []resource.DeletePath{
 					{
-						{Columns: []string{"CaseNumber"}, Table: "DistressCalls", References: []string{"CaseNumber"}},
+						{Columns: []string{"SectorId", "CaseNumber"}, Table: "DistressCalls", References: []string{"SectorId", "CaseNumber"}},
 					},
 				},
 				Within: []resource.DeleteLink{
@@ -66,7 +66,7 @@ func (DistressCall) DeleteTree() *resource.DeleteTree {
 				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
 				Paths: []resource.DeletePath{
 					{
-						{Columns: []string{"CaseNumber"}, Table: "DistressCalls", References: []string{"CaseNumber"}},
+						{Columns: []string{"SectorId", "CaseNumber"}, Table: "DistressCalls", References: []string{"SectorId", "CaseNumber"}},
 					},
 				},
 				RemovedWith: []string{"Sectors"},
@@ -133,18 +133,6 @@ func (q *DistressCallQuery) SetID(v impulse.UUID) *DistressCallQuery {
 
 func (q *DistressCallQuery) ID() impulse.UUID {
 	v, _ := q.qSet.Key("ID").(impulse.UUID)
-
-	return v
-}
-
-func (q *DistressCallQuery) SetCaseNumber(v string) *DistressCallQuery {
-	q.qSet.SetKey("CaseNumber", v)
-
-	return q
-}
-
-func (q *DistressCallQuery) CaseNumber() string {
-	v, _ := q.qSet.Key("CaseNumber").(string)
 
 	return v
 }

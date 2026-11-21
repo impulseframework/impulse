@@ -628,11 +628,14 @@ CREATE TABLE DistressCalls (
   Position JSON,
 ) PRIMARY KEY (Id);
 
-CREATE UNIQUE INDEX DistressCallsByCaseNumber ON DistressCalls(CaseNumber);
+CREATE UNIQUE INDEX DistressCallsBySectorIdCaseNumber ON DistressCalls(SectorId, CaseNumber);
 
 -- DistressRelays: a message passed along about a distress call, and the answers to it. A
 -- relay names its call by the case number an operator reads out, a column of DistressCalls
 -- that is not its key, and an answer names the relay it answers, a row of this same table.
+-- A case number is unique within a sector (DistressCallsBySectorIdCaseNumber), and the
+-- relay's foreign key to its call holds the sector beside the case number, so a relay never
+-- names another sector's call.
 -- Neither foreign key carries a delete rule: a call's delete takes its relays, and a
 -- relay's delete its answers, in code (the two resource structs declare it).
 CREATE TABLE DistressRelays (
@@ -647,7 +650,7 @@ CREATE TABLE DistressRelays (
 
   CONSTRAINT CK_DistressRelays_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT FK_DistressRelays_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
-  CONSTRAINT FK_DistressRelays_CaseNumber FOREIGN KEY (CaseNumber) REFERENCES DistressCalls(CaseNumber),
+  CONSTRAINT FK_DistressRelays_SectorIdCaseNumber FOREIGN KEY (SectorId, CaseNumber) REFERENCES DistressCalls(SectorId, CaseNumber),
   CONSTRAINT FK_DistressRelays_AnswersRelayId FOREIGN KEY (AnswersRelayId) REFERENCES DistressRelays(Id),
 ) PRIMARY KEY (Id);
 

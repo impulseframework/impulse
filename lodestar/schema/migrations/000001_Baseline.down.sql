@@ -92,7 +92,7 @@ DROP TABLE MissionDocuments;
 DROP INDEX DistressRelaysBySectorIdRelayedAt;
 DROP INDEX DistressRelaysBySectorIdCaseNumber;
 DROP TABLE DistressRelays;
-DROP INDEX DistressCallsByCaseNumber;
+DROP INDEX DistressCallsBySectorIdCaseNumber;
 DROP TABLE DistressCalls;
 DROP TABLE DroidReports;
 DROP INDEX ConsignmentsByBondCode;

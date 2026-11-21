@@ -12,10 +12,12 @@ type (
 	// follows that are not a foreign key to another table's key.
 	//
 	// CaseNumber names the call by the case number an operator reads out, a column of
-	// DistressCalls that is not its key, so the foreign key references that column. A
-	// field that holds another table's code is typed in, never picked: a picker writes
-	// the key of the row picked. A call's delete takes its relays
-	// (DistressCall's @deleteCascade), found by the case number.
+	// DistressCalls that is not its key. A case number is unique within a sector, and the
+	// foreign key is the relay's sector and case number to the call's, so a relay names a
+	// call of its own sector and never another's. A field that holds another table's code
+	// is typed in, never picked: a picker writes the key of the row picked. A call's
+	// delete takes its relays (DistressCall's @deleteCascade), found by the sector and the
+	// case number.
 	//
 	// AnswersRelayID names the relay this one answers, a row of this same table. The
 	// relay lists its own kind in @deleteCascade, so a relay's delete asks first and then

@@ -1777,8 +1777,11 @@ with nothing gone where it cannot be made whole:
   where its `@domain` goes through them. A row of another tenant that names the record,
   or a row under it, is not found, counted, named or taken, whoever asks, a trusted delete
   included. Where a foreign key holds such a row to a row that goes, the commit refuses
-  the delete in its own sentence and nothing is deleted. A record that is no tenant's has
-  under it whatever its links put there, and so does a kind whose rows are no tenant's.
+  the delete in its own sentence and nothing is deleted. A foreign key between two tables
+  of a tenant that holds the tenant's key beside the rest (a relay's `(SectorId,
+  CaseNumber)` to its call's) keeps such a row from being written. A record that is no
+  tenant's has under it whatever its links put there, and so does a kind whose rows are
+  no tenant's.
 - A foreign key of two or more columns is written with its columns in the order of the
   key it references: for an order keyed `(Depot, Number)`, a line's is
   `FOREIGN KEY (OrderDepot, OrderNumber) REFERENCES Orders (Depot, Number)`. The generator

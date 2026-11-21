@@ -19,9 +19,10 @@ package integration
 // path's.
 //
 // A distress call and its relays are the two links that are no key to another table's
-// key. A relay names its call by the case number, a column of the call that is not its
-// key, and an answer names the relay it answers, a row of its own table: a call's delete
-// takes its relays and every answer under them, and a relay's delete its answers.
+// key. A relay names its call by its sector and the case number, columns of the call that
+// are not its key, and an answer names the relay it answers, a row of its own table: a
+// call's delete takes its relays and every answer under them, and a relay's delete its
+// answers.
 
 import (
 	"context"
@@ -87,16 +88,17 @@ func TestDeleteCascade_description(t *testing.T) {
 		t.Errorf("a client's delete is refused by %v, want %v", got, want)
 	}
 
-	// A relay is under its call by the case number, a column of the call outside its
-	// key, and under the relay it answers, which the call's description carries too.
+	// A relay is under its call by its sector and the case number, columns of the call
+	// outside its key, and under the relay it answers, which the call's description
+	// carries too.
 	answers := resource.DeleteLink{Columns: []string{"AnswersRelayId"}, Table: "DistressRelays", References: []string{"Id"}, MayBeEmpty: true}
 	call := resources.DistressCall{}.DeleteTree()
 	if got, want := kinds(call.Taken), []accesstypes.Resource{"DistressRelays"}; !slices.Equal(got, want) {
 		t.Fatalf("a distress call's delete takes %v, want %v", got, want)
 	}
-	byCaseNumber := []resource.DeletePath{{{Columns: []string{"CaseNumber"}, Table: "DistressCalls", References: []string{"CaseNumber"}}}}
-	if got := call.Taken[0].Paths; !reflect.DeepEqual(got, byCaseNumber) {
-		t.Errorf("a relay's way up to its call is %v, want %v", got, byCaseNumber)
+	bySectorAndCaseNumber := []resource.DeletePath{{{Columns: []string{"SectorId", "CaseNumber"}, Table: "DistressCalls", References: []string{"SectorId", "CaseNumber"}}}}
+	if got := call.Taken[0].Paths; !reflect.DeepEqual(got, bySectorAndCaseNumber) {
+		t.Errorf("a relay's way up to its call is %v, want %v", got, bySectorAndCaseNumber)
 	}
 	if got, want := call.Taken[0].Within, []resource.DeleteLink{answers}; !reflect.DeepEqual(got, want) {
 		t.Errorf("a relay is under a relay by %v, want %v", got, want)
@@ -672,6 +674,114 @@ func TestDeleteCascade_anotherSectorsRowIsNotUnderARecord(t *testing.T) {
 		}
 		everythingStands(t)
 	})
+}
+
+// TestDistressRelay_namesACallOfItsOwnSector pins that a relay names a call of its own
+// sector: its foreign key to its call is its sector and the case number. A relay added in
+// Bastion with the number of Anvil's call is refused as one with a number no call has, in
+// the same status and the same sentence, and no relay is written; the same relay added in
+// Anvil is created.
+func TestDistressRelay_namesACallOfItsOwnSector(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		anvilCall   = "dc000000-0000-4000-8000-0000000c0021"
+		anvilNumber = "DC-OWN-SECTOR-0001"
+		batch       = "/console/api/resources"
+	)
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("DistressCalls", map[string]any{
+		"Id": anvilCall, "SectorId": anvil, "Summary": "Own sector call", "Severity": 1, "CaseNumber": anvilNumber,
+		"FiledByUserId": "f0000000-0000-4000-8000-000000000004", "FiledByName": "marshal",
+	})}); err != nil {
+		t.Fatalf("spanner.Apply(): %v", err)
+	}
+	h := newTestApp(db, grants{accesstypes.Create: withFields("DistressRelays", "caseNumber", "message")})
+	add := func(t *testing.T, sector, number string) (int, []byte) {
+		t.Helper()
+
+		return doRequest(t, h, http.MethodPatch, batch,
+			fmt.Sprintf(`[{"op":"add","path":%q,"value":{"caseNumber":%q,"message":"Heard on the outer lane"}}]`, opPath(sector, "distress-relays"), number))
+	}
+	relays := func(t *testing.T, sector, number string) int64 {
+		t.Helper()
+
+		var n int64
+		err := db.Single().Query(ctx, spanner.Statement{
+			SQL:    "SELECT COUNT(*) FROM DistressRelays WHERE SectorId = @sector AND CaseNumber = @number",
+			Params: map[string]any{"sector": sector, "number": number},
+		}).Do(func(row *spanner.Row) error { return row.Column(0, &n) })
+		if err != nil {
+			t.Fatalf("counting the relays of %s with %s: %v", sector, number, err)
+		}
+
+		return n
+	}
+
+	for _, tt := range []struct{ name, number string }{
+		{name: "a number no call has", number: "DC-OWN-SECTOR-NONE"},
+		{name: "the number of another sector's call", number: anvilNumber},
+	} {
+		t.Run("a relay added in Bastion with "+tt.name+" is refused, and nothing is written", func(t *testing.T) {
+			t.Parallel()
+
+			status, body := add(t, bastion, tt.number)
+			assertStatus(t, status, http.StatusConflict, body)
+			if got, want := refusalMessage(t, body), "DistressRelays: a referenced record does not exist, or a value is too long for its field."; got != want {
+				t.Errorf("message = %q, want %q", got, want)
+			}
+			if n := relays(t, bastion, tt.number); n != 0 {
+				t.Errorf("Bastion holds %d relay(s) with %s, want none", n, tt.number)
+			}
+		})
+	}
+
+	t.Run("the same relay added in Anvil is created", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := add(t, anvil, anvilNumber)
+		assertStatus(t, status, http.StatusOK, body)
+		if n := relays(t, anvil, anvilNumber); n != 1 {
+			t.Errorf("Anvil holds %d relay(s) with %s, want the one created", n, anvilNumber)
+		}
+	})
+}
+
+// TestDistressCall_caseNumberIsUniqueWithinASector pins the index that holds a case
+// number, written as rows: the number of a call of Anvil is taken by a call of Bastion,
+// and a second call of Anvil with it is refused.
+func TestDistressCall_caseNumberIsUniqueWithinASector(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const number = "DC-UNIQUE-0001"
+	call := func(id, sector string) []*spanner.Mutation {
+		return []*spanner.Mutation{spanner.InsertMap("DistressCalls", map[string]any{
+			"Id": id, "SectorId": sector, "Summary": "Unique call " + id, "Severity": 1, "CaseNumber": number,
+			"FiledByUserId": "f0000000-0000-4000-8000-000000000004", "FiledByName": "marshal",
+		})}
+	}
+	if _, err := db.Apply(ctx, call("dc000000-0000-4000-8000-0000000c0031", anvil)); err != nil {
+		t.Fatalf("writing Anvil's call: %v", err)
+	}
+	if _, err := db.Apply(ctx, call("dc000000-0000-4000-8000-0000000c0032", bastion)); err != nil {
+		t.Errorf("writing a call of Bastion with the number of Anvil's: %v, want it written", err)
+	}
+	if _, err := db.Apply(ctx, call("dc000000-0000-4000-8000-0000000c0033", anvil)); spanner.ErrCode(err) != codes.AlreadyExists {
+		t.Errorf("writing a second call of Anvil with the number: err = %v, want the unique index to refuse it", err)
+	}
 }
 
 // TestDeleteCascade_tooManyRowsAtOnce pins the refusal of a delete whose rows cost more

@@ -224,7 +224,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
 				Paths: []resource.DeletePath{
 					{
-						{Columns: []string{"CaseNumber"}, Table: "DistressCalls", References: []string{"CaseNumber"}},
+						{Columns: []string{"SectorId", "CaseNumber"}, Table: "DistressCalls", References: []string{"SectorId", "CaseNumber"}},
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 					{

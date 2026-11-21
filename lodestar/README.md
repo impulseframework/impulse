@@ -609,7 +609,8 @@ client with a mission or a consignment is refused either way ("This client has 1
 missions and 5 consignments, so it can't be deleted."). A record with nothing under it
 is deleted without the question (`test/integration/delete_cascade_test.go`). The relays
 show the two links the generator follows beyond a table's key: a relay names its call by
-the call's case number, a unique column that is not the call's key
+its sector and the call's case number, which is unique within a sector and is not the
+call's key, so a relay never names another sector's call
 ([`@deleteCascade.other-columns`](pkg/resources/distress_relays.go)), and a relay that
 answers another names it in its own table
 ([`@deleteCascade.own-kind`](pkg/resources/distress_relays.go)), so a call's delete takes
