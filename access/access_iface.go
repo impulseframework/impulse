@@ -373,8 +373,10 @@ type UserManager interface {
 	// on all of a resource's fields does not reach such a field), and
 	// the condition parses and reads only the attributes the resource declares
 	// and the subject vocabulary the application declares. A load of the
-	// policy holds a stored grant to its names alone: a stored condition that
-	// reads nothing declared fails closed when it is evaluated.
+	// policy holds a role's stored grant to the same rule: a grant in the store
+	// that breaks it, a condition that reads an attribute the release does not
+	// declare among them, is left out when the policy loads and reported
+	// (SkippedGrant), and the role's other grants hold.
 	AddRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
 
 	// AddRoleGrants writes the grants to role as one store write rather than

@@ -233,8 +233,10 @@ defer client.Close()
 ```
 
 A grant the running release cannot use — a condition that does not parse, a
-row-referencing condition on a scope-wide grant, or a permission, resource or
-field the release's collection does not declare — does not stop the load: it is left out of
+row-referencing condition on a scope-wide grant, a permission, resource or
+field the release's collection does not declare, or, on a role's grant on a
+resource, anything else a write of the grant is refused for (below) — does not
+stop the load: it is left out of
 the snapshot and reported to the reload-error hook as a `*access.SkippedGrant`.
 The permission it would grant is denied, the rest of the policy loads, and the
 instance becomes ready. A scope-wide grant names a permission and nothing else,
@@ -290,9 +292,12 @@ role file's own sentence (`role Auditor is a domain role but grants Execute on
 CloseLedger, a global-scoped resource — a role's grants live at its declared
 scope; move the grant to a global role`, `role Auditor: Read grant on Ledgers:
 condition references "owner", which is not an attribute of Ledgers`), and
-nothing of the call is written. The load holds a stored grant to its names
-alone: a stored condition that reads nothing the release declares fails closed
-when it is evaluated.
+nothing of the call is written. The load holds a role's stored grant on a
+resource to the same rule: one that breaks it, such as a grant of another scope
+or a condition that reads an attribute the release does not declare, is skipped
+and reported as a `*access.SkippedGrant` with the write's reason. So such a
+grant is no foothold where its role is held, no check meets a condition it
+cannot resolve, and its holder's other grants decide as they did.
 
 A removal is held to nothing: a grant the release no longer declares can
 always be taken away. No client is without

@@ -529,15 +529,13 @@ func requireResources(rows []GrantRow) error {
 // requireDeclared refuses a grant a role file could not give the role, before
 // it is written to a custom role held in scope: the whole of the rule the role
 // file's grants are held to when the engine opens (expandRoleGrants), so a role
-// made at run time holds nothing a default role could not.
+// made at run time holds nothing a default role could not. The rule is
+// grantRule, and each part of it is said here in its own sentence
+// (brokenRule.badRequest).
 //
 // The names come first: a permission on a resource or a field the permission
-// collection does not list under it, and an action no role is given. That part
-// is the one a load of the policy leaves a stored grant out by (unlistedName):
-// a grant the load would skip is not written, so a role carries no name nobody
-// declared. A stored grant can still outlive its release, after a rollback or
-// once a release drops a resource, and the load skips and reports that one as
-// before.
+// collection does not list under it, and an action no role is given, so a role
+// carries no name nobody declared.
 //
 // Then what a listed name can still break, in the role file's own sentences
 // (misplacedGrant, validateGrantCondition): the resource is of the role's
@@ -546,9 +544,13 @@ func requireResources(rows []GrantRow) error {
 // marks immutable, a grant of all a resource's fields reaching no such field
 // (snapshot.allFieldsLeaveOut); and a condition parses and reads only the attributes the
 // resource declares and the subject vocabulary the application declares, a
-// field's condition being held to its resource's attributes. A load does not
-// hold a stored grant to this part: it keeps to the names, and a stored
-// condition that reads nothing declared fails closed when it is evaluated.
+// field's condition being held to its resource's attributes.
+//
+// A load of the policy holds a role's stored grant to the same rule
+// (snapshot.intern): a grant refused here is one the load would skip and
+// report, for the same reason. A stored grant can still break the rule, after
+// a rollback, once a release drops a resource or an attribute, or when a row
+// is written straight to the store, and that is the grant the load skips.
 //
 // A name the store cannot hold (splitGrantResource) is left to the store, which
 // refuses it in its own words.
@@ -557,47 +559,52 @@ func (u *userManager) requireDeclared(scope accesstypes.PolicyScope, role access
 		return nil
 	}
 
-	declared := accesstypes.DomainPermissionScope
-	if scope.IsGlobal() {
-		declared = accesstypes.GlobalPermissionScope
-	}
-	listed := u.collection.List()
+	rule := newGrantRule(u.collection)
 	for _, row := range rows {
 		base, field, err := splitGrantResource(row.Resource)
 		if err != nil {
 			continue
 		}
-		if isNoRoleAction(u.collection, row.Resource) {
-			return httpio.NewBadRequestMessagef(
-				"%s on %s cannot be given to a role: %s is an action no role is given. Nothing asks for a grant of it, so the grant would do nothing",
-				row.Permission, row.Resource, row.Resource,
-			)
+		grant := &policy.Grant{
+			Scope:     scope,
+			Subject:   policy.Subject{Kind: policy.SubjectRole, Name: string(role)},
+			Perm:      row.Permission,
+			Resource:  base,
+			Field:     field,
+			Condition: row.Condition,
 		}
-		grant := &policy.Grant{Perm: row.Permission, Resource: base, Field: field}
-		if err := unlistedName(listed, grant); err != nil {
-			return httpio.NewBadRequestMessagef(
-				"%s on %s cannot be given to a role: %s. A role is given a permission the application declares on a resource or a field; check the permission and the name",
-				row.Permission, row.Resource, plainText(err),
-			)
-		}
-		name := grantResourceName(grant)
-		resourceScope := u.collection.Scope(name)
-		if resourceScope == "" {
-			return httpio.NewBadRequestMessagef("resource %s does not require a permission or does not exist", name)
-		}
-		if err := misplacedGrant(u.collection, role, declared, row.Permission, name, resourceScope); err != nil {
-			return httpio.NewBadRequestMessageWithError(err, plainText(err))
-		}
-		if row.Condition == "" {
-			continue
-		}
-		authored := Grant{Resource: accesstypes.Resource(base), Fields: nil, Condition: row.Condition}
-		if err := validateGrantCondition(u.collection, role, row.Permission, authored); err != nil {
-			return httpio.NewBadRequestMessageWithError(err, plainText(err))
+		if broken := rule.refusal(grant, parseAuthoredCondition); broken != nil {
+			return broken.badRequest(role, row.Permission, row.Resource, base)
 		}
 	}
 
 	return nil
+}
+
+// badRequest is the refusal of a write that would give role the grant: permission on
+// asked, the resource as the caller named it, whose base resource is base. Each part
+// of the rule is said in its own sentence: the names as what was asked and why, with
+// what a role is given; the place and the condition in the role file's sentences,
+// which name the role.
+func (b *brokenRule) badRequest(role accesstypes.Role, permission accesstypes.Permission, asked accesstypes.Resource, base string) error {
+	switch b.part {
+	case noRoleActionPart:
+		return httpio.NewBadRequestMessagef(
+			"%s on %s cannot be given to a role: %s. Nothing asks for a grant of it, so the grant would do nothing",
+			permission, asked, plainText(b.reason),
+		)
+	case namesPart:
+		return httpio.NewBadRequestMessagef(
+			"%s on %s cannot be given to a role: %s. A role is given a permission the application declares on a resource or a field; check the permission and the name",
+			permission, asked, plainText(b.reason),
+		)
+	case conditionPart:
+		err := grantConditionError(b.reason, role, permission, accesstypes.Resource(base))
+
+		return httpio.NewBadRequestMessageWithError(err, plainText(err))
+	default:
+		return httpio.NewBadRequestMessageWithError(b.reason, plainText(b.reason))
+	}
 }
 
 // requireDeclaredPermission is requireDeclared for a scope-wide grant, which

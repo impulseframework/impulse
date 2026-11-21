@@ -17,7 +17,9 @@ import (
 // defaultsCollection is the release the default-role tests compile against:
 // Widgets with two fields in the domain scope, Reports and the DoThing method
 // in the global scope, the two permissions a custom role of the tests is given
-// for the whole of a scope, no condition vocabulary.
+// for the whole of a scope, and one attribute a condition may read: the price
+// of a Widget, a number, which the condition of a custom role's stored grant
+// reads.
 type defaultsCollection struct{}
 
 func (defaultsCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
@@ -48,7 +50,11 @@ func (defaultsCollection) IsResourceImmutable(accesstypes.PermissionScope, acces
 	return false
 }
 
-func (defaultsCollection) AttributeComparisonType(accesstypes.PermissionScope, accesstypes.Resource, string) (accesstypes.AttributeType, bool) {
+func (defaultsCollection) AttributeComparisonType(_ accesstypes.PermissionScope, res accesstypes.Resource, name string) (accesstypes.AttributeType, bool) {
+	if res == "Widgets" && name == "price" {
+		return accesstypes.AttributeTypeNumber, true
+	}
+
 	return "", false
 }
 

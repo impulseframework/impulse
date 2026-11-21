@@ -533,15 +533,16 @@ func assertMatchesRBACOracle(t *testing.T, snap *snapshot, subject string, grant
 // Test_newSnapshot_skipsGrantsTheReleaseCannotUse pins the load-time rule for
 // a grant the running release cannot use: it is left out of the snapshot and
 // reported, so the permission it would grant is denied while the role's other
-// grants hold and the load completes. Three things make a grant unusable: a
+// grants hold and the load completes. Three of the things that make a grant
+// unusable are pinned here: a
 // condition text that does not parse, a row-referencing condition on a
 // scope-wide grant (a grant attached to no resource has no row for it to see),
 // and a permission, resource or field the release does not declare. A
 // scope-wide grant names a permission and nothing else, and is held to the
 // permission: one the collection does not list is skipped, as the write that
-// would add it is refused (UserManager.AddRolePermission). Schema validation
-// of conditions (binding names against the collection) is not the snapshot's
-// job: the role file's validation does it for the release's grants.
+// would add it is refused (UserManager.AddRolePermission). What else a role's
+// stored grant on a resource is held to, its place and what its condition
+// reads, is pinned in Test_newSnapshot_holdsARolesStoredGrantsToTheWritesRule.
 func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 	t.Parallel()
 

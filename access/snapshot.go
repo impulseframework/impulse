@@ -737,10 +737,7 @@ func newSnapshotAt(records *policy.Records, defaults *defaultRoles, collection P
 	}
 
 	customs, storeGrants, findings := definedRoles(records, defaults)
-	all := make([]policy.Grant, 0, len(defaults.allGrants())+len(storeGrants))
-	all = append(all, defaults.allGrants()...)
-	all = append(all, storeGrants...)
-	grants, skipped, err := s.intern(all, collection)
+	grants, skipped, err := s.intern(defaults.allGrants(), storeGrants, collection)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -924,82 +921,63 @@ func groupByScope(grants []policy.Grant, memberships []policy.Membership) (globa
 
 // intern assigns dense IDs to permissions and resources and bit positions to
 // each resource's named fields, and compiles the distinct condition texts. It
-// returns the grants the snapshot holds and the ones it skipped. IDs are
-// uint16 by design; overflowing one would silently truncate and grant the
-// wrong permissions, so it fails the load instead.
+// is given the grants of the roles the release declares and the grants the
+// policy store holds, and returns the ones the snapshot holds and the ones it
+// skipped. IDs are uint16 by design; overflowing one would silently truncate
+// and grant the wrong permissions, so it fails the load instead.
 //
 // A grant the running release cannot use is skipped, not fatal: one bad row
 // in the store must not stop authorization for everyone, freeze a running
 // instance on a stale snapshot, or keep a new instance from becoming ready. A
 // skipped grant is denied, since a permission the snapshot does not hold is
-// not held. Three things make a grant unusable: a permission, resource or
-// field the release's collection does not list (unlistedName, the rule a
-// write to a custom role is refused by), a scope-wide grant's permission
-// among them; a condition
-// text that does not parse, so a check never meets an unparseable condition;
-// and a row-referencing condition (a binding-name attribute or new. reference)
-// on a scope-wide grant, which has no row for it to see; only row-free
-// conditions (environment and subject attributes) are valid there, folding at
-// check time (design plan §05, revised 2026-08-31).
-func (s *snapshot) intern(grants []policy.Grant, collection PermissionCollection) ([]policy.Grant, []*SkippedGrant, error) {
+// not held. What makes a grant unusable is grantRule.unusable's to say:
+//
+//   - A permission, resource or field the release's collection does not list
+//     (unlistedName), a scope-wide grant's permission among them.
+//   - A condition text that does not parse, so a check never meets an
+//     unparseable condition.
+//   - A row-referencing condition (a binding-name attribute or new. reference)
+//     on a scope-wide grant, which has no row for it to see; only row-free
+//     conditions (environment and subject attributes) are valid there, folding
+//     at check time (design plan §05, revised 2026-08-31).
+//   - For a grant a role holds on a resource in the store, anything else the
+//     write that adds the grant is refused for (grantRule.refusal): a resource
+//     of another scope than the role's, Update on what the release marks
+//     immutable, and a condition that reads what the release does not declare
+//     or that the permission cannot be judged by. So a check never meets a
+//     stored condition it cannot resolve, and a grant no request could use is
+//     no foothold where its role is held.
+func (s *snapshot) intern(released, stored []policy.Grant, collection PermissionCollection) ([]policy.Grant, []*SkippedGrant, error) {
+	rule := newGrantRule(collection)
 	exprs := make(map[string]condition.Expr)
-	kept := make([]policy.Grant, 0, len(grants))
+	parse := func(text string) (condition.Expr, error) {
+		if expr, ok := exprs[text]; ok {
+			return expr, nil
+		}
+		expr, err := condition.Parse(text)
+		if err != nil {
+			return nil, errors.Wrap(err, "the condition does not parse")
+		}
+		exprs[text] = expr
+
+		return expr, nil
+	}
+
+	kept := make([]policy.Grant, 0, len(released)+len(stored))
 	var skipped []*SkippedGrant
-	listed := collection.List()
-	for _, g := range grants {
-		if err := unlistedName(listed, &g); err != nil {
-			skipped = append(skipped, newSkippedGrant(&g, err))
+	for i, g := range slices.Concat(released, stored) {
+		if reason := rule.unusable(&g, i >= len(released), parse); reason != nil {
+			skipped = append(skipped, newSkippedGrant(&g, reason))
 
 			continue
 		}
-		if g.Condition != "" {
-			expr, ok := exprs[g.Condition]
-			if !ok {
-				if len(exprs) >= math.MaxUint16 {
-					return nil, nil, errors.Newf("too many distinct conditions to compile: limit %d", math.MaxUint16)
-				}
-				var err error
-				expr, err = condition.Parse(g.Condition)
-				if err != nil {
-					skipped = append(skipped, newSkippedGrant(&g, errors.Wrap(err, "the condition does not parse")))
-
-					continue
-				}
-				exprs[g.Condition] = expr
-			}
-			if g.Resource == "" && !condition.RowFree(expr) {
-				skipped = append(skipped, newSkippedGrant(&g, errors.New("a row-referencing condition on a scope-wide grant: a grant attached to no resource has no row for it to see")))
-
-				continue
-			}
+		if err := s.internNames(&g, collection); err != nil {
+			return nil, nil, err
 		}
 		kept = append(kept, g)
-		if _, ok := s.perms[g.Perm]; !ok {
-			if len(s.perms) >= math.MaxUint16 {
-				return nil, nil, errors.Newf("too many permissions to compile: limit %d", math.MaxUint16)
-			}
-			s.perms[g.Perm] = uint16(len(s.perms)) //nolint:gosec // bounded by the guard above
-			s.permNames = append(s.permNames, g.Perm)
-		}
-		resID, ok := s.resources[g.Resource]
-		if !ok {
-			if len(s.resources) >= math.MaxUint16 {
-				return nil, nil, errors.Newf("too many resources to compile: limit %d", math.MaxUint16)
-			}
-			resID = uint16(len(s.resources)) //nolint:gosec // bounded by the guard above
-			s.resources[g.Resource] = resID
-			s.resourceNames = append(s.resourceNames, g.Resource)
-			s.fields = append(s.fields, make(map[string]uint16))
-			s.scopes = append(s.scopes, collection.Scope(accesstypes.Resource(g.Resource)))
-		}
-		if g.Field != "" && g.Field != "*" {
-			if _, ok := s.fields[resID][g.Field]; !ok {
-				if len(s.fields[resID]) >= math.MaxUint16 {
-					return nil, nil, errors.Newf("too many fields on resource %q to compile: limit %d", g.Resource, math.MaxUint16)
-				}
-				s.fields[resID][g.Field] = uint16(len(s.fields[resID])) //nolint:gosec // bounded by the guard above
-			}
-		}
+	}
+	if len(exprs) > math.MaxUint16 {
+		return nil, nil, errors.Newf("too many distinct conditions to compile: limit %d", math.MaxUint16)
 	}
 
 	// Condition IDs sort by text so term sets — and the texts a decision
@@ -1012,6 +990,39 @@ func (s *snapshot) intern(grants []policy.Grant, collection PermissionCollection
 	}
 
 	return kept, skipped, nil
+}
+
+// internNames gives a kept grant's permission, resource and field their IDs,
+// each the first time the load meets it.
+func (s *snapshot) internNames(g *policy.Grant, collection PermissionCollection) error {
+	if _, ok := s.perms[g.Perm]; !ok {
+		if len(s.perms) >= math.MaxUint16 {
+			return errors.Newf("too many permissions to compile: limit %d", math.MaxUint16)
+		}
+		s.perms[g.Perm] = uint16(len(s.perms)) //nolint:gosec // bounded by the guard above
+		s.permNames = append(s.permNames, g.Perm)
+	}
+	resID, ok := s.resources[g.Resource]
+	if !ok {
+		if len(s.resources) >= math.MaxUint16 {
+			return errors.Newf("too many resources to compile: limit %d", math.MaxUint16)
+		}
+		resID = uint16(len(s.resources)) //nolint:gosec // bounded by the guard above
+		s.resources[g.Resource] = resID
+		s.resourceNames = append(s.resourceNames, g.Resource)
+		s.fields = append(s.fields, make(map[string]uint16))
+		s.scopes = append(s.scopes, collection.Scope(accesstypes.Resource(g.Resource)))
+	}
+	if g.Field != "" && g.Field != "*" {
+		if _, ok := s.fields[resID][g.Field]; !ok {
+			if len(s.fields[resID]) >= math.MaxUint16 {
+				return errors.Newf("too many fields on resource %q to compile: limit %d", g.Resource, math.MaxUint16)
+			}
+			s.fields[resID][g.Field] = uint16(len(s.fields[resID])) //nolint:gosec // bounded by the guard above
+		}
+	}
+
+	return nil
 }
 
 func (s *snapshot) compileScope(grants []policy.Grant, memberships []policy.Membership) *scopePolicy {

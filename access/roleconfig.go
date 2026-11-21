@@ -664,7 +664,8 @@ func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.
 // grants are of its own scope, since one on a resource of another scope would
 // be provisioned into a partition the role's holders never look in. It is the
 // part of the role file's rule a listed name can still break, and a write to a
-// custom role is held to it in the same sentences (userManager.requireDeclared).
+// custom role and a load of a role's stored grant are held to it in the same
+// sentences (grantRule.refusal).
 func misplacedGrant(store PermissionCollection, role accesstypes.Role, declared accesstypes.PermissionScope, perm accesstypes.Permission, res accesstypes.Resource, scope accesstypes.PermissionScope) error {
 	if perm == accesstypes.Update && store.IsResourceImmutable(scope, res) {
 		return errors.Newf("role %s cannot have update permission on immutable resource %s", role, res)
