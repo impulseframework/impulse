@@ -102,7 +102,7 @@ func Test_snapshot_zeroConditionsMatchesRBAC_random(t *testing.T) {
 	rng := rand.New(rand.NewPCG(20260911, 13))
 	for i := range 300 {
 		records := genConditionFreePolicy(rng)
-		snap, _, err := newSnapshot(records, nil, nil, time.Now())
+		snap, _, err := newSnapshot(records, nil, declaringRecords(records), time.Now())
 		if err != nil {
 			t.Fatalf("case %d: newSnapshot() error = %v\npolicy: %+v", i, err, records)
 		}

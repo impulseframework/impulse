@@ -78,7 +78,7 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, settings *Settings) (*Auth, error) {
-	engine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))
+	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles()))
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +197,7 @@ func TestDirectoryAdmission(t *testing.T) {
 		{
 			name: "no role file reaches the engine",
 			edit: func(files map[string]string) {
-				files["pkg/auth/staff/staff.go"] = strings.Replace(files["pkg/auth/staff/staff.go"], "access.WithDefaultRoles(collection, Roles())", "nil", 1)
+				files["pkg/auth/staff/staff.go"] = strings.Replace(files["pkg/auth/staff/staff.go"], ", access.WithDefaultRoles(Roles())", "", 1)
 			},
 			wantStatus:  Fail,
 			wantSummary: "2 directory admission wiring problem(s)",

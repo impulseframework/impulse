@@ -31,7 +31,14 @@ type Client struct {
 }
 
 // New creates a new Client over a policy store built by one of the store
-// subpackages (spannerstore, postgresstore).
+// subpackages (spannerstore, postgresstore) and the permission collection of
+// the running release: what the release declares, its permissions, resources
+// and fields. The collection is required, and New refuses a nil one. A stored
+// grant naming what the release does not declare (after a rollback, or once a
+// release drops a resource) is left out of the snapshot and reported as a
+// SkippedGrant instead of being carried as a grant nothing can check, the
+// writes that give a custom role a grant refuse a name the release does not
+// declare (UserManager.AddRoleGrant), and the role file validates against it.
 //
 // Permission checks are answered by the snapshot engine, compiled in-memory
 // from the release's default roles (WithDefaultRoles) and the policy store.
@@ -54,19 +61,20 @@ type Client struct {
 //
 // New fails when the role file does not parse or does not validate against
 // the collection: a release whose default roles are wrong does not start.
-func New(store Store, opts ...Option) (*Client, error) {
+func New(store Store, collection PermissionCollection, opts ...Option) (*Client, error) {
+	if collection == nil {
+		return nil, errors.New("access.New(): the collection must not be nil: pass the permission collection the release declares (the generated router's Collection()), which every grant is held to")
+	}
 	options := defaultClientOptions()
 	for _, opt := range opts {
 		opt(options)
 	}
+	options.collection = collection
 
 	// Every Client defines the Super Administrator role, with or without a role
 	// file: the file's roles are compiled beside it.
 	config := &RoleConfig{}
 	if options.roleFileSet {
-		if options.collection == nil {
-			return nil, errors.New("access.WithDefaultRoles(): the collection must not be nil; the role file validates against what the release declares")
-		}
 		var err error
 		config, err = options.roleFile.Parse()
 		if err != nil {
@@ -76,10 +84,10 @@ func New(store Store, opts ...Option) (*Client, error) {
 	// The methods a super administrator always runs are the application's wiring, not
 	// the role file's content: one the release does not declare is refused as that,
 	// before the file's grants are compiled.
-	if _, err := superAdministratorRole(options.collection, options.superMethods); err != nil {
+	if _, err := superAdministratorRole(collection, options.superMethods); err != nil {
 		return nil, errors.Wrap(err, "access.New()")
 	}
-	defaults, err := compileDefaultRoles(options.collection, config, options.superMethods)
+	defaults, err := compileDefaultRoles(collection, config, options.superMethods)
 	if err != nil {
 		if !options.roleFileSet {
 			return nil, errors.Wrap(err, "access.New()")
@@ -95,10 +103,10 @@ func New(store Store, opts ...Option) (*Client, error) {
 	return &Client{
 		evaluator:            snapEngine,
 		snapEngine:           snapEngine,
-		userManager:          newUserManager(manager, defaults, snapEngine, options.tenantAdministrators, options.collection),
+		userManager:          newUserManager(manager, defaults, snapEngine, options.tenantAdministrators, collection),
 		store:                store,
 		defaults:             defaults,
-		collection:           options.collection,
+		collection:           collection,
 		superMethods:         slices.Clone(options.superMethods),
 		tenantAdministrators: slices.Clone(options.tenantAdministrators),
 	}, nil
