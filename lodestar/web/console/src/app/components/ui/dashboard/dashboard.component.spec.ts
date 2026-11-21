@@ -52,6 +52,7 @@ const viewAs: ImpersonationRecord = {
   principalKind: 'User',
   principal: 'b3333333-3333-4333-8333-333333333333',
   mask: ['List', 'Read'],
+  maskWords: 'reading only',
   expiresAt: '2099-01-01T00:00:00Z',
 };
 
