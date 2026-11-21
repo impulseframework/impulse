@@ -559,10 +559,12 @@ func newAccessClient(t *testing.T, db *initiator.SpannerDB, roles access.RoleFil
 // alsoDeclared is the permission collection of a release that declared what this one
 // does and more: the generated collection, with the names in also listed beside its own,
 // each as that release held it, a sector's resource a role may be given the permission
-// on. Every other answer is the generated collection's.
+// on, and with the attributes in attributes on the resources that key them, each a text
+// a condition may compare. Every other answer is the generated collection's.
 type alsoDeclared struct {
 	access.PermissionCollection
-	also map[accesstypes.Permission][]accesstypes.Resource
+	also       map[accesstypes.Permission][]accesstypes.Resource
+	attributes map[accesstypes.Resource][]string
 }
 
 // lists reports whether res is one of the names in also.
@@ -597,6 +599,17 @@ func (d alsoDeclared) IsResourceImmutable(scope accesstypes.PermissionScope, res
 	return d.PermissionCollection.IsResourceImmutable(scope, res)
 }
 
+// AttributeComparisonType is text for an attribute in attributes, which the release that
+// declared it let a grant's condition read, and the generated collection's answer for
+// any other.
+func (d alsoDeclared) AttributeComparisonType(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) (accesstypes.AttributeType, bool) {
+	if slices.Contains(d.attributes[res], name) {
+		return accesstypes.AttributeTypeString, true
+	}
+
+	return d.PermissionCollection.AttributeComparisonType(scope, res, name)
+}
+
 // List is what the generated collection lists, and the names in also under their
 // permissions.
 func (d alsoDeclared) List() map[accesstypes.Permission][]accesstypes.Resource {
@@ -618,11 +631,29 @@ func (d alsoDeclared) List() map[accesstypes.Permission][]accesstypes.Resource {
 func engineOfAReleaseThatDeclared(t *testing.T, db *initiator.SpannerDB, also map[accesstypes.Permission][]accesstypes.Resource) *access.Client {
 	t.Helper()
 
+	return engineOfARelease(t, db, alsoDeclared{PermissionCollection: router.Collection(), also: also})
+}
+
+// engineOfAReleaseWithAttributes is engineOfAReleaseThatDeclared for a release whose
+// resources declared attributes this one's do not: the attributes named, each on the
+// resource that keys it. A condition that reads one is refused by the release's own
+// engine, so a test that needs one in the store writes it through this engine.
+func engineOfAReleaseWithAttributes(t *testing.T, db *initiator.SpannerDB, attributes map[accesstypes.Resource][]string) *access.Client {
+	t.Helper()
+
+	return engineOfARelease(t, db, alsoDeclared{PermissionCollection: router.Collection(), attributes: attributes})
+}
+
+// engineOfARelease opens an engine over the crew's store for the release whose
+// collection is given, handed no role file, and closes it when the test ends.
+func engineOfARelease(t *testing.T, db *initiator.SpannerDB, collection access.PermissionCollection) *access.Client {
+	t.Helper()
+
 	store, err := spannerstore.New(db.Client, spannerstore.WithPrefix(crew.TablePrefix))
 	if err != nil {
 		t.Fatalf("spannerstore.New() error = %v", err)
 	}
-	client, err := access.New(store, alsoDeclared{PermissionCollection: router.Collection(), also: also})
+	client, err := access.New(store, collection)
 	if err != nil {
 		t.Fatalf("access.New() error = %v", err)
 	}
