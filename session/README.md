@@ -1110,13 +1110,13 @@ the person reaches.
    - **By declaration**: the registration declares the directory as one that enforces
      a second factor, because the application administers it and knows it does (a
      Workspace's 2-Step Verification enforcement, a tenant's Conditional Access policy):
-     `google.Workspace("ccc", "example.com").Attesting()`,
+     `google.Workspace("staff", "example.com").Attesting()`,
      `azure.Tenant(id).Attesting()`. The event is `attested-by-declaration`. The
      declaration is for named Workspaces and listed tenants only; `AnyWorkspace`,
      `AnyGoogleAccount`, `AnyTenant` and `PersonalAccounts` admit organizations the
      application does not administer and are refused with it, so name the
      administered one beside the open entry:
-     `google.Workspaces(google.Workspace("ccc", "example.com").Attesting(), google.AnyGoogleAccount())`.
+     `google.Workspaces(google.Workspace("staff", "example.com").Attesting(), google.AnyGoogleAccount())`.
    An attested sign-in satisfies any `RequireMFA`, the application's own factors
    included, and is never held. A password never attests.
 2. **The browser is a trusted device.** A person who entered the code may ask for the
@@ -2736,7 +2736,7 @@ connection written on the identity link:
   `google.AnyAccountConnection`. The OAuth client's consent screen must be *External*
   and published for accounts outside your own Workspace to reach the callback;
   *Internal* restricts it to your Workspace.
-- **A Workspace that attests**, `google.Workspace("ccc", "example.com").Attesting()`:
+- **A Workspace that attests**, `google.Workspace("staff", "example.com").Attesting()`:
   the application administers the Workspace and declares that it enforces a second
   factor at every sign-in (2-Step Verification enforcement), so a sign-in through it
   carries the attestation by declaration and is never held for the library's code.
