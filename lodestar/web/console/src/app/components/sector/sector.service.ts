@@ -9,6 +9,7 @@ import {
   ApiError,
   Domain,
   DomainClient,
+  EveryQuery,
   Listable,
   ListQuery,
   Method,
@@ -285,14 +286,32 @@ export class SectorService {
    * sectorList derives a deck's list from the open sector: `select` picks the
    * handle off the sector-bound client, the loader re-runs when the sector changes,
    * sits idle while none is open, and never asks for a list the digest says the
-   * user cannot read. After a mutation, call .reload() on the affected lists. A deck
-   * that wants every row of a resource with no maximum page size passes
-   * `{ limit: 'all' }`; a resource with a maximum is read a page at a time (sectorPage).
+   * user cannot read. After a mutation, call .reload() on the affected lists. It reads
+   * one page, the resource's default where the query names no limit: a deck that draws
+   * every row reads with sectorEvery, and one that pages with sectorPage.
    */
   sectorList<Row>(select: (sector: SectorApi) => ListHandle<Row>, query?: ListQuery<Row>): ResourceRef<Row[]> {
     return resource({
       params: this.grantedSector(select),
       loader: ({ params }) => (params.handle ? params.handle.list(query) : Promise.resolve([])),
+      defaultValue: [],
+    });
+  }
+
+  /**
+   * sectorEvery is sectorList for a deck that draws every row of a resource, a board and
+   * not a list: the hangar deck's bays hold every refit of the sector, however many there
+   * are. The rows are read by the client's own reader of every row (a handle's `every`):
+   * one request where the resource declares no maximum page size, a page of the maximum
+   * at a time to the end where it declares one, and the deck gets the rows once, all of
+   * them. The read is asked again when the sector or the answer to the List question
+   * changes, and not when a digest arrives that changes neither, so a deck that is drawn
+   * stays drawn.
+   */
+  sectorEvery<Row>(select: (sector: SectorApi) => ListHandle<Row>, query?: EveryQuery<Row>): ResourceRef<Row[]> {
+    return resource({
+      params: this.grantedSector(select),
+      loader: ({ params }) => (params.handle ? params.handle.every(query) : Promise.resolve([])),
       defaultValue: [],
     });
   }

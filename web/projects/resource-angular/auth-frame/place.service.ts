@@ -1,10 +1,11 @@
 import { computed, DestroyRef, effect, inject, Injectable, signal } from '@angular/core';
-import { Router, UrlTree } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { NavigationEnd, ResolveEnd, Router, UrlTree } from '@angular/router';
 import { Domain } from '@impulseframework/resource';
-import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { AuthService, UnreadPage } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { BASE_URL } from '@impulseframework/resource-angular/types';
-import { firstValueFrom } from 'rxjs';
+import { filter, firstValueFrom } from 'rxjs';
 import { Frame } from './frame';
 import { MenuService } from './menu.service';
 import { TenantService } from './tenant.service';
@@ -50,6 +51,14 @@ const rememberedOutside = '@outside';
  *
  * The open place is still the URL's, as TenantService says: a page under the tenant
  * segment is in that tenant, and any other page is outside every tenant.
+ *
+ * Where a person lands, and whether they hold anything outside every tenant, is read from
+ * the global permission digest. A digest that could not be read answers neither: `ready`
+ * rejects, the guards that asked send the navigation to the root address with the address
+ * that was asked for (unreadPageRedirect), and `unread` is true while that navigation is
+ * the one that landed, or while the global digest is unread whoever asked for it (the
+ * read at sign-in among them). The frame then draws "This page could not be loaded" with
+ * Try again in the page's place, and `tryAgain` reads again.
  */
 @Injectable({ providedIn: 'root' })
 export class PlaceService {
@@ -100,17 +109,69 @@ export class PlaceService {
     return id ? { id, label: this.client.permissions.domainName(id as Domain) } : this.outside();
   });
 
+  // The address the landed navigation was asked for and no guard could decide, because
+  // what the person holds could not be read: written by the landing navigation, nothing else.
+  private unreadUrl = signal('');
+
+  // A Try again under way, and whether the person's places were known as it began. Its
+  // reads land before the page it asks for is drawn, so what the frame and the place
+  // switcher say holds until it ends.
+  private retry = signal<{ readonly known: boolean } | undefined>(undefined);
+
+  /**
+   * Whether the page under the top bar could not be loaded because what the person holds
+   * could not be read: a guard sent the navigation that landed to the root address for it,
+   * the global digest is unread, or the person's list of tenants is. The frame draws that
+   * in the page's place, and no page under it, since nothing says what the person may see
+   * there. It holds through a Try again, until the page that was asked for is in: a list
+   * that has just been read is not yet the page the person asked for.
+   */
+  readonly unread = computed(
+    () =>
+      this.retry() !== undefined ||
+      this.unreadUrl() !== '' ||
+      this.auth.digestUnread() ||
+      (this.frame.tenanted && this.auth.domainsUnread()),
+  );
+
+  /**
+   * Whether the person's places are known: their list of tenants has been read, in an
+   * application that has tenants. Until it is, `places` holds no tenant and says nothing
+   * of which the person is in; the place switcher draws nothing. Through a Try again it
+   * stays what it was as the retry began, so a list read on the way to a tenant's page
+   * never draws the person as outside every tenant first.
+   */
+  readonly known = computed(() => this.retry()?.known ?? (!this.frame.tenanted || this.auth.hasDomains()));
+
   constructor() {
+    // What the frame says is settled by the navigation that lands, as the tenant is: only
+    // a navigation a guard sent to the root address because it could not read carries the
+    // address that was asked for, and any other landing clears it. A navigation that
+    // lands where the router already is reports no ResolveEnd, so the end of every
+    // navigation settles it too.
+    this.router.events
+      .pipe(
+        filter((event) => event instanceof ResolveEnd || event instanceof NavigationEnd),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => {
+        const info = this.router.currentNavigation()?.extras.info;
+        this.unreadUrl.set(info instanceof UnreadPage ? info.url : '');
+      });
+
     // Remember where the person works, so the next sign-in lands there. The place outside
     // every tenant is remembered only for a person who holds something in it. A navigation
     // under way has settled the tenant before it has drawn its page (the frame of the page
     // being left still stands while a lazy page loads), so nothing is remembered until it
-    // ends, and then only under a frame. A person who works somewhere has landed: the
-    // tenant an invitation they accepted led to is no longer where they land.
+    // ends, and then only under a frame. A frame that says the page could not be loaded is
+    // in no place: nothing is remembered under it, so a read that fails never moves where
+    // the person lands next. A person who works somewhere has landed: the tenant an
+    // invitation they accepted led to is no longer where they land.
     effect(() => {
       const place = this.current();
       const username = this.auth.sessionInfo().username;
       if (this.router.currentNavigation() || !this.frames()) return;
+      if (this.unread()) return;
       if (!this.auth.authenticated() || !username) return;
       if (!place.id && !this.holdsOutside()) return;
       try {
@@ -133,10 +194,12 @@ export class PlaceService {
   }
 
   /**
-   * Waits until the person's places are known: the global digest and the tenant list. The
-   * list is read again when it does not hold the tenant an invitation the person has just
-   * accepted seated them in: a person who accepts as they are was signed in, and had the
-   * list, before the seat was made.
+   * Waits until the person's places are known: the global digest and the tenant list. It
+   * rejects where either cannot be read: nothing then says where the person lands, what
+   * they hold outside every tenant or which tenants they are in, which is not a person who
+   * holds nothing or is in no tenant. The list is read again when it does not hold the
+   * tenant an invitation the person has just accepted seated them in: a person who accepts
+   * as they are was signed in, and had the list, before the seat was made.
    */
   async ready(): Promise<void> {
     if (!this.auth.hasDigest()) {
@@ -147,6 +210,26 @@ export class PlaceService {
     const invited = this.auth.invitedTenant();
     if (!tenants.length || (invited && !tenants.includes(invited))) {
       await firstValueFrom(this.auth.loadDomains());
+    }
+  }
+
+  /**
+   * tryAgain reads again what could not be read, for the frame's Try again. The global
+   * digest and the tenant list are read first where they are not held; a read that fails
+   * again leaves everything as it is. Then the page a guard could not decide is asked for
+   * again, through its guards (the root address is asked for as where the person lands,
+   * since its guard does not run again on the address the router is already at); a
+   * tenant's page the tenant guard could not decide is asked for the same way, so one Try
+   * again draws it. Where no guard was waiting, the page under the frame draws once the
+   * reads are in. Until it ends the frame says what it said (`unread`, `known`): nothing
+   * is drawn between the failure and the page.
+   */
+  async tryAgain(): Promise<void> {
+    this.retry.set({ known: this.known() });
+    try {
+      await this.again();
+    } finally {
+      this.retry.set(undefined);
     }
   }
 
@@ -191,6 +274,21 @@ export class PlaceService {
   }
 
   /** The place outside every tenant, by the name the application gives it. */
+  /** Reads again what could not be read, then asks again for the page that was asked for. */
+  private async again(): Promise<void> {
+    try {
+      await this.ready();
+    } catch {
+      return;
+    }
+    const asked = this.unreadUrl() || this.tenants.unread();
+    if (!asked) {
+      return;
+    }
+    const tree = this.router.parseUrl(asked);
+    await this.router.navigateByUrl(tree.root.hasChildren() ? tree : this.landing(this.defaultPlace()));
+  }
+
   private outside(): Place {
     return { id: '', label: this.frame.outside.label };
   }

@@ -60,6 +60,7 @@
             "tsConfig": "projects/resource-angular/tsconfig.spec.json",
             "exclude": [
               "styles/theme-contract.test.ts",
+              "styles/global-classes.test.ts",
               "boundaries.test.ts",
               "cycles.test.ts",
               "types/icon-names.test.ts"

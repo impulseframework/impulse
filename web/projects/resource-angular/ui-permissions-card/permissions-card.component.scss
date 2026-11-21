@@ -1,0 +1,138 @@
+:host {
+  display: block;
+}
+
+// The mark is as wide as the card and has no height, whatever the card holds: its width is
+// the room the card has, and no change of layout resizes it.
+.width-mark {
+  height: 0;
+}
+
+// The frame is as wide as the card gives it and never as wide as what it holds: a table
+// too wide for the card must not widen a page that sizes itself by its content, or the
+// card would measure room it does not have.
+.frame {
+  contain: inline-size;
+}
+
+// The table: a column per permission, every cell on one line, so the table's own width is
+// the width its columns need.
+.permissions {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  th,
+  td {
+    padding: 4px 8px;
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--mat-sys-outline-variant);
+  }
+
+  th {
+    font-weight: 500;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  .resource-name {
+    font-weight: 500;
+  }
+
+  .scope {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  // The permission's name beside its answer: shown where the card is drawn as blocks
+  // (below), where no column heading stands over the cell.
+  .permission {
+    display: none;
+    font-size: 11px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  .nothing-held {
+    white-space: normal;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  .masked {
+    background: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 6px,
+      color-mix(in srgb, var(--mat-sys-primary) 15%, transparent) 6px,
+      color-mix(in srgb, var(--mat-sys-primary) 15%, transparent) 12px
+    );
+  }
+}
+
+// The blocks: a card too narrow for its columns draws each resource as a block of its own,
+// the name on a line and under it the permissions, each named beside its answer, wrapping
+// as the card needs. Nothing runs past the edge and nothing scrolls sideways.
+.permissions.blocks {
+  display: block;
+
+  thead {
+    display: none;
+  }
+
+  tbody {
+    display: block;
+  }
+
+  tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--mat-sys-outline-variant);
+  }
+
+  td {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-bottom: 0;
+    border-radius: 10px;
+  }
+
+  .resource-name,
+  .nothing-held {
+    display: block;
+    flex: 0 0 100%;
+    padding: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .permission {
+    display: inline;
+  }
+}
+
+.pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: var(--mat-sys-surface-container-high);
+
+  &.granted {
+    background: var(--mat-sys-primary-container);
+    color: var(--mat-sys-on-primary-container);
+  }
+
+  &.conditional {
+    background: var(--mat-sys-tertiary-container);
+    color: var(--mat-sys-on-tertiary-container);
+  }
+
+  &.absent {
+    color: var(--mat-sys-on-surface-variant);
+  }
+}

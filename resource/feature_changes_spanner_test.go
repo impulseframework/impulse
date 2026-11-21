@@ -233,6 +233,19 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 					if strings.Contains(rr.Body.String(), `"changes"`) {
 						t.Errorf("a refusal carries flips: %s", rr.Body.String())
 					}
+					if tt.wantStatus == http.StatusForbidden {
+						// The person is told one sentence, with no account's id, no table's
+						// name and no column's.
+						var refusal struct {
+							Message string `json:"message"`
+						}
+						if err := json.Unmarshal(rr.Body.Bytes(), &refusal); err != nil {
+							t.Fatalf("json.Unmarshal() error = %v: %s", err, rr.Body.String())
+						}
+						if want := "You may not see this flag's history here."; refusal.Message != want {
+							t.Errorf("the refusal says %q, want %q", refusal.Message, want)
+						}
+					}
 
 					return
 				}

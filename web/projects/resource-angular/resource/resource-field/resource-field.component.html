@@ -108,6 +108,11 @@
       }
     }
   }
+  @if (saysNeverShownAgain()) {
+    <p class="never-shown-again">
+      What you type here is saved, but it is never shown again. This box is empty every time the form opens.
+    </p>
+  }
 </div>
 
 <ng-template #booleanFragment>
