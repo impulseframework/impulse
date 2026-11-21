@@ -23,8 +23,7 @@ func declaredWhy(asked, reason string) string {
 // is given, are refused as a bad request that says which and why, and nothing of the
 // call is written, the rows beside the refused one included. A name the collection
 // lists is written, a grant of all of a resource's fields among them. A removal is held
-// to nothing, so a grant the release no longer declares can be taken away. A Client
-// handed no collection checks no name, as its load of the policy checks none.
+// to nothing, so a grant the release no longer declares can be taken away.
 func TestUserManager_grantsHeldToTheCollection(t *testing.T) {
 	t.Parallel()
 
@@ -34,10 +33,8 @@ func TestUserManager_grantsHeldToTheCollection(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
-		// noCollection builds the Client with no permission collection.
-		noCollection bool
-		write        func(ctx context.Context, manager UserManager) error
+		name  string
+		write func(ctx context.Context, manager UserManager) error
 		// wantRefused is the bad request's message; empty when the write is made.
 		wantRefused string
 		// want are the grants the role holds afterwards, as "permission resource.field".
@@ -114,14 +111,6 @@ func TestUserManager_grantsHeldToTheCollection(t *testing.T) {
 			want: []string{"Read ."},
 		},
 		{
-			name:         "AddRolePermission: a Client handed no collection checks no name",
-			noCollection: true,
-			write: func(ctx context.Context, manager UserManager) error {
-				return manager.AddRolePermission(ctx, tenant1Policy, tester, "Frobnicate")
-			},
-			want: []string{"Frobnicate ."},
-		},
-		{
 			name: "AddRoleGrants: one row the release does not declare refuses the call, and nothing is written",
 			write: func(ctx context.Context, manager UserManager) error {
 				return manager.AddRoleGrants(ctx, tenant1Policy, tester, read("Widgets"), read("Gadgets"), read("Widgets.name"))
@@ -156,14 +145,6 @@ func TestUserManager_grantsHeldToTheCollection(t *testing.T) {
 			},
 			want: []string{"Read Widgets."},
 		},
-		{
-			name:         "a Client handed no collection checks no name",
-			noCollection: true,
-			write: func(ctx context.Context, manager UserManager) error {
-				return manager.AddRoleGrants(ctx, tenant1Policy, tester, read("Gadgets"), GrantRow{Permission: accesstypes.Execute, Resource: createWidgetShop})
-			},
-			want: []string{"Execute CreateWidgetShop.", "Read Gadgets."},
-		},
 	}
 
 	for _, tt := range tests {
@@ -172,11 +153,7 @@ func TestUserManager_grantsHeldToTheCollection(t *testing.T) {
 
 			ctx := context.Background()
 			store := newFakeStore()
-			var opts []Option
-			if !tt.noCollection {
-				opts = append(opts, WithPermissionCollection(markedActionCollection{}))
-			}
-			manager := newPolicyClient(t, store, opts...).UserManager()
+			manager := newPolicyClient(t, store, markedActionCollection{}).UserManager()
 			if err := manager.AddRole(ctx, tenant1Policy, tester, aDescription); err != nil {
 				t.Fatalf("AddRole() error = %v", err)
 			}

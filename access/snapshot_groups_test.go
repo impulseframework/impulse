@@ -215,7 +215,7 @@ func Test_snapshot_groups_places(t *testing.T) {
 			{Scope: globalPolicy, Member: groupSubject("night"), Role: "Operator"},
 		},
 	}
-	snap, findings, err := newSnapshot(records, nil, nil, time.Now())
+	snap, findings, err := newSnapshot(records, nil, declaringRecords(records), time.Now())
 	if err != nil {
 		t.Fatalf("newSnapshot() error = %v", err)
 	}

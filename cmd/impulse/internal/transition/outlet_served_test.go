@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -111,6 +112,30 @@ func lineOf(t *testing.T, a *app.App, rel, text string) int {
 	return at
 }
 
+// wantLinesHold fails the test for each line a report names that does not hold the text
+// in the application's file. The places are as a report lists them: each file with its
+// line numbers, "README.md:3, 5", the files parted by "; ".
+func wantLinesHold(t *testing.T, a *app.App, places, text string) {
+	t.Helper()
+
+	for place := range strings.SplitSeq(places, "; ") {
+		rel, numbers, found := strings.Cut(place, ":")
+		if !found {
+			t.Fatalf("the place %q names no line", place)
+		}
+		lines := strings.Split(read(t, a, rel), "\n")
+		for number := range strings.SplitSeq(numbers, ", ") {
+			n, err := strconv.Atoi(number)
+			if err != nil || n < 1 || n > len(lines) {
+				t.Fatalf("%s: %q is no line of the file, which has %d", rel, number, len(lines))
+			}
+			if !strings.Contains(lines[n-1], text) {
+				t.Errorf("%s:%d does not hold %q; the line is %q", rel, n, text, lines[n-1])
+			}
+		}
+	}
+}
+
 // wantGoAsGofmtWritesIt holds every hand-written Go file of the application to parsing and
 // to gofmt's layout, which impulse check holds a new application to.
 func wantGoAsGofmtWritesIt(t *testing.T, a *app.App) {
@@ -156,19 +181,17 @@ func wantGoAsGofmtWritesIt(t *testing.T, a *app.App) {
 func TestOutletApplyServesASessionOutlet(t *testing.T) {
 	t.Parallel()
 
-	base := newBase(t, "staff")
-	// The change reports the line of app/app.go that built the console's served browser
-	// app at the root by its number in the file the command read. Where the line is in the
-	// base is the base's to say, so the number is read from the base before the command
-	// runs: a line added to the base above it moves both.
-	atRoot := lineOf(t, base, "app/app.go", `resource.NewBrowserApp(cfg.ConsoleDist(), "/")`)
-	a, ch := applied(t, base, Outlet{Name: "portal", Prefix: "portal/api", Sessions: true})
+	a, ch := applied(t, newBase(t, "staff"), Outlet{Name: "portal", Prefix: "portal/api", Sessions: true})
 
 	if diff := cmp.Diff([]string(nil), ch.Skipped); diff != "" {
 		t.Errorf("Skipped mismatch (-want +got):\n%s", diff)
 	}
+	// The change names the line of app/app.go that builds the console's served browser app
+	// by its number in the file as the command leaves it, which is where the author opens
+	// it: the same command adds the outlet's accessor and field above the line.
+	mounted := lineOf(t, a, "app/app.go", `resource.NewBrowserApp(cfg.ConsoleDist(), "/console")`)
 	wantDid(t, ch,
-		fmt.Sprintf(`app/app.go:%d: the App builds the console's served browser app under /console, where the generated router mounts it now: NewBrowserApp(..., "/console") in place of "/"`, atRoot),
+		fmt.Sprintf(`app/app.go:%d: the App builds the console's served browser app under /console, where the generated router mounts it now: NewBrowserApp(..., "/console") in place of "/"`, mounted),
 		`pkg/config/data.go: the staff auth is told the console's pages where they are now, under /console: MailLoginURL "/console/login"`,
 		`app/app.go: Configurer asks for PortalDist(), App holds portalApp, and New builds it (resource.NewBrowserApp(cfg.PortalDist(), "/portal")), so the App serves the portal's built bundle under /portal`,
 		"app/portal_outlet.go: App declares Portal(), PortalDeepLink, and PortalAssets, which the generated router's Handlers requires of it for the portal outlet",
@@ -189,6 +212,10 @@ func TestOutletApplyServesASessionOutlet(t *testing.T) {
 			t.Errorf("the rewrite's line lacks %q: %s", want, ch.Did[renamed])
 		}
 	}
+	// Each line it names is the line as the command leaves the file: it names the new
+	// prefix there.
+	_, places, _ := strings.Cut(ch.Did[renamed], "read each line: ")
+	wantLinesHold(t, a, places, "/console/api")
 
 	if diff := cmp.Diff(portalOutletFile, read(t, a, "app/portal_outlet.go")); diff != "" {
 		t.Errorf("app/portal_outlet.go mismatch (-want +got):\n%s", diff)
@@ -225,6 +252,34 @@ func TestOutletApplyServesASessionOutlet(t *testing.T) {
 		}
 	}
 	wantGoAsGofmtWritesIt(t, a)
+}
+
+// TestOutletApplyNamesWhatItLeavesWhereItIs pins the line number of what the console's
+// move leaves for the author: the number of the line in the file as the command leaves
+// it. The application names a path the rewrite does not read as the console's old prefix,
+// at the foot of the file whose test configurer the same command gives the outlet's
+// accessor, above it.
+func TestOutletApplyNamesWhatItLeavesWhereItIs(t *testing.T) {
+	t.Parallel()
+
+	const harness = "test/integration/harness_test.go"
+	base := newBase(t, "staff")
+	if err := os.WriteFile(base.Abs(harness), []byte(read(t, base, harness)+"\nconst olderRoute = \"/api-v1/ping\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base, err := app.Discover(base.Root)
+	if err != nil {
+		t.Fatalf("app.Discover() error = %v", err)
+	}
+	a, ch := applied(t, base, Outlet{Name: "portal", Prefix: "portal/api", Sessions: true})
+
+	if !strings.Contains(read(t, a, harness), "func (c *servedConfigurer) PortalDist() string { return \"\" }\n") {
+		t.Fatalf("%s gained no accessor for the outlet, so nothing moved the line the case is about", harness)
+	}
+	want := []string{fmt.Sprintf(`%s:%d: names "/api", the console's old prefix, in a string literal; the console's API is now /console/api`, harness, lineOf(t, a, harness, `"/api-v1/ping"`))}
+	if diff := cmp.Diff(want, ch.Skipped); diff != "" {
+		t.Errorf("Skipped mismatch (-want +got):\n%s", diff)
+	}
 }
 
 // TestOutletApplyIssuesAMachineOutletsTokens pins what add outlet writes for a machine

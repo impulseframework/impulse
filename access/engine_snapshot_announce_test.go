@@ -114,7 +114,7 @@ func announcingClientOver(t *testing.T, store Store, signal ChangeSignal) (clien
 		mu       sync.Mutex
 		received []error
 	)
-	client, err := New(store, WithChangeSignal(signal), WithReloadErrorHandler(func(err error) {
+	client, err := New(store, fixtureCollection, WithChangeSignal(signal), WithReloadErrorHandler(func(err error) {
 		mu.Lock()
 		defer mu.Unlock()
 		received = append(received, err)
