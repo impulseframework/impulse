@@ -127,13 +127,14 @@ func TestManager_InviteTenant(t *testing.T) {
 			wantAsked: 1,
 		},
 		{
-			name:   "a starting role the sender may not give is refused, naming it",
+			name:   "a starting role the sender may not give is refused in one sentence, and the log names it",
 			inv:    TenantInvitation{Email: "pat@example.com", TenantName: "Dawn", Fields: fields, DefaultRole: ptr("Keeper")},
 			caller: dana,
 			maker:  &fakeMaker{seats: true},
 			grants: &fakeGrants{noGive: []accesstypes.Role{"Keeper"}},
 			wantErr: func(err error) bool {
-				return httpio.HasForbidden(err) && strings.Contains(httpio.Message(err), "Keeper")
+				return httpio.HasForbidden(err) && strings.Contains(err.Error(), "Keeper") &&
+					httpio.Message(err) == "The people of the new tenant's directory would start with a role you may not give."
 			},
 			wantAsked: 1,
 		},

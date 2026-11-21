@@ -73,6 +73,9 @@ func TestManager_OpenSignUp(t *testing.T) {
 		// refused says how a refusal answers, and wantHas what its words say.
 		refused func(err error) bool
 		wantHas string
+		// wantTold is the one sentence a person refused for the role is sent; wantHas
+		// is then kept in the refusal's cause, which the server's log prints.
+		wantTold string
 		// wantAsked is what the role file's grants were asked.
 		wantAsked []string
 	}{
@@ -95,6 +98,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 			open:   SignUp{Method: "google", DefaultRole: "Steward"},
 			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Steward"}},
 			refused: httpio.HasForbidden, wantHas: "the role Steward, which you may not give",
+			wantTold:  "Opening the method gives every person who signs up a role you may not give.",
 			wantAsked: askedToGive("Steward"),
 		},
 		{
@@ -137,6 +141,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 			open:   SignUp{Method: "google", DefaultRole: "Ghost"},
 			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Ghost"}},
 			refused: httpio.HasForbidden, wantHas: "opening the method gives every person who signs up the role Ghost, which you may not give: choose a role you may give, or have someone who may give Ghost open the method",
+			wantTold:  "Opening the method gives every person who signs up a role you may not give.",
 			wantAsked: askedToGive("Ghost"),
 		},
 		{
@@ -208,6 +213,9 @@ func TestManager_OpenSignUp(t *testing.T) {
 				}
 			} else if !tt.refused(err) || !containsText(err, tt.wantHas) {
 				t.Fatalf("OpenSignUp() error = %v, want the refusal saying %q", err, tt.wantHas)
+			}
+			if tt.wantTold != "" {
+				toldPlainly(t, err, tt.wantTold, string(tt.open.DefaultRole))
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
@@ -347,6 +355,7 @@ func TestManager_OpenSignUpWarning_roleTheCallerMayNotGive(t *testing.T) {
 	if !httpio.HasForbidden(err) || !containsText(err, "the role Steward, which you may not give") {
 		t.Errorf("OpenSignUpWarning() error = %v, want it forbidden, naming the role", err)
 	}
+	toldPlainly(t, err, "Opening the method gives every person who signs up a role you may not give.", "Steward")
 }
 
 func TestManager_MakeInviteOnly(t *testing.T) {
