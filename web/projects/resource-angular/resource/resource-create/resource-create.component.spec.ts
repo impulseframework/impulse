@@ -264,6 +264,146 @@ describe('ResourceCreateComponent over the read-only shapes and a write-only fie
   });
 });
 
+// A create that the form refuses (a required field left empty) is not sent, and the first
+// field it refuses is brought into view in whatever scrolls around the form: on a phone the
+// form is longer than the window, and the field may be far above the Create button's row
+// or far below it.
+describe('ResourceCreateComponent brings the first field it refuses into view', () => {
+  const probes = 'Probes' as Resource;
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [probes]: {
+        resource: probes,
+        property: 'probes',
+        route: 'probes',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read', 'create'],
+      },
+    },
+  };
+  const fieldMeta = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
+    ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
+  const meta: ResourceMeta = {
+    route: 'probes',
+    fields: [
+      fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }),
+      fieldMeta('notes'),
+      fieldMeta('name', { required: true }),
+      fieldMeta('callSign', { required: true }),
+    ],
+  };
+
+  let fixture: ComponentFixture<ResourceCreateComponent>;
+  let component: ResourceCreateComponent;
+  let transport: ScriptedTransport;
+  /** What was brought into view, and how, in the order it was asked. */
+  let shown: { element: Element; how: unknown }[];
+
+  const fill = (name: string, value: string): void => {
+    const control = component.form().get(name) as AbstractControl<unknown>;
+    control.setValue(value);
+    control.markAsDirty();
+    fixture.detectChanges();
+  };
+  const labelOf = (element: Element): string | undefined => element.querySelector('mat-label')?.textContent?.trim();
+  const sent = (): number => transport.requests.filter((request) => request.method === 'PATCH').length;
+
+  beforeEach(async () => {
+    shown = [];
+    // jsdom lays nothing out and scrolls nothing: what is asked of it is kept.
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value(this: Element, how: unknown): void {
+        shown.push({ element: this, how });
+      },
+    });
+    transport = scriptedTransport((request: TransportRequest): TransportResponse => {
+      if (request.method === 'PATCH') {
+        return { status: 200, body: { probes: ['p-1'] } };
+      }
+      return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+    });
+    await TestBed.configureTestingModule({
+      imports: [ResourceCreateComponent],
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === probes ? meta : undefined),
+        },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(ResourceCreateComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput(
+      'resourceConfig',
+      viewConfig({
+        primaryResource: probes,
+        elements: [
+          field({ name: 'notes' as FieldName, label: 'Notes' }),
+          field({ name: 'name' as FieldName, label: 'Name' }),
+          field({ name: 'callSign' as FieldName, label: 'Call sign' }),
+        ],
+      }),
+    );
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
+  it('the first required field left empty, with its label, in the middle of what scrolls, and sends nothing', () => {
+    fill('notes', 'Hold at the outer marker.');
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(sent()).toBe(0);
+    expect(shown.length).toBe(1);
+    expect(shown[0].element.tagName.toLowerCase()).toBe('mat-form-field');
+    expect(labelOf(shown[0].element)).toBe('Name');
+    expect(shown[0].how).toEqual({ behavior: 'smooth', block: 'center' });
+    // The field is one of this form's own: it is found with no id on the page to look it up by.
+    expect((fixture.nativeElement as HTMLElement).contains(shown[0].element)).toBe(true);
+    expect(document.getElementById('resource-form')).toBeNull();
+  });
+
+  it('the next one, once the first is filled', () => {
+    fill('name', 'Kestrel');
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(sent()).toBe(0);
+    expect(shown.map(({ element }) => labelOf(element))).toEqual(['Call sign']);
+  });
+
+  it('nothing, once the form refuses no field: the create is sent', async () => {
+    fill('name', 'Kestrel');
+    fill('callSign', 'Anvil 1');
+
+    component.saveForm();
+    for (let i = 0; i < 30 && sent() === 0; i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(sent()).toBe(1);
+    expect(shown).toEqual([]);
+  });
+});
+
 // The page's own create opens the new row on the page's route as the config wrote it,
 // the tenant put in where the route names the parameter (the route's own when the page
 // is under it, else the selected tenant); a page naming no route, or a create under a

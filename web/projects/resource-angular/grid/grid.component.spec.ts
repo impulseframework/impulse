@@ -632,6 +632,109 @@ describe('a text cut short', () => {
     expect(tooltip()).toBeNull();
   });
 
+  describe('under the keyboard', () => {
+    /** The rows drawn again, as after a read. */
+    const drawnAgain = async (): Promise<void> => {
+      fixture.componentRef.setInput('rowData', [...(fixture.componentInstance.rowData() as RecordData[])]);
+      await settle();
+    };
+    /** A key pressed with the focus somewhere on the page, outside the list. */
+    const press = async (key: string): Promise<void> => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      await settle();
+    };
+    /** A text measured as `measured` says, that counts how often its width is asked for. */
+    const watched = (text: HTMLElement, textWidth: number, boxWidth: number): { looks: number } => {
+      const seen = { looks: 0 };
+      Object.defineProperty(text, 'scrollWidth', {
+        configurable: true,
+        get: (): number => {
+          seen.looks++;
+          return textWidth;
+        },
+      });
+      Object.defineProperty(text, 'clientWidth', { configurable: true, value: boxWidth });
+      return seen;
+    };
+
+    it('a cell is a stop of the Tab key where its text is cut, and no stop where it fits or draws its value, once the key is pressed', async () => {
+      measured(cell(0, 1), 620, 180);
+      measured(cell(1, 1), 40, 180);
+      // A yes-or-no cell draws a mark: it has no text to cut, however narrow it is.
+      measured(cell(0, 2), 620, 20);
+      await drawnAgain();
+      // Drawn, and the Tab key not pressed: no cell is a stop, and another key makes none.
+      expect(cell(0, 1).hasAttribute('tabindex')).toBe(false);
+      await press('ArrowDown');
+      expect(cell(0, 1).hasAttribute('tabindex')).toBe(false);
+
+      await press('Tab');
+      expect(cell(0, 1).getAttribute('tabindex')).toBe('0');
+      expect(cell(1, 1).hasAttribute('tabindex')).toBe(false);
+      expect(cell(0, 0).hasAttribute('tabindex')).toBe(false);
+      expect(cell(0, 2).hasAttribute('tabindex')).toBe(false);
+    });
+
+    it('looks at no cell when the list is drawn, at each once when the Tab key is pressed, and not again until what the list draws has changed', async () => {
+      const seen = watched(cell(0, 1), 620, 180);
+      await drawnAgain();
+      expect(seen.looks).toBe(0);
+
+      await press('Tab');
+      expect(seen.looks).toBe(1);
+      await press('Tab');
+      await press('Tab');
+      expect(seen.looks).toBe(1);
+
+      await drawnAgain();
+      expect(seen.looks).toBe(1);
+      await press('Tab');
+      expect(seen.looks).toBe(2);
+    });
+
+    it('looks again once a column has been dragged to another width', async () => {
+      const seen = watched(cell(0, 1), 620, 180);
+      await press('Tab');
+      expect(seen.looks).toBe(1);
+
+      const handle = element.querySelectorAll<HTMLElement>('thead th.data-col')[1].querySelector('.resize-handle');
+      handle?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 400 }));
+      document.dispatchEvent(new MouseEvent('mousemove', { clientX: 900 }));
+      document.dispatchEvent(new MouseEvent('mouseup'));
+      await settle();
+      expect(seen.looks).toBe(1);
+
+      await press('Tab');
+      expect(seen.looks).toBe(2);
+    });
+
+    it('a cut cell takes the focus and shows its text whole there, as under the pointer', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      await press('Tab');
+
+      cut.focus();
+      expect(document.activeElement).toBe(cut);
+      cut.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      await nextFrame();
+      expect(tooltip()).toBe(notes);
+
+      cut.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      await settle();
+      expect(tooltip()).toBeNull();
+    });
+
+    it('a cell is no stop any more once its text fits', async () => {
+      const text = measured(cell(0, 1), 620, 180);
+      await press('Tab');
+      expect(text.getAttribute('tabindex')).toBe('0');
+
+      measured(text, 620, 700);
+      await drawnAgain();
+      await press('Tab');
+      expect(text.hasAttribute('tabindex')).toBe(false);
+    });
+  });
+
   describe('the anchor the tooltip is hung on', () => {
     const box = (left: number, top: number, width: number, height: number): DOMRect => {
       return { left, top, width, height, right: left + width, bottom: top + height } as DOMRect;
@@ -2788,6 +2891,31 @@ describe('a list and the width of its frame', () => {
         expect(reads).toBeGreaterThan(first);
         leave();
         expect(fonts.listening).toBe(false);
+      });
+
+      it('looks again for the cells the Tab key stops on once a font has arrived, since a text is cut or whole by its letters', async () => {
+        await plain();
+        frameIs(phone);
+        const text = element.querySelector('tr.impulse-row td.data-col') as HTMLElement;
+        let looks = 0;
+        Object.defineProperty(text, 'scrollWidth', {
+          configurable: true,
+          get: (): number => {
+            looks++;
+            return 620;
+          },
+        });
+        Object.defineProperty(text, 'clientWidth', { configurable: true, value: 180 });
+        const tab = (): boolean =>
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+        tab();
+        tab();
+        expect(looks).toBe(1);
+        expect(text.getAttribute('tabindex')).toBe('0');
+
+        fonts.arrived();
+        tab();
+        expect(looks).toBe(2);
       });
 
       it('grows a column whose text needs more in the letters of a font that arrives, and narrows none: the width a column grew to on a page a person has left stays', async () => {
