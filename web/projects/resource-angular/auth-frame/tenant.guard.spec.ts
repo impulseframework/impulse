@@ -343,6 +343,82 @@ describe('tenantGuard', () => {
       body: { message: 'the digest is not to be had' },
     });
 
+    describe('where the tenant list cannot be read', () => {
+      /**
+       * Configures the app over the server, whose list of tenants fails while `now.down`;
+       * with `preload`, the session's tenant list has landed before it went down.
+       */
+      const appListing = async (now: { down: boolean }, preload: boolean): Promise<void> => {
+        const played = specTransport(server);
+        transport = scriptedTransport((request) =>
+          now.down && request.url.endsWith('/user-domains')
+            ? { status: 500, body: { message: 'the list is not to be had' } }
+            : played(request),
+        );
+        TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, {}, testRoutes)] });
+        if (preload) {
+          const down = now.down;
+          now.down = false;
+          await firstValueFrom(TestBed.inject(AuthService).loadDomains());
+          now.down = down;
+        }
+      };
+
+      it('says the page could not be loaded, never 404 Not Found, for a tenant the person is in, and opens it on Try again', async () => {
+        const now = { down: true };
+        await appListing(now, false);
+        const tenants = TestBed.inject(TenantService);
+        const entered = vi.spyOn(tenants, 'enter');
+        const harness = await RouterTestingHarness.create();
+
+        const landed = await harness.navigateByUrl('/tenants/acme/page');
+        harness.detectChanges();
+
+        // Nothing says whether the person is in the tenant: it is not refused, and not opened.
+        expect(landed).toBeInstanceOf(TenantRefusedComponent);
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+        expect(entered).not.toHaveBeenCalled();
+        expect(tenants.current()).toBe('');
+        expect(tenants.unread()).toBe('/tenants/acme/page');
+        expect(TestBed.inject(Location).path()).not.toContain(refusedSegment);
+        // The tenant's digest is not asked for: the list comes first.
+        expect(digestReads('acme')).toBe(0);
+        expect(shown(harness)).not.toContain('not to be had');
+
+        // A second failure leaves the sentence.
+        await tryAgain(harness);
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+
+        now.down = false;
+        await tryAgain(harness);
+        expect(shown(harness)).toBe('the page');
+        expect(tenants.current()).toBe('acme');
+        expect(tenants.unread()).toBe('');
+      });
+
+      it('says the page could not be loaded for a tenant the list it holds does not name, where the list cannot be read again', async () => {
+        const now = { down: true };
+        await appListing(now, true);
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+        expect(tenants.tenants()).toEqual(['acme', 'beta']);
+
+        // A seat granted since sign-in is not on the list the session holds, so the list is
+        // read again; a read that fails does not say the person is not in the tenant.
+        await harness.navigateByUrl('/tenants/gamma/page');
+        harness.detectChanges();
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+        expect(tenants.unread()).toBe('/tenants/gamma/page');
+        expect(tenants.tenants()).toEqual(['acme', 'beta']);
+
+        // The list answers, and does not name the tenant: that is the refusal.
+        now.down = false;
+        await tryAgain(harness);
+        expect(shown(harness)).toBe('404 Not Found');
+        expect(tenants.unread()).toBe('');
+      });
+    });
+
     describe('where the digest cannot be read', () => {
       it('says the page could not be loaded, with a way to try again, and nothing else', async () => {
         await appHolding('acme', () => ({ status: 500, body: { message: 'the digest is not to be had' } }));

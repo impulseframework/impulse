@@ -2,6 +2,7 @@ import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Permission, PermissionDigest, Resource } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { scriptedTransport } from '@impulseframework/resource/testing';
 import { firstValueFrom } from 'rxjs';
 import { provideFrameTesting, specTransport } from './frame-testing';
 import { Menu, page } from './menu';
@@ -64,6 +65,50 @@ describe('PlaceSwitcherComponent', () => {
     expect(element().querySelector('button.switcher')?.getAttribute('aria-label')).toBe(
       'In Configuration. Switch to another customer',
     );
+  });
+
+  it('draws nothing until the list of tenants has been read: a list that could not be read is not a person with one place', async () => {
+    // The person holds something outside every tenant and is in two tenants; the list fails.
+    const played = specTransport({
+      digests: { '': { FeatureFlags: { List: 'granted' } } },
+      domains: [
+        { domain: 'a-id', name: 'Zenith' },
+        { domain: 'b-id', name: 'Acme' },
+      ],
+    });
+    let down = true;
+    const transport = scriptedTransport((request) =>
+      down && request.url.endsWith('/user-domains')
+        ? { status: 500, body: { message: 'the list could not be read' } }
+        : played(request),
+    );
+    await TestBed.configureTestingModule({
+      imports: [PlaceSwitcherComponent],
+      providers: [provideFrameTesting(transport, { menus })],
+    }).compileComponents();
+    const auth = TestBed.inject(AuthService);
+    await firstValueFrom(auth.checkUserSession());
+    fixture = TestBed.createComponent(PlaceSwitcherComponent);
+    fixture.detectChanges();
+    await TestBed.inject(ApplicationRef).whenStable();
+    fixture.detectChanges();
+
+    // Neither the lone name of the place outside every tenant, nor a list to open.
+    expect(element().querySelector('.switcher')).toBeNull();
+    expect(fixture.componentInstance.listed()).toBe(false);
+    expect(fixture.componentInstance.alone()).toBe(false);
+
+    down = false;
+    await firstValueFrom(auth.loadDomains());
+    fixture.detectChanges();
+    await TestBed.inject(ApplicationRef).whenStable();
+    fixture.detectChanges();
+    expect(element().querySelector('button.switcher .name')?.textContent).toBe('Configuration');
+    expect(fixture.componentInstance.groups().flatMap((group) => group.entries.map((entry) => entry.label))).toEqual([
+      'Configuration',
+      'Acme',
+      'Zenith',
+    ]);
   });
 
   it('names the one place of a person who has one, with nothing to open', async () => {

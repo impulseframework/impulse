@@ -272,6 +272,12 @@ or one per domain), loaded on demand and cached for the session.
   domains where the user holds any grant, each with its name (`user-domains` answers
   `[{ "domain", "name" }]`), and `domainName(domain)` answers a listed domain's name for a
   picker to show, the domain itself where none is held; `subscribe` notifies a UI framework.
+  A read that fails rejects and leaves the list as it was: a list never read stays unread,
+  a list read before keeps its last answer, and no failure is kept as an empty list, which
+  would say the person is in no domain. `hasDomains()` says whether the list has been
+  read, and `domainsUnread()` is true while its last read failed and no list is held from
+  before (`domainsKnown(snapshot)` and `domainsUnread(snapshot)` answer the same of a
+  snapshot).
   A tenant the person holds a seat in and this session cannot enter (a tenant that admits
   only people who sign in through its own directory, when the person signed in another
   way) is listed with `closed`, the reason in a sentence the server writes. `domains()`

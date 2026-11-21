@@ -50,6 +50,28 @@ export interface PermissionsSnapshot {
    * server's reason; absent until loadDomains has run, and empty when none is closed.
    */
   readonly closed?: ReadonlyMap<Domain, string>;
+  /**
+   * Set when the last read of the list of domains failed. A list read before is kept as it
+   * was, so this alone does not say the list is unknown: `domainsUnread` does.
+   */
+  readonly domainsFailed?: boolean;
+}
+
+/**
+ * Whether the person's list of domains has been read. Until it has, an empty `domains`
+ * says nothing is known, not that the person is in no domain.
+ */
+export function domainsKnown(snapshot: PermissionsSnapshot): boolean {
+  return snapshot.names !== undefined;
+}
+
+/**
+ * Whether the person's list of domains could not be read and nothing is known of it: its
+ * last read failed, and no list is held from before. It is not a person in no domain,
+ * which is an answer; false again once a read answers.
+ */
+export function domainsUnread(snapshot: PermissionsSnapshot): boolean {
+  return snapshot.domainsFailed === true && !domainsKnown(snapshot);
 }
 
 /**
@@ -169,6 +191,11 @@ export type UnreadListener = (domain: Domain | undefined, failure: DigestFailure
  * digest for a domain the session no longer reaches (a seat taken away) as for one where
  * the person holds nothing. A domain that has left the list is a refusal, heard like the
  * server's own; one the list still names is held as empty, which is then true.
+ *
+ * The list of domains is held to the same: a read of it that fails rejects, and is never
+ * kept as an empty list, which would say the person is in no domain. A list never read
+ * stays unread (`hasDomains` is false, and `domainsUnread` is true once a read has
+ * failed); a list read before keeps its last answer.
  */
 export class PermissionStore {
   readonly snapshot = new Store<PermissionsSnapshot>({ digests: new Map(), domains: [] });
@@ -293,15 +320,40 @@ export class PermissionStore {
     return load;
   }
 
-  /** Loads the user's domain list, each domain with its name, from the generated user-domains endpoint. */
+  /** Whether the list of domains has been read: until it has, an empty `domains()` says nothing is known. */
+  hasDomains(): boolean {
+    return domainsKnown(this.snapshot.get());
+  }
+
+  /**
+   * Whether the list of domains could not be read and nothing is known of it: its last
+   * read failed, and no list is held from before. False again once a read answers.
+   */
+  domainsUnread(): boolean {
+    return domainsUnread(this.snapshot.get());
+  }
+
+  /**
+   * Loads the user's domain list, each domain with its name, from the generated
+   * user-domains endpoint. A read that fails rejects and leaves the list as it was: a list
+   * never read stays unread, a list read before keeps its last answer, and no failure is
+   * kept as an empty list, which would say the person is in no domain.
+   */
   async loadDomains(): Promise<readonly Domain[]> {
-    const listed = (await this.request<UserDomain[] | null>('GET', this.routes.domains)) ?? [];
+    let listed: UserDomain[];
+    try {
+      listed = (await this.request<UserDomain[] | null>('GET', this.routes.domains)) ?? [];
+    } catch (error) {
+      this.snapshot.update((snapshot) => ({ ...snapshot, domainsFailed: true }));
+      throw error;
+    }
     const domains = listed.filter((entry) => !entry.closed).map((entry) => entry.domain);
     const names = new Map(listed.map((entry) => [entry.domain, entry.name] as const));
     const closed = new Map(
       listed.filter((entry) => entry.closed).map((entry) => [entry.domain, entry.closed ?? ''] as const),
     );
-    this.snapshot.update((snapshot) => ({ ...snapshot, domains, names, closed }));
+    // A list that answers takes the place of the last one, and of a failure before it.
+    this.snapshot.update(({ digests }) => ({ digests, domains, names, closed }));
     return domains;
   }
 

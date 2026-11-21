@@ -36,7 +36,9 @@ import { TenantService } from './tenant.service';
  * in, so no page is drawn as if it were. The tenant is not entered, and the refusal page
  * stands in for the page that was asked for, at that page's own address, saying it could
  * not be loaded and offering to try again (TenantService.unreadRedirect); trying again
- * runs this guard again.
+ * runs this guard again. The list is held to the same: where the tenant is not on the list
+ * and the list cannot be read again, nothing says whether the person is in the tenant, so
+ * the page says it could not be loaded, and never 404 Not Found.
  *
  * Leaving is not the guard's: TenantService follows the navigation that lands, so a
  * navigation another guard turns back into the same tenant clears nothing.
@@ -48,7 +50,11 @@ export const tenantGuard: CanActivateFn = async (route, state) => {
   const frame = inject(Frame);
   const tenant = route.paramMap.get(frame.param) ?? '';
   if (!tenants.tenants().includes(tenant)) {
-    await firstValueFrom(auth.loadDomains());
+    try {
+      await firstValueFrom(auth.loadDomains());
+    } catch {
+      return tenants.unreadRedirect(tenant, state.url);
+    }
   }
   if (!tenants.tenants().includes(tenant)) {
     return tenants.refusedRedirect(tenant);

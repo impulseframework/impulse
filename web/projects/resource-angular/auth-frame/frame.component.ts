@@ -20,10 +20,10 @@ import { PlaceService } from './place.service';
  * the sign-in and sign-out pages, routed outside it, never are.
  *
  * Where what the person holds could not be read (PlaceService.unread: a guard could not
- * decide the page that was asked for, or the global digest is unread), the frame draws
- * "This page could not be loaded" with Try again where the page goes, and no page: a page
- * drawn then would be the page of a person who holds nothing. Once a read answers, the
- * page is drawn.
+ * decide the page that was asked for, the global digest is unread, or the person's list of
+ * tenants is), the frame draws "This page could not be loaded" with Try again where the
+ * page goes, and no page: a page drawn then would be the page of a person who holds
+ * nothing, or who is in no tenant. Once a read answers, the page is drawn.
  */
 @Component({
   selector: 'impulse-frame',

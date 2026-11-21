@@ -219,6 +219,77 @@ describe('the tenant list', () => {
   });
 });
 
+// A read of the tenant list that fails is not an answer either. The store never keeps a
+// failure as an empty list, which would say the person is in no tenant: a list never read
+// stays unread, and a list read before keeps its last answer.
+describe('a read of the tenant list that fails', () => {
+  // A requester whose user-domains route fails while `down`, and answers the list otherwise.
+  const failing = (listed: unknown): { store: PermissionStore; server: { down: boolean } } => {
+    const server = { down: true };
+    const request = (async () => {
+      if (server.down) {
+        throw new Error('the list could not be read');
+      }
+      return listed;
+    }) as Requester;
+    return { store: new PermissionStore(request, { digest: 'permission-digest', domains: 'user-domains' }), server };
+  };
+
+  it('says nothing of the list before it is read: not known, and not unread', () => {
+    const { store } = failing([]);
+    expect(store.hasDomains()).toBe(false);
+    expect(store.domainsUnread()).toBe(false);
+  });
+
+  it('rejects, and leaves a list never read as unread, not as a person in no tenant', async () => {
+    const { store } = failing([{ domain: 'ridgeline', name: 'Ridgeline County' }]);
+    await expect(store.loadDomains()).rejects.toThrow('the list could not be read');
+    expect(store.hasDomains()).toBe(false);
+    expect(store.domainsUnread()).toBe(true);
+    expect(store.domains()).toEqual([]);
+  });
+
+  it('tells its subscribers that the list could not be read', async () => {
+    const { store } = failing([]);
+    const heard: boolean[] = [];
+    store.subscribe(() => heard.push(store.domainsUnread()));
+    await expect(store.loadDomains()).rejects.toThrow();
+    expect(heard).toEqual([true]);
+  });
+
+  it('is unread no more once a read answers, an empty list included', async () => {
+    const { store, server } = failing([]);
+    await expect(store.loadDomains()).rejects.toThrow();
+    server.down = false;
+    expect(await store.loadDomains()).toEqual([]);
+    expect(store.hasDomains()).toBe(true);
+    expect(store.domainsUnread()).toBe(false);
+  });
+
+  it('keeps the list it read before, with its names and its closed tenants', async () => {
+    const { store, server } = failing([
+      { domain: 'ridgeline', name: 'Ridgeline County' },
+      { domain: 'bastion', name: 'Bastion', closed: 'Bastion admits only its own directory.' },
+    ]);
+    server.down = false;
+    await store.loadDomains();
+    server.down = true;
+    await expect(store.loadDomains()).rejects.toThrow('the list could not be read');
+    expect(store.domains()).toEqual(['ridgeline' as Domain]);
+    expect(store.domainName('ridgeline' as Domain)).toBe('Ridgeline County');
+    expect([...store.closedDomains()]).toEqual([['bastion' as Domain, 'Bastion admits only its own directory.']]);
+    expect(store.hasDomains()).toBe(true);
+    expect(store.domainsUnread()).toBe(false);
+  });
+
+  it('is forgotten with everything else on clear()', async () => {
+    const { store } = failing([]);
+    await expect(store.loadDomains()).rejects.toThrow();
+    store.clear();
+    expect(store.domainsUnread()).toBe(false);
+  });
+});
+
 // A read of a digest that fails is not an answer. The cache holds no failure as an empty
 // digest, which would say the person holds nothing: a scope never read stays unloaded, a
 // scope read before keeps its last answer. Whoever asked sees the rejection, and every

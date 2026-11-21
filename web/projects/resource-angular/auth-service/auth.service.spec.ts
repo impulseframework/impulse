@@ -600,3 +600,96 @@ describe('AuthService and a digest that could not be read', () => {
     expect(auth.digestUnread()).toBe(false);
   });
 });
+
+describe('AuthService and a tenant list that could not be read', () => {
+  // A read of the person's list of tenants that fails is no answer: the reader is told,
+  // and the list is unread until a read answers. It is never taken for a person who is
+  // in no tenant, which is what an empty list says.
+  const anvil = 'a1111111-1111-4111-8111-111111111111' as Domain;
+  /** The status the list answers with; a spec changes it between reads. */
+  const serving = (status: { list: number }): { transport: ScriptedTransport; asked: string[] } => {
+    const asked: string[] = [];
+    const transport = scriptedTransport((request) => {
+      asked.push(request.url);
+      switch (request.url) {
+        case '/api/user/session':
+          return { status: 200, body: { authenticated: true } };
+        case '/api/permission-digest':
+          return { status: 200, body: {} };
+        case '/api/user-domains':
+          return status.list === 200
+            ? { status: 200, body: [{ domain: anvil, name: 'Anvil' }] }
+            : { status: status.list, body: { message: 'no answer' } };
+        case '/api/features':
+          return { status: 200, body: { enabled: [] } };
+        default:
+          return { status: 404, body: { message: `unscripted ${request.url}` } };
+      }
+    });
+    return { transport, asked };
+  };
+  const listReads = (asked: string[]): number => asked.filter((url) => url === '/api/user-domains').length;
+
+  it('says nothing of a list that has not been read: not known, and not unread', () => {
+    const auth = authOver(serving({ list: 200 }).transport);
+
+    expect(auth.hasDomains()).toBe(false);
+    expect(auth.domainsUnread()).toBe(false);
+  });
+
+  it('loadDomains errors where the read fails, with no empty list in its stead, and the list is unread until a read answers', async () => {
+    const status = { list: 500 };
+    const auth = authOver(serving(status).transport);
+
+    await expect(firstValueFrom(auth.loadDomains())).rejects.toBeDefined();
+    expect(auth.hasDomains()).toBe(false);
+    expect(auth.domainsUnread()).toBe(true);
+
+    status.list = 200;
+    await expect(firstValueFrom(auth.loadDomains())).resolves.toEqual([anvil]);
+    expect(auth.hasDomains()).toBe(true);
+    expect(auth.domainsUnread()).toBe(false);
+    expect(auth.domains()).toEqual([anvil]);
+  });
+
+  it('keeps the list it read before where a later read fails, and is not unread', async () => {
+    const status = { list: 200 };
+    const auth = authOver(serving(status).transport);
+
+    await firstValueFrom(auth.loadDomains());
+    status.list = 500;
+    await expect(firstValueFrom(auth.loadDomains())).rejects.toBeDefined();
+    expect(auth.domains()).toEqual([anvil]);
+    expect(auth.domainsUnread()).toBe(false);
+
+    // Reading everything again swallows the failure and keeps the list too.
+    await firstValueFrom(auth.refreshPermissions());
+    expect(auth.domains()).toEqual([anvil]);
+  });
+
+  it('leaves the list unread where the read at sign-in fails, and the next check reads again', async () => {
+    const status = { list: 500 };
+    const { transport, asked } = serving(status);
+    const auth = authOver(transport);
+
+    await expect(firstValueFrom(auth.checkUserSession())).resolves.toMatchObject({ authenticated: true });
+    expect(auth.authenticated()).toBe(true);
+    expect(auth.hasDomains()).toBe(false);
+    expect(auth.domainsUnread()).toBe(true);
+
+    status.list = 200;
+    await firstValueFrom(auth.checkUserSession());
+    expect(listReads(asked)).toBe(2);
+    expect(auth.domainsUnread()).toBe(false);
+    expect(auth.domains()).toEqual([anvil]);
+  });
+
+  it('forgets that the list was unread when the session ends', async () => {
+    const auth = authOver(serving({ list: 500 }).transport);
+
+    await firstValueFrom(auth.checkUserSession());
+    expect(auth.domainsUnread()).toBe(true);
+    await firstValueFrom(auth.logout());
+    expect(auth.domainsUnread()).toBe(false);
+  });
+});

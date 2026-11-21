@@ -20,6 +20,8 @@ import {
   ClientBase,
   digestFailure,
   digestKey,
+  domainsKnown,
+  domainsUnread,
   FeatureState,
   fieldPermissionStates,
   permissionState,
@@ -119,7 +121,8 @@ export class AuthService {
 
   /**
    * The domains where the session user holds at least one grant, sorted — the tenant
-   * picker's source. Empty until the session authenticates.
+   * picker's source. Empty until the session authenticates and the list is read
+   * (`hasDomains`): an empty list that has not been read is not a person in no tenant.
    */
   domains = computed<readonly Domain[]>(() => this.snapshot().domains);
 
@@ -210,6 +213,24 @@ export class AuthService {
   }
 
   /**
+   * Whether the person's list of tenants has been read. Until it has, an empty `domains()`
+   * means nothing is known, not that the person is in no tenant. Signal-backed.
+   */
+  hasDomains(): boolean {
+    return domainsKnown(this.snapshot());
+  }
+
+  /**
+   * Whether the person's list of tenants could not be read and nothing is known of it: its
+   * last read failed, and no list is held from before. Not a person in no tenant, which is
+   * an answer: what is drawn from the list says it could not be loaded. False again once a
+   * read answers. Signal-backed.
+   */
+  domainsUnread(): boolean {
+    return domainsUnread(this.snapshot());
+  }
+
+  /**
    * Whether the digest that answers for the scope has loaded: the selected tenant's for a
    * domain-scoped target, the global one otherwise. Until it has, a false hasPermission
    * and an empty fieldPermissionStates mean nothing is known, not that the target is
@@ -284,15 +305,21 @@ export class AuthService {
     return from(this.permissions.loadDigest(domain));
   }
 
-  /** Loads the user's domain list from the generated user-domains endpoint. */
+  /**
+   * Loads the person's list of tenants from the generated user-domains endpoint. A read
+   * that fails leaves the list as it was (unread, or holding its last answer), since a
+   * failure is not a person in no tenant, and the observable errors with what the read
+   * threw. No empty list stands in for a read that failed.
+   */
   loadDomains(): Observable<readonly Domain[]> {
-    return from(this.permissions.loadDomains().catch(() => [] as Domain[]));
+    return from(this.permissions.loadDomains());
   }
 
   /**
    * Reloads the domains and every cached digest — after a role change, say. A digest that
-   * could not be read keeps its last answer, so no page is drawn again as the page of a
-   * person who holds nothing because a read failed; where it is the open tenant's, the
+   * could not be read keeps its last answer, and so does the list of tenants, so no page is
+   * drawn again as the page of a person who holds nothing, or is in no tenant, because a
+   * read failed; where it is the open tenant's, the
    * frame's TenantService puts the refusal page in the open page's stead, saying the page
    * could not be loaded, or 404 Not Found where the server refused the read.
    */
@@ -330,9 +357,10 @@ export class AuthService {
    * set of feature flags when the API serves them, and starts the live session when a
    * change feed is provided; later checks (keepalives) leave the cached permissions, the
    * set, and the feed alone. A load that fails is not taken for a person who holds
-   * nothing: the session's answer still arrives, `digestUnread()` says the global digest
-   * could not be read (the frame then draws that in the page's place), and the next check
-   * loads again. An unauthenticated answer ends them all, the feed without a
+   * nothing or is in no tenant: the session's answer still arrives, `digestUnread()` says
+   * the global digest could not be read and `domainsUnread()` that the list of tenants
+   * could not (the frame then draws that in the page's place), and the next check loads
+   * again. An unauthenticated answer ends them all, the feed without a
    * word to the server: the session is gone, so no unsubscribe could be accepted, and the
    * server's expiry ends the subscriptions. An authenticated
    * answer carrying `passwordChangeRequired` loads nothing: the server refuses every
