@@ -3304,7 +3304,11 @@ and the session and its user on every later request. So:
   the username of that row, or the request is refused as an invalid token, and the token
   of an account that row holds disabled is refused whatever the wrapper answers. So no
   program's request runs as another person, and no disabled account's token keeps
-  working. A password is not accepted for an account either one holds disabled: the
+  working. The issue of an application token (`CreateApplicationToken`) is held too: an
+  account either one holds disabled is refused a new token as a disabled account is,
+  and a `User` answer that is another account than the one asked for fails the issue,
+  with no token made for either person. A password is not accepted for an account
+  either one holds disabled: the
   sign-in is refused as a disabled account's is (`user_disabled`), and so are the check
   of the credentials alone (`ValidateCredentials`) and the password confirmation of a
   pending identity, before anything is linked to the account. A `Principal` its

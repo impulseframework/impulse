@@ -241,6 +241,104 @@ func TestMachineOutlet_ValidateToken_heldToTheLibrarysAccount(t *testing.T) {
 	}
 }
 
+// TestAuthAPI_CreateApplicationToken_heldToTheLibrarysAccount holds the issue of an
+// application token to the library's own store where a store wraps it, as the use of a
+// token is held. The wrapper's User is the one asked, and its answer is the account the
+// request names: the id that was asked for, and an account that is disabled if either
+// the library's own row or the wrapper says so, so a disabled account is issued no
+// token, where it was issued one that its first request refused. An account the
+// library's store does not hold is the wrapper's whole.
+func TestAuthAPI_CreateApplicationToken_heldToTheLibrarysAccount(t *testing.T) {
+	t.Parallel()
+
+	patID := impulse.Must(impulse.NewUUID())
+	samID := impulse.Must(impulse.NewUUID())
+
+	tests := []struct {
+		name string
+		// own is what the library's own store holds, and ownErr its error; with
+		// neither, the library's own read must not be asked.
+		own    *sessionstorage.SessionUser
+		ownErr error
+		// answer is the wrapper's User.
+		answer *sessionstorage.SessionUser
+		// issued says a token is made for the account asked, and refusedAsDisabled that
+		// the issue is refused as a disabled account's is; with neither, the issue fails.
+		issued            bool
+		refusedAsDisabled bool
+	}{
+		{
+			name:   "the wrapper's answer for the account asked is taken",
+			own:    &sessionstorage.SessionUser{ID: patID, Username: "pat"},
+			answer: &sessionstorage.SessionUser{ID: patID, Username: "pat"},
+			issued: true,
+		},
+		{
+			name:   "a wrapper cannot have a token made for another account: the library's own row is not asked",
+			answer: &sessionstorage.SessionUser{ID: samID, Username: "sam"},
+		},
+		{
+			name:              "a wrapper cannot have a disabled account issued a token: the library's own row says it is disabled",
+			own:               &sessionstorage.SessionUser{ID: patID, Username: "pat", Disabled: true},
+			answer:            &sessionstorage.SessionUser{ID: patID, Username: "pat"},
+			refusedAsDisabled: true,
+		},
+		{
+			name:              "a wrapper still disables an account, and the library's own row is not asked",
+			answer:            &sessionstorage.SessionUser{ID: patID, Username: "pat", Disabled: true},
+			refusedAsDisabled: true,
+		},
+		{
+			name:   "an account the library's store does not hold is the wrapper's to answer",
+			ownErr: httpio.NewNotFoundMessagef("user id %q does not exist", patID),
+			answer: &sessionstorage.SessionUser{ID: patID, Username: "pat"},
+			issued: true,
+		},
+		{
+			name:   "a read of the library's own that fails is the issue's failure",
+			ownErr: errors.New("the database is away"),
+			answer: &sessionstorage.SessionUser{ID: patID, Username: "pat"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newTokenFixture(t, gomock.NewController(t))
+			if tt.own != nil || tt.ownErr != nil {
+				f.store.EXPECT().User(gomock.Any(), patID).Return(tt.own, tt.ownErr)
+			}
+			var stored []*sessionstorage.Token
+			f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token) error {
+				stored = append(stored, tok)
+
+				return nil
+			}).AnyTimes()
+			f.auth.storage = &accountWrapper{AuthStore: f.store, answer: tt.answer}
+
+			issued, err := f.auth.API().CreateApplicationToken(context.Background(), &ApplicationTokenRequest{UserID: patID, Outlet: droids, Name: "laptop"})
+			if tt.issued {
+				if err != nil {
+					t.Fatalf("CreateApplicationToken() error = %v", err)
+				}
+				if len(stored) != 1 || stored[0].UserID != patID || issued.Token.UserID != patID {
+					t.Errorf("stored %d token(s), issued for %s; want one, for the account asked (%s)", len(stored), issued.Token.UserID, patID)
+				}
+
+				return
+			}
+			if err == nil {
+				t.Fatalf("CreateApplicationToken() issued a token for the account %s, want none issued", issued.Token.UserID)
+			}
+			if got := httpio.HasBadRequest(err) && httpio.Message(err) == "the user is disabled"; got != tt.refusedAsDisabled {
+				t.Errorf("CreateApplicationToken() error = %v; refused as a disabled account's issue is: %t, want %t", err, got, tt.refusedAsDisabled)
+			}
+			if len(stored) != 0 {
+				t.Errorf("%d token(s) stored on an issue that was not made, for the account %s", len(stored), stored[0].UserID)
+			}
+		})
+	}
+}
+
 // TestPasswordSignIn_heldToTheLibrarysAccount holds a password sign-in to the library's
 // own store where a store wraps it. The wrapper's UserByUserName is the one asked, and
 // the account it answers is disabled if either its answer or the library's own row

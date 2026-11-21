@@ -448,21 +448,26 @@ func (a *Auth[S, U, Tx]) heldToTheAccountAsked(
 	return nil
 }
 
-// disabledAtSignIn reports whether the account a store answered a sign-in with is
-// disabled: the answer says so, or the library's own row does, where the library's own
-// store holds the account (sealed.User, which a store that wraps the library's cannot
-// replace). The account is disabled if either says so, as it is for a request under a
-// session (heldToTheAccountAsked): a store that keeps the accounts it has read cannot
-// have a disabled account's password accepted. A store the library made, handed over as
-// it is, answered from that very read and is not asked twice, and an account the
-// library's own store does not hold is the answer's whole. A failure of the library's
-// own read that is not one of those is the sign-in's failure.
+// disabledByEitherStore reports whether the account a store answered with is disabled,
+// where something new is made for the account on that answer: a sign-in, or an
+// application token. The answer says so, or the library's own row does, where the
+// library's own store holds the account (sealed.User, which a store that wraps the
+// library's cannot replace). The account is disabled if either says so, as it is for a
+// request under a session (heldToTheAccountAsked): a store that keeps the accounts it
+// has read cannot have a disabled account's password accepted, or have the account
+// issued a token. A store the library made, handed over as it is, answered from that
+// very read and is not asked twice, and an account the library's own store does not
+// hold is the answer's whole. A failure of the library's own read that is not one of
+// those is the caller's failure.
 //
 // The store's sign-in decides the same from the row it reads in its own transaction, so
 // no session was ever inserted for such an account. This check is what refuses before
 // that: the check of the credentials alone, which starts no session, and the password
-// confirmation of a pending identity, which links the identity before the session.
-func (a *Auth[S, U, Tx]) disabledAtSignIn(ctx context.Context, answered *sessionstorage.SessionUser) (bool, error) {
+// confirmation of a pending identity, which links the identity before the session. The
+// issue of an application token (CreateApplicationToken) has no such transaction behind
+// it: this check is all that keeps a token from being stored for a disabled account,
+// which the token's first request would then refuse.
+func (a *Auth[S, U, Tx]) disabledByEitherStore(ctx context.Context, answered *sessionstorage.SessionUser) (bool, error) {
 	if answered.Disabled {
 		return true, nil
 	}
@@ -596,7 +601,7 @@ func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWrit
 // since the user was read is left as it is, and the password entered is then no longer
 // the user's, so the check fails as a wrong password does, counted the same. A disabled
 // user is refused after the match: one the store's answer holds disabled, or one the
-// library's own row does where a store wraps the library's (disabledAtSignIn).
+// library's own row does where a store wraps the library's (disabledByEitherStore).
 //
 // The proof returned names the password that matched, by the hash the user's row holds
 // for it now (the upgraded one when the upgrade wrote): what the caller inserts on the
@@ -647,7 +652,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 		}
 	}
 	a.attemptSucceeded(ctx, taken)
-	disabled, err := a.disabledAtSignIn(ctx, user)
+	disabled, err := a.disabledByEitherStore(ctx, user)
 	if err != nil {
 		return nil, nil, err
 	}

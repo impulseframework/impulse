@@ -461,6 +461,10 @@ func runSealedReads[Tx any](t *testing.T, be backend[Tx]) {
 			run:  readsTokenAccountKept[Tx],
 		},
 		{
+			name: "a wrapper that keeps the accounts it has read does not have a disabled account issued an application token, and has none made for another account",
+			run:  readsTokenIssueHeld[Tx],
+		},
+		{
 			name: "a wrapper that keeps the accounts it has read does not have a disabled account's password accepted: the sign-in is refused, and so is the check of the credentials alone",
 			run:  readsDisabledAccountSignIn[Tx],
 		},
@@ -1013,6 +1017,84 @@ func readsTokenAccountKept[Tx any](ctx context.Context, t *testing.T, a *readsAp
 		s.account = nil
 	})
 	runsAs("once the wrapper answers as the library's store does", http.StatusOK)
+}
+
+// readsTokenIssueHeld is a wrapper that keeps the accounts it has read, at the issue of
+// an application token (CreateApplicationToken): the account is disabled in the
+// library's store and the wrapper's User still answers it enabled. No token is issued,
+// refused with the words a disabled account's issue gets, where one was issued that its
+// first request refused. Enabled again in the library's store, the token is issued and
+// its request runs as the person. A wrapper that says the account is disabled refuses
+// the issue too: either says so. And a wrapper that answers the account asked for with
+// another person's has the issue fail, with no token made for either of them.
+func readsTokenIssueHeld[Tx any](ctx context.Context, t *testing.T, a *readsApp[Tx]) {
+	t.Helper()
+
+	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	sam := a.seed(ctx, t, "sam@lakeside.edu")
+	issue := func() (*session.IssuedToken, error) {
+		return a.api.CreateApplicationToken(ctx, &session.ApplicationTokenRequest{UserID: pat, Outlet: "droids", Name: "laptop"})
+	}
+	tokens := func(of impulse.UUID) int {
+		t.Helper()
+
+		rows, err := a.api.Tokens(ctx, of)
+		if err != nil {
+			t.Fatalf("Tokens(%s) error = %v", of, err)
+		}
+
+		return len(rows)
+	}
+	refused := func(when string) {
+		t.Helper()
+
+		if _, err := issue(); !httpio.HasBadRequest(err) || httpio.Message(err) != "the user is disabled" {
+			t.Errorf("CreateApplicationToken() %s error = %v, want the refusal of a disabled account's issue", when, err)
+		}
+		if n := tokens(pat); n != 0 {
+			t.Errorf("pat@lakeside.edu holds %d token(s) %s, want none", n, when)
+		}
+	}
+
+	a.store.set(keptAs[Tx](false))
+	if err := a.store.DeactivateUser(ctx, pat); err != nil {
+		t.Fatalf("DeactivateUser(%s) on the library's store error = %v", pat, err)
+	}
+	refused("once the library's store holds the account disabled and the wrapper still answers it enabled")
+	if !slices.Contains(a.store.asked().users, pat) {
+		t.Errorf("the wrapper's User was never asked for %s: the account a token is issued for is the store's to answer", pat)
+	}
+
+	if err := a.store.ActivateUser(ctx, pat); err != nil {
+		t.Fatalf("ActivateUser(%s) on the library's store error = %v", pat, err)
+	}
+	a.store.set(keptAs[Tx](true))
+	refused("while the wrapper answers the account as disabled")
+
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.account = nil
+		s.userInstead = map[impulse.UUID]impulse.UUID{pat: sam}
+	})
+	if issued, err := issue(); err == nil {
+		t.Errorf("CreateApplicationToken() while the wrapper answers the account asked for with another person's issued a token for %s, want none issued", issued.Token.UserID)
+	}
+	if p, s := tokens(pat), tokens(sam); p != 0 || s != 0 {
+		t.Errorf("tokens held while the wrapper answers the account asked for with another person's: pat@lakeside.edu %d, sam@lakeside.edu %d; want none", p, s)
+	}
+
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.userInstead = nil
+	})
+	issued, err := issue()
+	if err != nil {
+		t.Fatalf("CreateApplicationToken() once the wrapper answers as the library's store does error = %v", err)
+	}
+	if status, user := a.asProgram(ctx, t, issued.Secret); status != http.StatusOK || user != pat.String() {
+		t.Errorf("the issued token's request = %d as %q, want 200 as pat@lakeside.edu (%s)", status, user, pat)
+	}
+	if p, s := tokens(pat), tokens(sam); p != 1 || s != 0 {
+		t.Errorf("tokens held once the wrapper answers as the library's store does: pat@lakeside.edu %d, sam@lakeside.edu %d; want one and none", p, s)
+	}
 }
 
 // readsDisabledAccountSignIn is a wrapper that keeps the accounts it has read, at the
