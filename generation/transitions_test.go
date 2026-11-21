@@ -516,9 +516,10 @@ func Test_rpcHandlerTemplate_transition(t *testing.T) {
 			`httpio.NewNotFoundMessagef("StatefulTask %s does not exist", p.TaskID)`,
 			"switch row.Data.State {",
 			`case "open", "approved":`,
-			// One refusal shape for the state check and the grant condition:
-			// the wire never says which said no (§12).
-			`httpio.NewForbiddenMessagef("CloseTask may not run against StatefulTask %s", p.TaskID)`,
+			// One refusal for the state check and the grant condition, the library's
+			// own answer for a row a method may not run against: the wire never says
+			// which said no (§12).
+			`return resource.TargetRefused("CloseTask", "StatefulTask", p.TaskID)`,
 			`gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "StatefulTasks", Label: "StatefulTask", PKColumns: []string{"Id"}}, p.TaskID)`,
 			`resources.NewStatefulTaskUpdatePatch(p.TaskID).SetState("closed").Buffer(ctx, txn, resource.UserEvent(ctx))`,
 		} {

@@ -638,6 +638,7 @@ read, the same in every application:
 | a permission on a field alone | "You may not change the budget of hangar passes here." |
 | on several fields | "You may not change the budget, the due date or the notes of hangar passes here." |
 | a method, or a permission the application declares | "You may not do this here." |
+| a method that may not run against the row it names | "You may not do this to this mission." |
 | a sort or filter by a field the caller may not see | "You may not sort or filter hangar passes by the budget here." |
 | a search of a computed resource by such a field | "You may not search hangar passes by the budget here." |
 | a write whose grant holds for some rows and not for this one | "You may change some hangar passes here, but not this one." |
@@ -664,6 +665,20 @@ if !decisions[resources.ShipsLogEntries].IsGranted() {
 		accesstypes.List, resources.ShipsLogEntries,
 	))
 }
+```
+
+A method that names a row (`@target`, `@transition`) and may not run against it says
+the record and nothing else: the struct's name split into lower-case words (`Mission` is
+"this mission", `SectorPilot` is "this sector pilot"), with no method's name and no id.
+The sentence is the same whether the row's state or the grant's condition refused, so
+the caller is never told which. The log line keeps the rest, in the words the refusal
+used to say (`HoldMission may not run against Mission 8f0c…`). The generated handler
+and the method's gate both answer with `resource.TargetRefused`, which takes the
+method, the record's struct name and the row's key values; a handler that refuses a row
+itself answers the same way:
+
+```go
+return resource.TargetRefused("HoldMission", "Mission", p.MissionID)
 ```
 
 ## 6. Impersonated sessions
