@@ -303,8 +303,8 @@ func TestAuth_RemoveUserPassword(t *testing.T) {
 		f := newAuthFixture(t, gomock.NewController(t))
 		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
 		// The session's validation reads the user and finds the mark. The mock refuses
-		// the read a proof would make and the removal: the temporary password stands,
-		// and the mark with it.
+		// the read a proof would make and the removal: the password stands, and the
+		// mark with it.
 		f.store.EXPECT().User(gomock.Any(), userID).Return(pat(true), nil)
 
 		rr := httptest.NewRecorder()

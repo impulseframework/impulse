@@ -159,7 +159,8 @@ func TestManager_GivableRoles(t *testing.T) {
 // the grants are asked nothing about a role the group may not hold. No group is offered
 // the Super Administrator role, whoever asks: the caller of every case holds it, and a
 // call outside any request is held to the group's rule too. A group that does not
-// exist is refused.
+// exist is listed no role anywhere, as a group kept somewhere else is, and the grants
+// are asked nothing about it: the list never says whether an id is a group's.
 func TestManager_GivableGroupRoles(t *testing.T) {
 	t.Parallel()
 
@@ -209,6 +210,10 @@ func TestManager_GivableGroupRoles(t *testing.T) {
 			name: "outside any request, a group kept in one tenant holds no role for the whole application", group: nightID, scope: globalScope, outside: true,
 			want: []string{},
 		},
+		{name: "a group that does not exist, in one tenant: no role, as a group kept in another tenant is answered", group: newGroupID, scope: alphaScope, want: []string{}},
+		{name: "a group that does not exist, for the whole application: no role", group: newGroupID, scope: globalScope, want: []string{}},
+		{name: "a group that does not exist, in every tenant: no role", group: newGroupID, scope: everyScope, want: []string{}},
+		{name: "outside any request, a group that does not exist is listed no role", group: newGroupID, scope: alphaScope, outside: true, want: []string{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -243,16 +248,6 @@ func TestManager_GivableGroupRoles(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("a group that does not exist is refused, as the method refuses it", func(t *testing.T) {
-		t.Parallel()
-
-		m, _ := newManager(t, superStore(erinSuper), roles, WithRoleGrants(&fakeGrants{}))
-		_, err := m.GivableGroupRoles(asCallerThrough(t.Context(), managedAuth, erin), fakeDatabase{}, gives, nightID, alphaScope)
-		if !httpio.HasNotFound(err) {
-			t.Errorf("GivableGroupRoles() error = %v, want not found", err)
-		}
-	})
 }
 
 // TestGivingGroup pins which group a list of the roles to give answers for, from the

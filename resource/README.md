@@ -4159,10 +4159,11 @@ holds the roles that group may hold there (`identity.Manager.GivableGroupRoles`)
 the rule the method holds the group to (`access.GroupMayHold`): never the Super
 Administrator role, and for a group kept in one tenant that tenant's roles alone, so
 no role for the whole application, in every tenant or in another tenant. Asked with no
-group, `GiveCrewGroupRole` is answered no role; a group named beside another method,
-or any other way than by one id, is refused (400), and a group that does not exist is
-404. The role file grants the list to the roles that give one, `group` among its
-fields where the role gives a group a role:
+group, `GiveCrewGroupRole` is answered no role, and so is an id that is no group's,
+as a group that may hold no role there is: the list never says whether an id is a
+group's. A group named beside another method, or any other way than by one id, is
+refused (400). The role file grants the list to the roles that give one, `group`
+among its fields where the role gives a group a role:
 
 ```json
 "List": [{ "resource": "CrewGivableRoles", "fields": ["description", "method", "group", "domain", "everyDomain"] }]

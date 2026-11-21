@@ -58,8 +58,10 @@ func (m *Manager) GivableRoles(ctx context.Context, db resource.Executor, method
 // the method takes: never the Super Administrator role, which a person holds through
 // no group, and for a group kept in one tenant that tenant's roles alone, so no role
 // for the whole application, for every tenant or for another tenant. A group that does
-// not exist is refused as the method refuses it. The rule is the group's and not the
-// caller's: a call outside any request is held to it too.
+// not exist is listed no role, as a group that may hold none there is: the list never
+// says whether an id is a group's, and the method refuses the id when it is asked. The
+// rule is the group's and not the caller's: a call outside any request is held to it
+// too.
 func (m *Manager) GivableGroupRoles(ctx context.Context, db resource.Executor, method accesstypes.Resource, groupID impulse.UUID, scope accesstypes.PolicyScope) ([]access.RoleInfo, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -111,16 +113,22 @@ func (m *Manager) givable(ctx context.Context, db resource.Executor, method acce
 // groupMayHold answers the rule a list of the roles to give holds each role to for the
 // group named: whether the group, kept where its row says, may hold the role in scope
 // (access.GroupMayHold). With no group named every role passes, since a person is
-// given the role.
+// given the role; a group that does not exist passes none, so the list holds no role
+// and no grant is asked about it.
 func (m *Manager) groupMayHold(ctx context.Context, txn resource.ReadWriteTransaction, groupID *impulse.UUID, scope accesstypes.PolicyScope) (func(accesstypes.Role) bool, error) {
 	if groupID == nil {
 		return func(accesstypes.Role) bool {
 			return true
 		}, nil
 	}
-	group, err := m.requireGroup(ctx, txn, *groupID)
+	group, found, err := m.store.Group(ctx, txn, *groupID)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "identity.Store.Group()")
+	}
+	if !found {
+		return func(accesstypes.Role) bool {
+			return false
+		}, nil
 	}
 	kept, err := group.kept()
 	if err != nil {

@@ -242,9 +242,16 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 				t.Errorf("filter %q: status %d, want 400 with the filter to send: %s", filter, status, body)
 			}
 		}
-		// A group that does not exist is refused as the method refuses it.
-		status, body = ask("method:eq:" + giveGroup + ",group:eq:" + cinder)
-		assertStatus(t, status, http.StatusNotFound, body)
+		// A group that does not exist is listed no role, as a group kept in another
+		// sector is: the list never says whether an id is a group's. The id here is a
+		// sector's, in the whole service's roles and in Anvil's.
+		for _, where := range []string{"", ",domain:eq:" + anvil} {
+			status, body = ask("method:eq:" + giveGroup + ",group:eq:" + cinder + where)
+			assertStatus(t, status, http.StatusOK, body)
+			if rows := decodeRows(t, body); len(rows) != 0 {
+				t.Errorf("%s asked with an id that is no group's (%q) is listed %v, want no role", giveGroup, where, rows)
+			}
+		}
 	})
 
 	t.Run("a request that names no method is listed no role", func(t *testing.T) {

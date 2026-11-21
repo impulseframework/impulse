@@ -139,7 +139,7 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 	if err := resource.AfterCommit(txn, func(ctx context.Context) {
 		err := prepared.Send(ctx)
 		if err != nil {
-			logger.FromCtx(ctx).Errorf("identity: the invitation %s to %s is committed and its message could not be sent, so it is withdrawn: %v", row.ID, row.Email, err)
+			logger.FromCtx(ctx).Errorf("identity: the invitation %s to %s is committed and its message could not be sent, so it is ended, not mailed: %v", row.ID, row.Email, err)
 		}
 		if sent != nil {
 			sent(err == nil)
