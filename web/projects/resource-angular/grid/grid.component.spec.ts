@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, effect } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import { ColumnConfig, iconCellKey, RecordData } from '@impulseframework/resource-angular/types';
@@ -829,7 +829,7 @@ describe('a text cut short', () => {
   });
 
   it("offers an empty list's message whole where it is cut short, and nothing where it fits", async () => {
-    const refusal = 'This list is not available to you: the sector keeps its roster to its own marshal.';
+    const refusal = 'You do not have permission to see this list. The sector keeps its roster to its own marshal.';
     fixture.componentRef.setInput('rowData', []);
     fixture.componentRef.setInput('emptyMessage', refusal);
     fixture.detectChanges();
@@ -1065,7 +1065,8 @@ describe('what a row says of a list, a missing key and a method it does not offe
 // A column keeps a readable width: the table is never narrower than its columns at the
 // narrowest each is drawn, so a frame too narrow for them scrolls sideways, the frame and
 // never the page, and the first column is then held at the left edge with the select and
-// expand columns. A list whose columns fit is drawn as it always was. jsdom lays nothing
+// expand columns, while the widest of the other columns can be seen whole beside it; no
+// second column is ever held. A list whose columns fit is drawn as it always was. jsdom lays nothing
 // out and has no ResizeObserver, so each case says how wide the frame is, as the browser
 // would report it.
 describe('a list and the width of its frame', () => {
@@ -1088,9 +1089,13 @@ describe('a list and the width of its frame', () => {
     },
   ] as unknown as ColumnConfig[];
   const columnsAtTheirNarrowest = text + text + 64 + text + 66;
-  // What a wide window leaves the list, and a phone held upright.
+  // What a wide window leaves the list, and a phone held upright: one 390 wide, and one 360.
   const wide = 1226;
   const phone = 336;
+  const smallPhone = 306;
+  // The least frame in which the list with a select and an expand column holds its first
+  // column: those two, the first column, and the widest of the others whole beside them.
+  const holdsWithSelectAndExpand = 48 + 40 + text + text;
 
   /** A list with a select column and rows that expand, as a page that offers both hands them to the grid. */
   @Component({
@@ -1311,6 +1316,46 @@ describe('a list and the width of its frame', () => {
     });
   });
 
+  describe('a list drawn with its rows from the start, as a list in a dialog is', () => {
+    it('is drawn for the width of its frame at its first drawing, before the browser reports any size', async () => {
+      // The browser lays the frame out as wide as a phone leaves it, and reports a frame's
+      // size only once it has drawn it: what is drawn before that report is what a person
+      // sees for a frame.
+      const laid = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+        configurable: true,
+        get(this: HTMLElement): number {
+          return this.classList.contains('impulse-grid-scroll') ? phone : 0;
+        },
+      });
+      try {
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', rows);
+        fixture.componentRef.setInput('columnDefs', columns);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        fixture.detectChanges();
+
+        // Its first drawing: the frame is too narrow for the columns, so the first is held
+        // and each column that would cut a value is at its narrowest.
+        const first = headers().map((th) => th.style.width);
+        expect(held()).toBe(true);
+        expect(first).toEqual([`${text}px`, `${text}px`, '64px', `${text}px`, '66px']);
+
+        // The browser's report of the size it drew changes nothing.
+        frameIs(phone);
+        expect(headers().map((th) => th.style.width)).toEqual(first);
+        expect(held()).toBe(true);
+      } finally {
+        if (laid) {
+          Object.defineProperty(HTMLElement.prototype, 'clientWidth', laid);
+        } else {
+          delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+        }
+      }
+    });
+  });
+
   describe('a frame narrower than the columns', () => {
     it('is what scrolls sideways: the table keeps its width inside the frame, which scrolls whatever does not fit', async () => {
       await plain();
@@ -1373,7 +1418,7 @@ describe('a list and the width of its frame', () => {
 
     it('holds the select and expand columns with it, each after the one before', async () => {
       await withSelectAndExpand();
-      frameIs(phone);
+      frameIs(holdsWithSelectAndExpand);
 
       expect(held()).toBe(true);
       expect(frame().style.getPropertyValue('--impulse-grid-expand-left')).toBe('48px');
@@ -1400,7 +1445,7 @@ describe('a list and the width of its frame', () => {
       expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe(`${text}px`);
 
       await withSelectAndExpand();
-      frameIs(phone);
+      frameIs(holdsWithSelectAndExpand);
       expect(held()).toBe(true);
       expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe(`${48 + 40 + text}px`);
       expect(declares(['.holds-first-column'], ['impulse-grid-table'])).toMatch(
@@ -1447,16 +1492,95 @@ describe('a list and the width of its frame', () => {
       expect(frame().scrollLeft).toBe(100);
     });
 
-    it('lets the first column go where holding it would leave less than the narrowest column beside it', async () => {
+    it('lets the first column go where its widest other column could not be seen whole beside it, to the pixel: nothing is held then, and every column scrolls', async () => {
       await plain();
+      // The first column and the widest of the others are 160 each: 320 of the 336 a list
+      // has on a phone 390 wide, and more than the 306 it has on one 360 wide.
       frameIs(phone);
-      // Dragged to 288, the held column leaves 48 beside it, the least a column goes.
-      drag(0, 288);
       expect(held()).toBe(true);
-      expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe('288px');
+      frameIs(smallPhone);
+      expect(held()).toBe(false);
+      expect(parseFloat(table().style.minWidth)).toBeGreaterThan(smallPhone);
+      // The title row stays at the top of the frame as ever; nothing stays at its left.
+      expect(getComputedStyle(cells(0)[0]).position).not.toBe('sticky');
+      expect(getComputedStyle(table()).borderCollapse).toBe('collapse');
+      frameIs(2 * text);
+      expect(held()).toBe(true);
+      frameIs(2 * text - 1);
+      expect(held()).toBe(false);
+
+      // Dragged to 176 on the phone, the held column leaves the 160 the widest other needs.
+      frameIs(phone);
+      drag(0, 176);
+      expect(held()).toBe(true);
+      expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe('176px');
       drag(0, 1);
       expect(held()).toBe(false);
       expect(parseFloat(table().style.minWidth)).toBeGreaterThan(phone);
+    });
+
+    it('counts the select and expand columns in what is held: the list lets all three go a pixel under the room they and the widest other column need', async () => {
+      await withSelectAndExpand();
+      frameIs(holdsWithSelectAndExpand - 1);
+
+      expect(held()).toBe(false);
+      for (const cell of cells(1).slice(0, 3)) {
+        expect(getComputedStyle(cell).position).not.toBe('sticky');
+      }
+      // On a phone the two columns and a first column at the library's width leave 88.
+      frameIs(phone);
+      expect(held()).toBe(false);
+    });
+
+    it('goes by the widest column that scrolls as it is drawn: one a person dragged wider or narrower, and a column of buttons with the rest', async () => {
+      await plain();
+      // The second column dragged to 170: the first, at 160, needs 330 to hold.
+      drag(1, 170);
+      frameIs(330);
+      expect(held()).toBe(true);
+      frameIs(329);
+      expect(held()).toBe(false);
+
+      // Dragged down to 100, it is no longer the widest: the fourth is, at 160.
+      drag(1, -70);
+      expect(headers()[1].style.width).toBe('100px');
+      frameIs(2 * text - 1);
+      expect(held()).toBe(false);
+      frameIs(2 * text);
+      expect(held()).toBe(true);
+
+      // A first column wider than every other is not counted twice: 200 and 160.
+      drag(0, 200);
+      frameIs(200 + text);
+      expect(held()).toBe(true);
+      frameIs(200 + text - 1);
+      expect(held()).toBe(false);
+
+      // Of a first column, a column 64 wide and a column of buttons, the buttons' 66 is
+      // the widest that scrolls.
+      give('columnDefs', [columns[0], columns[2], columns[4]]);
+      detect();
+      frameIs(200 + 66);
+      expect(held()).toBe(true);
+      frameIs(200 + 66 - 1);
+      expect(held()).toBe(false);
+    });
+
+    it('holds nothing in a list of one column or of two: what scrolls would not be whole beside the first', async () => {
+      await plain();
+      give('columnDefs', [columns[0]]);
+      detect();
+      frameIs(text - 1);
+      expect(parseFloat(table().style.minWidth)).toBeGreaterThan(text - 1);
+      expect(held()).toBe(false);
+
+      // Two columns scroll only in a frame narrower than both, where the second is not whole beside the first.
+      give('columnDefs', [columns[0], columns[1]]);
+      detect();
+      frameIs(2 * text - 1);
+      expect(held()).toBe(false);
+      frameIs(phone);
+      expect(held()).toBe(false);
     });
 
     it('draws a held cell on the color the list sits on, read off the page: a part-clear color nearer by is passed over', async () => {
@@ -1649,10 +1773,15 @@ describe('a list and the width of its frame', () => {
     const frames = (): HTMLElement[] => {
       return Array.from(element.querySelectorAll<HTMLElement>('.impulse-grid-scroll'));
     };
-    /** The browser lays the two frames out: the outer one a phone wide, the inner one wide enough for its two columns. */
+    // The outer list's expand column, its first column and the widest of its others, whole.
+    const outerHolds = 40 + text + text;
+    /**
+     * The browser lays the two frames out: the outer one too narrow for its columns and just
+     * wide enough to hold its first, the inner one wide enough for its two columns.
+     */
     const laidOut = (): void => {
       const [outer, inner] = frames();
-      Object.defineProperty(outer, 'clientWidth', { configurable: true, value: phone });
+      Object.defineProperty(outer, 'clientWidth', { configurable: true, value: outerHolds });
       Object.defineProperty(inner, 'clientWidth', { configurable: true, value: 2 * text + 4 });
       watched.forEach((entry) => entry.report());
       detect();
@@ -1712,6 +1841,8 @@ describe('a list and the width of its frame', () => {
   // showing, with the cell's padding and line and two pixels to spare, and never more
   // than the library's one width; it is read off what is drawn. A need only grows while
   // the list keeps its columns. A dragged width and a declared one are kept as they are.
+  // A heading a person can sort by keeps the room of the sort's arrow whether or not the
+  // arrow is drawn, so its column does not grow when they first sort by it.
   // jsdom draws nothing, so each case says how wide a text is drawn (eight pixels a
   // character), how wide an icon, and what a cell's padding and lines are, as the list's
   // stylesheet gives them to a browser: 25 around a cell's content, 13 around a heading's.
@@ -1722,9 +1853,16 @@ describe('a list and the width of its frame', () => {
     const aroundCell = 25;
     const aroundHeading = 13;
     const spare = 2;
-    /** What a text of so many characters needs in a cell, and in a heading. */
+    /** The room a heading a person can sort by keeps for the sort's arrow: the arrow's 14 pixels and the gap of 2 before it. */
+    const arrow = 16;
+    /**
+     * What a text of so many characters needs in a cell; in a heading a person can sort
+     * by, which every heading of these lists is unless a case says not; and in a heading
+     * that is words alone.
+     */
     const cellOf = (characters: number): number => characters * character + aroundCell + spare;
-    const headingOf = (characters: number): number => characters * character + aroundHeading + spare;
+    const headingOf = (characters: number): number => characters * character + arrow + aroundHeading + spare;
+    const wordsOf = (characters: number): number => characters * character + aroundHeading + spare;
     // Name: "Commendations", thirteen characters. Description: longer than the library's
     // width holds. Changed By: its heading, ten characters, over "ada".
     const name = cellOf(13);
@@ -1734,26 +1872,86 @@ describe('a list and the width of its frame', () => {
     let reads: number;
     /** Where an element is laid out, for the few a case places: every other is nowhere, as jsdom has it. */
     let placed: Map<Element, { left: number; right: number }>;
-    /** What a font that has arrived tells the list, and whether the list still listens. */
-    let fonts: { arrived?: () => void; listening: boolean };
+    /**
+     * The page's set of fonts: whether a font is on its way, as it says it, what it tells
+     * whoever listens when the fonts have arrived or failed, and whether a list still
+     * listens (the wait the lists of a page share listens too, once).
+     */
+    let fonts: { arrived: () => void; listening: boolean; status: 'loading' | 'loaded' };
+    /** Who is told when the fonts have arrived, and whether only the once. */
+    let told: Map<() => void, boolean>;
     /** How much wider than the font's the letters are drawn: wider while a font has not arrived. */
     let wider: number;
+    /** Whether laying a text out starts the load of its font, as the first text drawn in a font does. */
+    let startsFont: boolean;
+    /**
+     * Whether an icon is laid out as the letters of its name, as it is where the icons'
+     * font is not there: the letters run past the icon's box, which clips them and keeps
+     * its width.
+     */
+    let iconsAsLetters: boolean;
+    /** How wide the box of a line is laid out in a list drawn a line each: as wide as its cell leaves it, whatever the line says. */
+    let lineBox: number;
+    /**
+     * How much what is around the list draws it smaller or larger than it is laid out: 1
+     * unless a case says, as on a page. A dialog that grows open draws what it holds
+     * at nine tenths of its size and more until it has opened.
+     */
+    let scale: number;
+    /** The length the list's stylesheet gives its rule, which a browser lays out and jsdom does not. */
+    const ruleLength = 100;
+    /** How wide the box of an icon is laid out, whatever is drawn in it: a check's, any other icon's, and nothing for what is no icon. */
+    const iconBox = (drawn: Element): number => {
+      return drawn.tagName !== 'MAT-ICON' ? 0 : drawn.classList.contains('cell-yes') ? 30 : 24;
+    };
+    /**
+     * A length as a browser hands back what it draws: scaled, and no finer than the
+     * numbers it keeps a drawing in, so a length brought back from it is a hair off.
+     */
+    const asDrawn = (length: number): number => {
+      return scale === 1 ? length : Math.fround(length * scale);
+    };
 
     beforeEach(() => {
       reads = 0;
       wider = 1;
+      scale = 1;
+      startsFont = false;
+      iconsAsLetters = false;
+      lineBox = 0;
       placed = new Map();
-      fonts = { listening: false };
+      told = new Map();
+      fonts = {
+        status: 'loaded',
+        get listening(): boolean {
+          return Array.from(told.values()).some((once) => !once);
+        },
+        arrived: (): void => {
+          for (const [listener, once] of Array.from(told)) {
+            if (once) {
+              told.delete(listener);
+            }
+            listener();
+          }
+        },
+      };
       ranges.getBoundingClientRect = function (this: Range): DOMRect {
         reads++;
+        if (startsFont) {
+          fonts.status = 'loading';
+        }
+        // What a range over what an element holds takes in, as a browser has it: the box
+        // of each element in it and the line of each text in it, an icon's letters with
+        // its box and the box of a line set on its own with the line's text.
         const drawn = this.startContainer as HTMLElement;
         const icon = drawn.querySelector('mat-icon');
+        const letters = (drawn.textContent ?? '').trim().length * character * wider;
         const width = icon
-          ? icon.classList.contains('cell-yes')
-            ? 30
-            : 24
-          : (drawn.textContent ?? '').trim().length * character * wider;
-        return { width } as DOMRect;
+          ? Math.max(iconBox(icon), iconsAsLetters ? letters : 0)
+          : drawn.querySelector('.cell-line')
+            ? Math.max(lineBox, letters)
+            : letters;
+        return { width: asDrawn(width) } as DOMRect;
       };
       const view = document.defaultView as Window;
       const real = view.getComputedStyle.bind(view);
@@ -1778,18 +1976,26 @@ describe('a list and the width of its frame', () => {
       vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
         this: HTMLElement,
       ): DOMRect {
-        const at = placed.get(this) ?? { left: 0, right: 0 };
+        const laid = this.classList.contains('scale-rule')
+          ? { left: 0, right: ruleLength }
+          : (placed.get(this) ?? { left: 0, right: this.closest('td') ? iconBox(this) : 0 });
+        const at = { left: asDrawn(laid.left), right: asDrawn(laid.right) };
         return { ...at, width: at.right - at.left, top: 0, bottom: 0, height: 0 } as DOMRect;
+      });
+      vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement): number {
+        return this.classList.contains('scale-rule') ? ruleLength : 0;
       });
       Object.defineProperty(document, 'fonts', {
         configurable: true,
         value: {
-          addEventListener: (_: string, listener: () => void): void => {
-            fonts.arrived = listener;
-            fonts.listening = true;
+          get status(): string {
+            return fonts.status;
           },
-          removeEventListener: (): void => {
-            fonts.listening = false;
+          addEventListener: (_: string, listener: () => void, options?: { once?: boolean }): void => {
+            told.set(listener, options?.once === true);
+          },
+          removeEventListener: (_: string, listener: () => void): void => {
+            told.delete(listener);
           },
         },
       });
@@ -1802,6 +2008,7 @@ describe('a list and the width of its frame', () => {
         delete ranges.getBoundingClientRect;
       }
       delete (document as { fonts?: unknown }).fonts;
+      vi.useRealTimers();
     });
 
     /** New rows, columns or sorts, drawn and read. */
@@ -1814,6 +2021,14 @@ describe('a list and the width of its frame', () => {
     const widths = (): string[] => {
       return headers().map((th) => th.style.width);
     };
+    /** Whether the list is drawn: not held back until it has loaded for the first time, or until a font has arrived. */
+    const drawn = (): boolean => {
+      return !(frame().closest('.impulse-grid-host') as HTMLElement).classList.contains('held-back');
+    };
+    /** Whether the loading cover, with its spinner, is over the list. */
+    const covered = (): boolean => {
+      return element.querySelector('.impulse-grid-loading-overlay') !== null;
+    };
     const longer = { name: 'Commendations and citations', description: 'None.', enabled: false, changedBy: 'ada' };
     const shorter = { name: 'Tugs', description: 'None.', enabled: false, changedBy: 'mo' };
 
@@ -1822,7 +2037,7 @@ describe('a list and the width of its frame', () => {
         await plain();
         frameIs(phone);
 
-        expect([name, changedBy]).toEqual([131, 95]);
+        expect([name, changedBy]).toEqual([131, 111]);
         expect(table().style.minWidth).toBe(`${narrowest}px`);
         expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
       });
@@ -1852,43 +2067,119 @@ describe('a list and the width of its frame', () => {
         expect(widths()[0]).toBe('48px');
       });
 
-      it("counts the marks beside a heading's words, the sort's arrow and the filter's button, so they stay whole", async () => {
+      it("counts the marks beside a heading's words, the sort's arrow in the room kept for it and the filter's button after it, so they stay whole", async () => {
         await plain();
         await hand('sorts', [{ field: 'changedBy', direction: 'asc' }]);
         await hand('filterability', { changedBy: 'always' });
         const heading = headers()[3];
         const words = heading.querySelector('.col-header') as HTMLElement;
-        const arrow = heading.querySelector('.sort-icon') as HTMLElement;
+        const mark = heading.querySelector('.sort-icon') as HTMLElement;
         const label = heading.querySelector('.header-label') as HTMLElement;
         const filter = heading.querySelector('.header-cell > .filter-trigger') as HTMLElement;
-        expect([arrow, filter].map((mark) => mark !== null)).toEqual([true, true]);
+        expect([mark, filter].map((drawn) => drawn !== null)).toEqual([true, true]);
         // The words end at 80; the arrow, after a gap of 2, ends at 96, where the label
         // ends; the filter's button is 22 wide after it.
         placed.set(words, { left: 0, right: 80 });
-        placed.set(arrow, { left: 82, right: 96 });
+        placed.set(mark, { left: 82, right: 96 });
         placed.set(label, { left: 0, right: 96 });
         placed.set(filter, { left: 96, right: 118 });
         frameIs(phone);
 
-        expect(widths()[3]).toBe(`${changedBy + 16 + 22}px`);
+        expect(widths()[3]).toBe(`${wordsOf(10) + 16 + 22}px`);
+        expect(widths()[3]).toBe(`${changedBy + 22}px`);
       });
 
-      it("grows by a heading's mark that arrives later: the arrow of a sort a person asks for", async () => {
+      it("keeps the room of a sort's arrow in every heading a person can sort by, from the start: a column as wide as its heading needs does not grow when they first sort by it", async () => {
         await plain();
         frameIs(phone);
+        expect(changedBy).toBe(wordsOf(10) + arrow);
         expect(widths()[3]).toBe(`${changedBy}px`);
 
         await hand('sorts', [{ field: 'changedBy', direction: 'asc' }]);
         const heading = headers()[3];
         placed.set(heading.querySelector('.col-header') as HTMLElement, { left: 0, right: 80 });
         placed.set(heading.querySelector('.sort-icon') as HTMLElement, { left: 82, right: 96 });
-        // The arrow is drawn, and nothing has read it yet: the next sort does.
+        // The arrow is drawn in the room kept for it: the next read finds nothing more to need.
         await hand('sorts', [{ field: 'changedBy', direction: 'desc' }]);
-        expect(widths()[3]).toBe(`${changedBy + 16}px`);
+        expect(widths()[3]).toBe(`${changedBy}px`);
 
         // The sort moves to another column: the arrow goes, and the column keeps its width.
         await hand('sorts', [{ field: 'name', direction: 'asc' }]);
-        expect(widths()[3]).toBe(`${changedBy + 16}px`);
+        expect(widths()[3]).toBe(`${changedBy}px`);
+      });
+
+      it("keeps for the arrow what the list's stylesheet draws it at: the arrow's 14 pixels and the gap of 2 before it", async () => {
+        await plain();
+        await hand('sortable', false);
+        frameIs(phone);
+        // What the heading needs as words alone, and what it needs once a person can sort
+        // by it: the difference is the room the list keeps for the arrow.
+        const asWords = parseFloat(widths()[3]);
+        await hand('sortable', true);
+        const kept = parseFloat(widths()[3]) - asWords;
+        expect(asWords).toBe(wordsOf(10));
+
+        /** How many pixels a rule of the stylesheet gives a property. */
+        const drawnAt = (rule: string, property: string): number => {
+          const lengths = Array.from(rule.matchAll(/(?:^|[\s;])([a-z-]+):\s*(\d+)px/g));
+          return Number(lengths.find(([, name]) => name === property)?.[2]);
+        };
+        const arrowIs = drawnAt(declares(['.sort-icon']), 'width');
+        const gapIs = drawnAt(declares(['.header-label'], ['.header-words']), 'gap');
+        expect([arrowIs, gapIs]).toEqual([14, 2]);
+        expect(kept).toBe(arrowIs + gapIs);
+        expect(arrow).toBe(kept);
+      });
+
+      it('grows by what a second sort draws past the room kept, and by no more: the number that says which sort the column is, the arrow being in the room kept for it', async () => {
+        await plain();
+        frameIs(phone);
+        const unsorted = parseFloat(widths()[3]);
+        await hand('sorts', [
+          { field: 'name', direction: 'asc' },
+          { field: 'changedBy', direction: 'asc' },
+        ]);
+        const heading = headers()[3];
+        const number = heading.querySelector('.sort-priority') as HTMLElement;
+        expect(number.textContent).toBe('2');
+        // The number is drawn after the arrow and ends 6 pixels past it.
+        placed.set(heading.querySelector('.col-header') as HTMLElement, { left: 0, right: 80 });
+        placed.set(heading.querySelector('.sort-icon') as HTMLElement, { left: 82, right: 96 });
+        placed.set(number, { left: 96, right: 102 });
+        await hand('sorts', [
+          { field: 'name', direction: 'desc' },
+          { field: 'changedBy', direction: 'asc' },
+        ]);
+
+        expect(widths()[3]).toBe(`${changedBy + 6}px`);
+        // The arrow and the gap before it are in the room the heading kept from the start:
+        // the column grows by the number alone, not by the arrow and the number.
+        expect(parseFloat(widths()[3]) - unsorted).toBe(6);
+      });
+
+      it('keeps no such room in a heading with nothing to press: a list told its rows have one order', async () => {
+        await plain();
+        await hand('sortable', false);
+        frameIs(phone);
+
+        expect(headers()[3].querySelector('button.header-label')).toBeNull();
+        expect(widths()[3]).toBe(`${wordsOf(10)}px`);
+      });
+
+      it('keeps no such room in the heading of a column that opts out of sorting, and keeps it in the others', async () => {
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', [{ flag: 'x', changedBy: 'mo' }]);
+        fixture.componentRef.setInput('columnDefs', [
+          { id: 'flag', header: 'Commendation' },
+          { id: 'changedBy', sortable: false },
+          { id: 'more' },
+        ]);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        await settle(fixture);
+        frameIs(100);
+
+        expect(widths().slice(0, 2)).toEqual([`${headingOf(12)}px`, `${wordsOf(10)}px`]);
       });
 
       it('measures what a cell draws, not what it is written with: a check is as wide as its icon', async () => {
@@ -1921,6 +2212,204 @@ describe('a list and the width of its frame', () => {
         frameIs(0);
         expect(reads).toBe(0);
         expect(table().style.minWidth).toBe(`${columnsAtTheirNarrowest}px`);
+      });
+    });
+
+    // A dialog grows open: Material draws its surface, and the list in it, at nine tenths of
+    // its size and more until it has opened, and a browser hands back what it draws.
+    describe('a list that something around it draws smaller or larger than it is laid out', () => {
+      it('lays a rule out with the list, a hundred pixels long, that takes no room and is not seen', async () => {
+        await plain();
+        const rule = element.querySelector('.impulse-grid-host > .scale-rule');
+        expect(rule).not.toBeNull();
+        expect(rule?.textContent).toBe('');
+        // What jsdom lays out for it, the spec does (`ruleLength`): the stylesheet is what a browser goes by.
+        const drawnAs = declares(['.scale-rule']);
+        expect(drawnAs).toMatch(new RegExp(`width:\\s*${ruleLength}px`));
+        expect(drawnAs).toMatch(/position:\s*absolute/);
+        expect(drawnAs).toMatch(/height:\s*0/);
+        expect(drawnAs).toMatch(/visibility:\s*hidden/);
+      });
+
+      it('needs what it is laid out at, not what it is drawn at: a list read while its dialog grows open keeps its longest value whole once the dialog has opened', async () => {
+        for (const drawnBy of [0.8, 0.907, 0.937, 0.94, 1.1, 1.25]) {
+          scale = drawnBy;
+          await plain();
+          frameIs(phone);
+
+          expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+          expect(table().style.minWidth).toBe(`${narrowest}px`);
+        }
+        // What the same reads come to taken as drawn: seven pixels short for "Commendations" at 0.937.
+        expect(Math.ceil(Math.fround(13 * character * 0.937) + aroundCell) + spare).toBe(name - 6);
+      });
+
+      it('brings a length back to the pixel it was laid out at: what the division leaves over does not carry a whole number of pixels on to the next', async () => {
+        // "Commendations" is laid out 104 wide, and drawn at 0.937 a browser hands back a
+        // length that comes back as a hair more than 104.
+        scale = 0.937;
+        expect(asDrawn(13 * character) / (asDrawn(ruleLength) / ruleLength)).toBeGreaterThan(13 * character);
+        await plain();
+        frameIs(phone);
+
+        expect(widths()[0]).toBe(`${name}px`);
+      });
+
+      it("reads the marks beside a heading's words as they are laid out too", async () => {
+        scale = 0.907;
+        await plain();
+        await hand('sorts', [{ field: 'changedBy', direction: 'asc' }]);
+        await hand('filterability', { changedBy: 'always' });
+        const heading = headers()[3];
+        const words = heading.querySelector('.col-header') as HTMLElement;
+        const mark = heading.querySelector('.sort-icon') as HTMLElement;
+        const label = heading.querySelector('.header-label') as HTMLElement;
+        const filter = heading.querySelector('.header-cell > .filter-trigger') as HTMLElement;
+        // Laid out as in the case of the marks above: the words to 80, the arrow to 96,
+        // where the label ends, and the filter's button 22 wide after it.
+        placed.set(words, { left: 0, right: 80 });
+        placed.set(mark, { left: 82, right: 96 });
+        placed.set(label, { left: 0, right: 96 });
+        placed.set(filter, { left: 96, right: 118 });
+        frameIs(phone);
+
+        expect(widths()[3]).toBe(`${changedBy + 22}px`);
+      });
+
+      it('reads a second sort past the room kept for the arrow as it is laid out', async () => {
+        scale = 0.8;
+        await plain();
+        await hand('sorts', [
+          { field: 'name', direction: 'asc' },
+          { field: 'changedBy', direction: 'asc' },
+        ]);
+        const heading = headers()[3];
+        const words = heading.querySelector('.col-header') as HTMLElement;
+        const label = heading.querySelector('.header-label') as HTMLElement;
+        const last = label.lastElementChild as HTMLElement;
+        expect(last).not.toBe(words);
+        // The arrow and the number after it end 26 past the words: 10 past the room kept.
+        placed.set(words, { left: 0, right: 80 });
+        placed.set(last, { left: 98, right: 106 });
+        placed.set(label, { left: 0, right: 106 });
+        frameIs(phone);
+
+        expect(widths()[3]).toBe(`${changedBy + 10}px`);
+      });
+
+      it("reads an icon's box and the longest line of a list drawn a line each as they are laid out too", async () => {
+        scale = 0.8;
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', [
+          {
+            name: 'Ada',
+            standing: 'Cleared',
+            [iconCellKey('standing')]: 'verified_user',
+            roles: ['Reader', 'Deck warden'],
+          },
+        ]);
+        fixture.componentRef.setInput('columnDefs', [
+          { id: 'name' },
+          { id: 'standing', header: 'Is', iconConfig: { icons: { Cleared: 'verified_user' } } },
+          { id: 'roles', lines: true },
+          { id: 'more' },
+        ]);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        await settle(fixture);
+        frameIs(100);
+
+        // An icon's box is 24 and "Deck warden" eleven characters, each drawn at eight tenths of that.
+        expect(asDrawn(24)).toBeLessThan(20);
+        expect(widths().slice(1, 3)).toEqual([`${24 + aroundCell + spare}px`, `${cellOf(11)}px`]);
+      });
+
+      describe('drawn at no size at all', () => {
+        const view = document.defaultView as Window;
+        const own = ['requestAnimationFrame', 'cancelAnimationFrame'].map((name): [string, unknown] => {
+          return [name, Reflect.get(view, name)];
+        });
+        /** The frames the list has asked the page for, which a case draws when it says. */
+        let asked: Map<number, FrameRequestCallback>;
+        const nextFrame = (): void => {
+          const due = Array.from(asked.values());
+          asked.clear();
+          due.forEach((draw) => draw(0));
+          detect();
+        };
+
+        beforeEach(() => {
+          asked = new Map();
+          let last = 0;
+          view.requestAnimationFrame = (draw: FrameRequestCallback): number => {
+            asked.set(++last, draw);
+            return last;
+          };
+          view.cancelAnimationFrame = (id: number): void => {
+            asked.delete(id);
+          };
+        });
+
+        afterEach(() => {
+          own.forEach(([name, was]) => Reflect.set(view, name, was));
+        });
+
+        it('reads nothing off it, keeps nothing and draws nothing of a list it has never read, and reads and draws it at the first frame that draws it at some size', async () => {
+          scale = 0;
+          await plain();
+          frameIs(phone);
+          expect(reads).toBe(0);
+          expect(widths()[0]).toBe(`${text}px`);
+          expect(drawn()).toBe(false);
+          expect(asked.size).toBe(1);
+
+          // A frame later it is still drawn at no size: it asks for the next, and for one only.
+          nextFrame();
+          await hand('rowData', [rows[0], shorter]);
+          expect(reads).toBe(0);
+          expect(drawn()).toBe(false);
+          expect(asked.size).toBe(1);
+
+          scale = 0.5;
+          nextFrame();
+          expect(drawn()).toBe(true);
+          expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+          expect(asked.size).toBe(0);
+        });
+
+        it('keeps a list a person has seen as it is while it is drawn at no size, and reads it again at the first frame that draws it at some size', async () => {
+          await plain([shorter]);
+          frameIs(phone);
+          expect(drawn()).toBe(true);
+          expect(widths()[0]).toBe(`${headingOf(4)}px`);
+          const read = reads;
+
+          // Something around the list draws it at no size, and a longer value arrives meanwhile.
+          scale = 0;
+          await hand('rowData', rows);
+          expect(reads).toBe(read);
+          expect(drawn()).toBe(true);
+          expect(widths()[0]).toBe(`${headingOf(4)}px`);
+          expect(asked.size).toBe(1);
+
+          scale = 1;
+          nextFrame();
+          expect(drawn()).toBe(true);
+          expect(widths()[0]).toBe(`${name}px`);
+          expect(asked.size).toBe(0);
+        });
+
+        it('gives up the frame it asked for once it has left', async () => {
+          scale = 0;
+          await plain();
+          frameIs(phone);
+          expect(asked.size).toBe(1);
+          const [its] = asked.keys();
+
+          // The page may ask for a frame of its own as the list leaves: the list's is the one given up.
+          leave();
+          expect(asked.has(its)).toBe(false);
+        });
       });
     });
 
@@ -1961,9 +2450,10 @@ describe('a list and the width of its frame', () => {
           'columnDefs',
           columns.map((col) => (col.id === 'name' ? { ...col, header: 'Flag' } : col)),
         );
-        // "Tugs" and "Flag", four characters each.
-        expect(widths()[0]).toBe(`${cellOf(4)}px`);
-        expect(cellOf(4)).toBeLessThan(name);
+        // "Tugs" and "Flag", four characters each: the heading, with the room of its arrow, needs the more.
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+        expect(headingOf(4)).toBeGreaterThan(cellOf(4));
+        expect(headingOf(4)).toBeLessThan(name);
       });
 
       it('starts again when the list is opened again', async () => {
@@ -1973,7 +2463,8 @@ describe('a list and the width of its frame', () => {
 
         await plain([shorter]);
         frameIs(phone);
-        expect(widths()[0]).toBe(`${cellOf(4)}px`);
+        // "Tugs" under "Name": the heading, with the room of its arrow, needs the more.
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
       });
     });
 
@@ -2027,10 +2518,10 @@ describe('a list and the width of its frame', () => {
 
       it('a list that fits once its columns are as narrow as they need does not scroll: a column that needs more than an equal share of the frame keeps what it needs, and the rest share what is left', async () => {
         await plain();
-        // Thirty more than the columns need. A third of what the declared and the button
+        // Ten more than the columns need. A third of what the declared and the button
         // column leave is under what Description needs, and half of the rest under what
         // Name needs: both keep theirs, and Changed By takes what is left.
-        frameIs(narrowest + 30);
+        frameIs(narrowest + 10);
         expect(held()).toBe(false);
         expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', '', '66px']);
 
@@ -2039,11 +2530,11 @@ describe('a list and the width of its frame', () => {
         expect(held()).toBe(false);
         expect(widths()).toEqual(['', `${text}px`, '64px', '', '66px']);
 
-        // Ninety-four more: a third is the library's width to the pixel, which every column fits in.
-        frameIs(narrowest + 94);
+        // Seventy-eight more: a third is the library's width to the pixel, which every column fits in.
+        frameIs(narrowest + 78);
         expect(held()).toBe(false);
         expect(widths()).toEqual(['', '', '64px', '', '66px']);
-        frameIs(narrowest + 93);
+        frameIs(narrowest + 77);
         expect(widths()).toEqual(['', `${text}px`, '64px', '', '66px']);
       });
 
@@ -2064,6 +2555,25 @@ describe('a list and the width of its frame', () => {
         expect(at(narrowest - 1)).toEqual(scrolls);
         // What it needs does not move with the frame.
         expect(table().style.minWidth).toBe(`${narrowest}px`);
+      });
+
+      it('holds its first column while the widest of the others, as narrow as that one goes, is whole beside it, and lets it go a pixel under that', async () => {
+        await plain();
+        // Name is held at the 131 it needs; Description, at the library's width, is the
+        // widest of those that scroll.
+        frameIs(name + text);
+        expect(held()).toBe(true);
+        frameIs(name + text - 1);
+        expect(held()).toBe(false);
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+
+        // Without Description the widest is Changed By, at the 111 its heading needs.
+        await hand('columnDefs', [columns[0], columns[2], columns[3], columns[4]]);
+        expect(widths()).toEqual([`${name}px`, '64px', `${changedBy}px`, '66px']);
+        frameIs(name + changedBy);
+        expect(held()).toBe(true);
+        frameIs(name + changedBy - 1);
+        expect(held()).toBe(false);
       });
     });
 
@@ -2105,6 +2615,34 @@ describe('a list and the width of its frame', () => {
         }
       });
 
+      it('works out no width again after a read that found nothing new, so the list is not drawn again for it', async () => {
+        const list = await plain();
+        frameIs(phone);
+        // Counts each time the width the first column is drawn at is worked out.
+        let workedOut = 0;
+        const watch = TestBed.runInInjectionContext(() =>
+          effect(() => {
+            list.drawnWidthFor(columns[0]);
+            workedOut++;
+          }),
+        );
+        TestBed.tick();
+        expect(workedOut).toBe(1);
+        const first = reads;
+
+        // Another page of values the list has shown: read, and nothing found that the columns did not have.
+        await hand('rowData', [rows[1], rows[0]]);
+        TestBed.tick();
+        expect(reads).toBeGreaterThan(first);
+        expect(workedOut).toBe(1);
+
+        // A longer value: its column needs more, and the widths are worked out again.
+        await hand('rowData', [longer]);
+        TestBed.tick();
+        expect(workedOut).toBe(2);
+        watch.destroy();
+      });
+
       it("reads a value once for each column it is shown in, no value of a column already at the library's width, and no column with a width of its own", async () => {
         await plain();
         frameIs(phone);
@@ -2126,6 +2664,9 @@ describe('a list and the width of its frame', () => {
         detect();
         await hand('rowData', rows);
         expect(reads).toBe(first);
+        // What the list would say were it empty is drawn in no column.
+        await hand('emptyMessage', 'No flags are declared.');
+        expect(reads).toBe(first);
         await hand('rowData', [shorter]);
         expect(reads).toBeGreaterThan(first);
       });
@@ -2140,7 +2681,7 @@ describe('a list and the width of its frame', () => {
         // The record is read: the row is drawn with its name, and the list has loaded.
         give('rowData', [shorter]);
         await hand('loading', false);
-        expect(widths()[0]).toBe(`${cellOf(4)}px`);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
         expect(cellOf(20)).toBeGreaterThan(text);
       });
 
@@ -2151,7 +2692,90 @@ describe('a list and the width of its frame', () => {
         expect(widths()[0]).toBe(`${text}px`);
 
         await hand('loading', false);
-        expect(widths()[0]).toBe(`${cellOf(4)}px`);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+      });
+
+      it("draws nothing of a list on its first load, not its headings at the library's width, its pager or a loading cover, and draws it whole once it has loaded, each column at what it needs", async () => {
+        await plain([]);
+        give('page', { offset: 0, hasPrev: false, hasNext: false });
+        await hand('loading', true);
+        frameIs(phone);
+        // Nothing is read, and nothing of the list is drawn: its frame and its pager are
+        // hidden where they will be, and no cover with a spinner stands in for them.
+        expect(reads).toBe(0);
+        expect(drawn()).toBe(false);
+        expect(covered()).toBe(false);
+        expect(declares(['.held-back', '.impulse-grid-scroll'])).toMatch(/visibility:\s*hidden/);
+        expect(declares(['.held-back', '.impulse-grid-pager'])).toMatch(/visibility:\s*hidden/);
+        expect(element.querySelector('.held-back > .impulse-grid-pager')).not.toBeNull();
+        expect(element.querySelector('.held-back > .impulse-grid-view > .impulse-grid-scroll')).toBe(frame());
+
+        // The rows arrive: the list is read with them and drawn, no column at the library's width first.
+        give('rowData', rows);
+        await hand('loading', false);
+        expect(drawn()).toBe(true);
+        expect(covered()).toBe(false);
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+      });
+
+      it('draws a list whose first load brings no rows, or fails, once it has: its headings, each at what it needs, over what the list says', async () => {
+        await plain([]);
+        await hand('loading', true);
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+
+        give('emptyMessage', 'This list could not be loaded.');
+        await hand('loading', false);
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+        expect(element.querySelector('.no-records-row')?.textContent).toContain('This list could not be loaded.');
+      });
+
+      it('keeps a list a person has seen on the screen, under the loading cover, while it is read again for a page turn, a sort or a filter, and narrows nothing when the rows arrive', async () => {
+        await plain();
+        frameIs(phone);
+        expect(drawn()).toBe(true);
+        const seen = widths();
+
+        await hand('loading', true);
+        expect(drawn()).toBe(true);
+        expect(covered()).toBe(true);
+        expect(widths()).toEqual(seen);
+
+        give('rowData', [shorter]);
+        await hand('loading', false);
+        expect(drawn()).toBe(true);
+        expect(covered()).toBe(false);
+        expect(widths()).toEqual(seen);
+      });
+
+      it('holds a list handed other columns back while it loads with them: those have not been read, and it is drawn whole with their rows', async () => {
+        await plain();
+        frameIs(phone);
+        expect(drawn()).toBe(true);
+
+        // The same columns, the first under another heading, and a load for them.
+        give(
+          'columnDefs',
+          columns.map((col) => (col.id === 'name' ? { ...col, header: 'Flag' } : col)),
+        );
+        await hand('loading', true);
+        expect(drawn()).toBe(false);
+        expect(covered()).toBe(false);
+
+        // "Tugs" under "Flag": read anew with the rows the load brought, not kept at what "Commendations" needed.
+        give('rowData', [shorter]);
+        await hand('loading', false);
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+        expect(headingOf(4)).toBeLessThan(name);
+      });
+
+      it('holds no list back that is not laid out, though it is loading: nothing can be read to end it, and a list that cannot be seen keeps its cover for when it can', async () => {
+        await plain([]);
+        await hand('loading', true);
+        expect(drawn()).toBe(true);
+        expect(covered()).toBe(true);
       });
 
       it('reads again when a font arrives, since every text is then drawn another width, and listens no more once the list has left', async () => {
@@ -2160,22 +2784,324 @@ describe('a list and the width of its frame', () => {
         const first = reads;
         expect(fonts.listening).toBe(true);
 
-        fonts.arrived?.();
+        fonts.arrived();
         expect(reads).toBeGreaterThan(first);
         leave();
         expect(fonts.listening).toBe(false);
       });
 
-      it('measures afresh when a font arrives: a column read in the wider letters drawn before it comes down to what it needs in the font', async () => {
-        wider = 1.25;
+      it('grows a column whose text needs more in the letters of a font that arrives, and narrows none: the width a column grew to on a page a person has left stays', async () => {
         await plain();
         frameIs(phone);
-        // "Commendations" in letters a quarter wider.
-        expect(widths()[0]).toBe(`${Math.ceil(13 * character * 1.25) + aroundCell + spare}px`);
+        // The person turns to a page of shorter values, and a font the page asked for arrives.
+        await hand('rowData', [shorter]);
+        fonts.arrived();
+        detect();
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+
+        // A font whose letters are a quarter wider: "Changed By" needs more, and "Tugs" still less than Name has.
+        wider = 1.25;
+        fonts.arrived();
+        detect();
+        expect(widths()[3]).toBe(`${changedBy + 20}px`);
+        expect(widths()[0]).toBe(`${name}px`);
+
+        // And one whose letters are narrower again narrows nothing.
+        wider = 1;
+        fonts.arrived();
+        detect();
+        expect(widths()[3]).toBe(`${changedBy + 20}px`);
+        expect(widths()[0]).toBe(`${name}px`);
+      });
+
+      it("does not draw a list it has not read while a font is on its way, and draws it whole once the font has arrived, each column at what it needs: no column is seen at the library's width and then narrowed", async () => {
+        wider = 1.25;
+        fonts.status = 'loading';
+        await plain();
+        frameIs(phone);
+        // Nothing is read in the letters drawn in the font's place, and nothing of the
+        // list is drawn: its headings and rows are hidden, with the frame they scroll in.
+        expect(reads).toBe(0);
+        expect(drawn()).toBe(false);
+        const heldBack = declares(['.held-back', '.impulse-grid-scroll']);
+        expect(heldBack).toMatch(/visibility:\s*hidden/);
+        expect(heldBack).toMatch(/overflow:\s*hidden/);
+
+        // New rows while the font is still on its way are not read either.
+        await hand('rowData', [rows[0], shorter]);
+        expect(reads).toBe(0);
+        expect(drawn()).toBe(false);
 
         wider = 1;
-        fonts.arrived?.();
+        fonts.status = 'loaded';
+        fonts.arrived();
         detect();
+        expect(drawn()).toBe(true);
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+      });
+
+      it("keeps nothing of a pass of reads that started a font on its way, and does not draw the list it read so: what it read was drawn in the font's place", async () => {
+        // The first text laid out in a font is what asks the page for it.
+        wider = 1.25;
+        startsFont = true;
+        await plain();
+        frameIs(phone);
+        expect(reads).toBeGreaterThan(0);
+        expect(fonts.status).toBe('loading');
+        expect(drawn()).toBe(false);
+        expect(Math.ceil(13 * character * 1.25) + aroundCell + spare).toBeLessThan(text);
+
+        startsFont = false;
+        wider = 1;
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${name}px`);
+      });
+
+      it('waits three seconds for a font and no longer: the list is then read in the letters the screen shows and drawn, and a font that arrives after all grows a column and narrows none', async () => {
+        await plain();
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        wider = 1.25;
+        fonts.status = 'loading';
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+
+        vi.advanceTimersByTime(2999);
+        detect();
+        expect(reads).toBe(0);
+        expect(drawn()).toBe(false);
+
+        vi.advanceTimersByTime(1);
+        detect();
+        expect(drawn()).toBe(true);
+        // "Commendations" and "Changed By" in letters a quarter wider than the font's.
+        const inItsPlace = [
+          `${Math.ceil(13 * character * 1.25) + aroundCell + spare}px`,
+          `${Math.ceil(10 * character * 1.25) + arrow + aroundHeading + spare}px`,
+        ];
+        expect([widths()[0], widths()[3]]).toEqual(inItsPlace);
+        expect(Math.ceil(13 * character * 1.25) + aroundCell + spare).toBeGreaterThan(name);
+
+        // The font arrives after all, and its letters are narrower: nothing a person has seen narrows.
+        wider = 1;
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(drawn()).toBe(true);
+        expect([widths()[0], widths()[3]]).toEqual(inItsPlace);
+      });
+
+      it("reads an icon by its box, not by the letters of its name: a column of icons read once the wait for the icons' font has run out is as wide as the icon needs", async () => {
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', [
+          { name: 'Commendations', enabled: true, standing: 'Cleared', [iconCellKey('standing')]: 'verified_user' },
+        ]);
+        fixture.componentRef.setInput('columnDefs', [
+          { id: 'name' },
+          { id: 'enabled', header: 'On' },
+          { id: 'standing', header: 'Is', iconConfig: { icons: { Cleared: 'verified_user' } } },
+          { id: 'more' },
+        ]);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        await settle(fixture);
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        // The icons' font is on its way and does not arrive: each icon is laid out as the
+        // letters of its name, which its box clips.
+        iconsAsLetters = true;
+        fonts.status = 'loading';
+        frameIs(100);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(3000);
+        detect();
+        expect(drawn()).toBe(true);
+
+        // A check's box is 30 where "check" is five letters, and the other icon's 24 where
+        // "verified_user" is thirteen: each column is as wide as the box needs.
+        expect(cells(0)[1].querySelector('mat-icon.cell-yes')?.textContent).toBe('check');
+        expect(cells(0)[2].querySelector('mat-icon.cell-icon')?.textContent?.trim()).toBe('verified_user');
+        const boxes = [`${30 + aroundCell + spare}px`, `${24 + aroundCell + spare}px`];
+        expect(widths().slice(1, 3)).toEqual(boxes);
+        expect(5 * character).toBeGreaterThan(30);
+        expect(13 * character).toBeGreaterThan(24);
+
+        // The font arrives after all: the icons are drawn, and nothing moves.
+        iconsAsLetters = false;
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(widths().slice(1, 3)).toEqual(boxes);
+      });
+
+      it('reads a list drawn a line each by its longest line, not by the box of a line, which is as wide as its cell whatever the line says', async () => {
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', [
+          { name: 'Ada', roles: ['Reader', 'Deck warden'] },
+          { name: 'Mo', roles: ['Reader'] },
+        ]);
+        fixture.componentRef.setInput('columnDefs', [{ id: 'name' }, { id: 'roles', lines: true }, { id: 'more' }]);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        await settle(fixture);
+        // The column is drawn at the library's width until it is read: its lines' boxes
+        // are what that leaves inside the cell's padding and line.
+        lineBox = text - aroundCell;
+        frameIs(100);
+
+        expect(Array.from(cells(0)[1].querySelectorAll('.cell-line')).map((line) => line.textContent)).toEqual([
+          'Reader',
+          'Deck warden',
+        ]);
+        // "Deck warden" is eleven characters, more than the heading needs.
+        expect(widths()[1]).toBe(`${cellOf(11)}px`);
+        expect(cellOf(11)).toBeGreaterThan(headingOf(5));
+        expect(cellOf(11)).toBeLessThan(text);
+      });
+
+      it('counts that wait once for the page, not again for each list: a list opened while it runs waits what is left of it, and one opened after it has run out is drawn at once', async () => {
+        await plain();
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        fonts.status = 'loading';
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(2000);
+        leave();
+
+        // A second list, two seconds into the wait: it is held back for the third.
+        await plain([shorter]);
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(1000);
+        detect();
+        expect(drawn()).toBe(true);
+        leave();
+
+        // A third, after the wait has run out, the font still on its way.
+        await plain([shorter]);
+        frameIs(phone);
+        expect(fonts.status).toBe('loading');
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+      });
+
+      it('ends that wait when the fonts arrive, though no list is on the screen then: the next font to be on its way is waited for from its own start', async () => {
+        await plain();
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        fonts.status = 'loading';
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(1000);
+        leave();
+
+        // The fonts arrive with no list to hear of it, and long after another is on its way.
+        fonts.status = 'loaded';
+        fonts.arrived();
+        vi.advanceTimersByTime(5000);
+        fonts.status = 'loading';
+
+        await plain([shorter]);
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+      });
+
+      it('holds a list back from when it first knows of the font, though it is loading then, and counts the wait from then: its headings are not drawn under the loading cover and taken away when its rows arrive', async () => {
+        await plain([shorter]);
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        fonts.status = 'loading';
+        give('loading', true);
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(2000);
+
+        // The list has loaded, two seconds into the wait: it is held back for the third.
+        await hand('loading', false);
+        expect(reads).toBe(0);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(1000);
+        detect();
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+      });
+
+      it('keeps a list it held back for a font held back until it is read: one still loading when the wait runs out is drawn whole once it has loaded', async () => {
+        await plain([shorter]);
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        fonts.status = 'loading';
+        give('loading', true);
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+
+        // The wait runs out, and the font arrives after all, while the list is loading.
+        vi.advanceTimersByTime(3000);
+        detect();
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(reads).toBe(0);
+        expect(drawn()).toBe(false);
+
+        await hand('loading', false);
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+      });
+
+      it('reads nothing once it has left, though its wait for a font runs out after', async () => {
+        await plain();
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        fonts.status = 'loading';
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+
+        leave();
+        vi.advanceTimersByTime(3000);
+        expect(reads).toBe(0);
+      });
+
+      it('never takes a list a person has seen off the screen for a font: it keeps the widths it was drawn at, is not read while the font is on its way, and grows when the font has arrived', async () => {
+        await plain();
+        frameIs(phone);
+        const before = widths();
+        const first = reads;
+        expect(drawn()).toBe(true);
+
+        // A font is asked for, and a longer value arrives while it is on its way.
+        fonts.status = 'loading';
+        await hand('rowData', [longer]);
+        expect(reads).toBe(first);
+        expect(drawn()).toBe(true);
+        expect(widths()).toEqual(before);
+
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${text}px`);
+      });
+
+      it('holds back a list handed other columns while a font is on its way: those have not been read, and what they were drawn at now would narrow', async () => {
+        await plain();
+        frameIs(phone);
+        expect(drawn()).toBe(true);
+
+        fonts.status = 'loading';
+        await hand(
+          'columnDefs',
+          columns.map((col) => (col.id === 'name' ? { ...col, header: 'Flag' } : col)),
+        );
+        expect(drawn()).toBe(false);
+
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(drawn()).toBe(true);
+        // "Commendations" under "Flag".
         expect(widths()[0]).toBe(`${name}px`);
       });
     });

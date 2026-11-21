@@ -108,6 +108,37 @@ describe('LoginComponent', () => {
     }
   });
 
+  // The card stays at the top of the screen only where the manifest is beside it, on a
+  // screen wide enough for both, and there the two are never put one under the other. On a
+  // narrower screen the manifest is under the card and the two scroll together: a card
+  // that stayed at the top of a phone's screen lay over the persona buttons as they
+  // scrolled up under it.
+  it('keeps the card at the top of the screen only where the manifest is beside it', () => {
+    const sheet = Array.from(document.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .filter((text) => text.includes('.login-card'))
+      .join('\n');
+    const sideBySide = /@media \(min-width:\s*1244px\)\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g;
+    /** What the page's stylesheet declares for `selector`: on every screen, or only where the two are side by side. */
+    const declares = (selector: string, where: 'everywhere' | 'side by side' = 'everywhere'): string => {
+      const rules =
+        where === 'everywhere'
+          ? sheet.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*\s*\}/g, '')
+          : Array.from(sheet.matchAll(sideBySide))
+              .map(([, held]) => held)
+              .join('\n');
+      return Array.from(rules.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+        .filter(([, named]) => (named ?? '').replace(/\[_ng[^\]]*\]/g, '').trim() === selector)
+        .map(([, , declarations]) => declarations ?? '')
+        .join('\n');
+    };
+
+    expect(declares('.login-card')).not.toContain('position');
+    expect(declares('.login-page')).toMatch(/flex-wrap:\s*wrap/);
+    expect(declares('.login-card', 'side by side')).toMatch(/position:\s*sticky/);
+    expect(declares('.login-page', 'side by side')).toMatch(/flex-wrap:\s*nowrap/);
+  });
+
   it("prefills the component's form from the crew manifest, signing in staying an explicit click", async () => {
     const component = fixture.componentInstance;
     expect(component.decks.length).toBeGreaterThan(1);

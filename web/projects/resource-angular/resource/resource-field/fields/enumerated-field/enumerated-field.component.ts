@@ -56,6 +56,7 @@ import {
   notPermitted,
   optionColumns,
   optionDisplay,
+  pickerConsoleLine,
   PickerOption,
   pickerNarrowing,
   pickerRefusal,
@@ -94,7 +95,9 @@ import {
  * condition on the row, say) it shows the stored key with a sentence of its own, asks no
  * more for that value, and stays a picker while it is edited, so a row they may read can
  * be chosen. Neither touches the form's value. Any other failure of a request shows in
- * the words pickerRefusal gives it, never as an empty list.
+ * the words pickerRefusal gives it, never as an empty list. What the server said of a
+ * request it refused or that failed is never on the screen: it is written to the
+ * browser's console, once.
  */
 @Component({
   selector: 'impulse-enumerated-field',
@@ -683,24 +686,55 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
 
   /**
    * What the picker says when a request of its own failed for a reason that is no
-   * permission's; nothing while it works, and nothing for a refusal of permission, which
-   * notice says. A paged source has two requests: the page of options, and the read of
-   * the chosen row.
+   * permission's, in the library's own words; nothing while it works, and nothing for a
+   * refusal of permission, which notice says. A paged source has two requests: the page
+   * of options, and the read of the chosen row. Of a list that failed it says what the
+   * field then shows: a form that is read shows the value it holds as its id, and a field
+   * that is edited is a picker with nothing in it to choose from.
    */
   refusal = computed((): string | undefined => {
+    const showsId = this.editMode() !== 'edit' && (this.chosenValue() !== '' || this.chosenKeys().length > 0);
     const pager = this.pager();
     if (pager) {
       if (pager.status() === 'error') {
-        return pickerRefusal(pager.error());
+        return pickerRefusal(pager.error(), 'list', showsId);
       }
-      return this.chosenRowFailed() ? pickerRefusal(this.singleEnumResourceRef()?.error()) : undefined;
+      return this.chosenRowFailed()
+        ? pickerRefusal(this.singleEnumResourceRef()?.error(), 'record', showsId)
+        : undefined;
     }
     const ref = this.enumResourceRef();
-    return ref && ref.status() === 'error' ? pickerRefusal(ref.error()) : undefined;
+    return ref && ref.status() === 'error' ? pickerRefusal(ref.error(), 'list', showsId) : undefined;
   });
+
+  /** The refusals and failures already written to the console, so each is written once. */
+  private logged = new WeakSet<object>();
 
   constructor() {
     super();
+    // What the server said of a request of the picker's that it refused, or how the request
+    // failed, is for whoever looks into it: it is written to the console, once, with the
+    // resource and the read it belongs to. The field says it in the library's words.
+    effect(() => {
+      const list = this.pager() ?? this.enumResourceRef();
+      const row = this.singleEnumResourceRef();
+      const failed: ['list' | 'record', unknown][] = [
+        ['list', list?.status() === 'error' ? list.error() : undefined],
+        ['record', row?.status() === 'error' ? row.error() : undefined],
+      ];
+      for (const [read, error] of failed) {
+        if (error === undefined || error === null) {
+          continue;
+        }
+        if (typeof error === 'object') {
+          if (this.logged.has(error)) {
+            continue;
+          }
+          this.logged.add(error);
+        }
+        console.error(pickerConsoleLine(String(untracked(this.resource) ?? ''), read), error);
+      }
+    });
     // What the server refused as not permitted is remembered, so the picker asks nothing
     // more of a source the person may not list and never again for a row they may not
     // read. The readers go idle once it is, which is why it is kept here and not read
