@@ -7,11 +7,13 @@ import { listViewConfig, rootConfig } from '@impulseframework/resource-angular/t
 // the missions of every sector the person reaches in which they may list them, each row
 // checked under the person's roles in its own sector, with one sort, one page and one
 // count across them. `acrossTenants` is all the page says: the library's list asks that
-// one route, names each row's sector in a first column under the application's word for
-// a tenant, and opens a row on the mission itself inside its own sector: the mission's
-// own route there, which asks Read on the mission and nothing of the board the sector's
-// Missions page lists, so a row she was listed opens for her. A row in a sector where a
-// person may list missions and read none draws no link. The page asks
+// one route, names each row's sector in its second column, after the mission's title,
+// under the application's word for a tenant (the title is the column the list holds in
+// place while the rest scroll sideways, and the sector scrolls with the rest), and opens
+// a row on the mission itself inside its own sector: the mission's own route there, which
+// asks Read on the mission and nothing of the board the sector's Missions page lists, so
+// a row she was listed opens for her. A row in a sector where a person may list missions
+// and read none draws no link. The page asks
 // for no column list, since the server decides sector by sector what a row shows: the
 // liaison holds the Cadet's board in Anvil and the Archivist's ledger in Cinder, so her
 // Anvil rows are the low-hazard missions with the Fee cell empty and her Cinder row is

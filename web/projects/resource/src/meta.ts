@@ -193,6 +193,15 @@ export interface FieldMeta {
    */
   filterable?: FilterEligibility;
   /**
+   * Set when the server refuses a sort by this field: its values have no order the query
+   * decoder knows (a list, a map, a nested object), and a request that sorts by it is
+   * answered 400. A table draws such a column's heading as words, with nothing to press,
+   * so it offers no sort the server would refuse. Absent on every field the server
+   * orders: text, numbers, yes or no, moments, dates, decimals and UUIDs. Emitted by the
+   * generator from the field's declared type.
+   */
+  sortable?: false;
+  /**
    * The text matches the server answers on this field, derived from the schema: a stored
    * LOWER(col) column leading an index answers `startswith`; a token column under the
    * table's search index answers `contains`, and the anchors its tokenizer declares; a
