@@ -4198,10 +4198,11 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   tenant. A person who holds the role in every tenant, or through a group kept for the
   whole application, does not stand in for the tenant's last one, since a tenant that
   admits its people through its directory only keeps that person out with everyone
-  else. A refusal that speaks of a tenant says the
-  application's word for one, the tenant record's label or its name in words ("you are
-  the last administrator of this sector"): the generated client hands it to the rules
-  (`identity.WithTenantWord`).
+  else. A holding counts while it is in force: one whose period is over, or has not
+  begun, makes nobody an administrator, and a person removes their own freely. A
+  refusal that speaks of a tenant says the application's word for one, the tenant
+  record's label or its name in words ("you are the last administrator of this
+  sector"): the generated client hands it to the rules (`identity.WithTenantWord`).
 
 What a tenant may do to a person who also holds a role outside it, and which roles its
 administrator hands out, the role file says, in the conditions of the Execute grants: over
@@ -4482,7 +4483,12 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   own role or the caller's own place in a group that ends later, or never, or begins
   sooner while it has not begun, and the same for a role of a group the caller is in.
   It holds for a period that has ended too, while its row stands. Someone else who may
-  give the role gives it its new period; the caller shortens their own freely.
+  give the role gives it its new period. The caller shortens their own, with one
+  exception: the last administrator of a tenant's own does not cut the role short
+  there. A period that takes it away from now on, or from a sooner end, is refused
+  (403) in the words that refuse them the role's removal, on their own role, on their
+  place in the group that gives it and on that group's role, until another person
+  administers the tenant.
 - The Super Administrator role takes no period (400): there is always a super
   administrator, and a period could leave none.
 - The permission engine applies the period at the instant a check is made with, the
@@ -4551,9 +4557,11 @@ every policy store's schema holds it).
   administrator always holds. `CrewTakeableRoles` lists the roles the caller could take,
   so a page offers what the caller may do. The one rule taking sets aside is that
   nobody lengthens their own holding: taking a role the caller holds there already
-  writes the new time and the new reason over the old ones, and nothing is refused. A
-  session that views as someone else takes nothing (403), and neither does a caller who
-  is not a person of the Auth.
+  writes the new time and the new reason over the old ones. The last administrator of a
+  tenant's own is refused the taking of the role they hold there where its time ends
+  sooner than their holding (403), since the tenant would have no administrator once the
+  time is over. A session that views as someone else takes nothing (403), and neither
+  does a caller who is not a person of the Auth.
 - Ending a taken role early is taking it away, by whoever may: a tenant's administrators
   by the role file's grant on `RemoveCrewSectorRole`, headquarters by `RemoveCrewRole`.
   Nothing here is permission code of its own.

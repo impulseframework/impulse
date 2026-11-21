@@ -343,6 +343,13 @@ type removal struct {
 	before  string
 }
 
+// ownRoleGone is the removal of a membership of the caller's own, as the rule on a
+// tenant's last administrator reads it: the role's removal, and a period of the
+// caller's giving that cuts the role short.
+func ownRoleGone(key *access.MembershipKey) *removal {
+	return &removal{user: key.User, role: key.Role, group: "", kept: nil, wholeGroup: false, unnamed: "you cannot remove a role from yourself", before: "remove your own"}
+}
+
 // takes reports whether the removal takes the holding away: the membership of the
 // person's own held in the tenant, the person's holdings through the group they leave,
 // or everyone's holding of the role through the group that loses it there.
@@ -368,7 +375,12 @@ type administratorHolding struct {
 
 // refuseLastAdministrator judges a person's removal of a role from themselves in a
 // tenant: a membership of their own they remove, a group that gives them the role and
-// that they leave, and a role they take from a group they are in. The role goes unless
+// that they leave, and a role they take from a group they are in. A period of their own
+// giving that cuts one of the three short is judged as its removal is (cutsShort): a
+// start moved ahead takes the role away now, and a sooner end takes it away then. The
+// rule counts the holdings in force today and nothing else, so what a person loses with
+// a holding whose period is over, or has not begun, is not the rule's to keep, though
+// nobody else administers the tenant. The role goes unless
 // it is an administrator role of the tenant and nobody else would hold one there after:
 // a tenant is never left without an administrator of its own, and a person who gives a
 // role up otherwise is given it back by one who remains. The holders counted are the
@@ -406,6 +418,12 @@ func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.Read
 	holdings, err := m.administratorHoldings(ctx, txn, scope)
 	if err != nil {
 		return err
+	}
+	// The rule counts what is in force today: a holding whose period is over or has
+	// not begun administers nothing, and what goes with it takes nothing from the
+	// tenant.
+	if !slices.ContainsFunc(holdings, func(h administratorHolding) bool { return gone.takes(&h) }) {
+		return nil
 	}
 	for i := range holdings {
 		if gone.takes(&holdings[i]) {

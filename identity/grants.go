@@ -213,6 +213,22 @@ func lengthens(had, next accesstypes.Period, now time.Time) bool {
 	return had.Upcoming(now) && (next.Start.IsZero() || next.Start.Before(had.Start))
 }
 
+// shortens reports whether an assignment that counts now would, given the period next,
+// stop counting at an instant from now on at which it counts with the period it had: a
+// start that has not come, and an end where it had none or one that came later. An
+// assignment that does not count now, because its period is over or has not begun, is
+// not shortened by any period: it gives nothing today that a new period could take.
+func shortens(had, next accesstypes.Period, now time.Time) bool {
+	if !had.Contains(now) {
+		return false
+	}
+	if !next.Contains(now) {
+		return true
+	}
+
+	return !next.End.IsZero() && (had.End.IsZero() || next.End.Before(had.End))
+}
+
 // refuseLongerForOneself is the rule that nobody lengthens their own holding: an act of
 // the caller that would make something the caller holds last longer than it was given
 // for is refused, and is done by someone else who may. own says the assignment is the

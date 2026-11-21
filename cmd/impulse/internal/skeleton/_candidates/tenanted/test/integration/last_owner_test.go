@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestLastOwner_anAdministratorLeavesOnceAnotherRemains proves the last-owner rules on
@@ -112,6 +113,82 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	member := signedIn(ctx, t, s, memberUser)
 	if roles := globalRolesOf(ctx, t, member, adminID); slices.Contains(roles, "SuperAdministrator") {
 		t.Errorf("the administrator's roles once they gave it up = %v, want SuperAdministrator gone", roles)
+	}
+}
+
+// TestLastOwner_theLastAdministratorsOwnPeriod proves on the served stack that the rule
+// on a tenant's last administrator judges the dates a person gives their own role as it
+// judges the role's removal, and counts what is in force today and nothing else. The
+// founder of a tenant an invitation made is its one administrator: they are refused a
+// start that has not come and an end on their own role, in the words that refuse them
+// its removal, since either would leave the tenant with no administrator of its own;
+// once the member holds the role in the tenant too, the founder gives their own an end.
+// And a role that has ended makes nobody an administrator: the administrator holds the
+// role in a second tenant for a few seconds and takes it from that tenant's founder, and
+// once it has ended removes their own, though nobody administers the tenant any more.
+func TestLastOwner_theLastAdministratorsOwnPeriod(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	admin := signedIn(ctx, t, s, adminUser)
+	adminID := staffUserID(ctx, t, admin, adminUser)
+	west, founder := makeTenant(ctx, t, s, admin, "West", "founder")
+	founderID := staffUserID(ctx, t, admin, "founder")
+	const lastAdministrator = "you are the last administrator of this tenant: give another person the role before you remove your own"
+
+	// The last administrator gives their own role a start a year ahead, which takes it
+	// away today, and then an end an hour ahead, which takes it away then.
+	now := time.Now().UTC().Truncate(time.Second)
+	for name, period := range map[string]map[string]any{
+		"a start that has not come": {"startsAt": now.Add(365 * 24 * time.Hour)},
+		"an end":                    {"endsAt": now.Add(time.Hour)},
+	} {
+		given := map[string]any{"userId": founderID, "role": "TenantAdministrator"}
+		for field, at := range period {
+			given[field] = at
+		}
+		status, body := tenantPost(ctx, founder, west, "assign-staff-tenant-role", given)
+		if status != http.StatusForbidden || !strings.Contains(string(body), lastAdministrator) {
+			t.Fatalf("the founder giving their own role %s as West's one administrator: status %d, want 403 naming the rule: %s", name, status, body)
+		}
+	}
+	if roles := tenantRolesOf(ctx, t, founder, west, "founder"); !slices.Contains(roles, "TenantAdministrator") {
+		t.Fatalf("the founder's roles in West after the refusals = %v, want TenantAdministrator kept", roles)
+	}
+
+	// Another person administers West: the founder's own role takes an end.
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+s.memberID+`","role":"TenantAdministrator","domain":"`+west+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving the member the role in West: status %d: %s", status, body)
+	}
+	ending := map[string]any{"userId": founderID, "role": "TenantAdministrator", "endsAt": now.Add(time.Hour)}
+	if status, body := tenantPost(ctx, founder, west, "assign-staff-tenant-role", ending); status != http.StatusNoContent {
+		t.Fatalf("the founder giving their own role an end once the member holds it in West: status %d, want 204: %s", status, body)
+	}
+
+	// A role that has ended: the administrator holds East's for a few seconds and is
+	// left its one holder, and removes it once it is over.
+	east, _ := makeTenant(ctx, t, s, admin, "East", "eastfounder")
+	eastFounderID := staffUserID(ctx, t, admin, "eastfounder")
+	ends := time.Now().UTC().Add(3 * time.Second)
+	brief, err := json.Marshal(map[string]any{"userId": adminID, "role": "TenantAdministrator", "domain": east, "endsAt": ends})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", brief); status != http.StatusNoContent {
+		t.Fatalf("the administrator taking East's role for a few seconds: status %d: %s", status, body)
+	}
+	inEast := []byte(`{"userId":"` + eastFounderID + `","role":"TenantAdministrator","domain":"` + east + `"}`)
+	if status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", inEast); status != http.StatusNoContent {
+		t.Fatalf("the administrator taking East's role from its founder: status %d: %s", status, body)
+	}
+	// Nothing is written when a period is over: the role ends by the clock.
+	if wait := time.Until(ends); wait > 0 {
+		time.Sleep(wait + 200*time.Millisecond)
+	}
+	own := []byte(`{"userId":"` + adminID + `","role":"TenantAdministrator","domain":"` + east + `"}`)
+	if status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", own); status != http.StatusNoContent {
+		t.Fatalf("the administrator removing their own role in East once it has ended: status %d, want 204: %s", status, body)
 	}
 }
 

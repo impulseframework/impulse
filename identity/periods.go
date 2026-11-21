@@ -199,14 +199,27 @@ func (m *Manager) GiveGroupRole(ctx context.Context, txn resource.ReadWriteTrans
 	return m.GiveGroupRoleFor(ctx, txn, groupID, scope, role, none)
 }
 
+// cutsShort reports whether a period given to a holding is one the rule on a tenant's
+// last administrator judges: the holding is the request's caller's own (own), it counts
+// now, and the period takes it away from now on or from an instant sooner than the one
+// it had (shortens). An application that names no administrator roles
+// (WithAdministratorRoles) has no administrator for the rule to keep, and a person
+// there gives their own holding a sooner end as they always could.
+func (m *Manager) cutsShort(own bool, had, next accesstypes.Period) bool {
+	return own && m.administrators != nil && shortens(had, next, time.Now())
+}
+
 // settleMembershipPeriod gives a membership the period and the reason: the row was
 // written by the caller (inserted) or is there already, with the period and the reason
 // it had. It reports whether either changed. A membership given again with the period
 // and the reason it has is left exactly as it is. own says the membership is the
-// request's caller's own, who gives it no longer a period than it has
-// (refuseLongerForOneself).
+// request's caller's own, who gives it no longer a period than it has unless they take
+// the role (refuseLongerForOneself), and who does not cut short the role that makes
+// them the last administrator of the tenant scope names: a period that takes the role
+// away from now on, or from an instant sooner than the one it had, is held to what the
+// role's removal is held to, and refused in its words (refuseLastAdministrator).
 func (m *Manager) settleMembershipPeriod(
-	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, key *access.MembershipKey, given *given, inserted, own bool,
+	ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey, given *given, inserted, own bool,
 ) (bool, error) {
 	var had accesstypes.Period
 	var why string
@@ -216,8 +229,13 @@ func (m *Manager) settleMembershipPeriod(
 			return false, errors.Wrap(err, "identity.Store.UserPeriods()")
 		}
 		had, why = periods.Memberships[*key], periods.Reasons[*key]
-		if err := refuseLongerForOneself(own, had, given.period, "your own role"); err != nil {
+		if err := refuseLongerForOneself(own && !given.lengthens, had, given.period, "your own role"); err != nil {
 			return false, err
+		}
+		if m.cutsShort(own, had, given.period) {
+			if err := m.refuseLastAdministrator(ctx, txn, scope, ownRoleGone(key)); err != nil {
+				return false, err
+			}
 		}
 	}
 	if had.Equal(given.period) && why == given.reason {
@@ -232,9 +250,11 @@ func (m *Manager) settleMembershipPeriod(
 
 // settlePlacePeriod gives a person's place in a group the period, as
 // settleMembershipPeriod gives a membership its own. own says the place is the request's
-// caller's own.
+// caller's own: they give it no longer a period than it has, and a period that cuts it
+// short is held to what leaving the group is held to, for each role the group gives
+// them (refuseLeavingAsLastAdministrator).
 func (m *Manager) settlePlacePeriod(
-	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, key *access.GroupMemberKey, period accesstypes.Period, inserted, own bool,
+	ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID, key *access.GroupMemberKey, period accesstypes.Period, inserted, own bool,
 ) (bool, error) {
 	var had accesstypes.Period
 	if !inserted {
@@ -245,6 +265,11 @@ func (m *Manager) settlePlacePeriod(
 		had = periods.Places[*key]
 		if err := refuseLongerForOneself(own, had, period, "your own place in a group"); err != nil {
 			return false, err
+		}
+		if m.cutsShort(own, had, period) {
+			if err := m.refuseShorterPlace(ctx, txn, groupID, key.User); err != nil {
+				return false, err
+			}
 		}
 	}
 	if had.Equal(period) {
@@ -258,10 +283,13 @@ func (m *Manager) settlePlacePeriod(
 }
 
 // settleGroupRolePeriod gives a group's role the period, as settleMembershipPeriod gives
-// a membership its own. own says the request's caller is in the group, so the role is
-// one of the caller's own holdings.
+// a membership its own. gone is the role as the request's caller loses it with the
+// group, nil where the caller is not in the group: the role is then one of the caller's
+// own holdings, which they give no longer a period than it has, and a period that cuts
+// it short is held to what taking the role from the group is held to
+// (refuseLastAdministrator).
 func (m *Manager) settleGroupRolePeriod(
-	ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, key *access.GroupRoleKey, period accesstypes.Period, inserted, own bool,
+	ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, key *access.GroupRoleKey, period accesstypes.Period, inserted bool, gone *removal,
 ) (bool, error) {
 	var had accesstypes.Period
 	if !inserted {
@@ -270,8 +298,17 @@ func (m *Manager) settleGroupRolePeriod(
 			return false, errors.Wrap(err, "identity.Store.GroupPeriods()")
 		}
 		had = periods.Roles[*key]
-		if err := refuseLongerForOneself(own, had, period, "a role of a group you are in"); err != nil {
+		if err := refuseLongerForOneself(gone != nil, had, period, "a role of a group you are in"); err != nil {
 			return false, err
+		}
+		if m.cutsShort(gone != nil, had, period) {
+			scope, err := key.Scope()
+			if err != nil {
+				return false, errors.Wrap(err, "access.GroupRoleKey.Scope()")
+			}
+			if err := m.refuseLastAdministrator(ctx, txn, scope, gone); err != nil {
+				return false, err
+			}
 		}
 	}
 	if had.Equal(period) {

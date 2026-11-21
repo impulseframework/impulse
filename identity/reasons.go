@@ -110,9 +110,12 @@ func (l TakeLength) Duration() (lasts time.Duration, ok bool) {
 //     may, and anyone else as the role file says. A manager built without the role
 //     grants cannot judge it, which is an error and never a pass;
 //   - taking a role the caller holds there already writes over it: the new time and the
-//     new reason take the old ones' place, and nothing is refused. The rule that nobody
-//     lengthens their own holding does not hold a taking, whose length is the caller's
-//     own to choose and capped by the lengths offered.
+//     new reason take the old ones' place. The rule that nobody lengthens their own
+//     holding does not hold a taking, whose length is the caller's own to choose and
+//     capped by the lengths offered. The rule on a tenant's last administrator does: the
+//     last administrator of a tenant's own does not take the role they hold there for a
+//     time that ends sooner than their holding, which would leave the tenant with no
+//     administrator once the time is over (refuseLastAdministrator).
 //
 // The Super Administrator role is not taken: it takes no period (access.ValidatePeriod).
 func (m *Manager) TakeRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, role accesstypes.Role, length TakeLength, reason string) error {

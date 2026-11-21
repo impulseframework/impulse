@@ -246,7 +246,10 @@ func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransac
 // A request that puts a person in a group gives them each role the group holds, and
 // needs what giving them each role directly needs (refuseGivingThrough). And nobody
 // lengthens their own holding: the caller does not give their own place a period that
-// lasts longer than the one it has (refuseLongerForOneself).
+// lasts longer than the one it has (refuseLongerForOneself). A period that cuts the
+// caller's own place short is held to what leaving the group is held to: the last
+// administrator of a tenant's own keeps the place that makes them so
+// (refuseLeavingAsLastAdministrator).
 func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -291,7 +294,7 @@ func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteT
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.InsertGroupMember()")
 	}
-	changed, err := m.settlePlacePeriod(ctx, txn, userID, &key, period, inserted, m.callerIs(ctx, userID))
+	changed, err := m.settlePlacePeriod(ctx, txn, groupID, userID, &key, period, inserted, m.callerIs(ctx, userID))
 	if err != nil {
 		return err
 	}
@@ -386,6 +389,64 @@ func (m *Manager) judgeTakingPlace(ctx context.Context, txn resource.ReadWriteTr
 	return m.refuseTakingThrough(ctx, txn, kept, roles, []accesstypes.User{user}, act)
 }
 
+// refuseLeavingAsLastAdministrator holds the caller's loss of their own place in a group
+// to the rule on a tenant's last administrator, for each role the group gives them
+// (refuseLastAdministrator): the place goes with their removal from the group, and from
+// an instant on with a period of their giving that cuts it short.
+func (m *Manager) refuseLeavingAsLastAdministrator(
+	ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, group *Group, roles []access.GroupRoleKey, user accesstypes.User,
+) error {
+	kept, err := group.kept()
+	if err != nil {
+		return err
+	}
+	for i := range roles {
+		gone := &removal{
+			user: user, role: roles[i].Role, group: GroupID(groupID), kept: &kept, wholeGroup: false,
+			unnamed: "you cannot take yourself out of a group that gives you a role in a " + m.tenantWord,
+			before:  "leave the group that gives you yours",
+		}
+		scope, err := roles[i].Scope()
+		if err != nil {
+			return errors.Wrap(err, "access.GroupRoleKey.Scope()")
+		}
+		if err := m.refuseLastAdministrator(ctx, txn, scope, gone); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// refuseShorterPlace holds a period the caller gives their own place in a group, one
+// that cuts the place short, to what leaving the group is held to
+// (refuseLeavingAsLastAdministrator): the roles read are the ones the group holds that
+// have not ended.
+func (m *Manager) refuseShorterPlace(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, user accesstypes.User) error {
+	group, err := m.requireGroup(ctx, txn, groupID)
+	if err != nil {
+		return err
+	}
+	holding, err := m.groupHolding(ctx, txn, groupID, time.Now())
+	if err != nil {
+		return err
+	}
+
+	return m.refuseLeavingAsLastAdministrator(ctx, txn, groupID, group, holding.roles, user)
+}
+
+// groupRoleGone is a role as the caller, who is in the group, loses it with the group,
+// as the rule on a tenant's last administrator reads it: the role taken from the group,
+// and a period of the caller's giving that cuts the group's role short. kept is where
+// the group is kept.
+func (m *Manager) groupRoleGone(caller accesstypes.User, groupID impulse.UUID, kept *accesstypes.PolicyScope, role accesstypes.Role) *removal {
+	return &removal{
+		user: caller, role: role, group: GroupID(groupID), kept: kept, wholeGroup: true,
+		unnamed: "you cannot take a role away from a group you are in, where the group holds it in a " + m.tenantWord,
+		before:  "take it from the group that gives you yours",
+	}
+}
+
 // refuseTakingPlace applies the rules of a role's removal to a person's removal from a
 // group, which takes each role the group holds from them (RemoveGroupMember).
 func (m *Manager) refuseTakingPlace(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID) error {
@@ -404,23 +465,8 @@ func (m *Manager) refuseTakingPlace(ctx context.Context, txn resource.ReadWriteT
 			return err
 		}
 		if m.callerIs(ctx, userID) {
-			kept, err := group.kept()
-			if err != nil {
+			if err := m.refuseLeavingAsLastAdministrator(ctx, txn, groupID, group, holding.roles, user); err != nil {
 				return err
-			}
-			for i := range holding.roles {
-				gone := &removal{
-					user: user, role: holding.roles[i].Role, group: GroupID(groupID), kept: &kept, wholeGroup: false,
-					unnamed: "you cannot take yourself out of a group that gives you a role in a " + m.tenantWord,
-					before:  "leave the group that gives you yours",
-				}
-				scope, err := holding.roles[i].Scope()
-				if err != nil {
-					return errors.Wrap(err, "access.GroupRoleKey.Scope()")
-				}
-				if err := m.refuseLastAdministrator(ctx, txn, scope, gone); err != nil {
-					return err
-				}
 			}
 		}
 	}
@@ -472,7 +518,10 @@ func (m *Manager) deleteLeftWithNothing(ctx context.Context, txn resource.ReadWr
 // A request that gives a group a role gives it to everyone in the group, and needs what
 // giving it to each of them directly needs (refuseGivingThrough). And nobody lengthens
 // their own holding: a caller who is in the group does not give a role the group holds a
-// period that lasts longer than the one it has (refuseLongerForOneself).
+// period that lasts longer than the one it has (refuseLongerForOneself). A period that
+// cuts the role short is held to what taking it from the group is held to: a caller in
+// the group whom the role makes the last administrator of a tenant's own does not give
+// it one (refuseLastAdministrator).
 func (m *Manager) GiveGroupRoleFor(
 	ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period,
 ) error {
@@ -516,12 +565,16 @@ func (m *Manager) GiveGroupRoleFor(
 			return err
 		}
 	}
-	caller, known := m.callerUser(ctx)
+	// The role is one of the caller's own holdings where the caller is in the group.
+	var gone *removal
+	if caller, known := m.callerUser(ctx); known && slices.Contains(holding.members, caller) {
+		gone = m.groupRoleGone(caller, groupID, &kept, role)
+	}
 	inserted, err := m.store.InsertGroupRole(ctx, txn, &key)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.InsertGroupRole()")
 	}
-	changed, err := m.settleGroupRolePeriod(ctx, txn, groupID, &key, period, inserted, known && slices.Contains(holding.members, caller))
+	changed, err := m.settleGroupRolePeriod(ctx, txn, groupID, &key, period, inserted, gone)
 	if err != nil {
 		return err
 	}
@@ -600,13 +653,8 @@ func (m *Manager) refuseTakingGroupRole(ctx context.Context, txn resource.ReadWr
 	if !known || !slices.Contains(holding.members, caller) {
 		return nil
 	}
-	gone := &removal{
-		user: caller, role: key.Role, group: GroupID(groupID), kept: &kept, wholeGroup: true,
-		unnamed: "you cannot take a role away from a group you are in, where the group holds it in a " + m.tenantWord,
-		before:  "take it from the group that gives you yours",
-	}
 
-	return m.refuseLastAdministrator(ctx, txn, scope, gone)
+	return m.refuseLastAdministrator(ctx, txn, scope, m.groupRoleGone(caller, groupID, &kept, key.Role))
 }
 
 // requireGroup reads a group in the caller's transaction, or answers NotFound.
