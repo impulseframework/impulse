@@ -153,14 +153,18 @@ func Roles() access.RoleFile {
 	return roleFile
 }
 
-// Settings are the auth's settings: the collection the role file validates against, the
-// live service the permission engine signals through, and the environment-derived values,
-// the settings of each sign-in method among them.
+// Settings are the auth's settings: the collection the permission engine holds every
+// grant to, the live service it signals through, and the environment-derived values, the
+// settings of each sign-in method among them.
 type Settings struct {
 	// Collection is the generated permission collection: the resources, permissions and
-	// fields the release declares, which the role file validates against when the engine
-	// opens. The package that constructs the auth passes it in; this package imports no
-	// router.
+	// fields the release declares, which the permission engine holds every grant to. The
+	// role file validates against it when the engine opens, a grant written to a custom
+	// role is refused unless the collection lists what it names, and a stored grant that
+	// names anything else is skipped and reported each time the policy loads. The package
+	// that constructs the auth passes it in, the generated router's Collection() or, where
+	// the application has several sites, the union of theirs (access.UnionCollection);
+	// this package imports no router.
 	Collection access.PermissionCollection
 	// Signals is the application's live service: the permission engine signals the policy
 	// kind on it after every policy write and follows the kind from every other instance

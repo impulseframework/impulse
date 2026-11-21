@@ -67,7 +67,7 @@ type Client struct {
 // the collection: a release whose default roles are wrong does not start.
 func New(store Store, collection PermissionCollection, opts ...Option) (*Client, error) {
 	if isNilCollection(collection) {
-		return nil, errors.New("access.New(): the collection must not be nil: pass the permission collection the release declares (the generated router's Collection()), which every grant is held to")
+		return nil, errors.New("access.New(): the collection must not be nil: pass the permission collection the release declares, which every grant is held to: the generated router's Collection(), or for an application with several sites the union of theirs (access.UnionCollection)")
 	}
 	options := defaultClientOptions()
 	for _, opt := range opts {

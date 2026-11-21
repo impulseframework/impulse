@@ -28,7 +28,7 @@ type sitesWired struct{}
 func (sitesWired) Name() string { return "sites-wired" }
 
 func (sitesWired) Describe() string {
-	return "every site has a main package, a process on its own port, and a permission collection handed to the engine covering its router"
+	return "every site has a main package, a process on its own port, and a permission collection handed to a permission engine covering its router; every call of access.New outside tests counts, whichever engine it builds"
 }
 
 // portAssignRE finds a PORT assignment on a process line.
@@ -97,6 +97,11 @@ func (c sitesWired) Run(_ context.Context, env *Env) Result {
 // its own over the sites it binds; either way every site is covered by one. When the call
 // sits inside an auth package, the collection comes from the package's callers, so the
 // packages calling <auth>.New outside tests are read in its place.
+//
+// Every call of access.New outside tests counts, whichever engine it builds: the check
+// reads which packages hand an engine a collection, not which engine serves a site, so a
+// second engine in a tool or another main package that imports a site's router covers
+// the site as the served auth's engine would.
 func (sitesWired) collectionCoverage(a *app.App, p app.Profile) ([]string, error) {
 	if len(a.Engines) == 0 {
 		return nil, nil // auths-wired reports an auth whose roles reach no engine

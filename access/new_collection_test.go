@@ -14,7 +14,7 @@ import (
 func TestNew_refusesANilCollection(t *testing.T) {
 	t.Parallel()
 
-	const want = "access.New(): the collection must not be nil: pass the permission collection the release declares (the generated router's Collection()), which every grant is held to"
+	const want = "access.New(): the collection must not be nil: pass the permission collection the release declares, which every grant is held to: the generated router's Collection(), or for an application with several sites the union of theirs (access.UnionCollection)"
 	var unassigned *stubCollection
 	tests := []struct {
 		name       string
