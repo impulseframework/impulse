@@ -3957,7 +3957,7 @@ const resourceMap = defineResourceMap({
       {{- if not $field.IsFileKey }}
       { fieldName: '{{ Camel $field.Name }}', 
        {{- if $field.IsPrimaryKey }} primaryKey: { ordinalPosition: {{ $field.KeyOrdinalPosition }} }, 
-       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsRequired }}, isIndex: {{ $field.IsIndex }}{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}{{ if $field.IsPositional }}, masking: 'positional'{{ end }}{{ if $field.TypescriptMaxLength }}, maxLength: {{ $field.TypescriptMaxLength }}{{ end -}}
+       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsRequired }}, isIndex: {{ $field.IsIndex }}{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}{{ if $field.IsPositional }}, masking: 'positional'{{ end }}{{ if $field.TypescriptMaxLength }}, maxLength: {{ $field.TypescriptMaxLength }}{{ end -}}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}{{ if or $field.IsOutputOnly $resource.IsEnumeration }}, readOnly: true{{ end }}{{ if $field.IsInputOnly }}, writeOnly: true{{ end }}{{ if $field.IsSecret }}, secret: true{{ end }}{{ if $field.FeatureName }}, feature: '{{ $field.FeatureName }}'{{ end }} },
       {{- end }}
@@ -3996,7 +3996,7 @@ const resourceMap = defineResourceMap({
       {{- if not $field.IsFileKey }}
       { fieldName: '{{ Camel $field.Name }}', 
        {{- if $field.IsPrimaryKey }} primaryKey: { ordinalPosition: {{ $field.KeyOrdinalPosition }} }, 
-       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsPrimaryKey }}, isIndex: false{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}
+       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsPrimaryKey }}, isIndex: false{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}{{ if $field.FeatureName }}, feature: '{{ $field.FeatureName }}'{{ end }} },
       {{- end }}

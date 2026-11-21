@@ -93,6 +93,7 @@ import {
   refuseWriteOnlyColumns,
   relatedUnreadMessage,
   searchEligibility,
+  unorderedFields,
 } from './list-request';
 import { listableColumns, sameColumns } from './listable-columns';
 import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord } from './across-tenants';
@@ -679,6 +680,9 @@ export class ResourceListComponent implements OnInit {
     const cols = this.rootColumns();
     const columns: ColumnConfig[] = [];
     const usedIds = new Set<string>();
+    // A column over a field the server does not order is drawn with no sort button, as one
+    // that opts out is: the metadata says which, so no sort is offered that the server refuses.
+    const unordered = unorderedFields(this.meta());
 
     if (this.across()) {
       // The tenant column of a list across tenants takes its id before any column of the page's.
@@ -702,7 +706,7 @@ export class ResourceListComponent implements OnInit {
           // A column that opts out of its filter control says so to the table, and so
           // does one that opts out of sorting.
           ...(col.filterable === false ? { filterable: false } : {}),
-          ...(col.sortable === false ? { sortable: false } : {}),
+          ...(col.sortable === false || unordered.has(col.id) ? { sortable: false } : {}),
           valueGetter: (data) => {
             const concatArray: string[] = [];
 
@@ -782,7 +786,7 @@ export class ResourceListComponent implements OnInit {
           ...(col.filterable === false ? { filterable: false } : {}),
           // A column whose list is drawn a line each says so to the table.
           ...(col.lines ? { lines: true } : {}),
-          ...(col.sortable === false ? { sortable: false } : {}),
+          ...(col.sortable === false || unordered.has(col.id) ? { sortable: false } : {}),
         };
         // An icon column keeps its map and tooltip position for the grid; the cell itself is
         // resolved with the display row (processedRowData), never at render time.

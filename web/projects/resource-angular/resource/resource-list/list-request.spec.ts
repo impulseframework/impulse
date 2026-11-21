@@ -12,6 +12,7 @@ import {
   refuseWriteOnlyColumns,
   relatedUnreadMessage,
   searchEligibility,
+  unorderedFields,
 } from './list-request';
 
 // The list component's pure parts: which columns the server filters, where the page
@@ -47,6 +48,24 @@ describe('filterEligibility', () => {
   for (const tt of cases) {
     it(tt.name, () => {
       expect(filterEligibility(tt.meta, tt.columns.map((id) => ({ id })))).toEqual(tt.want as never);
+    });
+  }
+});
+
+describe('unorderedFields', () => {
+  const groups: ResourceMeta = {
+    route: 'crew-groups',
+    fields: [field('name'), field('people', { displayType: 'number' }), field('roles', { displayType: 'string[]', sortable: false })],
+  };
+  const cases: { name: string; meta: ResourceMeta | undefined; want: string[] }[] = [
+    { name: 'the fields the metadata marks sortable: false, and no other', meta: groups, want: ['roles'] },
+    { name: 'a display type alone says nothing: the metadata is asked, not a list of types', meta: boards, want: [] },
+    { name: 'no metadata, nothing is marked', meta: undefined, want: [] },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect([...unorderedFields(tt.meta)]).toEqual(tt.want);
     });
   }
 });

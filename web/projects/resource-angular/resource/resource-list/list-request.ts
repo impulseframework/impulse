@@ -83,6 +83,16 @@ export function filterEligibility(meta: ResourceMeta | undefined, columns: reado
 }
 
 /**
+ * The fields the server refuses a sort by: those the generated metadata marks
+ * `sortable: false` (a list, a map, a nested object). A column over one is drawn with its
+ * heading as words, so a table offers no sort the server answers 400 to. The metadata is
+ * the one place that says so: no list of unsortable types is kept here.
+ */
+export function unorderedFields(meta: ResourceMeta | undefined): ReadonlySet<string> {
+  return new Set((meta?.fields ?? []).filter((field) => field.sortable === false).map((field) => field.fieldName));
+}
+
+/**
  * Which text matches each of the table's columns answers: the generated metadata's
  * `search` for the field each column shows, keyed by column id. A column whose field
  * lists none, or whose id is not a field of the listed resource, is absent.

@@ -1270,6 +1270,13 @@ func (c *computedField) TypescriptFilterable() string {
 	return ""
 }
 
+// Unordered reports whether the server refuses a sort by the field, so the TypeScript
+// field metadata says sortable: false and a table draws the column's heading as words;
+// see resourceField.Unordered.
+func (c *computedField) Unordered() bool {
+	return c.Field != nil && !ordersType(c.GoType())
+}
+
 // PermTag renders the perm:"-" primary-key exemption marker on @primarykey fields; see
 // resourceField.PermTag.
 func (c *computedField) PermTag() string {
@@ -2361,6 +2368,15 @@ func (f *resourceField) TypescriptFilterable() string {
 	}
 
 	return ""
+}
+
+// Unordered reports whether the server refuses a sort by the field: its type is one
+// the query decoder does not order (a list, a map, a nested struct; see ordersType).
+// The TypeScript field metadata then says sortable: false, so a table draws the
+// column's heading as words with nothing to press and never offers a sort the server
+// answers 400 to. A field the server orders carries nothing.
+func (f *resourceField) Unordered() bool {
+	return f.Field != nil && !ordersType(f.GoType())
 }
 
 func generatedGoFileName(name string) string {

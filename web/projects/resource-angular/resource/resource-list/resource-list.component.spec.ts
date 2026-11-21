@@ -63,8 +63,8 @@ const metas: Record<string, ResourceMeta> = {
     fields: [
       field('id', { primaryKey: { ordinalPosition: 0 } }),
       field('name'),
-      field('cargoBays', { displayType: 'number[]' }),
-      field('digest', { displayType: 'bytes' }),
+      field('cargoBays', { displayType: 'number[]', sortable: false }),
+      field('digest', { displayType: 'bytes', sortable: false }),
       field('lastRefitAt', { displayType: 'date' }),
       field('decommissioned', { displayType: 'boolean' }),
       field('flagged', { displayType: 'nullboolean' }),
@@ -280,6 +280,52 @@ describe('ResourceListComponent', () => {
       ).map((td) => td.textContent?.trim());
       expect(cells).toEqual(['Kestrel', '60, 60, 30', '32 B', '9/21/2026']);
       expect((fixture.nativeElement as HTMLElement).textContent).not.toContain(digest32);
+    });
+  });
+
+  describe('offers no sort the server refuses', () => {
+    it('draws the heading of a column whose field the metadata marks sortable: false as words, and every other as a button', async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            { id: 'cargoBays' as FieldName },
+            { id: 'digest' as FieldName },
+            { id: 'lastRefitAt' as FieldName },
+          ],
+        },
+        [
+          {
+            id: 's-1',
+            name: 'Kestrel',
+            cargoBays: [60, 60, 30],
+            digest: digest32,
+            lastRefitAt: '2026-09-21T12:00:00Z',
+          },
+        ],
+      );
+      fixture.detectChanges();
+      await settle();
+      const element = fixture.nativeElement as HTMLElement;
+      const headings = Array.from(element.querySelectorAll('th.data-col'))
+        .filter((th) => th.querySelector('.col-header'))
+        .map(
+          (th) =>
+            `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.header-label') ? 'a button' : 'words'}`,
+        );
+
+      // The server orders text and moments, and answers 400 to a sort by a list or by
+      // bytes: the metadata says which, and the table offers the first two alone.
+      expect(headings).toEqual(['Name: a button', 'Cargo Bays: words', 'Digest: words', 'Last Refit At: a button']);
+
+      // A click on the words asks the server for nothing.
+      const before = transport.requests.length;
+      (element.querySelectorAll('th.data-col .header-words')[0] as HTMLElement).click();
+      fixture.detectChanges();
+      await settle();
+      expect(transport.requests.length).toBe(before);
+      expect(fixture.componentInstance.store.sorts()).toEqual([]);
     });
   });
 
