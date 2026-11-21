@@ -1,5 +1,5 @@
 import { Resources, ShipClasses } from '@app/service/zz_gen_constants';
-import { field, listViewConfig, rootConfig, section, staticDefault } from '@impulseframework/resource-angular/types';
+import { field, listViewConfig, rootConfig, section } from '@impulseframework/resource-angular/types';
 
 // ShipClasses is the hull catalog: the global table Ship's `shipRole` attribute reaches
 // through a join path. Designation is immutable. The catalog declares no @order, and
@@ -29,13 +29,9 @@ export const shipClassesConfig = rootConfig({
           field({ name: ShipClasses.fieldName.roleId, label: 'Role', cols: 3 }),
           field({ name: ShipClasses.fieldName.tonnage, label: 'Tonnage', cols: 3 }),
           // Hardened is a yes or no the table never leaves empty and gives no default of its
-          // own: a new class is not hardened until its form says so.
-          field({
-            name: ShipClasses.fieldName.hardened,
-            label: 'Radiation hardened',
-            cols: 3,
-            default: staticDefault({ value: false }),
-          }),
+          // own, so the form starts it unchecked: a new class is not hardened until its form
+          // says so.
+          field({ name: ShipClasses.fieldName.hardened, label: 'Radiation hardened', cols: 3 }),
         ],
       }),
     ],

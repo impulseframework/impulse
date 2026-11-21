@@ -254,6 +254,37 @@ describe('ResourceStore key lookup', () => {
     expect(await askedAfter(() => route.set('sectors/{sectorID}/gantries'))).toBe(5);
     expect(await askedAfter(() => route.set('sectors/{sectorID}/hangars'))).toBe(5);
   });
+
+  // An answer in the 400s is what the same request gets again, all but the two that say
+  // the server had no time for it: those are asked again, as a read that failed is.
+  const answers: { status: number; says: string; askedAgain: boolean }[] = [
+    { status: 400, says: 'the source cannot be asked that way', askedAgain: false },
+    { status: 403, says: 'the caller may not list the source', askedAgain: false },
+    { status: 404, says: 'the source is not there', askedAgain: false },
+    { status: 408, says: 'the request timed out', askedAgain: true },
+    { status: 409, says: 'the source is in no state to be asked', askedAgain: false },
+    { status: 429, says: 'too many requests', askedAgain: true },
+    { status: 500, says: 'the read failed', askedAgain: true },
+  ];
+  for (const answer of answers) {
+    it(`${answer.askedAgain ? 'asks again' : 'does not ask again'} for the same keys after a ${answer.status}: ${answer.says}`, async () => {
+      const url = '/api/sectors/anvil/hangars?filter=id%3Ain%3A%28h1%29&columns=id%2Cname&limit=1';
+      const script = scripted({ [url]: { status: answer.status, rows: { message: answer.says } } });
+      const store = storeOver(script);
+      const keys = signal(['h1']);
+      const ref = store.resourceListByKeys(signal('sectors/{sectorID}/hangars'), signal('id'), keys, signal(['id', 'name']));
+      await settle(() => false, 5);
+      expect(ref.status()).toBe('error');
+      expect(script.requests.map((r) => r.url)).toEqual([url]);
+
+      // The same keys handed again, as a sort that brings rows naming the same records does.
+      keys.set(['h1']);
+      await settle(() => false, 5);
+      expect(ref.status()).toBe('error');
+      expect((ref.error() as ApiError).status).toBe(answer.status);
+      expect(script.requests.length).toBe(answer.askedAgain ? 2 : 1);
+    });
+  }
 });
 
 describe('ResourceStore paged reader', () => {

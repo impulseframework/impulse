@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -65,6 +66,9 @@ type transactionDeletes struct {
 	deletes []recordedDelete
 	written map[accesstypes.Resource][]map[string]any
 	deleted map[accesstypes.Resource]int
+	// rows holds each written row once more, by table and key (rowOfTable), for the
+	// walk that asks about one row at a time (wrote).
+	rows map[string]struct{}
 }
 
 // newTransactionDeletes returns an empty record.
@@ -72,7 +76,33 @@ func newTransactionDeletes() *transactionDeletes {
 	return &transactionDeletes{
 		written: make(map[accesstypes.Resource][]map[string]any),
 		deleted: make(map[accesstypes.Resource]int),
+		rows:    make(map[string]struct{}),
 	}
+}
+
+// rowOfTable names a row by its table and its key by column, the columns in order, so
+// two readings of one row give one name.
+func rowOfTable(res accesstypes.Resource, key map[string]any) string {
+	columns := make([]string, 0, len(key))
+	for column := range key {
+		columns = append(columns, column)
+	}
+	slices.Sort(columns)
+
+	var b strings.Builder
+	b.WriteString(string(res))
+	for _, column := range columns {
+		fmt.Fprintf(&b, "\x00%s=%v", column, key[column])
+	}
+
+	return b.String()
+}
+
+// wrote reports whether a patch of the transaction deleted or updated the row.
+func (t *transactionDeletes) wrote(res accesstypes.Resource, key map[string]any) bool {
+	_, ok := t.rows[rowOfTable(res, key)]
+
+	return ok
 }
 
 // recordDelete notes a delete to count over.
@@ -83,6 +113,7 @@ func (t *transactionDeletes) recordDelete(d recordedDelete) {
 // recordWritten notes the key of a row a patch deleted or updated.
 func (t *transactionDeletes) recordWritten(res accesstypes.Resource, key map[string]any, deleted bool) {
 	t.written[res] = append(t.written[res], key)
+	t.rows[rowOfTable(res, key)] = struct{}{}
 	if deleted {
 		t.deleted[res]++
 	}
@@ -154,15 +185,24 @@ func (p *PatchSet[Resource]) recordDelete(ctx context.Context, txn ReadWriteTran
 	}
 	recorder.recordWritten(p.Resource(), key, true)
 
+	// A delete that answered for the rows under its record when it was buffered has
+	// nothing left to count (PatchSet.underAnswered).
 	tree := p.querySet.rMeta.deleteTree
-	if tree == nil || len(tree.RefusedBy)+len(tree.Under) == 0 {
+	if tree == nil || p.underAnswered || len(tree.RefusedBy)+len(tree.Under) == 0 {
 		return
 	}
+	recorder.recordDelete(recordedDelete{tree: tree, key: key, caller: p.deleteCaller(ctx)})
+}
+
+// deleteCaller is the person a delete is for: the one the patch is armed against, else
+// the caller the request's frame stamped (CallerFrom), else nobody, a trusted call.
+func (p *PatchSet[Resource]) deleteCaller(ctx context.Context) *Caller {
 	caller := p.querySet.Caller()
 	if caller.IsZero() {
 		caller = CallerFrom(ctx)
 	}
-	recorder.recordDelete(recordedDelete{tree: tree, key: key, caller: caller})
+
+	return caller
 }
 
 // rowsUnderStatement is the count of one kind's rows under a record: its text, and its
@@ -233,10 +273,13 @@ func (w *rowsUnderWriter) notWritten(alias string, table accesstypes.Resource) s
 // way is the condition that a row of the kind, read as t0, is under the record by one
 // path. A path of one step compares the row's own columns with the record's key. A
 // longer one asks for the rows between, each joined to the one before it, the last
-// holding the record's key, and none of them a row the transaction wrote.
-func (w *rowsUnderWriter) way(index int, path DeletePath, recordKey map[string]any) (string, error) {
+// holding the record's key, and none of them a row the transaction wrote. A last step
+// that references a column outside the record's key (a foreign key to other columns of
+// the record's table) asks for the record's own row too, found by its key, and compares
+// with the column there.
+func (w *rowsUnderWriter) way(index int, path DeletePath, recordKey map[string]any) string {
 	last := path[len(path)-1]
-	tables := make([]string, 0, len(path)-1)
+	tables := make([]string, 0, len(path))
 	var (
 		conditions []string
 		excluded   string
@@ -250,21 +293,32 @@ func (w *rowsUnderWriter) way(index int, path DeletePath, recordKey map[string]a
 		}
 		alias = next
 	}
-	for i, column := range last.Columns {
-		value, ok := recordKey[last.References[i]]
-		if !ok {
-			return "", errors.Newf("the way up to %s ends on its column %s, which the deleted record's key does not hold", last.Table, last.References[i])
+	if slices.ContainsFunc(last.References, func(column string) bool {
+		_, held := recordKey[column]
+
+		return !held
+	}) {
+		record := fmt.Sprintf("w%d_r", index)
+		tables = append(tables, fmt.Sprintf("%s AS %s", w.quote(last.Table), record))
+		for i, column := range last.Columns {
+			conditions = append(conditions, fmt.Sprintf("%s.%s = %s.%s", alias, w.quote(column), record, w.quote(last.References[i])))
 		}
-		conditions = append(conditions, fmt.Sprintf("%s.%s = %s", alias, w.quote(column), w.value(value)))
+		for _, column := range slices.Sorted(maps.Keys(recordKey)) {
+			conditions = append(conditions, fmt.Sprintf("%s.%s = %s", record, w.quote(column), w.value(recordKey[column])))
+		}
+	} else {
+		for i, column := range last.Columns {
+			conditions = append(conditions, fmt.Sprintf("%s.%s = %s", alias, w.quote(column), w.value(recordKey[last.References[i]])))
+		}
 	}
 	if len(tables) == 0 {
-		return "(" + strings.Join(conditions, " AND ") + ")", nil
+		return "(" + strings.Join(conditions, " AND ") + ")"
 	}
 	for step, link := range path[:len(path)-1] {
 		excluded += w.notWritten(fmt.Sprintf("w%d_%d", index, step+1), accesstypes.Resource(link.Table))
 	}
 
-	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s%s)", strings.Join(tables, ", "), strings.Join(conditions, " AND "), excluded), nil
+	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s%s)", strings.Join(tables, ", "), strings.Join(conditions, " AND "), excluded)
 }
 
 // newRowsUnderStatement renders the count of a kind's rows under the record with the
@@ -272,14 +326,14 @@ func (w *rowsUnderWriter) way(index int, path DeletePath, recordKey map[string]a
 // itself deleted or updated. ok is false when the transaction wrote more rows of one of
 // the tables read than a statement leaves out by key (deleteExclusionLimit): the kind
 // is then not counted.
-func newRowsUnderStatement(dbType DBType, kind *DeleteKind, recordKey map[string]any, written map[accesstypes.Resource][]map[string]any) (statement rowsUnderStatement, ok bool, err error) {
+func newRowsUnderStatement(dbType DBType, kind *DeleteKind, recordKey map[string]any, written map[accesstypes.Resource][]map[string]any) (statement rowsUnderStatement, ok bool) {
 	if len(written[kind.Resource]) > deleteExclusionLimit {
-		return rowsUnderStatement{}, false, nil
+		return rowsUnderStatement{}, false
 	}
 	for _, path := range kind.Paths {
 		for _, link := range path[:len(path)-1] {
 			if len(written[accesstypes.Resource(link.Table)]) > deleteExclusionLimit {
-				return rowsUnderStatement{}, false, nil
+				return rowsUnderStatement{}, false
 			}
 		}
 	}
@@ -290,18 +344,14 @@ func newRowsUnderStatement(dbType DBType, kind *DeleteKind, recordKey map[string
 		if len(path) == 0 {
 			continue
 		}
-		way, err := w.way(i, path, recordKey)
-		if err != nil {
-			return rowsUnderStatement{}, false, errors.Wrapf(err, "counting %s", kind.Resource)
-		}
-		ways = append(ways, way)
+		ways = append(ways, w.way(i, path, recordKey))
 	}
 	if len(ways) == 0 {
-		return rowsUnderStatement{}, false, nil
+		return rowsUnderStatement{}, false
 	}
 	sql := fmt.Sprintf("SELECT COUNT(*) FROM %s AS t0 WHERE (%s)%s", w.quote(string(kind.Resource)), strings.Join(ways, " OR "), w.notWritten("t0", kind.Resource))
 
-	return rowsUnderStatement{SQL: sql, Args: w.args}, true, nil
+	return rowsUnderStatement{SQL: sql, Args: w.args}, true
 }
 
 // rowCounter runs one count statement inside the delete's transaction.
@@ -384,10 +434,7 @@ func (d *recordedDelete) refusal(ctx context.Context, dbType DBType, t *transact
 func (d *recordedDelete) rowsOf(ctx context.Context, dbType DBType, kinds []DeleteKind, written map[accesstypes.Resource][]map[string]any, count rowCounter) ([]kindRows, error) {
 	var found []kindRows
 	for i := range kinds {
-		statement, ok, err := newRowsUnderStatement(dbType, &kinds[i], d.key, written)
-		if err != nil {
-			return nil, err
-		}
+		statement, ok := newRowsUnderStatement(dbType, &kinds[i], d.key, written)
 		if !ok {
 			continue
 		}
@@ -483,21 +530,24 @@ func joinCounts(counts []string) string {
 // refuseDeletesOver runs the check before the commit for the transaction (refuse),
 // counting through the transaction itself.
 func (c *SpannerReadWriteTransaction) refuseDeletesOver(ctx context.Context) error {
-	return c.deleted.refuse(ctx, SpannerDBType, func(ctx context.Context, statement rowsUnderStatement) (int64, error) {
-		it := c.txn.Query(ctx, statement.spannerStatement())
-		defer it.Stop()
+	return c.deleted.refuse(ctx, SpannerDBType, c.countRows)
+}
 
-		row, err := it.Next()
-		if err != nil {
-			return 0, errors.Wrap(err, "spanner.RowIterator.Next()")
-		}
-		var rows int64
-		if err := row.Columns(&rows); err != nil {
-			return 0, errors.Wrap(err, "spanner.Row.Columns()")
-		}
+// countRows runs one count statement inside the transaction.
+func (c *SpannerReadWriteTransaction) countRows(ctx context.Context, statement rowsUnderStatement) (int64, error) {
+	it := c.txn.Query(ctx, statement.spannerStatement())
+	defer it.Stop()
 
-		return rows, nil
-	})
+	row, err := it.Next()
+	if err != nil {
+		return 0, errors.Wrap(err, "spanner.RowIterator.Next()")
+	}
+	var rows int64
+	if err := row.Columns(&rows); err != nil {
+		return 0, errors.Wrap(err, "spanner.Row.Columns()")
+	}
+
+	return rows, nil
 }
 
 // recordDelete notes a delete to count over before the commit.

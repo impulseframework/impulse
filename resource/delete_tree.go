@@ -2,6 +2,7 @@ package resource
 
 import (
 	"reflect"
+	"slices"
 	"strconv"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -106,6 +107,45 @@ type DeleteKind struct {
 	// deletes a row of one of those tables may take the kind's rows from under the
 	// record, so the kind is then not counted, and the commit answers.
 	RemovedWith []string
+	// Within are the links from a row of the kind to another row of its own kind (a
+	// task under a task), which no path holds, since a path never passes a table twice.
+	// A row under a taken row by one of them is under the record too, and a delete that
+	// takes the kind's rows follows them level by level (delete_cascade.go). The
+	// generator writes them for the kinds under Taken.
+	Within []DeleteLink
+	// Rows is how a delete of the record deletes a row of the kind with it. The
+	// generator writes one for each kind under Taken of a record that declares its
+	// cascade (NewTakenRows). A kind without one is not taken in code, and a delete of
+	// the record is refused while it has a row of the kind (delete_refusal.go).
+	Rows TakenRows
+}
+
+// sameAs reports whether the two links are the one step: the same columns to the same
+// columns of the same table.
+func (l DeleteLink) sameAs(other DeleteLink) bool {
+	return l.Table == other.Table && slices.Equal(l.Columns, other.Columns) && slices.Equal(l.References, other.References)
+}
+
+// stepsUp are the links a row of the kind is found by from the row above it: the first
+// step of each of its ways up to the record, and its links to a row of its own kind,
+// each once.
+func (k *DeleteKind) stepsUp() []DeleteLink {
+	var steps []DeleteLink
+	add := func(link DeleteLink) {
+		if !slices.ContainsFunc(steps, link.sameAs) {
+			steps = append(steps, link)
+		}
+	}
+	for _, path := range k.Paths {
+		if len(path) > 0 {
+			add(path[0])
+		}
+	}
+	for _, link := range k.Within {
+		add(link)
+	}
+
+	return steps
 }
 
 // movable reports whether a row of the kind can be taken from under the record without
@@ -142,7 +182,9 @@ type DeleteTree struct {
 	// Cost is what deleting the record's own row costs.
 	Cost DeleteCost
 	// Taken are the kinds a delete of the record takes with it, in the order their rows
-	// are deleted: deepest first, so no row is deleted before the rows under it.
+	// are deleted: deepest first, so no row is deleted before the rows under it. The
+	// record's own kind is last among them where a row of the record is under another
+	// (a folder in a folder).
 	Taken []DeleteKind
 	// RefusedBy are the kinds whose rows refuse the delete while one of them is under
 	// the record.
@@ -157,20 +199,62 @@ type DeleteTree struct {
 }
 
 // RowName is what a sentence calls the row a delete is asked of, opening the sentence:
-// "This client". It is the one place a row gets its name in a sentence about a
-// delete: a record that comes to name its rows changes this function alone.
+// "This client". With rowNameInside it is the one place a row gets its name in a
+// sentence about a delete: a record that comes to name its rows changes these two
+// functions alone.
 func (t *DeleteTree) RowName() string {
 	return "This " + t.Words.One
 }
 
+// rowNameInside is RowName where the sentence does not open with it: "this client".
+func (t *DeleteTree) rowNameInside() string {
+	return "this " + t.Words.One
+}
+
+// referenced are the columns of a table that the taken kinds' rows are found by: the
+// columns their steps up to a row of the table reference, each once. They are the
+// table's key, or part of it, except where a foreign key references other columns.
+func (t *DeleteTree) referenced(table string) []string {
+	var columns []string
+	for i := range t.Taken {
+		for _, link := range t.Taken[i].stepsUp() {
+			if link.Table != table {
+				continue
+			}
+			for _, column := range link.References {
+				if !slices.Contains(columns, column) {
+					columns = append(columns, column)
+				}
+			}
+		}
+	}
+
+	return columns
+}
+
+// reads are the columns a delete that takes rows reads of a row of the table: its key,
+// and any other column the taken kinds' rows under it are found by (referenced).
+func (t *DeleteTree) reads(table accesstypes.Resource, key []string) []string {
+	columns := slices.Clone(key)
+	for _, column := range t.referenced(string(table)) {
+		if !slices.Contains(columns, column) {
+			columns = append(columns, column)
+		}
+	}
+
+	return columns
+}
+
 // Mutations is the one count of what a delete of the record and everything it takes
 // costs in a commit: the record's own row, and for each taken kind the number of its
-// rows under the record (rows, by the kind's resource) times what one of them costs. The
-// delete is refused when the count passes DeleteMutationLimit.
-func (t *DeleteTree) Mutations(rows map[accesstypes.Resource]int, tracked bool) int {
-	mutations := t.Cost.Mutations(tracked)
+// rows under the record (rows, by the kind's resource) times what one of them costs. A
+// kind's rows cost a change record each where the kind's changes are tracked (tracked,
+// by resource, the record's own among them). The delete is refused when the count
+// passes DeleteMutationLimit.
+func (t *DeleteTree) Mutations(rows map[accesstypes.Resource]int, tracked func(accesstypes.Resource) bool) int {
+	mutations := t.Cost.Mutations(tracked(t.Record))
 	for i := range t.Taken {
-		mutations += rows[t.Taken[i].Resource] * t.Taken[i].Cost.Mutations(tracked)
+		mutations += rows[t.Taken[i].Resource] * t.Taken[i].Cost.Mutations(tracked(t.Taken[i].Resource))
 	}
 
 	return mutations

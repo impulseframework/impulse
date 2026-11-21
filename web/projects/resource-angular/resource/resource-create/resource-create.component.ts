@@ -28,7 +28,9 @@ import {
   ChildResourceConfig,
   CreatePermission,
   DataType,
+  FieldDefault,
   FieldElement,
+  FieldMeta,
   ListViewConfig,
   RecordData,
   Resource,
@@ -50,6 +52,21 @@ import { maxLengthValidator, metadataTypeCoercion } from '../resources-helpers';
 
 /** The display types the create form presents and never takes: their control starts null and a null control leaves the add operation. */
 const READ_ONLY_SHAPES = new Set(['bytes', 'array', 'object']);
+
+/**
+ * Where a create form starts a yes or no field that is never empty. What the page's config
+ * gives it comes first. With nothing given, a field the resource requires starts unchecked:
+ * the resource declares no default for it, an empty box already reads as a no, and a form
+ * saved untouched sends that. A field the resource does not require has a default the
+ * resource declares, which the server applies to a create that leaves the field out: the
+ * form holds nothing for it, and sends nothing unless the person answers.
+ */
+function yesOrNoStart(field: FieldMeta, given: FieldDefault): boolean | null {
+  if (given?.type === 'static' && typeof given.value === 'boolean') {
+    return given.value;
+  }
+  return field.required ? false : null;
+}
 
 @Component({
   selector: 'impulse-resource-create',
@@ -163,9 +180,6 @@ export class ResourceCreateComponent implements OnInit {
       }
 
       let control: FormControl<DataType | null> = new FormControl<DataType | null>('');
-      if (field.displayType === 'boolean') {
-        control = new FormControl<boolean>(false);
-      }
       // A bytes, array, or object field has no editor yet: its control is null, which
       // the cleaning step before ops.add leaves out, so the add sends no value for it.
       if (READ_ONLY_SHAPES.has(rendererFor(field.displayType))) {
@@ -179,14 +193,7 @@ export class ResourceCreateComponent implements OnInit {
       }
       const fieldDefault = fieldConfig.default;
       if (field.displayType === 'boolean') {
-        const booleanDefaultValue =
-          fieldDefault?.type == 'static' && typeof fieldDefault?.value === 'boolean' ? fieldDefault.value : null;
-        if (booleanDefaultValue === null) {
-          console.error(
-            `Default value for boolean field, ${field.fieldName}, is null, add a default value to the config`,
-          );
-        }
-        control = new FormControl<boolean | null>(booleanDefaultValue);
+        control = new FormControl<boolean | null>(yesOrNoStart(field, fieldDefault));
       }
 
       if (fieldDefault?.type === 'foreignKey' && this.parentData()) {
@@ -262,12 +269,18 @@ export class ResourceCreateComponent implements OnInit {
    * on every element they keep a mark on at all. An element that carries the form's
    * group is marked for the whole form, whatever its own control holds, and a text, a
    * number and a date field carry it on their `mat-form-field`: a field that is filled
-   * is marked as refused while another is not. So the refused control is the first
-   * marked element that holds no other element of the form's.
+   * is marked as refused while another is not. So a refused control is a marked element
+   * that holds no other element of the form's. A field that is not shown keeps its control
+   * in the form, inside an element the library's stylesheet takes off the screen
+   * (`hidden-field`), and it can be the first one refused: there is nothing of it to bring
+   * into view, so the field brought into view is the first refused one that is drawn.
    */
   private showFirstRefused(): void {
     const marked = Array.from(this.host.nativeElement.querySelectorAll('form .ng-invalid'));
-    const control = marked.find((element) => element.querySelector('.ng-touched, .ng-untouched') === null);
+    const control = marked.find(
+      (element) =>
+        element.querySelector('.ng-touched, .ng-untouched') === null && element.closest('.hidden-field') === null,
+    );
     const field = control?.closest('mat-form-field') ?? control;
     field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
