@@ -192,6 +192,47 @@ func TestLastOwner_theLastAdministratorsOwnPeriod(t *testing.T) {
 	}
 }
 
+// TestLastOwner_aDisabledAdministratorDoesNotCount proves on the served stack that a
+// tenant's administrator is a person who can sign in. A tenant an invitation made has
+// two administrators of its own, its founder and a second person the tenant holds alone.
+// The founder disables the second person's account, which the role file lets a tenant's
+// administrator do to the tenant's own people, and is then refused giving up their own
+// role, in the rule's words: the tenant would be left to an account nobody can use. Once
+// the founder enables the account again it counts, and the founder gives the role up.
+func TestLastOwner_aDisabledAdministratorDoesNotCount(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	admin := signedIn(ctx, t, s, adminUser)
+	quay, founder := makeTenant(ctx, t, s, admin, "Quay", "quayfounder")
+	founderID := staffUserID(ctx, t, admin, "quayfounder")
+	secondID := staffAccount(ctx, t, s, "quaysecond", "The second of Quay")
+	const lastAdministrator = "you are the last administrator of this tenant: give another person the role before you remove your own"
+
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+secondID+`","role":"TenantAdministrator","domain":"`+quay+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving the second person the role in Quay: status %d: %s", status, body)
+	}
+	if status, body := tenantPost(ctx, founder, quay, "disable-staff-tenant-user", map[string]any{"userId": secondID}); status != http.StatusNoContent {
+		t.Fatalf("the founder disabling Quay's second administrator: status %d, want 204: %s", status, body)
+	}
+	own := map[string]any{"userId": founderID, "role": "TenantAdministrator"}
+	status, body := tenantPost(ctx, founder, quay, "remove-staff-tenant-role", own)
+	if status != http.StatusForbidden || !strings.Contains(string(body), lastAdministrator) {
+		t.Fatalf("the founder giving up the role while Quay's other administrator is disabled: status %d, want 403 naming the rule: %s", status, body)
+	}
+	if roles := tenantRolesOf(ctx, t, founder, quay, "quayfounder"); !slices.Contains(roles, "TenantAdministrator") {
+		t.Fatalf("the founder's roles in Quay after the refusal = %v, want TenantAdministrator kept", roles)
+	}
+
+	if status, body := tenantPost(ctx, founder, quay, "enable-staff-tenant-user", map[string]any{"userId": secondID}); status != http.StatusNoContent {
+		t.Fatalf("the founder enabling Quay's second administrator: status %d, want 204: %s", status, body)
+	}
+	if status, body := tenantPost(ctx, founder, quay, "remove-staff-tenant-role", own); status != http.StatusNoContent {
+		t.Fatalf("the founder giving up the role once Quay's other administrator can sign in: status %d, want 204: %s", status, body)
+	}
+}
+
 // roleOf is the body of the methods that give and take a role for the whole application:
 // the person by the id of their account and the role, held for the whole application or,
 // with everyTenant, in every tenant.

@@ -355,7 +355,7 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 		{
 			name: "a role of the global scope goes from its last holder: the application's last administrator is its last super administrator",
 			opts: []Option{administrators}, caller: dana, scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, erin, "Reader")},
+			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, dana, "Reader"), membership(globalScope, erin, "Reader")},
 			wantRemoved: true,
 		},
 		{
@@ -379,7 +379,7 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 		{
 			name: "a tenant's administrator leaves once another holds the role there",
 			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(alphaScope, erin, "Warden")},
+			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(globalScope, dana, "Reader"), membership(alphaScope, erin, "Warden")},
 			wantRemoved: true,
 		},
 		{
@@ -429,7 +429,12 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &fakeStore{memberships: map[access.MembershipKey]bool{}}
+			// Both people have accounts that can sign in: the rule counts no other
+			// holder as a tenant's administrator.
+			store := &fakeStore{
+				usernames:   map[impulse.UUID]string{userID: "dana", otherUser: "erin"},
+				memberships: map[access.MembershipKey]bool{},
+			}
 			for _, key := range tt.held {
 				store.memberships[key] = true
 			}
@@ -494,7 +499,10 @@ func TestManager_RemoveRole_lastAdministrator_sentence(t *testing.T) {
 
 			const tenant = "0190a000-0000-7000-8000-000000000001"
 			scope := accesstypes.DomainPolicyScope(tenant)
-			store := &fakeStore{memberships: map[access.MembershipKey]bool{access.NewMembershipKey(scope, dana, "Warden"): true}}
+			store := &fakeStore{
+				usernames:   map[impulse.UUID]string{userID: "dana"},
+				memberships: map[access.MembershipKey]bool{access.NewMembershipKey(scope, dana, "Warden"): true},
+			}
 			m, _ := newManager(t, store, engineRoles, tt.opts...)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {

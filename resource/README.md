@@ -4212,6 +4212,9 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   admits its people through its directory only keeps that person out with everyone
   else. A holding counts while it is in force: one whose period is over, or has not
   begun, makes nobody an administrator, and a person removes their own freely. A
+  holder whose account is disabled is not counted either: the account keeps its roles
+  and administers nothing until it is enabled again, so the person beside it is the
+  tenant's last administrator and keeps the role. A
   refusal that speaks of a tenant says the application's word for one, the tenant
   record's label or its name in words ("you are the last administrator of this
   sector"): the generated client hands it to the rules (`identity.WithTenantWord`).

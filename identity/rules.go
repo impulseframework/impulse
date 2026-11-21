@@ -386,7 +386,10 @@ type administratorHolding struct {
 // role up otherwise is given it back by one who remains. The holders counted are the
 // tenant's own, the ones the permission engine counts (access.AdministersTenant): the
 // people who hold the role in the tenant itself, by a membership of their own or
-// through a group kept in the tenant, each inside its period (administratorHoldings).
+// through a group kept in the tenant, each inside its period and each with an account
+// that can sign in (administratorHoldings): a holder whose account is disabled is
+// nobody the tenant can turn to, as the super administrator's rule has it
+// (refuseLastSuperAdministrator), so the person beside them is the last one.
 // A holder through a group of the tenant is a holder. The person keeps the tenant's
 // administration too where they hold the same role there another way, by a membership
 // beside the group or through another group of the tenant. Without the administrator
@@ -446,8 +449,10 @@ func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.Read
 // now: for each administrator role held in the tenant itself, the people who hold it by
 // a membership of their own that counts (countingHolders), and the people in a group
 // kept in the tenant that holds it there, where the group's role and the person's place
-// both count (countingMembers). A role held in every tenant is not read: its holder is
-// no administrator of the tenant's own (access.AdministersTenant).
+// both count (countingMembers). Nobody whose account cannot sign in is listed: a
+// disabled account holds its roles and administers nothing. A role held in every tenant
+// is not read: its holder is no administrator of the tenant's own
+// (access.AdministersTenant).
 func (m *Manager) administratorHoldings(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope) ([]administratorHolding, error) {
 	now := time.Now()
 	var holdings []administratorHolding
@@ -480,8 +485,9 @@ func (m *Manager) administratorHoldings(ctx context.Context, txn resource.ReadWr
 }
 
 // countingMembers lists the people the role makes administrators of the tenant scope
-// names through the group now: the people whose place counts, where the group's role
-// counts and the group is kept in the tenant. A group kept anywhere else makes nobody an
+// names through the group now: the people whose place counts and whose account can sign
+// in (holderSignsIn), where the group's role counts and the group is kept in the tenant.
+// A group kept anywhere else makes nobody an
 // administrator of the tenant's own, whatever it holds there: one kept for the whole
 // application seats the application's own people, and a row of another tenant's group,
 // written past the rules, gives nothing here (access.AdministersTenant).
@@ -511,12 +517,33 @@ func (m *Manager) countingMembers(
 	}
 	members := make([]accesstypes.User, 0, len(holding.members))
 	for _, user := range holding.members {
-		if holding.periods.Members[user].Contains(now) {
+		if !holding.periods.Members[user].Contains(now) {
+			continue
+		}
+		signsIn, err := m.holderSignsIn(ctx, txn, user)
+		if err != nil {
+			return nil, err
+		}
+		if signsIn {
 			members = append(members, user)
 		}
 	}
 
 	return members, nil
+}
+
+// holderSignsIn reports whether a person a group seats is somebody who can administer a
+// tenant: one whose account can sign in (signsIn). A disabled account is nobody's way
+// into the tenant, and the person who would leave the tenant to it is its last
+// administrator. A member the store names by something that is no account's id is not
+// this package's to judge, and counts.
+func (m *Manager) holderSignsIn(ctx context.Context, txn resource.ReadWriteTransaction, holder accesstypes.User) (bool, error) {
+	id, ok := UserID(holder)
+	if !ok {
+		return true, nil
+	}
+
+	return m.signsIn(ctx, txn, id)
 }
 
 // deleteAccount buffers the removal of a user: every session they hold is ended first

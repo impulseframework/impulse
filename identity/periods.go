@@ -369,8 +369,9 @@ func (m *Manager) keeps(ctx context.Context, txn resource.ReadWriteTransaction, 
 
 // countingHolders lists who holds the role where the key says it is held and counts as
 // its holder now: the holders the store lists, less the ones whose membership is outside
-// its period. The rule on a tenant's last administrator reads it: an administrator whose
-// role has ended, or has not begun, administers nothing.
+// its period and the ones whose account cannot sign in. The rule on a tenant's last
+// administrator reads it: an administrator whose role has ended, or has not begun,
+// administers nothing, and neither does one whose account is disabled (signsIn).
 func (m *Manager) countingHolders(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RoleKey) ([]accesstypes.User, error) {
 	holders, err := m.store.RoleHolders(ctx, txn, key)
 	if err != nil {
@@ -390,7 +391,14 @@ func (m *Manager) countingHolders(ctx context.Context, txn resource.ReadWriteTra
 			return nil, errors.Wrap(err, "identity.Store.UserPeriods()")
 		}
 		held := access.MembershipKey{Kind: key.Kind, Axis: key.Axis, Domain: key.Domain, Role: key.Role, User: holder}
-		if periods.Memberships[held].Contains(now) {
+		if !periods.Memberships[held].Contains(now) {
+			continue
+		}
+		signsIn, err := m.signsIn(ctx, txn, id)
+		if err != nil {
+			return nil, err
+		}
+		if signsIn {
 			counting = append(counting, holder)
 		}
 	}
