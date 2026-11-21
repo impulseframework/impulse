@@ -543,7 +543,8 @@ func requireResources(rows []GrantRow) error {
 // (misplacedGrant, validateGrantCondition): the resource is of the role's
 // scope, a global resource for a role held globally and a domain's for one
 // held in a domain or in every domain; Update is not given on what the release
-// marks immutable; and a condition parses and reads only the attributes the
+// marks immutable, a grant of all a resource's fields reaching no such field
+// (snapshot.allFieldsLeaveOut); and a condition parses and reads only the attributes the
 // resource declares and the subject vocabulary the application declares, a
 // field's condition being held to its resource's attributes. A load does not
 // hold a stored grant to this part: it keeps to the names, and a stored

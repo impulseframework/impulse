@@ -362,13 +362,15 @@ type UserManager interface {
 	// which and why, and nothing of the call is written. Such a grant would
 	// be left out when the policy loads (SkippedGrant) and give nothing, and
 	// a name nobody declared is one nobody can say the meaning of. All of a
-	// resource's fields ("Resource.*") is the resource's own name.
+	// resource's fields ("Resource.*") is the resource's own name, and a role
+	// file gives the same grant with "*" among a grant's fields.
 	//
 	// The grant is held to the rest of the rule a role file's grants are held
 	// to as well, and refused as a bad request in the role file's own
 	// sentence: the resource is of the role's scope (a global resource for a
 	// role held globally, a domain's for a role held in a domain or in every
-	// domain), Update is not given on what the release marks immutable, and
+	// domain), Update is not given on what the release marks immutable (Update
+	// on all of a resource's fields does not reach such a field), and
 	// the condition parses and reads only the attributes the resource declares
 	// and the subject vocabulary the application declares. A load of the
 	// policy holds a stored grant to its names alone: a stored condition that

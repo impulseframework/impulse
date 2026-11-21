@@ -24,6 +24,13 @@ type snapshot struct {
 	fields    []map[string]uint16 // by resource ID: field name -> bit position
 	loadedAt  time.Time
 
+	// collection is what the release declares, and scopes the scope it holds
+	// each resource in, by resource ID. A check reads them for one thing: the
+	// fields a grant of all of a resource's fields does not reach
+	// (allFieldsLeaveOut).
+	collection PermissionCollection
+	scopes     []accesstypes.PermissionScope
+
 	// Policy is held in three places and read in two. global is the global
 	// partition. every is what reaches every tenant domain: the release's
 	// domain default roles, the custom roles held in every domain, and the
@@ -482,16 +489,18 @@ func (s *snapshot) digest(grants grantMap) accesstypes.PermissionDigest {
 			set(accesstypes.Resource(base), perm, accesstypes.DigestConditional)
 		}
 		for field, i := range s.fields[resID] {
+			name := accesstypes.Resource(base).ResourceWithTag(accesstypes.Tag(field))
+			reached := !s.allFieldsLeaveOut(permID, resID, name)
 			var state accesstypes.DigestState
 			switch {
-			case fs.all || fs.bit(i):
+			case (reached && fs.all) || fs.bit(i):
 				state = accesstypes.DigestGranted
-			case fs.cond != nil && (len(fs.cond.all) > 0 || len(fs.cond.fields[i]) > 0):
+			case fs.cond != nil && ((reached && len(fs.cond.all) > 0) || len(fs.cond.fields[i]) > 0):
 				state = accesstypes.DigestConditional
 			default:
 				continue
 			}
-			set(accesstypes.Resource(base).ResourceWithTag(accesstypes.Tag(field)), perm, state)
+			set(name, perm, state)
 		}
 	}
 
@@ -610,7 +619,9 @@ func (s *snapshot) roleGrants(scope accesstypes.Scope, role accesstypes.Role) gr
 // in the snapshot tests) missed. A conditional
 // field cover is the union of the single-field terms and the all-fields
 // terms; a field unknown to the snapshot is covered only by all-fields
-// grants, mirroring the unconditional implication rule.
+// grants, mirroring the unconditional implication rule. A field an all-fields
+// grant does not reach (allFieldsLeaveOut) is covered by a grant that names
+// it, or by none.
 func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.Resource) resourceDecision {
 	if grants == nil {
 		return resourceDecision{}
@@ -644,7 +655,8 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 			terms = fs.cond.all
 		}
 	default:
-		if fs.all {
+		reached := !s.allFieldsLeaveOut(permID, resID, resource)
+		if reached && fs.all {
 			return resourceDecision{granted: true}
 		}
 		i, known := s.fields[resID][field]
@@ -652,7 +664,9 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 			return resourceDecision{granted: true}
 		}
 		if fs.cond != nil {
-			terms = fs.cond.all
+			if reached {
+				terms = fs.cond.all
+			}
 			if known {
 				terms = terms.union(fs.cond.fields[i])
 			}
@@ -670,6 +684,22 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 	}
 
 	return resourceDecision{conditions: conditions, exprs: exprs}
+}
+
+// allFieldsLeaveOut reports whether a grant of the permission on all of a
+// resource's fields ("Resource.*") does not reach the field named, a
+// Resource.field name: Update is not given on a field the release marks
+// immutable, by a grant that names the field (misplacedGrant) or by one that
+// names them all, whoever wrote the grant and whenever. The all-fields grant is
+// an implication, never bits, and reaches fields no grant names, so the
+// release's collection is asked about the one field at the check. Nothing a
+// subject holds is taken away by it: the grant never held the field.
+func (s *snapshot) allFieldsLeaveOut(permID, resID uint16, field accesstypes.Resource) bool {
+	if s.permNames[permID] != accesstypes.Update {
+		return false
+	}
+
+	return s.collection.IsResourceImmutable(s.scopes[resID], field)
 }
 
 // newSnapshot compiles the release's default roles and the store's records
@@ -703,6 +733,7 @@ func newSnapshotAt(records *policy.Records, defaults *defaultRoles, collection P
 		domains:     make(map[accesstypes.Domain]*scopePolicy),
 		loadedAt:    loadedAt,
 		recordsHash: records.Hash(),
+		collection:  collection,
 	}
 
 	customs, storeGrants, findings := definedRoles(records, defaults)
@@ -959,6 +990,7 @@ func (s *snapshot) intern(grants []policy.Grant, collection PermissionCollection
 			s.resources[g.Resource] = resID
 			s.resourceNames = append(s.resourceNames, g.Resource)
 			s.fields = append(s.fields, make(map[string]uint16))
+			s.scopes = append(s.scopes, collection.Scope(accesstypes.Resource(g.Resource)))
 		}
 		if g.Field != "" && g.Field != "*" {
 			if _, ok := s.fields[resID][g.Field]; !ok {

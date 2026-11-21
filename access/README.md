@@ -29,7 +29,7 @@ go get github.com/impulseframework/impulse/access
 - **User**: Individual with assigned roles
 - **Role**: Named collection of permissions, of one of two kinds. A default role is declared in the release's role file (see Default Roles): a global default is held in the global partition, a domain default in every tenant domain, and the store holds no row for either. A custom role is created at run time through the user manager and held where it was created; its identity is `(policy scope, role)`.
 - **Permission**: Action that can be performed (List, Read, Create, Update, Delete, ...)
-- **Resource**: What a permission applies to. A resource name has at most one dot: `employees` is a parent resource, `employees.name` is one field on it, and `employees.*` grants all fields by implication (covering fields that don't exist yet). An endpoint grant (`employees`) gives no field visibility, and field grants don't grant the endpoint — that separation is the point of field-level control.
+- **Resource**: What a permission applies to. A resource name has at most one dot: `employees` is a parent resource, `employees.name` is one field on it, and `employees.*` grants all fields by implication (covering fields that don't exist yet), except that `Update` on all fields is not `Update` on a field the release marks immutable. An endpoint grant (`employees`) gives no field visibility, and field grants don't grant the endpoint — that separation is the point of field-level control.
 
 ## Policy Stores
 
@@ -280,7 +280,9 @@ file's grants are held to as well, so a role made at run time holds nothing a
 default role could not. The resource is of the role's scope: a global resource
 for a role held globally, a domain's for a role held in one domain or in every
 domain, since a grant of another scope sits in a partition the role's holders
-never look in. `Update` is not given on what the release marks immutable. And
+never look in. `Update` is not given on what the release marks immutable: a
+grant that names such a field is refused, and `Update` on all of a resource's
+fields (`Ledgers.*`) does not reach it. And
 the condition parses and reads only the attributes the resource declares and
 the subject vocabulary the application declares, a field's condition being
 held to its resource's attributes. Each is refused as a bad request in the
@@ -1139,6 +1141,9 @@ domain-scoped resources and is held in every tenant domain. A job function that 
 both kinds of powers is two roles assigned to one user. Each grant names a base
 `resource`, the `fields` it covers as their wire tags, and an optional `condition`; a role
 may carry several grants on one resource for one permission, each under its own condition.
+`"fields": ["*"]` is all of the resource's fields, the ones a later release adds among
+them: the grant a write to a custom role spells `Documents.*`. `Update` on all the fields
+is not `Update` on a field the release marks immutable.
 
 The file is decoded strictly: a key the shape does not declare is an error, since a
 misspelled key would otherwise silently drop the roles under it. `RoleFile.Parse` decodes
