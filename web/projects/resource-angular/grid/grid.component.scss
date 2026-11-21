@@ -582,3 +582,35 @@ a[mat-icon-button] {
   line-height: 1.4;
   padding-block: 8px;
 }
+
+// On paper nothing scrolls and nothing is pressed, and a list is as long as its rows. A
+// browser repeats the heading row on every page the rows run onto, and what it lays out as
+// a column of boxes that share a height (the list on the screen) is given no room for the
+// rows it repeats: the pager would lie over the last row. So the list is laid out as
+// blocks, one under the other, and nothing of it is cut off or kept for a scroll.
+@media print {
+  :host {
+    height: auto;
+  }
+
+  .impulse-grid-host {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  .impulse-grid-view {
+    display: block;
+  }
+
+  .impulse-grid-scroll {
+    overflow: visible;
+  }
+
+  // Chrome draws nothing of a button's words in a heading row it repeats. A heading is not
+  // pressed on paper: its button gives up its box, and the words are drawn as the heading's
+  // own, on the first page and on every page after it.
+  .header-cell .header-label {
+    display: contents;
+  }
+}

@@ -5,7 +5,7 @@
   overflow: hidden;
 }
 
-.bar {
+.impulse-menu-bar-menus {
   display: flex;
   align-items: center;
   gap: 0;
@@ -15,7 +15,7 @@
 
 // The bar's buttons and the hidden copies the widths are read from share every rule that
 // sets a width, so what is read is what is drawn.
-.top {
+.impulse-menu-bar-top {
   display: inline-flex;
   align-items: center;
   flex: none;
@@ -45,7 +45,7 @@
     outline-offset: -1px;
   }
 
-  &.current::after {
+  &.impulse-menu-bar-current::after {
     content: '';
     position: absolute;
     left: 10px;
@@ -56,7 +56,7 @@
     background: var(--mat-sys-primary);
   }
 
-  &.more {
+  &.impulse-menu-bar-more {
     padding: 0 6px;
 
     mat-icon {
@@ -67,7 +67,7 @@
   }
 }
 
-.measure {
+.impulse-menu-bar-measure {
   position: absolute;
   top: 0;
   left: 0;

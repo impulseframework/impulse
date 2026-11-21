@@ -127,7 +127,9 @@ describe('a frame over a tenant list that could not be read', () => {
   const drawn = (): string | undefined => element().querySelector('.spec-page')?.textContent?.trim();
   /** What the place switcher draws: nothing, the name of a lone place, or the open place on its button. */
   const switcher = (): string | undefined =>
-    element().querySelector('impulse-place-switcher .switcher .name')?.textContent?.trim();
+    element()
+      .querySelector('impulse-place-switcher .impulse-place-switcher-place .impulse-place-switcher-name')
+      ?.textContent?.trim();
   const tryAgain = async (): Promise<void> => {
     (element().querySelector('.impulse-frame-unread .impulse-frame-try-again') as HTMLButtonElement).click();
     await settle();
@@ -155,7 +157,7 @@ describe('a frame over a tenant list that could not be read', () => {
     expect(unread()).toBeUndefined();
     expect(drawn()).toBe('notes');
     expect(switcher()).toBe('Configuration');
-    expect(element().querySelector('impulse-place-switcher button.switcher')).not.toBeNull();
+    expect(element().querySelector('impulse-place-switcher button.impulse-place-switcher-place')).not.toBeNull();
   });
 
   it('lands nobody as a person in no tenant: the root address says the page could not be loaded, and lands in their tenant once Try again reads it', async () => {

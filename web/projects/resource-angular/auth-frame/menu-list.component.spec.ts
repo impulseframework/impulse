@@ -2,6 +2,7 @@ import { CdkMenuTrigger } from '@angular/cdk/menu';
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { notNamedFor } from './frame-testing';
 import { ShownGroup } from './menu';
 import { MenuListComponent } from './menu-list.component';
 
@@ -46,9 +47,9 @@ describe('MenuListComponent', () => {
   let fixture: ComponentFixture<HostComponent>;
   const lists = (): number => document.querySelectorAll('.cdk-overlay-container impulse-menu-list').length;
   const entry = (label: string): HTMLButtonElement =>
-    Array.from(document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button.item')).find((button) =>
-      button.textContent?.includes(label),
-    ) as HTMLButtonElement;
+    Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button.impulse-menu-list-item'),
+    ).find((button) => button.textContent?.includes(label)) as HTMLButtonElement;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -86,9 +87,9 @@ describe('MenuListComponent', () => {
   it('redraws an open submenu when its entries change', () => {
     const checked = (): string[] => {
       const submenu = Array.from(document.querySelectorAll('.cdk-overlay-container impulse-menu-list')).at(-1);
-      return Array.from(submenu?.querySelectorAll('button.item') ?? [])
-        .filter((button) => button.querySelector('.end')?.textContent?.trim() === 'check')
-        .map((button) => button.querySelector('.label')?.textContent?.trim() ?? '');
+      return Array.from(submenu?.querySelectorAll('button.impulse-menu-list-item') ?? [])
+        .filter((button) => button.querySelector('.impulse-menu-list-end')?.textContent?.trim() === 'check')
+        .map((button) => button.querySelector('.impulse-menu-list-label')?.textContent?.trim() ?? '');
     };
     entry('Appearance').dispatchEvent(new MouseEvent('mouseenter'));
     fixture.detectChanges();
@@ -103,5 +104,12 @@ describe('MenuListComponent', () => {
     entry('Appearance').click();
     fixture.detectChanges();
     expect(lists()).toBe(2);
+  });
+
+  it("names every element for the list: an application's rule for its own .item, .label or .group lands on none", () => {
+    const host = document.querySelector('.cdk-overlay-container impulse-menu-list') as HTMLElement;
+
+    expect(notNamedFor('impulse-menu-list-', host)).toEqual([]);
+    expect(host.querySelector('button.impulse-menu-list-submenu')).not.toBeNull();
   });
 });

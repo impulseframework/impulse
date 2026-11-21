@@ -14,6 +14,7 @@ import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource
 import { FormStateService } from '@impulseframework/resource-angular/resource-services';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
+  ConfigElement,
   field,
   FieldMeta,
   FieldName,
@@ -23,6 +24,7 @@ import {
   RESOURCE_META,
   ResourceMeta,
   rootConfig,
+  staticDefault,
   viewConfig,
 } from '@impulseframework/resource-angular/types';
 
@@ -313,6 +315,14 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
   };
   const labelOf = (element: Element): string | undefined => element.querySelector('mat-label')?.textContent?.trim();
   const sent = (): number => transport.requests.filter((request) => request.method === 'PATCH').length;
+  /** What the form says beside its buttons about a create it did not send. */
+  const sentence = (): string | undefined =>
+    (fixture.nativeElement as HTMLElement).querySelector('.state-buttons .invalid.message')?.textContent?.trim();
+  /** Draws the form again with these elements in place of the ones every test starts with. */
+  const showing = (elements: ConfigElement[]): void => {
+    fixture.componentRef.setInput('resourceConfig', viewConfig({ primaryResource: probes, elements }));
+    fixture.detectChanges();
+  };
 
   beforeEach(async () => {
     shown = [];
@@ -389,6 +399,42 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
     expect(shown.map(({ element }) => labelOf(element))).toEqual(['Call sign']);
   });
 
+  // A field that is not shown keeps its control in the form, and that control can be the
+  // first one refused: nothing of it is on the screen to bring into view.
+  it('the first refused field that is drawn, when the first control refused is of a field not shown, and still says so', () => {
+    showing([
+      field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
+      field({ name: 'notes' as FieldName, label: 'Notes' }),
+      field({ name: 'name' as FieldName, label: 'Name' }),
+    ]);
+    fill('notes', 'Hold at the outer marker.');
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(sent()).toBe(0);
+    expect(shown.map(({ element }) => `${element.tagName.toLowerCase()} ${labelOf(element)}`)).toEqual([
+      'mat-form-field Name',
+    ]);
+    expect(sentence()).toBe('Please complete or fix required fields.');
+  });
+
+  it('nothing, when no field it refuses is drawn, and still says so', () => {
+    showing([
+      field({ name: 'callSign' as FieldName, label: 'Call sign', shouldRender: false }),
+      field({ name: 'notes' as FieldName, label: 'Notes' }),
+      field({ name: 'name' as FieldName, label: 'Name' }),
+    ]);
+    fill('name', 'Kestrel');
+
+    component.saveForm();
+    fixture.detectChanges();
+
+    expect(sent()).toBe(0);
+    expect(shown).toEqual([]);
+    expect(sentence()).toBe('Please complete or fix required fields.');
+  });
+
   it('nothing, once the form refuses no field: the create is sent', async () => {
     fill('name', 'Kestrel');
     fill('callSign', 'Anvil 1');
@@ -401,6 +447,128 @@ describe('ResourceCreateComponent brings the first field it refuses into view', 
 
     expect(sent()).toBe(1);
     expect(shown).toEqual([]);
+  });
+});
+
+// A yes or no field that is never empty starts at what the page's config gives it. With
+// nothing given, a field the resource requires starts unchecked, and a form saved untouched
+// sends that; a field the resource does not require has a default the resource declares,
+// and the form sends nothing for it, so the server applies that default. Whichever it is,
+// the form writes nothing to the console.
+describe('ResourceCreateComponent starts a yes or no field', () => {
+  const probes = 'Probes' as Resource;
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [probes]: {
+        resource: probes,
+        property: 'probes',
+        route: 'probes',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read', 'create'],
+      },
+    },
+  };
+  const fieldMeta = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
+    ({ fieldName, displayType: 'boolean', required: false, isIndex: false, ...extra }) as FieldMeta;
+  const meta: ResourceMeta = {
+    route: 'probes',
+    fields: [
+      fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }),
+      // Required, and the page gives nothing.
+      fieldMeta('armed', { required: true }),
+      // Not required (the resource declares a default), and the page gives nothing.
+      fieldMeta('docked'),
+      // The page gives each of these one, a yes and a no.
+      fieldMeta('shielded', { required: true }),
+      fieldMeta('listed'),
+    ],
+  };
+
+  let fixture: ComponentFixture<ResourceCreateComponent>;
+  let component: ResourceCreateComponent;
+  let transport: ScriptedTransport;
+  /** Every line the form wrote to the console as an error. */
+  let written: string[];
+
+  /** What the form holds for each yes or no field. */
+  const held = (): Record<string, unknown> => {
+    const form = component.form();
+    return Object.fromEntries(['armed', 'docked', 'shielded', 'listed'].map((name) => [name, form.get(name)?.value]));
+  };
+  /** The value of each add operation sent so far. */
+  const adds = (): unknown[] =>
+    transport.requests
+      .filter((request) => request.method === 'PATCH')
+      .map((request) => (request.body as { op: string; value: unknown }[])[0].value);
+
+  beforeEach(async () => {
+    written = [];
+    vi.spyOn(console, 'error').mockImplementation((...said: unknown[]) => {
+      written.push(said.map(String).join(' '));
+    });
+    transport = scriptedTransport((request: TransportRequest): TransportResponse => {
+      if (request.method === 'PATCH') {
+        return { status: 200, body: { probes: ['p-1'] } };
+      }
+      return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+    });
+    await TestBed.configureTestingModule({
+      imports: [ResourceCreateComponent],
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === probes ? meta : undefined),
+        },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(ResourceCreateComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput(
+      'resourceConfig',
+      viewConfig({
+        primaryResource: probes,
+        elements: [
+          field({ name: 'armed' as FieldName, label: 'Armed' }),
+          field({ name: 'docked' as FieldName, label: 'Docked' }),
+          field({ name: 'shielded' as FieldName, label: 'Shielded', default: staticDefault({ value: true }) }),
+          field({ name: 'listed' as FieldName, label: 'Listed', default: staticDefault({ value: false }) }),
+        ],
+      }),
+    );
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('at what the page gives it; with nothing given, unchecked where the resource requires it and at nothing where the resource declares a default; and writes nothing to the console', () => {
+    // Both at once, so that a form that fails says what it started the fields at and what it wrote.
+    expect({ held: held(), written }).toEqual({
+      held: { armed: false, docked: null, shielded: true, listed: false },
+      written: [],
+    });
+  });
+
+  it('so a form saved untouched is sent: a no for the required box, what the page gave, and nothing for the field whose default the resource declares', async () => {
+    component.saveForm();
+    for (let i = 0; i < 30 && adds().length === 0; i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(adds()).toEqual([{ armed: false, shielded: true, listed: false }]);
   });
 });
 
