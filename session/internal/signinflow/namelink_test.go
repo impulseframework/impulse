@@ -21,8 +21,9 @@ import (
 // carries the code's event makes the link and goes on. An account that holds no address
 // is refused, since a code mailed to an address typed at the sign-in would show only
 // that the person reads their own mail. A name Google vouches for links at once, and so
-// does a registration of the deployment's own seeded accounts and an Auth that mails no
-// code.
+// does a registration of the deployment's own seeded accounts. The wait is the link's
+// own: it does not turn on whether the rules hold a person for an address
+// (Rules.ConfirmAddress).
 func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 	t.Parallel()
 
@@ -80,8 +81,8 @@ func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 			identity: provider, rules: Rules[*memTx]{SeededUsers: true},
 		},
 		{
-			name:     "an Auth that mails no code links on the name, as before",
-			identity: outside, address: name, confirmed: true, rules: Rules[*memTx]{},
+			name:     "rules that hold nobody for an address wait for the link's code all the same",
+			identity: outside, address: name, confirmed: true, rules: Rules[*memTx]{}, wantHeld: true,
 		},
 	}
 	for _, tt := range tests {

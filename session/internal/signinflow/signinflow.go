@@ -1462,7 +1462,7 @@ func firstLink[Tx any](
 		return false, nil, nil
 	}
 	if rules.Directories == nil {
-		return false, nameAloneHold(req, user, tenant, rules.ConfirmAddress), nil
+		return false, nameAloneHold(req, user, tenant), nil
 	}
 	declared, err := declaredDirectory(ctx, tx, req.Identity, rules.Directories)
 	if err != nil {
@@ -1509,12 +1509,10 @@ func firstLink[Tx any](
 // the account's mail is the account's person, and the sign-in that carries the code's
 // event is linked. An account that holds no address has nowhere to mail the code, and
 // an address given at the sign-in would show only that the person reads their own
-// mail, so the link is refused (signin.ErrLinkNeedsAddress). mails is
-// Rules.ConfirmAddress: an Auth that mails no code has none to wait for, and links on
-// the name.
-func nameAloneHold(req *sessioninfo.NewSessionRequest, user *dbtype.User, tenant string, mails bool) error {
+// mail, so the link is refused (signin.ErrLinkNeedsAddress).
+func nameAloneHold(req *sessioninfo.NewSessionRequest, user *dbtype.User, tenant string) error {
 	identity := req.Identity
-	if !mails || identity.EmailVerified && sameAddress(identity.SignInName, identity.Email) {
+	if identity.EmailVerified && sameAddress(identity.SignInName, identity.Email) {
 		return nil
 	}
 	if slices.ContainsFunc(req.AuthEvents, func(e sessioninfo.AuthEvent) bool { return e.Method == sessioninfo.MethodEmailCode }) {

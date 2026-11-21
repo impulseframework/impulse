@@ -332,10 +332,7 @@ DML what a later rule must read.
   sign-in name that moves to
   another account while a sign-in waits links nobody: the code answered for the first
   account's address and for no other's, so the sign-in that carries it is refused
-  (`identity_rejected`) before anything is written, and neither account gains a link.
-  The wait is the
-  mailed code's, so it needs mail: an Auth without `WithMail` mails no code and links
-  such an account under its name. A
+  (`identity_rejected`) before anything is written, and neither account gains a link. A
   declaration naming a **default seat** admits a stranger, who is provisioned and
   seated with it in the tenant, through the hook, in the transaction
   that creates the account and links it. The hook is called once for a link, never
