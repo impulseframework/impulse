@@ -1,8 +1,8 @@
 package session
 
 import (
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/testkey"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -14,8 +14,8 @@ const cookieKey = testkey.CookieKey
 // behavior construct session types without boilerplate; tests targeting the probes
 // build raw mocks with explicit expectations instead.
 
-func newPreauthStoreMock(ctrl *gomock.Controller) *mock_sessionstorage.MockPreauthStore {
-	storage := mock_sessionstorage.NewMockPreauthStore(ctrl)
+func newPreauthStoreMock(ctrl *gomock.Controller) *mockstore.PreauthStore {
+	storage := mockstore.NewPreauthStore(ctrl)
 	storage.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 
 	return storage

@@ -38,7 +38,7 @@ const (
 // never here; and the body is held to the record, so a refused body writes nothing.
 // Made invite only again, the route refuses the next person and the tenant created
 // meanwhile stays its creator's. The same route, read with GET, tells a page whether the
-// caller may create a tenant now, by the two facts the creation refuses on, so that the
+// caller may create a tenant now, by the facts the creation refuses on, so that the
 // page offers it only to a person the route would serve: true for a person who holds no
 // tenant while a method is open, and false for everyone else at every step.
 func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {

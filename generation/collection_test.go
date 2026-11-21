@@ -208,6 +208,13 @@ func collectionFixtureGenerator(t *testing.T) *resourceGenerator {
 func Test_computeCollectionData(t *testing.T) {
 	t.Parallel()
 
+	// The writes of a record that carries a subject value or a subject set are classed
+	// access, whether or not a route is generated for them.
+	accessWrites := []resource.WriteClassData{
+		{Permission: accesstypes.Create, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}},
+		{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}},
+		{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}},
+	}
 	tests := []struct {
 		name      string
 		genRoutes bool
@@ -250,6 +257,7 @@ func Test_computeCollectionData(t *testing.T) {
 					},
 					Domain:        &resource.DomainBindingData{Column: "Id"},
 					SubjectValues: []resource.SubjectBindingData{{Name: "vaultLimit", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					WriteClasses:  accessWrites,
 				},
 				{
 					// A listed resource carries its list's order and query keys, and a
@@ -335,6 +343,7 @@ func Test_computeCollectionData(t *testing.T) {
 						{Name: "sprocketName", Column: "Name"},
 					},
 					SubjectSets:  []resource.SubjectBindingData{{Name: "ownedSprockets", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					WriteClasses: accessWrites,
 					RequiredTags: []accesstypes.Tag{"name"},
 				},
 				{
@@ -388,6 +397,7 @@ func Test_computeCollectionData(t *testing.T) {
 					},
 					Domain:        &resource.DomainBindingData{Column: "Id"},
 					SubjectValues: []resource.SubjectBindingData{{Name: "vaultLimit", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					WriteClasses:  accessWrites,
 				},
 				{
 					Name:        "Ledgers",
@@ -407,7 +417,8 @@ func Test_computeCollectionData(t *testing.T) {
 						{Name: "linkedGadget", Column: "Id", Path: []resource.BindingHop{{Table: "Gadgets", JoinColumn: "Id", Column: "Name"}}},
 						{Name: "sprocketName", Column: "Name"},
 					},
-					SubjectSets: []resource.SubjectBindingData{{Name: "ownedSprockets", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					SubjectSets:  []resource.SubjectBindingData{{Name: "ownedSprockets", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					WriteClasses: accessWrites,
 				},
 				{
 					Name:        "UploadThings",

@@ -23,6 +23,273 @@ func (Sector) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what a delete of a Sector takes with it, as the library
+// declares for the tenant record: every kind of the application's rows under the tenant
+// goes with it, and nothing refuses it. The kinds are in the order their rows are
+// deleted, deepest first, each with its ways up to the Sector and what the delete
+// of one of its rows costs.
+func (Sector) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Sectors",
+		Words:  resource.DeleteWords{One: "sector", Many: "sectors"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "SortieExpenses",
+				Words:    resource.DeleteWords{One: "sortie expense", Many: "sortie expenses"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"SortieId"}, Table: "Sorties", References: []string{"Id"}},
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "MissionDocuments",
+				Words:    resource.DeleteWords{One: "mission document", Many: "mission documents"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 1},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "RefitTasks",
+				Words:    resource.DeleteWords{One: "refit task", Many: "refit tasks"},
+				Key:      []string{"Id", "TaskNumber"},
+				Cost:     resource.DeleteCost{IndexEntries: 0, Files: 1},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"Id"}, Table: "Refits", References: []string{"Id"}},
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Sorties",
+				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "DroidReports",
+				Words:    resource.DeleteWords{One: "droid report", Many: "droid reports"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Missions",
+				Words:    resource.DeleteWords{One: "mission", Many: "missions"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 10, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+					{
+						{Columns: []string{"AssignedSquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Refits",
+				Words:    resource.DeleteWords{One: "refit", Many: "refits"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "SquadronMemberships",
+				Words:    resource.DeleteWords{One: "squadron membership", Many: "squadron memberships"},
+				Key:      []string{"SquadronId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Ships",
+				Words:    resource.DeleteWords{One: "ship", Many: "ships"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Squadrons",
+				Words:    resource.DeleteWords{One: "squadron", Many: "squadrons"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Consignments",
+				Words:    resource.DeleteWords{One: "consignment", Many: "consignments"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 4, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "DistressCalls",
+				Words:    resource.DeleteWords{One: "distress call", Many: "distress calls"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Hangars",
+				Words:    resource.DeleteWords{One: "hangar", Many: "hangars"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "SectorDirectories",
+				Words:    resource.DeleteWords{One: "sector directory", Many: "sector directories"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "Wings",
+				Words:    resource.DeleteWords{One: "wing", Many: "wings"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "SectorDirectories",
+				Words:    resource.DeleteWords{One: "sector directory", Many: "sector directories"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
 // sectorRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; sectorReadSets holds one Set per read operation.

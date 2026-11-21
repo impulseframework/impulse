@@ -29,6 +29,7 @@ import (
 // @permissionScope(domain)
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type TakeMembersTenantGroupRole struct {
 	// @target(MembersTenantGroupRole, key: GroupID)
 	GroupID impulse.UUID

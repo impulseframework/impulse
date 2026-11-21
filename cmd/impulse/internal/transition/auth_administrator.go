@@ -81,6 +81,15 @@ func (au Auth) inviteAdministrator(a *app.App, src *authSource, ch *Change) erro
 	}
 	ch.Skipped = append(ch.Skipped, plan.left...)
 	if exists(a, migrateTest) {
+		held, err := au.holdMigrateTest(a, src)
+		if err != nil {
+			return err
+		}
+		if held != "" {
+			ch.didf("%s", held)
+
+			return nil
+		}
 		ch.skipf("%[1]s: a release now invites the %[2]s auth's first administrator, and refuses while nobody of the auth holds the Super Administrator role and %[3]s names no address. Give the cases that run a release the address or a holder of the role, take out a case that says nobody is invited, that the command has no -reinvite-administrator flag or that the flag refuses the %[2]s auth's name, and prove the auth's invitation as the base's test of the command proves its own", migrateTest, au.Name, authpkg.AdministratorVariable(au.Name))
 	}
 

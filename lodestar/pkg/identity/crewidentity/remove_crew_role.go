@@ -28,6 +28,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type RemoveCrewRole struct {
 	UserID      impulse.UUID
 	Role        string `validate:"required"`

@@ -93,6 +93,9 @@ func (m *Manager) AssignRoleFor(
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "give yourself a role"); err != nil {
+		return err
+	}
 	reason, err := access.ValidateReason(reason)
 	if err != nil {
 		return errors.Wrap(err, "access.ValidateReason()")
@@ -190,6 +193,9 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "take a role from yourself"); err != nil {
+		return err
+	}
 	key := access.NewMembershipKey(scope, User(userID), role)
 	held, err := m.store.HasMembership(ctx, txn, &key)
 	if err != nil {

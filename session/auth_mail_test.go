@@ -23,13 +23,13 @@ import (
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/mock/mock_azure"
 	"github.com/impulseframework/impulse/session/mock/mock_signin"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -1398,7 +1398,7 @@ func TestAuth_ClaimVerifiedEmail(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			store := mock_sessionstorage.NewMockAuthStore[mockTx](ctrl)
+			store := mockstore.NewAuthStore[mockTx](ctrl)
 			store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 			store.EXPECT().ClaimVerifiedEmail(gomock.Any(), userID, "pat@lakeside.edu").Return(true, nil).Times(tt.claims)
 			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())

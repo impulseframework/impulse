@@ -31,6 +31,7 @@ type (
 	// @rpc
 	// @permissionScope(domain)
 	// @outlet(portal, default)
+	// @class(credential)
 	SetMembersSectorUserEmail struct {
 		// @target(MembersSectorUser)
 		UserID impulse.UUID

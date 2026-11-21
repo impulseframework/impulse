@@ -15,7 +15,6 @@ import {
   ResourceMeta,
   viewConfig,
 } from '@impulseframework/resource-angular/types';
-import { of } from 'rxjs';
 
 import {
   DeleteConfirmation,
@@ -833,27 +832,37 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
     return fixture.componentInstance;
   };
 
-  /** Opens the confirmation with the dialog answering as told, and says what was asked and how often the row was deleted. */
+  /**
+   * Opens the confirmation with the dialog answering as told, and says what was asked and
+   * how often the row was deleted. The dialog is handed the delete and runs it from its
+   * Delete button alone, so the stand-in runs it when the answer is true.
+   */
   const ask = (
     component: ResourceViewComponent,
     answer: boolean | undefined,
   ): { question: string; deleted: number } => {
-    const opened: { component: unknown; data: unknown }[] = [];
-    component.dialog.open = ((opening: unknown, config: { data: unknown }) => {
+    const opened: { component: unknown; data: DeleteConfirmation }[] = [];
+    component.dialog.open = ((opening: unknown, config: { data: DeleteConfirmation }) => {
       opened.push({ component: opening, data: config.data });
+      if (answer === true) {
+        void config.data.delete?.();
+      }
 
-      return { afterClosed: () => of(answer) };
+      return {};
     }) as unknown as typeof component.dialog.open;
     let deleted = 0;
-    component.deleteResource = (): void => {
+    component.deleteResource = (): Promise<void> => {
       deleted++;
+
+      return Promise.resolve();
     };
 
     component.confirmDeleteResource();
 
     expect(opened.map((o) => o.component)).toEqual([DeleteResourceConfirmationModalComponent]);
+    expect(opened[0].data.delete, 'the dialog is not handed the delete').toBeTypeOf('function');
 
-    return { question: deleteQuestion(opened[0].data as DeleteConfirmation | undefined), deleted };
+    return { question: deleteQuestion(opened[0].data), deleted };
   };
 
   it('by the list the row is in, and deletes it once the person says so', async () => {
@@ -874,5 +883,21 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
 
     expect(ask(component, false).deleted).toBe(0);
     expect(ask(component, undefined).deleted).toBe(0);
+  });
+
+  it('and opens no second question while one is open', async () => {
+    const component = await drawn({});
+    let opened = 0;
+    component.dialog.open = (() => {
+      opened++;
+
+      return {};
+    }) as unknown as typeof component.dialog.open;
+    const open = { componentInstance: Object.create(DeleteResourceConfirmationModalComponent.prototype) as unknown };
+    Object.defineProperty(component.dialog, 'openDialogs', { get: () => [open] });
+
+    component.confirmDeleteResource();
+
+    expect(opened).toBe(0);
   });
 });

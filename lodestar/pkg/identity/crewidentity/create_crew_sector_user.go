@@ -30,6 +30,7 @@ type (
 	// @rpc
 	// @permissionScope(domain)
 	// @outlet(default)
+	// @class(access)
 	CreateCrewSectorUser struct {
 		Username string `validate:"required"`
 		Name     *string

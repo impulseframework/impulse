@@ -26,6 +26,7 @@ import (
 // @permissionScope(domain)
 // @outlet(default)
 // @answers(204)
+// @class(credential)
 type SetCrewSectorTemporaryPassword struct {
 	// @target(CrewSectorUser)
 	UserID   impulse.UUID

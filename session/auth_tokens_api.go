@@ -51,6 +51,13 @@ func withoutHash(t *sessionstorage.Token) *sessionstorage.Token {
 // (RegisterMachineOutlet), the name set and at most 200 characters, the lifetime at
 // most the Auth's application token lifetime, and the user there and enabled;
 // otherwise the request is refused with 400, or 404 for an unknown user.
+//
+// The account is the store's User to answer, and the answer is held as the account of a
+// token in use is (validateToken). It is the account that was asked for, or the issue
+// fails with no token made (issuedToTheAccountAsked). And the account is disabled if
+// either the answer or the library's own row says so (disabledByEitherStore). So a
+// store that wraps the library's and keeps the accounts it has read has no disabled
+// account issued a token, and has none made for another person than the one asked for.
 func (p *AuthAPI[S, U, Tx]) CreateApplicationToken(ctx context.Context, req *ApplicationTokenRequest) (*IssuedToken, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -74,7 +81,14 @@ func (p *AuthAPI[S, U, Tx]) CreateApplicationToken(ctx context.Context, req *App
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	if user.Disabled {
+	if err := issuedToTheAccountAsked(req.UserID, user); err != nil {
+		return nil, err
+	}
+	disabled, err := a.disabledByEitherStore(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	if disabled {
 		return nil, httpio.NewBadRequestMessage("the user is disabled")
 	}
 
@@ -95,6 +109,28 @@ func (p *AuthAPI[S, U, Tx]) CreateApplicationToken(ctx context.Context, req *App
 	}
 
 	return &IssuedToken{Secret: secret, Token: withoutHash(tok)}, nil
+}
+
+// issuedToTheAccountAsked fails the issue of an application token on a store's User
+// answer that is not the account the token was asked for. The token is stored for the
+// account the answer names, so a store that wraps the library's and answers one account
+// with another, a read cache keyed by something other than the account's id for one,
+// would have a token made for a person who never asked for it, and that token would run
+// as them. The failure is the store's and not the request's, so it is an error with no
+// status of its own, and nothing is stored.
+func issuedToTheAccountAsked(id impulse.UUID, answered *sessionstorage.SessionUser) error {
+	if answered == nil {
+		return errors.Newf("the store's User answered the account %s with no account and no error, so no token is issued", id)
+	}
+	if answered.ID != id {
+		return errors.Newf(
+			"the store's User answered the account %s with the account %s, so no token is issued: a token is issued to the account "+
+				"asked for alone, so a store that wraps the library's answers an account with that account",
+			id, answered.ID,
+		)
+	}
+
+	return nil
 }
 
 // Tokens lists a person's live tokens, newest first, their hashes left out: their

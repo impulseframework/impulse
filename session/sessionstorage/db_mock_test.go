@@ -189,6 +189,36 @@ func (mr *MockUserStoreMockRecorder) UserByUserName(ctx, username any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserByUserName", reflect.TypeOf((*MockUserStore)(nil).UserByUserName), ctx, username)
 }
 
+// readUser mocks base method.
+func (m *MockUserStore) readUser(ctx context.Context, id impulse.UUID) (*dbtype.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "readUser", ctx, id)
+	ret0, _ := ret[0].(*dbtype.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// readUser indicates an expected call of readUser.
+func (mr *MockUserStoreMockRecorder) readUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "readUser", reflect.TypeOf((*MockUserStore)(nil).readUser), ctx, id)
+}
+
+// readUserByUserName mocks base method.
+func (m *MockUserStore) readUserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "readUserByUserName", ctx, username)
+	ret0, _ := ret[0].(*dbtype.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// readUserByUserName indicates an expected call of readUserByUserName.
+func (mr *MockUserStoreMockRecorder) readUserByUserName(ctx, username any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "readUserByUserName", reflect.TypeOf((*MockUserStore)(nil).readUserByUserName), ctx, username)
+}
+
 // Mockdb is a mock of db interface.
 type Mockdb struct {
 	ctrl     *gomock.Controller

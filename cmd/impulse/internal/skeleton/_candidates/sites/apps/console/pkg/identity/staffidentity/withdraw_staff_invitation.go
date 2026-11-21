@@ -19,6 +19,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type WithdrawStaffInvitation struct {
 	// @target(StaffSessionMailLink)
 	InvitationID impulse.UUID

@@ -6,14 +6,16 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 )
 
 // Warning is a schema finding generation raises about a resource it generated or an
 // enumeration it baked: informational, never a refusal, since an index's presence and
-// a baked table's size are performance matters the application decides. Every Warning
-// is one of the kinds in this file; a runner prints each one on its own line after a
-// successful run (Generator.Warnings).
+// a baked table's size are performance matters the application decides, and a table a
+// fact about people is read through is the application's to declare or to guard by
+// hand (SubjectPathWarning). Every Warning is one of the kinds in this file; a runner
+// prints each one on its own line after a successful run (Generator.Warnings).
 type Warning interface {
 	fmt.Stringer
 	warning()
@@ -239,10 +241,76 @@ func (w EnumerationSizeWarning) String() string {
 		w.Type, w.Rows, w.Table, maxBakedEnumerationRows, w.Bytes, fields, enumerateKeyword, w.Type, w.Table, resourceKeyword, pageKeyword)
 }
 
+// SubjectPathWarning says a subject set's or a subject value's dotted value (value:
+// Field.Field) is read through a table no @resource struct of the run declares: the
+// table of a struct the path is resolved through that carries no @resource (a table
+// with no struct at all is refused where the path is resolved). The
+// generator gives the class access to the change of every record such a value is read
+// through (writesThatDecideAccess) and has the record's generated write ask that the
+// person acting is not the one it moves; a table with no record has no generated write
+// and nothing to carry the class. A route written by hand that changes a row of the
+// table moves what everyone the set reaches may do, and a mask that refuses the class
+// does not refuse that route. The warning names the table, so its author declares the
+// table or gives the route's action the class.
+type SubjectPathWarning struct {
+	// Resource is the resource that declares the set or the value.
+	Resource string
+	// Name is the set's or the value's name, as a condition writes it after subject.
+	Name string
+	// Scalar says the declaration is a @subjectValue; a @subjectSet otherwise.
+	Scalar bool
+	// Table is the table the value is read through that no resource declares.
+	Table string
+}
+
+func (SubjectPathWarning) warning() {}
+
+// String renders the one-line warning, names verbatim from the schema.
+func (w SubjectPathWarning) String() string {
+	keyword, kind := subjectSetKeyword, "set"
+	if w.Scalar {
+		keyword, kind = subjectValueKeyword, "value"
+	}
+
+	return fmt.Sprintf("%s declares subject.%s, a @%s read through %s, a table no @%s struct declares, so no generated route changes %s and its change carries no class; "+
+		"a route written by hand that changes a row of %s moves the standing of everyone the %s reaches, and a mask that refuses the class %s does not refuse it: "+
+		"declare %s as a @%s struct, or register that route as an action of the class (@%s(%s) with @%s(%s))",
+		w.Resource, w.Name, keyword, w.Table, resourceKeyword, w.Table,
+		w.Table, kind, accesstypes.ClassAccess,
+		w.Table, resourceKeyword, manualAddResourceKeyword, accesstypes.Execute, classKeyword, accesstypes.ClassAccess)
+}
+
+// subjectPathWarnings reads one resource's subject values and subject sets for the
+// hops of their dotted values that land on a table outside declared, the tables the
+// run's resources declare: one warning for each table of each value or set, in the
+// order they are declared and the path walks.
+func subjectPathWarnings(res *resourceInfo, declared map[string]bool) []Warning {
+	var warnings []Warning
+	for _, subject := range slices.Concat(res.SubjectValues, res.SubjectSets) {
+		var seen []string
+		for _, hop := range subject.Path {
+			if declared[hop.Table] || slices.Contains(seen, hop.Table) {
+				continue
+			}
+			seen = append(seen, hop.Table)
+			warnings = append(warnings, SubjectPathWarning{
+				Resource: res.Name(),
+				Name:     subject.Name,
+				Scalar:   subject.Scalar,
+				Table:    hop.Table,
+			})
+		}
+	}
+
+	return warnings
+}
+
 // schemaWarnings reads the extracted table-backed resources against the table map for
 // the two shapes the perf study measured (README section 9): a listed bare-tenant
 // resource whose declared order no index serves, and a listed join-path resource; and
-// for a subject set whose lookup no index serves (subjectSetIndexWarnings). A
+// for a subject set whose lookup no index serves (subjectSetIndexWarnings); and reads
+// every resource's subject values and sets for a table one is read through that no
+// resource of the run declares (subjectPathWarnings). A
 // virtual resource is out (its index facts are tags, not schema), so is a resource whose
 // list handler is suppressed, so is a bare-tenant resource with no @order, whose
 // sort-less list is not sorted and is served by the tenant column's foreign-key backing
@@ -252,6 +320,10 @@ func (w EnumerationSizeWarning) String() string {
 func (c *client) schemaWarnings(resources []*resourceInfo) []Warning {
 	sorted := slices.Clone(resources)
 	sortResources(sorted)
+	declared := make(map[string]bool, len(resources))
+	for _, res := range resources {
+		declared[c.pluralize(res.Name())] = true
+	}
 
 	var warnings []Warning
 	for _, res := range sorted {
@@ -260,6 +332,9 @@ func (c *client) schemaWarnings(resources []*resourceInfo) []Warning {
 		// A subject set is read by every check that names it, whether or not the
 		// resource declaring it is listed.
 		warnings = append(warnings, c.subjectSetIndexWarnings(res)...)
+		// A table a fact about people is read through is warned of whether or not the
+		// resource that declares the fact is listed.
+		warnings = append(warnings, subjectPathWarnings(res, declared)...)
 		if res.IsVirtual || res.ListHandlerDisabled() || res.DomainBinding == nil {
 			continue
 		}

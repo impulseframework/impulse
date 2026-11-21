@@ -46,6 +46,10 @@ func (s *digestStubPermissions) Reaches(context.Context, accesstypes.Domain) (bo
 	return true, nil
 }
 
+func (s *digestStubPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	return []accesstypes.Domain{}, nil
+}
+
 func (s *digestStubPermissions) User() accesstypes.User { return "dana" }
 
 // TestPermissionDigestHandler pins the digest endpoint's wire contract: the

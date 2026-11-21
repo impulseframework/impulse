@@ -251,6 +251,9 @@ func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteT
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "put yourself in a group"); err != nil {
+		return err
+	}
 	if userID.IsNil() {
 		return httpio.NewBadRequestMessage("a person is put in a group: the user id is empty")
 	}
@@ -323,6 +326,9 @@ func (m *Manager) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteT
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "take yourself out of a group"); err != nil {
+		return err
+	}
 	key := access.GroupMemberKey{Group: GroupID(groupID), User: User(userID)}
 	in, err := m.store.HasGroupMember(ctx, txn, &key)
 	if err != nil {

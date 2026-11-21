@@ -88,7 +88,9 @@ func (c *MockClient) SpannerReadOnlyTransaction() spxapi.Querier {
 // holds none for, deletes the file objects the function's patches released from their
 // stores once the function returns nil, hands the rows the patches wrote to the
 // collector ctx carries (CollectTouchedRows), runs what the patches registered for after
-// the commit (AfterCommit), and does none of it when it errors.
+// the commit (AfterCommit), and does none of it when it errors. It refuses no delete
+// over the rows under the record, as the Spanner client does before its commit: a mock
+// holds no rows to count.
 func (c *MockClient) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
 	txn := newMockReadWriteTransaction(c.txnMock, newReleasedKeys(), c.txnReadMocks...).WithSecretKeys(c.secrets)
 	if err := f(ctx, txn); err != nil {

@@ -682,7 +682,9 @@ func (d *QueryDecoder[Resource, Request]) parseSortParam(sortParamValue string, 
 			if !found {
 				return nil, httpio.NewBadRequestMessagef("unknown sort field: %s", jsonFieldName)
 			}
-			if field, ok := structField(d.requestType, string(goFieldName)); ok && !sortableType(field.Type) {
+			if field, ok := structField(d.requestType, string(goFieldName)); ok && field.Type.Implements(reflect.TypeFor[Unordered]()) {
+				return nil, httpio.NewBadRequestMessagef("field %s cannot be sorted by: it shows its column in other words than the column holds, so the list cannot be ordered by what it shows", jsonFieldName)
+			} else if ok && !sortableType(field.Type) {
 				return nil, httpio.NewBadRequestMessagef("field %s cannot be sorted by: only text, number, boolean, time, date, decimal, and UUID fields order", jsonFieldName)
 			}
 

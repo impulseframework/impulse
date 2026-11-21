@@ -19,6 +19,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type DeleteStaffGroup struct {
 	// @target(StaffListedGroup)
 	GroupID impulse.UUID

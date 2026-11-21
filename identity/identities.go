@@ -48,6 +48,9 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 	if !found {
 		return httpio.NewNotFoundMessagef("identity %q does not exist", identityID)
 	}
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "unlink a sign-in identity of your own"); err != nil {
+		return err
+	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "unlinks a super administrator's sign-in identity"); err != nil {
 		return err
 	}
@@ -112,6 +115,9 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "remove your own password"); err != nil {
+		return err
+	}
 	username, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")
