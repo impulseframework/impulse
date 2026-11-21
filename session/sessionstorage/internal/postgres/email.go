@@ -14,10 +14,21 @@ import (
 )
 
 // The user's email address, in two states (see the auth set's SessionUserEmail
-// migration). The address is matched without regard to case through the normalized
-// column, which the database derives; on a store whose usernames are the addresses
-// the database derives the address itself from the username, so the driver writes the
-// username where it would write the address and never writes Email.
+// migration). The address is matched without regard to the case of its ASCII letters
+// through the normalized column, which the database derives; on a store whose usernames
+// are the addresses the database derives the address itself from the username, so the
+// driver writes the username where it would write the address and never writes Email.
+
+// addressFold is the form the normalized column holds, over operand (the column's
+// source or a parameter), which every lookup by address compares the column with: the
+// address with its ASCII capital letters lowercased and every other character as
+// written. It must equal util.LowerASCII, the rule the library compares two addresses
+// by. Under the "C" collation only the ASCII letters are letters, so lower() folds
+// nothing else. The column is declared under "C" too, so the comparison and the column's
+// unique index are under one collation and a lookup uses the index.
+func addressFold(operand string) string {
+	return fmt.Sprintf(`lower(%s COLLATE "C")`, operand)
+}
 
 // errUsernameIsEmail is the refusal of a rename, or of an address entered by hand, on a
 // store whose usernames are the addresses: both change through a verified link.
@@ -31,12 +42,12 @@ func errEmailTaken(email string) error {
 }
 
 // UserByEmail returns the user holding the address, verified or not, matched without
-// regard to case, or NotFound.
+// regard to the case of its ASCII letters, or NotFound.
 func (s *SessionStorageDriver) UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "NormalizedEmail" = casefold(normalize($1))`, s.userSelectColumns(), s.userTable())
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "NormalizedEmail" = %s`, s.userSelectColumns(), s.userTable(), addressFold("$1"))
 
 	user := &dbtype.SessionUser{}
 	if err := pgxscan.Get(ctx, s.conn, user, query, email); err != nil {
@@ -120,7 +131,7 @@ func (s *SessionStorageDriver) VerifyUserEmail(ctx context.Context, userID impul
 	defer span.End()
 
 	if s.usernameIsEmail {
-		err := s.renameUser(ctx, userID, email, `, "EmailVerifiedAt" = now()`)
+		err := s.renameUser(ctx, userID, email, `, "EmailVerifiedAt" = now()`, nil)
 		if httpio.HasConflict(err) {
 			return errEmailTaken(email)
 		}
@@ -139,6 +150,60 @@ func (s *SessionStorageDriver) VerifyUserEmail(ctx context.Context, userID impul
 	}
 	if tag.RowsAffected() == 0 {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+
+	return nil
+}
+
+// errEmailChanged is the refusal of a write taken only while the user still holds an
+// address, once the user holds another, or none, or is gone.
+func errEmailChanged(userID impulse.UUID) error {
+	return httpio.NewConflictMessagef("user id %q no longer holds the email address the write was taken for", userID)
+}
+
+// stillHolds is the condition of a write of the user's row taken only while the user
+// still holds an address: email, or none for nil.
+type stillHolds struct {
+	email *string
+}
+
+// errNotHeld is renameUser's answer when its condition did not hold.
+var errNotHeld = errors.New("the user no longer holds the address")
+
+// VerifyUserEmailIfHeld is VerifyUserEmail taken only while the user still holds held
+// (nil: no address): the write of the address a mailed sign-in code proved, which is
+// good only for the address the account held when the code was checked. The condition
+// is in the statement that writes the user's row, so a change of the address that
+// commits between the check and the write is never written over: a user that holds
+// another address by then, or none, or is gone, is a Conflict, and so is an address
+// another user holds, and nothing is written.
+func (s *SessionStorageDriver) VerifyUserEmailIfHeld(ctx context.Context, userID impulse.UUID, held *string, email string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if s.usernameIsEmail {
+		err := s.renameUser(ctx, userID, email, `, "EmailVerifiedAt" = now()`, &stillHolds{email: held})
+		switch {
+		case errors.Is(err, errNotHeld), httpio.HasNotFound(err):
+			return errEmailChanged(userID)
+		case httpio.HasConflict(err):
+			return errEmailTaken(email)
+		}
+
+		return err
+	}
+
+	query := fmt.Sprintf(`UPDATE %s SET "Email" = $2, "EmailVerifiedAt" = now() WHERE "Id" = $1 AND "Email" IS NOT DISTINCT FROM $3`, s.userTable())
+	tag, err := s.conn.Exec(ctx, query, userID, email, held)
+	if err != nil {
+		if s.isEmailConflict(err) {
+			return errEmailTaken(email)
+		}
+
+		return errors.Wrap(err, "Queryer.Exec()")
+	}
+	if tag.RowsAffected() == 0 {
+		return errEmailChanged(userID)
 	}
 
 	return nil
@@ -174,12 +239,12 @@ func (s *SessionStorageDriver) ClaimVerifiedEmailIn(ctx context.Context, tx pgx.
 	if s.usernameIsEmail {
 		query = fmt.Sprintf(`
 			UPDATE %s SET "EmailVerifiedAt" = now()
-			WHERE "Id" = $1 AND "EmailVerifiedAt" IS NULL AND "NormalizedEmail" = casefold(normalize($2))`, s.userTable())
+			WHERE "Id" = $1 AND "EmailVerifiedAt" IS NULL AND "NormalizedEmail" = %s`, s.userTable(), addressFold("$2"))
 	} else {
 		query = fmt.Sprintf(`
 			UPDATE %s u SET "Email" = $2, "EmailVerifiedAt" = now()
 			WHERE u."Id" = $1 AND u."EmailVerifiedAt" IS NULL
-			  AND NOT EXISTS (SELECT 1 FROM %s other WHERE other."NormalizedEmail" = casefold(normalize($2)) AND other."Id" <> $1)`, s.userTable(), s.userTable())
+			  AND NOT EXISTS (SELECT 1 FROM %s other WHERE other."NormalizedEmail" = %s AND other."Id" <> $1)`, s.userTable(), s.userTable(), addressFold("$2"))
 	}
 	tag, err := tx.Exec(ctx, query, userID, email)
 	if err != nil {
@@ -190,14 +255,14 @@ func (s *SessionStorageDriver) ClaimVerifiedEmailIn(ctx context.Context, tx pgx.
 }
 
 // UserByEmailIn reads the user holding email inside tx, verified or not, matched
-// without regard to case, or nil when there is none.
+// without regard to the case of its ASCII letters, or nil when there is none.
 func (s *SessionStorageDriver) UserByEmailIn(ctx context.Context, tx pgx.Tx, email string) (*dbtype.User, error) {
 	return s.userByEmailIn(ctx, tx, email, "")
 }
 
 // UserByVerifiedEmailIn reads the user who holds email as a verified address inside
-// tx, matched without regard to case, or nil when there is none; an address a user
-// holds unverified matches no one.
+// tx, matched without regard to the case of its ASCII letters, or nil when there is
+// none; an address a user holds unverified matches no one.
 func (s *SessionStorageDriver) UserByVerifiedEmailIn(ctx context.Context, tx pgx.Tx, email string) (*dbtype.User, error) {
 	return s.userByEmailIn(ctx, tx, email, `AND "EmailVerifiedAt" IS NOT NULL`)
 }
@@ -206,7 +271,7 @@ func (s *SessionStorageDriver) UserByVerifiedEmailIn(ctx context.Context, tx pgx
 // matched on the normalized address and narrowed by the clause more, or nil when
 // there is none.
 func (s *SessionStorageDriver) userByEmailIn(ctx context.Context, tx pgx.Tx, email, more string) (*dbtype.User, error) {
-	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "NormalizedEmail" = casefold(normalize($1)) %s`, s.userTable(), more)
+	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "NormalizedEmail" = %s %s`, s.userTable(), addressFold("$1"), more)
 
 	var u dbtype.User
 	if err := tx.QueryRow(ctx, query, email).Scan(&u.ID, &u.Username, &u.HasPassword, &u.Disabled); err != nil {

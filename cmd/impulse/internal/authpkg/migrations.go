@@ -81,24 +81,30 @@ func emailColumns(usernameIsEmail bool) string {
 	if usernameIsEmail {
 		return `  -- The person's email address is their sign-in name (session.UsernameIsEmail), so the
   -- database derives the address and its normalized form from the username: the two
-  -- cannot diverge, uniqueness holds once, and nothing writes either column.
+  -- cannot diverge, uniqueness holds once, and nothing writes either column. The
+  -- normalized form is the address with its ASCII capital letters lowercased and every
+  -- other character as written, which is how the library compares two addresses: LOWER
+  -- over BYTES treats its argument as ASCII and leaves every byte above 127 as it is.
   -- EmailVerifiedAt is the database's time at which the person proved they read the
   -- mailbox by following a link sent to it; null while the address is unverified. An
   -- address is trusted for nothing until it is verified.
   Email              STRING(MAX) AS (Username) STORED,
-  NormalizedEmail    STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  NormalizedEmail    STRING(MAX) AS (CAST(LOWER(CAST(Username AS BYTES)) AS STRING)) STORED,
   EmailVerifiedAt    TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 `
 	}
 
 	return `  -- The person's email address, in two states, held apart from the username: Email as
-  -- the person gave it, NormalizedEmail the form uniqueness and lookups use, and
-  -- EmailVerifiedAt the database's time at which the person proved they read the
-  -- mailbox by following a link sent to it; null while the address is unverified. An
-  -- address is trusted for nothing until it is verified; an operator may put one on a
-  -- user by hand, unverified, which reserves it. No address is required.
+  -- the person gave it, NormalizedEmail the form uniqueness and lookups use (the address
+  -- with its ASCII capital letters lowercased and every other character as written,
+  -- which is how the library compares two addresses: LOWER over BYTES treats its
+  -- argument as ASCII and leaves every byte above 127 as it is), and EmailVerifiedAt the
+  -- database's time at which the person proved they read the mailbox by following a
+  -- link sent to it; null while the address is unverified. An address is trusted for
+  -- nothing until it is verified; an operator may put one on a user by hand, unverified,
+  -- which reserves it. No address is required.
   Email              STRING(MAX),
-  NormalizedEmail    STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Email)) STORED,
+  NormalizedEmail    STRING(MAX) AS (CAST(LOWER(CAST(Email AS BYTES)) AS STRING)) STORED,
   EmailVerifiedAt    TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 `
 }

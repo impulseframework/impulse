@@ -7,6 +7,6 @@ DROP INDEX "SessionUsers_NormalizedEmail_idx";
 ALTER TABLE "SessionUsers" DROP COLUMN "NormalizedEmail";
 ALTER TABLE "SessionUsers" DROP COLUMN "Email";
 ALTER TABLE "SessionUsers" ADD COLUMN "Email" character varying GENERATED ALWAYS AS ("Username") STORED;
-ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying GENERATED ALWAYS AS (casefold(normalize("Username"))) STORED;
+ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying COLLATE "C" GENERATED ALWAYS AS (lower("Username" COLLATE "C")) STORED;
 CREATE UNIQUE INDEX "SessionUsers_NormalizedEmail_idx" ON "SessionUsers" USING btree ("NormalizedEmail");
 COMMIT;

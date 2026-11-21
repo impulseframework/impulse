@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
@@ -138,7 +139,7 @@ func ParseGroupLookup(value string) (GroupLookup, error) {
 func RoleSync(manager signin.UserRoleManager, groupPrefix string, lookup GroupLookup) RoleSyncConfig {
 	cfg := &groupSync{
 		manager:     manager,
-		groupPrefix: strings.ToLower(groupPrefix),
+		groupPrefix: util.LowerASCII(groupPrefix),
 		groups:      defaultGroupsReader(),
 	}
 	if lookup != nil {
@@ -199,7 +200,7 @@ func (g *groupSync) roleNames(ctx context.Context, email, accessToken string) ([
 
 	var names []string
 	for _, group := range groups {
-		if name, ok := g.roleFromGroup(strings.ToLower(group)); ok {
+		if name, ok := g.roleFromGroup(util.LowerASCII(group)); ok {
 			names = append(names, name)
 		}
 	}
