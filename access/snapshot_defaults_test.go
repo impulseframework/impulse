@@ -16,7 +16,8 @@ import (
 
 // defaultsCollection is the release the default-role tests compile against:
 // Widgets with two fields in the domain scope, Reports and the DoThing method
-// in the global scope, no condition vocabulary.
+// in the global scope, the two permissions a custom role of the tests is given
+// for the whole of a scope, no condition vocabulary.
 type defaultsCollection struct{}
 
 func (defaultsCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
@@ -25,6 +26,9 @@ func (defaultsCollection) List() map[accesstypes.Permission][]accesstypes.Resour
 		"List":    {"Widgets", "Widgets.name", "Widgets.price"},
 		"Update":  {"Widgets", "Widgets.name", "Widgets.price"},
 		"Execute": {"DoThing"},
+		// Held for the whole of a scope, attached to no resource.
+		"Approve": nil,
+		"Export":  nil,
 	}
 }
 

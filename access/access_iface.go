@@ -335,8 +335,10 @@ type UserManager interface {
 
 	// AddRolePermission grants permission to role scope-wide: the permission is
 	// held with no resource attachment. Errors if role is not a custom role
-	// held in scope, and, where the Client was handed the release's permission
-	// collection, if the release has no such permission.
+	// held in scope, and if the release has no such permission: one its
+	// permission collection does not list. A load of the policy holds a stored
+	// scope-wide grant to the same rule, and skips and reports one that fails
+	// it (SkippedGrant).
 	AddRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error
 
 	// DeleteRolePermission removes a scope-wide permission from role. Errors

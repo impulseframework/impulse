@@ -202,9 +202,11 @@ tenant, and a thousand tenants share one compiled copy of the defaults.
 ```go
 client, err := access.New(store,
     // What the release declares: the generated router's collection. Every
-    // grant is held to it: a load skips and reports a stored grant naming a
-    // permission, resource or field this release does not have, instead of
-    // carrying it, and a write refuses one. A client is not built without it.
+    // grant's names are held to it, by one rule: a load skips and reports a
+    // stored grant naming a permission, resource or field this release does
+    // not have, instead of carrying it, and a write refuses one. A grant
+    // that names a permission and no resource is held to the permission. A
+    // client is not built without it.
     router.Collection(),
     // The release's default roles: the role file embedded in the binary,
     // validated against the collection (see Default Roles).
@@ -235,9 +237,16 @@ row-referencing condition on a scope-wide grant, or a permission, resource or
 field the release's collection does not declare — does not stop the load: it is left out of
 the snapshot and reported to the reload-error hook as a `*access.SkippedGrant`.
 The permission it would grant is denied, the rest of the policy loads, and the
-instance becomes ready. That is what makes a stored grant safe to outlive the
-release that wrote it: after a rollback, or after a release removes a field,
-the grant is denied and reported, and everything else keeps working.
+instance becomes ready. A scope-wide grant names a permission and nothing else,
+and is held to that: one whose permission the collection does not list is
+skipped and reported like the rest, so it gives nobody the permission, is in no
+listing of what the role holds, and is no foothold in its scope. That is what
+makes a stored grant safe to outlive the release that wrote it: after a
+rollback, or after a release removes a field or a permission, the grant is
+denied and reported, and everything else keeps working. The row stays in the
+store until it is removed (`DeleteRolePermission`, `DeleteRoleGrant`), so a
+later release that declares the name again carries the grant again: the
+report is the notice to remove a grant nobody means any more.
 
 A load reports two more findings the same way. A custom role whose name a
 default role of the running release has, in the same kind of scope, is a
@@ -261,12 +270,13 @@ permission the release does not have, a permission it does not declare on the
 resource or the field, and an action no role is given. The refusal is a bad
 request that says which and why (`List on Ledgers cannot be given to a role:
 this release declares no List on Ledgers. ...`), and nothing of the call is
-written, the rows beside the refused one included. So the grants a load skips
-by name are the ones another release wrote, never ones this release was asked
-for and took. A removal is held to nothing: a grant the release no longer
-declares can always be taken away. No client is without the collection: `New`
-takes it as an argument and refuses a nil one, so there is no client that
-checks no name.
+written, the rows beside the refused one included. The load and the writes go
+by one rule for a grant's names, so the grants a load skips by name are the
+ones another release wrote or that were written straight to the store, never
+ones this release was asked for and took. A removal is held to nothing: a grant
+the release no longer declares can always be taken away. No client is without
+the collection: `New` takes it as an argument and refuses a nil one, so there
+is no client that checks no name.
 
 ### Change signal
 
@@ -675,7 +685,8 @@ mgr.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "documents", "doc
 mgr.DeleteRolePermissionResources(ctx, tenant1, "Editor", "Read", "documents.*")
 
 // A scope-wide permission (not tied to any resource) is granted through the
-// base-name method — there is no resource value that means it.
+// base-name method — there is no resource value that means it. The
+// permission is one the release has: one its collection lists.
 mgr.AddRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 mgr.DeleteRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 
@@ -805,7 +816,9 @@ if err != nil {
 ```
 
 The collection is given once, to `New`: the role file validates against it, and
-every grant the store holds or a write adds is held to it.
+the names of every grant the store holds or a write adds are held to it, a
+grant on a resource or a field and a grant of a permission for the whole of a
+scope alike.
 
 The deploy's migrate step calls `CheckPolicy`. It reads the store once and
 returns the role file's warnings (see Warnings) beside what the store holds that

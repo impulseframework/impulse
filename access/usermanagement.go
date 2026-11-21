@@ -530,7 +530,7 @@ func requireResources(rows []GrantRow) error {
 // it is written to a role: a permission on a resource or a field the permission
 // collection does not list under it, and an action no role is given. The rule is
 // the role file's own, and the one a load of the policy leaves a stored grant
-// out by (unusableName): a grant the load would skip is not written, so a role
+// out by (unlistedName): a grant the load would skip is not written, so a role
 // carries no name nobody declared. A stored grant can still outlive its
 // release, after a rollback or once a release drops a resource, and the load
 // skips and reports that one as before.
@@ -570,13 +570,14 @@ func (u *userManager) requireDeclared(rows []GrantRow) error {
 // names a permission and nothing else: the permission is one the running
 // release has, which is one its permission collection lists. A role given a
 // permission no release has would show it in the role's editor and hold nothing
-// by it. A load of the policy checks no name on a stored scope-wide grant, so
-// this is where the name is held; a removal is held to nothing.
+// by it. The rule is the one a load of the policy holds a stored scope-wide
+// grant to (unlistedName), so a grant refused here is one a load would skip; a
+// removal is held to nothing.
 func (u *userManager) requireDeclaredPermission(permission accesstypes.Permission) error {
-	if _, has := u.collection.List()[permission]; !has {
+	if err := unlistedName(u.collection.List(), &policy.Grant{Perm: permission}); err != nil {
 		return httpio.NewBadRequestMessagef(
-			"%s cannot be given to a role: this release has no permission %s. A role is given a permission the application declares; check the permission's name",
-			permission, permission,
+			"%s cannot be given to a role: %s. A role is given a permission the application declares; check the permission's name",
+			permission, plainText(err),
 		)
 	}
 

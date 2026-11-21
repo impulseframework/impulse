@@ -35,10 +35,12 @@ type Client struct {
 // the running release: what the release declares, its permissions, resources
 // and fields. The collection is required, and New refuses a nil one. A stored
 // grant naming what the release does not declare (after a rollback, or once a
-// release drops a resource) is left out of the snapshot and reported as a
-// SkippedGrant instead of being carried as a grant nothing can check, the
+// release drops a resource or a permission) is left out of the snapshot and
+// reported as a SkippedGrant instead of being carried as a grant nothing can
+// check, a grant that names a permission and no resource among them; the
 // writes that give a custom role a grant refuse a name the release does not
-// declare (UserManager.AddRoleGrant), and the role file validates against it.
+// declare (UserManager.AddRoleGrant, UserManager.AddRolePermission), by the
+// rule the load skips by; and the role file validates against it.
 //
 // Permission checks are answered by the snapshot engine, compiled in-memory
 // from the release's default roles (WithDefaultRoles) and the policy store.

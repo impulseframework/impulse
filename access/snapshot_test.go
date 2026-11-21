@@ -536,10 +536,12 @@ func assertMatchesRBACOracle(t *testing.T, snap *snapshot, subject string, grant
 // grants hold and the load completes. Three things make a grant unusable: a
 // condition text that does not parse, a row-referencing condition on a
 // scope-wide grant (a grant attached to no resource has no row for it to see),
-// and a permission, resource or field the release does not declare. A scope-wide grant's permission is not checked
-// against the collection, which lists only the permissions resources require.
-// Schema validation of conditions (binding names against the collection) is not
-// the snapshot's job: the role file's validation does it for the release's grants.
+// and a permission, resource or field the release does not declare. A
+// scope-wide grant names a permission and nothing else, and is held to the
+// permission: one the collection does not list is skipped, as the write that
+// would add it is refused (UserManager.AddRolePermission). Schema validation
+// of conditions (binding names against the collection) is not the snapshot's
+// job: the role file's validation does it for the release's grants.
 func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 	t.Parallel()
 
@@ -561,13 +563,13 @@ func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 		},
 		{
 			name:       "a row-referencing condition on a scope-wide grant",
-			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Approve", Resource: "", Condition: "state = 'new'"},
-			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Approve", Resource: "", Condition: "state = 'new'"},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "state = 'new'"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Delete", Resource: "", Condition: "state = 'new'"},
 			wantReason: "row-referencing condition on a scope-wide grant",
 		},
 		{
 			name:  "a row-free condition on a scope-wide grant is kept",
-			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Approve", Resource: "", Condition: "now < '2027-03-01T00:00:00Z'"},
+			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: "", Condition: "now < '2027-03-01T00:00:00Z'"},
 		},
 		{
 			name:  "a conditional field grant is kept",
@@ -613,8 +615,20 @@ func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 			wantReason: "this release declares no Read on Gadgets",
 		},
 		{
-			name:  "a scope-wide grant is not checked against the collection",
-			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Fly", Resource: ""},
+			name:       "a scope-wide grant of a permission the release does not have",
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Fly", Resource: ""},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Fly", Resource: ""},
+			wantReason: "this release has no permission Fly",
+		},
+		{
+			name:  "a scope-wide grant of a permission the release has is kept",
+			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Delete", Resource: ""},
+		},
+		{
+			name:       "a scope-wide grant of an undeclared permission under a bad condition: one report, the name first",
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Fly", Resource: "", Condition: "state = 'new'"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Fly", Resource: "", Condition: "state = 'new'"},
+			wantReason: "this release has no permission Fly",
 		},
 		{
 			name:       "an undeclared name and a bad condition: one report, the name first",
@@ -692,6 +706,56 @@ func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 				t.Errorf("the skipped grant still decides: %+v, want denied", decision)
 			}
 		})
+	}
+}
+
+// Test_newSnapshot_emptyCollectionCarriesNoGrant pins what a load does for a
+// release that declares nothing: every stored grant is skipped and reported,
+// the one that names a permission and no resource with the rest, so the
+// policy gives nobody a permission and nobody a foothold in the tenant.
+func Test_newSnapshot_emptyCollectionCarriesNoGrant(t *testing.T) {
+	t.Parallel()
+
+	chief := roleSubject("Chief")
+	records := &policy.Records{
+		Roles: []policy.Role{{Scope: tenant1Policy, Name: "Chief"}},
+		Grants: []policy.Grant{
+			{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Widgets"},
+			{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "*"},
+			{Scope: tenant1Policy, Subject: chief, Perm: "Export", Resource: ""},
+		},
+		Memberships: []policy.Membership{{Scope: tenant1Policy, Member: userSubject("cleo"), Role: "Chief"}},
+	}
+	snap, findings, err := newSnapshot(records, nil, declaring(nil), time.Now())
+	if err != nil {
+		t.Fatalf("newSnapshot() error = %v, want the load to complete", err)
+	}
+
+	var skipped []string
+	for _, finding := range findings {
+		sg, ok := finding.(*SkippedGrant)
+		if !ok {
+			t.Fatalf("finding = %T, want *SkippedGrant", finding)
+		}
+		skipped = append(skipped, string(sg.Permission)+" on "+string(sg.Resource)+": "+plainText(sg.Reason))
+	}
+	slices.Sort(skipped)
+	want := []string{
+		"Export on : this release has no permission Export",
+		"Read on Widgets: this release has no permission Read",
+		"Read on Widgets: this release has no permission Read",
+	}
+	if diff := cmp.Diff(want, skipped); diff != "" {
+		t.Errorf("the skipped grants mismatch (-want +got):\n%s", diff)
+	}
+	if got := snap.checkUser("cleo", tenant1Scope, "Export"); got.granted || len(got.conditions) != 0 {
+		t.Errorf("checkUser(Export) = %+v, want denied", got)
+	}
+	if got := snap.decideUserResources("cleo", tenant1Scope, "Read", "Widgets", "Widgets.name"); got[0].granted || got[1].granted {
+		t.Errorf("decide(Read, Widgets, Widgets.name) = %+v, want both denied", got)
+	}
+	if snap.userHasGrants(tenant1Scope, "cleo") {
+		t.Error("userHasGrants() = true, want cleo to hold nothing in the tenant")
 	}
 }
 

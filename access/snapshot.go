@@ -902,7 +902,9 @@ func groupByScope(grants []policy.Grant, memberships []policy.Membership) (globa
 // instance on a stale snapshot, or keep a new instance from becoming ready. A
 // skipped grant is denied, since a permission the snapshot does not hold is
 // not held. Three things make a grant unusable: a permission, resource or
-// field the release's collection does not declare; a condition
+// field the release's collection does not list (unlistedName, the rule a
+// write to a custom role is refused by), a scope-wide grant's permission
+// among them; a condition
 // text that does not parse, so a check never meets an unparseable condition;
 // and a row-referencing condition (a binding-name attribute or new. reference)
 // on a scope-wide grant, which has no row for it to see; only row-free
@@ -912,8 +914,9 @@ func (s *snapshot) intern(grants []policy.Grant, collection PermissionCollection
 	exprs := make(map[string]condition.Expr)
 	kept := make([]policy.Grant, 0, len(grants))
 	var skipped []*SkippedGrant
+	listed := collection.List()
 	for _, g := range grants {
-		if err := unusableName(collection, &g); err != nil {
+		if err := unlistedName(listed, &g); err != nil {
 			skipped = append(skipped, newSkippedGrant(&g, err))
 
 			continue

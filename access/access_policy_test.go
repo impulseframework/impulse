@@ -426,6 +426,30 @@ func TestClient_CheckPolicy(t *testing.T) {
 			wantText: []string{"without Read or List", "role Rogue in scope tenant1, Read on Nowhere: "},
 		},
 		{
+			name: "a grant for the whole of a scope, written straight to the store, of a permission the release does not have",
+			seed: func(ctx context.Context, store *fakeStore) error {
+				if err := store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription); err != nil {
+					return err
+				}
+
+				return store.InsertGrant(ctx, tenant1Policy, "Rogue", "ExportLedger", "", "", "")
+			},
+			want:     []Warning{paymasterWarning, &SkippedGrant{Scope: tenant1Policy, Subject: "role Rogue", Permission: "ExportLedger"}},
+			wantText: []string{"without Read or List", "role Rogue in scope tenant1, ExportLedger scope-wide: this release has no permission ExportLedger"},
+		},
+		{
+			name: "a grant for the whole of a scope of a permission the release has",
+			seed: func(ctx context.Context, store *fakeStore) error {
+				if err := store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription); err != nil {
+					return err
+				}
+
+				return store.InsertGrant(ctx, tenant1Policy, "Rogue", "Delete", "", "", "")
+			},
+			want:     []Warning{paymasterWarning},
+			wantText: []string{"without Read or List"},
+		},
+		{
 			name: "every kind at once, in report order",
 			seed: func(ctx context.Context, store *fakeStore) error {
 				for _, err := range []error{
@@ -610,6 +634,89 @@ func TestClient_CheckPolicy_storeError(t *testing.T) {
 	}
 	if warnings != nil {
 		t.Errorf("CheckPolicy() = %v beside an error, want nil", warnings)
+	}
+}
+
+// TestClient_storedScopeWideGrantIsHeldToTheCollection pins what a Client does
+// with a grant for the whole of a scope that its release has no permission
+// for, in a store it did not write: the row an earlier release wrote before
+// this one dropped the permission, or one written straight to the store. The
+// load skips it as the write that would add it is refused, so the role's
+// holder is not given the permission, the role's listing does not show it, the
+// grant alone is no foothold in the tenant, and the hook is told. The same
+// rows under a release that has the permission are carried.
+func TestClient_storedScopeWideGrantIsHeldToTheCollection(t *testing.T) {
+	t.Parallel()
+
+	const exportLedger accesstypes.Permission = "ExportLedger"
+	tests := []struct {
+		name       string
+		collection PermissionCollection
+		wantHeld   bool
+	}{
+		{name: "a release that has the permission carries the grant", collection: declaring(map[accesstypes.Permission][]accesstypes.Resource{exportLedger: nil}), wantHeld: true},
+		{name: "a release that dropped the permission skips the grant", collection: declaring(map[accesstypes.Permission][]accesstypes.Resource{"Read": {"Ledgers"}}), wantHeld: false},
+		{name: "a release that declares nothing skips the grant", collection: declaring(nil), wantHeld: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+
+			store := newFakeStore()
+			for _, err := range []error{
+				store.InsertRole(ctx, tenant1Policy, "Auditor", aDescription),
+				store.InsertGrant(ctx, tenant1Policy, "Auditor", exportLedger, "", "", ""),
+				store.InsertUserRole(ctx, tenant1Policy, "dana", "Auditor", accesstypes.Period{}, ""),
+			} {
+				if err != nil {
+					t.Fatalf("seeding fake store: %v", err)
+				}
+			}
+			hook := &reloadErrors{}
+			client := newPolicyClient(t, store, tt.collection, WithReloadErrorHandler(hook.collect))
+
+			decision, err := client.CheckUser(ctx, accesstypes.NewEnvironment(), "dana", tenant1Scope, exportLedger)
+			if err != nil {
+				t.Fatalf("CheckUser() error = %v", err)
+			}
+			if got := decision.IsGranted(); got != tt.wantHeld {
+				t.Errorf("CheckUser(ExportLedger) granted = %v, want %v", got, tt.wantHeld)
+			}
+			foothold, err := client.UserHasGrants(ctx, "dana", tenant1Scope)
+			if err != nil {
+				t.Fatalf("UserHasGrants() error = %v", err)
+			}
+			if foothold != tt.wantHeld {
+				t.Errorf("UserHasGrants() = %v, want %v", foothold, tt.wantHeld)
+			}
+			listed, err := client.UserManager().RolePermissions(ctx, tenant1Scope, "Auditor")
+			if err != nil {
+				t.Fatalf("RolePermissions() error = %v", err)
+			}
+			if _, shown := listed[exportLedger]; shown != tt.wantHeld {
+				t.Errorf("RolePermissions() = %v, want ExportLedger shown %v", listed, tt.wantHeld)
+			}
+
+			settle(client.snapEngine)
+			var reported []string
+			for _, err := range hook.list() {
+				var skipped *SkippedGrant
+				if !errors.As(err, &skipped) {
+					t.Errorf("the hook received %v, want nothing but a skipped grant", err)
+
+					continue
+				}
+				reported = append(reported, skipped.Error())
+			}
+			var want []string
+			if !tt.wantHeld {
+				want = []string{"skipped a grant this release cannot use, so it is denied: role Auditor in scope tenant1, ExportLedger scope-wide: this release has no permission ExportLedger"}
+			}
+			if diff := cmp.Diff(want, reported); diff != "" {
+				t.Errorf("the hook's reports mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

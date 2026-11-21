@@ -17,12 +17,16 @@ func declaring(list map[accesstypes.Permission][]accesstypes.Resource) Permissio
 }
 
 // declaringRecords is the permission collection of a release that declares every name the
-// policy's grants carry: what a test of the snapshot's compilation, which is handed its
-// policy whole and pins nothing of the names, compiles the policy against.
+// policy's grants carry, the permission of a grant that names no resource among them: what
+// a test of the snapshot's compilation, which is handed its policy whole and pins nothing
+// of the names, compiles the policy against.
 func declaringRecords(records *policy.Records) PermissionCollection {
 	list := make(map[accesstypes.Permission][]accesstypes.Resource)
 	for i := range records.Grants {
 		g := &records.Grants[i]
+		if _, has := list[g.Perm]; !has {
+			list[g.Perm] = nil
+		}
 		if name := grantResourceName(g); name != "" && !slices.Contains(list[g.Perm], name) {
 			list[g.Perm] = append(list[g.Perm], name)
 		}
@@ -42,6 +46,7 @@ var fixtureCollection = declaring(map[accesstypes.Permission][]accesstypes.Resou
 	"Update": {"employees", "employees.name", "employees.email", "employees.salary", "widgets", "widgets.name"},
 	"List":   {"gadgets", "reports", "widgets"},
 	// The permissions a role is given for the whole of a scope, attached to no resource.
+	"Approve":     nil,
 	"Export":      nil,
 	"ViewReports": nil,
 	"ViewUsers":   nil,
