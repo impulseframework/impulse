@@ -814,7 +814,7 @@ func Test_computedResourceHandlerTemplate_files(t *testing.T) {
 				"StoreKey string       `json:\"-\" perm:\"-\"`",
 				"Name     string       `json:\"-\" perm:\"-\"`",
 				"source, err := computed.ReadStoredComputed(ctx, id, querySet, a.ResourceClient(), a.ComputedClient())",
-				"httpio.NewNotFoundMessagef(\"StoredComputed %v does not exist\", id)",
+				"return httpio.NewEncoder(w).ClientMessage(ctx, resource.TargetNotFound(\"StoredComputed\", id))",
 				"file.Key = source.StoreKey",
 				"file.Name = source.Name",
 				"if err := resource.ServeStoredFile(ctx, w, r, a.ResourceClient().FileStore(resource.DefaultStore), file, \"content\", \"StoredComputed\", id); err != nil {",

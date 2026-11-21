@@ -203,7 +203,7 @@ func (a *App) ExpenseManifestContent() http.HandlerFunc {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 			if !shown {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("ExpenseManifest %v does not exist", missionID))
+				return httpio.NewEncoder(w).ClientMessage(ctx, resource.TargetNotFound("ExpenseManifest", missionID))
 			}
 		}
 

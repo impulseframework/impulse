@@ -690,7 +690,9 @@ the same whether no row has the key or the row is another tenant's, so the calle
 never told that a row is there. The log line keeps the struct's name and the key
 (`Mission 8f0c… does not exist`). The generated handler and the method's gate both
 answer with `resource.TargetNotFound`, which takes the record's struct name and the
-row's key values; a handler that finds no row itself answers the same way:
+row's key values. A computed record's file route answers a row its read does not show
+with it too, and a content function's nil is told the same sentence. A handler that
+finds no row itself answers the same way:
 
 ```go
 return resource.TargetNotFound("Mission", p.MissionID)
@@ -2121,8 +2123,11 @@ conditions and tenancy: an absent, cross-tenant, or hidden row is 404, as on the
 route, and a conditional grant on `content` (`client = subject.client`) is the row
 condition the statement renders. The columns that deliver the file — the key, and the
 `name:` and `type:` columns where declared — are read by the frame for itself, without
-field grants. A NULL key is 404 in the row's words, and so is a key the store does not
-hold; the key itself is never written into a refusal.
+field grants. A NULL key is 404 in one sentence a person can read ("This mission
+document has no content."), and so is a key the store does not hold ("The content of
+this mission document was not found."): the record by its name in words and the file by
+its segment, with no key of the row, and the store's key is never written into an
+answer. The row's own name and key stay in the server's log.
 
 **The response.** Every file is served as a document that can do nothing, because its
 type is the uploader's word. `Content-Type` comes from the type column, then the stored
@@ -2335,8 +2340,9 @@ content: struct-scope `@file` on a keyed `@computed` struct, and the computed pa
 declares `<Name><Segment>(ctx, key…, qSet, client, computedClient) (*resource.Content,
 error)` beside `Read<Name>`, the QuerySet carrying the checked scope and identity as it
 does for `Read<Name>`. The function renders and returns; it never touches the response.
-A nil content is 404. Set `Tag` to something that changes when the document does and
-the browser revalidates for free.
+A nil content is 404, in the words a row that is not there gets ("This expense manifest
+does not exist."). Set `Tag` to something that changes when the document does and the
+browser revalidates for free.
 
 **The browser client.** The generated descriptor lists a resource's segments
 (`files: ['content']`), and its handle gains `fileUrl(key, segment = 'content')` beside

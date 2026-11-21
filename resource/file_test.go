@@ -341,7 +341,10 @@ func TestServeStoredFile(t *testing.T) {
 		wantHeaders map[string]string
 		wantBody    string
 		wantMessage string
-		wantOpened  bool
+		// wantCause is what the answer keeps for the server's log: the record by its
+		// own name and the row by its key.
+		wantCause  string
+		wantOpened bool
 	}{
 		{
 			name:       "the stored bytes, typed and named by the row, with the key as the validator",
@@ -416,16 +419,18 @@ func TestServeStoredFile(t *testing.T) {
 			wantMessage: "",
 		},
 		{
-			name:        "a NULL key is 404 in the row's words",
+			name:        "a NULL key is 404 in a person's words: the record in words, no id",
 			file:        StoredFile{},
 			wantStatus:  http.StatusNotFound,
-			wantMessage: "MissionDocument 0193e2a7-522c-708f-bfd0-4adf33486bb9 has no content",
+			wantMessage: "This mission document has no content.",
+			wantCause:   "MissionDocument 0193e2a7-522c-708f-bfd0-4adf33486bb9 has no content",
 		},
 		{
-			name:        "a key the store does not hold is 404 in the row's words, never the key",
+			name:        "a key the store does not hold is 404 in a person's words, never the key",
 			file:        StoredFile{Key: "0193e2a7-522c-708f-bfd0-4adf33486bb2"},
 			wantStatus:  http.StatusNotFound,
-			wantMessage: "the content of MissionDocument 0193e2a7-522c-708f-bfd0-4adf33486bb9 was not found in the store",
+			wantMessage: "The content of this mission document was not found.",
+			wantCause:   "the content of MissionDocument 0193e2a7-522c-708f-bfd0-4adf33486bb9 was not found in the store",
 			wantOpened:  true,
 		},
 	}
@@ -472,6 +477,14 @@ func TestServeStoredFile(t *testing.T) {
 					t.Errorf("body = %s, names the store key", rr.Body.String())
 				}
 			}
+			if tt.wantCause != "" {
+				// The record's own name and the row's key are the server's log's, never
+				// the caller's.
+				plainAnswer(t, servedErr, httpio.HasNotFound, tt.wantMessage, "MissionDocument", "0193e2a7-522c-708f-bfd0-4adf33486bb9")
+				if !strings.Contains(servedErr.Error(), tt.wantCause) {
+					t.Errorf("ServeStoredFile() error = %v, want it to keep %q for the server's log", servedErr, tt.wantCause)
+				}
+			}
 			if got := len(store.opened) > 0; got != tt.wantOpened {
 				t.Errorf("store opened = %v, want %v", got, tt.wantOpened)
 			}
@@ -508,6 +521,9 @@ func TestServeRenderedFile(t *testing.T) {
 		wantHeaders map[string]string
 		wantBody    string
 		wantMessage string
+		// wantCause is what the answer keeps for the server's log: the record by its
+		// own name and the row by its key.
+		wantCause string
 		// wantNoETag pins that a content with no tag sends no validator and leaves
 		// the outlet's caching headers standing.
 		wantNoETag bool
@@ -568,9 +584,10 @@ func TestServeRenderedFile(t *testing.T) {
 			wantNoETag:  true,
 		},
 		{
-			name:        "a nil content is 404 in the row's words",
+			name:        "a nil content is 404 in the words an absent row gets: the record in words, no id",
 			wantStatus:  http.StatusNotFound,
-			wantMessage: "ExpenseManifest 8000 has no content",
+			wantMessage: "This expense manifest does not exist.",
+			wantCause:   "ExpenseManifest 8000 has no content",
 		},
 	}
 
@@ -578,8 +595,11 @@ func TestServeRenderedFile(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			var servedErr error
 			rr := fileRequest(t, tt.headers, func(w http.ResponseWriter, r *http.Request) error {
-				return ServeRenderedFile(w, r, tt.content, "content", "ExpenseManifest", "8000")
+				servedErr = ServeRenderedFile(w, r, tt.content, "content", "ExpenseManifest", "8000")
+
+				return servedErr
 			})
 
 			if rr.Code != tt.wantStatus {
@@ -598,6 +618,14 @@ func TestServeRenderedFile(t *testing.T) {
 			}
 			if tt.wantMessage != "" && !strings.Contains(rr.Body.String(), tt.wantMessage) {
 				t.Errorf("body = %s, want the message %q", rr.Body.String(), tt.wantMessage)
+			}
+			if tt.wantCause != "" {
+				// The record's own name and the row's key are the server's log's, never
+				// the caller's.
+				plainAnswer(t, servedErr, httpio.HasNotFound, tt.wantMessage, "ExpenseManifest", "8000")
+				if !strings.Contains(servedErr.Error(), tt.wantCause) {
+					t.Errorf("ServeRenderedFile() error = %v, want it to keep %q for the server's log", servedErr, tt.wantCause)
+				}
 			}
 			if tt.content != nil && tt.content.Size < 0 && rr.Code == http.StatusOK && rr.Header().Get("Content-Length") != "" {
 				t.Errorf("Content-Length = %q on an unknown size, want none", rr.Header().Get("Content-Length"))
