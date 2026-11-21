@@ -54,7 +54,7 @@ func TestRender(t *testing.T) {
 		{name: "outlets", candidate: "outlets", script: "web/weblib.sh"},
 		{name: "sites", candidate: "sites", script: "apps/console/web/weblib.sh"},
 	}
-	static := []string{"generator-program", "options", "tenancy-wired", "outlet-wired", "outlet-shape", "sites-wired", "web-wired", "login-pages", "session-tables", "migrations-reader", "auths-wired", "directory-admission", "first-administrator", "tenant-accounts", "emulator-version", "prettier-ignore", "eslint-ignore", "package-manager", "test-runner", "installable", "sites-generators", "env-template", "secret-holders"}
+	static := []string{"generator-program", "options", "tenancy-wired", "tenant-delete-rule", "outlet-wired", "outlet-shape", "sites-wired", "web-wired", "login-pages", "session-tables", "migrations-reader", "auths-wired", "directory-admission", "first-administrator", "tenant-accounts", "emulator-version", "prettier-ignore", "eslint-ignore", "test-runner", "installable", "sites-generators", "env-template", "secret-holders", "framework-modules", "framework-linkname"}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -138,6 +138,30 @@ func TestRender(t *testing.T) {
 					t.Errorf("%s: check %s failed: %s\n%s", tt.name, r.Name, r.Summary, strings.Join(r.Details, "\n"))
 				}
 			}
+
+			// One thing is the author's before the application's pipeline can pass: the
+			// install that writes each web root's lockfile, which no rendering carries.
+			// package-manager fails until then, names every web root and the install, and
+			// passes once each root holds the bun.lock the install writes.
+			manager, err := check.Select([]string{"package-manager"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			unlocked := check.Run(context.Background(), &check.Env{App: a}, manager)[0]
+			if unlocked.Status != check.Fail || !strings.Contains(unlocked.Summary, "have no lockfile, and the workflows install from one: run bun install in each web root, which writes the bun.lock the repository keeps") {
+				t.Errorf("%s: package-manager on the tree as rendered = %s %q, want a failure that names the install", tt.name, unlocked.Status, unlocked.Summary)
+			}
+			if len(unlocked.Details) != len(a.WebApps) || len(a.WebApps) == 0 {
+				t.Errorf("%s: package-manager names %d web root(s) of %d: %v", tt.name, len(unlocked.Details), len(a.WebApps), unlocked.Details)
+			}
+			for _, w := range a.WebApps {
+				if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(w.Dir), "bun.lock"), []byte("{}\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if locked := check.Run(context.Background(), &check.Env{App: a}, manager)[0]; locked.Status != check.Pass {
+				t.Errorf("%s: package-manager once every web root holds its bun.lock = %s %q, want a pass\n%s", tt.name, locked.Status, locked.Summary, strings.Join(locked.Details, "\n"))
+			}
 		})
 	}
 }
@@ -190,12 +214,14 @@ func TestRenderAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The first administrator's password is read under the auth's own variable, in the
-	// configuration, the environment template and the migrate command alike.
+	// The first administrator's address is read under the auth's own variable, in the
+	// configuration, the environment template, the auth's foothold and the deploy step
+	// alike, and no password is declared for them anywhere.
 	for rel, want := range map[string]string{
-		"pkg/config/data.go":   "MembersAdministratorPassword string `env:\"APP_MEMBERS_ADMINISTRATOR_PASSWORD\" secret:\"generated\"`",
-		".envrc.template":      "# export APP_MEMBERS_ADMINISTRATOR_PASSWORD=",
-		"pkg/deploy/deploy.go": "members.Auth.SeedAdministrator() with APP_MEMBERS_ADMINISTRATOR_PASSWORD",
+		"pkg/config/data.go":           "MembersAdministrator string `env:\"APP_MEMBERS_ADMINISTRATOR\"`",
+		".envrc.template":              "# export APP_MEMBERS_ADMINISTRATOR=",
+		"pkg/auth/members/foothold.go": "const AdministratorVariable = \"APP_MEMBERS_ADMINISTRATOR\"",
+		"pkg/deploy/deploy.go":         "email: data.MembersAdministrator(), invite: data.Members().InviteAdministrator, reinvite: data.Members().ReinviteAdministrator",
 	} {
 		data, err := root.ReadFile(filepath.FromSlash(rel))
 		if err != nil {
@@ -585,6 +611,44 @@ func TestRenderName(t *testing.T) {
 				if m := candidate.FindString(string(data)); m != "" && !strings.HasSuffix(rel, ".go") {
 					t.Errorf("%s still names the candidate: %q", rel, m)
 				}
+			}
+			// A test the rendering carries is the application's own from its first run, so
+			// none holds the candidate's name where the application says its own: a test
+			// that reads the name out of a mail or off a page takes it from where the
+			// application keeps it.
+			display := regexp.MustCompile(`\b` + strings.ToUpper(tt.candidate[:1]) + tt.candidate[1:] + `\b`)
+			root, err := os.OpenRoot(dir)
+			if err != nil {
+				t.Fatalf("os.OpenRoot() error = %v", err)
+			}
+			defer root.Close()
+			err = fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if d.IsDir() {
+					if d.Name() == "node_modules" {
+						return fs.SkipDir
+					}
+
+					return nil
+				}
+				if !strings.HasSuffix(rel, "_test.go") && !strings.HasSuffix(rel, ".spec.ts") {
+					return nil
+				}
+				data, err := root.ReadFile(rel)
+				if err != nil {
+					t.Fatalf("os.Root.ReadFile(%s) error = %v", rel, err)
+				}
+				if m := display.FindIndex(data); m != nil {
+					line := 1 + strings.Count(string(data[:m[0]]), "\n")
+					t.Errorf("%s:%d names the candidate (%s), so the test fails in an application of another name: take the name from where the application keeps it", rel, line, display)
+				}
+
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
 			}
 			readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
 			if err != nil {

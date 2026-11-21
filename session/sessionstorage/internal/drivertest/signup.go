@@ -145,6 +145,7 @@ func testSignInMethodRows(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Fatalf("SignInMethods() mismatch, want the rows by name (-want +got):\n%s", diff)
 	}
 	w.assertStamped(t, "google UpdatedAt", got[1].UpdatedAt)
+	assertSelfServiceReset(ctx, t, in, got)
 	if !got[1].OpenFor(anyone.Key()) || got[1].Role() != signUpRole || got[0].Role() != "" {
 		t.Errorf("OpenFor(), Role() = %v, %q and %q; want a method open for the audience it was opened for, with the role Member, and one with none", got[1].OpenFor(anyone.Key()), got[1].Role(), got[0].Role())
 	}
@@ -168,6 +169,38 @@ func testSignInMethodRows(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 	if got[1].OpenFor(anyone.Key()) {
 		t.Error("OpenFor() = true for a method made invite only again, want false")
+	}
+}
+
+// assertSelfServiceReset checks the field of a sign-in method's row that says a person
+// may ask for their own password reset, on the two rows got that were written without
+// it: it starts off on every row, is read back as written, and goes off again with a
+// write that does not carry it.
+func assertSelfServiceReset(ctx context.Context, t *testing.T, in *AuthInstance, got []*dbtype.SignInMethod) {
+	t.Helper()
+
+	if got[0].ResetsOwnPassword() || got[1].ResetsOwnPassword() {
+		t.Errorf("ResetsOwnPassword() = %v and %v on rows written without it, want false: self-service reset starts closed", got[0].ResetsOwnPassword(), got[1].ResetsOwnPassword())
+	}
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "azure", OpenSignUp: true, SelfServiceReset: true}); err != nil {
+		t.Fatalf("SetSignInMethod(azure) error = %v", err)
+	}
+	reset, err := in.Driver.SignInMethods(ctx)
+	if err != nil {
+		t.Fatalf("SignInMethods() error = %v", err)
+	}
+	if !reset[0].ResetsOwnPassword() || !reset[0].OpenSignUp || reset[1].ResetsOwnPassword() {
+		t.Errorf("after turning self-service reset on for one row: ResetsOwnPassword() = %v and %v, OpenSignUp = %v; want it on that row alone, the row otherwise as written",
+			reset[0].ResetsOwnPassword(), reset[1].ResetsOwnPassword(), reset[0].OpenSignUp)
+	}
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "azure", OpenSignUp: true}); err != nil {
+		t.Fatalf("SetSignInMethod(azure) error = %v", err)
+	}
+	if reset, err = in.Driver.SignInMethods(ctx); err != nil {
+		t.Fatalf("SignInMethods() error = %v", err)
+	}
+	if reset[0].ResetsOwnPassword() {
+		t.Error("ResetsOwnPassword() = true after a write that turned it off, want false")
 	}
 }
 
@@ -232,11 +265,12 @@ func testOpenMethodDefaultRole(ctx context.Context, t *testing.T, h *AuthHarness
 	}
 
 	// A person an administrator created an account for is not signing up: the account
-	// is linked, and holds what the administrator gave it.
+	// is linked by the sign-in that carries the mailed code's event, and holds what the
+	// administrator gave it.
 	const created = "kim@lakeside.edu"
 	kim := createUser(ctx, t, in.Driver, created)
 	kimIdentity := entra("oid-kim", created)
-	kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: created, Identity: kimIdentity}
+	kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: created, Identity: kimIdentity, AuthEvents: codeEntered()}
 	err = signInRequest(ctx, in, kimReq)
 	assertNewlyLinked(ctx, t, in.Driver, err, kimReq, kimIdentity, kim, "tenant-1")
 	assertNoRoleGiven(ctx, t, h, in, rec, created)
@@ -309,11 +343,12 @@ func testOpenRowOfAnotherAudience(_ context.Context, t *testing.T, h *AuthHarnes
 			assertLinkLive(ctx, t, h, in, link)
 			assertNoRoleGiven(ctx, t, h, in, rec, name)
 
-			// A person with an account is not signing up: they sign in as ever.
+			// A person with an account is not signing up: they sign in as ever, the
+			// first time by the sign-in that carries the mailed code's event.
 			const created = "kim@lakeside.edu"
 			kim := createUser(ctx, t, in.Driver, created)
 			kimIdentity := entra("oid-kim", created)
-			kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: created, Identity: kimIdentity}
+			kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: created, Identity: kimIdentity, AuthEvents: codeEntered()}
 			err = signInRequest(ctx, in, kimReq)
 			assertNewlyLinked(ctx, t, in.Driver, err, kimReq, kimIdentity, kim, "tenant-1")
 		})

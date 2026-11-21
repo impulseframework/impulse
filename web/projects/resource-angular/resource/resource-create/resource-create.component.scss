@@ -1,3 +1,5 @@
+@use '../../styles/headings';
+
 .container {
   border: 1px solid var(--impulse-outline);
   border-radius: 5px;
@@ -26,19 +28,25 @@
   position: relative;
 }
 
+// The form's title and, at the far end of its line or under it, Cancel and Create. Where it
+// stays at the top it covers the fields that scroll under it, as the title row of a list does.
 .header-container {
+  @include headings.row;
+  @include headings.covers;
   margin: 20px 20px 0px 20px;
-  display: flex;
-  flex-direction: row;
   top: 0;
   z-index: 11;
-  background: transparent;
 }
 
+// A create form is a section of the page it is drawn on.
 .title {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+  min-width: 0;
+
+  h1 {
+    @include headings.section-title;
+  }
 }
 
 .indent {
@@ -53,11 +61,13 @@
 .state-buttons {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
   margin-top: auto;
   margin-bottom: auto;
   justify-content: right;
   flex-grow: 1;
-  gap: 20px;
+  gap: 8px 20px;
 }
 
 .mode-text {

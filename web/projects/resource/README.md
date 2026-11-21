@@ -114,15 +114,25 @@ picker pages it with Previous and Next by the server's cursors, sorted by its `@
 or else by the picker's display column, and reads the chosen row by key (a source with a
 maximum serves a read; the generator refuses one that does not); a lookup that resolves
 display values for a page of keys asks for one `filter=id:in:(…)` page over them, served
-by the key's index. There is no operation that reads every row of a bounded resource:
-the maximum was declared to keep the whole set out of memory, and nothing in the client
-walks past it. `readMode(descriptor)` answers `'whole'` or `'paged'`, and
-`wholeListQuery`, `pickerSort`, `keyBatches`, and `keyLookupQuery` are the requests
-each side makes, shared by every reader.
+by the key's index. None of these readers walks past a page.
+`readMode(descriptor)` answers `'whole'` or `'paged'`, and `wholeListQuery`,
+`pickerSort`, `keyBatches`, and `keyLookupQuery` are the requests each side makes,
+shared by every reader.
+
+`every` is the one reader of every row, for a page whose answer is wrong with a part
+of them: a board that counts what is open, a picker that must offer each choice. It
+takes the list query without `limit`, `cursor` and `count` (naming one does not
+compile) and hands the rows back together. With no maximum it makes the one
+`limit=all` request; with a maximum it asks for a page of the maximum at a time, by the
+server's `next` relations, to the end, and a page that fails rejects the whole read.
+The whole set is then in memory, which the maximum otherwise keeps from happening, so
+call it where the set is known to be small for the reader (one station's open
+missions), and turn a long list with `page`.
 
 ```ts
 const hulls = await api.shipClasses.list({ limit: 'all' }); // no maximum: the whole catalog
 const hangars = await sector.hangars.page({ count: true }); // a maximum: one page, Previous and Next
+const open = await station.missions.every({ sort: { field: 'deadline' } }); // every row, a page of the maximum at a time
 ```
 
 A resource whose descriptor lists `keys: []` (a `@computed` or `@virtual` struct with no
@@ -151,6 +161,14 @@ a computed resource's `allow_filter` field, `'withIndexed'` on a table or view `
 field — accepted only when the same filter also names an `'always'` field, since indexes
 are scarce and one is enough to narrow the rows — and absent on a field a filter may not
 name. A table draws a filter control from it, so what it offers is what the server answers.
+
+A sort may name only a field the server orders: text, numbers, yes or no, moments, dates,
+decimals and UUIDs. A list, a map and a nested object have no order, and neither has a
+value the server writes in other words than its column holds (a mask read as words): a
+request that sorts by one is refused (400). The generated field metadata says which:
+`FieldMeta.sortable` is `false` on a field the server does not order and absent on every
+other. A table draws such a column's heading as words, so it offers no sort the server
+refuses.
 
 A text field answers `startswith`, `endswith` and `contains` where the schema states a
 fact for it, and `FieldMeta.search` lists the matches it answers: a stored `LOWER(col)`
@@ -243,10 +261,45 @@ or one per domain), loaded on demand and cached for the session.
   the digest carries no field-level entries for the permission — no field information
   (denied outright, or a keys-only resource) — so narrow only on a defined answer.
   Key fields never appear: they are structural, not grant-bearing.
-- `api.permissions.loadDigest(domain?)` loads a scope; `loadDomains()` fetches the
+- `api.permissions.loadDigest(domain?)` loads a scope. A read that fails rejects and
+  leaves the cache as it was: a scope never read stays unloaded, a scope read before
+  keeps its last answer, and no failure is cached as an empty digest, which would say the
+  person holds nothing. `digestFailure(error)` says which failure it was: `refused` for
+  the server's 403 or 404 (the scope is not there for this session), `failed` for anything
+  else (a 500, a request that never arrived), which can be tried again. A domain whose
+  read is refused is the one failure that does not leave the cache as it was: what it held
+  of the domain is forgotten (`hasDigest(domain)` is false again), since the person is in
+  the domain no more, and nothing one session held there is kept for a session that takes
+  its place.
+  `onUnread(listener)` calls the listener with the domain and the failure each time a read
+  fails, whoever asked for it, so a page drawn from the scope can say it could not be read.
+  A domain's digest that reads empty is checked against the person's list of domains,
+  read again for it, before it is kept: the server gives the same empty digest for a
+  domain the session no longer reaches (a seat taken away) as for one where the person
+  holds nothing. A domain the list names no more is a refusal (the read rejects with
+  `DomainUnlistedError`, `refused`, and what the cache held of the domain is forgotten,
+  as for the server's own refusal); one the list still names is kept as empty; and where
+  the list cannot be read the read of the digest fails with it, and the scope keeps its
+  last answer.
+  A request under a domain that the server answers 404 is held to the same check. The
+  server answers every request under a domain the session does not reach with 404, as it
+  does for a record that is not there, so where the cache holds the domain's digest the
+  client reads it again before the request's caller is answered. A domain the person has
+  left is refused by that read: forgotten, and heard of by every `onUnread` listener, so
+  a page open in the domain can be taken down before anything draws the server's words. A
+  domain the person is still in keeps its digest, and the 404 is the record's. The caller
+  is answered as the server answered either way, and a domain the cache holds no digest
+  of is not read.
+- `loadDomains()` fetches the
   domains where the user holds any grant, each with its name (`user-domains` answers
   `[{ "domain", "name" }]`), and `domainName(domain)` answers a listed domain's name for a
   picker to show, the domain itself where none is held; `subscribe` notifies a UI framework.
+  A read that fails rejects and leaves the list as it was: a list never read stays unread,
+  a list read before keeps its last answer, and no failure is kept as an empty list, which
+  would say the person is in no domain. `hasDomains()` says whether the list has been
+  read, and `domainsUnread()` is true while its last read failed and no list is held from
+  before (`domainsKnown(snapshot)` and `domainsUnread(snapshot)` answer the same of a
+  snapshot).
   A tenant the person holds a seat in and this session cannot enter (a tenant that admits
   only people who sign in through its own directory, when the person signed in another
   way) is listed with `closed`, the reason in a sentence the server writes. `domains()`
@@ -260,7 +313,12 @@ or one per domain), loaded on demand and cached for the session.
   tenant; the handle's `can()` says whether the person may). `directoryOnlyState(api, tenant)`
   reads the switch as it stands (`GET <tenants>/<tenant>/directory-only`), asked under
   the grant of either method, which the tenant's administrator, who does not read the
-  tenant record, has no other way to see. Turning it on warns first: the method's
+  tenant record, has no other way to see. While the switch is off and the tenant has a
+  directory, the read says what turning it on takes of the person asking (`conditions`):
+  each in the sentence the server's refusal opens with (`sentence`), whether they meet it
+  (`met`), and what they do where they do not (`toDo`). A page shows these and writes
+  none of its own, so what it says before the person presses is what the server answers
+  a press with. Turning it on warns first: the method's
   metadata declares the word a person types (`warning: { typed: 'close' }`), and
   `make<Record>DirectoryOnly.warning({})` answers what it would do, in the server's
   words and with nothing saved: the sentence (`consequence`), the people who would lose
@@ -442,11 +500,22 @@ route guard. `flags()` reads every declared flag with its description and state 
 framework's `FeatureFlags` resource through the client's own handle, and `setFeature(name,
 enabled)` flips one through the generated `SetFeature` method, then reloads the set, the domains,
 and every cached digest; a refused flip rejects with the server's `ApiError` and refreshes
-nothing. `canSet()` is the digest's Execute entry for the method. `clear()` forgets the set at
+nothing. The generated method's own handle (`api.methods.SetFeature.execute(body)`, which a page
+that runs methods by name uses) is followed by the same reload, so a flip made from a list's row
+leaves the set and the digest current too. `changes(name)` reads one flag's history from the
+flag's own route (`<feature flags route>/<name>/changes`): `{ changes, more }`, each change with
+`changedAt`, `enabled` (what the flag was turned to) and `changedBy` (the name the person signs in
+under, or what the server recorded of a flip no person made), newest first, with `more` true where
+the flag was flipped more often than one answer lists. A fact the caller's grant leaves out of
+the flag (who last flipped it, under `updatedBy`) is absent from every flip, so the three are
+optional. Whoever may list the flags and see any of the three of a flag may read it; the
+server refuses anyone else (403) and a flag the application does not declare (404) with its
+`ApiError`. In what `flags()` answers, `updatedAt` and `updatedBy` are when the flag was last
+flipped and by whom: `updatedAt` is `null` and `updatedBy` empty for a flag nobody has flipped. `canSet()` is the digest's Execute entry for the method. `clear()` forgets the set at
 logout, and `subscribe` notifies a UI framework. `descriptor.features` is optional: a descriptor
 from a generator that predates feature flags carries none, and the API then serves no flags.
 `served` is false, the set stays empty and unloaded, `refresh()` resolves to nothing without a
-request, every flag answers off, and `flags()` and `setFeature()` refuse before any request,
+request, every flag answers off, and `flags()`, `changes()` and `setFeature()` refuse before any request,
 saying the API serves no feature flags. The absence is announced rather than silent: `enabled(name)`
 and `ensure(name)` reach `ClientOptions.warn` once per flag (the console by default) saying the
 flag was asked of an API that serves no feature flags and answers off, `refresh()` says it once
@@ -461,6 +530,7 @@ if (api.features.enabled('debriefs')) {
 
 const flags = await api.features.flags(); // every declared flag: name, description, enabled, updatedAt, updatedBy
 await api.features.setFeature('debriefs', true); // the set and the digest are current when this resolves
+const history = await api.features.changes('debriefs'); // each flip, newest first: changedAt, enabled, changedBy
 ```
 
 ## Sign-in
@@ -475,8 +545,8 @@ shape of the session library's login routes.
 `name` it was registered under, the library `method` behind it (`password`, `google`, `azure`,
 `workos`), its `kind` (`password`, a form the page posts; `redirect`, a navigation that sends
 the browser to the identity provider), its `label` and its `path`; and `pending`, the pending
-sign-in's status, confirmation and cancel paths, with the sign-in code's send, verification and
-enrollment paths on a server that sends mail. The answer is kept in `api.auth.snapshot`, a
+sign-in's status and cancel paths, its confirmation path on a server with a password sign-in,
+and the sign-in code's send, verification and enrollment paths on a server that sends mail. The answer is kept in `api.auth.snapshot`, a
 `Store` a framework mirrors into its own reactivity, so a page re-renders whenever the list is
 read again. A listed method of a kind the client does not drive is left out and announced once
 through the warn hook.
@@ -521,7 +591,10 @@ the page it returns to; `none`; or `refused` with `pending_expired` when the sig
 or was already used), `confirmPending(password)` posts the confirmation (the session, a further
 step, or a refusal: a wrong password answers 401 in the server's words and leaves the step in
 place), and `cancelPending()` discards it. A server whose list names no pending routes never
-holds a sign-in, and these three throw saying so.
+holds a sign-in, and these three throw saying so. A server with no password sign-in names no
+confirmation path (`pending.confirm` is absent, as nobody there has a password to confirm
+with): `pending()` and `cancelPending()` work as they do elsewhere, and `confirmPending`
+throws saying the server names no such route.
 
 A sign-in the policy holds for a second factor waits with the reason `mfa`, and when the policy
 accepts the mailed code the status carries `emailCode`, the step this client drives: the masked
@@ -671,6 +744,29 @@ an address (400), a mailbox sent five links within fifteen minutes and using non
 address and `usernameIsEmail` for the form; `completeSignUp(token, { password, username? })`
 creates the account with the address verified and signs the person in.
 
+A password reset (`?reset=<token>`), where the server has a password method and sends mail:
+the list's `passwordReset` names `open` and `complete`, and `request` only while the
+application lets people reset their own password, which an administrator turns on and off in
+the running application. A page offers "Forgot your password?" only while `request` is
+there. `requestPasswordReset(email)` asks for the link, answering `sent` whether or not the
+address has an account (one with none is mailed nothing), or the refusal: not an address
+(400), a mailbox sent five reset links within fifteen minutes and using none (429 with
+`too_many_emails` and the wait), or not offered (404). Where the list has stopped naming
+`request` since the page was drawn, the call posts nothing and throws
+`SELF_SERVICE_RESET_OFF`, the sentence the server refuses such a request with, which is
+what the page shows. `openPasswordReset(token)` answers
+the username the link resets the password of, for a link the person asked for or one an
+administrator sent; `completePasswordReset(token, password)` sets the new password, or
+resolves the refusal: a password under eight characters (400), a dead link (404), or a
+password that changed while the reader was choosing (409, which changes nothing). Every
+session of the person ends with a reset, this browser's too, and nobody is signed in by it:
+the person signs in with the new password.
+
+An address an administrator set (`?address=<token>`): `confirmEmail(token)` posts the token
+to the list's `email.confirm`, with or without a session, and answers the address the
+account now holds. A page asks before it posts: a link opened by a program that reads a
+person's mail must confirm nothing.
+
 An address (`?verify=<token>`): `addEmail(email)` asks, for the signed-in person, for a
 confirmation link, answering `sent` the same way, and nothing is written until
 `verifyEmail(token)` posts the token back, which counts for the account that asked and no
@@ -791,7 +887,7 @@ by lower-cased name; paged lists read `Link` and `Total-Count` from them.
 
 ## Release header
 
-Every request can carry the release the application was built from, so the server can refuse a build it no longer answers. `ClientOptions.apiVersion` names that release (for example `1.5.0`), and the client sends it in the `X-Api-Version` header (the exported constant `apiVersionHeader`) on every request. A build that names no release, or names an empty value or `dev` (the name of a local build), sends nothing and is never refused. The server answers a build from the oldest release it still answers up to its own release, and refuses the rest with status 412 carrying its own release in `X-Api-Version`, before it reads the request; a request with no header is answered. The client recognizes that 412 before it consults a method's declared answers (`accept`), so a method that declares 412 never takes the refusal for its own answer. The refusal is thrown as `ApiVersionError`, a subclass of `ApiError` that carries `serverVersion` (the server's release), `appVersion` (the release this build sent), and `serverOlder` (true when the server's release is older than this build's), and `ClientOptions.onError` observes it before it is thrown, as it does every `ApiError`. Every answer of an outlet names the server's release in the same header, refusals included, and the client keeps the last one named in `client.serverRelease`, a `Store` read with `get()` and watched with `subscribe()`, undefined until an answer named one: what a release line on the login page and in a footer shows (`dev` is a server built locally).
+Every request can carry the release the application was built from, so the server can refuse a build it no longer answers. `ClientOptions.apiVersion` names that release (for example `1.5.0`), and the client sends it in the `X-Api-Version` header (the exported constant `apiVersionHeader`) on every request. A build that names no release, or names an empty value or `dev` (the name of a local build), sends nothing and is never refused. The server answers a build from the oldest release it still answers up to its own release, and refuses the rest with status 412 carrying its own release in `X-Api-Version`, before it reads the request; a request with no header is answered. The client recognizes that 412 before it consults a method's declared answers (`accept`), so a method that declares 412 never takes the refusal for its own answer. The refusal is thrown as `ApiVersionError`, a subclass of `ApiError` that carries `serverVersion` (the server's release), `appVersion` (the release this build sent), and `serverOlder` (true when the server's release is older than this build's), and `ClientOptions.onError` observes it before it is thrown, as it does every `ApiError`. Every answer of an outlet names the server's release in the same header, refusals included, and the client keeps the last one named in `client.serverRelease`, a `Store` read with `get()` and watched with `subscribe()`, undefined until an answer named one: what a release line on the login page and in a footer shows (`dev` is a server built locally). A server told the environment it runs in names it on every answer too, in the `X-Environment` header (the exported constant `environmentHeader`), percent-encoded so any name travels; the client keeps the last one named in `client.serverEnvironment`, a `Store` like the release's, undefined where the server names none. Production names none, so a page that shows the environment (the Angular binding's About pop-up) shows no such line there.
 
 When the server's release is older than the build's, as it is after a rollback (an earlier release put back in service) or while a deploy is still shifting traffic from instance to instance, the client retries the request after each pause in `ClientOptions.olderServerRetryDelays`, whose default is the exported `olderServerRetryDelays`: 1 s, 3 s, and 6 s, three retries over ten seconds. When every retry is refused, the `ApiVersionError` is thrown with `serverOlder` true. A build older than the server is not retried. Releases compare as semantic versions (major, minor, and patch numbers, as in `1.5.0`) through the exported `compareReleases(a, b)`: a leading `v` is ignored, the numeric parts compare as numbers, a prerelease such as `1.5.0-rc.1` is older than its release, and a value that is not a version compares as `0.0.0`. The exported `releaseVersion(value)` answers the release a build names, or undefined for none, an empty value, or `dev`. The client only recognizes the refusal; what the application does about it is the framework's decision. The Angular binding, `@impulseframework/resource-angular`, hands it to its update service, which reloads onto the server's build or raises a notice; its README says how.
 

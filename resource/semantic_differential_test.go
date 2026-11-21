@@ -841,6 +841,10 @@ func (*semanticPermissions) Reaches(context.Context, accesstypes.Domain) (bool, 
 	return true, nil
 }
 
+func (*semanticPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	return []accesstypes.Domain{}, nil
+}
+
 func (s *semanticPermissions) User() accesstypes.User {
 	return s.user
 }

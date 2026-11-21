@@ -20,6 +20,7 @@ import (
 	"container/list"
 	"context"
 	"crypto/sha256"
+	"strings"
 	"sync"
 	"time"
 
@@ -117,6 +118,39 @@ func (l *Limiter) SetClock(now func() time.Time) {
 // case is the same name.
 func Normalize(name string) string {
 	return cases.Fold().String(norm.NFC.String(name))
+}
+
+// The kinds of count the library keeps in the sign-in attempts table beside the names
+// people sign in under: the mail an address is sent, the password reset links an
+// address is sent, and the guesses at the code of an account's first password. Each is
+// kept under its kind, a colon, and what it counts (OwnKey).
+//
+// A kind is spelled in capitals, and that is what keeps the counts apart from the
+// names: a name is counted under its case-folded form (Normalize), which holds no
+// capital, so nothing a person types at a sign-in is ever one of these keys. A stranger
+// who fails to sign in under the text of a key counts against a name nobody holds, and
+// never closes an address to its mail or an account to its first password.
+const (
+	KindMail          = "MAIL"
+	KindReset         = "RESET"
+	KindFirstPassword = "FIRST-PASSWORD"
+)
+
+// OwnKey returns the key of one of the library's own counts: kind, then what the count
+// is for, as the caller normalized it.
+func OwnKey(kind, of string) string {
+	return kind + ":" + of
+}
+
+// IsOwnKey reports whether key is one of the library's own counts and no name's.
+func IsOwnKey(key string) bool {
+	for _, kind := range []string{KindMail, KindReset, KindFirstPassword} {
+		if strings.HasPrefix(key, kind+":") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Attempt is an attempt whose place under the limit was taken before its password was

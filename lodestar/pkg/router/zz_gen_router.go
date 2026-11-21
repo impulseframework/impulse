@@ -4,11 +4,11 @@
 // Package router serves the application. The middleware in front of every route,
 // outermost first, one line per group, each chain followed by what it stands in front of:
 //
-//	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams
+//	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams, NameEnvironment
 //	  by hand under /beacons/: request log on event, traces off
 //	default (/console/api), sessions of the crew auth (password, google, sign-up, persona):
 //	  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /console/api/user/methods, GET /console/api/user/session, DELETE /console/api/user/session, GET /console/api/user/pending, GET /console/api/user/sign-in-means, GET /console/api/user/google/login, GET /console/api/user/google/callback, GET /console/api/user/sign-up/login, GET /console/api/user/sign-up/callback, GET /console/api/user/persona/login, GET /console/api/user/persona/callback
-//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up, POST /console/api/user/sign-up, POST /console/api/user/sign-up/open, POST /console/api/user/sign-up/complete
+//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up, POST /console/api/user/email/confirm, POST /console/api/user/sign-up, POST /console/api/user/sign-up/open, POST /console/api/user/sign-up/complete, POST /console/api/user/password-reset, POST /console/api/user/password-reset/open, POST /console/api/user/password-reset/complete
 //	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /console/api/user/invitation/accept, POST /console/api/user/email, POST /console/api/user/email/verify, POST /console/api/user/first-password/code, POST /console/api/user/first-password, GET /console/api/user/tokens, POST /console/api/user/tokens, POST /console/api/user/tokens/revoke, GET /console/api/user/device, POST /console/api/user/device/approve, POST /console/api/user/device/deny
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.1.0): hooks.Default
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.1.0), hooks.Default, EnforceReadOnlyMask: generatedRoutes
@@ -18,7 +18,7 @@
 //	  POST /droids/sectors/{sectorID}/ingest-droid-reports: request log on event
 //	portal (/portal/api), sessions of the members auth (directory):
 //	  BindAuth(members.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /portal/api/user/methods, GET /portal/api/user/session, DELETE /portal/api/user/session, GET /portal/api/user/pending, GET /portal/api/user/sign-in-means, GET /portal/api/user/directory/login, GET /portal/api/user/directory/callback
-//	  + ValidateXSRFToken: POST /portal/api/user/pending/confirm, POST /portal/api/user/pending/cancel, POST /portal/api/user/pending/code, POST /portal/api/user/pending/code/verify, POST /portal/api/user/pending/email, POST /portal/api/user/browser/forget, POST /portal/api/user/name, POST /portal/api/user/look, POST /portal/api/user/invitation
+//	  + ValidateXSRFToken: POST /portal/api/user/pending/cancel, POST /portal/api/user/pending/code, POST /portal/api/user/pending/code/verify, POST /portal/api/user/pending/email, POST /portal/api/user/browser/forget, POST /portal/api/user/name, POST /portal/api/user/look, POST /portal/api/user/invitation, POST /portal/api/user/email/confirm
 //	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /portal/api/user/invitation/accept, POST /portal/api/user/email, POST /portal/api/user/email/verify
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion: hooks.Portal
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion, hooks.Portal, EnforceReadOnlyMask: generatedPortalRoutes
@@ -87,6 +87,11 @@ type Handlers interface {
 	// (resource.CheckAPIVersion). A value that is not a release, dev for one, is named
 	// as it is and checks nothing.
 	ServerVersion() string
+	// ServerEnvironment is the name of the environment this server runs in, the
+	// configuration's APP_ENVIRONMENT: what every answer names (resource.NameEnvironment)
+	// and the About pop-up of a browser application shows. Production is told no name
+	// and reports none, so its answers name no environment.
+	ServerEnvironment() string
 
 	// Every request: where the request log goes; the router builds the request logger from it.
 	LogExporter() logger.Exporter
@@ -161,6 +166,8 @@ type DefaultSession interface {
 	EmailAdd() http.HandlerFunc
 	// The address verified from the mailed link (session.EmailHandlers.Verify).
 	EmailVerify() http.HandlerFunc
+	// An address an administrator set for a person, confirmed from the link mailed to it (session.EmailHandlers.Confirm).
+	EmailConfirm() http.HandlerFunc
 	// The code of a first password, mailed to the confirmed address of a signed-in person who has no password (session.FirstPasswordHandlers.SendCode).
 	FirstPasswordSendCode() http.HandlerFunc
 	// The first password of a signed-in person who has none, set with the mailed code (session.FirstPasswordHandlers.Set).
@@ -171,6 +178,12 @@ type DefaultSession interface {
 	SignUpOpen() http.HandlerFunc
 	// The sign-up completed with a password: the account created and signed in (session.SignUpHandlers.Complete).
 	SignUpComplete() http.HandlerFunc
+	// A person's own request for a password reset link, served while an administrator allows it (session.PasswordResetHandlers.Request).
+	PasswordResetRequest() http.HandlerFunc
+	// The password reset link opened (session.PasswordResetHandlers.Open).
+	PasswordResetOpen() http.HandlerFunc
+	// The password reset completed with a new password: every session of the person ends (session.PasswordResetHandlers.Complete).
+	PasswordResetComplete() http.HandlerFunc
 	// A command-line client's device authorization started (session.DeviceHandlers.Authorize): the client is told the code the person types; mounted under each machine outlet the auth issues tokens for.
 	DeviceAuthorize() http.HandlerFunc
 	// The device flow's token endpoint (session.DeviceHandlers.Token): the client's polls for its pair, and the refresh grant; mounted under each machine outlet the auth issues tokens for.
@@ -222,12 +235,12 @@ type PortalSession interface {
 	// Methods tells the login page what the outlet offers (session.Auth.Methods): the
 	// router hands it the methods below at the paths it mounts them.
 	Methods(list *session.MethodList) http.HandlerFunc
-	// The pending sign-in (session.PendingHandlers): a sign-in that waits for a
-	// password confirmation or for the second factor, and the second factor's step:
-	// the sign-in code the Auth mails, verified from the login page, and the address a
-	// person who holds none gives for it.
+	// The pending sign-in (session.PendingHandlers): a sign-in that waits for the
+	// second factor, and the second factor's step: the sign-in code the Auth mails,
+	// verified from the login page, and the address a person who holds none gives for
+	// it. The Auth has no password method, so no pending sign-in is confirmed with a
+	// password and the router mounts no route for one.
 	PendingStatus() http.HandlerFunc
-	PendingConfirmWithPassword() http.HandlerFunc
 	PendingCancel() http.HandlerFunc
 	PendingSendCode() http.HandlerFunc
 	PendingVerifyCode() http.HandlerFunc
@@ -254,6 +267,8 @@ type PortalSession interface {
 	EmailAdd() http.HandlerFunc
 	// The address verified from the mailed link (session.EmailHandlers.Verify).
 	EmailVerify() http.HandlerFunc
+	// An address an administrator set for a person, confirmed from the link mailed to it (session.EmailHandlers.Confirm).
+	EmailConfirm() http.HandlerFunc
 	// The directory registration's login and callback (google.Method).
 	DirectoryLogin() http.HandlerFunc
 	DirectoryCallback() http.HandlerFunc
@@ -342,6 +357,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	))
 	r.Use(h.SecurityHeaders)
 	r.Use(httpio.WithParams)
+	// The environment this server runs in, named on every answer (X-Environment) where the
+	// application reports one: production reports none.
+	r.Use(resource.NameEnvironment(h.ServerEnvironment()))
 
 	// The application's routes outside every outlet.
 	if hooks.Root != nil {
@@ -395,8 +413,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			SignInMeans:    "/console/api/user/sign-in-means",
 			ChangeLook:     "/console/api/user/look",
 			Invitation:     session.InvitationRoutes{Open: "/console/api/user/invitation", Accept: "/console/api/user/invitation/accept", SignUp: "/console/api/user/invitation/sign-up"},
-			Email:          session.EmailRoutes{Add: "/console/api/user/email", Verify: "/console/api/user/email/verify"},
+			Email:          session.EmailRoutes{Add: "/console/api/user/email", Verify: "/console/api/user/email/verify", Confirm: "/console/api/user/email/confirm"},
 			SignUp:         session.SignUpRoutes{Start: "/console/api/user/sign-up", Open: "/console/api/user/sign-up/open", Complete: "/console/api/user/sign-up/complete"},
+			PasswordReset:  session.PasswordResetRoutes{Request: "/console/api/user/password-reset", Open: "/console/api/user/password-reset/open", Complete: "/console/api/user/password-reset/complete"},
 		}))
 		bounded.Get("/console/api/user/session", h.Authenticated())
 		bounded.Delete("/console/api/user/session", h.Logout())
@@ -419,9 +438,13 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		guarded.Post("/console/api/user/look", h.ChangeLook())
 		guarded.Post("/console/api/user/invitation", h.InvitationOpen())
 		guarded.Post("/console/api/user/invitation/sign-up", h.InvitationSignUp())
+		guarded.Post("/console/api/user/email/confirm", h.EmailConfirm())
 		guarded.Post("/console/api/user/sign-up", h.SignUpStart())
 		guarded.Post("/console/api/user/sign-up/open", h.SignUpOpen())
 		guarded.Post("/console/api/user/sign-up/complete", h.SignUpComplete())
+		guarded.Post("/console/api/user/password-reset", h.PasswordResetRequest())
+		guarded.Post("/console/api/user/password-reset/open", h.PasswordResetOpen())
+		guarded.Post("/console/api/user/password-reset/complete", h.PasswordResetComplete())
 
 		r.Group(func(r chi.Router) {
 			r.Use(h.ValidateSession)
@@ -541,7 +564,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				{Name: "directory", Label: "Company directory", Path: "/portal/api/user/directory/login"},
 			},
 			Pending: session.PendingRoutes{
-				Status: "/portal/api/user/pending", Confirm: "/portal/api/user/pending/confirm", Cancel: "/portal/api/user/pending/cancel",
+				Status: "/portal/api/user/pending", Cancel: "/portal/api/user/pending/cancel",
 				SendCode: "/portal/api/user/pending/code", VerifyCode: "/portal/api/user/pending/code/verify", EnrollEmail: "/portal/api/user/pending/email",
 			},
 			ForgetBrowser: "/portal/api/user/browser/forget",
@@ -549,7 +572,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			SignInMeans:   "/portal/api/user/sign-in-means",
 			ChangeLook:    "/portal/api/user/look",
 			Invitation:    session.InvitationRoutes{Open: "/portal/api/user/invitation", Accept: "/portal/api/user/invitation/accept"},
-			Email:         session.EmailRoutes{Add: "/portal/api/user/email", Verify: "/portal/api/user/email/verify"},
+			Email:         session.EmailRoutes{Add: "/portal/api/user/email", Verify: "/portal/api/user/email/verify", Confirm: "/portal/api/user/email/confirm"},
 		}))
 		bounded.Get("/portal/api/user/session", portalSession.Authenticated())
 		bounded.Delete("/portal/api/user/session", portalSession.Logout())
@@ -557,7 +580,6 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		bounded.Get("/portal/api/user/sign-in-means", portalSession.SignInMeans())
 		bounded.Get("/portal/api/user/directory/login", portalSession.DirectoryLogin())
 		bounded.Get("/portal/api/user/directory/callback", portalSession.DirectoryCallback())
-		guarded.Post("/portal/api/user/pending/confirm", portalSession.PendingConfirmWithPassword())
 		guarded.Post("/portal/api/user/pending/cancel", portalSession.PendingCancel())
 		guarded.Post("/portal/api/user/pending/code", portalSession.PendingSendCode())
 		guarded.Post("/portal/api/user/pending/code/verify", portalSession.PendingVerifyCode())
@@ -566,6 +588,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		guarded.Post("/portal/api/user/name", portalSession.ChangeName())
 		guarded.Post("/portal/api/user/look", portalSession.ChangeLook())
 		guarded.Post("/portal/api/user/invitation", portalSession.InvitationOpen())
+		guarded.Post("/portal/api/user/email/confirm", portalSession.EmailConfirm())
 
 		r.Group(func(r chi.Router) {
 			r.Use(portalSession.ValidateSession)

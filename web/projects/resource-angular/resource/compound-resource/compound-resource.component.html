@@ -1,14 +1,20 @@
 <div class="page-container">
-  <div class="header-container">
-    <div class="title" [class.title-without-back]="title()">
-      @if (title() !== '') {
-        <h1>{{ title() }}</h1>
-      }
+  <!-- The title is drawn by the page's own row view, in the row it shares with the view's
+       buttons, wherever such a view is drawn on the page itself; the page draws it only
+       where none is, or where the view is folded into a panel, in a row of its own above
+       what the page holds. -->
+  @if (!viewDrawsTitle()) {
+    <div class="header-container">
+      <div class="title" [class.title-without-back]="titled()">
+        @if (title() !== '') {
+          <h1 [class.impulse-section]="!isRootConfig()">{{ title() }}</h1>
+        }
+      </div>
     </div>
-  </div>
+  }
 
   @if (hasElements() || configs().length > 0) {
-    <div class="resource-container" [class.empty-elements]="!hasElements()">
+    <div class="resource-container" [class.empty-elements]="!hasElements() && !titled()">
       @let primaryConfigRef = primaryConfig();
       @if (primaryConfigRef.type === 'View' || primaryConfigRef.type === 'ListView') {
         <!-- The page's own row: the view shares this page's store (it provides none), so the
@@ -20,6 +26,8 @@
           [relatedData]="resolvedData()"
           [showCreateForm]="missingRoot()"
           [compoundResourceView]="true"
+          [pageTitle]="viewDrawsTitle() ? title() : ''"
+          [pageTitleIsSection]="!isRootConfig()"
           [navAfterDelete]="navAfterDeleteConsideringRoot()"
           (createChange)="resourceCreate.emit()"
           (deleted)="deleted.emit(true)">

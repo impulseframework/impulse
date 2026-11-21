@@ -29,6 +29,7 @@ func (a *App) Consignments() http.HandlerFunc {
 		Mass        float64      `json:"mass"        allow_filter:"true"`
 		ExpiresOn   civil.Date   `json:"expiresOn"   allow_filter:"true"`
 		ReleasedAt  *time.Time   `json:"releasedAt"  index:"true"`
+		SectorName  *string      `json:"sectorName"  nameof:"SectorID"`
 	}
 
 	type response []map[string]any
@@ -67,7 +68,7 @@ func (a *App) Consignments() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*consignment)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -126,7 +127,7 @@ func (a *App) Consignments() http.HandlerFunc {
 
 func (a *App) Consignment() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"      perm:"-"`
 		SectorID    impulse.UUID `json:"sectorId"`
 		ClientID    impulse.UUID `json:"clientId"`
 		BondCode    string       `json:"bondCode"    index:"true"`
@@ -134,6 +135,7 @@ func (a *App) Consignment() http.HandlerFunc {
 		Mass        float64      `json:"mass"`
 		ExpiresOn   civil.Date   `json:"expiresOn"`
 		ReleasedAt  *time.Time   `json:"releasedAt"`
+		SectorName  *string      `json:"sectorName"  nameof:"SectorID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Consignment, response](a, accesstypes.Read)
@@ -160,7 +162,7 @@ func (a *App) Consignment() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {

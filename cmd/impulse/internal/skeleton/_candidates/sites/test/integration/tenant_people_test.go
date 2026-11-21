@@ -241,8 +241,12 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	// nora, in the order above, but the removal of her password, which is her one way in.
 	for _, m := range accountMethods {
 		want := http.StatusNoContent
-		if m.method == "remove-staff-tenant-password" {
+		switch m.method {
+		case "remove-staff-tenant-password":
 			want = http.StatusConflict
+		case "set-staff-tenant-user-email":
+			// The method that asks for a new address answers how its mailing went.
+			want = http.StatusOK
 		}
 		status, body := tenantPost(ctx, member, north, m.method, m.body("nora"))
 		if status != want {

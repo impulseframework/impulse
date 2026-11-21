@@ -122,6 +122,19 @@ func createTableMapUsingQuery(ctx context.Context, db *spanner.Client) (map[stri
 		table.addIndexResult(&indexResults[i])
 	}
 
+	foreignKeyResults, err := queryForeignKeySchema(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range foreignKeyResults {
+		table, ok := schemaMetadata[foreignKeyResults[i].TableName]
+		if !ok {
+			continue
+		}
+		table.addForeignKeyResult(&foreignKeyResults[i])
+	}
+
 	for _, table := range schemaMetadata {
 		table.deriveIndexFlags()
 	}
@@ -208,6 +221,7 @@ const tableMapQuery string = `WITH DEPENDENCIES AS (
 		c.ORDINAL_POSITION,
 		COALESCE(d.KEY_ORDINAL_POSITION, 1) AS KEY_ORDINAL_POSITION,
 		c.COLUMN_DEFAULT IS NOT NULL AS HAS_DEFAULT,
+		c.COLUMN_DEFAULT,
 		t.PARENT_TABLE_NAME IS NOT NULL AS IS_INTERLEAVED,
 		t.PARENT_TABLE_NAME,
 		t.ON_DELETE_ACTION,
@@ -243,6 +257,36 @@ const indexMapQuery string = `SELECT
 	WHERE
 		i.TABLE_SCHEMA != 'INFORMATION_SCHEMA'
 	ORDER BY i.TABLE_NAME, i.INDEX_NAME, ic.ORDINAL_POSITION`
+
+// foreignKeyMapQuery reads every foreign key whole: one row per column of the
+// constraint, in constraint order, beside the column of the referenced table's key it
+// is matched with. A constraint that references columns outside a key reads with a NULL
+// referenced table.
+const foreignKeyMapQuery string = `SELECT
+		kcu.TABLE_NAME,
+		rc.CONSTRAINT_NAME,
+		kcu.COLUMN_NAME,
+		ref.TABLE_NAME AS REFERENCED_TABLE,
+		ref.COLUMN_NAME AS REFERENCED_COLUMN,
+		rc.DELETE_RULE
+	FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+		JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+		LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ref ON ref.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME
+			AND ref.ORDINAL_POSITION = kcu.POSITION_IN_UNIQUE_CONSTRAINT
+	WHERE
+		rc.CONSTRAINT_SCHEMA != 'INFORMATION_SCHEMA'
+	ORDER BY kcu.TABLE_NAME, rc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION`
+
+func queryForeignKeySchema(ctx context.Context, db *spanner.Client) ([]foreignKeySchemaResult, error) {
+	stmt := spanner.Statement{SQL: foreignKeyMapQuery}
+
+	var result []foreignKeySchemaResult
+	if err := spxscan.Select(ctx, db.Single(), &result, stmt); err != nil {
+		return nil, errors.Wrap(err, "spxscan.Select()")
+	}
+
+	return result, nil
+}
 
 func queryInformationSchema(ctx context.Context, db *spanner.Client) ([]informationSchemaResult, error) {
 	stmt := spanner.Statement{SQL: tableMapQuery}

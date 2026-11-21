@@ -29,6 +29,7 @@ import (
 // @rpc
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type TakeMembersGroupRole struct {
 	GroupID     impulse.UUID
 	Role        string `validate:"required"`

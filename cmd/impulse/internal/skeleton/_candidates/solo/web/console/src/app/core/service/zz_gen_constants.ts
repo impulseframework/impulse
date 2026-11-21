@@ -23,6 +23,9 @@ export const Resources = {
   StaffGroupRoles: 'StaffGroupRoles' as Resource,
   StaffGroupUsers: 'StaffGroupUsers' as Resource,
   StaffGroups: 'StaffGroups' as Resource,
+  StaffHeldRoles: 'StaffHeldRoles' as Resource,
+  StaffListedGroupRoles: 'StaffListedGroupRoles' as Resource,
+  StaffListedGroups: 'StaffListedGroups' as Resource,
   StaffRoleGrants: 'StaffRoleGrants' as Resource,
   StaffRoles: 'StaffRoles' as Resource,
   StaffSessionAuthEvents: 'StaffSessionAuthEvents' as Resource,
@@ -36,6 +39,9 @@ export const Resources = {
   StaffSignInMethods: 'StaffSignInMethods' as Resource,
   StaffSignInWays: 'StaffSignInWays' as Resource,
   StaffSignUpRoles: 'StaffSignUpRoles' as Resource,
+  StaffTakeLengths: 'StaffTakeLengths' as Resource,
+  StaffTakeableRoles: 'StaffTakeableRoles' as Resource,
+  StaffTakenRoles: 'StaffTakenRoles' as Resource,
   StaffUserGroupRoles: 'StaffUserGroupRoles' as Resource,
   StaffUserRoles: 'StaffUserRoles' as Resource,
 };
@@ -63,10 +69,13 @@ export const Methods = {
   RequireStaffPasswordChange: 'RequireStaffPasswordChange' as Method,
   RevokeStaffSessionToken: 'RevokeStaffSessionToken' as Method,
   RevokeStaffUserTrustedDevices: 'RevokeStaffUserTrustedDevices' as Method,
+  SendStaffUserPasswordResetLink: 'SendStaffUserPasswordResetLink' as Method,
+  SetStaffSelfServiceReset: 'SetStaffSelfServiceReset' as Method,
   SetStaffTemporaryPassword: 'SetStaffTemporaryPassword' as Method,
   SetStaffUserEmail: 'SetStaffUserEmail' as Method,
   SetStaffUserName: 'SetStaffUserName' as Method,
   TakeStaffGroupRole: 'TakeStaffGroupRole' as Method,
+  TakeStaffRole: 'TakeStaffRole' as Method,
   UnlinkStaffSessionIdentity: 'UnlinkStaffSessionIdentity' as Method,
   UnlockStaffSignIn: 'UnlockStaffSignIn' as Method,
   WithdrawStaffInvitation: 'WithdrawStaffInvitation' as Method,
@@ -171,6 +180,87 @@ export namespace StaffGroups {
     kind: 'StaffGroups.kind' as Resource,
     name: 'StaffGroups.name' as Resource,
     updatedAt: 'StaffGroups.updatedAt' as Resource,
+  };
+}
+
+export namespace StaffHeldRoles {
+  export const fieldName = {
+    axis: 'axis' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
+    groupId: 'groupId' as FieldName,
+    groupName: 'groupName' as FieldName,
+    kind: 'kind' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    axis: 'StaffHeldRoles.axis' as Resource,
+    createdAt: 'StaffHeldRoles.createdAt' as Resource,
+    domainId: 'StaffHeldRoles.domainId' as Resource,
+    endsAt: 'StaffHeldRoles.endsAt' as Resource,
+    groupId: 'StaffHeldRoles.groupId' as Resource,
+    groupName: 'StaffHeldRoles.groupName' as Resource,
+    kind: 'StaffHeldRoles.kind' as Resource,
+    reason: 'StaffHeldRoles.reason' as Resource,
+    role: 'StaffHeldRoles.role' as Resource,
+    startsAt: 'StaffHeldRoles.startsAt' as Resource,
+    userId: 'StaffHeldRoles.userId' as Resource,
+    username: 'StaffHeldRoles.username' as Resource,
+  };
+}
+
+export namespace StaffListedGroupRoles {
+  export const fieldName = {
+    axis: 'axis' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
+    groupId: 'groupId' as FieldName,
+    kind: 'kind' as FieldName,
+    losing: 'losing' as FieldName,
+    role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+  };
+  export const resourceName = {
+    axis: 'StaffListedGroupRoles.axis' as Resource,
+    createdAt: 'StaffListedGroupRoles.createdAt' as Resource,
+    domainId: 'StaffListedGroupRoles.domainId' as Resource,
+    endsAt: 'StaffListedGroupRoles.endsAt' as Resource,
+    groupId: 'StaffListedGroupRoles.groupId' as Resource,
+    kind: 'StaffListedGroupRoles.kind' as Resource,
+    losing: 'StaffListedGroupRoles.losing' as Resource,
+    role: 'StaffListedGroupRoles.role' as Resource,
+    startsAt: 'StaffListedGroupRoles.startsAt' as Resource,
+  };
+}
+
+export namespace StaffListedGroups {
+  export const fieldName = {
+    axis: 'axis' as FieldName,
+    description: 'description' as FieldName,
+    domainId: 'domainId' as FieldName,
+    id: 'id' as FieldName,
+    kind: 'kind' as FieldName,
+    name: 'name' as FieldName,
+    people: 'people' as FieldName,
+    roles: 'roles' as FieldName,
+    updatedAt: 'updatedAt' as FieldName,
+  };
+  export const resourceName = {
+    axis: 'StaffListedGroups.axis' as Resource,
+    description: 'StaffListedGroups.description' as Resource,
+    domainId: 'StaffListedGroups.domainId' as Resource,
+    id: 'StaffListedGroups.id' as Resource,
+    kind: 'StaffListedGroups.kind' as Resource,
+    name: 'StaffListedGroups.name' as Resource,
+    people: 'StaffListedGroups.people' as Resource,
+    roles: 'StaffListedGroups.roles' as Resource,
+    updatedAt: 'StaffListedGroups.updatedAt' as Resource,
   };
 }
 
@@ -414,6 +504,7 @@ export namespace StaffSignInMethods {
     openSignUp: 'openSignUp' as FieldName,
     ownRule: 'ownRule' as FieldName,
     says: 'says' as FieldName,
+    selfServiceReset: 'selfServiceReset' as FieldName,
   };
   export const resourceName = {
     admits: 'StaffSignInMethods.admits' as Resource,
@@ -424,6 +515,7 @@ export namespace StaffSignInMethods {
     openSignUp: 'StaffSignInMethods.openSignUp' as Resource,
     ownRule: 'StaffSignInMethods.ownRule' as Resource,
     says: 'StaffSignInMethods.says' as Resource,
+    selfServiceReset: 'StaffSignInMethods.selfServiceReset' as Resource,
   };
 }
 
@@ -457,9 +549,61 @@ export namespace StaffSignUpRoles {
   };
 }
 
+export namespace StaffTakeLengths {
+  export const fieldName = {
+    minutes: 'minutes' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    minutes: 'StaffTakeLengths.minutes' as Resource,
+    name: 'StaffTakeLengths.name' as Resource,
+  };
+}
+
+export namespace StaffTakeableRoles {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    description: 'StaffTakeableRoles.description' as Resource,
+    name: 'StaffTakeableRoles.name' as Resource,
+  };
+}
+
+export namespace StaffTakenRoles {
+  export const fieldName = {
+    axis: 'axis' as FieldName,
+    domainId: 'domainId' as FieldName,
+    ended: 'ended' as FieldName,
+    endsAt: 'endsAt' as FieldName,
+    kind: 'kind' as FieldName,
+    name: 'name' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    axis: 'StaffTakenRoles.axis' as Resource,
+    domainId: 'StaffTakenRoles.domainId' as Resource,
+    ended: 'StaffTakenRoles.ended' as Resource,
+    endsAt: 'StaffTakenRoles.endsAt' as Resource,
+    kind: 'StaffTakenRoles.kind' as Resource,
+    name: 'StaffTakenRoles.name' as Resource,
+    reason: 'StaffTakenRoles.reason' as Resource,
+    role: 'StaffTakenRoles.role' as Resource,
+    startsAt: 'StaffTakenRoles.startsAt' as Resource,
+    userId: 'StaffTakenRoles.userId' as Resource,
+    username: 'StaffTakenRoles.username' as Resource,
+  };
+}
+
 export namespace StaffUserGroupRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
+    createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
     endsAt: 'endsAt' as FieldName,
     groupId: 'groupId' as FieldName,
@@ -472,6 +616,7 @@ export namespace StaffUserGroupRoles {
   };
   export const resourceName = {
     axis: 'StaffUserGroupRoles.axis' as Resource,
+    createdAt: 'StaffUserGroupRoles.createdAt' as Resource,
     domainId: 'StaffUserGroupRoles.domainId' as Resource,
     endsAt: 'StaffUserGroupRoles.endsAt' as Resource,
     groupId: 'StaffUserGroupRoles.groupId' as Resource,
@@ -491,6 +636,7 @@ export namespace StaffUserRoles {
     domainId: 'domainId' as FieldName,
     endsAt: 'endsAt' as FieldName,
     kind: 'kind' as FieldName,
+    reason: 'reason' as FieldName,
     role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
@@ -501,6 +647,7 @@ export namespace StaffUserRoles {
     domainId: 'StaffUserRoles.domainId' as Resource,
     endsAt: 'StaffUserRoles.endsAt' as Resource,
     kind: 'StaffUserRoles.kind' as Resource,
+    reason: 'StaffUserRoles.reason' as Resource,
     role: 'StaffUserRoles.role' as Resource,
     startsAt: 'StaffUserRoles.startsAt' as Resource,
     userId: 'StaffUserRoles.userId' as Resource,
@@ -524,6 +671,7 @@ export namespace AssignStaffRole {
     everyDomain: 'everyDomain' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
+    reason: 'reason' as FieldName,
   };
 }
 
@@ -670,6 +818,18 @@ export namespace RevokeStaffUserTrustedDevices {
   };
 }
 
+export namespace SendStaffUserPasswordResetLink {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+  };
+}
+
+export namespace SetStaffSelfServiceReset {
+  export const fieldName = {
+    on: 'on' as FieldName,
+  };
+}
+
 export namespace SetStaffTemporaryPassword {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -697,6 +857,14 @@ export namespace TakeStaffGroupRole {
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+  };
+}
+
+export namespace TakeStaffRole {
+  export const fieldName = {
+    role: 'role' as FieldName,
+    length: 'length' as FieldName,
+    reason: 'reason' as FieldName,
   };
 }
 

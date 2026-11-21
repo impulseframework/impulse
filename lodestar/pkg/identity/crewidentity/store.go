@@ -61,10 +61,6 @@ func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 	if change.Name != nil {
 		patch.SetName(change.Name.Name)
 	}
-	// An address entered by hand is unverified, whatever the one before it was.
-	if change.Email != nil {
-		patch.SetEmail(change.Email.Address).SetEmailVerifiedAt(nil)
-	}
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionUserUpdatePatch.Buffer()")
 	}
@@ -215,7 +211,7 @@ func (store) DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransacti
 
 func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (token *identity.Token, found bool, err error) {
 	row, err := crewresources.NewCrewSessionTokenQuery().
-		AddColumns(crewresources.NewCrewSessionTokenColumns().FamilyID().ExpiresAt().RevokedAt()).
+		AddColumns(crewresources.NewCrewSessionTokenColumns().UserID().FamilyID().ExpiresAt().RevokedAt()).
 		SetID(id).
 		Read(ctx, txn)
 	if err != nil {
@@ -226,7 +222,7 @@ func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id im
 		return nil, false, errors.Wrap(err, "crewresources.CrewSessionTokenQuery.Read()")
 	}
 
-	return &identity.Token{FamilyID: row.Data.FamilyID, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
+	return &identity.Token{UserID: row.Data.UserID, FamilyID: row.Data.FamilyID, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
 }
 
 func (store) FamilyTokens(ctx context.Context, txn resource.ReadWriteTransaction, family impulse.UUID) ([]impulse.UUID, error) {
@@ -326,6 +322,24 @@ func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTran
 	}
 
 	return id, found, nil
+}
+
+func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error) {
+	// A read that goes past the declarations, as UserByVerifiedEmail's is: an address
+	// nobody confirmed is no address to mail a person at, so it is not answered.
+	stmt := spanner.Statement{
+		SQL:    "SELECT Email FROM CrewSessionUsers WHERE Id = @id AND Email IS NOT NULL AND EmailVerifiedAt IS NOT NULL",
+		Params: map[string]any{"id": id.String()},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		found = true
+
+		return row.Column(0, &email)
+	}); err != nil {
+		return "", false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return email, found, nil
 }
 
 func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -683,21 +697,26 @@ func (store) InvitedTenants(ctx context.Context, reader resource.ReadOnlyTransac
 
 func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {
 	query := crewresources.NewCrewSessionSignInMethodQuery().
-		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name().OpenSignUp().OpenedFor().DefaultRole())
+		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name().OpenSignUp().OpenedFor().DefaultRole().SelfServiceReset())
 	var rows []identity.SignInMethodRow
 	for row, err := range query.List(ctx, reader) {
 		if err != nil {
 			return nil, errors.Wrap(err, "crewresources.CrewSessionSignInMethodQuery.List()")
 		}
-		rows = append(rows, identity.SignInMethodRow{Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole})
+		rows = append(rows, identity.SignInMethodRow{
+			Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole,
+			SelfServiceReset: row.Data.SelfServiceReset,
+		})
 	}
 
 	return rows, nil
 }
 
 func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {
-	// The row is written whole: created where the method has none, replaced where it
-	// has one, which is read in the transaction. Either write leaves its change event
+	// Who may sign up is written whole: the row is created where the method has none,
+	// and the three columns of the choice are replaced where it has one, which is read
+	// in the transaction. Whether people reset their own password is not this write's
+	// and stands as it is (SetSelfServiceReset). Either write leaves its change event
 	// under the caller, the record of who made the choice and when.
 	_, err := crewresources.NewCrewSessionSignInMethodQuery().
 		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name()).
@@ -717,6 +736,33 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	patch := crewresources.NewCrewSessionSignInMethodCreatePatch(row.Name).
 		SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, name string, on bool) error {
+	// The one field is written, and what else the row says is left as it stands: a
+	// method with no row gets one that is invite only. Either write leaves its change
+	// event under the caller, the record of who made the choice and when.
+	_, err := crewresources.NewCrewSessionSignInMethodQuery().
+		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name()).
+		SetName(name).
+		Read(ctx, txn)
+	switch {
+	case err == nil:
+		patch := crewresources.NewCrewSessionSignInMethodUpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "crewresources.CrewSessionSignInMethodUpdatePatch.Buffer()")
+		}
+
+		return nil
+	case !httpio.HasNotFound(err):
+		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodQuery.Read()")
+	}
+	patch := crewresources.NewCrewSessionSignInMethodCreatePatch(name).SetOpenSignUp(false).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
 	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodCreatePatch.Buffer()")
 	}
@@ -1098,12 +1144,17 @@ func storedPeriod(start, end *time.Time) accesstypes.Period {
 	return period
 }
 
-// SetMembershipPeriod writes both columns, an absent start or end as NULL: the period
-// handed replaces the one the membership had.
-func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error {
+// SetMembershipPeriod writes both columns of the period and the reason, an absent start
+// or end and an empty reason as NULL: what is handed replaces what the membership had.
+func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period, reason string) error {
+	var why *string
+	if reason != "" {
+		why = &reason
+	}
 	patch := crewresources.NewCrewUserRoleUpdatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User)).
 		SetStartsAt(period.StartPtr()).
-		SetEndsAt(period.EndPtr())
+		SetEndsAt(period.EndPtr()).
+		SetReason(why)
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "crewresources.CrewUserRoleUpdatePatch.Buffer()")
 	}
@@ -1112,10 +1163,14 @@ func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTran
 }
 
 func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*identity.UserPeriods, error) {
-	periods := &identity.UserPeriods{Memberships: map[access.MembershipKey]accesstypes.Period{}, Places: map[access.GroupMemberKey]accesstypes.Period{}}
+	periods := &identity.UserPeriods{
+		Memberships: map[access.MembershipKey]accesstypes.Period{},
+		Places:      map[access.GroupMemberKey]accesstypes.Period{},
+		Reasons:     map[access.MembershipKey]string{},
+	}
 	// The table's index by user leads with the person, the id of their account.
 	memberships := crewresources.NewCrewUserRoleQuery().
-		AddColumns(crewresources.NewCrewUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt()).
+		AddColumns(crewresources.NewCrewUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt().Reason()).
 		Where(crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String()))
 	for row, err := range memberships.List(ctx, txn) {
 		if err != nil {
@@ -1123,6 +1178,9 @@ func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, 
 		}
 		key := access.MembershipKey{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role), User: accesstypes.User(row.Data.UserID)}
 		periods.Memberships[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+		if row.Data.Reason != nil && *row.Data.Reason != "" {
+			periods.Reasons[key] = *row.Data.Reason
+		}
 	}
 	places := crewresources.NewCrewGroupMemberQuery().
 		AddColumns(crewresources.NewCrewGroupMemberColumns().GroupID().UserID().StartsAt().EndsAt()).

@@ -127,13 +127,14 @@ func TestManager_InviteTenant(t *testing.T) {
 			wantAsked: 1,
 		},
 		{
-			name:   "a starting role the sender may not give is refused, naming it",
+			name:   "a starting role the sender may not give is refused in one sentence that names it, and the log keeps the advice",
 			inv:    TenantInvitation{Email: "pat@example.com", TenantName: "Dawn", Fields: fields, DefaultRole: ptr("Keeper")},
 			caller: dana,
 			maker:  &fakeMaker{seats: true},
 			grants: &fakeGrants{noGive: []accesstypes.Role{"Keeper"}},
 			wantErr: func(err error) bool {
-				return httpio.HasForbidden(err) && strings.Contains(httpio.Message(err), "Keeper")
+				return httpio.HasForbidden(err) && strings.Contains(err.Error(), "name a role you may give, or none") &&
+					httpio.Message(err) == "The people of the new tenant's directory would start with the role Keeper, which you may not give."
 			},
 			wantAsked: 1,
 		},
@@ -449,6 +450,13 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 				t.Fatalf("acceptTenantInvitation() error = %v", err)
 			case domain != madeTenant:
 				t.Errorf("acceptTenantInvitation() = %q, want the tenant the maker made", domain)
+			}
+			wantSaid := ""
+			if tt.wantErr == nil {
+				wantSaid = string(madeTenant)
+			}
+			if tt.inv.MadeTenantID != wantSaid {
+				t.Errorf("the invitation's MadeTenantID = %q, want %q: the acceptance tells the session library the tenant it made, and names none when it made none", tt.inv.MadeTenantID, wantSaid)
 			}
 			if diff := cmp.Diff(tt.wantMade, tt.maker.made); diff != "" {
 				t.Errorf("the maker was asked (-want +got):\n%s", diff)

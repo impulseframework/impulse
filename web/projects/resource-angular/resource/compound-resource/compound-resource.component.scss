@@ -1,25 +1,49 @@
+@use '../../styles/headings';
+
 .page-container {
   position: relative;
 }
 
+// The title where the page draws it itself: a page that draws no view of its row, or one
+// whose row view is folded into a panel. It is in the page's flow, as the heading row of a
+// row's view is: it takes its own room, and what follows starts under it however many
+// lines it takes. It is never laid over what follows. How the row is positioned is the
+// library's rule for every heading row (`.header-container` in the library's styles), by
+// the application's switch for sticky headers: off, the row scrolls away with the page;
+// on, it stays at the top of what scrolls, which is what `top` and `z-index` are for here,
+// as on the heading row of a view, a list and a create form, and it covers what scrolls
+// under it, as the title row of a list does.
 .header-container {
+  @include headings.covers;
   display: flex;
   flex-direction: row;
-  position: absolute;
+  max-width: 100%;
   top: 0;
   z-index: 11;
-  background: transparent;
 }
 
 .title {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+  min-width: 0;
+
+  // The row is as tall as the title and no margin of it: a heading's own margins, the
+  // browser's, would add to a row that is as tall as it needs.
+  h1 {
+    @include headings.page-title;
+    margin: 0;
+
+    &.impulse-section {
+      @include headings.section-title;
+    }
+  }
 }
 
+// The title keeps the place it had, 48 pixels in from the page's start, in a row at least
+// as tall as the 48 pixels it was laid over; a title of two lines makes the row taller.
 .title-without-back {
   margin-left: 48px;
-  height: 48px;
+  min-height: 48px;
 }
 
 .message {
@@ -74,6 +98,8 @@
   }
 }
 
+// The room a page with no form of its own and no title leaves above what it holds. A
+// page that draws its title needs none: the title takes its own room.
 .empty-elements {
   padding-top: 30px;
 }

@@ -25,7 +25,8 @@ type MethodList struct {
 	Methods []AdvertisedMethod
 	// Pending are the paths of the pending sign-in handlers (Pending().Status(),
 	// ConfirmWithPassword() and Cancel()), all three or none. The page needs them once a
-	// sign-in waits for a confirmation or the application's MFA step.
+	// sign-in waits for a confirmation or the application's MFA step. A list of an Auth
+	// that registers no password method may leave Confirm out: see PendingRoutes.
 	Pending PendingRoutes
 	// ChangePassword is the path of the password method's ChangeUserPassword handler,
 	// which the page needs when a sign-in finds the user must change a password an
@@ -73,6 +74,21 @@ type MethodList struct {
 	// is told them only while an administrator has the password method open to
 	// sign-up, which the answer reads as each request arrives.
 	SignUp SignUpRoutes
+	// PasswordReset are the paths of the password reset handlers
+	// (PasswordReset().Request(), Open() and Complete()), all three or none; they need
+	// the password method listed. The page is always told Open and Complete, where a
+	// link an administrator sent is followed, and is told Request, behind its "Forgot
+	// your password?", only while an administrator has self-service reset turned on,
+	// which the answer reads as each request arrives.
+	PasswordReset PasswordResetRoutes
+}
+
+// PasswordResetRoutes are the paths of the password reset handlers, as a MethodList
+// names them.
+type PasswordResetRoutes struct {
+	Request  string
+	Open     string
+	Complete string
 }
 
 // InvitationRoutes are the paths of the invitation handlers, as a MethodList names
@@ -83,10 +99,14 @@ type InvitationRoutes struct {
 	SignUp string
 }
 
-// EmailRoutes are the paths of the email address handlers, as a MethodList names them.
+// EmailRoutes are the paths of the email address handlers, as a MethodList names them:
+// Add and Verify, a signed-in person's own change, both or none, and Confirm, where the
+// reader of an address an administrator asked to put on an account confirms it, which
+// goes with them or is left out.
 type EmailRoutes struct {
-	Add    string
-	Verify string
+	Add     string
+	Verify  string
+	Confirm string
 }
 
 // FirstPasswordRoutes are the paths of the first password handlers, as a MethodList
@@ -119,6 +139,15 @@ type AdvertisedMethod struct {
 // them: Status, Confirm and Cancel together, and the email code's SendCode, VerifyCode
 // and EnrollEmail together or not at all, which the page needs when a sign-in waits
 // for the library's second factor (see "The second factor" in the README).
+//
+// Confirm is where a person whose sign-in matched an account with a password enters
+// that password. Every list of an Auth that registers the password method names it, a
+// list that does not offer the method among them: the person may come through any
+// method the Auth registers, and the page they came in by takes the confirmation. An
+// Auth that registers no password method asks for none (a password an account holds
+// there holds no sign-in), so its lists may leave Confirm out: the application then
+// mounts no ConfirmWithPassword() handler, and the page is told of none and offers no
+// password confirmation.
 type PendingRoutes struct {
 	Status      string
 	Confirm     string
@@ -145,6 +174,18 @@ type methodsAnswer struct {
 	Invitation      *invitationAnswer `json:"invitation,omitempty"`
 	Email           *emailAnswer      `json:"email,omitempty"`
 	SignUp          *signUpAnswer     `json:"signUp,omitempty"`
+	// PasswordReset is the password reset block: where a reset link is followed, and,
+	// while self-service reset is on, where a person asks for one.
+	PasswordReset *passwordResetRoutesAnswer `json:"passwordReset,omitempty"`
+}
+
+// passwordResetRoutesAnswer is the password reset block of a methods answer. Request is
+// absent while an administrator has not turned self-service reset on, and the page then
+// offers no "Forgot your password?".
+type passwordResetRoutesAnswer struct {
+	Request  string `json:"request,omitempty"`
+	Open     string `json:"open"`
+	Complete string `json:"complete"`
 }
 
 // invitationAnswer is the invitation block of a methods answer.
@@ -192,8 +233,9 @@ type firstPasswordAnswer struct {
 
 // emailAnswer is the email block of a methods answer.
 type emailAnswer struct {
-	Add    string `json:"add"`
-	Verify string `json:"verify"`
+	Add     string `json:"add"`
+	Verify  string `json:"verify"`
+	Confirm string `json:"confirm,omitempty"`
 }
 
 // signUpAnswer is the sign-up block of a methods answer.
@@ -206,7 +248,7 @@ type signUpAnswer struct {
 // pendingAnswer is the pending block of a methods answer.
 type pendingAnswer struct {
 	Status      string `json:"status"`
-	Confirm     string `json:"confirm"`
+	Confirm     string `json:"confirm,omitempty"`
 	Cancel      string `json:"cancel"`
 	SendCode    string `json:"sendCode,omitempty"`
 	VerifyCode  string `json:"verifyCode,omitempty"`
@@ -247,13 +289,14 @@ type pendingAnswer struct {
 // panics on a wiring mistake, the way a registration does: an empty list, a method
 // that is not registered on this Auth, a name listed twice, a method without a label
 // or with a path that is not a canonical path in the application, a pending block
-// with some of its paths, the password method without the password change route, or
-// that route or the remove-password route without the password method.
+// with some of its paths (a list of an Auth that registers no password method may
+// leave the confirm path out), the password method without the password change
+// route, or that route or the remove-password route without the password method.
 func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 	answer := a.advertise(list)
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		if answer.Invitation == nil && answer.SignUp == nil {
+		if answer.Invitation == nil && answer.SignUp == nil && answer.PasswordReset == nil {
 			return httpio.NewEncoder(w).Ok(answer)
 		}
 
@@ -267,6 +310,13 @@ func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 			now = answer.withSignUp(open)
+		}
+		if answer.PasswordReset != nil {
+			open, err := a.selfServiceResetOpen(ctx)
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+			now = now.withOwnReset(open)
 		}
 		if now.Invitation == nil {
 			return httpio.NewEncoder(w).Ok(now)
@@ -289,6 +339,21 @@ func (m *methodsAnswer) withSignUp(open bool) *methodsAnswer {
 	}
 	answer := *m
 	answer.SignUp = nil
+
+	return &answer
+}
+
+// withOwnReset is the answer as a page reads it now: with the path a person asks for
+// their own reset link at while self-service reset is on, and without it, as a copy,
+// while it is off. The paths a link is followed at stay either way.
+func (m *methodsAnswer) withOwnReset(open bool) *methodsAnswer {
+	if open {
+		return m
+	}
+	answer := *m
+	reset := *m.PasswordReset
+	reset.Request = ""
+	answer.PasswordReset = &reset
 
 	return &answer
 }
@@ -395,7 +460,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	}
 	a.methods.lists = append(a.methods.lists, listing)
 	passwordListed := seen[string(sessioninfo.MethodPassword)]
-	answer.Pending = pendingAnswerOf(&list.Pending)
+	answer.Pending = pendingAnswerOf(&list.Pending, a.methods.passwordRegistered())
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)
 	answer.RemovePassword = removePasswordPathOf(list, passwordListed)
 	answer.FirstPassword = firstPasswordAnswerOf(list.FirstPassword, passwordListed)
@@ -407,8 +472,25 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.Invitation = invitationAnswerOf(list.Invitation, passwordListed)
 	answer.Email = emailAnswerOf(list.Email)
 	answer.SignUp = signUpAnswerOf(list.SignUp, passwordListed)
+	answer.PasswordReset = passwordResetAnswerOf(list.PasswordReset, passwordListed)
 
 	return answer
+}
+
+// passwordResetAnswerOf validates the password reset routes: none, or all three as
+// canonical paths with the password method listed.
+func passwordResetAnswerOf(p PasswordResetRoutes, passwordListed bool) *passwordResetRoutesAnswer {
+	if p == (PasswordResetRoutes{}) {
+		return nil
+	}
+	if !advertisedPath(p.Request) || !advertisedPath(p.Open) || !advertisedPath(p.Complete) {
+		panic("session: Methods names some of the password reset routes: name all three (PasswordReset().Request(), Open() and Complete()), each a canonical path in the application, or none")
+	}
+	if !passwordListed {
+		panic("session: Methods names the password reset routes without the password method: a reset chooses a new password, so list the password method or drop the routes")
+	}
+
+	return &passwordResetRoutesAnswer{Request: p.Request, Open: p.Open, Complete: p.Complete}
 }
 
 // invitationAnswerOf validates the invitation routes: none, or open and accept as
@@ -436,11 +518,12 @@ func emailAnswerOf(p EmailRoutes) *emailAnswer {
 	if p == (EmailRoutes{}) {
 		return nil
 	}
-	if !advertisedPath(p.Add) || !advertisedPath(p.Verify) {
-		panic(fmt.Sprintf("session: Methods is given the email routes %+v: name the add and verify paths together, each a canonical path in the application", p))
+	if !advertisedPath(p.Add) || !advertisedPath(p.Verify) || (p.Confirm != "" && !advertisedPath(p.Confirm)) {
+		panic(fmt.Sprintf("session: Methods is given the email routes %+v: name the add and verify paths together, and the confirm path with them or not at all, "+
+			"each a canonical path in the application", p))
 	}
 
-	return &emailAnswer{Add: p.Add, Verify: p.Verify}
+	return &emailAnswer{Add: p.Add, Verify: p.Verify, Confirm: p.Confirm}
 }
 
 // signUpAnswerOf validates the sign-up routes: none, or all three as canonical paths,
@@ -550,13 +633,28 @@ func forgetBrowserPathOf(list *MethodList) string {
 }
 
 // pendingAnswerOf validates the pending routes: none, or all three as canonical paths.
-func pendingAnswerOf(p *PendingRoutes) *pendingAnswer {
+// What decides the confirm path is whether the Auth registers the password method
+// (passwordRegistered), which is what the sign-in rule asks too, not whether this list
+// offers it: where the method is registered, a sign-in through any method may wait for
+// a password, so every list names the confirm path. The list of an Auth that registers
+// no password method may leave it out, since no sign-in there waits for a password: it
+// then names the status and cancel paths, and the answer carries no confirm path.
+func pendingAnswerOf(p *PendingRoutes, passwordRegistered bool) *pendingAnswer {
 	if *p == (PendingRoutes{}) {
 		return nil
 	}
-	for _, path := range []string{p.Status, p.Confirm, p.Cancel} {
+	paths, named := []string{p.Status, p.Confirm, p.Cancel}, "the status, confirm and cancel paths together, each a canonical path in the application, or none"
+	switch {
+	case passwordRegistered:
+		named += " (this Auth registers the password method, so a sign-in through any of its methods may wait for a password: " +
+			"a list that does not offer the password method names the confirm path too)"
+	case p.Confirm == "":
+		paths, named = []string{p.Status, p.Cancel}, "the status and cancel paths together, each a canonical path in the application, or none "+
+			"(this Auth registers no password method, so the list may leave the confirm path out, as it does)"
+	}
+	for _, path := range paths {
 		if !advertisedPath(path) {
-			panic(fmt.Sprintf("session: Methods is given the pending routes %+v: name the status, confirm and cancel paths together, each a canonical path in the application, or none", p))
+			panic(fmt.Sprintf("session: Methods is given the pending routes %+v: name %s", p, named))
 		}
 	}
 	if p.SendCode != "" || p.VerifyCode != "" || p.EnrollEmail != "" {

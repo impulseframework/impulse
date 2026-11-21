@@ -92,6 +92,12 @@ const (
 	TruffleHog = "3.95.7"
 )
 
+// BedrockModule is the Go module the migrations job runs bedrock from, at the version the
+// application's placement pins: the path bedrock's own go.mod declares, and so the one go
+// run resolves it by. bedrock is a module of its own repository, not a package of this
+// one, so the path is never one under this module's.
+const BedrockModule = "github.com/impulseframework/bedrock"
+
 // FixedChecks are the job ids every application's workflow carries, in the file's order
 // with the Go legs and the browser jobs left out (the legs precede go, the gate over them;
 // the browser jobs follow go and are per application, and web, the gate over them,
@@ -349,6 +355,8 @@ type data struct {
 	Semgrep       string
 	SemgrepDigest string
 	TruffleHog    string
+	// BedrockModule is the module the migrations job runs bedrock from.
+	BedrockModule string
 	// ScanSchedule and ScanIssueTitle are the security scan's cron line and the title of
 	// the issue it reports to.
 	ScanSchedule   string
@@ -419,6 +427,7 @@ func render(a *app.App, file string) ([]byte, error) {
 		Semgrep:        Semgrep,
 		SemgrepDigest:  SemgrepDigest,
 		TruffleHog:     TruffleHog,
+		BedrockModule:  BedrockModule,
 		ScanSchedule:   ScanSchedule,
 		ScanIssueTitle: ScanIssueTitle,
 		Programs:       programs(a),

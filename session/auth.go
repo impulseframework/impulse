@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -275,10 +276,6 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// anything: with directories it decides a first link made on a name alone. Set
 	// with them.
 	directoryOnlyIn signinflow.OnlyInTenant[Tx]
-	// directorySeeded reports whether an account is the deployment's own seed for a
-	// registration, nil where the application named none
-	// (DirectorySeatedHook.Seeded).
-	directorySeeded signinflow.SeededAccount
 	// signUpSeated gives a person who signed up through an open method the method's
 	// default role, nil for none.
 	signUpSeated signinflow.SignUpSeater[Tx]
@@ -287,6 +284,9 @@ type Auth[SessionData, UserData, Tx any] struct {
 	tenantNames TenantNamer
 	// methods are the registered sign-in methods. Read them through registered.
 	methods signInMethods[Tx]
+	// background counts the work the Auth does once a request is answered (later),
+	// which AuthAPI.WaitForMail waits for.
+	background sync.WaitGroup
 }
 
 // SuperAdministrators is what NewAuth is told about the holders of the Super
@@ -442,7 +442,8 @@ type authCookies struct {
 
 // newAuthCookies builds the clients of the pending, invitation and trusted device
 // cookies under the session's cookie key and options, refusing a name that is empty
-// or that another of the four cookies has.
+// or that another of the four cookies has, or that the invitation cookie's companion
+// takes (seatedCookie).
 func newAuthCookies(cookieKey, sessionCookie string, opts []internalcookie.Option, settings *authSettings) (*authCookies, error) {
 	names := []struct {
 		what, name string
@@ -463,6 +464,14 @@ func newAuthCookies(cookieKey, sessionCookie string, opts []internalcookie.Optio
 			return nil, errors.Wrap(err, "cookie.NewCookieClient()")
 		}
 		clients = append(clients, client)
+	}
+	// The tenant an accepted invitation leads to rides in a cookie named after the
+	// invitation cookie (seatedCookie), which no other cookie may be named.
+	if seated := settings.invitationCookie + seatedCookieSuffix; taken[seated] {
+		return nil, errors.Newf(
+			"the cookie name %q is the one the invitation cookie %q keeps for the tenant an accepted invitation leads to: give the other cookie another name",
+			seated, settings.invitationCookie,
+		)
 	}
 
 	return &authCookies{pending: clients[0], invitation: clients[1], trusted: clients[2]}, nil
@@ -568,6 +577,13 @@ func (a *Auth[SessionData, UserData, Tx]) SetUserRenamed(hook UserRenamedHook) {
 // buffered in it and is not readable until the commit, so the hook writes under the id
 // it is given and looks nobody up.
 //
+// For an invitation that makes a tenant (inv.NewTenant), the hook makes the tenant and
+// seats the user in it, and sets inv.MadeTenantID to the key of the tenant it made,
+// each time it runs. The library reads the field once the acceptance has committed,
+// and the application opens for the person in that tenant, as it opens in the tenant
+// an invitation names (Authenticated's invitedTenant). A hook that leaves it empty
+// lands the person as any sign-in does.
+//
 // The hook reads and writes through tx alone. The Spanner emulator allows one
 // read-write transaction at a time, so a second transaction, or a read through another
 // client, inside the hook waits on the transaction the hook runs in and never returns.
@@ -604,7 +620,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 }
 
 // Authenticated answers {"authenticated", "username", "name", "look",
-// "passwordChangeRequired", "email", "emailVerified", "emailHint", "impersonation"}. A session whose user is
+// "passwordChangeRequired", "email", "emailVerified", "emailHint", "invitedTenant", "impersonation"}. A session whose user is
 // missing or disabled is reported as not authenticated. passwordChangeRequired is set
 // while the user must change a password an operator set (see "Users and the forced
 // password change" in the README): the session read is answered under the mark, so the
@@ -621,6 +637,11 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 // tenant by its tenant id), present for a sign-in through one and absent for a
 // password, for a personal account, which is no organization's directory, and for an
 // impersonated session: what a page offers the person to make a tenant's directory.
+// invitedTenant is the tenant an invitation the person has just accepted seated them
+// in, by this sign-in or by hand since, the tenant the invitation names or the one its
+// acceptance made: present on the first session read after the acceptance and on no
+// later one, and never on an impersonated session. It is where the application opens
+// for the person, whatever else they hold.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 	type directory struct {
 		Method     sessioninfo.AuthMethod `json:"method"`
@@ -643,6 +664,9 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 		// Directory is the organization's directory the session was established
 		// through, nil for any other session.
 		Directory *directory `json:"directory,omitempty"`
+		// InvitedTenant is the tenant an invitation the person has just accepted seated
+		// them in, told once (takeSeated).
+		InvitedTenant string `json:"invitedTenant,omitempty"`
 	}
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -666,6 +690,10 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 				through = &directory{Method: d.Method, Connection: d.Connection}
 			}
 		}
+		var invited string
+		if imp == nil && user != nil {
+			invited = a.takeSeated(w, r, user.ID)
+		}
 
 		return httpio.NewEncoder(w).Ok(response{
 			Authenticated:          true,
@@ -679,6 +707,7 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 			Impersonation:          basesession.NewImpersonationResponse(imp),
 			BrowserRemembered:      imp == nil && user != nil && browserRemembered(ctx, user.ID),
 			Directory:              through,
+			InvitedTenant:          invited,
 		})
 	}))
 }
@@ -774,24 +803,12 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 // the directory of the one tenant the person belongs to, which is given nothing the
 // tenant's own administrators could not give, or by a sign-in that carries the person's
 // own invitation; any other sign-in under the name is refused as a person no account
-// was created for is.
-//
-// Seeded is optional and reports whether the account with this id and username is the
-// one the deployment's own seed created for a person who signs in through the
-// registration named: the first administrator of an Auth whose people sign in through
-// a directory, who holds roles for the whole application and belongs to no tenant, so
-// no tenant's directory vouches for them. The seed creates the account under
-// SeedUserIDThrough, and the function answers by that id, which no request can give an
-// account. Such an account is linked on its name at its person's first sign-in through
-// that registration, where the registration admits one organization and nobody else
-// (signin.Audience.OneOrganization) and the account is not disabled; through any other
-// registration, or a wider one, the name links nothing. Nil
-// recognizes no account, and a seeded first administrator is then held to the rule
-// every account created ahead is.
+// was created for is. The deployment's own first administrator, who belongs to no
+// tenant, is no such account: the deployment invites the person
+// (AuthAPI.InviteFirstAdministrator), and their invitation is what vouches.
 type DirectorySeatedHook[Tx any] struct {
 	Seat   func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
 	OnlyIn func(ctx context.Context, tx Tx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
-	Seeded func(userID impulse.UUID, username, registration string) bool
 }
 
 // SetDirectoryAdmission sets what a tenanted application gives a person's first
@@ -808,10 +825,7 @@ type DirectorySeatedHook[Tx any] struct {
 // in (an account an administrator created ahead) is tied to the sign-in by nothing but
 // the name the directory asserts, so the identity is linked only when the directory is
 // that of the one tenant the person belongs to, holding a role there and nothing
-// anywhere else (hook.OnlyIn), or the sign-in carries the person's own invitation, or
-// the account is the deployment's own seed for the registration the sign-in came
-// through and that registration admits one organization alone (hook.Seeded, the first
-// administrator of an Auth whose people sign in through a directory); any
+// anywhere else (hook.OnlyIn), or the sign-in carries the person's own invitation; any
 // other sign-in under the name is refused as a stranger is, and says nothing of the
 // account. A directory no tenant declares, and a personal
 // account, which is no organization's directory (signin.Directory.PersonalAccounts),
@@ -835,7 +849,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.Di
 	if a.directories != nil {
 		panic("session: the directory admission was set twice: one Auth has one")
 	}
-	a.directories, a.directorySeated, a.directoryOnlyIn, a.directorySeeded = reader, hook.Seat, hook.OnlyIn, hook.Seeded
+	a.directories, a.directorySeated, a.directoryOnlyIn = reader, hook.Seat, hook.OnlyIn
 }
 
 // SignUpSeatedHook is the application's half of a sign-up through a method an
@@ -988,9 +1002,9 @@ func (h *PendingHandlers) SendCode() http.HandlerFunc {
 // next sign-ins skip the factor. It answers as the password login does:
 // {"mfaIsRequired": false}, or the policy's next wait. A wrong code is 401 with
 // {"code": "invalid_code"} and the code stands with one fewer attempt; a code entered
-// while none stands, because none was sent or the one sent expired, was used or took
-// its last attempt, is 401 with {"code": "code_expired"}, and the page asks for a new
-// one. Route it as SendCode.
+// while none stands, because none was sent or the one sent expired, was used, took its
+// last attempt or was mailed to an address the account no longer holds, is 401 with
+// {"code": "code_expired"}, and the page asks for a new one. Route it as SendCode.
 func (h *PendingHandlers) VerifyCode() http.HandlerFunc {
 	h.requireMail("Pending().VerifyCode()")
 

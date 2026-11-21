@@ -25,11 +25,12 @@ func (StaffSessionSignInMethod) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; staffSessionSignInMethodReadSets holds one Set per read operation.
 type staffSessionSignInMethodRead struct {
-	Name        string    `json:"name"        perm:"-"`
-	OpenSignUp  bool      `json:"openSignUp"`
-	OpenedFor   *string   `json:"openedFor"`
-	DefaultRole *string   `json:"defaultRole"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	Name             string    `json:"name"             perm:"-"`
+	OpenSignUp       bool      `json:"openSignUp"`
+	OpenedFor        *string   `json:"openedFor"`
+	DefaultRole      *string   `json:"defaultRole"`
+	SelfServiceReset bool      `json:"selfServiceReset"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 var staffSessionSignInMethodReadSets resource.SetCache[StaffSessionSignInMethod, staffSessionSignInMethodRead]
@@ -38,11 +39,12 @@ var staffSessionSignInMethodReadSets resource.SetCache[StaffSessionSignInMethod,
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; staffSessionSignInMethodWriteSets holds one Set per mutation.
 type staffSessionSignInMethodWrite struct {
-	Name        string    `json:"-"`
-	OpenSignUp  bool      `json:"openSignUp"`
-	OpenedFor   *string   `json:"openedFor"`
-	DefaultRole *string   `json:"defaultRole"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	Name             string    `json:"-"`
+	OpenSignUp       bool      `json:"openSignUp"`
+	OpenedFor        *string   `json:"openedFor"`
+	DefaultRole      *string   `json:"defaultRole"`
+	SelfServiceReset bool      `json:"selfServiceReset"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 var staffSessionSignInMethodWriteSets resource.SetCache[StaffSessionSignInMethod, staffSessionSignInMethodWrite]
@@ -155,6 +157,7 @@ func (c *StaffSessionSignInMethodColumns) All() *StaffSessionSignInMethodColumns
 		"OpenSignUp",
 		"OpenedFor",
 		"DefaultRole",
+		"SelfServiceReset",
 		"UpdatedAt",
 	}
 
@@ -181,6 +184,12 @@ func (c *StaffSessionSignInMethodColumns) OpenedFor() *StaffSessionSignInMethodC
 
 func (c *StaffSessionSignInMethodColumns) DefaultRole() *StaffSessionSignInMethodColumns {
 	c.fields = append(c.fields, "DefaultRole")
+
+	return c
+}
+
+func (c *StaffSessionSignInMethodColumns) SelfServiceReset() *StaffSessionSignInMethodColumns {
+	c.fields = append(c.fields, "SelfServiceReset")
 
 	return c
 }
@@ -287,6 +296,10 @@ func (c *staffSessionSignInMethodSort) OpenedFor() *StaffSessionSignInMethodSort
 
 func (c *staffSessionSignInMethodSort) DefaultRole() *StaffSessionSignInMethodSort {
 	return c.addField("DefaultRole")
+}
+
+func (c *staffSessionSignInMethodSort) SelfServiceReset() *StaffSessionSignInMethodSort {
+	return c.addField("SelfServiceReset")
 }
 
 func (c *staffSessionSignInMethodSort) UpdatedAt() *StaffSessionSignInMethodSort {
@@ -444,6 +457,22 @@ func (p *StaffSessionSignInMethodCreatePatch) DefaultRole() *string {
 
 func (p *StaffSessionSignInMethodCreatePatch) DefaultRoleIsSet() bool {
 	return p.patchSet.IsSet("DefaultRole")
+}
+
+func (p *StaffSessionSignInMethodCreatePatch) SetSelfServiceReset(v bool) *StaffSessionSignInMethodCreatePatch {
+	p.patchSet.Set("SelfServiceReset", v)
+
+	return p
+}
+
+func (p *StaffSessionSignInMethodCreatePatch) SelfServiceReset() bool {
+	v, _ := p.patchSet.Get("SelfServiceReset").(bool)
+
+	return v
+}
+
+func (p *StaffSessionSignInMethodCreatePatch) SelfServiceResetIsSet() bool {
+	return p.patchSet.IsSet("SelfServiceReset")
 }
 
 func (p *StaffSessionSignInMethodCreatePatch) SetUpdatedAt(v time.Time) *StaffSessionSignInMethodCreatePatch {
@@ -608,6 +637,22 @@ func (p *StaffSessionSignInMethodUpdatePatch) DefaultRole() *string {
 
 func (p *StaffSessionSignInMethodUpdatePatch) DefaultRoleIsSet() bool {
 	return p.patchSet.IsSet("DefaultRole")
+}
+
+func (p *StaffSessionSignInMethodUpdatePatch) SetSelfServiceReset(v bool) *StaffSessionSignInMethodUpdatePatch {
+	p.patchSet.Set("SelfServiceReset", v)
+
+	return p
+}
+
+func (p *StaffSessionSignInMethodUpdatePatch) SelfServiceReset() bool {
+	v, _ := p.patchSet.Get("SelfServiceReset").(bool)
+
+	return v
+}
+
+func (p *StaffSessionSignInMethodUpdatePatch) SelfServiceResetIsSet() bool {
+	return p.patchSet.IsSet("SelfServiceReset")
 }
 
 func (p *StaffSessionSignInMethodUpdatePatch) SetUpdatedAt(v time.Time) *StaffSessionSignInMethodUpdatePatch {

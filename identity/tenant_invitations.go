@@ -222,6 +222,9 @@ func (m *Manager) InviteTenant(ctx context.Context, txn resource.ReadWriteTransa
 		return impulse.NilUUID, errors.Wrap(err, "identity.SessionAPI.PrepareInvitation()")
 	}
 	row := prepared.Row()
+	if err := m.refuseImpersonatorsAddress(ctx, txn, row.Email); err != nil {
+		return impulse.NilUUID, err
+	}
 	if err := m.refuseInvitedWithATenant(ctx, txn, row.Email); err != nil {
 		return impulse.NilUUID, err
 	}
@@ -319,7 +322,9 @@ func (m *Manager) startingRole(ctx context.Context, txn resource.ReadWriteTransa
 // mayStartWith answers whether the request's caller could give the role to a person in
 // a tenant, nil when they could. A call outside any request is the application's own
 // act and is not judged; a request that reaches a manager built without the grants
-// cannot be judged, which is an error and never a pass.
+// cannot be judged, which is an error and never a pass. A caller who could not is told
+// so in one sentence that names the role in words (roleInWords); the role's code name
+// and the advice are the refusal's cause, kept for the server's log.
 func (m *Manager) mayStartWith(ctx context.Context, txn resource.ReadWriteTransaction, role accesstypes.Role) error {
 	if resource.CallerFrom(ctx).IsZero() {
 		return nil
@@ -337,7 +342,10 @@ func (m *Manager) mayStartWith(ctx context.Context, txn resource.ReadWriteTransa
 		return errors.Wrap(err, "identity.RoleGrants.MayGive()")
 	}
 	if !may {
-		return httpio.NewForbiddenMessagef("the people of the new %s's directory would start with the role %s, which you may not give: name a role you may give, or none", m.tenantWord, string(role))
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf("the people of the new %s's directory would start with the role %s, which you may not give: name a role you may give, or none", m.tenantWord, string(role)),
+			fmt.Sprintf("The people of the new %s's directory would start with the role %s, which you may not give.", m.tenantWord, roleInWords(role)),
+		)
 	}
 
 	return nil
@@ -386,6 +394,10 @@ func (m *Manager) refuseInvitedWithATenant(ctx context.Context, txn resource.Rea
 // directory whatever called the hook. A directory another tenant has is the maker's
 // refusal (sessioninfo.RefusedOrganizationHasTenant), and a person who already belongs to
 // a tenant, where a person belongs to one, is the membership's (AssignRole).
+//
+// The tenant made is noted on the invitation (sessioninfo.Invitation.MadeTenantID),
+// which is how the session library learns where to open the application for the
+// person: the invitation itself names no tenant. A refusal notes none.
 func (m *Manager) acceptTenantInvitation(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (accesstypes.Domain, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -419,6 +431,9 @@ func (m *Manager) acceptTenantInvitation(ctx context.Context, txn resource.ReadW
 			return "", errors.Wrapf(err, "the invitation to %s seats %q as the new %s's administrator with the role %s", inv.Email, username, m.tenantWord, role)
 		}
 	}
+	// The session library opens the application for the person in the tenant their
+	// invitation made: it is told which here, once everything is buffered.
+	inv.MadeTenantID = string(domain)
 
 	return domain, nil
 }

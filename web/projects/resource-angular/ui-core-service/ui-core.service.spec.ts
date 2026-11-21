@@ -31,6 +31,11 @@ describe('UiCoreService login messages', () => {
       want: DEFAULT_LOGIN_MESSAGES['directory_only'],
     },
     {
+      name: 'a personal account where every organization is directory only answers a sentence that names no password',
+      code: 'directory_only_personal_account',
+      want: "Your organization admits only people who sign in with the account it gave them. Sign in with your organization's account, not a personal one.",
+    },
+    {
       name: 'a stranger an organization admits by invitation only answers its default sentence',
       code: 'invitation_only',
       want: DEFAULT_LOGIN_MESSAGES['invitation_only'],
@@ -97,6 +102,7 @@ describe('UiCoreService login messages', () => {
       'no_tenant',
       'connection_not_in_tenant',
       'directory_only',
+      'directory_only_personal_account',
       'invitation_only',
       'invitation_address',
       'other_tenant',

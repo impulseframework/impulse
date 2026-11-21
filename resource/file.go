@@ -296,7 +296,7 @@ func (d *FileDecoder[Resource, Request]) Decode(request *http.Request, userPermi
 		return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return nil, httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), accesstypes.Read, denied)
+		return nil, NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", scope, userPermissions.User(), accesstypes.Read, denied), accesstypes.Read, denied...)
 	}
 
 	if d.computed {
@@ -345,13 +345,16 @@ func (d *FileDecoder[Resource, Request]) Decode(request *http.Request, userPermi
 // column, then the object's, then the name's extension, under the file headers
 // (nosniff, the frame's sandbox policy, and the disposition the type decides). A row
 // carrying no key, or a key the store holds nothing under, is a 404 returned for the
-// handler to encode, in the row's words (label and key, "MissionDocument 0193…") and
-// never the store key's; so is any other failure. A nil store, the column's store not
-// wired on the client, is an error naming the wiring, answered 500.
+// handler to encode, in one sentence a person can read: the record by its name in words
+// and the file by its segment ("This mission document has no content.", "The content of
+// this mission document was not found."), with no key of the row and never the store
+// key. The row by its label and key ("MissionDocument 0193…") is the answer's cause,
+// kept for the server's log. Any other failure is returned as it is. A nil store, the
+// column's store not wired on the client, is an error naming the wiring, answered 500.
 func ServeStoredFile(ctx context.Context, w http.ResponseWriter, r *http.Request, store FileStore, file StoredFile, segment, label string, key ...any) error {
 	identity := rowIdentity(label, key)
 	if file.Key == "" {
-		return httpio.NewNotFoundMessagef("%s has no %s", identity, segment)
+		return httpio.NewNotFoundMessageWithError(errors.Newf("%s has no %s", identity, segment), hasNoFile(label, segment))
 	}
 	if store == nil {
 		return errors.Newf("no file store is wired for the store the %s of %s is kept in; wire it on the resource client with resource.WithFileStore or resource.WithNamedFileStore", segment, label)
@@ -365,7 +368,10 @@ func ServeStoredFile(ctx context.Context, w http.ResponseWriter, r *http.Request
 	content, err := store.Open(ctx, file.Key)
 	if err != nil {
 		if errors.Is(err, ErrFileNotFound) {
-			return httpio.NewNotFoundMessagef("the %s of %s was not found in the store", segment, identity)
+			return httpio.NewNotFoundMessageWithError(
+				errors.Newf("the %s of %s was not found in the store", segment, identity),
+				fileWasNotFound(label, segment),
+			)
 		}
 
 		return errors.Wrap(err, "resource.FileStore.Open()")
@@ -383,11 +389,15 @@ func ServeStoredFile(ctx context.Context, w http.ResponseWriter, r *http.Request
 
 // ServeRenderedFile answers a computed resource's @file route with what its content
 // function rendered: 304 when the request's validator matches the content's Tag, the
-// bytes otherwise, and, for a nil content, a 404 in the row's words returned for the
-// handler to encode. The function never touches the response; the frame does.
+// bytes otherwise, and, for a nil content, a 404 returned for the handler to encode. A
+// nil content is how a content function says the row is not there for the caller, so
+// the caller is told what a row its read does not show is told (TargetNotFound's
+// sentence, "This expense manifest does not exist."), and the two never differ. The row
+// by its label and key is the answer's cause, kept for the server's log. The function
+// never touches the response; the frame does.
 func ServeRenderedFile(w http.ResponseWriter, r *http.Request, content *Content, segment, label string, key ...any) error {
 	if content == nil {
-		return httpio.NewNotFoundMessagef("%s has no %s", rowIdentity(label, key), segment)
+		return httpio.NewNotFoundMessageWithError(errors.Newf("%s has no %s", rowIdentity(label, key), segment), doesNotExist(label))
 	}
 	if content.Tag != "" {
 		content.Tag = quoteTag(content.Tag)
@@ -546,7 +556,7 @@ func quoteTag(tag string) string {
 	return strconv.Quote(tag)
 }
 
-// rowIdentity renders the row a refusal names: the label and the key's parts.
+// rowIdentity renders the row an answer's cause names: the label and the key's parts.
 func rowIdentity(label string, key []any) string {
 	parts := make([]string, 0, len(key))
 	for _, part := range key {

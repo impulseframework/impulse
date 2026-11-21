@@ -149,11 +149,6 @@ func TestAudienceOf(t *testing.T) {
 			if got.Words() != tt.want || !got.Limited() {
 				t.Errorf("audienceOf() = %q (limited %v), want %q, limited to the provider", got.Words(), got.Limited(), tt.want)
 			}
-			// A provider reads as one organization whatever its issuer serves: a seed made
-			// for its registration is its author's word that it is the deployment's own.
-			if !got.OneOrganization() {
-				t.Error("audienceOf().OneOrganization() = false, want the provider read as the one organization")
-			}
 		})
 	}
 }
@@ -372,7 +367,10 @@ func TestMethod_Begin(t *testing.T) {
 // TestMethod_Complete proves what a completed round trip verifies: the identity keyed by
 // the connection and the subject, its sign-in name, its attestation, the issuer, and the
 // role names when the registration synchronizes roles; and the refusals of a token
-// without a subject or from another issuer.
+// without a subject or from another issuer. The provider's word that it verified the
+// address (email_verified, which every token of base carries) is not the identity's: no
+// provider but Google confirms an address, so the person's first sign-in waits for the
+// mailed code.
 func TestMethod_Complete(t *testing.T) {
 	t.Parallel()
 
@@ -388,16 +386,16 @@ func TestMethod_Complete(t *testing.T) {
 		wantCode sessioninfo.LoginRefusalCode
 	}{
 		{
-			name: "the identity under the issuer as the connection", claims: base(),
+			name: "the identity under the issuer as the connection, without the provider's word for the address", claims: base(),
 			want: &signin.Verified{Identity: &sessioninfo.Identity{
-				Method: sessioninfo.MethodOIDC, Connection: issuer, Subject: "cadet", Email: "cadet@example.com", EmailVerified: true, Name: "Cadet Example",
+				Method: sessioninfo.MethodOIDC, Connection: issuer, Subject: "cadet", Email: "cadet@example.com", Name: "Cadet Example",
 				IDPAMR: []string{"pwd"}, SignInName: "cadet", Organization: issuer, Attestation: sessioninfo.NotAttested,
 			}, ReturnURL: "/home", Issuer: issuer},
 		},
 		{
 			name: "the configured connection", claims: base(), config: func(cfg *Config) { cfg.Connection = "gateway" },
 			want: &signin.Verified{Identity: &sessioninfo.Identity{
-				Method: sessioninfo.MethodOIDC, Connection: "gateway", Subject: "cadet", Email: "cadet@example.com", EmailVerified: true, Name: "Cadet Example",
+				Method: sessioninfo.MethodOIDC, Connection: "gateway", Subject: "cadet", Email: "cadet@example.com", Name: "Cadet Example",
 				IDPAMR: []string{"pwd"}, SignInName: "cadet", Organization: "gateway",
 			}, ReturnURL: "/home", Issuer: issuer},
 		},
@@ -411,7 +409,7 @@ func TestMethod_Complete(t *testing.T) {
 		{
 			name: "a declared provider attests by declaration", claims: base(), config: func(cfg *Config) { cfg.Attesting = true },
 			want: &signin.Verified{Identity: &sessioninfo.Identity{
-				Method: sessioninfo.MethodOIDC, Connection: issuer, Subject: "cadet", Email: "cadet@example.com", EmailVerified: true, Name: "Cadet Example",
+				Method: sessioninfo.MethodOIDC, Connection: issuer, Subject: "cadet", Email: "cadet@example.com", Name: "Cadet Example",
 				IDPAMR: []string{"pwd"}, SignInName: "cadet", Organization: issuer, Attestation: sessioninfo.AttestedByDeclaration,
 			}, ReturnURL: "/home", Issuer: issuer},
 		},
@@ -419,14 +417,14 @@ func TestMethod_Complete(t *testing.T) {
 			name:   "a token naming mfa attests by evidence without a declaration",
 			claims: func() map[string]any { c := base(); c["amr"] = []string{"pwd", "mfa"}; return c }(),
 			want: &signin.Verified{Identity: &sessioninfo.Identity{
-				Method: sessioninfo.MethodOIDC, Connection: issuer, Subject: "cadet", Email: "cadet@example.com", EmailVerified: true, Name: "Cadet Example",
+				Method: sessioninfo.MethodOIDC, Connection: issuer, Subject: "cadet", Email: "cadet@example.com", Name: "Cadet Example",
 				IDPAMR: []string{"pwd", "mfa"}, SignInName: "cadet", Organization: issuer, Attestation: sessioninfo.AttestedByEvidence,
 			}, ReturnURL: "/home", Issuer: issuer},
 		},
 		{
 			name: "the roles claim is the role names when the registration synchronizes roles", claims: base(), roleSync: true,
 			want: &signin.Verified{Identity: &sessioninfo.Identity{
-				Method: sessioninfo.MethodOIDC, Connection: issuer, Subject: "cadet", Email: "cadet@example.com", EmailVerified: true, Name: "Cadet Example",
+				Method: sessioninfo.MethodOIDC, Connection: issuer, Subject: "cadet", Email: "cadet@example.com", Name: "Cadet Example",
 				IDPAMR: []string{"pwd"}, SignInName: "cadet", Organization: issuer,
 			}, ReturnURL: "/home", Issuer: issuer, RoleNames: []string{"Cadet"}},
 		},

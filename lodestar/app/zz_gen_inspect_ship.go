@@ -139,10 +139,16 @@ func (a *App) InspectShip() http.HandlerFunc {
 				SetID(p.RefitID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("Refit", p.RefitID)
+				}
+
 				return errors.Wrap(err, "resources.RefitQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("Refit %s does not exist", p.RefitID)
+				return resource.TargetNotFound("Refit", p.RefitID)
 			}
 			// The root's tenant key lives across its @domain join path: the
 			// gate verifies the located row resolves to the request's domain
@@ -156,7 +162,7 @@ func (a *App) InspectShip() http.HandlerFunc {
 			default:
 				// One refusal for the state check and the grant condition
 				// alike: the wire never says which said no (§12).
-				return httpio.NewForbiddenMessagef("InspectShip may not run against Refit %s", p.RefitID)
+				return resource.TargetRefused("InspectShip", "Refit", p.RefitID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant

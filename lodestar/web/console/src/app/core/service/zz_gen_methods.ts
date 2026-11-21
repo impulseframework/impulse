@@ -43,6 +43,7 @@ export interface AssignCrewRoleConfig {
   everyDomain: boolean | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignCrewRole {
   userId: string;
@@ -51,6 +52,7 @@ export interface AssignCrewRole {
   everyDomain: boolean;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignCrewRole declares; the method chooses one per response. */
 export type AssignCrewRoleStatus = 204;
@@ -60,12 +62,14 @@ export interface AssignCrewSectorRoleConfig {
   role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignCrewSectorRole {
   userId: string;
   role: string;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignCrewSectorRole declares; the method chooses one per response. */
 export type AssignCrewSectorRoleStatus = 204;
@@ -124,7 +128,7 @@ export interface CompileBriefingResult {
   missions: number;
   openMissions: number;
   worstHazard: number;
-  feesOutstanding: number;
+  feesOutstanding: string;
   feesRedacted: number;
   overdue: string[];
   hazardBoard: CompileBriefing.HazardLine[];
@@ -146,9 +150,9 @@ export interface CompleteMission {
 }
 /** The result CompleteMission answers with. */
 export interface CompleteMissionResult {
-  fee: number;
-  expenses: number;
-  net: number;
+  fee: string;
+  expenses: string;
+  net: string;
   sorties: CompleteMission.SortieCost[];
 }
 /** The statuses CompleteMission declares; the method chooses one per response. */
@@ -161,7 +165,7 @@ export interface CompleteMissionAnswer {
 export namespace CompleteMission {
   export interface SortieCost {
     sortieId: string;
-    expenses: number;
+    expenses: string;
   }
 }
 
@@ -711,10 +715,12 @@ export type RemoveCrewSectorPasswordStatus = 204;
 export interface RemoveCrewSectorRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
+  groupId: string | FieldPointer;
 }
 export interface RemoveCrewSectorRole {
   userId: string;
   role: string;
+  groupId: string;
 }
 /** The statuses RemoveCrewSectorRole declares; the method chooses one per response. */
 export type RemoveCrewSectorRoleStatus = 204;
@@ -847,6 +853,30 @@ export interface ScrapShip {
   refitId: string;
 }
 
+export interface SendCrewSectorUserPasswordResetLinkConfig {
+  userId: string | FieldPointer;
+}
+export interface SendCrewSectorUserPasswordResetLink {
+  userId: string;
+}
+/** The result SendCrewSectorUserPasswordResetLink answers with. */
+export interface SendCrewSectorUserPasswordResetLinkResult {
+  sent: boolean;
+  reason: string;
+}
+
+export interface SendCrewUserPasswordResetLinkConfig {
+  userId: string | FieldPointer;
+}
+export interface SendCrewUserPasswordResetLink {
+  userId: string;
+}
+/** The result SendCrewUserPasswordResetLink answers with. */
+export interface SendCrewUserPasswordResetLinkResult {
+  sent: boolean;
+  reason: string;
+}
+
 export interface SetCrewSectorTemporaryPasswordConfig {
   userId: string | FieldPointer;
   password: string | FieldPointer;
@@ -860,14 +890,17 @@ export type SetCrewSectorTemporaryPasswordStatus = 204;
 
 export interface SetCrewSectorUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetCrewSectorUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetCrewSectorUserEmail declares; the method chooses one per response. */
-export type SetCrewSectorUserEmailStatus = 204;
+/** The result SetCrewSectorUserEmail answers with. */
+export interface SetCrewSectorUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetCrewSectorUserNameConfig {
   userId: string | FieldPointer;
@@ -879,6 +912,15 @@ export interface SetCrewSectorUserName {
 }
 /** The statuses SetCrewSectorUserName declares; the method chooses one per response. */
 export type SetCrewSectorUserNameStatus = 204;
+
+export interface SetCrewSelfServiceResetConfig {
+  on: boolean | FieldPointer;
+}
+export interface SetCrewSelfServiceReset {
+  on: boolean;
+}
+/** The statuses SetCrewSelfServiceReset declares; the method chooses one per response. */
+export type SetCrewSelfServiceResetStatus = 204;
 
 export interface SetCrewTemporaryPasswordConfig {
   userId: string | FieldPointer;
@@ -893,14 +935,17 @@ export type SetCrewTemporaryPasswordStatus = 204;
 
 export interface SetCrewUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetCrewUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetCrewUserEmail declares; the method chooses one per response. */
-export type SetCrewUserEmailStatus = 204;
+/** The result SetCrewUserEmail answers with. */
+export interface SetCrewUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetCrewUserNameConfig {
   userId: string | FieldPointer;
@@ -915,14 +960,17 @@ export type SetCrewUserNameStatus = 204;
 
 export interface SetMembersSectorUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersSectorUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersSectorUserEmail declares; the method chooses one per response. */
-export type SetMembersSectorUserEmailStatus = 204;
+/** The result SetMembersSectorUserEmail answers with. */
+export interface SetMembersSectorUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersSectorUserNameConfig {
   userId: string | FieldPointer;
@@ -937,14 +985,17 @@ export type SetMembersSectorUserNameStatus = 204;
 
 export interface SetMembersUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersUserEmail declares; the method chooses one per response. */
-export type SetMembersUserEmailStatus = 204;
+/** The result SetMembersUserEmail answers with. */
+export interface SetMembersUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersUserNameConfig {
   userId: string | FieldPointer;
@@ -996,6 +1047,21 @@ export interface TakeCrewGroupRole {
 }
 /** The statuses TakeCrewGroupRole declares; the method chooses one per response. */
 export type TakeCrewGroupRoleStatus = 204;
+
+export interface TakeCrewRoleConfig {
+  domain: string | FieldPointer;
+  role: string | FieldPointer;
+  length: string | FieldPointer;
+  reason: string | FieldPointer;
+}
+export interface TakeCrewRole {
+  domain: string;
+  role: string;
+  length: string;
+  reason: string;
+}
+/** The statuses TakeCrewRole declares; the method chooses one per response. */
+export type TakeCrewRoleStatus = 204;
 
 export interface TakeCrewSectorGroupRoleConfig {
   groupId: string | FieldPointer;
@@ -1168,6 +1234,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -1203,7 +1277,7 @@ export type MethodMap = Record<Method, MethodMeta>;
 const methodMap: MethodMap = {
   [Methods.AddCrewGroupMember]: {
     route: 'add-crew-group-member',
-    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.CrewListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1236,6 +1310,7 @@ const methodMap: MethodMap = {
       { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.AssignCrewSectorRole]: {
@@ -1248,6 +1323,7 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.AttachMissionDocument]: {
@@ -1356,7 +1432,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteCrewGroup]: {
     route: 'delete-crew-group',
-    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.CrewListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1410,7 +1486,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DescribeCrewGroup]: {
     route: 'describe-crew-group',
-    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.CrewListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1584,7 +1660,7 @@ const methodMap: MethodMap = {
   },
   [Methods.GiveCrewGroupRole]: {
     route: 'give-crew-group-role',
-    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.CrewListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1775,12 +1851,13 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveCrewSectorRole]: {
     route: 'remove-crew-sector-role',
-    target: { resource: Resources.CrewSectorUserRoles, key: { userId: 'userId', role: 'role' } },
+    target: { resource: Resources.CrewSectorHeldRoles, key: { userId: 'userId', role: 'role', groupId: 'groupId' }, mayBeEmpty: ['groupId'] },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'groupId', displayType: 'string' },
     ],
   },
   [Methods.RenameCrewSectorUser]: {
@@ -1913,6 +1990,24 @@ const methodMap: MethodMap = {
       { fieldName: 'refitId', displayType: 'uuid' },
     ],
   },
+  [Methods.SendCrewSectorUserPasswordResetLink]: {
+    route: 'send-crew-sector-user-password-reset-link',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.SendCrewUserPasswordResetLink]: {
+    route: 'send-crew-user-password-reset-link',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
   [Methods.SetCrewSectorTemporaryPassword]: {
     route: 'set-crew-sector-temporary-password',
     target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
@@ -1926,11 +2021,11 @@ const methodMap: MethodMap = {
   [Methods.SetCrewSectorUserEmail]: {
     route: 'set-crew-sector-user-email',
     target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetCrewSectorUserName]: {
@@ -1941,6 +2036,14 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'name', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetCrewSelfServiceReset]: {
+    route: 'set-crew-self-service-reset',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'on', displayType: 'boolean' },
     ],
   },
   [Methods.SetCrewTemporaryPassword]: {
@@ -1956,11 +2059,11 @@ const methodMap: MethodMap = {
   [Methods.SetCrewUserEmail]: {
     route: 'set-crew-user-email',
     target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetCrewUserName]: {
@@ -1976,11 +2079,11 @@ const methodMap: MethodMap = {
   [Methods.SetMembersSectorUserEmail]: {
     route: 'set-members-sector-user-email',
     target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersSectorUserName]: {
@@ -1996,11 +2099,11 @@ const methodMap: MethodMap = {
   [Methods.SetMembersUserEmail]: {
     route: 'set-members-user-email',
     target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersUserName]: {
@@ -2050,6 +2153,17 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.TakeCrewRole]: {
+    route: 'take-crew-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, required: true },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewTakeableRoles, required: true, attribute: 'role' },
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.CrewTakeLengths, required: true },
+      { fieldName: 'reason', displayType: 'string', required: true },
     ],
   },
   [Methods.TakeCrewSectorGroupRole]: {

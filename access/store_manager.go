@@ -2,7 +2,6 @@ package access
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -36,7 +35,8 @@ func (m *storeManager) notifyPolicyChange() {
 }
 
 func (m *storeManager) addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
-	if err := m.store.InsertUserRole(ctx, scope, user, role, period); err != nil {
+	// A role given with no reason carries none: the one it had goes with its period.
+	if err := m.store.InsertUserRole(ctx, scope, user, role, period, ""); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertUserRole(): role %q to %q", role, user)
 	}
 	m.notifyPolicyChange()
@@ -269,34 +269,22 @@ func (m *storeManager) roleGrants(ctx context.Context, scope accesstypes.PolicyS
 	return permissions, nil
 }
 
-// roleGrantConditions returns the role's resource grants with the conditions
-// each resource is granted under (sorted; "" is the unconditional grant),
-// keyed by permission; scope-wide grants are structural (no resource) and not
-// included.
-func (m *storeManager) roleGrantConditions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
+// roleResourceGrants returns the rows the store holds for the role on resources, in
+// the store's order; scope-wide grants are structural (no resource) and not included.
+func (m *storeManager) roleResourceGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.RoleGrant, error) {
 	grants, err := m.store.ListRoleGrants(ctx, scope, role)
 	if err != nil {
 		return nil, errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)
 	}
 
-	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]string)
+	rows := make([]policy.RoleGrant, 0, len(grants))
 	for _, g := range grants {
-		if g.Resource == "" {
-			continue
-		}
-		if out[g.Perm] == nil {
-			out[g.Perm] = make(map[accesstypes.Resource][]string)
-		}
-		res := joinResourceField(g.Resource, g.Field)
-		out[g.Perm][res] = append(out[g.Perm][res], g.Condition)
-	}
-	for _, resources := range out {
-		for _, conditions := range resources {
-			slices.Sort(conditions)
+		if g.Resource != "" {
+			rows = append(rows, g)
 		}
 	}
 
-	return out, nil
+	return rows, nil
 }
 
 // splitGrantResource splits a declared resource into its stored (base, field)

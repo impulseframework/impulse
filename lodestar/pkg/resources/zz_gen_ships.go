@@ -23,6 +23,45 @@ func (Ship) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what keeps a Ship from being deleted: the kinds with a
+// row directly under a Ship that the database does not remove with it, each
+// with the columns that name the Ship. A delete of a Ship with
+// such a row is refused in a sentence that says what is in the way.
+func (Ship) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Ships",
+		Words:  resource.DeleteWords{One: "ship", Many: "ships"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 3, Files: 0},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "DroidReports",
+				Words:    resource.DeleteWords{One: "droid report", Many: "droid reports"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+					},
+				},
+				RemovedWith: []string{"Sectors"},
+			},
+			{
+				Resource: "Sorties",
+				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"ShipId"}, Table: "Ships", References: []string{"Id"}},
+					},
+				},
+				RemovedWith: []string{"Missions", "Sectors"},
+			},
+		},
+	}
+}
+
 // SecretContext names what a secret of the row is bound to: its primary key, column by
 // column in key order. A stored secret opens on the row it was written for and on no
 // other (resource.Secret).

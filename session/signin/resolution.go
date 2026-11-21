@@ -49,7 +49,12 @@ import (
 // something vouches for the link: the sign-in came through the directory of the one
 // tenant the user belongs to, holding a role there and nothing anywhere else, or it
 // carries the user's own invitation. Any other sign-in under the name is refused as a
-// person no user was created for is, since a directory asserts the names it likes. A
+// person no user was created for is, since a directory asserts the names it likes. In
+// any other application no tenant vouches for a link, so such a user is linked at once
+// only where the method vouches for the sign-in name (Google, for a Gmail address or a
+// Workspace account's), and otherwise once the person enters the code mailed to the
+// address the user holds, with nothing linked while the sign-in waits; a user who holds
+// no address is refused the link (ErrLinkNeedsAddress). A
 // registration that declares its provider's names the application's own
 // (Registration.SeededUsers) links such a user on the name alone. A user with no
 // password who already signs in through an identity is never linked a second one on
@@ -196,7 +201,7 @@ func Standard(opts ...ResolutionOption) *Resolution {
 // connection, or a user with no identity yet, links. The standard rule's own link of
 // such a user, made on the name, is held to more: it is made only as the user's first
 // identity unless the user holds the identity's verified address (ErrLinkSecondIdentity),
-// and in a tenanted application only when something vouches for it (see AccountRule).
+// and as a first identity only when something vouches for it (see AccountRule).
 // Never
 // choose userID by an email address or another claim the identity's provider does not
 // verify, unless the connection itself is one the application trusts, and then say so
@@ -228,7 +233,9 @@ func Provision(user *NewUser, onProvisioned func(ctx context.Context, userID imp
 // Confirm holds the identity as pending until the person enters the password of the
 // existing user userID. The identity is then linked. A user without a password cannot
 // confirm (the confirmation answers 401), so Confirm is for users that sign in with a
-// password; a password-less user is linked with Link or refused with Reject.
+// password; a password-less user is linked with Link or refused with Reject. On an Auth
+// that registers no password method nobody can enter a password, so the sign-in is
+// refused (ErrConfirmNeedsPasswordMethod): a rule there answers Link or Reject.
 func Confirm(userID impulse.UUID, opts ...ResolutionOption) *Resolution {
 	r := &Resolution{outcome: RequireConfirmation, userID: userID}
 	for _, opt := range opts {
@@ -365,6 +372,14 @@ var (
 	// sessioninfo.RefusedIdentityRejected. The rule should return Confirm instead.
 	ErrLinkRequiresConfirmation = errors.New(
 		"signin: an identity can't be linked to a user that has a password without confirmation (or a trusted link)")
+	// ErrConfirmNeedsPasswordMethod is the cause when the account rule returned
+	// RequireConfirmation (Confirm) on an Auth that registers no password method. A
+	// confirmation is the user's password, and nothing in such an application takes
+	// one, so the sign-in is refused where it would wait for ever, and nothing is
+	// linked. The code is sessioninfo.RefusedIdentityRejected. The Auth should register
+	// the password method, or the rule return Link or Reject.
+	ErrConfirmNeedsPasswordMethod = errors.New(
+		"signin: the account rule asked for a password confirmation on an Auth that registers no password method")
 	// ErrLinkCrossConnection is the cause when the account rule returned LinkIdentity
 	// (Link) without trusted, or the standard rule matched a pre-created user, for a user
 	// that has no password and already signs in through another connection. No
@@ -384,6 +399,29 @@ var (
 	// sessioninfo.RefusedIdentityRejected.
 	ErrLinkSecondIdentity = errors.New(
 		"signin: an identity the application has not seen can't be linked on its sign-in name to a user who already signs in through another identity")
+	// ErrLinkNeedsAddress is the cause when the standard rule matched a pre-created
+	// user by a sign-in name the identity's method does not vouch for, as that user's
+	// first identity, and the user holds no email address. Such a link waits for the
+	// code mailed to the address the account holds, which shows that the person signing
+	// in reads the account's mail; an account that holds no address has nowhere to send
+	// it, and an address typed at the sign-in would show only that the person reads
+	// their own. An administrator gives the account its address, a registration's own
+	// rule links it on its own evidence, or the application links it itself. The code
+	// is sessioninfo.RefusedIdentityRejected.
+	ErrLinkNeedsAddress = errors.New(
+		"signin: an identity can't be linked on a sign-in name its method does not vouch for to a user who holds no email address")
+	// ErrAddressHeldByAnother is the cause when a sign-in whose method vouches for its
+	// address (Google, for a Gmail address or a Workspace account's) reaches a user who
+	// holds no confirmed address while another user holds that address, confirmed. The
+	// address would be written on nobody, and the person would be signed in to an
+	// account with no confirmed address: a user created ahead under the address as its
+	// sign-in name, beside the user who holds the address, is reached so. Which of the
+	// two is the person's account is an administrator's to settle, by removing the
+	// duplicate account or its sign-in name, so the sign-in is refused and nothing is
+	// linked. An address another user holds unconfirmed refuses nobody. The code is
+	// sessioninfo.RefusedIdentityRejected.
+	ErrAddressHeldByAnother = errors.New(
+		"signin: the address the method vouches for is held, confirmed, by another user than the one the sign-in reached, who holds no confirmed address")
 	// ErrEmailHeld is the cause when an account rule provisioned a new user for an
 	// identity whose verified address another user already holds verified: that user
 	// is the person, and the standard rule matches the person by the address before
@@ -441,7 +479,9 @@ var (
 	ErrConnectionNotInTenant = errors.New("signin: every tenant of the person admits its people through its own directory only, and the sign-in came through another directory")
 	// ErrDirectoryOnly is the cause when the tenant policy refused a sign-in that is not
 	// through a directory because every tenant of the person admits its people through
-	// its own directory only. The code is sessioninfo.RefusedDirectoryOnly.
+	// its own directory only. The code is sessioninfo.RefusedDirectoryOnly for a
+	// password or a session the application starts itself, and
+	// sessioninfo.RefusedDirectoryOnlyPersonalAccount for a personal account.
 	ErrDirectoryOnly = errors.New("signin: every tenant of the person admits its people through its own directory only")
 	// ErrUserDisabled is the cause when the sign-in resolved to a disabled user.
 	// The code is sessioninfo.RefusedUserDisabled.

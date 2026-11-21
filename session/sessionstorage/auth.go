@@ -355,7 +355,9 @@ type AuthStore[Tx any] interface {
 	// SetUserEmail puts an address on a user by hand, unverified, or takes it off
 	// (nil): an administrator's entry, which reserves the address. An address another
 	// user holds is a Conflict; on a store whose usernames are the addresses the
-	// entry is refused.
+	// entry is refused. Taking the address off ends, in the same transaction, the
+	// sign-in codes mailed for the user's pending sign-ins, so a code mailed before
+	// the change and entered after it is dead and writes nothing back.
 	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
 	// VerifyUserEmail writes the address the person has just proven they read,
 	// verified at the database's time, replacing whatever the user held; on a store
@@ -454,6 +456,12 @@ const (
 	// MailLinkFirstPassword is the code a signed-in person who has no password is
 	// mailed to choose their first one.
 	MailLinkFirstPassword = dbtype.MailLinkFirstPassword
+	// MailLinkPasswordReset is the link a person who holds a password chooses a new one
+	// at; see dbtype.MailLinkPasswordReset.
+	MailLinkPasswordReset = dbtype.MailLinkPasswordReset
+	// MailLinkAddressChange is the link that confirms an address an administrator asked
+	// to put on an account; see dbtype.MailLinkAddressChange.
+	MailLinkAddressChange = dbtype.MailLinkAddressChange
 )
 
 // SignInMethod is a row of the sign-in methods table: what an administrator chose for
@@ -553,7 +561,10 @@ func NewSpannerAuth(client *cloudspanner.Client, opts ...SpannerOption) *Auth[*c
 		opt.applySpanner(driver)
 	}
 
-	return &Auth[*cloudspanner.ReadWriteTransaction]{userStorage: userStorage{sessionStorage: sessionStorage{db: driver}}, flow: driver, custom: spannerCustomData{driver}}
+	store := &Auth[*cloudspanner.ReadWriteTransaction]{userStorage: userStorage{sessionStorage: newSessionStorage(driver)}, flow: driver, custom: spannerCustomData{driver}}
+	store.own(store)
+
+	return store
 }
 
 // NewPostgresAuth creates PostgreSQL Auth storage over the auth schema (the base
@@ -567,7 +578,10 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 		opt.applyPostgres(driver)
 	}
 
-	return &Auth[pgx.Tx]{userStorage: userStorage{sessionStorage: sessionStorage{db: driver}}, flow: driver, custom: postgresCustomData{driver}}
+	store := &Auth[pgx.Tx]{userStorage: userStorage{sessionStorage: newSessionStorage(driver)}, flow: driver, custom: postgresCustomData{driver}}
+	store.own(store)
+
+	return store
 }
 
 // SignInRules are the application's rules a sign-in runs under, handed to
@@ -590,6 +604,10 @@ type SignInRules[Tx any] struct {
 	// application's own (signin.Registration.SeededUsers): a user created ahead is
 	// then linked on the name alone.
 	SeededUsers bool
+	// NoPassword says the Auth registers no password method: a password an account
+	// holds then holds no sign-in for a confirmation, which no sign-in could give, and
+	// the account is decided as one with no password.
+	NoPassword  bool
 	Policy      signin.Policy[Tx]
 	Accept      signinflow.InvitationAcceptor[Tx]
 	SignUp      signinflow.SignUpSeater[Tx]
@@ -599,13 +617,6 @@ type SignInRules[Tx any] struct {
 	// for none): with Directories it decides a first link made on a name alone to an
 	// account that has never signed in.
 	OnlyIn signinflow.OnlyInTenant[Tx]
-	// Seeded reports whether an account is the deployment's own seed for the
-	// registration the sign-in came through (nil for none), and OneOrganization says
-	// that registration admits exactly one organization and nobody else
-	// (signin.Audience.OneOrganization): with Directories the two admit the seed's
-	// first link on the name.
-	Seeded          signinflow.SeededAccount
-	OneOrganization bool
 	// TrustedDevice reports whether the browser signing in is a trusted device of
 	// the user, which stands in for the second factor a RequireMFA asks; nil for none.
 	TrustedDevice signinflow.TrustedDeviceCheck
@@ -613,6 +624,16 @@ type SignInRules[Tx any] struct {
 	// one just entered at a login or a confirmation, or the one a pending sign-in was
 	// held with. Nil when no password was proved.
 	Proven PasswordProof
+	// ConfirmAddress says a sign-in through a directory that does not vouch for the
+	// person's address is held for the mailed code that confirms one, while the account
+	// holds no confirmed address. The Auth sets it where it sends mail, for a
+	// registration that is not the deployment's own provider of seeded accounts.
+	ConfirmAddress bool
+	// WaitedOn is the user a pending sign-in waited on, given by the sign-in that
+	// completes the wait and by no other. An identity still linked to nobody is linked
+	// to that user or to none: the name it asserts may have moved to another account
+	// during the wait.
+	WaitedOn impulse.NullUUID
 }
 
 // SignIn implements AuthStore.
@@ -628,8 +649,8 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 
 	flowRules := signinflow.Rules[Tx]{
 		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
-		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, Seeded: rules.Seeded, OneOrganization: rules.OneOrganization,
-		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven,
+		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, NoPassword: rules.NoPassword,
+		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven, ConfirmAddress: rules.ConfirmAddress, WaitedOn: rules.WaitedOn,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")

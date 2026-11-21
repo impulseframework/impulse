@@ -49,6 +49,7 @@ import (
 	_ "embed"
 
 	cloudspanner "cloud.google.com/go/spanner"
+	"example.com/harbor/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -77,7 +78,7 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, settings *Settings) (*Auth, error) {
-	engine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))
+	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles()))
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +88,12 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, collection ac
 	}
 	session.PasswordSignIn(s)
 	google.SignIn(s, "google", nil, &google.Config{RoleSync: %s})
+	identityClient, err := staffidentity.NewClient(engine, s.API())
+	if err != nil {
+		return nil, err
+	}
 	s.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
+	s.SetInvitationAccepted(identityClient.InvitationAccepted())
 
 	return &Auth{session: s}, nil
 }
@@ -191,7 +197,7 @@ func TestDirectoryAdmission(t *testing.T) {
 		{
 			name: "no role file reaches the engine",
 			edit: func(files map[string]string) {
-				files["pkg/auth/staff/staff.go"] = strings.Replace(files["pkg/auth/staff/staff.go"], "access.WithDefaultRoles(collection, Roles())", "nil", 1)
+				files["pkg/auth/staff/staff.go"] = strings.Replace(files["pkg/auth/staff/staff.go"], ", access.WithDefaultRoles(Roles())", "", 1)
 			},
 			wantStatus:  Fail,
 			wantSummary: "2 directory admission wiring problem(s)",
@@ -366,7 +372,7 @@ func TestDirectoryAdmissionCandidates(t *testing.T) {
 			name: "tenanted without the default seat column", candidate: "tenanted",
 			edits:      []candidateEdit{{file: "pkg/resources/tenant_directories.go", old: "\t\t// @directoryDefaultSeat\n"}},
 			wantStatus: Fail, wantSummary: "1 directory admission wiring problem(s)",
-			wantDetails: []string{"pkg/resources/tenant_directories.go:49: " + noSeatColumn},
+			wantDetails: []string{"pkg/resources/tenant_directories.go:52: " + noSeatColumn},
 		},
 		{
 			name: "outlets without the members admission names the members auth", candidate: "outlets",
@@ -378,7 +384,7 @@ func TestDirectoryAdmissionCandidates(t *testing.T) {
 			name: "tenanted without the grant of the method that opens a tenant to its directory", candidate: "tenanted",
 			edits:      []candidateEdit{{file: "pkg/auth/staff/roles.json", old: candidateGrant}},
 			wantStatus: Fail, wantSummary: "1 directory admission wiring problem(s)",
-			wantDetails: []string{"pkg/resources/tenant_directories.go:49: no role in pkg/auth/staff/roles.json " + fmt.Sprintf(noSeatGrant, "OpenTenantToDirectory")},
+			wantDetails: []string{"pkg/resources/tenant_directories.go:52: no role in pkg/auth/staff/roles.json " + fmt.Sprintf(noSeatGrant, "OpenTenantToDirectory")},
 		},
 	}
 

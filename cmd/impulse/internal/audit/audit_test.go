@@ -195,9 +195,9 @@ func TestWriteEngines(t *testing.T) {
 	t.Parallel()
 
 	const (
-		signaled   = "package staff\n\nimport \"github.com/impulseframework/impulse/access\"\n\nfunc New(signals access.ChangeSignal) error {\n\t_, err := access.New(nil, access.WithChangeSignal(signals))\n\n\treturn err\n}\n"
-		unsignaled = "package members\n\nimport \"github.com/impulseframework/impulse/access\"\n\nfunc New() error {\n\t_, err := access.New(nil)\n\n\treturn err\n}\n"
-		forwarding = "package devices\n\nimport \"github.com/impulseframework/impulse/access\"\n\nfunc New(opts ...access.Option) error {\n\t_, err := access.New(nil, opts...)\n\n\treturn err\n}\n"
+		signaled   = "package staff\n\nimport \"github.com/impulseframework/impulse/access\"\n\nfunc New(signals access.ChangeSignal) error {\n\t_, err := access.New(nil, nil, access.WithChangeSignal(signals))\n\n\treturn err\n}\n"
+		unsignaled = "package members\n\nimport \"github.com/impulseframework/impulse/access\"\n\nfunc New() error {\n\t_, err := access.New(nil, nil)\n\n\treturn err\n}\n"
+		forwarding = "package devices\n\nimport \"github.com/impulseframework/impulse/access\"\n\nfunc New(opts ...access.Option) error {\n\t_, err := access.New(nil, nil, opts...)\n\n\treturn err\n}\n"
 	)
 	tests := []struct {
 		name  string

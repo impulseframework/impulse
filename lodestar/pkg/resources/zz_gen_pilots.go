@@ -23,6 +23,32 @@ func (Pilot) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// DeleteTree describes what keeps a Pilot from being deleted: the kinds with a
+// row directly under a Pilot that the database does not remove with it, each
+// with the columns that name the Pilot. A delete of a Pilot with
+// such a row is refused in a sentence that says what is in the way.
+func (Pilot) DeleteTree() *resource.DeleteTree {
+	return &resource.DeleteTree{
+		Record: "Pilots",
+		Words:  resource.DeleteWords{One: "pilot", Many: "pilots"},
+		Key:    []string{"Id"},
+		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
+		Under: []resource.DeleteKind{
+			{
+				Resource: "Commendations",
+				Words:    resource.DeleteWords{One: "commendation", Many: "commendations"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"PilotId"}, Table: "Pilots", References: []string{"Id"}},
+					},
+				},
+			},
+		},
+	}
+}
+
 // pilotRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; pilotReadSets holds one Set per read operation.

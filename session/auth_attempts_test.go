@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -501,6 +502,36 @@ func TestAuth_AttemptLimit_EveryCheck(t *testing.T) {
 			},
 		},
 		{
+			name: "failed sign-ins under the text of an address's own counts are a name's failures and close nothing of the address's",
+			run: func(t *testing.T, f *authFixture) {
+				// A stranger types the keys the mail and the reset links of pat's address are
+				// counted under, in the library's capitals and without, to the limit, each
+				// from a client of its own so no client is held.
+				f.store.EXPECT().UserByUserName(gomock.Any(), gomock.Any()).Return(nil, httpio.NewNotFoundMessage("no such user")).AnyTimes()
+				for i, spellings := range [][]string{
+					{"MAIL:pat@lakeside.edu", "mail:pat@lakeside.edu", "Mail:pat@lakeside.edu"},
+					{"RESET:pat@lakeside.edu", "reset:pat@lakeside.edu", "Reset:pat@lakeside.edu"},
+				} {
+					for n, typed := range spellings {
+						client := fmt.Sprintf("10.%d.%d.1", i, n)
+						if rr := f.login(typed, "pw", client, client); rr.Code != http.StatusUnauthorized {
+							t.Fatalf("a sign-in under %q = %d %s, want 401", typed, rr.Code, rr.Body.String())
+						}
+					}
+				}
+				for _, own := range []string{mailLimitKey("pat@lakeside.edu"), resetLimitKey("pat@lakeside.edu")} {
+					if r := f.attemptsRecord(own); r != nil {
+						t.Errorf("the address's own count %q = %+v after the failed sign-ins, want none: no name a person types is counted under it", own, r)
+					}
+				}
+				for _, name := range []string{"mail:pat@lakeside.edu", "reset:pat@lakeside.edu"} {
+					if r := f.attemptsRecord(name); r == nil || r.LockedUntil == nil {
+						t.Errorf("the name %q = %+v, want the failures counted and locked under the name as it folds", name, r)
+					}
+				}
+			},
+		},
+		{
 			name: "ValidateCredentials counts and refuses as the login does, with the wait on the error",
 			run: func(t *testing.T, f *authFixture) {
 				f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(pat(), nil).Times(3)
@@ -911,6 +942,56 @@ func TestSignInAttemptName(t *testing.T) {
 				t.Errorf("SignInAttemptName(%q) = %q, the limiter keys it %q", tt.username, got, limiter)
 			}
 		})
+	}
+}
+
+// TestAccountAttemptKeys holds the rows named as one account's to the keys the library
+// itself counts under: the username's failed sign-ins, the mail and the reset links the
+// address is sent, and the guesses at the code of the first password. A count the
+// library adds for an account joins the list, or a caller that asks whether a row is an
+// account's misses it.
+func TestAccountAttemptKeys(t *testing.T) {
+	t.Parallel()
+
+	id := impulse.UUID{}
+	if err := id.UnmarshalText([]byte("0191a5b0-7c1e-7000-8000-000000000001")); err != nil {
+		t.Fatalf("impulse.UUID.UnmarshalText() error = %v", err)
+	}
+	tests := []struct {
+		name  string
+		email string
+		want  []string
+	}{
+		{
+			name:  "an account with an address",
+			email: "Pat@Example.com",
+			want:  []string{"pat", firstPasswordKey(id), mailLimitKey("pat@example.com"), resetLimitKey("pat@example.com")},
+		},
+		{name: "an account with no address has no mail to count", email: " ", want: []string{"pat", firstPasswordKey(id)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := AccountAttemptKeys(id, "Pat", tt.email)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("AccountAttemptKeys() (-want +got):\n%s", diff)
+			}
+			// A row as the list shows it is found among them, whatever the case it was
+			// asked for in.
+			for _, key := range got {
+				if SignInAttemptKey(key) != key {
+					t.Errorf("SignInAttemptKey(%q) = %q: the key of a listed row is not itself", key, SignInAttemptKey(key))
+				}
+			}
+		})
+	}
+	// Every kind of count the library keeps beside the names is one of an account's.
+	all := strings.Join(AccountAttemptKeys(id, "pat", "pat@example.com"), "\n")
+	for _, kind := range []string{attempts.KindMail, attempts.KindReset, attempts.KindFirstPassword} {
+		if !strings.Contains(all, kind+":") {
+			t.Errorf("AccountAttemptKeys() names no row of the kind %s", kind)
+		}
 	}
 }
 

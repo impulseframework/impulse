@@ -45,6 +45,28 @@ type UserPermissions interface {
 	// guard asks first. A session composed without declarations reaches
 	// every domain.
 	Reaches(ctx context.Context, domain accesstypes.Domain) (bool, error)
+
+	// HeldDomains lists every tenant the session's person holds: the domains of
+	// the application's roster where the person holds at least one grant,
+	// sorted; never nil. It answers a question about the person, where Domains
+	// answers one about the session: Domains leaves out a tenant the session's
+	// permission mask leaves nothing of and a tenant that is closed to the way
+	// the session signed in (ClosedDomains), and the person holds both. A rule
+	// that counts a person's tenants asks here, so that no mask a session runs
+	// under makes a tenant not theirs: the generated create-your-tenant route
+	// does, for its rule that a person creates one tenant. In a session that
+	// acts as a person, the person is the one acted as, whose grants the
+	// session runs with. In a session that runs with a role's grants, the
+	// person is the real person behind it and the list is theirs, never the
+	// role's; a session that acts as a role the application runs no sessions
+	// as is refused the answer.
+	//
+	// It is a method of the interface so that every permissions value answers
+	// it: one an application wraps or writes itself cannot leave the question to
+	// the masked list. A type that embeds the composed value passes the call
+	// through by promotion; one that implements the interface itself answers
+	// from the person's grants before any mask, never from Domains.
+	HeldDomains(ctx context.Context) ([]accesstypes.Domain, error)
 }
 
 // UserPermissionChecker is what an application's per-request accessor for a

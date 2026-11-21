@@ -11,7 +11,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
-	"github.com/impulseframework/impulse/httpio"
 	"google.golang.org/api/iterator"
 )
 
@@ -25,9 +24,11 @@ import (
 // target's @domain binding is a join path, the frame's tenancy check itself
 // rides the gate (VerifyTenancy): the located row carries no tenant key of
 // its own, so the gate walks the binding hops in the same transaction.
-// Methods without a target row keep the decode-time posture: MigrateRoles
-// rejects row-referencing conditions on them, and a Conditional decision
-// reaching their decode is a 500-class invariant breach.
+// Methods without a target row keep the decode-time posture: a grant of one
+// under a row-referencing condition is refused in a role file
+// (access.ValidateRoles), refused as a write to a custom role and left out of
+// the policy when the store holds one, and a Conditional decision reaching
+// their decode is a 500-class invariant breach.
 //
 // A target may be a row of a view (a @virtual struct). A view's row is one row
 // of the view's query, and in a tenant-scoped view its key names a row in each
@@ -107,7 +108,7 @@ func (c *Caller) gateFor(ctx context.Context, method accesstypes.Resource, perm 
 		return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", c.Permissions.User(), c.Scope, perm, denied)
+		return nil, methodRefused(errors.Newf("user %s, scope %s, does not have %s on %s", c.Permissions.User(), c.Scope, perm, denied))
 	}
 
 	gate := &ExecuteGate{
@@ -162,9 +163,11 @@ type ExecuteTarget struct {
 	// Resource is the target row resource: its table, or the view's resource.
 	Resource accesstypes.Resource
 
-	// Label is the target's struct name, for the refusal message — the same
-	// words the frame's own state check refuses with, so the wire never
-	// distinguishes a wrong-state refusal from a condition refusal.
+	// Label is the target's struct name. A refusal says the row by it in words
+	// ("You may not do this to this mission.", TargetRefused), the same sentence
+	// the frame's own state check refuses with, so the wire never distinguishes a
+	// wrong-state refusal from a condition refusal. The NotFound answer and the
+	// server's log say the name as it is.
 	Label string
 
 	// PKColumns are the primary-key columns the check-SELECT locates the row by,
@@ -368,7 +371,7 @@ func (g *ExecuteGate) EnforceProposed(ctx context.Context, facts SubjectFactSour
 		return errors.Wrapf(err, "method %s: condition.Evaluate()", g.method)
 	}
 	if !truth.Permits() {
-		return httpio.NewForbiddenMessagef("%s may not run against this %s", g.method, target.Label)
+		return TargetRefused(g.method, target.Label)
 	}
 
 	return nil
@@ -398,10 +401,10 @@ func (g *ExecuteGate) enforce(ctx context.Context, txn ReadWriteTransaction, tar
 		return err
 	}
 	if !found {
-		return httpio.NewNotFoundMessagef("%s %s does not exist", target.Label, key)
+		return TargetNotFound(target.Label, pkValues...)
 	}
 	if !passed.Valid || !passed.Bool {
-		return httpio.NewForbiddenMessagef("%s may not run against %s %s", g.method, target.Label, key)
+		return TargetRefused(g.method, target.Label, pkValues...)
 	}
 
 	return nil
@@ -486,7 +489,7 @@ func (g *ExecuteGate) VerifyTenancy(ctx context.Context, txn ReadWriteTransactio
 		return err
 	}
 	if !found || !inTenant.Valid || !inTenant.Bool {
-		return httpio.NewNotFoundMessagef("%s %s does not exist", target.Label, key)
+		return TargetNotFound(target.Label, pkValues...)
 	}
 
 	return nil

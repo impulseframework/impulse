@@ -32,6 +32,7 @@ import { ClientResponse, PermissionStore, Requester, RequestOptions, ResponseReq
 import { Store } from './store';
 import { dryRunHeader, warningHeader } from './transport';
 import {
+  EveryQuery,
   LinkHeader,
   ListQuery,
   ListQueryBase,
@@ -51,6 +52,7 @@ import {
   Transport,
   TransportResponse,
   apiVersionHeader,
+  environmentHeader,
   fetchTransport,
   maintenanceHeader,
   maintenanceHeaderValue,
@@ -226,11 +228,10 @@ export interface Page<Row> {
 /**
  * The list operations of a handle. `Key` is the resource's key tuple: on the empty
  * tuple, a key-less resource served whole, the query type carries no `limit` and no
- * `cursor` (ListQuery), so a page asked of such a handle does not compile. There is no
- * operation that reads every row of a resource with a maximum page size: the maximum is
- * declared to keep the whole set out of memory, so such a resource is read one server
- * page at a time (`page`), and a resource with no maximum is read whole with
- * `list({ limit: 'all' })` (see readMode and wholeListQuery).
+ * `cursor` (ListQuery), so a page asked of such a handle does not compile. `list`
+ * answers one request and `page` one page with its neighbors; `every` is the one
+ * reader of every row, which asks for as many pages as the resource's declared
+ * maximum makes necessary (see readMode).
  */
 export interface Listable<Row, Key extends readonly unknown[] = readonly unknown[]> {
   /**
@@ -244,6 +245,19 @@ export interface Listable<Row, Key extends readonly unknown[] = readonly unknown
    * a key-less resource the one page is the whole list and has no neighbors.
    */
   page<Query extends ListQuery<Row, Key> | undefined = undefined>(query?: Query): Promise<Page<Returned<Row, Query>>>;
+  /**
+   * Every row the query admits, together, for a reader whose answer is wrong with a
+   * part of them (a board that counts, a picker that must offer each choice). A
+   * resource that declares no maximum page size is read in one request, as
+   * `list({ limit: 'all' })` reads it, and a key-less resource as it is always served.
+   * A resource that declares a maximum is read a page of that size at a time, by the
+   * server's own `next` relations, to the end. The rows come back once the last page is
+   * in, and a page that fails rejects the whole read: nothing is handed back in part.
+   * The query takes no `limit`, `cursor` or `count` (EveryQuery). The whole set is held
+   * in memory, which a declared maximum otherwise keeps from happening, so a list a
+   * person turns through is still read with `page`.
+   */
+  every<Query extends EveryQuery<Row> | undefined = undefined>(query?: Query): Promise<Returned<Row, Query>[]>;
 }
 
 /** The reserved property a row of a list across tenants carries: the tenant the row is in. */
@@ -535,6 +549,14 @@ export interface ClientBase {
    */
   readonly serverRelease: Store<string | undefined>;
   /**
+   * The name of the environment the server said it runs in on its last answer
+   * (`X-Environment`, which every answer of a server told its environment carries),
+   * undefined until an answer named one, and for good on a server that names none, which
+   * is how production runs: what an About pop-up shows and a problem report says. Read
+   * with `get()` and watched with `subscribe()`.
+   */
+  readonly serverEnvironment: Store<string | undefined>;
+  /**
    * The client's warning hook (`ClientOptions.warn`, the console by default), each
    * distinct message delivered once: what the client announces the descriptor's gaps
    * through, and what a page layer announces its own through, so an application's
@@ -589,23 +611,29 @@ export function createClient<G, D, A = Record<never, never>>(
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   const transport = options.transport ?? fetchTransport();
   const serverRelease = new Store<string | undefined>(undefined);
+  const serverEnvironment = new Store<string | undefined>(undefined);
   // The live session is built over the requester, and the requester hands it each
   // write's answer: the session takes its place here below, before any request is made.
   const session: { live?: LiveSession } = {};
-  const requestResponse = createRequester(baseUrl, transport, {
+  const answered = createRequester(baseUrl, transport, {
     onError: options.onError,
     apiVersion: options.apiVersion,
     olderServerRetryDelays: options.olderServerRetryDelays,
     timeZone: options.timeZone,
     serverRelease,
+    serverEnvironment,
     wrote: (changes) => session.live?.wrote(changes),
   });
+  // The permission cache reads over the requester as it is: its two routes are under no
+  // domain, and the check below is made of its reads.
+  const permissions = new PermissionStore(
+    async <T>(method: HttpMethod, path: string, requestOptions?: RequestOptions): Promise<T> =>
+      (await answered<T>(method, path, requestOptions)).body,
+    { digest: descriptor.permissionDigestRoute, domains: descriptor.userDomainsRoute },
+  );
+  const requestResponse = checkingDomains(answered, baseUrl, descriptor, permissions);
   const request: Requester = async <T>(method: HttpMethod, path: string, requestOptions?: RequestOptions): Promise<T> =>
     (await requestResponse<T>(method, path, requestOptions)).body;
-  const permissions = new PermissionStore(request, {
-    digest: descriptor.permissionDigestRoute,
-    domains: descriptor.userDomainsRoute,
-  });
   const warn = warnOnce(options.warn);
   const live = new LiveSession({ ...options.live, request, baseUrl, routes: descriptor.live, warn });
   session.live = live;
@@ -613,6 +641,7 @@ export function createClient<G, D, A = Record<never, never>>(
     request,
     route: descriptor.features?.route,
     setFeature: descriptor.methods[setFeatureMethod],
+    flagsRoute: descriptor.resources[featureFlagsResource]?.route,
     permissions,
     flags: () => listFlags(base),
     warn,
@@ -628,6 +657,7 @@ export function createClient<G, D, A = Record<never, never>>(
     features,
     auth,
     serverRelease,
+    serverEnvironment,
     warn,
     request,
     requestResponse,
@@ -709,10 +739,10 @@ function attachHandles(
 }
 
 /**
- * Every row of the feature flags resource, by name: read whole where the resource
- * declares no maximum page size, else one server page at a time to the end (a few dozen
- * flags at most, so the walk is short). An API whose descriptor has no such resource
- * (one generated before flags existed, or written by hand) is refused naming it.
+ * Every row of the feature flags resource, by name, read as a handle's `every` reads
+ * any resource (a few dozen flags at most, so a walk is short where the resource
+ * declares a maximum page size). An API whose descriptor has no such resource (one
+ * generated before flags existed, or written by hand) is refused naming it.
  */
 async function listFlags(client: ClientBase): Promise<FeatureFlag[]> {
   const descriptor = client.descriptor.resources[featureFlagsResource];
@@ -720,24 +750,29 @@ async function listFlags(client: ClientBase): Promise<FeatureFlag[]> {
     throw new Error(`this API declares no ${featureFlagsResource} resource; feature flags cannot be listed from here`);
   }
   const handle = createResourceHandle<FeatureFlag, [string]>(client, descriptor, undefined);
-  const sort = { field: 'name' as const };
-  if (readMode(descriptor) === 'whole') {
-    return handle.list(wholeListQuery<FeatureFlag>(descriptor, { sort }));
-  }
-  const rows: FeatureFlag[] = [];
-  let page = await handle.page({ sort, limit: descriptor.page?.max });
-  rows.push(...page.rows);
-  while (page.next) {
-    page = await page.next();
-    rows.push(...page.rows);
-  }
-  return rows;
+  return handle.every({ sort: { field: 'name' as const } });
 }
 
 /** The digest's field-level enumeration for a scope, as sorted names — undefined when it holds none. */
 function definedFields(permissions: PermissionStore, scope: PermissionScope): readonly string[] | undefined {
   const fields = Object.keys(permissions.fieldStates(scope)).sort();
   return fields.length > 0 ? fields : undefined;
+}
+
+/**
+ * The environment's name an answer carries in the environment header, decoded; undefined
+ * for an answer that names none. A value that does not decode, which no server of this
+ * framework writes, is taken as it is.
+ */
+export function environmentName(header: string | undefined): string | undefined {
+  if (header === undefined || header === '') {
+    return undefined;
+  }
+  try {
+    return decodeURIComponent(header);
+  } catch {
+    return header;
+  }
 }
 
 /** What createRequester takes beside the transport: the error hook and the release header's settings. */
@@ -749,6 +784,8 @@ interface RequesterOptions {
   timeZone?: string;
   /** Where the release each answer names is kept, when the caller keeps it. */
   serverRelease?: Store<string | undefined>;
+  /** Where the environment each answer names is kept, when the caller keeps it. */
+  serverEnvironment?: Store<string | undefined>;
   /** Who takes what a write's answer says it changed (the changes header): the live session. */
   wrote?: (changes: WriteChanges) => void;
 }
@@ -762,7 +799,7 @@ interface RequesterOptions {
  * new instance); when the retries run out, or when this build is the older one, the
  * refusal is thrown as ApiVersionError, observed by the hook first. Every answer that names
  * the server's release in the version header, refusals included, is kept in `serverRelease`
- * before it is judged, and every answer that carries the changes header, a write's, is
+ * before it is judged, as the environment an answer names is in `serverEnvironment`, and every answer that carries the changes header, a write's, is
  * handed to `wrote` before the caller is answered, so the live pages the write changed
  * fetch at once. A 503 that carries the
  * maintenance marker is the server down for maintenance and is judged the same way, before
@@ -785,6 +822,10 @@ function createRequester(baseUrl: string, transport: Transport, requester: Reque
       const named = response.headers?.[apiVersionHeader.toLowerCase()];
       if (named !== undefined && named !== '') {
         requester.serverRelease?.set(named);
+      }
+      const environment = environmentName(response.headers?.[environmentHeader.toLowerCase()]);
+      if (environment !== undefined) {
+        requester.serverEnvironment?.set(environment);
       }
       const changes = parseChangesHeader(response.headers?.[changesHeader.toLowerCase()]);
       if (changes) {
@@ -815,6 +856,94 @@ function createRequester(baseUrl: string, transport: Transport, requester: Reque
       return { status: response.status, body: response.body as T, headers: response.headers ?? {} };
     }
   };
+}
+
+/** The scheme and host a URL opens with, where it has them. */
+const originPattern = /^https?:\/\/[^/]+/i;
+
+/**
+ * Holds what the cache keeps of a domain to the server's answers under it. The server
+ * answers every request under a domain the session does not reach with 404, the answer it
+ * also gives for a record that is not there, and nothing in the answer tells the two apart.
+ * So where a request under a domain is answered 404 and the cache holds the domain's
+ * digest, the digest is read again before the caller hears of the answer. A domain the
+ * person has left is refused by that read: the cache forgets it and every `onUnread`
+ * listener hears of it, as for any refused read, so a page open in the domain is taken
+ * down and not left to draw the server's words. A domain the person is still in keeps its
+ * digest, and the 404 is the record's. The caller is answered as the server answered,
+ * whatever the read finds. A domain the cache holds nothing of is not read: nothing is
+ * drawn from it.
+ */
+function checkingDomains(
+  answered: ResponseRequester,
+  baseUrl: string,
+  descriptor: ApiDescriptor,
+  permissions: PermissionStore,
+): ResponseRequester {
+  const check = async (status: number, path: string, options: RequestOptions | undefined): Promise<void> => {
+    if (status !== 404) {
+      return;
+    }
+    const domain = requestDomain(descriptor, baseUrl, path, options?.absolute);
+    if (domain === undefined || !permissions.hasDigest(domain)) {
+      return;
+    }
+    // A read that fails has told its listeners; the caller's answer is the request's own.
+    await permissions.loadDigest(domain).catch(() => undefined);
+  };
+  return async <T>(method: HttpMethod, path: string, options?: RequestOptions): Promise<ClientResponse<T>> => {
+    let response: ClientResponse<T>;
+    try {
+      response = await answered<T>(method, path, options);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        await check(error.status, path, options);
+      }
+      throw error;
+    }
+    await check(response.status, path, options);
+    return response;
+  };
+}
+
+/**
+ * The domain a request is made under: the one its path names after the domain route's
+ * segment. Undefined for a request under no domain, and where the API declares no domain
+ * route. A reference the server handed out (a Link relation) carries the API prefix, which
+ * is taken off first.
+ */
+function requestDomain(
+  descriptor: ApiDescriptor,
+  baseUrl: string,
+  path: string,
+  absolute: boolean | undefined,
+): Domain | undefined {
+  const segment = descriptor.domainRoute?.segment;
+  if (!segment) {
+    return undefined;
+  }
+  let under = path;
+  if (absolute) {
+    const prefix = `${baseUrl.replace(originPattern, '')}/`;
+    const reference = path.replace(originPattern, '');
+    if (!reference.startsWith(prefix)) {
+      return undefined;
+    }
+    under = reference.slice(prefix.length);
+  }
+  const lead = `${segment}/`;
+  if (!under.startsWith(lead)) {
+    return undefined;
+  }
+  const named = /^[^/?#]+(?=\/)/.exec(under.slice(lead.length))?.[0];
+  if (!named) {
+    return undefined;
+  }
+  try {
+    return decodeURIComponent(named) as Domain;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The server's release when the response is its refusal of this build's release (a 412 carrying the version header), else undefined. */
@@ -1050,6 +1179,26 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
         wanted,
       );
     }) as Listable<Row>['page'],
+    every: (async (query?: EveryQuery<Row>) => {
+      // The reader chooses the page and follows the cursors, and the rows come back
+      // with no total, so none of the three is sent, whatever a caller typed past the
+      // type; the rest of the query goes as given.
+      const rest: ListQuery<Row> = { ...query };
+      delete rest.limit;
+      delete rest.cursor;
+      delete rest.count;
+      if (readMode(descriptor) === 'whole') {
+        return handle.list(wholeListQuery<Row>(descriptor, rest));
+      }
+      const rows: Row[] = [];
+      let page = await handle.page({ ...rest, limit: descriptor.page?.max });
+      rows.push(...page.rows);
+      while (page.next) {
+        page = await page.next();
+        rows.push(...page.rows);
+      }
+      return rows;
+    }) as Listable<Row>['every'],
     read: (async (key: Key, options?: ReadOptions<Row>) => {
       const wanted = options?.live ? liveSubscription(descriptor, scopeDomain, key) : undefined;
       return client.request<Row>(
@@ -1288,12 +1437,21 @@ function createMethodHandle<Body, Result = void>(
     const answer = await client.request<Result | null | undefined>('POST', route, { body, headers });
     return (answer ?? undefined) as Result;
   };
+  // The method that flips a feature flag changes what the person's own pages may show: once
+  // the write succeeds the enabled set and the digests are read again before the call
+  // resolves, whichever page made it (FeatureState.flipped).
+  const flipsFlag = descriptor.method === setFeatureMethod;
+  const flip = async (body: Body): Promise<Result> => {
+    const answer = await post(body);
+    await client.features.flipped();
+    return answer;
+  };
   const handle: MethodHandle<Body, Result> = {
     method: descriptor.method,
     descriptor,
     domain: scope.domain,
     url: () => `${client.baseUrl}/${route}`,
-    execute: (body) => post(body),
+    execute: flipsFlag ? flip : (body) => post(body),
     dryRun: async (body) => {
       await client.request<unknown>('POST', route, { body, headers: { [dryRunHeader]: 'true' } });
     },

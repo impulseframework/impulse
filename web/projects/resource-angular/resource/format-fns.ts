@@ -1,5 +1,7 @@
+import { FieldMeta } from '@impulseframework/resource';
 import { FormatType, ValidDisplayTypes } from '@impulseframework/resource-angular/types';
 import { format, isValid, parseISO } from 'date-fns';
+import { placeWords } from './place-words';
 
 export type FormatterFn = (value: string) => string;
 
@@ -83,11 +85,12 @@ export const OBJECT_CELL_LENGTH = 80;
 /**
  * A cell's text for a value of the given display type: `bytes` its size (the value is
  * base64), an array its elements each formatted by the element type and joined with
- * `, `, `object` its JSON on one line cut at OBJECT_CELL_LENGTH with an ellipsis, `date`
- * and `civildate` as M/d/yyyy, and everything else `String(value)`. Null and undefined
- * are the empty string, so a column's `emptyDataValue` applies. A grid cell shows the
- * size of a bytes value, never the base64 and never a download; the download is the
- * view's.
+ * `, `, `object` a place in words where the value is one (placeWords: a GeoJSON point
+ * reads `34.0522° N, 118.2437° W`, never its JSON) and otherwise its JSON on one line cut
+ * at OBJECT_CELL_LENGTH with an ellipsis, `date` and `civildate` as M/d/yyyy, and
+ * everything else `String(value)`. Null and undefined are the empty string, so a
+ * column's `emptyDataValue` applies. A grid cell shows the size of a bytes value, never
+ * the base64 and never a download; the download is the view's.
  */
 export function formatByDisplayType(displayType: ValidDisplayTypes | undefined, value: unknown): string {
   if (value === null || value === undefined) {
@@ -107,6 +110,10 @@ export function formatByDisplayType(displayType: ValidDisplayTypes | undefined, 
     case 'bytes':
       return typeof value === 'string' ? formatByteSize(base64ByteLength(value)) : String(value);
     case 'object': {
+      const place = placeWords(value);
+      if (place !== undefined) {
+        return place;
+      }
       const json = JSON.stringify(value);
       return json.length > OBJECT_CELL_LENGTH ? `${json.slice(0, OBJECT_CELL_LENGTH - 1)}…` : json;
     }
@@ -116,4 +123,25 @@ export function formatByDisplayType(displayType: ValidDisplayTypes | undefined, 
     default:
       return String(value);
   }
+}
+
+/**
+ * A field's value as a list writes it. A field that takes one of a fixed set of values
+ * (the generated metadata's `enumeration`) is written by the value's name, the one its
+ * picker shows on a form, never by the stored key; a value the set does not list is
+ * written as it is, so no cell is left empty for a value the metadata has no name for.
+ * Every other field is written by its display type (formatByDisplayType).
+ */
+export function formatFieldValue(
+  field: Pick<FieldMeta, 'displayType' | 'enumeration'> | undefined,
+  value: unknown,
+): string {
+  if (value !== null && value !== undefined && field?.enumeration) {
+    const key = String(value);
+    const named = field.enumeration.find((option) => option.id === key);
+    if (named) {
+      return named.display;
+    }
+  }
+  return formatByDisplayType(field?.displayType, value);
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/logger"
@@ -71,8 +72,9 @@ func (a *App) PatchResources() http.HandlerFunc {
 		ID         impulse.UUID     `json:"-"`
 		SectorID   impulse.UUID     `json:"-"`
 		HangarID   impulse.UUID     `json:"hangarId"`
-		UserID     *string          `json:"userId"     sqltype:"STRING(36)"`
-		SquadronID impulse.NullUUID `json:"squadronId"`
+		UserID     *string          `json:"userId"     immutable:"true"     sqltype:"STRING(36)"`
+		SquadronID impulse.NullUUID `json:"squadronId" immutable:"true"`
+		GroupID    impulse.NullUUID `json:"groupId"    immutable:"true"`
 		LevelID    string           `json:"levelId"    sqltype:"STRING(64)"`
 		ExpiresAt  *time.Time       `json:"expiresAt"`
 	}
@@ -189,6 +191,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		RoleID      string       `json:"roleId"      sqltype:"STRING(64)"`
 		Tonnage     int64        `json:"tonnage"`
 		Hardened    bool         `json:"hardened"`
+		InService   bool         `json:"inService"`
 	}
 	shipClassDecoder := NewDecoder[resources.ShipClass, shipClassRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -278,6 +281,25 @@ func (a *App) PatchResources() http.HandlerFunc {
 						return errors.Wrap(err, "op.ReqWithPattern()")
 					}
 
+					// This record's rows decide what a person may do, so nobody writes the
+					// row that decides it for themselves while they act as someone else,
+					// whatever the session's mask keeps, an exception that keeps this
+					// record's writes included. The caller's grants answer first.
+					//
+					// A row that names a person: the rule is asked about the person the
+					// row names before the write and the person it names after it.
+					//
+					// A row removed with its parent, and a column that records who made a
+					// row, are the rule's stated limits:
+					// identity.RefuseImpersonatorAsRowSubject says what closes each.
+					subjectKey := resource.KeySet{}
+					if op.Type != resource.OperationCreate {
+						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+					}
+					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "client contact", "UserID"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+					}
+
 					switch op.Type {
 					case resource.OperationCreate:
 						patch, err := resources.NewClientContactCreatePatchFromPatchSet(patchSet)
@@ -347,6 +369,25 @@ func (a *App) PatchResources() http.HandlerFunc {
 						return errors.Wrap(err, "op.ReqWithPattern()")
 					}
 
+					// This record's rows decide what a person may do, so nobody writes the
+					// row that decides it for themselves while they act as someone else,
+					// whatever the session's mask keeps, an exception that keeps this
+					// record's writes included. The caller's grants answer first.
+					//
+					// A row that names a person: the rule is asked about the person the
+					// row names before the write and the person it names after it.
+					//
+					// A row removed with its parent, and a column that records who made a
+					// row, are the rule's stated limits:
+					// identity.RefuseImpersonatorAsRowSubject says what closes each.
+					subjectKey := resource.KeySet{}
+					if op.Type != resource.OperationCreate {
+						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+					}
+					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "pilot", "UserID"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+					}
+
 					switch op.Type {
 					case resource.OperationCreate:
 						patch, err := resources.NewPilotCreatePatchFromPatchSet(patchSet)
@@ -400,6 +441,24 @@ func (a *App) PatchResources() http.HandlerFunc {
 					req, err := op.ReqWithPattern("/{resource}/{id1}/{id2}", resource.RequireCreatePath())
 					if err != nil {
 						return errors.Wrap(err, "op.ReqWithPattern()")
+					}
+
+					// This record's rows decide what a person may do, so nobody writes the
+					// row that decides it for themselves while they act as someone else,
+					// whatever the session's mask keeps, an exception that keeps this
+					// record's writes included. The caller's grants answer first.
+					//
+					// A row that names a person: the rule is asked about the person the
+					// row names before the write and the person it names after it.
+					//
+					// A row removed with its parent, and a column that records who made a
+					// row, are the rule's stated limits:
+					// identity.RefuseImpersonatorAsRowSubject says what closes each.
+					subjectKey := resource.KeySet{}
+					subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id1"))
+					subjectKey = subjectKey.Add("CertificationID", httpio.Param[string](req, "id2"))
+					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "pilot certification", "UserID"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
 					}
 
 					switch op.Type {
@@ -497,6 +556,11 @@ func (a *App) PatchResources() http.HandlerFunc {
 							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewSectorDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorDeletePatch.Buffer()")
+							}
+							// A sector that goes takes its directory with it, directory only or
+							// not, in this transaction.
+							if err := ClearSectorDirectory(ctx, txn, id, eventSource); err != nil {
+								return errors.Wrap(err, "ClearSectorDirectory()")
 							}
 							// A tenant that goes takes what each auth holds for it, in this transaction:
 							// the roles people hold in it, the custom roles made in it and the
@@ -605,6 +669,36 @@ func (a *App) PatchResources() http.HandlerFunc {
 						req, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id}")
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
+						}
+
+						// This record's rows decide what a person may do, so nobody writes the
+						// row that decides it for themselves while they act as someone else,
+						// whatever the session's mask keeps, an exception that keeps this
+						// record's writes included. The caller's grants answer first.
+						//
+						// A row that names a person: the rule is asked about the person the
+						// row names before the write and the person it names after it.
+						//
+						// A row that names a set of people reaches every person in the set:
+						// the rule is asked whether the real person is in the set the row
+						// names, before the write and after it. The set is asked by its own
+						// declaration, so the rule and the policy agree on who is in it.
+						//
+						// A row removed with its parent, and a column that records who made a
+						// row, are the rule's stated limits:
+						// identity.RefuseImpersonatorAsRowSubject says what closes each.
+						subjectKey := resource.KeySet{}
+						if op.Type != resource.OperationCreate {
+							subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+						}
+						if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "UserID"); err != nil {
+							return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+						}
+						if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "SquadronID", "squadrons"); err != nil {
+							return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
+						}
+						if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "GroupID", "groups"); err != nil {
+							return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
 						}
 
 						switch op.Type {
@@ -949,6 +1043,27 @@ func (a *App) PatchResources() http.HandlerFunc {
 							return errors.Wrap(err, "op.ReqWithPattern()")
 						}
 
+						// This record's rows decide what a person may do, so nobody writes the
+						// row that decides it for themselves while they act as someone else,
+						// whatever the session's mask keeps, an exception that keeps this
+						// record's writes included. The caller's grants answer first.
+						//
+						// A row a person's set or value is read through: a change that sets
+						// the column it is read from is refused on the row the real person's
+						// own is read through, and a change that leaves the column alone
+						// asks nothing.
+						//
+						// A row removed with its parent, and a column that records who made a
+						// row, are the rule's stated limits:
+						// identity.RefuseImpersonatorAsRowSubject says what closes each.
+						subjectKey := resource.KeySet{}
+						if op.Type != resource.OperationCreate {
+							subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+						}
+						if err := identity.RefuseImpersonatorAsReadThroughSubject(ctx, txn, op.Type, subjectKey, patchSet, "squadron", "WingID", "wings"); err != nil {
+							return errors.Wrap(err, "identity.RefuseImpersonatorAsReadThroughSubject()")
+						}
+
 						switch op.Type {
 						case resource.OperationCreate:
 							patch, err := resources.NewSquadronCreatePatchFromPatchSet(patchSet)
@@ -1002,6 +1117,24 @@ func (a *App) PatchResources() http.HandlerFunc {
 						req, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id1}/{id2}", resource.RequireCreatePath())
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
+						}
+
+						// This record's rows decide what a person may do, so nobody writes the
+						// row that decides it for themselves while they act as someone else,
+						// whatever the session's mask keeps, an exception that keeps this
+						// record's writes included. The caller's grants answer first.
+						//
+						// A row that names a person: the rule is asked about the person the
+						// row names before the write and the person it names after it.
+						//
+						// A row removed with its parent, and a column that records who made a
+						// row, are the rule's stated limits:
+						// identity.RefuseImpersonatorAsRowSubject says what closes each.
+						subjectKey := resource.KeySet{}
+						subjectKey = subjectKey.Add("SquadronID", httpio.Param[impulse.UUID](req, "id1"))
+						subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id2"))
+						if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "squadron membership", "UserID"); err != nil {
+							return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
 						}
 
 						switch op.Type {

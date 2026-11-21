@@ -3,11 +3,13 @@ package generation
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 )
 
@@ -72,6 +74,8 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		"internal/crewresources/crew_group_roles.go",
 		"internal/crewresources/crew_group_users.go",
 		"internal/crewresources/crew_groups.go",
+		"internal/crewresources/crew_listed_group_roles.go",
+		"internal/crewresources/crew_listed_groups.go",
 		"internal/crewresources/crew_user_group_roles.go",
 	}
 	if diff := cmp.Diff(want, groupFiles(t, "pkg/identity")); diff != "" {
@@ -91,7 +95,7 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			// table declares is what it is tested against (group IN subject.groups).
 			"// @suppress(readHandler)", "CrewGroupMember struct {", "// @attribute(group)\n\t\tGroupID impulse.UUID `spanner:\"GroupId\"`",
 			// The one auth that keeps groups declares the set under the plain name.
-			"// @subjectSet(groups, value: GroupID, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))\n\t\tUserID    string     `spanner:\"UserId\"`",
+			"// @subjectSet(groups, value: GroupID, domain: GroupID.DomainID, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))\n\t\tUserID    string     `spanner:\"UserId\"`",
 		},
 		"internal/crewresources/crew_group_roles.go": {"// @suppress(readHandler)", "CrewGroupRole struct {", "Role      string       `spanner:\"Role\"`"},
 		"internal/crewresources/crew_group_users.go": {
@@ -106,13 +110,13 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"WHERE r.Role != 'SuperAdministrator'\n  AND (g.Kind = 'global' OR (r.Kind = g.Kind AND r.Axis = g.Axis AND r.DomainId = g.DomainId))",
 		},
 		"crewidentity/create_crew_group.go": {
-			"// @rpc\n\t// @outlet(default)\n\tCreateCrewGroup struct {", "Domain      *string", "identity.Scope(m.Domain, false)",
+			"// @rpc\n\t// @outlet(default)\n\t// @class(access)\n\tCreateCrewGroup struct {", "Domain      *string", "identity.Scope(m.Domain, false)",
 			"client.manager.CreateGroup(ctx, txn, scope, m.Name, m.Description)", "return &CreateCrewGroupResult{ID: id}, nil",
 		},
-		"crewidentity/describe_crew_group.go": {"// @answers(204)\ntype DescribeCrewGroup struct {\n\t// @target(CrewGroup)\n\tGroupID     impulse.UUID", "client.manager.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
-		"crewidentity/delete_crew_group.go":   {"type DeleteCrewGroup struct {\n\t// @target(CrewGroup)\n\tGroupID impulse.UUID\n}", "client.manager.DeleteGroup(ctx, txn, m.GroupID)"},
+		"crewidentity/describe_crew_group.go": {"// @answers(204)\ntype DescribeCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID     impulse.UUID", "client.manager.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
+		"crewidentity/delete_crew_group.go":   {"type DeleteCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID\n}", "client.manager.DeleteGroup(ctx, txn, m.GroupID)"},
 		"crewidentity/add_crew_group_member.go": {
-			"type AddCrewGroupMember struct {\n\t// @target(CrewGroup)\n\tGroupID impulse.UUID", "// @enumerate(CrewSessionUsers)\n\tUserID impulse.UUID",
+			"type AddCrewGroupMember struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID", "// @enumerate(CrewSessionUsers)\n\tUserID impulse.UUID",
 			// The served method names a person someone picked, so the account is read.
 			"client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AddGroupMemberFor(ctx, txn, m.GroupID, m.UserID, period)",
 		},
@@ -121,12 +125,12 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"client.manager.RemoveGroupMember(ctx, txn, m.GroupID, m.UserID)",
 		},
 		"crewidentity/give_crew_group_role.go": {
-			"type GiveCrewGroupRole struct {\n\t// @target(CrewGroup)\n\tGroupID impulse.UUID", "// @attribute(role)\n\tRole        string `validate:\"required\"`", "EveryDomain bool",
+			"type GiveCrewGroupRole struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID", "// @attribute(role)\n\tRole        string `validate:\"required\"`", "EveryDomain bool",
 			"client.manager.GiveGroupRoleFor(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role), period)",
 		},
 		// The whole application's method names no row: a role is held in a scope whose
 		// columns are empty for the whole application, so a page fills it from a row.
-		"crewidentity/take_crew_group_role.go": {"// @answers(204)\ntype TakeCrewGroupRole struct {\n\tGroupID     impulse.UUID", "client.manager.TakeGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role))"},
+		"crewidentity/take_crew_group_role.go": {"// @answers(204)\n// @class(access)\ntype TakeCrewGroupRole struct {\n\tGroupID     impulse.UUID", "client.manager.TakeGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role))"},
 		"crewidentity/store.go": {
 			"var _ identity.Store = store{}",
 			"func (store) InsertGroup(ctx context.Context, txn resource.ReadWriteTransaction, group *access.GroupRow) (impulse.UUID, error) {",
@@ -234,6 +238,8 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 		"internal/crewresources/crew_group_roles.go",
 		"internal/crewresources/crew_group_users.go",
 		"internal/crewresources/crew_groups.go",
+		"internal/crewresources/crew_listed_group_roles.go",
+		"internal/crewresources/crew_listed_groups.go",
 		"internal/crewresources/crew_ship_group_roles.go",
 		"internal/crewresources/crew_ship_group_users.go",
 		"internal/crewresources/crew_ship_groups.go",
@@ -261,7 +267,7 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 		},
 		"internal/crewresources/crew_ship_user_group_roles.go": {
 			"CrewShipUserGroupRole struct {", "GlobalGroup bool", "EveryDomain bool",
-			"SELECT s.Id AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt\n  FROM CrewGroupRoles r\n  CROSS JOIN Ships s",
+			"SELECT s.Id AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.CreatedAt AS CreatedAt, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt\n  FROM CrewGroupRoles r\n  CROSS JOIN Ships s",
 			"WHERE t.Role != 'SuperAdministrator'\n  AND (g.Kind = 'global' OR (NOT t.EveryDomain AND g.Kind = 'domain' AND g.Axis = '' AND g.DomainId = t.DomainId))",
 		},
 		// Who a group puts in a tenant is one of the tenant's people: the members of its
@@ -276,7 +282,7 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 			"WHERE gm.UserId = u.Id AND gg.Kind = 'global'\n      AND " + standingSQL("gm") + "\n  )) AS HeldGlobally",
 		},
 		"crewidentity/create_crew_ship_group.go": {
-			"// @rpc\n\t// @permissionScope(domain)\n\t// @outlet(default)\n\tCreateCrewShipGroup struct {", "tenant.CreateGroup(ctx, txn, m.Name, m.Description)",
+			"// @rpc\n\t// @permissionScope(domain)\n\t// @outlet(default)\n\t// @class(access)\n\tCreateCrewShipGroup struct {", "tenant.CreateGroup(ctx, txn, m.Name, m.Description)",
 		},
 		"crewidentity/describe_crew_ship_group.go": {"// @permissionScope(domain)", "// @target(CrewShipGroup)\n\tGroupID     impulse.UUID", "tenant.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
 		"crewidentity/delete_crew_ship_group.go":   {"// @permissionScope(domain)", "// @target(CrewShipGroup)\n\tGroupID impulse.UUID", "tenant.DeleteGroup(ctx, txn, m.GroupID)"},
@@ -396,7 +402,7 @@ func Test_prepareIdentity_grants_tenant(t *testing.T) {
 			"people := resource.ExecuteTarget{Resource: \"CrewShipUsers\", Label: \"CrewShipUser\", PKColumns: []string{\"Id\"}, View: crewresources.CrewShipUser{}}",
 			"return granted(gate.EnforceView(ctx, txn, people, userID))",
 			"caller.ExecuteGate(ctx, RemoveCrewShipRole{}.Method(), &RemoveCrewShipRole{UserID: userID, Role: string(role)})",
-			"held := resource.ExecuteTarget{Resource: \"CrewShipUserRoles\", Label: \"CrewShipUserRole\", PKColumns: []string{\"UserId\", \"Role\"}, View: nil}",
+			"held := resource.ExecuteTarget{Resource: \"CrewShipHeldRoles\", Label: \"CrewShipHeldRole\", PKColumns: []string{\"UserId\", \"Role\", \"GroupId\"}, View: nil}",
 			"return granted(gate.EnforceProposed(ctx, txn, held, map[string]any{\"role\": string(role), \"everyDomain\": false}))",
 			// The whole application's request is answered by its own methods still.
 			"caller.ExecuteGate(ctx, AssignCrewRole{}.Method(), &AssignCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
@@ -629,5 +635,70 @@ func Test_resolveRunSubjectSets(t *testing.T) {
 	declared := &resourceInfo{SubjectSets: []*subjectBinding{{Name: "squads", Type: "string"}}}
 	if err := c.resolveRunSubjectSets(append(slices.Clone(resources), declared)); err != nil {
 		t.Errorf("resolveRunSubjectSets() with the set declared by the management: error = %v, want none", err)
+	}
+}
+
+// Test_groupTenantColumn_isTheColumnTheDeclarationNames holds the column a domain: must
+// end at on an auth's groups table (groupTenantColumn) to the generated declaration of
+// a group: the field the members' own set ends at, DomainID, is declared over that
+// column. A change to either that leaves the other behind fails here, before a run
+// refuses its own management.
+func Test_groupTenantColumn_isTheColumnTheDeclarationNames(t *testing.T) {
+	t.Parallel()
+
+	declared := regexp.MustCompile(`\bDomainID\s+string\s+` + "`" + `spanner:"` + groupTenantColumn + `"`)
+	if !declared.MatchString(identityGroupsTemplate) {
+		t.Errorf("the generated declaration of a group no longer declares DomainID over the column %s, which is where a domain: on the groups table must end", groupTenantColumn)
+	}
+	if !strings.Contains(identityGroupMembersTemplate, "domain: GroupID.DomainID") {
+		t.Errorf("the generated group members no longer end their set's domain: at DomainID")
+	}
+}
+
+// Test_groupSetTenantFilter_restsOnOneAxis holds what the tenant filter of the set of a
+// person's groups rests on. The set says where a row's tenant is found (domain:
+// GroupID.DomainID), and its filter compares that tenant's key with the request's and
+// never the axis kept beside it. A key says which tenant only on one axis, so the filter
+// is sound exactly while every group is kept on the default axis, and that is all there
+// is today: no scope can name another axis, so a group to be created never does, a group
+// row that names one is refused when it is read, and the generated lists compare the
+// default axis too. The day a tenant can be on a second axis this test fails, and the set
+// must compare the axis in the same change: without that a group of one axis counts in
+// the tenant that has the same key on the other.
+func Test_groupSetTenantFilter_restsOnOneAxis(t *testing.T) {
+	t.Parallel()
+
+	// The set's way to a row's tenant is the tenant's key alone.
+	if !strings.Contains(identityGroupMembersTemplate, "// @subjectSet({{ .GroupSet }}, value: GroupID, domain: GroupID.DomainID, ") {
+		t.Fatalf("the generated group members no longer write domain: GroupID.DomainID on the set of a person's groups: hold this test to what the set compares now")
+	}
+
+	tests := []struct {
+		name  string
+		scope accesstypes.PolicyScope
+	}{
+		{name: "a tenant's group", scope: accesstypes.DomainPolicyScope("north")},
+		{name: "a group kept for the whole application", scope: accesstypes.GlobalPolicyScope()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			row, err := access.NewGroup(tt.scope, "Bay keepers", "The people who keep the bays.")
+			if err != nil {
+				t.Fatalf("NewGroup() error = %v", err)
+			}
+			if row.Axis != "" {
+				t.Errorf("NewGroup() keeps the group on axis %q, want the default axis: the set of a person's groups compares a tenant's key and no axis", row.Axis)
+			}
+			if got, err := access.GroupScope(row.Kind, "region", row.Domain); err == nil {
+				t.Errorf("GroupScope(%q, %q, %q) = %v, want the row refused: a group can now be kept on a second axis, and the set of a person's groups compares a tenant's key and no axis", row.Kind, "region", row.Domain, got)
+			}
+		})
+	}
+
+	// The lists drawn of a tenant's groups compare the same axis the stores write.
+	if got := (&identitySourceData{}).ScopeAxis(); got != "''" {
+		t.Errorf("ScopeAxis() = %s, want '': the generated lists read tenants on the default axis alone", got)
 	}
 }

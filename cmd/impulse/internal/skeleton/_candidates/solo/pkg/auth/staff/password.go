@@ -10,7 +10,8 @@ import (
 // always password: the segment of its login route (user/password/login). A password
 // sign-in is checked against the user's hash in the users table; the bootstrap creates
 // the development logins with their passwords, and a deployed environment starts from the
-// administrator the migrate command seeds (foothold.go), the rest coming from its
+// first administrator the migrate command invites (foothold.go), who chooses a password
+// from the mailed link, the rest coming from its
 // administration surface, from the invitations it mails and, while an administrator has
 // the method open to sign-up, from the strangers who sign up from a mailed link.
 const PasswordRegistration = "password"
@@ -44,6 +45,27 @@ func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {
 // old one (PasswordChange).
 func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
 	return h.FirstPassword().Set()
+}
+
+// PasswordResetRequest takes a person's own request for a link that resets their
+// password, served while an administrator has turned that on: the answer is the same
+// whether or not the address has an account, and an address with none is mailed
+// nothing.
+func (h *Handlers) PasswordResetRequest() http.HandlerFunc {
+	return h.PasswordReset().Request()
+}
+
+// PasswordResetOpen opens a password reset link, the person's own or one an
+// administrator sent, and answers the username it resets the password of.
+func (h *Handlers) PasswordResetOpen() http.HandlerFunc {
+	return h.PasswordReset().Open()
+}
+
+// PasswordResetComplete sets the new password a reset link's reader chose: the link is
+// spent, the old password is refused from then on, every session of the person ends,
+// and they sign in with the new password.
+func (h *Handlers) PasswordResetComplete() http.HandlerFunc {
+	return h.PasswordReset().Complete()
 }
 
 // InvitationSignUp accepts an invitation as a stranger with a new password: the invitee

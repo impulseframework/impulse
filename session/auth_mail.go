@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
+	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -23,8 +24,10 @@ import (
 )
 
 // The mail the Auth sends: an invitation, the verification of an address a person
-// adds, and the link a sign-up starts from. Each is one plain-text message with one
-// link in it, to the login page with the link's token as a query parameter, which the
+// adds, the link a sign-up starts from, the link that resets a password, the link that
+// confirms an address an administrator asked to put on an account, and the notices that
+// tell a person their account changed, which carry no link. Each of the others is one
+// plain-text message with one link in it, to the login page with the link's token as a query parameter, which the
 // page posts back to the route that completes the step. A message reads as
 // instructions: what the person did, the link to open and how long it is good for,
 // then, under headings of their own, what to do if it was not them and a word to keep
@@ -39,8 +42,9 @@ type MailSettings struct {
 	// LoginURL is the absolute URL of the application's login page
 	// (https://harbor.example.com/login), where every mailed link leads: with
 	// ?invitation=<token> for an invitation, ?verify=<token> for an address
-	// verification and ?signUp=<token> for a sign-up. The page posts the token to the
-	// matching route.
+	// verification, ?signUp=<token> for a sign-up, ?reset=<token> for a password reset
+	// and ?address=<token> for an address an administrator asked to change. The page
+	// posts the token to the matching route.
 	LoginURL string
 	// InvitationTimeout is how long an invitation stands; zero is seven days.
 	InvitationTimeout time.Duration
@@ -62,9 +66,12 @@ const (
 // never used.
 var mailLimit = sessionstorage.SignInAttemptLimit{Failures: 5, Window: 15 * time.Minute, Lock: 15 * time.Minute}
 
-// mailLimitKey is the address's key in the sign-in attempts table.
+// mailLimitKey is the address's key in the sign-in attempts table: the address folded
+// as the users table folds one (attempts.Normalize), so every spelling that finds the
+// same account's address is counted under the one key, and under a kind no name a
+// person signs in under can spell (attempts.OwnKey).
 func mailLimitKey(email string) string {
-	return "mail:" + strings.ToLower(email)
+	return attempts.OwnKey(attempts.KindMail, attempts.Normalize(email))
 }
 
 // mailSettings are the Auth's mail settings once validated.
@@ -257,6 +264,159 @@ If you did not ask for an account, ignore this message. Nothing changes.
 	}
 }
 
+// AskedBy says who asked for a link the Auth mails to a person about their account, as
+// the message says it: the person themselves (the zero value), an administrator of one
+// tenant, or an administrator of the application. A person is told who set a change of
+// their account in motion, so a link they did not expect says where it came from.
+type AskedBy struct {
+	// Administrator says an administrator asked, and not the person.
+	Administrator bool
+	// Tenant is the tenant whose administrator asked, by its key; "" for an
+	// administrator of the application. The message names the tenant as the Auth's
+	// tenant names do (SetTenantNames), and names the application where they have no
+	// name for it.
+	Tenant string
+}
+
+// AskedByPerson is the asker of a link a person asked for themselves.
+func AskedByPerson() AskedBy {
+	return AskedBy{Administrator: false, Tenant: ""}
+}
+
+// AskedByApplication is the asker of a link an administrator of the application asked
+// for.
+func AskedByApplication() AskedBy {
+	return AskedBy{Administrator: true, Tenant: ""}
+}
+
+// AskedByTenant is the asker of a link an administrator of the tenant asked for.
+func AskedByTenant(tenant string) AskedBy {
+	return AskedBy{Administrator: true, Tenant: tenant}
+}
+
+// administratorOf is whose administrator asked, as a message says it after "An
+// administrator of": the tenant by its name, and the application where the asker is the
+// application's own or the tenant has no name the Auth knows.
+func (a *Auth[S, U, Tx]) administratorOf(m *mailSettings, by AskedBy) string {
+	if name := a.tenantName(by.Tenant); name != "" {
+		return name
+	}
+
+	return m.settings.Application
+}
+
+// passwordResetMessage is the mail that carries a password reset link: who asked (the
+// person, or an administrator of asker), the link to open and choose a new password at,
+// how long it is good for (lifetime) and that the password stands until it is used,
+// then what to do if it was not expected and a word to keep the link to oneself.
+func (m *mailSettings) passwordResetMessage(to, token string, lifetime time.Duration, by AskedBy, asker string) mail.Message {
+	app := m.settings.Application
+	opening := fmt.Sprintf("You asked to reset the password of your %s account.", app)
+	unexpected := "Didn't do this?\nIf you did not ask for this, ignore this message. Nothing changes."
+	if by.Administrator {
+		opening = fmt.Sprintf("An administrator of %s asked us to send you a link to reset the password of your %s account.", asker, app)
+		unexpected = "Didn't expect this?\nIf you do not want a new password, ignore this message. Nothing changes."
+	}
+
+	return mail.Message{
+		To:      to,
+		Subject: fmt.Sprintf("Reset your %s password", app),
+		Text: fmt.Sprintf(`%s
+
+To choose a new password, open this link:
+%s
+
+The link is good for %s and works once. Your password stays as it is until you use the link.
+
+%s
+
+Keep the link to yourself
+Anyone who opens the link can choose a new password for your account. Don't forward it.
+`, opening, m.link("reset", token), goodFor(lifetime), unexpected),
+	}
+}
+
+// addressChangeMessage is the mail that confirms an address an administrator of asker
+// asked to put on an account: what was asked, the link that confirms it and how long it
+// is good for (lifetime), that the account keeps its address until then, what to do if
+// it was not expected and a word to keep the link to oneself.
+func (m *mailSettings) addressChangeMessage(to, token string, lifetime time.Duration, asker string) mail.Message {
+	app := m.settings.Application
+
+	return mail.Message{
+		To:      to,
+		Subject: fmt.Sprintf("Confirm your new email address for %s", app),
+		Text: fmt.Sprintf(`An administrator of %s asked to change the email address of a %s account to this one.
+
+To confirm that this address is yours, open this link:
+%s
+
+The link is good for %s. The account keeps the address it has until you confirm.
+
+Didn't expect this?
+If you do not have a %s account, or do not want this change, ignore this message. Nothing changes.
+
+Keep the link to yourself
+Anyone who opens the link confirms the change in your place. Don't forward it.
+`, asker, app, m.link("address", token), goodFor(lifetime), app),
+	}
+}
+
+// addressChangedMessage is the notice sent to the address an account held when another
+// replaced it: that it changed, to which address (masked, since the old mailbox may no
+// longer be the person's alone), and what to do if the person did not change it.
+func (m *mailSettings) addressChangedMessage(to, replacement string) mail.Message {
+	app := m.settings.Application
+
+	return mail.Message{
+		To:      to,
+		Subject: fmt.Sprintf("The email address of your %s account changed", app),
+		Text: fmt.Sprintf(`The email address of your %s account was changed to %s. Messages about your account now go there, and no longer to this address.
+
+Didn't do this?
+If you did not change your address and no administrator changed it for you, tell an administrator of %s right away: someone else may have your account.
+`, app, maskAddress(replacement), app),
+	}
+}
+
+// factorResetMessage is the notice sent when an administrator resets a person's second
+// factor: every browser the person asked to be remembered is forgotten, and what that
+// means at their next sign-in.
+func (m *mailSettings) factorResetMessage(to string) mail.Message {
+	app := m.settings.Application
+
+	return mail.Message{
+		To:      to,
+		Subject: fmt.Sprintf("Your %s sign-in was reset", app),
+		Text: fmt.Sprintf(`An administrator reset the second step of your %s sign-in. Every browser you asked us to remember is forgotten, so the next time you sign in we will mail you a code.
+
+Didn't expect this?
+You do not need to do anything. If you want to know why, ask an administrator of %s.
+`, app, app),
+	}
+}
+
+// removedFromTenantMessage is the notice sent when an administrator's act leaves a
+// person with no role in a tenant: where they were removed from (tenant, "" where the
+// Auth has no name for it), and that the account went with it when it did.
+func (m *mailSettings) removedFromTenantMessage(to, tenant string, accountDeleted bool) mail.Message {
+	app := m.settings.Application
+	where := tenant
+	if where == "" {
+		where = app
+	}
+	text := fmt.Sprintf("An administrator removed you from %s. You no longer have access to it in %s.\n", where, app)
+	if tenant == "" {
+		text = fmt.Sprintf("An administrator removed your access in %s.\n", app)
+	}
+	if accountDeleted {
+		text += fmt.Sprintf("\nIt was the only place you had access to, so your %s account was deleted with it.\n", app)
+	}
+	text += fmt.Sprintf("\nDidn't expect this?\nIf you think this is a mistake, ask an administrator of %s.\n", where)
+
+	return mail.Message{To: to, Subject: fmt.Sprintf("You were removed from %s", where), Text: text}
+}
+
 // codeMessage is the mail the second factor sends: the one-time code, how long it is
 // good for (lifetime), then what to do if no sign-in was started and a word to keep
 // the code to oneself. The code is spaced in the middle for reading.
@@ -438,10 +598,12 @@ func (a *Auth[S, U, Tx]) hashToSet(password string) (*securehash.Hash, error) {
 	return hash, nil
 }
 
-// claimVerifiedEmail writes the address a sign-in method asserts as verified (Google
-// verifies the address itself, and the person has just proven they hold the account)
-// onto the user as verified, when the user holds no verified address and no other user
-// holds it. It is bookkeeping after the session stands: a failure is logged.
+// claimVerifiedEmail writes the address a sign-in method vouches for (Google alone, for
+// a Gmail address and a Workspace account's, which it is the authority for; the person
+// has just proven they hold the account) onto the user as verified, when the user holds
+// no verified address and no other user holds it. No other provider's word for an
+// address is written: that address is confirmed by the mailed code. It is bookkeeping
+// after the session stands: a failure is logged.
 func (a *Auth[S, U, Tx]) claimVerifiedEmail(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity) {
 	if identity == nil || !identity.EmailVerified || identity.Email == "" {
 		return

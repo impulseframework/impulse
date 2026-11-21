@@ -138,7 +138,12 @@ func Test_servedRouter_generatedTestRuns(t *testing.T) {
 		"--- PASS: TestGeneratedRouterSessionRoutes/GET-url-portal-api-user-google-callback",
 		"--- PASS: TestGeneratedRouterSessionRoutes/GET-url-api-user-methods",
 		"--- PASS: TestGeneratedRouterSessionRoutes/POST-url-api-user-password-login",
-		"--- PASS: TestGeneratedRouterSessionRoutes/POST-url-portal-api-user-pending-confirm",
+		// The default outlet's auth has the password method, so it serves the password
+		// confirmation of a pending sign-in; the portal's auth has none, so the portal
+		// serves the rest of a pending sign-in and its confirmation reaches no handler.
+		"--- PASS: TestGeneratedRouterSessionRoutes/POST-url-api-user-pending-confirm",
+		"--- PASS: TestGeneratedRouterSessionRoutes/POST-url-portal-api-user-pending-cancel",
+		"--- PASS: TestGeneratedRouterNotFound/POST-url-portal-api-user-pending-confirm",
 		"--- PASS: TestGeneratedRouterNotFound/POST-url-droids-user-password-login",
 		"--- PASS: TestGeneratedRouterPrograms/GET-url-droids-programs-beacon-1.0.0-linux-amd64",
 		"--- PASS: TestGeneratedRouterPrograms/GET-url-droids-programs-beacon-1.0.0-linux-arm64",
@@ -172,6 +177,9 @@ func Test_servedRouter_generatedTestRuns(t *testing.T) {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("go test output missing %q:\n%s", want, out)
 		}
+	}
+	if served := "TestGeneratedRouterSessionRoutes/POST-url-portal-api-user-pending-confirm"; strings.Contains(string(out), served) {
+		t.Errorf("go test output has %q: the portal's auth has no password method, so it serves no password confirmation", served)
 	}
 }
 

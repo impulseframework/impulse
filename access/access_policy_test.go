@@ -17,6 +17,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // grammarRoleFile is a role file over grammarCollection: Steward executes the
@@ -48,9 +49,9 @@ var paymasterWarning = GrantWarning{Role: "Paymaster", Scope: accesstypes.Domain
 
 // newPolicyClient builds a Client over store with the options, failing the
 // test when New refuses, and closes it at test end.
-func newPolicyClient(t *testing.T, store Store, opts ...Option) *Client {
+func newPolicyClient(t *testing.T, store Store, collection PermissionCollection, opts ...Option) *Client {
 	t.Helper()
-	client, err := New(store, opts...)
+	client, err := New(store, collection, opts...)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -192,10 +193,10 @@ func TestRoleFile_Parse(t *testing.T) {
 }
 
 // TestNew_withDefaultRoles_refusals pins what New refuses with
-// WithDefaultRoles: a nil collection, a file that does not parse, a file
-// whose shape is wrong — a role name outside the grammar, a role with no
-// description — and a file naming what the collection does not declare: a
-// release whose default roles are wrong does not start.
+// WithDefaultRoles: a nil collection, as it does without a role file, a file
+// that does not parse, a file whose shape is wrong — a role name outside the
+// grammar, a role with no description — and a file naming what the collection
+// does not declare: a release whose default roles are wrong does not start.
 func TestNew_withDefaultRoles_refusals(t *testing.T) {
 	t.Parallel()
 
@@ -237,7 +238,7 @@ func TestNew_withDefaultRoles_refusals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			client, err := New(newFakeStore(), WithDefaultRoles(tt.collection, tt.file))
+			client, err := New(newFakeStore(), tt.collection, WithDefaultRoles(tt.file))
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("New() error = %v, want one containing %q", err, tt.wantErr)
 			}
@@ -257,7 +258,7 @@ func TestClient_WithDefaultRoles(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client := newPolicyClient(t, newFakeStore(), WithDefaultRoles(grammarCollection{}, grammarRoleFile))
+	client := newPolicyClient(t, newFakeStore(), grammarCollection{}, WithDefaultRoles(grammarRoleFile))
 	if err := client.WaitReady(ctx); err != nil {
 		t.Fatalf("WaitReady() error = %v", err)
 	}
@@ -384,11 +385,11 @@ func TestClient_CheckPolicy(t *testing.T) {
 		{
 			name: "memberships naming a role nothing defines, the members sorted",
 			seed: func(ctx context.Context, store *fakeStore) error {
-				if err := store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}); err != nil {
+				if err := store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}, ""); err != nil {
 					return err
 				}
 
-				return store.InsertUserRole(ctx, tenant1Policy, "amy", "Ghost", accesstypes.Period{})
+				return store.InsertUserRole(ctx, tenant1Policy, "amy", "Ghost", accesstypes.Period{}, "")
 			},
 			want:     []Warning{paymasterWarning, &OrphanedMembership{Scope: tenant1Policy, Role: "Ghost", Users: []accesstypes.User{"amy", "zed"}}},
 			wantText: []string{"without Read or List", "role Ghost is held by 2 user(s) in scope tenant1"},
@@ -396,7 +397,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 		{
 			name: "a membership of a default role resolves",
 			seed: func(ctx context.Context, store *fakeStore) error {
-				return store.InsertUserRole(ctx, everyDomainPolicy, "dana", "Paymaster", accesstypes.Period{})
+				return store.InsertUserRole(ctx, everyDomainPolicy, "dana", "Paymaster", accesstypes.Period{}, "")
 			},
 			want:     []Warning{paymasterWarning},
 			wantText: []string{"without Read or List"},
@@ -408,7 +409,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 					return err
 				}
 
-				return store.InsertUserRole(ctx, tenant1Policy, "dana", "Scout", accesstypes.Period{})
+				return store.InsertUserRole(ctx, tenant1Policy, "dana", "Scout", accesstypes.Period{}, "")
 			},
 			want:     []Warning{paymasterWarning},
 			wantText: []string{"without Read or List"},
@@ -426,10 +427,34 @@ func TestClient_CheckPolicy(t *testing.T) {
 			wantText: []string{"without Read or List", "role Rogue in scope tenant1, Read on Nowhere: "},
 		},
 		{
+			name: "a grant for the whole of a scope, written straight to the store, of a permission the release does not have",
+			seed: func(ctx context.Context, store *fakeStore) error {
+				if err := store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription); err != nil {
+					return err
+				}
+
+				return store.InsertGrant(ctx, tenant1Policy, "Rogue", "ExportLedger", "", "", "")
+			},
+			want:     []Warning{paymasterWarning, &SkippedGrant{Scope: tenant1Policy, Subject: "role Rogue", Permission: "ExportLedger"}},
+			wantText: []string{"without Read or List", "role Rogue in scope tenant1, ExportLedger scope-wide: this release has no permission ExportLedger"},
+		},
+		{
+			name: "a grant for the whole of a scope of a permission the release has",
+			seed: func(ctx context.Context, store *fakeStore) error {
+				if err := store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription); err != nil {
+					return err
+				}
+
+				return store.InsertGrant(ctx, tenant1Policy, "Rogue", "Delete", "", "", "")
+			},
+			want:     []Warning{paymasterWarning},
+			wantText: []string{"without Read or List"},
+		},
+		{
 			name: "every kind at once, in report order",
 			seed: func(ctx context.Context, store *fakeStore) error {
 				for _, err := range []error{
-					store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}),
+					store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}, ""),
 					store.InsertRole(ctx, tenant1Policy, "Paymaster", aDescription),
 					store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription),
 					store.InsertGrant(ctx, tenant1Policy, "Rogue", "Read", "Nowhere", "", ""),
@@ -460,7 +485,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 					t.Fatalf("seeding fake store: %v", err)
 				}
 			}
-			client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile))
+			client := newPolicyClient(t, store, probeCollection{}, WithDefaultRoles(probeRoleFile))
 			before, err := store.ReadPolicy(ctx)
 			if err != nil {
 				t.Fatalf("ReadPolicy() before error = %v", err)
@@ -510,7 +535,7 @@ func TestClient_CheckPolicy_findingsAreErrors(t *testing.T) {
 	store := newFakeStore()
 	for _, err := range []error{
 		store.InsertRole(ctx, tenant1Policy, "Paymaster", aDescription),
-		store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}),
+		store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}, ""),
 		store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription),
 		store.InsertGrant(ctx, tenant1Policy, "Rogue", "Read", "Nowhere", "", ""),
 	} {
@@ -518,7 +543,7 @@ func TestClient_CheckPolicy_findingsAreErrors(t *testing.T) {
 			t.Fatalf("seeding fake store: %v", err)
 		}
 	}
-	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile))
+	client := newPolicyClient(t, store, probeCollection{}, WithDefaultRoles(probeRoleFile))
 
 	warnings, err := client.CheckPolicy(ctx)
 	if err != nil {
@@ -601,7 +626,7 @@ func TestClient_CheckPolicy_storeError(t *testing.T) {
 	ctx := t.Context()
 
 	store := newFakeStore()
-	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile))
+	client := newPolicyClient(t, store, probeCollection{}, WithDefaultRoles(probeRoleFile))
 	store.setFail(errors.New("store down"))
 
 	warnings, err := client.CheckPolicy(ctx)
@@ -610,6 +635,104 @@ func TestClient_CheckPolicy_storeError(t *testing.T) {
 	}
 	if warnings != nil {
 		t.Errorf("CheckPolicy() = %v beside an error, want nil", warnings)
+	}
+}
+
+// TestClient_storedScopeWideGrantIsHeldToTheCollection pins what a Client does
+// with a grant for the whole of a scope that its release has no permission
+// for, in a store it did not write: the row an earlier release wrote before
+// this one dropped the permission, or one written straight to the store. The
+// load skips it as the write that would add it is refused, so the role's
+// holder is not given the permission, the role's listing does not show it, the
+// grant alone is no foothold in the tenant, and the hook is told. The same
+// rows under a release that has the permission are carried. Each release is a
+// collection as the generator writes one: the one that has the permission
+// declares it with no resource, which is the only way a generated collection
+// lists a permission no resource registers.
+func TestClient_storedScopeWideGrantIsHeldToTheCollection(t *testing.T) {
+	t.Parallel()
+
+	const exportLedger accesstypes.Permission = "ExportLedger"
+	ledgers := resource.CollectionResource{Name: "Ledgers", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read}}
+	tests := []struct {
+		name       string
+		collection PermissionCollection
+		wantHeld   bool
+	}{
+		{name: "a release that declares the permission carries the grant", collection: generated(t, resource.CollectionData{
+			Permissions: []accesstypes.Permission{exportLedger},
+			Resources:   []resource.CollectionResource{ledgers},
+		}), wantHeld: true},
+		{name: "a release that dropped the declaration skips the grant", collection: generated(t, resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}), wantHeld: false},
+		{name: "a release that declares nothing skips the grant", collection: generated(t, resource.CollectionData{}), wantHeld: false},
+		{name: "a release of two sites, one of which declares the permission, carries the grant", collection: unionOf(t,
+			generated(t, resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}),
+			generated(t, resource.CollectionData{Permissions: []accesstypes.Permission{exportLedger}}),
+		), wantHeld: true},
+		{name: "a release of two sites, neither of which declares the permission, skips the grant", collection: unionOf(t,
+			generated(t, resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}),
+			generated(t, resource.CollectionData{}),
+		), wantHeld: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+
+			store := newFakeStore()
+			for _, err := range []error{
+				store.InsertRole(ctx, tenant1Policy, "Auditor", aDescription),
+				store.InsertGrant(ctx, tenant1Policy, "Auditor", exportLedger, "", "", ""),
+				store.InsertUserRole(ctx, tenant1Policy, "dana", "Auditor", accesstypes.Period{}, ""),
+			} {
+				if err != nil {
+					t.Fatalf("seeding fake store: %v", err)
+				}
+			}
+			hook := &reloadErrors{}
+			client := newPolicyClient(t, store, tt.collection, WithReloadErrorHandler(hook.collect))
+
+			decision, err := client.CheckUser(ctx, accesstypes.NewEnvironment(), "dana", tenant1Scope, exportLedger)
+			if err != nil {
+				t.Fatalf("CheckUser() error = %v", err)
+			}
+			if got := decision.IsGranted(); got != tt.wantHeld {
+				t.Errorf("CheckUser(ExportLedger) granted = %v, want %v", got, tt.wantHeld)
+			}
+			foothold, err := client.UserHasGrants(ctx, "dana", tenant1Scope)
+			if err != nil {
+				t.Fatalf("UserHasGrants() error = %v", err)
+			}
+			if foothold != tt.wantHeld {
+				t.Errorf("UserHasGrants() = %v, want %v", foothold, tt.wantHeld)
+			}
+			listed, err := client.UserManager().RolePermissions(ctx, tenant1Scope, "Auditor")
+			if err != nil {
+				t.Fatalf("RolePermissions() error = %v", err)
+			}
+			if _, shown := listed[exportLedger]; shown != tt.wantHeld {
+				t.Errorf("RolePermissions() = %v, want ExportLedger shown %v", listed, tt.wantHeld)
+			}
+
+			settle(client.snapEngine)
+			var reported []string
+			for _, err := range hook.list() {
+				var skipped *SkippedGrant
+				if !errors.As(err, &skipped) {
+					t.Errorf("the hook received %v, want nothing but a skipped grant", err)
+
+					continue
+				}
+				reported = append(reported, skipped.Error())
+			}
+			var want []string
+			if !tt.wantHeld {
+				want = []string{"skipped a grant this release cannot use, so it is denied: role Auditor in scope tenant1, ExportLedger scope-wide: this release has no permission ExportLedger"}
+			}
+			if diff := cmp.Diff(want, reported); diff != "" {
+				t.Errorf("the hook's reports mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
@@ -644,7 +767,7 @@ func TestClient_CheckPolicy_findingsReachReloadHook(t *testing.T) {
 	store := newFakeStore()
 	for _, err := range []error{
 		store.InsertRole(ctx, tenant1Policy, "Paymaster", aDescription),
-		store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}),
+		store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost", accesstypes.Period{}, ""),
 		store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription),
 		store.InsertGrant(ctx, tenant1Policy, "Rogue", "Read", "Nowhere", "", ""),
 	} {
@@ -653,7 +776,7 @@ func TestClient_CheckPolicy_findingsReachReloadHook(t *testing.T) {
 		}
 	}
 	hook := &reloadErrors{}
-	client := newPolicyClient(t, store, WithDefaultRoles(probeCollection{}, probeRoleFile), WithReloadErrorHandler(hook.collect))
+	client := newPolicyClient(t, store, probeCollection{}, WithDefaultRoles(probeRoleFile), WithReloadErrorHandler(hook.collect))
 
 	warnings, err := client.CheckPolicy(ctx)
 	if err != nil {

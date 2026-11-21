@@ -339,10 +339,21 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 		return b.do(ctx, http.MethodPost, "/api/tenants/"+tenant+"/"+method, []byte(`{}`))
 	}
+	// state reads the switch as it stands. What the read says turning it on takes of
+	// the reader (its conditions) is left out here, and held where it is asked below.
 	state := func(b *browser, tenant string) (int, string) {
 		status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/directory-only", nil)
+		var read struct {
+			DirectoryOnly *bool `json:"directoryOnly"`
+		}
+		if status != http.StatusOK || json.Unmarshal(body, &read) != nil || read.DirectoryOnly == nil {
+			return status, strings.TrimSpace(string(body))
+		}
+		if *read.DirectoryOnly {
+			return status, `{"directoryOnly":true}`
+		}
 
-		return status, strings.TrimSpace(string(body))
+		return status, `{"directoryOnly":false}`
 	}
 	// warns asks the method that turns the switch on for its warning: what the call
 	// would do, in the server's words, with nothing saved.
@@ -429,6 +440,28 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	}
 	if status, got := state(organizer, north); status != http.StatusOK || got != off {
 		t.Fatalf("north's switch after the refusals: status %d %s, want 200 %s: nothing was written", status, got, off)
+	}
+	// The Sign-in page says both things turning it on takes before the person presses:
+	// the read of the switch answers them for the person reading, the first met and the
+	// second not, with what to do, in the words the refusal above uses.
+	var asked struct {
+		Conditions []struct {
+			Sentence string `json:"sentence"`
+			Met      bool   `json:"met"`
+			ToDo     string `json:"toDo"`
+		} `json:"conditions"`
+	}
+	if status, body := organizer.do(ctx, http.MethodGet, "/api/tenants/"+north+"/directory-only", nil); status != http.StatusOK || json.Unmarshal(body, &asked) != nil {
+		t.Fatalf("reading north's switch as the organizer: status %d: %s", status, body)
+	}
+	if len(asked.Conditions) != 2 {
+		t.Fatalf("what the read of north's switch says turning it on takes of the organizer = %+v, want two things: a sign-in through the tenant's directory, and a password", asked.Conditions)
+	}
+	if through := asked.Conditions[0]; !through.Met || through.ToDo != "" || !strings.HasPrefix(through.Sentence, "Directory only is turned on by a person who is signed in through this tenant's directory") {
+		t.Errorf("the first thing = %+v, want the sign-in through the tenant's directory, met: the organizer signed in through it", through)
+	}
+	if password := asked.Conditions[1]; password.Met || password.Sentence+" "+password.ToDo != noPassword {
+		t.Errorf("the second thing = %+v, want the password, not met, in the words of the refusal %q", password, noPassword)
 	}
 	// The organizer chooses a password on their account: a code is mailed to their
 	// confirmed address, the one the Workspace vouched for, and the code sets the

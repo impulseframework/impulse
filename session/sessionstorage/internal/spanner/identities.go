@@ -185,7 +185,10 @@ func (s *SessionStorageDriver) newIdentityLink(userID impulse.UUID, identity *se
 // UserIn reads the part of userID's user the sign-in decides on, inside tx. A missing
 // user is NotFound.
 func (s *SessionStorageDriver) UserIn(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID) (*dbtype.User, error) {
-	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{idColumn, usernameColumn, "PasswordHash", "Disabled"})
+	// Whether the row holds an address, and whether its person has confirmed it, is read
+	// with the row, in the same transaction: a hold for the code that confirms one, and
+	// a first link that waits for the code mailed to it, are decided on them.
+	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{idColumn, usernameColumn, "PasswordHash", "Disabled", emailColumn, emailVerifiedAtColumn})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
 			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", userID)
@@ -193,8 +196,23 @@ func (s *SessionStorageDriver) UserIn(ctx context.Context, tx *spanner.ReadWrite
 
 		return nil, errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
 	}
+	user, err := userOf(row)
+	if err != nil {
+		return nil, err
+	}
+	var (
+		email      spanner.NullString
+		verifiedAt spanner.NullTime
+	)
+	if err := row.Column(4, &email); err != nil {
+		return nil, errors.Wrap(err, "spanner.Row.Column()")
+	}
+	if err := row.Column(5, &verifiedAt); err != nil {
+		return nil, errors.Wrap(err, "spanner.Row.Column()")
+	}
+	user.EmailConfirmed, user.EmailHeld = email.Valid && verifiedAt.Valid, email.Valid
 
-	return userOf(row)
+	return user, nil
 }
 
 // UserByUsernameIn reads the user named username inside tx, matched on the normalized
@@ -220,8 +238,8 @@ func (s *SessionStorageDriver) UserByUsernameIn(ctx context.Context, tx *spanner
 	return user, nil
 }
 
-// userOf reads the part of a user row the flow decides on from row's columns Id,
-// Username, PasswordHash, Disabled, with the proof the row's password hash answers to:
+// userOf reads the part of a user row the flow decides on from row's first four columns,
+// Id, Username, PasswordHash, Disabled, with the proof the row's password hash answers to:
 // read in the transaction that inserts on the strength of a password proof, it is the
 // hash the row holds when that transaction commits, or Spanner runs it again.
 func userOf(row *spanner.Row) (*dbtype.User, error) {
@@ -230,8 +248,10 @@ func userOf(row *spanner.Row) (*dbtype.User, error) {
 		u    dbtype.User
 		hash spanner.NullString
 	)
-	if err := row.Columns(&id, &u.Username, &hash, &u.Disabled); err != nil {
-		return nil, errors.Wrap(err, "spanner.Row.Columns()")
+	for i, ptr := range []any{&id, &u.Username, &hash, &u.Disabled} {
+		if err := row.Column(i, ptr); err != nil {
+			return nil, errors.Wrap(err, "spanner.Row.Column()")
+		}
 	}
 	userID, err := impulse.UUIDFromString(id)
 	if err != nil {
@@ -340,9 +360,9 @@ func (s *SessionStorageDriver) newUserMutation(insertUser *dbtype.InsertSessionU
 	}
 	if s.users {
 		if !s.usernameIsEmail {
-			row["Email"] = spanner.NullString{}
+			row[emailColumn] = spanner.NullString{}
 			if insertUser.Email != nil {
-				row["Email"] = spanner.NullString{StringVal: *insertUser.Email, Valid: true}
+				row[emailColumn] = spanner.NullString{StringVal: *insertUser.Email, Valid: true}
 			}
 		}
 		if insertUser.EmailVerified {

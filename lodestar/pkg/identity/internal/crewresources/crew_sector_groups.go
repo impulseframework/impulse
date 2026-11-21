@@ -15,9 +15,14 @@ type (
 	// DomainId is the tenant. A group kept for the whole application is no tenant's and
 	// is not listed, whichever tenants it holds a role in. A tenant's group is managed in
 	// the tenant, holds roles there alone, and counts in a grant's condition
-	// (subject.groups) wherever the tenant's rows name it. The id is read by a
-	// condition itself (group), so a role file can show a person the groups they are in
-	// (group IN subject.groups).
+	// (subject.groups) in the tenant's own requests and in no other tenant's. The
+	// id is read by a condition itself (group), so a role file can show a person the
+	// groups they are in (group IN subject.groups).
+	//
+	// People is how many people are in the group, and Roles the roles it holds, a line
+	// each, by name. Both are what has not ended, a place or a role whose period has not
+	// begun among it, which is what the deletion of a group refuses it for: a group
+	// listed with no people and no roles is one DeleteCrewSectorGroup removes.
 	//
 	// @virtual
 	// @permissionScope(domain)
@@ -33,11 +38,14 @@ type (
 		Name        string    `spanner:"Name"        index:"true"`
 		Description string    `spanner:"Description"`
 		UpdatedAt   time.Time `spanner:"UpdatedAt"`
+		People      int64     `spanner:"People"`
+		Roles       []string  `spanner:"Roles"`
 	}
 )
 
 // crewSectorGroupQuery selects the groups of every tenant: the rows of
-// CrewGroups kept in one. The table's index by name leads with where a group is
+// CrewGroups kept in one, each with the count of its places and the names of
+// its roles that have not ended. The table's index by name leads with where a group is
 // kept, so a tenant's page reads its own groups from it.
 const crewSectorGroupQuery = `
 SELECT
@@ -45,7 +53,20 @@ SELECT
   g.DomainId AS DomainId,
   g.Name AS Name,
   g.Description AS Description,
-  g.UpdatedAt AS UpdatedAt
+  g.UpdatedAt AS UpdatedAt,
+  (SELECT COUNT(*) FROM CrewGroupMembers cm WHERE cm.GroupId = g.Id AND (cm.EndsAt IS NULL OR cm.EndsAt > CURRENT_TIMESTAMP())) AS People,
+  ARRAY(
+    SELECT CASE
+      WHEN cr.Kind = g.Kind AND cr.Axis = g.Axis AND cr.DomainId = g.DomainId THEN cr.Role
+      WHEN cr.Kind = 'every' THEN CONCAT(cr.Role, ' in every sector')
+      WHEN cr.Kind = 'domain' THEN CONCAT(cr.Role, ' in sector ', COALESCE(CAST(ct.Name AS STRING), cr.DomainId))
+      ELSE CONCAT(cr.Role, ' for the whole application')
+    END
+    FROM CrewGroupRoles cr
+    LEFT JOIN Sectors ct ON ct.Id = cr.DomainId
+    WHERE cr.GroupId = g.Id AND (cr.EndsAt IS NULL OR cr.EndsAt > CURRENT_TIMESTAMP())
+    ORDER BY cr.Role, cr.Kind, cr.DomainId
+  ) AS Roles
 FROM CrewGroups g
 WHERE g.Kind = 'domain' AND g.Axis = ''
 `

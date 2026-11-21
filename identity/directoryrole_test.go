@@ -43,12 +43,12 @@ func TestManager_DirectoryRole(t *testing.T) {
 		{name: "a role of the tenant the caller may give", role: "Reader", wantAsked: []string{"give domain/alpha " + nobody + " Reader"}},
 		{
 			name: "a role of the tenant the caller may not give is refused", role: "Warden",
-			wantForbidden: "you may not give the role Warden in this tenant, so you cannot make it the role everyone from its directory gets",
+			wantForbidden: "You may not give the role Warden in this tenant, so you cannot make it the role everyone from its directory gets.",
 			wantAsked:     []string{"give domain/alpha " + nobody + " Warden"},
 		},
 		{
 			name: "a role the caller may not give is refused in the same words where the tenant does not hold it: the refusal is no word on whether it exists", role: "Ghost",
-			wantForbidden: "you may not give the role Ghost in this tenant, so you cannot make it the role everyone from its directory gets",
+			wantForbidden: "You may not give the role Ghost in this tenant, so you cannot make it the role everyone from its directory gets.",
 			wantAsked:     []string{"give domain/alpha " + nobody + " Ghost"},
 		},
 		{
@@ -83,9 +83,7 @@ func TestManager_DirectoryRole(t *testing.T) {
 					t.Fatalf("DirectoryRole() error = %v, want a BadRequest saying %q", err, tt.wantBadRequest)
 				}
 			case tt.wantForbidden != "":
-				if !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), tt.wantForbidden) {
-					t.Fatalf("DirectoryRole() error = %v, want Forbidden saying %q", err, tt.wantForbidden)
-				}
+				toldPlainly(t, err, tt.wantForbidden, "ask someone who may give this one")
 			case err != nil:
 				t.Fatalf("DirectoryRole() error = %v, want the role admitted", err)
 			}

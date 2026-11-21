@@ -20,13 +20,16 @@ import (
 
 func (a *App) HangarPasses() http.HandlerFunc {
 	type hangarPass struct {
-		ID         impulse.UUID     `json:"id"         index:"true" perm:"-"`
+		ID         impulse.UUID     `json:"id"         index:"true"      perm:"-"`
 		SectorID   impulse.UUID     `json:"sectorId"   index:"true"`
 		HangarID   impulse.UUID     `json:"hangarId"   index:"true"`
 		UserID     *string          `json:"userId"     index:"true"`
 		SquadronID impulse.NullUUID `json:"squadronId" index:"true"`
+		GroupID    impulse.NullUUID `json:"groupId"    index:"true"`
 		LevelID    string           `json:"levelId"    index:"true"`
 		ExpiresAt  *time.Time       `json:"expiresAt"`
+		SectorName *string          `json:"sectorName" nameof:"SectorID"`
+		LevelName  *string          `json:"levelName"  nameof:"LevelID"`
 	}
 
 	type response []map[string]any
@@ -65,7 +68,7 @@ func (a *App) HangarPasses() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*hangarPass)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -88,6 +91,10 @@ func (a *App) HangarPasses() http.HandlerFunc {
 				case "SquadronID":
 					if !row.Masked("squadronId") {
 						rmap["squadronId"] = rec.SquadronID
+					}
+				case "GroupID":
+					if !row.Masked("groupId") {
+						rmap["groupId"] = rec.GroupID
 					}
 				case "LevelID":
 					if !row.Masked("levelId") {
@@ -120,13 +127,16 @@ func (a *App) HangarPasses() http.HandlerFunc {
 
 func (a *App) HangarPass() http.HandlerFunc {
 	type response struct {
-		ID         impulse.UUID     `json:"id"         index:"true" perm:"-"`
+		ID         impulse.UUID     `json:"id"         index:"true"      perm:"-"`
 		SectorID   impulse.UUID     `json:"sectorId"`
 		HangarID   impulse.UUID     `json:"hangarId"`
 		UserID     *string          `json:"userId"`
 		SquadronID impulse.NullUUID `json:"squadronId"`
+		GroupID    impulse.NullUUID `json:"groupId"`
 		LevelID    string           `json:"levelId"`
 		ExpiresAt  *time.Time       `json:"expiresAt"`
+		SectorName *string          `json:"sectorName" nameof:"SectorID"`
+		LevelName  *string          `json:"levelName"  nameof:"LevelID"`
 	}
 
 	decoder := NewQueryDecoder[resources.HangarPass, response](a, accesstypes.Read)
@@ -153,7 +163,7 @@ func (a *App) HangarPass() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -176,6 +186,10 @@ func (a *App) HangarPass() http.HandlerFunc {
 			case "SquadronID":
 				if !row.Masked("squadronId") {
 					rmap["squadronId"] = rec.SquadronID
+				}
+			case "GroupID":
+				if !row.Masked("groupId") {
+					rmap["groupId"] = rec.GroupID
 				}
 			case "LevelID":
 				if !row.Masked("levelId") {

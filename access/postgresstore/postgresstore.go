@@ -129,6 +129,7 @@ type Store struct {
 	sqlRoleExists          string
 	sqlListRoles           string
 	sqlInsertUserRole      string
+	sqlListUserAssignments string
 	sqlDeleteUserRole      string
 	sqlListUserRoles       string
 	sqlListUserMemberships string
@@ -163,8 +164,9 @@ func New(pool *pgxpool.Pool, opts ...Option) (*Store, error) {
 		sqlDeleteEndedMembers: fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s`, names.userRoles, ended),
 		sqlRoleExists:         fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4)`, names.roles),
 		sqlListRoles:          fmt.Sprintf(`select "Role", "Description" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 order by "Role"`, names.roles),
-		sqlInsertUserRole: fmt.Sprintf(`insert into %s ("Kind", "Axis", "DomainId", "Role", "UserId", "StartsAt", "EndsAt") values ($1, $2, $3, $4, $5, $6, $7)
-on conflict ("Kind", "Axis", "DomainId", "Role", "UserId") do update set %s`, names.userRoles, replacePeriod),
+		sqlInsertUserRole: fmt.Sprintf(`insert into %s ("Kind", "Axis", "DomainId", "Role", "UserId", "StartsAt", "EndsAt", "Reason") values ($1, $2, $3, $4, $5, $6, $7, $8)
+on conflict ("Kind", "Axis", "DomainId", "Role", "UserId") do update set %s, "Reason" = excluded."Reason"`, names.userRoles, replacePeriod),
+		sqlListUserAssignments: fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role", "StartsAt", "EndsAt", "Reason" from %s where "UserId" = $1 and %s order by "Kind", "Axis", "DomainId", "Role"`, names.userRoles, standing("")),
 		sqlDeleteUserRole:      fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and "UserId" = $5`, names.userRoles),
 		sqlListUserRoles:       fmt.Sprintf(`select "Role" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "UserId" = $4 and %s order by "Role"`, names.userRoles, counting("")),
 		sqlListUserMemberships: fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role", "StartsAt", "EndsAt" from %s where "UserId" = $1 and %s order by "Kind", "Axis", "DomainId", "Role"`, names.userRoles, counting("")),
@@ -260,6 +262,7 @@ func (s *Store) DDL() []string {
   "UserId" TEXT NOT NULL,
   "StartsAt" TIMESTAMPTZ,
   "EndsAt" TIMESTAMPTZ,
+  "Reason" TEXT,
   "CreatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY ("Kind", "Axis", "DomainId", "Role", "UserId"),
   %s
@@ -373,13 +376,18 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	return records, nil
 }
 
-// InsertUserRole gives one user-role membership its period: the membership is
-// added where the user does not hold the role, and given the new period where
-// they do. The role is named by name alone: no role row is required, since the
-// release's default roles have none.
-func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+// InsertUserRole gives one user-role membership its period and its reason: the
+// membership is added where the user does not hold the role, and given the new
+// period and the new reason where they do, an empty reason as none. The role
+// is named by name alone: no role row is required, since the release's default
+// roles have none.
+func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlInsertUserRole, kind, axis, domain, role, user, period.StartPtr(), period.EndPtr()); err != nil {
+	var why *string
+	if reason != "" {
+		why = &reason
+	}
+	if _, err := s.pool.Exec(ctx, s.sqlInsertUserRole, kind, axis, domain, role, user, period.StartPtr(), period.EndPtr(), why); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() assign user role")
 	}
 
@@ -440,6 +448,41 @@ func (s *Store) ListUserMemberships(ctx context.Context, user accesstypes.User) 
 	}
 
 	return memberships, nil
+}
+
+// ListUserAssignments returns every membership of the user's own that has not
+// ended, wherever it is held, each with its period and its reason, sorted by
+// scope then role.
+func (s *Store) ListUserAssignments(ctx context.Context, user accesstypes.User) ([]policy.Assignment, error) {
+	rows, err := s.pool.Query(ctx, s.sqlListUserAssignments, user)
+	if err != nil {
+		return nil, errors.Wrap(err, "pgxpool.Pool.Query() user assignments")
+	}
+	assignments, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (policy.Assignment, error) {
+		var kind, axis, domain string
+		var start, end *time.Time
+		var reason *string
+		a := policy.Assignment{Membership: policy.Membership{Member: policy.Subject{Kind: policy.SubjectUser, Name: string(user)}}}
+		if err := row.Scan(&kind, &axis, &domain, &a.Role, &start, &end, &reason); err != nil {
+			return policy.Assignment{}, errors.Wrap(err, "pgx.CollectableRow.Scan()")
+		}
+		scope, err := policy.ScopeFromColumns(kind, axis, domain)
+		if err != nil {
+			return policy.Assignment{}, errors.Wrap(err, "policy.ScopeFromColumns()")
+		}
+		a.Scope = scope
+		a.Period = periodOf(start, end)
+		if reason != nil {
+			a.Reason = *reason
+		}
+
+		return a, nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "pgx.CollectRows() user assignments")
+	}
+
+	return assignments, nil
 }
 
 // ListRoleUsers returns the people who hold the role in scope now, sorted.

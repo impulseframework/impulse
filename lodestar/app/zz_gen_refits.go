@@ -21,7 +21,7 @@ import (
 
 func (a *App) Refits() http.HandlerFunc {
 	type refit struct {
-		ID             impulse.UUID        `json:"id"             index:"true" perm:"-"`
+		ID             impulse.UUID        `json:"id"             index:"true"      perm:"-"`
 		ShipID         impulse.UUID        `json:"shipId"         index:"true"`
 		StatusID       string              `json:"statusId"       index:"true"`
 		Estimate       decimal.NullDecimal `json:"estimate"`
@@ -29,6 +29,7 @@ func (a *App) Refits() http.HandlerFunc {
 		OpenedByUserID string              `json:"openedByUserId"`
 		OpenedByName   string              `json:"openedByName"`
 		Notes          *string             `json:"notes"`
+		StatusName     *string             `json:"statusName"     nameof:"StatusID"`
 	}
 
 	type response []map[string]any
@@ -67,7 +68,7 @@ func (a *App) Refits() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*refit)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -126,7 +127,7 @@ func (a *App) Refits() http.HandlerFunc {
 
 func (a *App) Refit() http.HandlerFunc {
 	type response struct {
-		ID             impulse.UUID        `json:"id"             index:"true" perm:"-"`
+		ID             impulse.UUID        `json:"id"             index:"true"      perm:"-"`
 		ShipID         impulse.UUID        `json:"shipId"`
 		StatusID       string              `json:"statusId"`
 		Estimate       decimal.NullDecimal `json:"estimate"`
@@ -134,6 +135,7 @@ func (a *App) Refit() http.HandlerFunc {
 		OpenedByUserID string              `json:"openedByUserId"`
 		OpenedByName   string              `json:"openedByName"`
 		Notes          *string             `json:"notes"`
+		StatusName     *string             `json:"statusName"     nameof:"StatusID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Refit, response](a, accesstypes.Read)
@@ -160,7 +162,7 @@ func (a *App) Refit() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {

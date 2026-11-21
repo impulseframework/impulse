@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
@@ -155,6 +156,11 @@ func (c *testConfigurer) LogExporter() logger.Exporter {
 // AppVersion is dev: the matrix drives the bare test router, which checks no version.
 func (c *testConfigurer) AppVersion() string { return "dev" }
 
+// Environment is none: the suites run as production does, which names no environment.
+func (c *testConfigurer) Environment() string {
+	return ""
+}
+
 func (c *testConfigurer) ConsoleDist() string { return "" }
 
 func (c *testConfigurer) PortalDist() string { return "" }
@@ -213,6 +219,30 @@ func (noSessionAPI) SignsInThrough(sessioninfo.AuthMethod, string) []string {
 // DirectoryName names no directory: the matrix registers no sign-in method.
 func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label string) {
 	return "", ""
+}
+
+// RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
+// here to mail through, and each says so.
+func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {
+	return fmt.Errorf("the authorization matrix serves no session manager")
+}
+
+func (noSessionAPI) SendPasswordReset(context.Context, impulse.UUID, session.AskedBy) error {
+	return fmt.Errorf("the authorization matrix serves no session manager")
+}
+
+// EndPasswordResetLinks withdraws nothing, and the two notices tell nobody: no link was
+// mailed here and no mail is sent.
+func (noSessionAPI) EndPasswordResetLinks(context.Context, impulse.UUID) error {
+	return nil
+}
+
+func (noSessionAPI) NoticeFactorReset(context.Context, impulse.UUID) error {
+	return nil
+}
+
+func (noSessionAPI) NoticeRemovedFromTenant(context.Context, string, string, bool) error {
+	return nil
 }
 
 // CrewIdentity and MembersIdentity are the two auths' identity clients over the scripted

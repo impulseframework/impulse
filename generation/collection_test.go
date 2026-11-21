@@ -208,6 +208,13 @@ func collectionFixtureGenerator(t *testing.T) *resourceGenerator {
 func Test_computeCollectionData(t *testing.T) {
 	t.Parallel()
 
+	// The writes of a record that carries a subject value or a subject set are classed
+	// access, whether or not a route is generated for them.
+	accessWrites := []resource.WriteClassData{
+		{Permission: accesstypes.Create, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}},
+		{Permission: accesstypes.Update, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}},
+		{Permission: accesstypes.Delete, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}},
+	}
 	tests := []struct {
 		name      string
 		genRoutes bool
@@ -250,6 +257,7 @@ func Test_computeCollectionData(t *testing.T) {
 					},
 					Domain:        &resource.DomainBindingData{Column: "Id"},
 					SubjectValues: []resource.SubjectBindingData{{Name: "vaultLimit", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					WriteClasses:  accessWrites,
 				},
 				{
 					// A listed resource carries its list's order and query keys, and a
@@ -335,6 +343,7 @@ func Test_computeCollectionData(t *testing.T) {
 						{Name: "sprocketName", Column: "Name"},
 					},
 					SubjectSets:  []resource.SubjectBindingData{{Name: "ownedSprockets", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					WriteClasses: accessWrites,
 					RequiredTags: []accesstypes.Tag{"name"},
 				},
 				{
@@ -388,6 +397,7 @@ func Test_computeCollectionData(t *testing.T) {
 					},
 					Domain:        &resource.DomainBindingData{Column: "Id"},
 					SubjectValues: []resource.SubjectBindingData{{Name: "vaultLimit", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					WriteClasses:  accessWrites,
 				},
 				{
 					Name:        "Ledgers",
@@ -407,7 +417,8 @@ func Test_computeCollectionData(t *testing.T) {
 						{Name: "linkedGadget", Column: "Id", Path: []resource.BindingHop{{Table: "Gadgets", JoinColumn: "Id", Column: "Name"}}},
 						{Name: "sprocketName", Column: "Name"},
 					},
-					SubjectSets: []resource.SubjectBindingData{{Name: "ownedSprockets", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					SubjectSets:  []resource.SubjectBindingData{{Name: "ownedSprockets", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					WriteClasses: accessWrites,
 				},
 				{
 					Name:        "UploadThings",
@@ -1054,5 +1065,258 @@ func Test_requiredOnCreate(t *testing.T) {
 				t.Errorf("requiredOnCreate() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// permissionFixtureConstants loads the fixture of permissions declared with no resource
+// and returns a function handing over the constants named, in the fixture's order: each
+// test reads the constants it names alone, since the fixture holds the declarations the
+// generator refuses beside the ones it takes.
+func permissionFixtureConstants(t *testing.T) func(names ...string) []*parser.Constant {
+	t.Helper()
+
+	pkg := loadFixture(t, "permissionfixture")
+
+	return func(names ...string) []*parser.Constant {
+		t.Helper()
+
+		var constants []*parser.Constant
+		for _, c := range pkg.Constants {
+			if slices.Contains(names, c.Name()) {
+				constants = append(constants, c)
+			}
+		}
+		if len(constants) != len(names) {
+			t.Fatalf("the fixture holds %d of the constants %v", len(constants), names)
+		}
+
+		return constants
+	}
+}
+
+// Test_manualPermissionsFromConstants pins the declaration of a permission with no
+// resource: @manualAddPermission on an accesstypes.Permission constant declares the
+// constant's value, in the constants' order; a constant without it declares nothing; and
+// the declarations that say nothing an application could mean are refused where they
+// are written, each with what to do. An annotation of a resource's constant on a
+// permission's constant is one of them, with the declaration beside it or without.
+func Test_manualPermissionsFromConstants(t *testing.T) {
+	t.Parallel()
+
+	named := permissionFixtureConstants(t)
+
+	got, err := manualPermissionsFromConstants(named("ExportReports", "Dormant", "ApproveBudgets", "Worded", "Reports"))
+	if err != nil {
+		t.Fatalf("manualPermissionsFromConstants() error = %v", err)
+	}
+	if diff := cmp.Diff([]accesstypes.Permission{"ExportReports", "ApproveBudgets"}, got); diff != "" {
+		t.Errorf("manualPermissionsFromConstants() mismatch (-want +got):\n%s", diff)
+	}
+
+	refused := []struct {
+		name      string
+		constants []string
+		wantErr   string
+	}{
+		{
+			name:      "the permission another constant declares",
+			constants: []string{"ExportReports", "ExportAgain"},
+			wantErr:   `constant "ExportAgain": @manualAddPermission declares the permission ExportReports, which an earlier constant already declares: remove one of the two`,
+		},
+		{
+			name:      "a permission with no name",
+			constants: []string{"Nameless"},
+			wantErr:   `constant "Nameless": @manualAddPermission declares the constant's value as a permission, and the value is empty: give the constant the permission's name`,
+		},
+		{
+			name:      "a class beside the declaration",
+			constants: []string{"Classed"},
+			wantErr:   `constant "Classed": @manualAddPermission declares a permission with no resource and stands alone, so @class beside it says nothing: remove it (a resource is registered with @manualAddResource on an accesstypes.Resource constant)`,
+		},
+		{
+			name:      "an outlet beside the declaration",
+			constants: []string{"Mounted"},
+			wantErr:   `constant "Mounted": @manualAddPermission declares a permission with no resource and stands alone, so @outlet beside it says nothing: remove it (a resource is registered with @manualAddResource on an accesstypes.Resource constant)`,
+		},
+		{
+			name:      "a constant that is no permission's",
+			constants: []string{"Untyped"},
+			wantErr:   `constant "Untyped": @manualAddPermission declares the constant's value as a permission, and the constant's type is untyped string, so it declares nothing: give the constant the type accesstypes.Permission`,
+		},
+		{
+			name:      "a resource's registration on a permission's constant that declares nothing",
+			constants: []string{"Strayed"},
+			wantErr:   `constant "Strayed": @manualAddResource registers a permission on a resource, and this constant is a permission, so it says nothing here: write it on the resource's constant, one of type accesstypes.Resource, or remove it (a permission that no resource registers is declared with @manualAddPermission alone)`,
+		},
+		{
+			name:      "an outlet on a permission's constant that declares nothing",
+			constants: []string{"Outside"},
+			wantErr:   `constant "Outside": @outlet names the outlets a route registered by hand is mounted under, and this constant is a permission, so it says nothing here: write it on the resource's constant, one of type accesstypes.Resource, or remove it (a permission that no resource registers is declared with @manualAddPermission alone)`,
+		},
+		{
+			name:      "a class on a permission's constant that declares nothing",
+			constants: []string{"Marked"},
+			wantErr:   `constant "Marked": @class marks an action registered by hand, and this constant is a permission, so it says nothing here: write it on the resource's constant, one of type accesstypes.Resource, or remove it (a permission that no resource registers is declared with @manualAddPermission alone)`,
+		},
+		{
+			name:      "a resource registered on a permission's constant",
+			constants: []string{"Registered"},
+			wantErr:   `constant "Registered": @manualAddPermission declares a permission with no resource and stands alone, so @manualAddResource beside it says nothing: remove it (a resource is registered with @manualAddResource on an accesstypes.Resource constant)`,
+		},
+	}
+	for _, tt := range refused {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := manualPermissionsFromConstants(named(tt.constants...))
+			if err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Fatalf("manualPermissionsFromConstants() = %v, error = %v, want the error %q", got, err, tt.wantErr)
+			}
+		})
+	}
+
+	// The declaration on a resource's constant is refused where the resources'
+	// registrations are read, which is where a resource's constant is scanned.
+	wantErr := `constant "Ledgers": @manualAddPermission declares a permission with no resource, and this constant is a resource: put it on a constant of type accesstypes.Permission, or register a permission on this resource with @manualAddResource(<permission>)`
+	if got, err := manualRegistrationsFromConstants(named("Ledgers")); err == nil || !strings.HasSuffix(err.Error(), wantErr) {
+		t.Errorf("manualRegistrationsFromConstants() = %v, error = %v, want the error %q", got, err, wantErr)
+	}
+}
+
+// Test_computeCollectionData_oneScopePerName pins that the collection the generator
+// computes registers a name in one scope. A constant that registers a permission for the
+// whole application and another for a tenant, a registration made by hand for the whole
+// application under the name of a tenant's resource, and one for a tenant under the name
+// of a resource that registers no permission of its own are each refused, naming the
+// resource, what each scope registers and what to write. The collection finds a
+// resource's scope by its name alone (resource.GeneratedCollection.Scope), so a name of
+// two scopes was answered with either, one run to the next. A name registered twice in
+// one scope is one resource, as it was.
+func Test_computeCollectionData_oneScopePerName(t *testing.T) {
+	t.Parallel()
+
+	const whatToWrite = `: a name is of one scope, which a role's grant and a check find by the name alone. ` +
+		`Register both in one scope, written with @permissionScope on a struct and as the second argument of @manualAddResource on a constant, ` +
+		`or give one of the two a name of its own`
+
+	t.Run("a constant that registers in both scopes", func(t *testing.T) {
+		t.Parallel()
+
+		r := &resourceGenerator{client: &client{}}
+		if err := r.readManualDeclarations(permissionFixtureConstants(t)("Divided")); err != nil {
+			t.Fatalf("readManualDeclarations() error = %v", err)
+		}
+
+		wantErr := `"Divided" is registered for the whole application (Read) and for a tenant (Update)` + whatToWrite
+		if _, err := r.computeCollectionData(); err == nil || !strings.HasSuffix(err.Error(), wantErr) {
+			t.Errorf("computeCollectionData() error = %v, want the error %q", err, wantErr)
+		}
+	})
+
+	// The fixture's Vaults is a tenant's resource that registers List, its ScopedThings
+	// a tenant's registration made by hand, and its Sprockets a resource of the whole
+	// application that, with no route generated, registers no permission and declares
+	// what a condition reads.
+	tests := []struct {
+		name    string
+		add     ManualRegistration
+		wantErr string
+	}{
+		{
+			name:    "a registration for the whole application under the name of a tenant's resource",
+			add:     ManualRegistration{Permission: accesstypes.Read, Resource: "Vaults"},
+			wantErr: `"Vaults" is registered for the whole application (Read) and for a tenant (List)` + whatToWrite,
+		},
+		{
+			name:    "a registration for a tenant under the name of a resource that registers no permission",
+			add:     ManualRegistration{Scope: accesstypes.DomainPermissionScope, Permission: accesstypes.Read, Resource: "Sprockets"},
+			wantErr: `"Sprockets" is registered for the whole application and for a tenant (Read)` + whatToWrite,
+		},
+		{
+			name: "a second registration in the scope the name is registered in",
+			add:  ManualRegistration{Scope: accesstypes.DomainPermissionScope, Permission: accesstypes.Update, Resource: "ScopedThings"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := collectionFixtureGenerator(t)
+			r.manualRegistrations = append(r.manualRegistrations, tt.add)
+
+			_, err := r.computeCollectionData()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("computeCollectionData() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Errorf("computeCollectionData() error = %v, want the error %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Test_computeCollectionData_declaredPermissions pins where a declared permission goes,
+// from the annotation on: the generator reads it off the resources package's constants
+// beside the resources registered by hand, computes it into the collection, sorted, so
+// the generated collection lists it with no resource, and writes it into the collection
+// file, which an application that declares none is written without.
+func Test_computeCollectionData_declaredPermissions(t *testing.T) {
+	t.Parallel()
+
+	r := &resourceGenerator{client: &client{}}
+	if err := r.readManualDeclarations(permissionFixtureConstants(t)("ExportReports", "Dormant", "ApproveBudgets", "Reports")); err != nil {
+		t.Fatalf("readManualDeclarations() error = %v", err)
+	}
+
+	data, err := r.computeCollectionData()
+	if err != nil {
+		t.Fatalf("computeCollectionData() error = %v", err)
+	}
+	if diff := cmp.Diff([]accesstypes.Permission{"ApproveBudgets", "ExportReports"}, data.Permissions); diff != "" {
+		t.Errorf("computeCollectionData() permissions mismatch (-want +got):\n%s", diff)
+	}
+
+	collection, err := resource.NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("resource.NewGeneratedCollection() error = %v", err)
+	}
+	want := map[accesstypes.Permission][]accesstypes.Resource{"ApproveBudgets": nil, "ExportReports": nil, accesstypes.Read: {"Reports"}}
+	if diff := cmp.Diff(want, collection.List()); diff != "" {
+		t.Errorf("the generated collection's List() mismatch (-want +got):\n%s", diff)
+	}
+
+	render := func(t *testing.T, data resource.CollectionData) string {
+		t.Helper()
+
+		output, err := r.generateTemplateOutput("collectionTemplate", collectionTemplate, &collectionFileData{Source: "pkg/resources", Package: "router", Data: data})
+		if err != nil {
+			t.Fatalf("generateTemplateOutput() error = %v", err)
+		}
+		formatted, err := format.Source(output)
+		if err != nil {
+			t.Fatalf("rendered collection file is not valid Go: %v\n%s", err, output)
+		}
+
+		return strings.Join(strings.Fields(string(formatted)), " ")
+	}
+	// The declared permissions are the collection data's last entry, after the
+	// resources, and the one thing a collection file that declares some holds beyond
+	// the file of the same application declaring none.
+	const (
+		declared = ` Permissions: []accesstypes.Permission{accesstypes.Permission("ApproveBudgets"), accesstypes.Permission("ExportReports")},`
+		closing  = ` }) }`
+	)
+	with := render(t, data)
+	data.Permissions = nil
+	without := render(t, data)
+	if !strings.HasSuffix(without, closing) || strings.Contains(without, "ApproveBudgets") {
+		t.Fatalf("a collection file with no declared permission names one, or does not end with %q:\n%s", closing, without)
+	}
+	if want := strings.TrimSuffix(without, closing) + declared + closing; with != want {
+		t.Errorf("rendered collection file mismatch (-want +got):\n%s", cmp.Diff(want, with))
 	}
 }

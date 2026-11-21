@@ -1,12 +1,27 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, effect, inject, Injector, input, signal, Type, untracked, viewChild } from '@angular/core';
+import {
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  Injector,
+  input,
+  Type,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { MatExpansionModule, MatExpansionPanel } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ListViewConfig, RecordData, RootConfig } from '@impulseframework/resource-angular/types';
-import { ResourceCreateComponent } from '../resource-create/resource-create.component';
+import {
+  openCreateDialog,
+  ResourceCreateDialogComponent,
+} from '../resource-create-dialog/resource-create-dialog.component';
 import { ResourceListComponent } from '../resource-list/resource-list.component';
 import { ResourceStore } from '../resource-store.service';
 
@@ -20,7 +35,6 @@ import { ResourceStore } from '../resource-store.service';
     MatIconModule,
     MatTooltipModule,
     MatButtonModule,
-    ResourceCreateComponent,
     ResourceListComponent,
     NgTemplateOutlet,
   ],
@@ -43,7 +57,9 @@ export class ResourceListCreateComponent {
 
   route = inject(ActivatedRoute);
   router = inject(Router);
-  create = signal<boolean>(false);
+  private dialog = inject(MatDialog);
+  /** The open dialog of this list's create; none while the create is not being filled. */
+  private createDialog?: MatDialogRef<ResourceCreateDialogComponent, boolean>;
   parentId = input<string>();
   /**
    * The parent row a child list is related to by `parentRelation`. No default: a child
@@ -54,7 +70,16 @@ export class ResourceListCreateComponent {
   parentData = input<RecordData | undefined>();
   searchParams = input<Record<string, string>[]>([]);
   resourceConfig = input<ListViewConfig>();
+  /**
+   * Handed `false` for a list drawn under a row or under another list. The list a page
+   * is built on is handed nothing, which reads `true` where a template mounts it and
+   * `undefined` where a router that binds a routed component's inputs opens it: such a
+   * router sets every input the route's data does not name to undefined, the default
+   * not kept. Read it through `ownsPage`.
+   */
   isRootList = input<boolean>(true);
+  /** Whether this is the list its page is built on: every list but one handed `false`. */
+  private ownsPage = computed(() => this.isRootList() !== false);
 
   childKey = computed(() => {
     if (!this.config().parentRelation) {
@@ -90,14 +115,16 @@ export class ResourceListCreateComponent {
     return this.rootConfig().parentConfig as ListViewConfig;
   });
 
+  /**
+   * The lists drawn under this one: the ones the page's own list names (`below`), and
+   * none for a list that is not the one its page is built on.
+   */
+  below = computed<ListViewConfig[]>(() => (this.ownsPage() ? (this.config().below ?? []) : []));
+
   expPanel = viewChild<MatExpansionPanel, MatExpansionPanel>('expPanel', { read: MatExpansionPanel });
 
   rootConfig = computed(() => {
     return this.route.snapshot.data['config'] as RootConfig;
-  });
-
-  createLinkType = computed(() => {
-    return this.config().loadCreatedResource && this.create();
   });
 
   createConfig = computed(() => {
@@ -108,30 +135,63 @@ export class ResourceListCreateComponent {
     return config;
   });
 
+  /**
+   * A collapsed list's add button was pressed: the create opens as the button above an
+   * open list opens it, and the panel stays as it is.
+   */
   createResource(event: MouseEvent): void {
     event.stopPropagation();
-    this.create.set(true);
-
-    if (this.expPanel() && this.expPanel()?.closed) {
-      this.expPanel()?.open();
-    }
+    this.openCreate();
   }
 
-  makeCreatePatches(): void {
-    if (this.create()) {
-      this.listChild()?.reloadListData();
-      this.create.set(false);
+  /**
+   * Opens the list's create in a dialog, titled with the create button's label. The
+   * list draws no form on its page: adding a row is a button that opens a dialog, on
+   * every list. Once a row is created the list reads its rows again, and a collapsed
+   * panel opens so the new row is on the screen. A press while the dialog is open opens
+   * no second one.
+   */
+  openCreate(): void {
+    if (this.createDialog) {
+      return;
     }
+    const config = this.config();
+    const opened = openCreateDialog(
+      this.dialog,
+      {
+        label: config.createButtonLabel || 'Create',
+        config: this.createConfig(),
+        parentData: this.parentData() ?? {},
+        loadCreatedResource: config.loadCreatedResource,
+      },
+      this.injector,
+    );
+    this.createDialog = opened;
+    opened.afterClosed().subscribe((created) => {
+      this.createDialog = undefined;
+      if (!created) {
+        return;
+      }
+      this.listChild()?.reloadListData();
+      this.expPanel()?.open();
+    });
   }
 
   /**
    * A method ran from this list. Under a row page it may have changed the row or
    * another of the row's lists (a role taken away is one fewer role the person holds),
    * so the page reads the row and its other lists again; a list that is a page of its
-   * own has nothing above it to tell.
+   * own has nothing above it to tell, and tells the lists drawn under it (`below`), which
+   * read again: what ran may have moved a row from one of the page's lists to another.
    */
   methodRan(): void {
-    if (this.isRootList() || !this.pageStore) {
+    if (this.ownsPage()) {
+      if (this.below().length > 0) {
+        this.store.rowChanges.update((count) => count + 1);
+      }
+      return;
+    }
+    if (!this.pageStore) {
       return;
     }
     this.ranHere = true;
@@ -139,6 +199,8 @@ export class ResourceListCreateComponent {
   }
 
   constructor() {
+    // The dialog is made under this list's injector: it closes with the list.
+    inject(DestroyRef).onDestroy(() => this.createDialog?.close(false));
     // A method that ran against the page's row, or from another of its lists, reads this
     // list again. The first run only notes the count the list opened on.
     let seen = this.pageStore?.rowChanges() ?? 0;
@@ -152,7 +214,7 @@ export class ResourceListCreateComponent {
         this.ranHere = false;
         return;
       }
-      if (!this.isRootList()) {
+      if (!this.ownsPage()) {
         untracked(() => this.listChild()?.reloadListData());
       }
     });

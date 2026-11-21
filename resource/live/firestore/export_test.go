@@ -37,14 +37,22 @@ func LateReopens(s *Service) int {
 	return s.lateReopenCount()
 }
 
-// SignalsIdle reports whether no signal write is in flight for any kind.
+// SignalsIdle reports whether no signal write is in flight or owed for any kind.
 func SignalsIdle(s *Service) bool {
 	return s.signalsIdle()
 }
 
+// SignalsWaiting is how many callers wait for the kind's covering write that is not yet
+// due, so a test can tell that the signals it made have all joined it.
+func SignalsWaiting(s *Service, kind live.Kind) int {
+	return s.signalsWaiting(kind)
+}
+
 // ObserveWrites sets the function every signal write is reported to before it is sent,
-// so a test can count writes and hold one in flight.
-func ObserveWrites(s *Service, onWrite func(kind live.Kind)) {
+// with the context it is sent under, so a test can count writes, hold one in flight and
+// tell whose it is; what the function returns, when it returns something, is told the
+// write's outcome.
+func ObserveWrites(s *Service, onWrite func(ctx context.Context, kind live.Kind) (written func(err error))) {
 	s.observeWrites(onWrite)
 }
 
@@ -65,6 +73,35 @@ func ReadSignals(ctx context.Context, s *Service) (map[live.Kind]time.Time, erro
 	}
 
 	return signalTimes(snapshot), nil
+}
+
+// ErrSignalLimit is what a Signal fails with when the service's own limit ended it.
+var ErrSignalLimit = errSignalLimit
+
+// WithSignalLimit sets the service's own limit on one Signal, so a test that holds a
+// write in flight is not ended by it.
+func WithSignalLimit(limit time.Duration) Option {
+	return withSignalLimit(limit)
+}
+
+// overdue is a context whose deadline has passed and which has not ended: what a caller's
+// context is, for a moment, on a machine too busy to run its timer on time. It is its
+// parent with a deadline, and ends only when the parent does.
+type overdue struct {
+	context.Context
+
+	deadline time.Time
+}
+
+// Deadline returns the deadline, which has passed.
+func (o overdue) Deadline() (time.Time, bool) {
+	return o.deadline, true
+}
+
+// Overdue returns the parent under a deadline that has passed, not ended: a test's caller
+// whose timer runs late.
+func Overdue(parent context.Context) context.Context {
+	return overdue{Context: parent, deadline: time.Now().Add(-time.Second)}
 }
 
 // WithDialOptions adds gRPC dial options to the connection the service opens to the

@@ -28,6 +28,7 @@ export interface AssignStaffRoleConfig {
   everyDomain: boolean | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignStaffRole {
   userId: string;
@@ -36,6 +37,7 @@ export interface AssignStaffRole {
   everyDomain: boolean;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignStaffRole declares; the method chooses one per response. */
 export type AssignStaffRoleStatus = 204;
@@ -273,6 +275,27 @@ export interface RevokeStaffUserTrustedDevices {
 /** The statuses RevokeStaffUserTrustedDevices declares; the method chooses one per response. */
 export type RevokeStaffUserTrustedDevicesStatus = 204;
 
+export interface SendStaffUserPasswordResetLinkConfig {
+  userId: string | FieldPointer;
+}
+export interface SendStaffUserPasswordResetLink {
+  userId: string;
+}
+/** The result SendStaffUserPasswordResetLink answers with. */
+export interface SendStaffUserPasswordResetLinkResult {
+  sent: boolean;
+  reason: string;
+}
+
+export interface SetStaffSelfServiceResetConfig {
+  on: boolean | FieldPointer;
+}
+export interface SetStaffSelfServiceReset {
+  on: boolean;
+}
+/** The statuses SetStaffSelfServiceReset declares; the method chooses one per response. */
+export type SetStaffSelfServiceResetStatus = 204;
+
 export interface SetStaffTemporaryPasswordConfig {
   userId: string | FieldPointer;
   password: string | FieldPointer;
@@ -286,14 +309,17 @@ export type SetStaffTemporaryPasswordStatus = 204;
 
 export interface SetStaffUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetStaffUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetStaffUserEmail declares; the method chooses one per response. */
-export type SetStaffUserEmailStatus = 204;
+/** The result SetStaffUserEmail answers with. */
+export interface SetStaffUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetStaffUserNameConfig {
   userId: string | FieldPointer;
@@ -320,6 +346,19 @@ export interface TakeStaffGroupRole {
 }
 /** The statuses TakeStaffGroupRole declares; the method chooses one per response. */
 export type TakeStaffGroupRoleStatus = 204;
+
+export interface TakeStaffRoleConfig {
+  role: string | FieldPointer;
+  length: string | FieldPointer;
+  reason: string | FieldPointer;
+}
+export interface TakeStaffRole {
+  role: string;
+  length: string;
+  reason: string;
+}
+/** The statuses TakeStaffRole declares; the method chooses one per response. */
+export type TakeStaffRoleStatus = 204;
 
 export interface UnlinkStaffSessionIdentityConfig {
   identityId: string | FieldPointer;
@@ -407,6 +446,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -442,7 +489,7 @@ export type MethodMap = Record<Method, MethodMeta>;
 const methodMap: MethodMap = {
   [Methods.AddStaffGroupMember]: {
     route: 'add-staff-group-member',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -463,6 +510,7 @@ const methodMap: MethodMap = {
       { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.CreateStaffGroup]: {
@@ -491,7 +539,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteStaffGroup]: {
     route: 'delete-staff-group',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -509,7 +557,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DescribeStaffGroup]: {
     route: 'describe-staff-group',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -555,7 +603,7 @@ const methodMap: MethodMap = {
   },
   [Methods.GiveStaffGroupRole]: {
     route: 'give-staff-group-role',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -663,6 +711,23 @@ const methodMap: MethodMap = {
       { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
+  [Methods.SendStaffUserPasswordResetLink]: {
+    route: 'send-staff-user-password-reset-link',
+    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.SetStaffSelfServiceReset]: {
+    route: 'set-staff-self-service-reset',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'on', displayType: 'boolean' },
+    ],
+  },
   [Methods.SetStaffTemporaryPassword]: {
     route: 'set-staff-temporary-password',
     target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
@@ -676,11 +741,11 @@ const methodMap: MethodMap = {
   [Methods.SetStaffUserEmail]: {
     route: 'set-staff-user-email',
     target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetStaffUserName]: {
@@ -702,6 +767,16 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.TakeStaffRole]: {
+    route: 'take-staff-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffTakeableRoles, required: true, attribute: 'role' },
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.StaffTakeLengths, required: true },
+      { fieldName: 'reason', displayType: 'string', required: true },
     ],
   },
   [Methods.UnlinkStaffSessionIdentity]: {

@@ -3,8 +3,8 @@ import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, Resou
 import { AcrossTenantsHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
-import { ClientContacts, ClientRosters, DistressCalls, MembersRoles, MembersRoleGrants, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, FeatureFlags } from './zz_gen_resources';
-import { DeleteMembersSectorUser, DeleteMembersUser, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersSectorUserEmail, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserName, StandDownMission, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { ClientContacts, ClientRosters, DistressCalls, MembersHeldRoles, MembersRoles, MembersRoleGrants, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, FeatureFlags } from './zz_gen_resources';
+import { DeleteMembersSectorUser, DeleteMembersUser, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersSectorUserEmail, SetMembersSectorUserEmailResult, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, StandDownMission, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
 export type Feature = 'commendations';
@@ -55,11 +55,17 @@ export interface DistressCallsPatch {
 /** The primary key of DistressCalls, in route order. */
 export type DistressCallsKey = [id: string];
 
+/** The primary key of MembersHeldRoles, in route order. */
+export type MembersHeldRolesKey = [userId: string, kind: string, axis: string, domainId: string, role: string, groupId: string];
+
 /** The primary key of MembersRoles, in route order. */
 export type MembersRolesKey = [kind: string, axis: string, domainId: string, role: string];
 
 /** The primary key of MembersRoleGrants, in route order. */
 export type MembersRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+
+/** The primary key of MembersSectorHeldRoles, in route order. */
+export type MembersSectorHeldRolesKey = [userId: string, role: string, groupId: string];
 
 /** The primary key of MembersSectorIdentities, in route order. */
 export type MembersSectorIdentitiesKey = [id: string];
@@ -108,12 +114,12 @@ export interface MissionsCreate {
   brief?: string | null;
   briefingTemplateId?: string | null;
   hazard: number;
-  fee: number;
+  fee: string;
   deadline: Date;
   requiredCertId?: string | null;
   assignedSquadronId?: string | null;
   notes?: string | null;
-  settlement?: number | null;
+  settlement?: string | null;
 }
 /** The fields a client may change on Missions. Keys, server-owned, and immutable fields are absent. */
 export interface MissionsPatch {
@@ -123,12 +129,12 @@ export interface MissionsPatch {
   brief?: string | null;
   briefingTemplateId?: string | null;
   hazard?: number;
-  fee?: number;
+  fee?: string;
   deadline?: Date;
   requiredCertId?: string | null;
   assignedSquadronId?: string | null;
   notes?: string | null;
-  settlement?: number | null;
+  settlement?: string | null;
 }
 /** The primary key of Missions, in route order. */
 export type MissionsKey = [id: string];
@@ -208,6 +214,17 @@ export const apiDescriptor = defineApiDescriptor({
       order: [{ field: 'severity', direction: 'desc' }],
       patchable: ['summary', 'severity', 'callerContact', 'transcript', 'position'],
     },
+    [Resources.MembersHeldRoles]: {
+      resource: Resources.MembersHeldRoles,
+      property: 'membersHeldRoles',
+      route: 'members-held-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['userId', 'kind', 'axis', 'domainId', 'role', 'groupId'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }, { field: 'groupName', direction: 'asc' }],
+    },
     [Resources.MembersRoles]: {
       resource: Resources.MembersRoles,
       property: 'membersRoles',
@@ -229,6 +246,17 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
+    },
+    [Resources.MembersSectorHeldRoles]: {
+      resource: Resources.MembersSectorHeldRoles,
+      property: 'membersSectorHeldRoles',
+      route: 'members-sector-held-roles',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['userId', 'role', 'groupId'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }, { field: 'groupName', direction: 'asc' }],
     },
     [Resources.MembersSectorIdentities]: {
       resource: Resources.MembersSectorIdentities,
@@ -424,9 +452,9 @@ export const apiDescriptor = defineApiDescriptor({
     [Methods.RenameMembersUser]: { method: Methods.RenameMembersUser, property: 'renameMembersUser', route: 'rename-members-user', scope: 'global', statuses: [204] },
     [Methods.RevokeMembersSectorUserTrustedDevices]: { method: Methods.RevokeMembersSectorUserTrustedDevices, property: 'revokeMembersSectorUserTrustedDevices', route: 'revoke-members-sector-user-trusted-devices', scope: 'domain', statuses: [204] },
     [Methods.RevokeMembersUserTrustedDevices]: { method: Methods.RevokeMembersUserTrustedDevices, property: 'revokeMembersUserTrustedDevices', route: 'revoke-members-user-trusted-devices', scope: 'global', statuses: [204] },
-    [Methods.SetMembersSectorUserEmail]: { method: Methods.SetMembersSectorUserEmail, property: 'setMembersSectorUserEmail', route: 'set-members-sector-user-email', scope: 'domain', statuses: [204] },
+    [Methods.SetMembersSectorUserEmail]: { method: Methods.SetMembersSectorUserEmail, property: 'setMembersSectorUserEmail', route: 'set-members-sector-user-email', scope: 'domain', answers: true },
     [Methods.SetMembersSectorUserName]: { method: Methods.SetMembersSectorUserName, property: 'setMembersSectorUserName', route: 'set-members-sector-user-name', scope: 'domain', statuses: [204] },
-    [Methods.SetMembersUserEmail]: { method: Methods.SetMembersUserEmail, property: 'setMembersUserEmail', route: 'set-members-user-email', scope: 'global', statuses: [204] },
+    [Methods.SetMembersUserEmail]: { method: Methods.SetMembersUserEmail, property: 'setMembersUserEmail', route: 'set-members-user-email', scope: 'global', answers: true },
     [Methods.SetMembersUserName]: { method: Methods.SetMembersUserName, property: 'setMembersUserName', route: 'set-members-user-name', scope: 'global', statuses: [204] },
     [Methods.StandDownMission]: { method: Methods.StandDownMission, property: 'standDownMission', route: 'stand-down-mission', scope: 'domain' },
     [Methods.UnlinkMembersSectorSessionIdentity]: { method: Methods.UnlinkMembersSectorSessionIdentity, property: 'unlinkMembersSectorSessionIdentity', route: 'unlink-members-sector-session-identity', scope: 'domain', statuses: [204] },
@@ -439,15 +467,16 @@ export const apiDescriptor = defineApiDescriptor({
       auth: 'Members',
       label: 'Members',
       tenant: 'Sector',
+      rolesFrom: 'Company directory',
       sides: [
         {
           scope: 'global',
-          lists: { users: Resources.MembersSessionUsers, roles: Resources.MembersUserRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersSessions, signInAttempts: Resources.MembersSessionSignInAttempts },
+          lists: { users: Resources.MembersSessionUsers, roles: Resources.MembersHeldRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersSessions, signInAttempts: Resources.MembersSessionSignInAttempts },
           methods: { disable: Methods.DisableMembersUser, enable: Methods.EnableMembersUser, delete: Methods.DeleteMembersUser, rename: Methods.RenameMembersUser, setName: Methods.SetMembersUserName, setEmail: Methods.SetMembersUserEmail, endUserSessions: Methods.EndMembersUserSessions, revokeTrustedDevices: Methods.RevokeMembersUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSessionIdentity, endSession: Methods.EndMembersSession, unlockSignIn: Methods.UnlockMembersSignIn },
         },
         {
           scope: 'domain',
-          lists: { users: Resources.MembersSectorUsers, roles: Resources.MembersSectorUserRoles, identities: Resources.MembersSectorIdentities, invitations: Resources.MembersSectorInvitations },
+          lists: { users: Resources.MembersSectorUsers, roles: Resources.MembersSectorHeldRoles, identities: Resources.MembersSectorIdentities, invitations: Resources.MembersSectorInvitations },
           methods: { disable: Methods.DisableMembersSectorUser, enable: Methods.EnableMembersSectorUser, delete: Methods.DeleteMembersSectorUser, rename: Methods.RenameMembersSectorUser, setName: Methods.SetMembersSectorUserName, setEmail: Methods.SetMembersSectorUserEmail, endUserSessions: Methods.EndMembersSectorUserSessions, revokeTrustedDevices: Methods.RevokeMembersSectorUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSectorSessionIdentity },
         },
       ],
@@ -458,6 +487,7 @@ export const apiDescriptor = defineApiDescriptor({
 /** Handles for the global scope, available on the client root. */
 export interface GlobalApi {
   clientContacts: ResourceHandle<ClientContacts, ClientContactsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', ClientContactsCreate, ClientContactsPatch>;
+  membersHeldRoles: ResourceHandle<MembersHeldRoles, MembersHeldRolesKey, 'list'>;
   membersRoles: ResourceHandle<MembersRoles, MembersRolesKey, 'list'>;
   membersRoleGrants: ResourceHandle<MembersRoleGrants, MembersRoleGrantsKey, 'list'>;
   membersSessions: ResourceHandle<MembersSessions, MembersSessionsKey, 'list' | 'read'>;
@@ -477,7 +507,7 @@ export interface GlobalApi {
   endMembersUserSessions: MethodHandle<EndMembersUserSessions>;
   renameMembersUser: MethodHandle<RenameMembersUser>;
   revokeMembersUserTrustedDevices: MethodHandle<RevokeMembersUserTrustedDevices>;
-  setMembersUserEmail: MethodHandle<SetMembersUserEmail>;
+  setMembersUserEmail: MethodHandle<SetMembersUserEmail, SetMembersUserEmailResult>;
   setMembersUserName: MethodHandle<SetMembersUserName>;
   unlinkMembersSessionIdentity: MethodHandle<UnlinkMembersSessionIdentity>;
   unlockMembersSignIn: MethodHandle<UnlockMembersSignIn>;
@@ -488,6 +518,7 @@ export interface GlobalApi {
 export interface DomainApi {
   clientRosters: ResourceHandle<ClientRosters, ClientRostersKey, 'list' | 'read'>;
   distressCalls: ResourceHandle<DistressCalls, DistressCallsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', DistressCallsCreate, DistressCallsPatch>;
+  membersSectorHeldRoles: ResourceHandle<MembersSectorHeldRoles, MembersSectorHeldRolesKey, 'list'>;
   membersSectorIdentities: ResourceHandle<MembersSectorIdentities, MembersSectorIdentitiesKey, 'list' | 'read'>;
   membersSectorInvitations: ResourceHandle<MembersSectorInvitations, MembersSectorInvitationsKey, 'list' | 'read'>;
   membersSectorUsers: ResourceHandle<MembersSectorUsers, MembersSectorUsersKey, 'list' | 'read'>;
@@ -500,7 +531,7 @@ export interface DomainApi {
   endMembersSectorUserSessions: MethodHandle<EndMembersSectorUserSessions>;
   renameMembersSectorUser: MethodHandle<RenameMembersSectorUser>;
   revokeMembersSectorUserTrustedDevices: MethodHandle<RevokeMembersSectorUserTrustedDevices>;
-  setMembersSectorUserEmail: MethodHandle<SetMembersSectorUserEmail>;
+  setMembersSectorUserEmail: MethodHandle<SetMembersSectorUserEmail, SetMembersSectorUserEmailResult>;
   setMembersSectorUserName: MethodHandle<SetMembersSectorUserName>;
   standDownMission: MethodHandle<StandDownMission>;
   unlinkMembersSectorSessionIdentity: MethodHandle<UnlinkMembersSectorSessionIdentity>;

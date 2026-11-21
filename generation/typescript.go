@@ -151,6 +151,9 @@ func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, compu
 	// The methods that turn the tenant record's directory-only switch are served with
 	// the record, and the ones that say how a tenant admits its directory's people with
 	// the directories record, so each leaves the outlet's constants with its record.
+	// The action of the create-your-tenant route needs nothing here: the collection
+	// marks it an action no role is given, and such an action is in no outlet's
+	// constants (resource.CollectionResource.NoRole).
 	var tenant *resourceInfo
 	for _, res := range resources {
 		if res.IsTenant {
@@ -348,15 +351,13 @@ func (t *typescriptGenerator) Generate() error {
 
 	// A field-scope @enumerate may name a computed resource, so the declarations
 	// resolve only now, against every kind, before the filter narrows the sets.
-	t.computedResources = computedResources
-	if err := t.resolveFieldEnumerations(resources, computedResources); err != nil {
+	if err := t.resolveParsedEnumerations(resources, computedResources); err != nil {
 		return err
 	}
 	if err := t.validatePickerSources(resources, computedResources); err != nil {
 		return err
 	}
 
-	t.resources = resources
 	// A view's @rowsOf names a table-backed resource, refusing a view of either kind,
 	// so it too resolves against every kind before the filter narrows the sets.
 	if err := t.resolveViewDeclarations(resources, computedResources); err != nil {
@@ -405,6 +406,26 @@ func (t *typescriptGenerator) Generate() error {
 	return nil
 }
 
+// resolveParsedEnumerations resolves every field-scope @enumerate against the resources
+// this target parsed, of every kind and on every outlet. The targets of one generation
+// share a client, and the target before this one left it holding its own outlet's
+// members; a name resolves against the client's sets, so they are this target's before
+// any name is looked up. Resolved against the earlier target's members, a field of this
+// outlet that names a resource of this outlet alone was refused as naming a resource
+// that does not exist.
+func (t *typescriptGenerator) resolveParsedEnumerations(resources []*resourceInfo, computedResources []*computedResource) error {
+	t.resources = resources
+	t.computedResources = computedResources
+
+	if err := t.resolveFieldEnumerations(resources, computedResources); err != nil {
+		return err
+	}
+
+	// The name fields read the enumerations resolved above, as the Go target's do, so
+	// the row types and the metadata name the fields the handlers serve.
+	return t.resolveNameFields(resources)
+}
+
 func (t *typescriptGenerator) runTypescriptEnumGeneration(namedTypes []*parser.NamedType) error {
 	if !t.genEnums {
 		return nil
@@ -450,12 +471,31 @@ func (t *typescriptGenerator) runTypescriptPermissionGeneration() error {
 		}
 	}
 
+	// A name field whose pointed-to name is PII is PII itself: its constant joins the
+	// resource's PII names, so a filter by it travels as one by that name does.
+	nameFields := make(tsNameFields)
+	for _, res := range t.resources {
+		resourceName := accesstypes.Resource(t.pluralize(res.Name()))
+		for _, name := range res.NameFields {
+			tag := accesstypes.Tag(name.WireName())
+			nameFields[resourceName] = append(nameFields[resourceName], tag)
+			if !name.IsPII() {
+				continue
+			}
+			if _, ok := piiResourceFields[resourceName]; !ok {
+				piiResourceFields[resourceName] = make(map[accesstypes.Tag]bool)
+			}
+			piiResourceFields[resourceName][tag] = true
+		}
+	}
+
 	templateData := tsConstantsData{
 		File:          t,
 		Data:          routerData,
 		RPCMethods:    t.rpcMethods,
 		ManualMethods: t.manualMethods(routerData.Methods),
 		PIIMap:        piiResourceFields,
+		NameFields:    nameFields,
 	}
 
 	output, err := t.generateTemplateOutput(typescriptConstantsTemplate, typescriptConstantsTemplate, templateData)

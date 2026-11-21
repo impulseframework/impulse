@@ -239,7 +239,7 @@ func crewRolesOf(t *testing.T, w *identityWorld, username string) []string {
 	if err := iter.Do(func(row *spanner.Row) error {
 		var role string
 		if err := row.Column(0, &role); err != nil {
-			return err
+			return fmt.Errorf("spanner.Row.Column(): %w", err)
 		}
 		roles = append(roles, role)
 
@@ -258,7 +258,7 @@ func TestMethodRequestFieldsNoTarget(t *testing.T) {
 	t.Parallel()
 	w := newRequestFieldWorld(t)
 
-	const refusal = "does not have Execute on [AssignCrewRole]"
+	const refusal = "You may not do this here."
 	fires := []struct {
 		name       string
 		user       accesstypes.User
@@ -303,11 +303,11 @@ func TestMethodRequestFieldsList(t *testing.T) {
 		wantBody   string
 	}{
 		{name: "create: every role is one the condition admits", method: "create-crew-user", body: `{"username":"ada-` + suffix + `","roles":["CrewCommon","ClientBrowser"]}`, wantStatus: http.StatusOK},
-		{name: "create: one role of two fails", method: "create-crew-user", body: `{"username":"bea-` + suffix + `","roles":["CrewCommon","Headquarters"]}`, wantStatus: http.StatusForbidden, wantBody: "does not have Execute on [CreateCrewUser]"},
-		{name: "create: the one role fails", method: "create-crew-user", body: `{"username":"cy-` + suffix + `","roles":["Headquarters"]}`, wantStatus: http.StatusForbidden, wantBody: "does not have Execute on [CreateCrewUser]"},
-		{name: "create: no role at all is no value, which never permits", method: "create-crew-user", body: `{"username":"dee-` + suffix + `","roles":[]}`, wantStatus: http.StatusForbidden, wantBody: "does not have Execute on [CreateCrewUser]"},
-		{name: "create: the field left out is no value too", method: "create-crew-user", body: `{"username":"eli-` + suffix + `"}`, wantStatus: http.StatusForbidden, wantBody: "does not have Execute on [CreateCrewUser]"},
-		{name: "invite: one role of two fails, before any invitation is written", method: "invite-crew-user", body: `{"email":"fay-` + suffix + `@example.com","roles":["ClientBrowser","Headquarters"]}`, wantStatus: http.StatusForbidden, wantBody: "does not have Execute on [InviteCrewUser]"},
+		{name: "create: one role of two fails", method: "create-crew-user", body: `{"username":"bea-` + suffix + `","roles":["CrewCommon","Headquarters"]}`, wantStatus: http.StatusForbidden, wantBody: "You may not do this here."},
+		{name: "create: the one role fails", method: "create-crew-user", body: `{"username":"cy-` + suffix + `","roles":["Headquarters"]}`, wantStatus: http.StatusForbidden, wantBody: "You may not do this here."},
+		{name: "create: no role at all is no value, which never permits", method: "create-crew-user", body: `{"username":"dee-` + suffix + `","roles":[]}`, wantStatus: http.StatusForbidden, wantBody: "You may not do this here."},
+		{name: "create: the field left out is no value too", method: "create-crew-user", body: `{"username":"eli-` + suffix + `"}`, wantStatus: http.StatusForbidden, wantBody: "You may not do this here."},
+		{name: "invite: one role of two fails, before any invitation is written", method: "invite-crew-user", body: `{"email":"fay-` + suffix + `@example.com","roles":["ClientBrowser","Headquarters"]}`, wantStatus: http.StatusForbidden, wantBody: "You may not do this here."},
 	}
 	for _, tt := range fires {
 		t.Run(tt.name, func(t *testing.T) {
@@ -363,9 +363,7 @@ func TestMethodRequestFieldsTarget(t *testing.T) {
 		})
 	}
 
-	refused := func(pilot string) string {
-		return "SetSectorPilotClearance may not run against SectorPilot " + pilot
-	}
+	const refused = "You may not do this to this sector pilot."
 	// The fires run in order: each allowed one writes the registry, and the next reads it.
 	fires := []struct {
 		name          string
@@ -378,19 +376,19 @@ func TestMethodRequestFieldsTarget(t *testing.T) {
 		wantClearance int64
 	}{
 		{name: "the fact holds and the request field passes", user: fieldRater, sector: anvil, pilot: pilotVelaID, clearance: 3, wantStatus: http.StatusNoContent, wantClearance: 3},
-		{name: "the fact holds and the request field fails: the uniform refusal", user: fieldRater, sector: anvil, pilot: pilotVelaID, clearance: 4, wantStatus: http.StatusForbidden, wantBody: refused(pilotVelaID), wantClearance: 3},
-		{name: "the request field passes and the fact fails: the same refusal", user: fieldRater, sector: anvil, pilot: pilotPaxID, clearance: 2, wantStatus: http.StatusForbidden, wantBody: refused(pilotPaxID), wantClearance: 3},
-		{name: "both fail: the same refusal", user: fieldRater, sector: anvil, pilot: pilotPaxID, clearance: 5, wantStatus: http.StatusForbidden, wantBody: refused(pilotPaxID), wantClearance: 3},
-		{name: "another sector's pilot is not found, though the request field passes", user: fieldRater, sector: anvil, pilot: pilotCassID, clearance: 2, wantStatus: http.StatusNotFound, wantBody: "SectorPilot " + pilotCassID + " does not exist", wantClearance: 2},
-		{name: "and is not found where the request field fails: the refusal does not say a row is there", user: fieldRater, sector: anvil, pilot: pilotCassID, clearance: 5, wantStatus: http.StatusNotFound, wantBody: "SectorPilot " + pilotCassID + " does not exist", wantClearance: 2},
+		{name: "the fact holds and the request field fails: the uniform refusal", user: fieldRater, sector: anvil, pilot: pilotVelaID, clearance: 4, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 3},
+		{name: "the request field passes and the fact fails: the same refusal", user: fieldRater, sector: anvil, pilot: pilotPaxID, clearance: 2, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 3},
+		{name: "both fail: the same refusal", user: fieldRater, sector: anvil, pilot: pilotPaxID, clearance: 5, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 3},
+		{name: "another sector's pilot is not found, though the request field passes", user: fieldRater, sector: anvil, pilot: pilotCassID, clearance: 2, wantStatus: http.StatusNotFound, wantBody: "This sector pilot does not exist.", wantClearance: 2},
+		{name: "and is not found where the request field fails: the refusal does not say a row is there", user: fieldRater, sector: anvil, pilot: pilotCassID, clearance: 5, wantStatus: http.StatusNotFound, wantBody: "This sector pilot does not exist.", wantClearance: 2},
 		{name: "the role is held at Anvil alone: Bastion is no sector of the caller's", user: fieldRater, sector: bastion, pilot: pilotCassID, clearance: 2, wantStatus: http.StatusNotFound, wantBody: "unknown domain", wantClearance: 2},
 		{name: "a request field alone: a shared pilot, the field passes", user: fieldCapper, sector: anvil, pilot: pilotPaxID, clearance: 1, wantStatus: http.StatusNoContent, wantClearance: 1},
-		{name: "a request field alone: the field fails, the uniform refusal", user: fieldCapper, sector: anvil, pilot: pilotPaxID, clearance: 4, wantStatus: http.StatusForbidden, wantBody: refused(pilotPaxID), wantClearance: 1},
-		{name: "a request field alone: another sector's pilot is not found", user: fieldCapper, sector: anvil, pilot: pilotCassID, clearance: 4, wantStatus: http.StatusNotFound, wantBody: "SectorPilot " + pilotCassID + " does not exist", wantClearance: 2},
+		{name: "a request field alone: the field fails, the uniform refusal", user: fieldCapper, sector: anvil, pilot: pilotPaxID, clearance: 4, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 1},
+		{name: "a request field alone: another sector's pilot is not found", user: fieldCapper, sector: anvil, pilot: pilotCassID, clearance: 4, wantStatus: http.StatusNotFound, wantBody: "This sector pilot does not exist.", wantClearance: 2},
 		// Two conditional grants are either-or: the Wing Commander's (the fact alone)
 		// admits what the rater's (the fact and clearance up to 3) does not.
 		{name: "two grants with conditions: the other grant admits clearance 5", user: fieldTwo, sector: anvil, pilot: pilotVelaID, clearance: 5, wantStatus: http.StatusNoContent, wantClearance: 5},
-		{name: "two grants with conditions: neither admits a shared pilot", user: fieldTwo, sector: anvil, pilot: pilotPaxID, clearance: 2, wantStatus: http.StatusForbidden, wantBody: refused(pilotPaxID), wantClearance: 1},
+		{name: "two grants with conditions: neither admits a shared pilot", user: fieldTwo, sector: anvil, pilot: pilotPaxID, clearance: 2, wantStatus: http.StatusForbidden, wantBody: refused, wantClearance: 1},
 		// A grant with no condition from another role settles it: nothing is judged.
 		{name: "two grants, one with no condition: a shared pilot, clearance 5", user: fieldMarshal, sector: anvil, pilot: pilotPaxID, clearance: 5, wantStatus: http.StatusNoContent, wantClearance: 5},
 		{name: "a clearance out of range is still the body's to refuse", user: fieldMarshal, sector: anvil, pilot: pilotPaxID, clearance: 9, wantStatus: http.StatusBadRequest, wantBody: "clearance 9 is not a clearance", wantClearance: 5},
@@ -431,6 +429,8 @@ func TestMethodRequestFieldsDigest(t *testing.T) {
 	}
 	for _, tt := range probes {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			status, body := doRequestAs(t, w.h, tt.user, http.MethodGet, tt.target, "")
 			assertStatus(t, status, http.StatusOK, body)
 			var digest map[string]map[string]string

@@ -1,9 +1,9 @@
 package dbtype
 
 import (
-	"strings"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -108,39 +108,51 @@ func (i *Impersonation) ToSessionInfo() *sessioninfo.Impersonation {
 	return imp
 }
 
-// MaskColumn renders a mask into its column form: nil for the unrestricted
-// mask, otherwise the sorted allowlist joined with commas (the empty string
-// for the mask that allows nothing).
+// MaskColumn renders a mask into its column form: nil for the unrestricted mask,
+// otherwise the mask's text (accesstypes.PermissionMask.Text): the kinds it keeps,
+// sorted and joined with commas ("*" for every kind, the empty string for none), then
+// what it refuses inside them, each after a semicolon. A read-only mask is
+// "List,Read", and the mask that keeps everything except the credential actions is
+// "*;-class:credential".
 func MaskColumn(mask accesstypes.PermissionMask) *string {
-	perms := mask.Permissions()
-	if perms == nil {
+	if mask.IsZero() {
 		return nil
 	}
-
-	names := make([]string, len(perms))
-	for i, perm := range perms {
-		names[i] = string(perm)
-	}
-	col := strings.Join(names, ",")
+	col := mask.Text()
 
 	return &col
 }
 
-// MaskFromColumn parses a mask column: NULL is the unrestricted mask, any
-// other value (the empty string included) is a restricted allowlist.
+// MaskFromColumn parses a mask column: NULL is the unrestricted mask, any other value
+// (the empty string included) is a restricted mask, read by accesstypes.ParseMask. A
+// column that is no mask's text is read as the mask that keeps nothing: the session is
+// held to nothing, never to more than was written, and the row says why (MaskFault).
 func MaskFromColumn(col *string) accesstypes.PermissionMask {
 	if col == nil {
 		return accesstypes.PermissionMask{}
 	}
 
-	var perms []accesstypes.Permission
-	for name := range strings.SplitSeq(*col, ",") {
-		if name = strings.TrimSpace(name); name != "" {
-			perms = append(perms, accesstypes.Permission(name))
-		}
+	mask, err := accesstypes.ParseMask(*col)
+	if err != nil {
+		return accesstypes.DenyAll()
 	}
 
-	return accesstypes.MaskPermissions(accesstypes.DenyAll(), perms...)
+	return mask
+}
+
+// MaskFault says why the row's mask column is no mask's text, nil for a column that
+// reads. ToSessionInfo reads such a column as the mask that keeps nothing, and the
+// store that loads the row logs the fault: a session held to nothing by a column
+// nobody can read says so where an operator looks.
+func (i *Impersonation) MaskFault() error {
+	if i.Mask == nil {
+		return nil
+	}
+	if _, err := accesstypes.ParseMask(*i.Mask); err != nil {
+		return errors.Wrap(err, "accesstypes.ParseMask()")
+	}
+
+	return nil
 }
 
 func optionalString(s string) *string {

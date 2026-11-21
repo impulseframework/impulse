@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/spxscan"
 )
 
@@ -48,8 +49,9 @@ func (a *App) ClientStatements() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.UserPermissions.Check()"))
 		}
 		if !decisions[resources.ClientStatements].IsGranted() {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessagef(
-				"user %s does not have List on %s in %s", perms.User(), resources.ClientStatements, domain,
+			return httpio.NewEncoder(w).ClientMessage(ctx, resource.NotPermitted(
+				errors.Newf("user %s does not have List on %s in %s", perms.User(), resources.ClientStatements, domain),
+				accesstypes.List, resources.ClientStatements,
 			))
 		}
 

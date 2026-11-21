@@ -28,6 +28,7 @@ type (
 	//
 	// @rpc
 	// @outlet(default)
+	// @class(access)
 	CreateStaffUser struct {
 		Username string `validate:"required"`
 		Name     *string

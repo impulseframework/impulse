@@ -1,17 +1,21 @@
 import { apiDescriptor } from '@app/service/zz_gen_api';
-import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { resourceMeta } from '@app/service/zz_gen_resources';
-import { FrameActions, Menu } from '@impulseframework/resource-angular/auth-frame';
+import { Menu } from '@impulseframework/resource-angular/auth-frame';
+import { featureFlagsPage } from '@impulseframework/resource-angular/feature-flags';
 import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';
 import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';
-import { deckPages, sectorSignInPage, watchDeskPage } from '@components/sector/sector.routes';
+import { deckPages, sectorSignInPage } from '@components/sector/sector.routes';
 import { clientsConfig } from './configs/clients.config';
 import { commendationsConfig } from './configs/commendations.config';
+import { consignmentsConfig } from './configs/consignments.config';
+import { crewSessionImpersonationsConfig } from './configs/crewSessionImpersonations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
+import { hangarsConfig } from './configs/hangars.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
 import { missionsEverySectorConfig } from './configs/missionsEverySector.config';
 import { pilotsConfig, sectorPilotsConfig } from './configs/pilots.config';
+import { sectorHazardBoardsConfig } from './configs/sectorHazardBoards.config';
 import { sectorsConfig } from './configs/sectors.config';
 import { shipClassesConfig } from './configs/shipClasses.config';
 import { shipsConfig } from './configs/ships.config';
@@ -29,12 +33,12 @@ import { standingOrdersConfig } from './configs/standingOrders.config';
  * the person's own menu at the right (Your account, Your API keys, Appearance, Sign out).
  * A page added to the routes and forgotten here fails app.menus.spec.ts, naming the page.
  *
- * The frame calls the function once, in an injection context, handing it what the frame
- * does: here the feature flags dialog.
+ * The frame calls the function once, in an injection context, so an entry of the
+ * application's own may use a service it injects.
  *
  * Demonstrates: frame.menu-file.
  */
-export function appMenus(actions: FrameActions): Menu[] {
+export function appMenus(): Menu[] {
   return [
     {
       label: 'Records',
@@ -61,9 +65,10 @@ export function appMenus(actions: FrameActions): Menu[] {
           entries: [
             resourcePage(missionsConfig, resourceMeta),
             resourcePage(shipsConfig, resourceMeta),
+            // The hangars a person may list, each with the passes that open it.
+            resourcePage(hangarsConfig, resourceMeta),
             resourcePage(squadronsConfig, resourceMeta),
             resourcePage(missionDocumentsConfig, resourceMeta),
-            resourcePage(distressCallsConfig, resourceMeta),
             resourcePage(sectorPilotsConfig, resourceMeta),
           ],
         },
@@ -76,10 +81,11 @@ export function appMenus(actions: FrameActions): Menu[] {
           entries: [
             deckPages.flightDeck,
             deckPages.hangarDeck,
-            deckPages.salvageHold,
-            deckPages.callLog,
+            // The salvage hold, the call log and the hazard board are the library's lists.
+            resourcePage(consignmentsConfig, resourceMeta),
+            resourcePage(distressCallsConfig, resourceMeta),
             deckPages.roster,
-            deckPages.hazardBoard,
+            resourcePage(sectorHazardBoardsConfig, resourceMeta),
             deckPages.shipsLog,
             deckPages.briefing,
           ],
@@ -125,14 +131,12 @@ export function appMenus(actions: FrameActions): Menu[] {
         },
         {
           entries: [
-            {
-              label: 'Feature flags…',
-              icon: 'flag',
-              run: () => actions.featureFlags(),
-              place: 'outside',
-              permission: { resource: Resources.FeatureFlags, permission: Permissions.List },
-            },
-            watchDeskPage,
+            // The feature flags Lodestar declares, each with who last turned it on or off:
+            // the library's page, shown under List on the flags, in Headquarters.
+            featureFlagsPage(resourceMeta),
+            // The watch desk: the sessions people hold as someone else, shown under List
+            // on the crew auth's impersonation records.
+            resourcePage(crewSessionImpersonationsConfig, resourceMeta),
           ],
         },
       ],

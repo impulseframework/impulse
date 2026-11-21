@@ -133,9 +133,14 @@ type Settings struct {
 	LoginURL string
 	// Directory identifies the application to the directory that verifies its logins.
 	Directory auth.Directory
-	// Collection is the generated permission collection the role file validates against:
-	// the resources, fields and conditions the release declares. The router package
-	// generates it and imports this one, so the configuration passes it in.
+	// Collection is the generated permission collection: the resources, permissions and
+	// fields the release declares, which the permission engine holds every grant to. The
+	// role file validates against it when the engine opens, a grant written to a custom
+	// role is refused unless the collection lists what it names, and a stored grant that
+	// names anything else is skipped and reported each time the policy loads. The router
+	// package generates it (router.Collection()) and imports this one, so the
+	// configuration passes it in. Required; New refuses nil, a nil
+	// pointer of a collection's type included (access.IsNilCollection).
 	Collection access.PermissionCollection
 	// ChangeSignal carries the engine's policy-change hints between the application's
 	// instances (auth.PolicySignal over the live service): the engine announces after
@@ -211,16 +216,20 @@ func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
 }
 
-// PendingStatus reports the sign-in that waits for a password confirmation or for the
-// second factor, if any; a member has no password, so only the factor's wait happens,
-// for a member whose directory the fleet does not administer.
-func (h *Handlers) PendingStatus() http.HandlerFunc {
-	return h.Pending().Status()
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address ({"token"}): the login holds the address it had until then.
+// The reader of the link confirms it signed in or not, since they may have lost the
+// mailbox their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
 }
 
-// PendingConfirmWithPassword completes a waiting sign-in with the user's password.
-func (h *Handlers) PendingConfirmWithPassword() http.HandlerFunc {
-	return h.Pending().ConfirmWithPassword()
+// PendingStatus reports the sign-in that waits for the second factor, if any. A member
+// has no password, so no sign-in waits for one to be confirmed and the portal serves no
+// route for it; the factor's wait happens for a member whose directory the fleet does
+// not administer.
+func (h *Handlers) PendingStatus() http.HandlerFunc {
+	return h.Pending().Status()
 }
 
 // PendingCancel discards a waiting sign-in.
@@ -255,6 +264,9 @@ func (h *Handlers) PendingEnrollEmail() http.HandlerFunc {
 // blocks until its first policy snapshot is loaded. It announces its policy writes and
 // watches the other instances' through the change signal, which is required.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
+	if access.IsNilCollection(settings.Collection) {
+		return nil, errors.New("members.Settings.Collection is required: the permission engine holds every grant to the permission collection the release declares; pass the generated router's (router.Collection())")
+	}
 	if settings.ChangeSignal == nil {
 		return nil, errors.New("members.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
 	}
@@ -274,8 +286,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// a client's roles, that one among them. The directory decides who is a super
 	// administrator of the members, the sync gives the role to a client it names for it
 	// and takes it from one it no longer names, and the bootstrap seeds none.
-	accessClient, err := access.New(store,
-		access.WithDefaultRoles(settings.Collection, Roles()),
+	accessClient, err := access.New(store, settings.Collection,
+		access.WithDefaultRoles(Roles()),
 		access.WithChangeSignal(settings.ChangeSignal),
 		access.WithSuperAdministratorMethods(membersidentity.SuperAdministratorMethods()...),
 	)
@@ -408,8 +420,11 @@ func (a *Auth) Identity() *membersidentity.Client {
 	return a.identity
 }
 
-// Close releases the permission engine.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine (session.AuthAPI.WaitForMail): the configuration closes the auth once the
+// server has stopped and before it closes the database.
 func (a *Auth) Close() error {
+	a.handlers.Session.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}

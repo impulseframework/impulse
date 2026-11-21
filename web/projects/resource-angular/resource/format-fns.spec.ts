@@ -1,9 +1,15 @@
 import { ValidDisplayTypes } from '@impulseframework/resource-angular/types';
-import { base64ByteLength, formatByDisplayType, formatByteSize, OBJECT_CELL_LENGTH } from './format-fns';
+import {
+  base64ByteLength,
+  formatByDisplayType,
+  formatByteSize,
+  formatFieldValue,
+  OBJECT_CELL_LENGTH,
+} from './format-fns';
 
 // The cell formatter: one text per display type, so a grid shows a size for bytes, a
-// list for an array, a compact JSON for an object, a calendar date for a date, and the
-// value's own text for everything else.
+// list for an array, a place in words for a position and a compact JSON for any other
+// object, a calendar date for a date, and the value's own text for everything else.
 
 /** The base64 of 32 zero bytes: what a SHA-256 digest column carries. */
 const digest32 = btoa(String.fromCharCode(...new Array<number>(32).fill(0)));
@@ -19,7 +25,9 @@ describe('formatByDisplayType', () => {
     { name: 'a date is M/d/yyyy', displayType: 'date', value: '2026-09-21T12:00:00Z', want: '9/21/2026' },
     { name: 'a civildate is M/d/yyyy', displayType: 'civildate', value: '2026-02-03', want: '2/3/2026' },
     { name: 'a bytes value is its decoded size, never the base64', displayType: 'bytes', value: digest32, want: '32 B' },
-    { name: 'an object is its JSON on one line', displayType: 'object', value: { type: 'Point', coordinates: [1, 2] }, want: '{"type":"Point","coordinates":[1,2]}' },
+    { name: 'a position is a place in words, never its JSON', displayType: 'object', value: { type: 'Point', coordinates: [-118.2437, 34.0522] }, want: '34.0522° N, 118.2437° W' },
+    { name: 'a shape other than a point is what it is and where it starts', displayType: 'object', value: { type: 'LineString', coordinates: [[-118.2437, 34.0522], [-115.1398, 36.1699]] }, want: 'A line of 2 points, starting at 34.0522° N, 118.2437° W' },
+    { name: 'an object that is no place is its JSON on one line', displayType: 'object', value: { vessel: 'Kestrel', decks: 3 }, want: '{"vessel":"Kestrel","decks":3}' },
     {
       name: 'a long object is cut with an ellipsis',
       displayType: 'object',
@@ -34,6 +42,7 @@ describe('formatByDisplayType', () => {
     { name: 'a civildate array formats each element', displayType: 'civildate[]', value: ['2026-02-03'], want: '2/3/2026' },
     { name: 'a uuid array is its ids', displayType: 'uuid[]', value: ['a', 'b'], want: 'a, b' },
     { name: 'an object array is one JSON per element', displayType: 'object[]', value: [{ a: 1 }, { b: 2 }], want: '{"a":1}, {"b":2}' },
+    { name: 'a position array is one place per element', displayType: 'object[]', value: [{ type: 'Point', coordinates: [12.5, -4] }, { type: 'Point', coordinates: [-70, 41.25] }], want: '4° S, 12.5° E, 41.25° N, 70° W' },
     { name: 'a bytes array is one size per element', displayType: 'bytes[]', value: [digest32, 'AA=='], want: '32 B, 1 B' },
     { name: 'an empty array is empty text', displayType: 'string[]', value: [], want: '' },
     { name: 'null is empty text, so the column placeholder applies', displayType: 'bytes', value: null, want: '' },
@@ -44,6 +53,34 @@ describe('formatByDisplayType', () => {
   for (const tt of cases) {
     it(tt.name, () => {
       expect(formatByDisplayType(tt.displayType, tt.value)).toBe(tt.want);
+    });
+  }
+});
+
+// A list writes a field that takes one of a fixed set of values by the value's name: the
+// generated metadata lists each key beside its name.
+describe('formatFieldValue', () => {
+  const status = {
+    displayType: 'enumerated' as const,
+    enumeration: [
+      { id: 'on_hold', display: 'On hold' },
+      { id: 'open', display: 'Open' },
+      { id: '7', display: 'Seven' },
+    ],
+  };
+  const cases: { name: string; field: Parameters<typeof formatFieldValue>[0]; value: unknown; want: string }[] = [
+    { name: 'a fixed value is its name', field: status, value: 'on_hold', want: 'On hold' },
+    { name: 'a fixed value the row carries as a number is its name', field: status, value: 7, want: 'Seven' },
+    { name: 'a value the metadata does not list is itself', field: status, value: 'scrubbed', want: 'scrubbed' },
+    { name: 'a null is nothing', field: status, value: null, want: '' },
+    { name: "a key into another resource's rows is itself", field: { displayType: 'enumerated' }, value: 'p-1', want: 'p-1' },
+    { name: 'any other field is written by its display type', field: { displayType: 'civildate' }, value: '2026-02-03', want: '2/3/2026' },
+    { name: 'a value of no known field is its text', field: undefined, value: 42, want: '42' },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(formatFieldValue(tt.field, tt.value)).toBe(tt.want);
     });
   }
 });

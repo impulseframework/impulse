@@ -76,7 +76,10 @@ type identityTenantInvitation struct {
 	fields []identityTenantField
 	// nameField is the field people call the tenant by (@tenantName), "" where the
 	// record marks none: the invitation page then says the application's word for one.
-	nameField string
+	// nameColumn is its column of the record's table, which a list that names a tenant
+	// in a line of text reads (identitySourceData.GroupRoleLines).
+	nameField  string
+	nameColumn string
 	// directoryOnly is the record's directory-only switch, nil where it declares none
 	// (Type is unused: the switch is a yes or a no), and seats says the directories
 	// record keeps a default role.
@@ -162,6 +165,14 @@ func (d *identitySourceData) TenantDirectoryOnlyField() *identityTenantField {
 
 func (d *identitySourceData) TenantSeats() bool {
 	return d.tenant.invitation.seats
+}
+
+// TenantDirectories reports whether the application declares a directories record, so
+// that a tenant made by an invitation can take the directory of the person who accepts
+// it. Where it declares none, no tenant has a directory, and what the invitation says
+// of itself leaves the directory out.
+func (d *identitySourceData) TenantDirectories() bool {
+	return len(d.tenant.directoryOutlets) > 0
 }
 
 // invitedTenantSources are the source files of the invitation that makes a tenant.
@@ -333,7 +344,7 @@ func (t *identityTenantInvitation) readFields(structType *ast.StructType, meta *
 			return "field " + name + " has a type another package cannot name", nil
 		}
 		if fieldTenantName.MatchString(comment) {
-			t.nameField = name
+			t.nameField, t.nameColumn = name, tag.Get(spannerTagKey)
 		}
 		required := !column.IsNullable && !column.HasDefault
 		t.fields = append(t.fields, identityTenantField{

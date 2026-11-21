@@ -15,7 +15,9 @@ type (
 	// StartsAt and EndsAt are the membership's period: the first instant it counts and
 	// the first it no longer does, each empty for none. Outside its period a membership
 	// grants nothing, and a row whose period has ended stands until its person next signs
-	// in, which removes it.
+	// in, which removes it. Reason is why the role was given, one line of plain text and
+	// empty for none: it is written with the period and replaced with it, and nothing
+	// edits it by itself.
 	//
 	// @resource
 	// @suppress(readHandler)
@@ -32,5 +34,6 @@ type (
 		CreatedAt time.Time  `spanner:"CreatedAt"`
 		StartsAt  *time.Time `spanner:"StartsAt"`
 		EndsAt    *time.Time `spanner:"EndsAt"`
+		Reason    *string    `spanner:"Reason"`
 	}
 )

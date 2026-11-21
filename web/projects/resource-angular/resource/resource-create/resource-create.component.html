@@ -1,17 +1,19 @@
 <div class="page-container">
-  <div class="header-container">
-    <div class="title" [class.indent]="indentTitle()">
-      <h1>Create {{ config().title }}</h1>
-    </div>
+  @if (!inDialog()) {
+    <div class="header-container">
+      <div class="title" [class.indent]="indentTitle()">
+        <h1>Create {{ config().title }}</h1>
+      </div>
 
-    <div class="state-buttons">
-      @if (!form().valid && submitted()) {
-        <div class="invalid message">Please complete or fix required fields.</div>
-      }
-      <button mat-raised-button color="primary" (click)="cancelForm()">Cancel</button>
-      <button mat-raised-button color="accent" (click)="saveForm()" [disabled]="form().pristine">Create</button>
+      <div class="state-buttons">
+        @if (!form().valid && submitted()) {
+          <div class="invalid message">{{ incomplete() }}</div>
+        }
+        <button mat-raised-button color="primary" (click)="cancelForm()">Cancel</button>
+        <button mat-raised-button color="accent" (click)="saveForm()" [disabled]="form().pristine">Create</button>
+      </div>
     </div>
-  </div>
+  }
 
   <div class="resource-container">
     <form [formGroup]="form()">

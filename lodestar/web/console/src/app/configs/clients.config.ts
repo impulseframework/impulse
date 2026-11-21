@@ -35,6 +35,7 @@ export const clientsConfig = rootConfig({
   parentConfig: listViewConfig({
     title: 'Clients',
     createTitle: 'Client',
+    createButtonLabel: 'Add a client',
     primaryResource: Resources.Clients,
     listColumns: [
       { id: Clients.fieldName.name },
@@ -53,6 +54,9 @@ export const clientsConfig = rootConfig({
         label: 'Client',
         children: [
           field({ name: Clients.fieldName.name, label: 'Name', cols: 4 }),
+          // Trusted is a yes or no the table never leaves empty and gives no default of its
+          // own, so a create must be given it: the create form draws it as a choice of yes or
+          // no that starts at No, and a new client is not trusted until someone says so.
           field({ name: Clients.fieldName.trusted, label: 'Trusted', cols: 4 }),
           field({
             name: Clients.fieldName.insured,

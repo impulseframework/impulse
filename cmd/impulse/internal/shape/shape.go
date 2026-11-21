@@ -72,9 +72,18 @@ func OfMethods() []Shape {
 }
 
 // OfTenants lists shapes 5 to 8, the ones the tenants' choices tell apart: the starting
-// points impulse new and impulse add tenancy offer.
+// points impulse add tenancy offers, and impulse new among its own.
 func OfTenants() []Shape {
 	return All()[openSignUp:]
+}
+
+// OfNew lists the starting points impulse new offers: Directory roles, and shapes 5 to
+// 8. Directory roles is the one shape without tenants an application has to start from:
+// it has no password sign-in, the first auth of any other start signs in with a
+// password, and no command removes a sign-in method. The other shapes without tenants
+// are reached from the base by impulse add method.
+func OfNew() []Shape {
+	return append([]Shape{numbered(directoryRoles)}, OfTenants()...)
 }
 
 // String is the shape by number and name: "1 Invite only".
@@ -117,6 +126,15 @@ func (s Shape) TenantDirectories() bool {
 	return s.Number == tenantOwnedByDirectory || s.Number == globalEachTenantChooses
 }
 
+// NoPassword reports a shape with no password sign-in: Directory roles, where one
+// directory gives every role, and Tenant-owned users, by directory, where every person
+// of a tenant signs in through the tenant's own directory. A new application that
+// starts from one has its first auth written with the shape's methods in the password
+// method's place.
+func (s Shape) NoPassword() bool {
+	return s.Number == directoryRoles || s.Number == tenantOwnedByDirectory
+}
+
 // FlagName is the flag a starting point is asked for with.
 const FlagName = "shape"
 
@@ -130,15 +148,22 @@ func Keys(shapes []Shape) string {
 	return strings.Join(keys, ", ")
 }
 
-// Usage is the description of a command's --shape flag: what a starting point is, and
-// the names the command knows, each with the shape's number and name.
+// Document is the framework's document of the sign-in shapes, by its path from the root
+// of the framework's repository: what each shape is, the choices it is made of and what
+// impulse audit prints for it.
+const Document = "docs/sign-in-shapes.md"
+
+// Usage is the description of a command's --shape flag: what a starting point is, the
+// names the command knows, each with the shape's number and name, and where the shapes
+// are described.
 func Usage(offered []Shape, fills string) string {
 	named := make([]string, 0, len(offered))
 	for _, s := range offered {
 		named = append(named, fmt.Sprintf("%s (%s)", s.Key, s))
 	}
 
-	return "a sign-in shape to start from, by its name or its number, which fills in " + fills + ": " + strings.Join(named, ", ") + "; a flag given beside it that contradicts it is refused"
+	return "a sign-in shape to start from, by its name or its number, which fills in " + fills + ": " + strings.Join(named, ", ") +
+		"; a flag given beside it that contradicts it is refused; the shapes are described in " + Document + " of the framework's repository"
 }
 
 // Find returns the shape a command's --shape flag names, by its name or by its number,
@@ -157,8 +182,11 @@ func Find(key string, offered []Shape, command string) (Shape, error) {
 			continue
 		}
 		commands := "impulse add auth and impulse add method, since a sign-in method's choices tell it apart"
-		if s.HasTenants() {
+		switch {
+		case s.HasTenants():
 			commands = "impulse new and impulse add tenancy, since the tenants' choices tell it apart"
+		case s.Number == directoryRoles:
+			commands = "impulse new, impulse add auth and impulse add method, since a sign-in method's choices tell it apart"
 		}
 		elsewhere = fmt.Sprintf(". %s is a starting point of %s", s, commands)
 	}

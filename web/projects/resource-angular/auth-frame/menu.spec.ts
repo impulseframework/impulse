@@ -189,7 +189,7 @@ describe('a menu shows only what lives in the place the page is in', () => {
       label: 'System',
       groups: [
         { entries: [{ label: 'Customers', route: ['customers'] }] },
-        { entries: [{ label: 'Feature flags…', run: (): void => undefined, place: 'outside' }] },
+        { entries: [{ label: 'New tenant…', run: (): void => undefined, place: 'outside' }] },
       ],
     },
     { label: 'Help', groups: [{ entries: [{ label: 'Guides', route: [here, 'guides'] }] }] },
@@ -197,7 +197,7 @@ describe('a menu shows only what lives in the place the page is in', () => {
 
   it('outside every tenant, the pages and actions there show', () => {
     expect(labels(shownMenus(system, session([], [], '')))).toEqual([
-      'System: Customers | Feature flags…',
+      'System: Customers | New tenant…',
       'Help: Guides',
     ]);
   });
@@ -250,8 +250,8 @@ describe('showsOutside', () => {
     },
     {
       name: 'an action kept to the place is something',
-      menus: menu({ label: 'Feature flags…', run, place: 'outside', permission: allowed('FeatureFlags') }),
-      grants: ['FeatureFlags'],
+      menus: menu({ label: 'New tenant…', run, place: 'outside', permission: allowed('Tenants') }),
+      grants: ['Tenants'],
       want: true,
     },
     {
@@ -293,7 +293,7 @@ describe('a page declared once and placed by reference', () => {
   });
 
   it('is told from an action and a submenu by its address', () => {
-    const action = { label: 'Feature flags…', run: (): void => undefined };
+    const action = { label: 'New tenant…', run: (): void => undefined };
     const submenu = { label: 'More', groups: [{ entries: [users] }] };
     expect([isPage(users), isPage(action), isPage(submenu)]).toEqual([true, false, false]);
     expect([isAction(users), isAction(action), isAction(submenu)]).toEqual([false, true, false]);

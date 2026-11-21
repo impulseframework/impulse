@@ -64,8 +64,8 @@ func outsiderManager(t *testing.T, store Store) *Manager {
 }
 
 const (
-	roleKeptFromOutsiders    = "Warden is a role that administers a tenant, and this tenant admits only people who sign in through its own directory, which your sign-in does not enter. Who holds the role there is changed by one of its administrators, or by a super administrator"
-	accountKeptFromOutsiders = "This person administers a tenant that admits only people who sign in through its own directory, which your sign-in does not enter. Their account is changed by one of that tenant's administrators, or by a super administrator"
+	roleKeptFromOutsiders    = "Warden is a role that administers a tenant, and this tenant admits only people who sign in through its own directory, which your sign-in does not enter. Who holds the role there is changed by one of its administrators, or by a super administrator."
+	accountKeptFromOutsiders = "This person administers a tenant that admits only people who sign in through its own directory, which your sign-in does not enter. Their account is changed by one of that tenant's administrators, or by a super administrator."
 )
 
 // TestManager_directoryOnly_administratorsRole pins that who holds a tenant's
@@ -323,7 +323,7 @@ func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 			return m.RenameUser(ctx, txn, userID, "dana.r")
 		}},
 		{name: "a new address", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-			return m.SetEmail(ctx, txn, userID, &address)
+			return m.SetEmail(ctx, txn, userID, address, nil)
 		}},
 		{name: "the unlinking of an identity", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 			return m.UnlinkIdentity(ctx, txn, identityA)
@@ -610,7 +610,7 @@ func TestManager_directoryOnly_administratorOfSeveral(t *testing.T) {
 	t.Parallel()
 
 	const keptFromSomeone = "This person administers more than one tenant, and one of them admits only people who sign in through its own directory, which your sign-in does not enter. " +
-		"Their account is changed by someone whose sign-in enters every tenant they administer, or by a super administrator"
+		"Their account is changed by someone whose sign-in enters every tenant they administer, or by a super administrator."
 	tests := []struct {
 		name   string
 		enters []accesstypes.Domain

@@ -247,15 +247,15 @@ func TestSectorPilotsMethod(t *testing.T) {
 		wantClearance int64
 	}{
 		{name: "the Wing Commander rates a pilot of Anvil alone", user: "wingco", sector: anvil, pilot: pilotVelaID, clearance: 4, wantStatus: http.StatusNoContent, wantClearance: 4},
-		{name: "a pilot who also flies for Bastion is refused, in the uniform words", user: "wingco", sector: anvil, pilot: pilotPaxID, clearance: 5, wantStatus: http.StatusForbidden, wantBody: "SetSectorPilotClearance may not run against SectorPilot " + pilotPaxID, wantClearance: 3},
-		{name: "Bastion's pilot is not found at Anvil", user: "wingco", sector: anvil, pilot: pilotCassID, clearance: 5, wantStatus: http.StatusNotFound, wantBody: "SectorPilot " + pilotCassID + " does not exist", wantClearance: 2},
-		{name: "a pilot of no squadron is not found", user: "wingco", sector: anvil, pilot: pilotGreerID, clearance: 0, wantStatus: http.StatusNotFound, wantBody: "SectorPilot " + pilotGreerID + " does not exist", wantClearance: 5},
+		{name: "a pilot who also flies for Bastion is refused, in the uniform words", user: "wingco", sector: anvil, pilot: pilotPaxID, clearance: 5, wantStatus: http.StatusForbidden, wantBody: "You may not do this to this sector pilot.", wantClearance: 3},
+		{name: "Bastion's pilot is not found at Anvil", user: "wingco", sector: anvil, pilot: pilotCassID, clearance: 5, wantStatus: http.StatusNotFound, wantBody: "This sector pilot does not exist.", wantClearance: 2},
+		{name: "a pilot of no squadron is not found", user: "wingco", sector: anvil, pilot: pilotGreerID, clearance: 0, wantStatus: http.StatusNotFound, wantBody: "This sector pilot does not exist.", wantClearance: 5},
 		{name: "the same grant at Bastion rates Cass", user: "wingco", sector: bastion, pilot: pilotCassID, clearance: 3, wantStatus: http.StatusNoContent, wantClearance: 3},
-		{name: "Anvil's pilot is not found at Bastion", user: "wingco", sector: bastion, pilot: pilotVelaID, clearance: 0, wantStatus: http.StatusNotFound, wantBody: "SectorPilot " + pilotVelaID + " does not exist", wantClearance: 4},
-		{name: "the shared pilot is refused at Bastion as at Anvil", user: "wingco", sector: bastion, pilot: pilotPaxID, clearance: 5, wantStatus: http.StatusForbidden, wantBody: "SetSectorPilotClearance may not run against SectorPilot " + pilotPaxID, wantClearance: 3},
+		{name: "Anvil's pilot is not found at Bastion", user: "wingco", sector: bastion, pilot: pilotVelaID, clearance: 0, wantStatus: http.StatusNotFound, wantBody: "This sector pilot does not exist.", wantClearance: 4},
+		{name: "the shared pilot is refused at Bastion as at Anvil", user: "wingco", sector: bastion, pilot: pilotPaxID, clearance: 5, wantStatus: http.StatusForbidden, wantBody: "You may not do this to this sector pilot.", wantClearance: 3},
 		{name: "the Marshal's grant carries no condition: the shared pilot is rated", user: "marshal", sector: anvil, pilot: pilotPaxID, clearance: 4, wantStatus: http.StatusNoContent, wantClearance: 4},
-		{name: "and Bastion's pilot is still not found at Anvil", user: "marshal", sector: anvil, pilot: pilotCassID, clearance: 5, wantStatus: http.StatusNotFound, wantBody: "SectorPilot " + pilotCassID + " does not exist", wantClearance: 3},
-		{name: "a caller with no grant is refused before any row is looked for", user: "cadet", sector: anvil, pilot: pilotVelaID, clearance: 0, wantStatus: http.StatusForbidden, wantBody: "does not have Execute", wantClearance: 4},
+		{name: "and Bastion's pilot is still not found at Anvil", user: "marshal", sector: anvil, pilot: pilotCassID, clearance: 5, wantStatus: http.StatusNotFound, wantBody: "This sector pilot does not exist.", wantClearance: 3},
+		{name: "a caller with no grant is refused before any row is looked for", user: "cadet", sector: anvil, pilot: pilotVelaID, clearance: 0, wantStatus: http.StatusForbidden, wantBody: "You may not do this here.", wantClearance: 4},
 		{name: "a clearance out of range is the body's to refuse, once the row is found", user: "wingco", sector: anvil, pilot: pilotVelaID, clearance: 9, wantStatus: http.StatusBadRequest, wantBody: "clearance 9 is not a clearance", wantClearance: 4},
 	}
 	for _, tt := range fires {

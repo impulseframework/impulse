@@ -18,6 +18,10 @@ import {
 } from '@impulseframework/resource-angular/types';
 import {
   ClientBase,
+  digestFailure,
+  digestKey,
+  domainsKnown,
+  domainsUnread,
   FeatureState,
   fieldPermissionStates,
   permissionState,
@@ -48,12 +52,11 @@ import { from, map, Observable, of, switchMap, tap } from 'rxjs';
  * the digest, `featureEnabled` answers from it for the `impulseFeature` directive, the
  * `featureMatch` route guard, and the application's own code, and a logout forgets it.
  * The set is loaded at sign-in and not polled: a flip by someone else is seen at the next
- * sign-in, while the person flipping, through the feature flags dialog, has their own set
- * and digest refreshed once the write succeeds. An API that serves no feature flags (its
+ * sign-in, while the person flipping, on the Feature flags page, has their own set and
+ * digest refreshed once the write succeeds. An API that serves no feature flags (its
  * descriptor carries no features route) loads nothing: every flag answers off, so each
- * gate stays closed, the dialog says the API serves none, and the first ask of each flag
- * is announced through the client's warn hook (the console by default) naming the
- * regeneration that would serve it.
+ * gate stays closed, and the first ask of each flag is announced through the client's
+ * warn hook (the console by default) naming the regeneration that would serve it.
  */
 @Injectable({
   providedIn: 'root',
@@ -81,7 +84,31 @@ export class AuthService {
   private featuresSnapshot = storeSignal(this.features.snapshot);
   private authenticatedSignal = signal(false);
   private sessionInfoSignal = signal({} as SessionInfo);
+  private invitedTenantSignal = signal('');
   private permissionsLoaded = false;
+
+  // The scopes whose digest could not be read, by the digest's key: written when a read
+  // fails, whoever asked for it, and dropped once the scope holds an answer.
+  private unreadDigests = signal<ReadonlySet<string>>(new Set());
+
+  constructor() {
+    // A read of what the person holds outside every tenant that does not answer is kept
+    // as unread whichever way it failed, since nothing stands in for it. A tenant's is
+    // kept when the read failed; a tenant the server refuses is an answer, that the
+    // tenant is not there for this session.
+    this.permissions.onUnread((domain, failure) => {
+      if (domain && failure === 'refused') {
+        return;
+      }
+      this.unreadDigests.update((unread) => new Set(unread).add(digestKey(domain)));
+    });
+    this.permissions.subscribe((snapshot) => {
+      const unread = this.unreadDigests();
+      if ([...unread].some((key) => snapshot.digests.has(key))) {
+        this.unreadDigests.set(new Set([...unread].filter((key) => !snapshot.digests.has(key))));
+      }
+    });
+  }
 
   /**
    * The URL the browser returns to after the next login (LOGIN_REDIRECT_URL): the login
@@ -94,8 +121,19 @@ export class AuthService {
   sessionInfo = this.sessionInfoSignal.asReadonly();
 
   /**
+   * The tenant an invitation the person has just accepted seated them in, until they have
+   * landed; empty otherwise. The server names it on one session read only (the session
+   * info's `invitedTenant`), and the sign-in page reads the session more than once before
+   * it hands the person on, so the service keeps it: through later reads that name none,
+   * until `invitationLanded` or the end of the session. PlaceService lands the person
+   * there.
+   */
+  invitedTenant = this.invitedTenantSignal.asReadonly();
+
+  /**
    * The domains where the session user holds at least one grant, sorted — the tenant
-   * picker's source. Empty until the session authenticates.
+   * picker's source. Empty until the session authenticates and the list is read
+   * (`hasDomains`): an empty list that has not been read is not a person in no tenant.
    */
   domains = computed<readonly Domain[]>(() => this.snapshot().domains);
 
@@ -176,6 +214,34 @@ export class AuthService {
   }
 
   /**
+   * Whether the digest for the domain (global when omitted) could not be read and nothing
+   * is known of it: its last read failed, and the cache holds no answer from before. Not a
+   * person who holds nothing, which is an answer: what is drawn from the scope says it
+   * could not be loaded. False again once a read answers. Signal-backed.
+   */
+  digestUnread(domain?: Domain): boolean {
+    return this.unreadDigests().has(digestKey(domain)) && !this.hasDigest(domain);
+  }
+
+  /**
+   * Whether the person's list of tenants has been read. Until it has, an empty `domains()`
+   * means nothing is known, not that the person is in no tenant. Signal-backed.
+   */
+  hasDomains(): boolean {
+    return domainsKnown(this.snapshot());
+  }
+
+  /**
+   * Whether the person's list of tenants could not be read and nothing is known of it: its
+   * last read failed, and no list is held from before. Not a person in no tenant, which is
+   * an answer: what is drawn from the list says it could not be loaded. False again once a
+   * read answers. Signal-backed.
+   */
+  domainsUnread(): boolean {
+    return domainsUnread(this.snapshot());
+  }
+
+  /**
    * Whether the digest that answers for the scope has loaded: the selected tenant's for a
    * domain-scoped target, the global one otherwise. Until it has, a false hasPermission
    * and an empty fieldPermissionStates mean nothing is known, not that the target is
@@ -220,30 +286,57 @@ export class AuthService {
 
   /**
    * Answers a permission question, loading the scope's digest first if it is not
-   * cached — the asynchronous form for route guards.
+   * cached — the asynchronous form for route guards. A scope the server refuses to read
+   * (its 403 or 404, or a tenant that has left the person's list) answers false: it is
+   * not there for this session. A read that fails any other way is no answer, and the
+   * observable errors: a failure is not a person who holds nothing.
    */
   ensurePermission(scope?: PermissionScope): Observable<boolean> {
     if (!scope) {
       return of(true);
     }
-    return from(this.permissions.ensure(this.scoped(scope)).catch(() => false));
+    return from(
+      this.permissions.ensure(this.scoped(scope)).catch((error: unknown) => {
+        if (digestFailure(error) === 'refused') {
+          return false;
+        }
+        throw error;
+      }),
+    );
   }
 
   /**
    * Loads (or reloads) the permission digest for a domain — global when omitted —
-   * into the cache. Call it when the user selects a tenant, before rendering that
-   * tenant's pages. A failed load caches an empty digest (every question answers false).
+   * into the cache. A read that fails caches nothing: the scope stays as it was (unloaded,
+   * or holding its last answer), since a failure is not a person who holds nothing, and
+   * the observable errors with what the read threw (`digestFailure` says whether it was a
+   * refusal). No empty digest stands in for a read that failed.
    */
   loadDigest(domain?: Domain): Observable<PermissionDigest> {
-    return from(this.permissions.loadDigest(domain).catch(() => ({}) as PermissionDigest));
+    return from(this.permissions.loadDigest(domain));
   }
 
-  /** Loads the user's domain list from the generated user-domains endpoint. */
+  /**
+   * Loads the person's list of tenants from the generated user-domains endpoint. A read
+   * that fails leaves the list as it was (unread, or holding its last answer), since a
+   * failure is not a person in no tenant, and the observable errors with what the read
+   * threw. No empty list stands in for a read that failed.
+   */
   loadDomains(): Observable<readonly Domain[]> {
-    return from(this.permissions.loadDomains().catch(() => [] as Domain[]));
+    return from(this.permissions.loadDomains());
   }
 
-  /** Reloads the domains and every cached digest — after a role change, say. */
+  /**
+   * Reloads the domains and every cached digest — after a role change, say. A digest that
+   * could not be read keeps its last answer, and so does the list of tenants, so no page is
+   * drawn again as the page of a person who holds nothing, or is in no tenant, because a
+   * read failed; where it is the open tenant's, the
+   * frame's TenantService puts the refusal page in the open page's stead, saying the page
+   * could not be loaded, or 404 Not Found where the read was refused. A tenant the reload
+   * is refused (the server's 403 or 404, or a tenant that has left the person's list) is
+   * forgotten: nothing the person held there is kept, and where its page is open the
+   * refusal page takes its place.
+   */
   refreshPermissions(): Observable<void> {
     return from(this.permissions.refresh().catch(() => undefined));
   }
@@ -267,9 +360,19 @@ export class AuthService {
           }
           this.authenticatedSignal.set(false);
           this.sessionInfoSignal.set({} as SessionInfo);
+          this.invitedTenantSignal.set('');
           this.clearPermissions();
         }),
       );
+  }
+
+  /**
+   * Says the person has landed after the invitation they accepted: a page under the top
+   * bar is open, so the invitation's tenant is no longer where they land, and the next
+   * landing is where they last worked.
+   */
+  invitationLanded(): void {
+    this.invitedTenantSignal.set('');
   }
 
   /**
@@ -277,12 +380,17 @@ export class AuthService {
    * session also loads the global permission digest, the user's domains, and the enabled
    * set of feature flags when the API serves them, and starts the live session when a
    * change feed is provided; later checks (keepalives) leave the cached permissions, the
-   * set, and the feed alone. An unauthenticated answer ends them all, the feed without a
+   * set, and the feed alone. A load that fails is not taken for a person who holds
+   * nothing or is in no tenant: the session's answer still arrives, `digestUnread()` says
+   * the global digest could not be read and `domainsUnread()` that the list of tenants
+   * could not (the frame then draws that in the page's place), and the next check loads
+   * again. An unauthenticated answer ends them all, the feed without a
    * word to the server: the session is gone, so no unsubscribe could be accepted, and the
    * server's expiry ends the subscriptions. An authenticated
    * answer carrying `passwordChangeRequired` loads nothing: the server refuses every
    * request but the password change until the person sets a password of their own, and
-   * the first check after the change loads them.
+   * the first check after the change loads them. An answer naming the tenant an accepted
+   * invitation seated the person in is kept (`invitedTenant`).
    *
    * @returns Observable with the user session info
    */
@@ -291,6 +399,11 @@ export class AuthService {
       tap((sessionInfo) => {
         this.authenticatedSignal.set(!!sessionInfo?.authenticated);
         this.sessionInfoSignal.set(sessionInfo);
+        if (!sessionInfo?.authenticated) {
+          this.invitedTenantSignal.set('');
+        } else if (sessionInfo.invitedTenant) {
+          this.invitedTenantSignal.set(sessionInfo.invitedTenant);
+        }
       }),
       switchMap((sessionInfo) => {
         if (!sessionInfo?.authenticated) {
@@ -306,7 +419,10 @@ export class AuthService {
             this.permissions.loadDomains(),
             ...(this.features.served ? [this.features.refresh()] : []),
           ])
-            .catch(() => undefined)
+            .catch(() => {
+              // A load that failed is not done: the next check of the session loads again.
+              this.permissionsLoaded = false;
+            })
             .then(() => this.startLive()),
         ).pipe(map(() => sessionInfo));
       }),
@@ -349,5 +465,6 @@ export class AuthService {
     this.permissionsLoaded = false;
     this.permissions.clear();
     this.features.clear();
+    this.unreadDigests.set(new Set());
   }
 }

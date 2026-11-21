@@ -6,8 +6,17 @@ export const concatFunctions = {
 };
 
 /**
+ * The values a row has for the given keys, in the keys' order, without the ones it has
+ * none for: a key the row leaves empty joins nothing, so no separator is left standing
+ * beside a value that is not there ("marshal", never " - marshal").
+ */
+function present(resource: Record<string, string>, args: string[]): string[] {
+  return args.map((arg) => resource[arg] ?? '').filter((part) => part !== '');
+}
+
+/**
  * Concatenates the strings corresponding to the given keys in the resource,
- * using a space separator.
+ * using a space separator. A key the resource has no value for is left out.
  * @param resource A record mapping keys to string values.
  * @param args Keys of the resource to concatenate.
  * @returns Concatenated string.
@@ -18,12 +27,13 @@ export const concatFunctions = {
 export function spaceConcat(resource: Record<string, string>, ...args: string[]): string {
   if (args.length === 0) return '';
   if (args.length === 1) return resource[args[0] ?? ''] ?? '';
-  return args.map((arg) => resource[arg] ?? '').join(' ');
+  return present(resource, args).join(' ');
 }
 
 /**
  * Concatenates the strings corresponding to the given keys in the resource,
- * using a hyphen separator.
+ * using a hyphen separator. A key the resource has no value for is left out, with its
+ * hyphen: a person with a login and no name reads 'marshal', never ' - marshal'.
  * @param resource A record mapping keys to string values.
  * @param args Keys of the resource to concatenate.
  * @returns Concatenated string.
@@ -34,7 +44,7 @@ export function spaceConcat(resource: Record<string, string>, ...args: string[])
 export function hyphenConcat(resource: Record<string, string>, ...args: string[]): string {
   if (args.length === 0) return '';
   if (args.length === 1) return resource[args[0] ?? ''] ?? '';
-  return args.map((arg) => resource[arg] ?? '').join(' - ');
+  return present(resource, args).join(' - ');
 }
 
 /**
@@ -49,14 +59,12 @@ export function spaceHyphenConcat(resource: Record<string, string>, ...args: str
   if (args.length === 0) return '';
   if (args.length === 1) return resource[args[0] || ''] || '';
 
-  const initialPart = args
-    .slice(0, -1)
-    .map((arg) => resource[arg] || '')
-    .join(' ');
+  const initialPart = present(resource, args.slice(0, -1)).join(' ');
 
   const lastPart = resource[args[args.length - 1] || ''] || '';
 
-  return `${initialPart} - ${lastPart}`;
+  // The hyphen stands between two parts that are both there.
+  return [initialPart, lastPart].filter((part) => part !== '').join(' - ');
 }
 
 /**
@@ -73,12 +81,10 @@ export function hyphenSpaceConcat(resource: Record<string, string>, ...args: str
 
   const initialPart = args[0] !== undefined ? resource[args[0]] || '' : '';
 
-  const lastPart = args
-    .slice(1, args.length)
-    .map((arg) => resource[arg] || '')
-    .join(' ');
+  const lastPart = present(resource, args.slice(1, args.length)).join(' ');
 
-  return `${initialPart} - ${lastPart}`;
+  // The hyphen stands between two parts that are both there.
+  return [initialPart, lastPart].filter((part) => part !== '').join(' - ');
 }
 
 /**

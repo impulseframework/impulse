@@ -180,7 +180,14 @@ DML what a later rule must read.
   `signin.RequireMFA(factors...)`. The factors are the methods the step may record
   when it completes the sign-in: the library's own, `sessioninfo.MethodEmailCode`, or
   the application's (`"totp"`); the pending status and the `PendingHook` report them,
-  and `CompletePending` refuses any other; none accepts any. A `RequireMFA` is
+  and `CompletePending` refuses any other; none accepts any. The library's own steps
+  are recorded by the library alone: `CompletePending` and `StartAuthenticatedSession`
+  refuse an event under `email-code`, `trusted-device` or an attestation's method
+  (`400`), whatever the factors, and an application reports its step under a name of
+  its own. They refuse an event under the name of a sign-in the library runs too
+  (`password`, `azure`, `google`, `workos`, `oidc`, and the method of every
+  registration on the `Auth`): a session's first event says how the person signed in,
+  and only a sign-in the library ran says it was a password's or a directory's. A `RequireMFA` is
   satisfied without a step by a second factor the sign-in already carries: the
   attestation its connection makes, or a trusted device of the user; see "The second
   factor". An application whose users belong to tenants sets the library's
@@ -218,13 +225,21 @@ DML what a later rule must read.
     found by the username first and then by the address: the user under the identity's
     **sign-in name** (the user principal name on Entra, the verified email on Google),
     matched without regard to case, or else the user who holds the identity's address
-    verified, when the method verified the address (Google does, Entra does not), since
-    a person is one user whichever way they sign in. The link is made after a password
-    confirmation when the user has a password, and outright when the user has none and
-    has never signed in: it is the user's first identity. A user with no password who
+    verified, when the method vouches for the address (Google alone does, and only for
+    a Gmail address or a Workspace account's; see "Users and their email address"),
+    since a person is one user whichever way they sign in. The link is made after a
+    password confirmation when the user has a password. When the user has none and has
+    never signed in, it is the user's first identity, and is made when something vouches
+    for it: at once where the method vouches for the sign-in name, and otherwise once
+    the person enters the code mailed to the address the account holds (see "A first
+    link on a name alone" below). A user with no password who
     already signs in through an identity is linked no second one on the name, on the
     same connection or another (see "Never a second identity on a name alone" below).
     An address a user holds unverified is a reservation, not a match.
+    The rule asks what the Auth registers. On an Auth with no password method nobody
+    can enter a password, so a password a user holds there (one the API set, or one
+    kept from a release that registered the method) asks for no confirmation: the user
+    is linked as one who has none, by the same checks, and keeps the password.
   - **A person who has none is decided by what an administrator chose for the method**,
     the registration's row of the sign-in methods table, read in the same transaction
     (see "Open to sign-up, or invite only"). A method with no row is **invite only**:
@@ -271,23 +286,11 @@ DML what a later rule must read.
   a disabled account accepts no invitation, so its own vouches for nothing. A person
   created ahead in two tenants, or holding a role in every tenant or outside them, is
   therefore linked at a first sign-in only with their invitation, or once they have a
-  password to confirm with. One such account is the deployment's own: the first
-  administrator of an Auth whose people sign in through a directory, which the seed
-  creates with no password, holding roles for the whole application and belonging to
-  no tenant. The deployment vouches for it. The seed creates it under
-  `session.SeedUserIDThrough(auth, registration, username)`, an id that names the
-  sign-in registration the person comes through and that no request can give an
-  account, the hook's `Seeded` recognizes the id, and the account is linked at its
-  person's first sign-in through that registration while the registration admits one
-  organization and nobody else. The same name through another registration of the
-  Auth, a customer's own provider among them, or through a registration that names
-  several organizations or is open to any or to personal accounts, is not the
-  deployment's word and links nothing, and neither does a seed that was disabled; so
-  the first administrator of an Auth whose only directory methods are that wide is
-  given another way in (a directory method of one organization, or a password). Naming
-  a registration in the seed says that whoever its directory presents under the name
-  is that person: it is for the deployment's own directory, whose sign-in names only
-  its administrators give, and never for a provider that lets a person choose a name.
+  password to confirm with. The deployment's own first administrator, who holds roles
+  for the whole application and belongs to no tenant, is no such account: the
+  deployment creates none ahead of the person and invites them, and the invitation is
+  what ties their first sign-in through a directory to the roles, however many
+  organizations the method admits (see "The first administrator's invitation").
   Any other sign-in under the name is refused as a
   person no account was created for is, with that refusal's own code and words, which
   say nothing of the account (`invitation_only` through a directory some tenant has,
@@ -302,12 +305,37 @@ DML what a later rule must read.
   organization's to assert. An account an application's seed creates with no password
   and with roles in every tenant or in none, as the cast of the persona sign-in is,
   signs in through such a registration; through any other it has no tenant whose
-  directory could vouch for it and is linked only with its own invitation, or as the
-  seed of that registration (the first administrator, above). An
+  directory could vouch for it and is linked only with its own invitation. An
   application whose
   tenants have no directories (no `SetDirectoryAdmission`) has only the directories its
-  deployment registered for itself, and links such an account under its name as
-  before. A
+  deployment registered for itself, and no tenant to vouch for a link. There the link
+  is made at once only where the method vouches for the sign-in name: Google names an
+  account by its address, and answers for a Gmail address and for a Workspace
+  account's. Any other name is the provider's word alone (a Google account can be made
+  under any address from outside Google, an identity provider's administrators give
+  the names they like, and Microsoft Entra ID answers for no address), so the sign-in
+  waits for the code mailed to the address the account holds, whether or not its
+  person has confirmed it (`PendingMFA`, the email code its one factor, and no other
+  address taken). Nothing is linked while it waits, so a sign-in that never finishes
+  leaves the account as it was; the person who enters the code is linked and signed
+  in, and the code confirms the address. An account that holds no address has nowhere
+  to mail the code, and an address given at the sign-in would show only that the
+  person reads their own mail: that sign-in is refused (`identity_rejected`,
+  `signin.ErrLinkNeedsAddress`) and nothing is linked, so an account made ahead of
+  its person is made with their address (`CreateUserRequest.Email`). The wait is for
+  the account it began with, and its code is good only for the address that account
+  holds when the code is entered. A code mailed to an address that has since been
+  taken off the account, replaced by another (confirmed or not) or moved to another
+  account is dead (`code_expired`, as a code that ran out is): nobody is linked on it,
+  the address it was mailed to is not written back, and the step offers a new code at
+  the address the account holds now. An account whose address is taken away while a
+  sign-in waits takes none from the person who waits: the step's `EnrollEmail` is
+  refused (`409`, saying that an administrator gives the account its address) and
+  nothing is mailed, so the person signs in again once the account holds one. A
+  sign-in name that moves to
+  another account while a sign-in waits links nobody: the code answered for the first
+  account's address and for no other's, so the sign-in that carries it is refused
+  (`identity_rejected`) before anything is written, and neither account gains a link. A
   declaration naming a **default seat** admits a stranger, who is provisioned and
   seated with it in the tenant, through the hook, in the transaction
   that creates the account and links it. The hook is called once for a link, never
@@ -370,7 +398,14 @@ DML what a later rule must read.
   through is refused unless the link is `trusted`. A rule's link on a connection the
   user already signs in through is made on the rule's word, which the standard rule's
   match by name does not have. Never choose the user by an email or
-  another claim the provider does not verify.
+  another claim the provider does not verify. On an Auth that registers no password
+  method nobody can confirm, so a rule's `Link` to a user who holds a password is
+  decided as a link to a user without one. A rule's own `Confirm` is refused there
+  (`identity_rejected`, `signin.ErrConfirmNeedsPasswordMethod`): the sign-in would wait
+  for a password nobody can enter, so it ends on the login page with the code, nothing
+  is linked, and the server logs one error line that names the sign-in method and says
+  what to change. Register the password method on such an Auth, or have the rule answer
+  `Link` or `Reject`.
 
 A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
 
@@ -536,6 +571,10 @@ the row with `sessionstorage.AuthStore.SetSignInMethod`, with `OpenedFor` the ke
 registration's audience (`auth.API().SignInMethods()` answers each registration's), and
 lists them with `SignInMethods`. `session.WithSignInMethodsTableName` renames the table.
 
+Open to sign-up or invite only is one of the choices that add up to an auth's sign-in
+shape. The eight shapes that have a name, and every choice they are made of, are
+described in [docs/sign-in-shapes.md](../docs/sign-in-shapes.md).
+
 ### The tenant policy
 
 The tenant policy is the library's sign-in rule for an application whose users belong
@@ -580,10 +619,7 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   `OnlyIn` answers whether a tenant is the only place a person holds anything, read in
   that transaction, which the library asks before it links an identity on its name
   alone to an account that has never signed in (see "A first link on a name alone"
-  above). Its `Seeded`, which a hook may leave out, answers whether an account is the
-  one the deployment's seed created for the registration a sign-in came through
-  (`session.SeedUserIDThrough`), which the library asks at the same point; the
-  generated identity client answers all three.
+  above). The generated identity client answers both.
   `Seat` is called at a person's first sign-in through the directory, the one that
   makes the link, whether the account is created in it or stood before: a person
   given a role ahead of their first sign-in, or invited by another tenant, has an
@@ -654,9 +690,12 @@ The rules, in order, once the user is known:
 6. Otherwise every tenant of the person is directory only and none has the way they
    signed in as its directory: nothing would be reachable, and the sign-in is refused.
    A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect provider)
-   is refused with `connection_not_in_tenant`, and any other, a password, a personal
-   account (which is no tenant's directory) or a session the application started
-   itself, with `directory_only`.
+   is refused with `connection_not_in_tenant`. A sign-in with a personal account
+   (through Google or Microsoft, with an account that is in no organization's
+   directory, so no tenant's) is refused with `directory_only_personal_account`. Any
+   other, a password or a session the application started itself, is refused with
+   `directory_only`. The codes are apart so that a login page says what is true of how
+   the person signed in: a person who used no password is not told to stop using one.
 
 Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
 rule after the tenant policy, for what the tenant policy cannot know:
@@ -761,6 +800,15 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
   providers in one browser, and two `Auth`s on one host with a registration of the same
   name never read each other's state, and a callback completes only the login its own
   registration began.
+- **A method named after a step the library runs**: a registration whose `Method` is
+  `email-code`, `trusted-device`, `attested-by-evidence` or `attested-by-declaration`.
+  A sign-in's first auth event carries its method's name, and the library's rules read
+  those events as its own proof, so a method of the application's own takes a name of
+  its own (`"partner"`). A registration also has one method name: one whose `Method` is
+  not the `Name` of the method it builds is refused. The identities a method verifies
+  are held to that name at every sign-in: one under another method's name, or under
+  one of those four, is refused as the server's error (`internal_error`), and nothing
+  is linked or held.
 - **A method registered once the `Auth` is in use**: after it has served a request
   through any of its handlers or middleware, or read its methods to check or hash a
   password through its API (`CreateSessionUser` before `PasswordSignIn(auth,
@@ -921,6 +969,14 @@ the password method is listed.
   block's `sendCode`, `verifyCode` and `enrollEmail` are the sign-in code's routes,
   named together or not at all (`PendingRoutes`); a page told them runs the library's
   second factor (see "The second factor") when a sign-in waits for it.
+- The pending block's `confirm` is where a person whose sign-in matched an account with
+  a password enters it. Every list of an Auth that registers the password method names
+  it, a list that does not offer the method among them: the person may come through any
+  of the Auth's methods, and `Methods` refuses a list that leaves it out. An Auth that
+  registers no password method asks nobody for a password, so its lists may leave it
+  out (`PendingRoutes.Confirm`): the application mounts no `ConfirmWithPassword()`
+  handler, the answer carries no `confirm`, and the page offers no password
+  confirmation.
 - `changePassword` is the path of the password method's `ChangeUserPassword` handler,
   which the page posts `{"oldPassword", "newPassword"}` to when a sign-in finds the
   user must change their password (the session read's `passwordChangeRequired`). It is
@@ -1139,7 +1195,10 @@ the person reaches.
    (`enrollEmail`); the page posts to `Pending().SendCode()`, which mails the user a
    six-digit code good for `WithEmailCodeTimeout` (10 minutes), then
    `{"code", "rememberDevice"}` to `Pending().VerifyCode()`, which completes the
-   sign-in as `CompletePending` does with an `email-code` event, in a new session. A
+   sign-in in a new session and records the `email-code` event itself. Only the
+   library records that event: an application's `CompletePending` with an `email-code`
+   event is refused, since the event is the library's proof that the code it mailed
+   was entered. A
    wrong code is `401 {"code": "invalid_code"}` and the code stands with one fewer
    attempt; the fifth wrong code kills it, as its expiry does, and a code entered while
    none stands (none sent, or the one sent died) is `401 {"code": "code_expired"}`, so
@@ -1159,11 +1218,18 @@ the person reaches.
    once for one pending sign-in one stands, so there is never a second code to guess
    at with attempts of its own. The code goes to the address the user holds, verified or not:
    an address an operator entered is proven by the code as a link would prove it, and
-   the user holds it verified once the code is entered. A user who holds no address
+   the user holds it verified once the code is entered. A code is good only for the
+   address the user holds when it is entered: one mailed to an address the account no
+   longer holds is dead (`code_expired`), nothing is written, and the next code goes to
+   the address the account holds now. A user who holds no address
    gives one at the step (`Pending().EnrollEmail()`, `{"email"}`), which is written on
    the user verified when its code is entered; an address another account holds is
    answered as sent and told so by mail to that address, as the add-address step does,
-   so the screen reveals nothing. The `AuthAPI` offers the same as `SendEmailCode`,
+   so the screen reveals nothing. The step takes an address only from a sign-in that
+   is already the account's: a password's, or an identity linked to the user. A
+   sign-in that waits to be linked on the account's code (see "A first link on a name
+   alone") is given none, since nothing but the name ties it to the account, and is
+   answered `409` with the reason. The `AuthAPI` offers the same as `SendEmailCode`,
    `EnrollEmail` and `VerifyEmailCode`.
 
 A code mailed to the mailbox of the account that just signed in adds little against a
@@ -1182,9 +1248,12 @@ and it refuses an impersonated session; the generated router mounts it at
 `/user/browser/forget` and names it in the methods list (`MethodList.ForgetBrowser`). The
 session read (`Authenticated`) says `browserRemembered: true` while the browser carries the
 person's remembered entry, so the page offers the action only then. The email code itself has nothing to reset: a person who lost
-their mailbox is given a new address by an operator (`SetSessionUserEmail`),
-unverified, and the next code proves it. Recovery codes are not offered. Live sessions
-are not touched by the reset; `DestroyUserSessions` ends them.
+their mailbox has an administrator ask for a new address (`RequestAddressChange`), and
+the code keeps going to the address the account holds until the person confirms the new
+one from its mailbox. Recovery codes are not offered. Live sessions
+are not touched by the reset; `DestroyUserSessions` ends them. The person is told of an
+administrator's reset by a notice to the address they confirmed (`NoticeFactorReset`
+sends it for an application that resets the factor in rows of its own).
 
 **What the tables hold.** A code is a row of `SessionFactorCodes`: the pending sign-in
 it was sent for, the address, the code's hash salted by the pending sign-in, the wrong
@@ -1215,7 +1284,10 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   makes (`attested-by-evidence`, `attested-by-declaration`), then any
   `link-confirmation`, `trusted-device` and MFA steps (`email-code`, or the
   application's own). `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
-  application authenticated itself, recording its events; it is decided like a login:
+  application authenticated itself, recording its events, which name steps of its own
+  (an event under `email-code`, `trusted-device` or an attestation's method, which the
+  library records itself, is refused, and so is one under the name of a sign-in the
+  library runs: a password's, a directory method's, a registration's); it is decided like a login:
   the sign-in policy answers, a Deny refuses it and a RequireMFA holds it as a pending
   identity. No session start skips the policy; a support session is an impersonation.
 - **Role synchronization** (Azure, Google) reconciles the roles of the user the
@@ -1224,8 +1296,9 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   whose asserted roles the application recognizes none of is refused (`no_roles`)
   before anything is resolved or written, so an invitation it carried stands; a role
   store that fails once the session stands expires the session.
-- **Impersonation** is established through `auth.API().StartImpersonatedSession` (see
-  "Impersonated sessions"). A user principal's session belongs to the impersonated
+- **Impersonation** is established through `auth.API().StartImpersonatedSession`, from
+  a request the application's declaration made (see "Impersonated sessions"). A user
+  principal's session belongs to the impersonated
   user; a role principal's belongs to none. The session records an `impersonation`
   event whose connection is the actor.
 - **A request on a machine outlet** is bound to the person whose bearer token it
@@ -1288,7 +1361,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`: the password replaced and the sessions ended, or neither). |
 | `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`), so no failure leaves the temporary password in place and a session alive, on the act meant to end them. |
 | `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). A password shorter than eight characters is refused, as on every path that sets one. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
-| `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
+| `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. The first three read the session off the context they are called with: in a session that acts as someone else each refuses the account of the person who started the session (403, "you are acting as someone else, so you cannot disable your own account: …"), so a route an application wrote that calls one is held to the rule the generated user management has. The store's own `DeactivateUser`, `ActivateUser` and `DeleteUser` beneath them are the bare writes and are not held to it: they are handed no session to read, so a route calls the session API's three, never the store's. In a session of the person's own, the caller guards against the person disabling or deleting themselves. |
 
 One rule holds a password's shape on every path that sets one: it is at least eight
 characters, counted as characters and not as bytes, and a shorter one is 400 saying so.
@@ -1303,7 +1376,11 @@ and is not asked.
 | `SignInMeans(ctx, id)` | What the user signs in with (`SignInMeans`): whether they hold a password, never its hash, and the sign-in methods the login page offers that an identity linked to them signs in through, each by the registration's name and the label its button carries, in the page's order. A link answers the registrations that can still sign the person in through it: of the link's method, offered on the login page, and taking the link's connection, so of two listed Entra registrations a link names the one whose tenants hold its tenant; a method that cannot tell one connection from another answers every registration of it. A link of a method the page no longer offers, or from a tenant or a Workspace no registration takes any more, names nothing, and is no means of sign-in to the removal either. For an administrator's page; the caller guards who may ask about whom. `Auth.SignInMeans()` is the person's own read over HTTP, answered in the words of the methods list that names its path. `SignsInThrough(method, connection)` is the judgment itself, for one link. |
 | `DirectoryName(method, connection)` | What the Auth's sign-in registrations call the directory an identity of this method and connection came through, for a sentence that names it to a person: the name a registration that takes the connection gives it (`signin.Method.ConnectionName`: a tenant listed with `azure.NamedTenant`, a Google Workspace's name or the domain of one admitted as any Workspace, an OpenID Connect provider's name or its issuer's host), and the label of the button of the first registration of the login page that takes the connection; each is empty where the registrations have none. A tenant listed by its id alone (`azure.Tenant`), one admitted as any tenant, and a method that names no connection have no name, so a sentence says such a directory by the label ("your organization's Microsoft directory") and never by the connection, which for an Entra tenant is an id. It reads nothing. |
 | `RemoveSessionUserPassword(ctx, id)` | Removes the user's password, an operator's act: the password then signs nobody in, and the user signs in through an identity linked to them. A user keeps it, their last means of sign-in (Conflict, `sessionstorage.ErrLastSignInMethod`), unless a link can sign them in: one of a method the login page offers whose registration still takes the link's connection (`SignsInThrough`), which rules out a user with no link and one whose links are all left over. A user with no password has none to remove (BadRequest). Clears the mark and the name's count of failed sign-ins; the user's sessions stand. `PasswordMethod.RemoveUserPassword()` is the person's own removal over HTTP, which asks for the password. |
-| `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
+| `UserByEmail(ctx, email)` | The user holding an address, verified or not. See "Users and their email address". |
+| `RequestAddressChange(ctx, id, email, by)` | An administrator's change of a person's address: mails the link that confirms the new address to it and changes nothing until the link is followed. Refused for a person who signs in through an organization's directory and holds a confirmed address (Conflict). See "Users and their email address". |
+| `SendPasswordReset(ctx, id, by)` | Mails the user a link that resets their password, to the address they confirmed; Conflict, in one sentence, for an account with no password or no confirmed address. See "A password reset". |
+| `NoticeFactorReset(ctx, id)`, `NoticeRemovedFromTenant(ctx, to, tenant, accountDeleted)` | The notices of an administrator's reset of the second factor and of a removal from a tenant, for an application that makes either change in rows of its own; each goes to a confirmed address and to no other. |
+| `WaitForMail()` | Waits for the mail a person's own request for a reset link sends after its answer; for a test, and for a shutdown that lets mail finish: the auth package `impulse` writes calls it in its `Close`, which an application calls once it has stopped serving and before it closes the database. |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
 | `Invite(ctx, &InvitationRequest{Email, Name, Tenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
 | `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent withdraws the invitation. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
@@ -1315,27 +1392,11 @@ under it last (`CreateUserRequest.ID`). The user's row then says the seed is don
 that stopped before it is repeated whole by the next one, which writes the same
 memberships again and creates the user. A seed that created the user first would have to
 give the roles, after a stopped run, to a user it found under a name, and a name is
-something anyone may come to hold. The generated seed of an auth's first administrator
-and the persona cast's seed work this way, and seed nothing for a user that exists,
-whatever it holds. The first administrator is the deployment's first super administrator:
-the seed writes the Super Administrator role under the id beside the application's own
-administrator roles, since only a holder of that role makes another. An auth whose
-roles come from its directory seeds nobody: the directory names its super
-administrators, as it names every role.
-
-A first administrator who signs in through a directory holds no password, and the seed
-creates the account under `session.SeedUserIDThrough(auth, registration, username)`:
-the same id on every run, which also names the sign-in registration the person comes
-through. In an application whose tenants have directories that id is what links the
-account at the person's first sign-in (see "A first link on a name alone"): it is the
-deployment's word on which registration the name is believed from, and it holds while
-that registration admits one organization alone. The id names the registration and not
-the organization behind it: a registration pointed at another organization before the
-person has signed in believes that organization's word instead. The generated foothold
-seeds its administrator this way where it can name the registration without guessing,
-for an auth whose one directory method is of one Microsoft Entra tenant or one Google
-Workspace; for any other auth it seeds for no registration and says how its author
-names the deployment's own directory.
+something anyone may come to hold. The persona cast's generated seed works this way:
+at every run it gives the account under that id the roles its entry names that it does
+not hold, and gives nothing to a user of another id who holds the persona's login. A deployed Auth's first
+administrator is not seeded: no account is made ahead of the person, who is invited (see
+"The first administrator's invitation").
 
 **The forced password change.** A password an operator set, at creation
 (`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before
@@ -1348,10 +1409,9 @@ wiring above. A login page that reads the mark from the session read posts the c
 to the methods list's `changePassword` path before it opens the application. The change
 clears the mark and goes on in a new session that carries the auth events of the one
 that made it (`ChangeSessionUserPassword`, below); an
-impersonated session is the actor's and is not held to the user's mark. The seed user
-of a new application and every user an operator creates with a password carry the
-mark; the password a user chose through `ChangeSessionUserPassword` or
-`SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
+impersonated session is the actor's and is not held to the user's mark. Every user an
+operator creates with a password carries the mark; the password a user chose through
+`ChangeSessionUserPassword` or `SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
 mark without a password is refused.
 
 **Removing a password.** A person who signs in through a directory does not need the
@@ -1505,7 +1565,7 @@ What is refused, and how:
 | --- | --- |
 | The account holds a password | 409: it is changed with the old one (`PasswordMethod.ChangeUserPassword`). The store writes a first password only while the row holds none, decided by the write itself (`AuthStore.SetFirstUserPassword`, `sessionstorage.ErrPasswordHeld` otherwise), so of two asked at once one lands. |
 | The `Auth` has no password method | 409: nobody signs in to the application with a password, so there is none to choose. |
-| The account has no confirmed address | 409 from `SendCode()`, saying to add an address and confirm it from the link first (`Email()`, "Users and their email address"). An address nobody confirmed is not mailed the code: the person has not shown it is theirs, and the code would go wherever whoever typed the address pointed it. A confirmed address no message can be sent to is answered the same way: the simulated build's directories vouch for a person under their login name, so a person signed in through one adds their address first. |
+| The account has no confirmed address | 409 from `SendCode()`, saying to add an address and confirm it from the link first (`Email()`, "Users and their email address"). An address nobody confirmed is not mailed the code: the person has not shown it is theirs, and the code would go wherever whoever typed the address pointed it. A confirmed address no message can be sent to is answered the same way: the simulated build's Google directory vouches for a person under their login name, so a person signed in through it adds their address first. |
 | The session views as someone else | 403, on both routes: an impersonated session changes nothing of the account it looks at, as on every own-account route. |
 | A wrong code | 400. The fifth within fifteen minutes ends the code and holds the account's first password for fifteen minutes, whatever codes are asked for meanwhile: 429 with `too_many_attempts`, the wait, and words that say wrong codes were what was held. A guess takes its attempt before it is judged, counted against the account in the store's one transaction, which says whether it was counted (`SignInAttempts.Counted`); a guess that was not, the limit reached already, is answered 429 without being compared with the code, so of guesses entered at once no more than five are ever judged, on both databases (the PostgreSQL driver takes the account's attempts row and its lock in one statement, so a failure recorded while the count is cleared is the first after the clear). The right code gives the attempts back. |
 | A code entered when none stands | 409: none was sent, or the one sent expired, was used, was replaced by a newer one or was ended by wrong codes. |
@@ -1526,6 +1586,56 @@ the validated group, where the auth has the password method
 (`/user/first-password/code` and `/user/first-password`), and names them in the methods
 list. The account page offers "Choose a password" to a person the server says holds
 none.
+
+### A password reset
+
+A person gets back in by a link mailed to the address they confirmed
+(`Auth.PasswordReset()`, which needs mail). Three parties send one: an administrator of
+the application or of a tenant (`AuthAPI.SendPasswordReset(ctx, id, by)`, where `by` is
+`AskedByApplication()` or `AskedByTenant(key)`), and the person, from the sign-in page
+(`PasswordReset().Request()`). The message says who asked: "You asked to reset the
+password", or "An administrator of <the tenant, or the application> asked us to send
+you a link". There is no second mail.
+
+- **Sending changes nothing.** The password the account has signs the person in, and
+  their sessions stand, until the link is used.
+- **The link works once**, for `MailSettings.LinkTimeout`, and for the account whose
+  confirmed address it was mailed to: it is dead once that address or the password
+  changed. Every write and removal of a password in the library withdraws the
+  account's standing reset links, and an application that writes one in rows of its
+  own says so with `AuthAPI.EndPasswordResetLinks(ctx, id)`. `PasswordReset().Open()` answers the username of a live link and
+  `PasswordReset().Complete()` takes the new password; the login page reaches both with
+  `?reset=<token>`. The new password is held to the same rule as any other, the old one
+  is refused from then on, every session of the person ends, the other reset links of
+  the account are withdrawn, and the person signs in with the new password: completing
+  a reset starts no session.
+- **It goes to a confirmed address and to an account that has a password.** An
+  administrator is told in one sentence when no link was sent (Conflict). A person's
+  own request answers the same whether or not the address has an account, mails
+  nothing where there is none, and does its work after the answer, so neither the
+  answer nor its timing says which. `WaitForMail` waits for that work, so a shutdown
+  loses no link a person was promised: the auth package `impulse` writes calls it in
+  its `Close`.
+- **A limit of their own.** Reset links are counted per address, five in fifteen
+  minutes, then fifteen minutes closed, whoever asked: an administrator's link and the
+  person's own request share the one count, and a link that is used resets it. The
+  count is kept apart from the one for sign-in codes and the other links: a request
+  anyone can make for an address never uses up the codes a person who is past their
+  password needs, and a code that is used does not reopen the address to reset links.
+- **Self-service is a setting, read on each request.** The person's own request is
+  served only while the password method's row of the sign-in methods table says so
+  (`SelfServiceReset`, false until an administrator turns it on, and false with no
+  row): turning it on or off takes effect in the running application with no restart.
+  `AuthAPI.SetSelfServiceReset(ctx, on)` writes that one field and leaves what else
+  the row says as it is.
+  While it is off the request is NotFound, in words that say to ask an administrator,
+  and the methods listing leaves the request route out, so the page draws no "Forgot
+  your password?". A link a person asked for while it was on still works once it is
+  turned off, until it is used or runs out: turning it off stops new requests, and
+  takes back nothing already mailed.
+
+The methods listing names the routes (`MethodList.PasswordReset`, and
+`MethodList.Email.Confirm` for the confirmation of an address an administrator set).
 
 ### Users and their email address
 
@@ -1557,18 +1667,77 @@ How an address gets onto a user:
   the limit before anything is mailed, so of links asked for at once no more than five
   are mailed. A link that is followed resets the count, as a sign-in code that is used
   does.
-- **An operator enters one**, unverified: `CreateUserRequest.Email` or
-  `SetSessionUserEmail`. The entry reserves the address within the auth: a later
-  sign-up with it is pointed at this account by mail, and the person verifies it
-  through the same add step. An entry over a verified address leaves it unverified.
+- **An operator enters one at creation**, unverified: `CreateUserRequest.Email`. The
+  entry reserves the address within the auth: a later sign-up with it is pointed at
+  this account by mail, and the first code mailed to it at a sign-in confirms it.
+- **An administrator asks for a change** (`RequestAddressChange`): a link goes to the
+  new address, good for `MailSettings.LinkTimeout` and once, and the account keeps the
+  address it has, where its codes and links still go, until the link is followed. The
+  link is followed without a session (`Email().Confirm()`, a public route the login
+  page reaches with `?address=<token>`), since the person may have lost the mailbox
+  their sign-in code went to. Nothing is mailed to the old address to confirm the
+  change; once it is made, the old address is told (a notice with the new address
+  masked, and no link). An address another account holds is told so by mail and gets
+  no link, and the answer is the same. One change stands at a time: asking again
+  withdraws the links asked for before, and a link is dead once the account confirmed
+  any address after it was mailed. A sign-in code never replaces an address the
+  account holds, confirmed or not: a code mailed to an address the account no longer
+  holds (replaced, taken off the account or moved to another account) is dead
+  (`code_expired`), and nothing is written. Taking an address off an account
+  (`AuthStore.SetUserEmail` with no address) ends, in the same transaction, the
+  sign-in codes mailed for the account's sign-ins before it, so a code mailed before
+  an administrator's change and entered after it is dead and writes nothing back; the
+  code for an address the person then gives at the step writes it. Nothing writes an
+  address onto an account unconfirmed after its creation.
+- **A directory keeps its people's**: the address of a person with an identity linked
+  through an organization's directory (`signin.Directory.Organization()`) is changed in
+  the directory. Their own add and verify, an administrator's request and the
+  confirmation of a link sent before the identity was linked are each refused
+  (Conflict); a directory person who holds no confirmed address may still confirm
+  their first, and so may one whose directory vouched for a value no message can be
+  sent to, as the simulated build's Google directory does under a login name.
+- **Only Google vouches for an address, and every other sign-in leaves it to a
+  code**: a sign-in through an external method that does not vouch for the address
+  (Entra, WorkOS, an OpenID Connect provider whatever its `email_verified` says, a
+  method of the application's own, and a Google account whose address is neither
+  Gmail's nor a Workspace account's) is held for the email code while the account
+  holds no confirmed address, whatever the token attests and
+  whatever the sign-in policy says about a second factor (`PendingMFA`, the email code
+  its one factor). The person gives the address where the account has none
+  (`Pending().EnrollEmail()`), and the code confirms it; their next sign-in is not held
+  for it. An Auth that sends no mail holds nobody: nothing is ever mailed there, no
+  code, no link and no notice, so there is no unconfirmed address that could be mailed
+  to, and no code that could confirm one. A registration of seeded users holds nobody
+  either.
 - **Google writes its own**: a Google sign-in writes the address Google verified
   onto the user, verified at the time of the sign-in, when the user holds no verified
-  address yet and no other user holds it (any method that asserts
-  `Identity.EmailVerified` does the same; Entra does not, so an Entra user's address
-  stays a prefill until the person verifies it). The other way round, a first Google
-  sign-in by a person whose address a user already holds verified is that user's: the
-  standard account rule matches the user by the address once no user is under the
-  sign-in name (see "Storage and schema" above).
+  address yet and no other user holds it. Google's word counts only where Google is
+  the address's authority: a Gmail address (`gmail.com`, `googlemail.com`) and the
+  address of a Workspace account (the token carries `hd`). A Google account made with
+  an address from anywhere else is treated as another provider's. Where another user
+  holds the address verified and the user the sign-in reaches holds no verified
+  address, the address would be written on nobody and the person signed in to an
+  account with no confirmed address, so the sign-in is refused (`identity_rejected`;
+  the cause in the log is `signin.ErrAddressHeldByAnother`, which names both users)
+  and links nothing. An account made ahead under the address as its sign-in name,
+  beside the account that holds the address, is reached so, and an administrator
+  settles which is the person's by removing the duplicate account or its sign-in name.
+  An address another user holds unconfirmed refuses nobody, and neither does a
+  registration that holds no sign-in for an address (the point above). No other method's
+  word is kept, whatever it puts in `Identity.EmailVerified` and whatever it is
+  named: the people who run a provider can mark any address verified, so an Entra
+  user's address, or one an OpenID Connect provider calls verified, stays a prefill
+  until the person verifies it. Google's method is the one `session/google` registers,
+  which the library knows by a mark only its own packages can set
+  (`signin.Method.AddressAuthority`): a method of the application's own that names
+  itself `google` is not Google's, and its word is not kept. A sign-in that waits is
+  held to the same answer when it is read and when it is finished, whatever its row
+  holds: one stored with another provider's word, by a release of the library that
+  kept every provider's word, confirms no address when it is finished. The other way
+  round, a first Google sign-in by a person whose address a user already holds verified
+  is that user's, where Google vouches for the address: the standard account rule
+  matches the user by the address once no user is under the sign-in name (see "Storage
+  and schema" above).
 - **An invitation or a sign-up proves it**: the account an invited person creates, or
   an existing account that accepts an invitation while holding no verified address,
   takes the invitation's address verified; a sign-up's account is created with its
@@ -1775,6 +1944,27 @@ read the mailbox, and the account takes the address.
   `SignInMethod` and `SignInConnection`, the method and connection of the sign-in that
   carries the invitation, and of the session's first auth event for an acceptance by
   hand (empty for a session that records no events).
+- **Where the application opens afterwards**: a person who accepts an invitation into a
+  tenant came for that tenant, so the application opens in it, whatever other tenants
+  the person holds a seat in and wherever they last worked. A person whose invitation
+  makes a tenant came for the tenant it made, and the application opens there. The
+  library says which tenant, once: the first session read (`Authenticated`) after the
+  acceptance answers `invitedTenant`, the invitation's tenant or the one its acceptance
+  made, and no later read does. The acceptance (a
+  sign-in that accepts the invitation, one that waits for a step first, or
+  `Invitation().Accept()`) sets an encrypted, HttpOnly cookie named after the
+  invitation cookie with `-seated` after it (`auth-invitation-seated`), holding the
+  tenant and the user; it stands for `WithPendingTimeout`. The first session read of
+  that user's own session answers the tenant and deletes the cookie. A read of another
+  user's session deletes it and is told nothing, and an impersonated session reads
+  none. The browser library lands the person there (`PlaceService`); an application
+  with pages of its own reads the field. An invitation that makes a tenant names none,
+  since the tenant does not exist until the acceptance: the acceptance hook tells the
+  library the key of the tenant it made (`Invitation.MadeTenantID`, which the generated
+  user management sets), and a hook of the application's own that leaves it empty
+  lands the person as any sign-in does. An invitation into the application names no
+  tenant, and lands the same way. `NewAuth` refuses another cookie of the Auth
+  configured under the name.
 - **An invitation that makes a tenant**: staff bring an organization into a tenanted
   application by inviting one person, and that person's first sign-in makes the tenant.
   The request carries `NewTenant` (`sessioninfo.NewTenant{Name, DirectoryOnly,
@@ -1844,6 +2034,101 @@ Workspace's primary domain in the `hd` claim, so an invitation to an address at 
 secondary domain of a Workspace whose primary domain alone is named is refused here
 although Google would admit the sign-in: name the secondary domain on the Workspace too.
 
+### The first administrator's invitation
+
+The first administrator of a deployed application comes in as everyone after them does:
+by an invitation mailed to their own address, which they accept by signing in through a
+method of the Auth. The deployment names the address, and its release asks for the
+invitation while nobody of the Auth holds the Super Administrator role
+(`accesstypes.SuperAdministrator`). No account is created ahead of the person and no
+password is generated for them, so nothing stands that somebody other than the mailbox's
+owner could sign in with, and no secret exists that a person would have to read. With
+the password method the person chooses a password from the link, their address proven by
+it; through a directory the invitation is what ties the sign-in to the roles, whoever
+else the directory admits and however many organizations the method is open to, and the
+address the directory gives is held to the invited one, as for every invitation.
+
+As the library stands, an Auth whose only sign-in method asserts no address cannot
+accept the invitation yet. The Microsoft Entra method asks the directory for the
+`openid` and `profile` scopes alone, so its sign-ins carry no address unless the
+registration itself is set up to send one, and a sign-in with no address has nothing to
+hold to the invited one: the invited person is refused there (`invitation_address`),
+nobody becomes that Auth's first administrator, and every release goes on asking for the
+address and the mailbox. An Auth that also has the password method, or a method that
+sends the address (Google), is not affected.
+
+The role is what the release asks about, and not whether the Auth has an account. The
+invitation exists so that somebody administers the Auth, and an account that holds
+nothing (a person who signed up, one a directory seated, a persona a test environment
+seeds) administers nothing and stops no invitation. A holder counts when the id the
+role store lists is an account of this Auth; the account may be disabled, since the
+last holder who can sign in keeps the role and the account whoever asks, so the
+question is who holds the role, not who can sign in. A persona a test environment
+seeds holding the role is a holder: such an environment seeds its cast before this
+step, invites nobody and needs no mailbox.
+
+`AuthAPI.InviteFirstAdministrator(ctx, roles, &session.FirstAdministratorRequest{Email, RoleNames})`
+is the step a release runs. `roles` is the role store it asks who holds the Super
+Administrator role (`session.RoleHolders`, which the access library's user manager is:
+pass the manager of the Auth's own permission engine, the one the acceptance hook gives
+the roles through); a call handed none is refused. It answers what it did
+(`session.FirstAdministrator`: the outcome, the address, when the invitation runs out
+and the addresses of the invitations it withdrew), and never the link or its token,
+which are in the mailed message alone:
+
+- Somebody holds the Super Administrator role: nobody is invited
+  (`FirstAdministratorRoleHeld`), nothing is mailed, and neither an address nor a
+  mailbox is asked for; every person after the first is invited from the application.
+  One thing is still done: an invitation of the deployment's that still stands for an
+  address the deployment no longer names is withdrawn, so no link stays open for an
+  address it took back. One to the address still named is left to be accepted, with the
+  roles it was sent with.
+- An invitation to the address with those roles stands: nothing is mailed
+  (`FirstAdministratorStanding`), so a release while the person has not yet accepted
+  sends no second message.
+- None stands, because none was sent or the one sent has run out
+  (`MailSettings.InvitationTimeout`, seven days unless set): one is mailed
+  (`FirstAdministratorInvited`).
+- One stands that the deployment no longer names: it is withdrawn, so its link no longer
+  opens, and the address named now is mailed. That is so for another address, and for
+  other roles: an invitation carries the roles it was sent with, so a release that
+  names a changed set of roles replaces the standing invitation with one that gives
+  the set named now, and the person is mailed again.
+
+`AuthAPI.ReinviteFirstAdministrator` is the same on demand, for a message that was lost:
+it withdraws the standing invitation and mails a fresh one. It is refused once somebody
+holds the Super Administrator role (`ErrFirstAdministratorRoleHeld`), and a refusal
+changes nothing; an account that holds no such role does not refuse it.
+
+While nobody holds the role, both refuse, with nothing mailed, an empty address
+(`ErrFirstAdministratorUnnamed`) and an Auth whose sender delivers nothing
+(`ErrFirstAdministratorNoMailbox`). The second is
+the rule that the release never writes an invitation's link to a log: a sender says
+itself whether it hands its messages to a mail system (`mail.Deliverer`, which the
+Workspace relay declares), `mail.Delivers` takes a sender that says nothing, as
+`mail.Log` and anything that wraps it, for one that does not, and whoever reads the link
+of the first administrator's invitation becomes the administrator. An application's own
+driver declares `Delivers() bool` before it can carry this invitation. An
+invitation the deployment no longer names is withdrawn before either refusal, and the
+error says so. The checks every invitation is held to apply too: an address no sign-in
+method of the Auth could admit is refused, and a message that could not be sent leaves no
+invitation standing.
+
+The first administrator is the deployment's first super administrator, the one person
+who can make another, so the roles name the Super Administrator role
+(`accesstypes.SuperAdministrator`), and a request without it is refused. That role is
+also how the deployment's own invitation is told from every other: it is an invitation
+into the application that gives the Super Administrator role and that no user of the
+Auth sent, which only the application acting for itself writes. Those are the
+invitations the two calls read and withdraw, and they touch no invitation a user sent,
+none into a tenant, none that makes a tenant and none that gives other roles alone. The
+roles are given by the application's acceptance hook
+(`SetInvitationAccepted`), as any invitation's are. An Auth with no such hook gives an
+accepted invitation nothing: nobody would come to hold the role and every release would
+mail the address again, so both calls refuse such an Auth, whoever holds the role, as
+they refuse a call handed no role store.
+Nothing here locks: a deployment runs one release at a time, and the step is its.
+
 ### Sign-up
 
 While an administrator has the password method open to sign-up (its row of the sign-in
@@ -1909,6 +2194,15 @@ deleted from the sign-in attempts table (the key is `SignInAttemptName(username)
 the generated user management's unlock method does in a transaction of the
 application's, lifts the lock on every instance within five seconds, since no instance
 trusts what it remembers of a name for longer.
+
+The same table keeps the library's own counts: the mail an address is sent, the reset
+links an address is sent, and the guesses at the code of an account's first password,
+under `MAIL:`, `RESET:` and `FIRST-PASSWORD:` and what each counts. A name is counted
+under its case-folded form, which holds no capital, so nothing a person types into the
+username field is ever one of those keys: failing to sign in under the text of one
+counts against a name nobody holds, and closes no address to its mail. A caller that
+clears a row a list shows, whichever kind it is, clears the row of
+`SignInAttemptKey(listed)`.
 
 **Attempts made at once.** An attempt takes its place under the limit before its
 password is compared: the store counts it against the name in one transaction and says
@@ -2125,8 +2419,19 @@ when they want it gone there too.
 
 The library sends mail for the flows that need a link or a code in someone's mailbox:
 the invitation a tenant's administrator sends to an address, the link that verifies an
-address a person adds or changes, the link a password sign-up starts from, and the
-sign-in code of the second factor. It writes
+address a person adds or changes, the link a password sign-up starts from, the link
+that resets a password, the link that confirms an address an administrator set, and the
+sign-in code of the second factor. It also sends notices, which carry no link and are
+not counted against the limit on mail to an address: that an account's address changed
+(to the old address), that an administrator reset a person's second factor, and that an
+administrator removed a person from a tenant, which says so when the account went with
+it. The removal notice is for an administrator's act that leaves the person with no role
+in the tenant, of their own or through a group: a role taken, the person taken out of a
+group, or a role taken from a group; where that was the last thing the person held
+anywhere and the account went with it, the notice says so. It is not sent when an
+administrator deletes the account outright or a tenant is cleared, for a role that ends
+by itself, or when the person leaves themselves. A link, a code or a notice goes to a confirmed address or, where it is what
+confirms one, to the address being confirmed. It writes
 to one interface, `mail.Sender` (`session/mail`), and knows nothing of the mail system
 behind it; an application configures a driver and hands it to the `Auth`. A message is
 plain text with one link in it (`mail.Message`: the recipient, the subject and the body),
@@ -2417,7 +2722,16 @@ Workspaces apart by connection and, within one, domains apart by the identity's
 
 The identity's sign-in name is the verified `email` claim (`email_verified` is
 enforced), so the standard account rule provisions and matches users
-under it. Google has no `end_session_endpoint` and issues no `sid` claim, so there is no
+under it. The claim confirms the address itself (`Identity.EmailVerified`) only where
+Google is the address's authority: a Gmail address, or a Workspace account's (a token
+with `hd`). A registration's own rule reads the same answer on the identity it is given
+(`google.Identity.EmailVouched`), and chooses no user by an address Google does not
+vouch for. A Google account made with an address from anywhere else signs in under
+that name all the same, and Google's word for the name counts no more than another
+provider's: its first sign-in to an account created ahead under that name waits for
+the code mailed to the address the account holds (see "A first link on a name alone"),
+and its first sign-in to any account with no confirmed address waits for the mailed
+code. Google has no `end_session_endpoint` and issues no `sid` claim, so there is no
 Google-initiated logout: `Logout` destroys the local session only. The `RoleSync` slot
 is `google.RoleSync(manager, groupPrefix, lookup)` or `google.DisableRoleSync()` (see
 "The group naming convention").
@@ -2607,7 +2921,7 @@ table is the wire contract:
 | `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
 | `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
-| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
+| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, asked for a password confirmation on an Auth that registers no password method, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, a password-less user who has never signed in and holds no email address was matched by a sign-in name the method does not vouch for, provisioned a new user for an identity whose verified address another user holds verified, a sign-in whose method vouches for its address reached a user who holds no verified address while another user holds that address verified, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
@@ -2621,13 +2935,14 @@ table is the wire contract:
 | `password_change_required` | `RefusedPasswordChangeRequired` | Auth: the signed-in user must change a password an operator set; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), every tenant that seats the person is directory only, and none of them has that directory as its own. |
-| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a personal account, a session the application started itself) by a person whose every tenant is directory only. A password sign-in by a person who administers one of those tenants is not refused: it is held for the second factor (see "The tenant policy", rule 2). |
+| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password, or a session the application started itself, by a person whose every tenant is directory only. A password sign-in by a person who administers one of those tenants is not refused: it is held for the second factor (see "The tenant policy", rule 2). |
+| `directory_only_personal_account` | `RefusedDirectoryOnlyPersonalAccount` | Auth, the tenant policy: a sign-in with a personal account (through Google or Microsoft, with an account that is in no organization's directory) by a person whose every tenant is directory only. The person used no password, so a login page asks them for their organization's account. |
 | `other_tenant` | `RefusedOtherTenant` | Never answered by the session library itself: the generated user management answers it from its hooks where the application declared that a person belongs to one tenant (`identity.WithOneTenantPerPerson()`). The invitation the sign-in carried, or the default role of the directory it came through, would give the person a role in a second tenant; the hook fails the sign-in's transaction, so nothing is consumed and no account is made. |
 | `organization_has_tenant` | `RefusedOrganizationHasTenant` | Never answered by the session library itself: the generated user management answers it from its invitation hook. The invitation the sign-in carried makes a tenant, and the organization's directory the person signed in through is already another tenant's; the hook fails the sign-in's transaction, so no tenant and no account is made and the invitation stands. |
 | `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
 | `too_many_emails` | `RefusedTooManyEmails` | Auth: a sixth sign-in code or link asked for one address within fifteen minutes while the five before it went unused (a code or link that is used resets the count); answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes. |
 | `invalid_code` | `RefusedInvalidCode` | Auth: the sign-in code entered is not the one sent; the code stands with one fewer attempt (see "The second factor"). |
-| `code_expired` | `RefusedCodeExpired` | Auth: a sign-in code entered while none stands: none was sent, or the one sent expired, was used or took its last attempt; the page asks for a new one. |
+| `code_expired` | `RefusedCodeExpired` | Auth: a sign-in code entered while none stands: none was sent, or the one sent expired, was used, took its last attempt or was mailed to an address the account no longer holds; the page asks for a new one. |
 
 **The resolver rule.** A custom session data resolver's error decides the code by its
 shape. A `sessioninfo.LoginRefusal` (`sessioninfo.NewLoginRefusal(code, cause)`) answers
@@ -3005,7 +3320,8 @@ An impersonated session operates as a principal other than the person who
 authenticated: as another **user** (support staff seeing the application exactly as
 that user does, usually read-only) or as a **role** (an administrator working under a
 role chosen for the session). Every session type supports both, `Auth` and `Preauth`,
-through the same `ImpersonationRequest` on each `API()`.
+through the same request on each `API()`, which only the application's declaration of
+the impersonation it offers makes.
 
 The model rests on two identities that are never conflated:
 
@@ -3052,53 +3368,561 @@ impersonation APIs return a configuration error.
 
 ### Establishing a session
 
-The establishing call runs in the *target* application's session API, typically from a
-server-to-server handoff (an admin application minting a session in a partner portal):
+An impersonated session starts from a request, and **the declaration is the only way
+to make one**. An application declares the kinds of impersonation it offers, each with
+the grant that allows it and the widest mask that grant gives (the next section), and
+the declaration turns what is asked into the request: `Request` for a person signed in
+here, `RequestFor` for a server-side caller. `ImpersonationRequest` has no field an
+application can set, so a request written out by hand does not compile, and the zero
+value, which no declaration made, is refused when a session is started from it. So
+the session API starts no session that no declared kind allows, and none without a
+mask somebody chose: a kind that gives everything the person holds says so where the
+application is read, with `accesstypes.AllowAll()`.
+
+**The storage beneath is sealed.** The write the session library makes once it has
+decided writes a session and its record with whatever principal, mask and actor it is
+handed, and asks nothing. So it is made by the session library alone, through its API,
+and the library hands it to no application code. It is a method of the store's interface
+(`sessionstorage.BaseStore`) that is not exported, and its name belongs to a package
+inside the library (`session/internal/sealed`), which the go command lets no package
+outside the session library's directory import. Go lets no other package call a method
+named there, or declare one.
+
+**So are the reads that decide one.** Who is recorded as the actor, whom the session
+acts as, what its mask keeps and whether it has ended are read through methods of the
+same kind, which `sessionstorage.BaseStore` and `sessionstorage.UserStore` carry beside
+the write: the actor's own session and the account acted as when a session is started,
+and the session and its user on every later request. So:
+
+- **A direct call does not compile**, on the library's stores or on the store's
+  interface, under any name.
+- **A store that wraps the library's keeps working, and decides no impersonated
+  session.** It embeds the library's store (`*sessionstorage.Auth`,
+  `*sessionstorage.Preauth`, or the interface over one) and has the write and those
+  reads from it. It cannot replace them: a method of the same name in the wrapper's own
+  package is another method, which the library never calls. And its own `Session`,
+  `User` and `UserByUserName` are never asked what a session that acts as someone else
+  is, because the library reads the stored rows itself. A wrapper that changes what
+  `Session` answers changes no such session's mask, actor or principal, and a read
+  cache in front of it keeps none alive after it ended. A wrapper does decide an
+  ordinary session: its `Session` is asked for every session the library's own read
+  does not find impersonated, and its `User` for that session's user. An answer of its
+  own that carries an impersonation record is refused as an invalid session. So is an
+  answer that is not the session the request's cookie names: one that carries another
+  session's id, and, where the library's own store holds the session, one that names
+  another account or another username than that row. A wrapper adds to an ordinary
+  session and does not change whose it is, so a cache that answers one person's cookie
+  with another person's session has the request refused, and no session is started as
+  that person. The same holds for the two other things a request is known by. Its
+  `User` answer is held to the account the session names: it carries the id that was
+  asked for and, where the library's own store holds the account, the username of that
+  row, or the request is refused as an invalid session, so the routes for a person's
+  own account never act on another person's. An account that row holds disabled is
+  disabled whatever the wrapper answers, as one the wrapper answers disabled is, so a
+  store that keeps the accounts it has read keeps no disabled account signed in. The
+  account of an application token is held the same way: the wrapper's `User` answer
+  carries the id the token names and, where the library's own store holds the account,
+  the username of that row, or the request is refused as an invalid token, and the token
+  of an account that row holds disabled is refused whatever the wrapper answers. So no
+  program's request runs as another person, and no disabled account's token keeps
+  working. The issue of an application token (`CreateApplicationToken`) is held too: an
+  account either one holds disabled is refused a new token as a disabled account is,
+  and a `User` answer that is another account than the one asked for fails the issue,
+  with no token made for either person. A password is not accepted for an account
+  either one holds disabled: the
+  sign-in is refused as a disabled account's is (`user_disabled`), and so are the check
+  of the credentials alone (`ValidateCredentials`) and the password confirmation of a
+  pending identity, before anything is linked to the account. A `Principal` its
+  `Session` answer carries is not taken: an ordinary session's checks are made for whom
+  the principal resolver chose, or for the session's own user. And where the library's
+  own store holds the session, the session is expired when that row is and was last used
+  when that row says, so a cache keeps no signed-out or idle session working (a wrapper
+  may still end a session early, by answering it expired or with an error). The rest of
+  an ordinary session is the wrapper's: its custom data and the account's other columns.
+  So is the row of an application token (which token it is, the account it names and the
+  outlet it is for), and a token starts no session that acts as someone else. A session
+  that acts as someone else starts from the session the request's cookie names, which
+  must be held under the same account in the library's store as the session the request
+  was validated as, or nothing is started. Over a wrapper the library reads an ordinary
+  session twice on each request, once itself and once through the wrapper.
+- **A store written from nothing is no session store.** It cannot declare the methods,
+  so a program that hands one to `NewAuth` or `NewPreauth` does not compile. A test
+  double written by hand embeds `sessionstorage.NoImpersonatedSessions`, which gives it
+  the methods with a write that refuses and no read: its `Session` answers for an
+  ordinary session and never for an impersonated one.
+- **The mocks write nothing.** `mock_sessionstorage.NewMockBaseStore`,
+  `NewMockPreauthStore`, `NewMockUserStore` and `NewMockAuthStore` mock every other
+  method of the store. Their write refuses, and a `Session` of theirs that answers an
+  impersonation record is refused as an invalid session. A test in which a session is
+  impersonated runs over a store the library made (`sessionstorage.NewPostgresAuth` and
+  the others, on a test database).
+
+A write the library did not make is refused with `sessionstorage.ErrImpersonationSealed`
+before anything is written: that is what a mock, a store that embeds
+`NoImpersonatedSessions` and a store value nobody built answer. An application starts an
+impersonated session through the session API, from a request its declaration made, and
+through the library's API there is no other way.
+
+The seal is the library's API and no more. These are outside it:
+
+- **The tables.** The application owns them, so SQL of its own writes any row, and the
+  store's `NewSession` and `CreateSession` write an ordinary session for any username,
+  by design.
+- **The resolver of custom session data.** An application that keeps custom session
+  data registers a resolver (`sessionstorage.NewCustomSessionData`), and the library
+  calls it inside the write's own transaction, once the session and its record are
+  written there, with the request and the transaction. It is the application's code.
+  What it changes in the request reaches no row the library writes; what it can do to
+  the session and its record is a write of its own on those tables in that transaction,
+  which is the limit above.
+- **The connection the application hands the store.** The store writes through the
+  connection it was made with, and that connection is the application's. For PostgreSQL
+  it is any value that answers the store's `postgres.Queryer`: a pool, or a type of the
+  application's own that wraps one, which is handed every statement the library sends,
+  with its arguments, and could send another. For Spanner it is the client the
+  application dialed, and the gRPC interceptors it was dialed with are handed every
+  request and could change it. Both see and could rewrite what the library writes. It is
+  the tables again, one step before the database.
+- **What a store that wraps the library's still carries.** It answers for ordinary
+  sessions, as said above: what it adds to one is the application's, and a session the
+  library's own store does not hold is its to answer whole, under the id that was asked
+  for. And the writes that end or extend an impersonated session
+  pass through it (`DestroySession`, `DestroyImpersonatedSession`,
+  `DestroyImpersonatedSessions`, `EndImpersonation`, `UpdateSessionActivity`), as does
+  the listing of the live ones (`ActiveImpersonations`). A wrapper that drops one of
+  those writes leaves the session to its idle timeout and its hard cap, both of which
+  the library reads from its own store.
+- **Code the type checker does not read.** The seal is the type checker's, and a
+  program that imports `unsafe`, or brings assembly or C of its own, steps around what
+  the type checker refuses, here as anywhere in Go. The plainest form is a
+  `//go:linkname` directive in a file that imports `unsafe`: it links to a function or
+  a variable of the library by its symbol's name, the sealed write among them, and the
+  linker accepts it. `impulse check` refuses the directive (`framework-linkname`): a
+  `//go:linkname` that names a package of the library in any Go file under the
+  application's root, a test file, a generated file and a vendored file included, and
+  a file in a directory the tree reaches through a symbolic link. It refuses nothing
+  else of this kind: `unsafe` reaches the memory of a value a program holds with no
+  directive at all.
+- **A module under the library's import path.** The go command opens an internal
+  directory to every package whose import path is under the directory's parent, and it
+  goes by the path, not by where the code is kept. A module whose path is under the
+  library's is inside the library to it: a `replace` in `go.mod` or a workspace gives
+  a directory of the application's own such a path, and its packages may then import
+  the internal package and make the write themselves. `impulse check` refuses it
+  (`framework-modules`): a module path under the library's that is not one of the
+  library's own modules, as the application's own module path, a requirement or a
+  replace in `go.mod`, as a used directory's module or a replace in a `go.work` at the
+  application's root, and as a requirement or a replace in the `go.mod` of each
+  directory that `go.work` uses, since in a workspace the go command applies the
+  replaces of every module it uses.
+- **A copy of the library the application changed.** An application that builds against
+  a copy of the library with a change of its own in it, through a `replace` of the
+  library's module or a vendor directory edited by hand, builds another library, and
+  nothing this one refuses holds there. `impulse check` warns of the replace (`pins`);
+  nothing compares a vendor directory with the release.
+
+The two checks read the application's own tree as it stands: its Go files, its `go.mod`,
+a `go.work` at its root and the `go.mod` of each directory that `go.work` uses. They do
+not read the code of the modules the application requires, or a build told to read
+files from elsewhere: the `-modfile` flag names another module file, the `-overlay`
+flag replaces or adds source files from anywhere, and the `GOFLAGS` variable carries
+either with nothing on the command line. They do not read a workspace file that is
+not at the application's root either: the go command takes a `go.work` from any
+directory above the one it runs in, and the file the `GOWORK` variable names, and
+either can use a directory whose module path is under the library's. An application
+that must rule those out reads its dependencies, its build's commands and the
+environment they run in, in its own review.
+
+The application's principal resolver (`WithPrincipalResolver`) is not on this list: it
+is never asked about a session that acts as someone else ("Choosing the principal").
+
+**No option opens the session.** The session the library builds inside `NewAuth`,
+`NewPreauth` and the other constructors is the one thing that starts that write, so
+nothing hands it to a program. The options that configure it (`session.WithSessionTimeout`,
+`WithImpersonationTimeout`, `WithImpersonationAudit`, `WithPrincipalResolver`,
+`WithLogHandler` and the table names) are opaque values: `session.BaseSessionOption` is
+a struct with no exported field and no method, which a program passes to a constructor
+and can do nothing else with. It is not a function, so a generic function instantiated
+with it learns nothing of the session it configures, and a program can neither call
+one, read one nor write one of its own; each of those does not compile. The zero value,
+the one option a program can still declare, sets nothing and is refused by every
+constructor. Reflection can find the type of the session inside and make a value of it;
+that value was not built by the library, and it starts no impersonated session: it is
+refused with `sessionstorage.ErrImpersonationSealed` before the store is asked anything.
 
 ```go
-// Support views bob's portal, read-only, for an hour at most. A user principal names
-// the person as the permission store does, by the id of their account.
-id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-    Actor:      "alice@example.com",
-    ActorRealm: "admin-portal",
-    Principal:  accesstypes.UserPrincipal(accesstypes.User(bob.ID.String())),
-    Mask:       accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
-    Reason:     "ticket JRN-123",
-})
+// A person signed in here views bob's pages. The route is behind ValidateSession: the
+// actor is the validated session's user, acting from that session.
+req, err := impersonations.Request(ctx, &session.ImpersonationAsk{
+    Kind:      "view",
+    Principal: bob.ID.String(), // a person is named as the permission store names them: by the id of their account
+    Reason:    "ticket JRN-123",
+}, resource.HoldsAction(a.UserPermissions(r), accesstypes.GlobalScope()))
+if err != nil {
+    return httpio.NewEncoder(w).ClientMessage(ctx, err) // 400 or 403, a sentence the person can act on
+}
+id, err := auth.API().StartImpersonatedSession(ctx, w, req)
 
-// An administrator of the admin application works the partner portal under a role.
-id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-    Actor:      "alice@example.com",
-    ActorRealm: "admin-portal",
-    Principal:  accesstypes.RolePrincipal("PartnerViewer"),
-}, &MyData{PartnerID: partnerID}) // custom session data rides along as usual
-
-// A user of this application acts under a narrower role for a while — their own
-// session, narrowed. The actor is local: no realm, and their own session as the source.
-// The call arrives on their validated session, so SourceSessionID may be omitted: it
-// defaults to that session, and Actor must be that session's user.
-info := sessioninfo.FromCtx(ctx)
-id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-    Actor:     info.Username,
-    Principal: accesstypes.RolePrincipal("Auditor"),
-})
+// A server-side caller: the administration application signed alice in and hands her
+// over to this portal, to work under a role. The call arrives on no session of this
+// application, so it names the actor, and the portal's own check of the calling system
+// answers for the kind's grant.
+req, err := impersonations.RequestFor(ctx,
+    session.ImpersonationActor{Name: "alice@example.com", Realm: "admin-portal"},
+    &session.ImpersonationAsk{Kind: "partner", Principal: "PartnerViewer"},
+    func(ctx context.Context, grant accesstypes.Resource) (bool, error) {
+        return handOff.MayStart(ctx, grant) // which kinds the system this handler authenticated may start
+    })
+if err != nil {
+    return httpio.NewEncoder(w).ClientMessage(ctx, err)
+}
+id, err := auth.API().StartImpersonatedSession(ctx, w, req, &MyData{PartnerID: partnerID}) // custom session data rides along as usual
 ```
+
+| The call | Makes the request with | The actor | The check of the kind's grant |
+| --- | --- | --- | --- |
+| Arrives on a person's validated session of this application | `Request` | That session's user, acting from that session. A call that carries no validated session is refused as a mistake in the program | Whether the person holds the grant: `resource.HoldsAction` over the request's permissions |
+| A server-side caller: a hand-off from the system that signed the actor in, or any call that arrives on no session here | `RequestFor`, with an `ImpersonationActor` | Named by the call. With a `Realm`, an actor another system signed in, recorded under the name given. With none, a person of this application, whose own live session the call names in `SessionID`. A call that does carry a validated session, and an actor with neither a `Realm` nor a `SessionID`, are refused as mistakes in the program | The caller's own: what the calling system, which the handler has authenticated, may start. A caller it refuses is answered 403, "this caller may not start a session of the kind…" |
+
+`AuthAPI.StartImpersonatedSession` and `PreauthAPI.StartImpersonatedSession` take the
+same request: a session type that keeps no accounts declares its kinds as any other
+does. A declaration is held to the application's actions, which the generated
+permission collection lists (`router.Collection()`). An application that has none, a
+session type used on its own, names the grants of its kinds itself:
+
+```go
+// A partner portal on Preauth, with no generated collection. Its kinds' grants are
+// names its own check answers for; no action carries a class, so its masks keep or
+// drop permission kinds.
+impersonations, err := session.NewImpersonations(session.NamedActions("ViewAsUser", "WorkAsPartner"),
+    session.ImpersonatesUser("view", "ViewAsUser",
+        accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
+    session.ImpersonatesRole("partner", "WorkAsPartner", accesstypes.AllowAll()),
+)
+```
+
+What a request carries is read through its methods (`Kind`, `Actor`, `ActorRealm`,
+`ActorSessionID`, `Principal`, `Mask`, `Reason`, `MaxDuration`), so a route can answer
+the person with what their session may do (`req.Mask().Words()`). None hands out
+anything that can be written to.
+
+A request starts one session. It is for the call that follows it: the grant was checked
+once, when the request was made, and that check stands for one start. The first
+`StartImpersonatedSession` a request is handed spends it, whether or not the session
+came to be, and a second start from the same request, or from a copy of it, is refused
+before anything is written, with an error that says so (a mistake in the program, so no
+client message). A handler takes a new request from the declaration for each session it
+starts, which checks the grant again.
 
 The session row and the record are written in one transaction; the cookie is set only
 after the `Started` event has been delivered (a failing audit hook destroys the session
-and fails the call). Refused everywhere: a missing actor or principal, a caller that is
-itself an impersonated session (no chaining), and a local actor whose `SourceSessionID`
-is missing or is not their own live session here.
+and fails the call). Refused everywhere: a request no declaration made, a request that
+has started a session already, a missing actor or principal, a caller that is itself an
+impersonated session (no chaining, refused when the request is asked for and again when
+a session starts), and a person of this application whose own session is not their live
+session here.
 
-When the call arrives on a validated session of this application (the context has passed
-`ValidateSession`), the request is bound to that session: `Actor` must be its user,
-`SourceSessionID` must be it (and defaults to it when omitted), and `ActorRealm` must be
-empty — an actor logged in here is local. The binding keeps a caller from minting a
-session as another user by naming them and one of their session IDs, which appear in
-logs, spans and `ActiveImpersonations`. A call with no session in its context (a
-server-to-server handoff) is taken at its word, so its handler must authenticate the
-caller. *Who may impersonate whom* is the application's guard — the library records what
-happened.
+A call that arrives on a validated session of this application (the context has passed
+`ValidateSession`) is bound to that session twice. The declaration names nobody but its
+user: `Request` reads the actor off it, and `RequestFor` refuses a call that carries
+one. And the library binds again as it establishes: the actor must be the session's
+user, acting from it, and never an actor of another system, since a person signed in
+here is local. The binding keeps a caller from minting a session as another user by
+naming them and one of their session IDs, which appear in logs, spans and
+`ActiveImpersonations`. A call with no session in its context (a server-side caller) is
+taken at its word about the actor, so its handler must authenticate the caller, and its
+check of the grant is where it says what that caller may start.
+
+*Who may start which kind* is what the declaration holds every request to: the kind's
+grant, asked of the application's check. *Whom* a person may impersonate under a kind
+(which people, which roles) is not something a kind says: the check is asked about the
+grant, never about the principal. An application that limits it makes that check
+itself, before it asks for the request or inside the check it passes, which it writes.
+The library records what happened.
+
+### Impersonation is granted with a mask
+
+The rule, in the words it was given in: **"If you allow them to impersonate without a
+mask, then you're giving them those privileges."** To let someone impersonate a person
+with no mask is to give them everything that person holds, their ways of changing how
+other people sign in among it. Nothing else stands in the way: no action refuses an
+impersonated session by a rule of its own because of what the action does. **The mask is
+the control.**
+
+So the grant to impersonate carries a mask, and an application says both in one place.
+It declares each *kind* of impersonation it offers with the grant that allows it and the
+widest mask that grant gives:
+
+```go
+// Built once, where the application is constructed. The generated collection
+// (router.Collection()) is what the declaration is held to.
+impersonations, err := session.NewImpersonations(collection,
+    // View as a person: reading only.
+    session.ImpersonatesUser("view", resources.ViewAsUser,
+        accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
+    // Act as a person: everything they may do, except the credential actions and the
+    // actions that change who may do what.
+    session.ImpersonatesUser("act", resources.ActAsUser,
+        accesstypes.AllowAll().Refusing(
+            accesstypes.RefuseClass(router.ClassCredential), accesstypes.RefuseClass(router.ClassAccess))),
+    // Act as a role: what the role holds. The kind says in so many words that it is unmasked.
+    session.ImpersonatesRole("role", resources.AssumeRole, accesstypes.AllowAll()),
+)
+```
+
+- **The grant** is an action the application registers by hand
+  (`@manualAddResource(Execute)` on a constant), which its role file gives on purpose.
+  Each kind has a grant of its own, since a grant carries one widest mask: the grant to
+  view as a person is not the grant to act as them.
+- **The widest mask is not optional.** A kind that gives everything the person holds
+  says so, `accesstypes.AllowAll()`, where the application is read.
+- **The declaration is checked when the application starts.** `NewImpersonations`
+  refuses a kind with no name, a name or a grant two kinds share, a grant that is no
+  Execute action of the application, and a mask that names something the application
+  does not have (below): a kind or a refusal that names nothing would keep or refuse
+  nothing, and whoever wrote it would believe otherwise. A mask written with the
+  collection file's own constant (`router.ClassCredential`, one per class in use) does
+  not compile once no action carries the class.
+
+A mask, the declaration's or a request's, is held to the application's actions. It may
+keep only the six permission kinds, spelled as they are (`Read`, not `read`). What it
+refuses must be something to refuse:
+
+| A refusal of | Is accepted when |
+| --- | --- |
+| A class | Some action carries it |
+| Execute on a name | The name is an action |
+| List, Read, Create, Update or Delete on a name | The name is a record, whether or not the application offers that permission on it: `RefuseWrites` of a record that is never deleted holds as it reads |
+| A permission on `Record.field` | The field carries that permission itself (`perm` on the field), which is when a check asks about the field by name; any other field is refused with its record |
+
+What a mask keeps out of a class it refuses (`accesstypes.RefuseClassExcept`, "What a
+mask says") must be something the exception keeps. An exception that keeps nothing is
+refused, because whoever wrote it would believe otherwise:
+
+| An exception | Is refused when |
+| --- | --- |
+| Names what the application does not have | No action, record or field of that name carries the permission (the rules of the table above) |
+| Names what the class does not cover | The action does not carry the class, or that write of the record does not (a field is judged by its record) |
+| Names what the same mask refuses all the same | The mask refuses it by name, does not keep its kind, or refuses another class it carries without the same exception |
+
+A request names the kind and may name a narrower mask. `Request` turns it into the
+`ImpersonationRequest` a session starts from, or refuses it with nothing started:
+
+```go
+req, err := impersonations.Request(ctx, &session.ImpersonationAsk{
+    Kind:      body.Kind,      // "view", "act" or "role"
+    Principal: body.Principal, // the id of the person's account, or the role's name
+    Mask:      asked,          // the zero mask asks for none: the session takes what the kind gives
+    Reason:    body.Reason,
+}, resource.HoldsAction(a.UserPermissions(r), accesstypes.GlobalScope()))
+if err != nil {
+    return httpio.NewEncoder(w).ClientMessage(ctx, err) // 400 or 403, a sentence the person can act on
+}
+id, err := auth.API().StartImpersonatedSession(ctx, w, req)
+```
+
+The session's mask is the grant's, narrowed by the request and never widened
+(`accesstypes.PermissionMask.Narrow`):
+
+| The request | The session's mask |
+| --- | --- |
+| Names no mask | The kind's widest |
+| Names permission kinds, each of which the kind gives | Those kinds, and everything the kind refuses inside them |
+| Refuses a class, an action or a record's permission beside what the kind refuses | The kind's kinds (or the ones it named), with both sets of refusals: refusals are joined |
+| Does not refuse a class the kind refuses with exceptions | The class refused as the kind has it, exceptions and all |
+| Refuses a class the kind refuses with exceptions, naming some of the kind's exceptions or none | The class refused with the exceptions the request named: a request drops an exception by leaving it out |
+| Refuses by name something the kind keeps out of a class | The exception is dropped and the name is refused |
+| Keeps something out of a class that the kind does not keep out of it | **Refused (403), never trimmed** |
+| Names a kind of permission the grant does not give | **Refused (403), never trimmed**: nobody is left believing they hold what they do not |
+| Names a kind that is no permission kind (`read` for `Read`) | Refused (400), with the kinds there are: a session that kept a kind nobody checks would keep nothing |
+| Refuses a class no action carries, or names an action, a record or a field the application does not have | Refused (400) |
+
+Letting the person choose a narrower mask is a safety precaution, theirs to take, and
+not a permission: a support engineer who means only to look asks for reading only under
+a grant that would let them act. `Request` also refuses a kind the application does not
+offer (400), a request with no principal (400), and a person who does not hold the
+kind's grant (403). `RequestFor` does the same for a server-side caller, which names
+the actor and passes its own check ("Establishing a session").
+
+A person refused through `Request` reads one plain sentence: "You may not start this
+kind of session." where they do not hold the kind's grant, and "This kind of session
+gives less than you asked for." where the mask they asked for is wider than the kind's.
+The kind's name, its grant and what the two masks say are in the server's log and never
+in the answer. A server-side caller of `RequestFor` is answered in full, with the kind,
+the grant its check refused and what the request asks for beyond the kind: a program
+reads that answer, or its operator.
+
+#### What a mask says
+
+A mask (`accesstypes.PermissionMask`) says which permission kinds the session keeps
+(List, Read, Create, Update, Delete, Execute) and, inside a kind it keeps, what it
+refuses:
+
+| Built with | Refuses |
+| --- | --- |
+| `MaskPermissions(DenyAll(), List, Read)` | Every kind but the ones named |
+| `.Refusing(RefuseClass(class))` | Every action that carries the class, the ones declared after the mask was written among them |
+| `.Refusing(RefuseClassExcept(class, exceptions...))` | The class, except what is named: an action (`ExceptAction`), a record's three writes (`ExceptWrites`), or one permission on a record or on one of its fields (`ExceptPermission`). A name beats its class, and the rest of the class stays refused, whatever is added to it later |
+| `.Refusing(RefuseAction(action))` | One action by name (Execute on it), and nothing else |
+| `.Refusing(RefusePermission(perm, record))`, `.Refusing(RefuseWrites(record)...)` | One permission on one record and its fields (or on one field, named `Record.field`, and nothing else); the three writes of a record |
+
+An action carries its **classes** where it is declared: `@class(name)` on a generated
+method's struct or on the constant that registers the action by hand
+(`@manualAddResource(Execute)`), or `ManualRegistration.Classes` (the resource package's
+"Annotation reference"). A class is an action's alone: a registration of another
+permission is a record's, and the generator refuses a class on it. The library
+names two classes and marks its own actions with them. `accesstypes.ClassCredential`,
+`credential`, is on every generated identity method that changes how a person signs in
+(a temporary password set, a new password required, a password removed, a reset link
+sent, a sign-in identity unlinked, a username or an address changed).
+`accesstypes.ClassAccess`, `access`, is on every one that gives or takes away what
+someone may do (a role given or removed, a role a person takes themselves for a set
+time, a person put in a group or taken out, a role
+given to a group or taken from it, a group made or deleted, an invitation sent or
+withdrawn, an account made, which is made with the roles its person holds, and what a
+sign-in method or a tenant's directory gives everyone who arrives through it), and on the
+settings that say
+who may sign in at all: the switch that makes a tenant sign in with its directory
+alone, and the one that lets people ask at the sign-in page for a link that resets
+their own password. The making of a tenant of one's own carries it too: the generated
+create-your-tenant route, which no grant admits, has an action's name for the mask to
+refuse, and asks the mask itself (the resource package's "How a tenant comes to
+exist", "The first administrator"). An account disabled, enabled or deleted carries
+neither class: that is the work a person who stands in for an administrator is there to
+do, so a mask that refuses both classes leaves it to them. An application marks its own
+actions with either or with a class it names. The generated permission collection
+carries each action's classes, which is where a check reads them.
+
+**What no mask decides.** In an impersonated session nobody is the subject of what they
+do: the generated user management refuses every change to the account of the person who
+started the session, whatever the mask keeps and whether or not the kind was declared,
+since the rule reads the session's record alone (the actor it names). A person who acts
+as an administrator would otherwise give their own account a role and keep it after the
+session ends, or enable their own account again after it was disabled. Disabling,
+enabling and deleting the real person's own account are refused the same way, in one
+sentence form and with one log line, and the session API's own three switches
+(`DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`) ask the rule
+themselves of the session they are called in, for a route an application wrote. That
+is where the rule lives. The store's own three beneath them (`DeactivateUser`,
+`ActivateUser`, `DeleteUser`) are bare writes that read no session and ask nothing, so
+a route an application wrote that calls the store's method makes the switch unasked:
+it calls the session API's. The rule covers a record that decides what a person may do as well: the
+generated write of a record the policy reads as a subject value or a subject set (a
+clearance, a place in a team) refuses the real person a row that names them, asked
+before the write and after it, so they neither raise their own clearance nor move
+someone else's row onto themselves. An application's own action that names a person
+asks the same rule (`identity.RefuseImpersonatorAsSubject`; the resource package's "User
+management", "The rules on who is asking"). The class `access` is for what that rule
+cannot see: a role that reaches the person through a group they are in, through another
+account or through a colleague. That is the rule's stated limit: a session whose mask
+does not refuse the class gives such a role. A row of the application's own that
+reaches the person without naming them is not a limit: the generated write refuses the
+real person a pass given to a team they are in
+(`identity.RefuseImpersonatorAsSetSubject`) and their own team moved to another
+division (`identity.RefuseImpersonatorAsReadThroughSubject`), under every mask. The
+generated code names the column and the set, and the library asks the set by its own
+declaration, so the rule and the policy agree on who is in it. The generator also gives
+the class to the create, the change and the delete of every record that decides what a
+person may do (one that carries `@subjectValue` or `@subjectSet`) and to the change of
+a record such a value is read through, so no application lists those records by hand,
+and a kind that is to keep one of them names it as an exception to the class
+(`accesstypes.RefuseClassExcept`): the session then writes the record for other people,
+and never for the real person, a set they are in, or the row their own standing is read
+through. To let someone act as a person with no mask is to give them what the person
+holds, and an application closes the limit through its mask.
+A row removed with its parent, which may name the person, is a limit of its own: the
+database removes a pass with the place it opens, no write of the pass is made, and so
+neither the rule nor a mask that refuses the writes of passes is asked. An application
+closes it under the mask by refusing each request that removes a row above the pass:
+the parent's delete (`accesstypes.RefusePermission(accesstypes.Delete, parent)`), the
+delete of each record further up while the cascade goes on (the grandparent's delete
+removes the parent and the pass with it), and an action that removes one of them in its
+own body, by name (`accesstypes.RefuseAction`). Where a foreign key changes the row
+instead of removing it (`ON DELETE SET NULL` or `SET DEFAULT`, and `ON UPDATE CASCADE`,
+which follows a change of the parent's key; PostgreSQL has them), the same refusals and
+the refusal of the parent's update close it. A column that records who
+made a row, which a grant compares to `subject`, is another: the row names a person and
+decides what they may do, and the rule does not read the column. While the application
+stamps the column from the session and people cannot write it, no write moves a row
+onto the real person, and a row made acting as a person is stamped with that person. A
+row made in a session that acts as a role is the stated case: a role is not anyone, so
+the row is stamped with the person who started the session, and what the grants give
+the row's author is theirs after the session too, for a row the role's powers made. An
+application that does not want that refuses the record's create in the role kind's mask
+(`accesstypes.RefusePermission(accesstypes.Create, record)`), or stamps the column with
+nobody in such a session. Where people can write the column, the application refuses
+the record's writes under the mask.
+One limit no class closes: the rule knows the real person by the account they signed in
+with, so a second account of their own is someone else's to it, and a person who acts
+as an administrator can enable that account again, or disable or delete it, as the
+administrator can. An application that must hold this refuses the three actions by name
+in the kind's mask (`accesstypes.RefuseAction`).
+An application that lets people act as a person and
+does not mean them to change who may do what refuses both classes, as the declaration
+above does. The class `access` holds the writes of its own records that decide what a
+person may do, so the kind names none of them; a record the kind is to keep is named
+as an exception to the class (`accesstypes.RefuseClassExcept(class,
+accesstypes.ExceptWrites(record)...)`), and the session then writes it for everyone
+but the real person, the sets they are in and the row their own standing is read
+through. The kind refuses by name the delete of a record such rows are removed with
+(`accesstypes.RefusePermission(accesstypes.Delete, parent)`): the rule holds the real
+person alone, and the mask is what keeps such a session from changing anyone else's.
+
+A masked check is refused when the mask does not keep its kind, refuses one of its
+resource's classes, or refuses the permission on the resource by name. The refusal comes
+before any policy is read and is logged as the mask's, naming the mask, the person the
+session acts as, the resource and the reason:
+
+```
+impersonation: Execute denied by mask (*;-class:credential) for f0000000-0000-4000-8000-000000000002 on SetStaffTemporaryPassword: the mask refuses the class credential
+```
+
+The permission digest leaves the same things out, so no page offers them
+(`resource.Masked`, which `resource.SessionPermissions` applies for every request).
+
+What a refused class keeps (`RefuseClassExcept`) is left to policy like anything the
+mask does not refuse, and stays in the digest, so the pages offer it. An excepted
+record is kept with its fields, and an excepted action by its name. An excepted field
+is kept to a write that sets that field and no other: an armed write tells the check
+every field it sets, so the update of the excepted field alone goes through, and the
+digest keeps the field and its record's permission while it drops the record's other
+fields. A write that sets any other field is refused the record, and so is a check
+that names no fields: a hand-written check of the record's permission, and a
+patch-or-add, which is asked for its grant before its fields are read.
+
+A refusal holds wherever the permission is asked: the generated routes, a method's
+handler, and a write a method's body arms against the caller (`Enforce`). It does not
+reach inside a method that is kept: a body's writes run trusted unless the body arms
+them, so a method whose body writes a record trusted, or arms the write against a
+role's permissions (`Caller.As`), still writes it in a session whose mask refuses the
+record's writes. Such a method is refused by its own name (`RefuseAction`) or by a
+class it carries, which is what a class is for.
+
+The mask is kept on the impersonation record in its text form, in the table's one
+`Mask` column on both databases: the kinds it keeps, sorted and joined with commas (`*`
+for every kind), then each refusal after a semicolon, `-class:<class>` or
+`-on:<Permission>:<Resource>`, and each exception of a class after its class, as
+`+class:<class>:<Permission>:<Resource>`. A read-only mask is `List,Read`; everything except the
+credential actions is `*;-class:credential`, and everything except those and the actions
+that change who may do what is `*;-class:access;-class:credential`; an unrestricted
+session's column is NULL. The record so keeps what the session was given out of a
+class, for as long as the record is kept.
+A column that does not read as a mask holds the session to nothing: a mask is never
+read wider than it was written, and each time the record is read the log says which
+session's column does not read and why (`impersonation: the mask stored for session
+... does not read, so the session is held to nothing`). For people the mask is said in words
+(`PermissionMask.Words()`): "reading only", "everything except credential actions",
+"everything except the action ScrapShip", and "everything except writing Invoices" for
+a record refused its three writes; what a refused class keeps is said beside it,
+"everything except access actions (still allowed: writing Passes)". The session endpoint carries them
+(`impersonation.maskWords`, beside `mask`, `refusedClasses`, `refused` and `excepted`,
+which lists what each refused class keeps), and a list
+of impersonated sessions shows them for each: `ActiveImpersonations` returns each
+record with its mask, and the generated user management's list of the impersonation
+records (`<Auth>SessionImpersonations`) reads the column as words itself, through the
+type of its `mask` field (`accesstypes.NullMaskWords`: "everything" for NULL, and
+"nothing (the stored mask does not read)" for a column that is no mask's text), so the
+list never shows the text form.
 
 #### Identity by session type
 
@@ -3131,13 +3955,14 @@ other (see "Every session").
 
 #### Local and foreign actors
 
-`ActorRealm` says where the actor was authenticated, and it decides what the actor's name
-means in this application's session table:
+The record's `ActorRealm` says where the actor was authenticated, and it decides what
+the actor's name means in this application's session table. It is empty for a request
+`Request` made, and `ImpersonationActor.Realm` for one `RequestFor` made:
 
 | | Local actor (`ActorRealm` empty) | Foreign actor (`ActorRealm` set) |
 | --- | --- | --- |
 | Who | A user of this application, logged in here | Authenticated by another application or IdP |
-| `SourceSessionID` | Required and verified: the actor's own live, non-impersonated session here, carrying their username. Defaults to the request's own session when the call arrives on one | Optional; the session in the source application, for correlation |
+| The actor's own session (the record's `SourceSessionID`) | Required and verified: the actor's own live, non-impersonated session here, carrying their username. `Request` names the session the call arrives on; a server-side caller names it in `ImpersonationActor.SessionID` | Optional (`ImpersonationActor.SessionID`); the session in the source application, for correlation |
 | The actor's account | The record carries its id (`Impersonation.ActorID`, the table's `ActorUserId` column), read from the source session: the permission store names the actor by it (`ActorUser`), so the actor's own roles are found under it and a row condition's `subject` binds to it in a role principal's session | None here: `ActorID` is null, the permission store names the actor by the name the record carries, and the actor holds nothing in this application |
 | The actor's name | The username of the source session | Any name that does not read as the id of an account: an Auth refuses a foreign actor whose name parses as one (400, in every form the id parser reads), since a text that reads as an id names an account here |
 | A role principal's session | The actor's own session, narrowed to the role | A session under a borrowed name |
@@ -3161,21 +3986,27 @@ mask      := sessioninfo.MaskFromCtx(ctx)      // unrestricted unless impersonat
 imp, ok   := sessioninfo.ImpersonationFromCtx(ctx)
 ```
 
-A permission check honors the mask by asking it before asking policy —
-`sessioninfo.MaskFromCtx(ctx).Allows(perm)` — and picks the check by the principal's
-kind (`Role()` → `CheckRoleResources`, otherwise `CheckUserResources`). Forgetting the
-mask fails *open*, so prefer a shared implementation over hand-rolling it per
-application.
+A permission check honors the mask by asking it before asking policy, and picks the
+check by the principal's kind (`Role()` → `CheckRoleResources`, otherwise
+`CheckUserResources`). The shared implementation is `resource.SessionPermissions`, which
+the generated handlers go through: it asks the mask of each resource
+(`PermissionMask.Refuses(perm, resource, classes...)`, with the classes the generated
+collection gives the action), so a class or a named action refused inside a kept kind is
+refused. `PermissionMask.Allows(perm)` answers for the kind alone. Forgetting the mask
+fails *open*, so a check written by hand goes through the shared implementation, never
+around it.
 
 ### Choosing the principal
 
 By default a session's principal is its user, or the impersonation record's principal,
 and for almost every application that is the end of the story: put role membership in
 the permission store, check with `ForUser`, and a role change is enforced on the user's
-next request. `WithPrincipalResolver` exists for the narrow case where a session's
-subject genuinely is not a user. The resolver runs inside session validation, with the
-session, its custom data and its impersonation record in the context, and returns the
-principal `PrincipalFromCtx` reports for the request.
+next request. `WithPrincipalResolver` exists for the narrow case where an ordinary
+session's subject genuinely is not a user. The resolver runs inside the validation of
+an ordinary session, with the session and its custom data in the context, and returns
+the principal `PrincipalFromCtx` reports for the request. A session that acts as
+someone else never asks it: whom such a session acts as is what its kind declares and
+its record names, and no code of the application's decides it.
 
 **The resolver chooses *which subject*, never *which grants*.** Grants always come from
 the permission store at check time. The moment a resolver reads role membership from
@@ -3230,9 +4061,13 @@ auth, err := session.NewPreauth[APIKeySession](storage, cookieKey,
 
 - The choice is made per request at validation and never stored; nothing changes in the
   schema and no impersonation record is written.
-- The resolver runs for ordinary sessions and for user-principal impersonations — an
-  impersonated user's session acts as that user's session would. A role-principal
-  impersonation already names its subject and skips the resolver.
+- The resolver runs for ordinary sessions alone. A session that acts as someone else,
+  as a person or as a role, skips it, and `PrincipalFromCtx` answers the principal its
+  record names. So a session that acts as a person whose own sessions the resolver
+  gives another subject acts as the person: under the grants the permission store
+  holds for their account, not under the subject the resolver would have chosen. An
+  application that wants a session to act as that subject declares a kind that acts
+  as the role.
 - Returning the zero `Principal` keeps the default. An error fails the request as a
   server error, not an unauthorized one: the session is valid; the application could not
   decide what it acts as.
@@ -3252,7 +4087,7 @@ Everything an impersonated session touches names the actor and the principal:
 | `Started` / `Ended` / `IdentityOperationBlocked` / `WriteBlocked` events | Structured log lines, span events (`impersonation.Started`, …) on the current trace span, plus the `WithImpersonationAudit` hook |
 | `enduser.id` (the session's username), the same `impersonation.*` attributes, and `principal.*` when a resolver changed the subject | The request's server span from the `ValidateSession` middleware (the caller's current span from `ValidateSessionAPI`), impersonation attributes set before any refusal so a refused request's trace still names the actor; the establishing call's own span on the source side |
 | The establishing call's own log entry | The source application's request log |
-| `impersonation` object in the `Authenticated()` response | For the frontend to banner the session and render read-only affordances |
+| `impersonation` object in the `Authenticated()` response: the actor, the principal, the mask (`mask`, the kinds it keeps; `refusedClasses` and `refused`, what it refuses inside them; `maskWords`, the whole of it as a person would say it), the reason and the hard cap | For the frontend to banner the session, say what it may do, and render read-only affordances |
 
 ### Lifecycle and guards
 
@@ -3351,8 +4186,9 @@ Everything an impersonated session touches names the actor and the principal:
   ```
 - **Read-only middleware.** `EnforceReadOnlyMask` (on every session type, after
   `ValidateSession`) refuses non-safe requests — anything but GET, HEAD, OPTIONS and
-  TRACE — from a session whose mask is *read-only*: restricted, and allowing nothing
-  beyond `List` and `Read`. The refusal is 403 with a `WriteBlocked` event naming the
+  TRACE — from a session whose mask is *read-only*: it names the kinds it keeps, and
+  keeps nothing beyond `List` and `Read` (`PermissionMask.ReadOnly()`; a mask that keeps
+  every kind is not read-only, whatever it refuses inside them). The refusal is 403 with a `WriteBlocked` event naming the
   method and path. It is a backstop that keeps a read-only session away from
   every mutating handler whether or not that handler consults the mask; it does not
   replace honoring the mask in permission checks (`Execute` reaches handlers by POST, and

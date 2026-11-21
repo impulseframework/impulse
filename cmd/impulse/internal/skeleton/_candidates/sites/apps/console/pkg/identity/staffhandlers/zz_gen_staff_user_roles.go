@@ -26,6 +26,7 @@ func (h *Handlers) StaffUserRoles() http.HandlerFunc {
 		CreatedAt time.Time  `json:"createdAt"`
 		StartsAt  *time.Time `json:"startsAt"`
 		EndsAt    *time.Time `json:"endsAt"`
+		Reason    *string    `json:"reason"`
 	}
 
 	type response []map[string]any
@@ -98,6 +99,10 @@ func (h *Handlers) StaffUserRoles() http.HandlerFunc {
 				case "EndsAt":
 					if !row.Masked("endsAt") {
 						rmap["endsAt"] = rec.EndsAt
+					}
+				case "Reason":
+					if !row.Masked("reason") {
+						rmap["reason"] = rec.Reason
 					}
 				}
 			}

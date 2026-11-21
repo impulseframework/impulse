@@ -73,7 +73,10 @@ type Identity struct {
 	// Subject keys the identity: the sub claim, unique among the provider's identities.
 	Subject string
 	// Email is the email claim, and EmailVerified whether the provider says it
-	// verified the address (email_verified).
+	// verified the address (email_verified). It is the provider's word and no more:
+	// the people who run a provider can mark any address verified, so the library
+	// confirms no address by it and finds no account by it. The address is confirmed
+	// by the code mailed to it, at the person's first sign-in.
 	Email         string
 	EmailVerified bool
 	// PreferredUsername is the preferred_username claim, the name the person signs in
@@ -167,14 +170,8 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 
 // audienceOf is how wide the registration is, for the page where a method is opened to
 // sign-up: the provider is the one organization, by the application's name for it
-// (cfg.Connection) or, without one, the host of its issuer.
-//
-// The library cannot see behind an issuer, so a provider reads as one organization
-// whatever it serves (signin.Audience.OneOrganization). The rule that links a
-// deployment's seeded first administrator on the name asks that of the registration
-// the account was seeded for, so a seed made for a provider's registration
-// (session.SeedUserIDThrough) is its author's word that the provider is the
-// deployment's own directory; the generated foothold never gives it.
+// (cfg.Connection) or, without one, the host of its issuer. The library cannot see
+// behind an issuer, so a provider reads as one organization whatever it serves.
 //
 // The name is for the page. What the audience is compared by is the provider's issuer,
 // which is the provider's alone: the application's name for the provider can be kept
@@ -306,7 +303,9 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 }
 
 // method is the generic method over authn. The identity is (connection, sub) and its
-// sign-in name the preferred username, else the email. The authenticator verifies the
+// sign-in name the preferred username, else the email. The identity never says the
+// address is verified (sessioninfo.Identity.EmailVerified), whatever the token says of
+// it: no provider but Google vouches for an address. The authenticator verifies the
 // token against the provider's discovered configuration; the issuer is checked here
 // again, so an authenticator that did not cannot admit another provider's token. When
 // roles is set, the token's roles claim is reconciled. The method cannot tell which
@@ -358,7 +357,7 @@ func method(authn Authenticator, roles *signin.RoleReconciler, issuer, connectio
 
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
-					Method: sessioninfo.MethodOIDC, Connection: connection, Subject: id.Subject, Email: id.Email, EmailVerified: id.EmailVerified, Name: id.Name, Claims: rawClaims,
+					Method: sessioninfo.MethodOIDC, Connection: connection, Subject: id.Subject, Email: id.Email, Name: id.Name, Claims: rawClaims,
 					IDPAMR: id.AMR, SignInName: id.SignInName(), Organization: connection, Attestation: sessioninfo.AttestationOf(id.AMR, attesting),
 				},
 				ReturnURL: returnURL,

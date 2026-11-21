@@ -293,25 +293,46 @@ func (q *QuerySet[Resource]) checkResourcePermission(ctx context.Context) error 
 	if q.resourceSet == nil {
 		return nil
 	}
-	decisions, err := q.userPermissions.Check(ctx, q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
+	decisions, err := q.userPermissions.Check(q.checkContext(ctx), q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
 	if err != nil {
 		return errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied)
+		return NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied), q.requiredPermission, denied...)
 	}
 
 	return nil
 }
 
+// checkContext is the context an armed set asks for its permission on the resource
+// with. A create or an update says which fields it sets (withWrittenFields), all of
+// them, so a session whose mask keeps one field of a record out of a refused class is
+// kept the write that sets that field alone and refused every other. Any other check
+// says nothing.
+func (q *QuerySet[Resource]) checkContext(ctx context.Context) context.Context {
+	if q.resourceSet == nil || (q.requiredPermission != accesstypes.Create && q.requiredPermission != accesstypes.Update) {
+		return ctx
+	}
+	fields := q.Fields()
+	if len(fields) == 0 {
+		return ctx
+	}
+	written := make([]accesstypes.Resource, len(fields))
+	for i, field := range fields {
+		written[i] = q.resourceSet.Resource(field)
+	}
+
+	return withWrittenFields(ctx, q.resourceSet.BaseResource(), written)
+}
+
 func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DBType) error {
 	if q.resourceSet != nil {
-		decisions, err := q.userPermissions.Check(ctx, q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
+		decisions, err := q.userPermissions.Check(q.checkContext(ctx), q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
 		if err != nil {
 			return errors.Wrap(err, "resource.UserPermissions.Check()")
 		}
 		if denied := decisions.DeniedResources(); len(denied) > 0 {
-			return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied)
+			return NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied), q.requiredPermission, denied...)
 		}
 		q.carryConditionalDecisions(decisions)
 
@@ -346,7 +367,7 @@ func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DB
 			return errors.Wrap(err, "resource.UserPermissions.Check()")
 		}
 		if denied := decisions.DeniedResources(); len(denied) > 0 {
-			return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied)
+			return NotPermitted(errors.Newf("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied), q.requiredPermission, denied...)
 		}
 		q.carryConditionalDecisions(decisions)
 	}
@@ -411,7 +432,10 @@ func (q *QuerySet[Resource]) checkQueryFieldsReadable(ctx context.Context, rSet 
 	}
 	for _, qf := range fields {
 		if decisions[qf.res].IsDenied() {
-			return httpio.NewForbiddenMessagef("scope (%s), user (%s) cannot sort or filter on %s: (%s) on %s is denied", q.scope, userPermissions.User(), q.jsonName(qf.field), q.requiredPermission, qf.res)
+			return httpio.NewForbiddenMessageWithError(
+				errors.Newf("scope (%s), user (%s) cannot sort or filter on %s: (%s) on %s is denied", q.scope, userPermissions.User(), q.jsonName(qf.field), q.requiredPermission, qf.res),
+				mayNotAskBy(bySortOrFilter, qf.res, refusedHere),
+			)
 		}
 	}
 	q.carryConditionalDecisions(decisions)
@@ -438,12 +462,15 @@ func (q *QuerySet[Resource]) checkQueryFieldsGranted(ctx context.Context, rSet *
 	}
 	for _, qf := range checked {
 		if !decisions[qf.res].IsGranted() {
-			verb := "sort or filter on"
+			verb, how := "sort or filter on", bySortOrFilter
 			if !slices.Contains(queried, qf.field) {
-				verb = "search"
+				verb, how = "search", bySearch
 			}
 
-			return httpio.NewForbiddenMessagef("scope (%s), user (%s) cannot %s %s: (%s) on %s must be granted unconditionally", q.scope, userPermissions.User(), verb, q.jsonName(qf.field), q.requiredPermission, qf.res)
+			return httpio.NewForbiddenMessageWithError(
+				errors.Newf("scope (%s), user (%s) cannot %s %s: (%s) on %s must be granted unconditionally", q.scope, userPermissions.User(), verb, q.jsonName(qf.field), q.requiredPermission, qf.res),
+				mayNotAskBy(how, qf.res, refusedHere),
+			)
 		}
 	}
 

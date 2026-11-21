@@ -106,9 +106,13 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "ChangeLook", xsrf: true},
 		{url: "/console/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "InvitationOpen", xsrf: true},
 		{url: "/console/api/user/invitation/sign-up", suffix: "/user/invitation/sign-up", method: http.MethodPost, handler: "InvitationSignUp", xsrf: true},
+		{url: "/console/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "EmailConfirm", xsrf: true},
 		{url: "/console/api/user/sign-up", suffix: "/user/sign-up", method: http.MethodPost, handler: "SignUpStart", xsrf: true},
 		{url: "/console/api/user/sign-up/open", suffix: "/user/sign-up/open", method: http.MethodPost, handler: "SignUpOpen", xsrf: true},
 		{url: "/console/api/user/sign-up/complete", suffix: "/user/sign-up/complete", method: http.MethodPost, handler: "SignUpComplete", xsrf: true},
+		{url: "/console/api/user/password-reset", suffix: "/user/password-reset", method: http.MethodPost, handler: "PasswordResetRequest", xsrf: true},
+		{url: "/console/api/user/password-reset/open", suffix: "/user/password-reset/open", method: http.MethodPost, handler: "PasswordResetOpen", xsrf: true},
+		{url: "/console/api/user/password-reset/complete", suffix: "/user/password-reset/complete", method: http.MethodPost, handler: "PasswordResetComplete", xsrf: true},
 		{url: "/console/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "InvitationAccept", xsrf: true, validated: true},
 		{url: "/console/api/user/email", suffix: "/user/email", method: http.MethodPost, handler: "EmailAdd", xsrf: true, validated: true},
 		{url: "/console/api/user/email/verify", suffix: "/user/email/verify", method: http.MethodPost, handler: "EmailVerify", xsrf: true, validated: true},
@@ -128,7 +132,6 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/directory/login", suffix: "/user/directory/login", method: http.MethodGet, handler: "PortalDirectoryLogin"},
 		{url: "/portal/api/user/directory/callback", suffix: "/user/directory/callback", method: http.MethodGet, handler: "PortalDirectoryCallback"},
 		{url: "/portal/api/user/directory/logout", suffix: "/user/directory/logout", method: http.MethodGet, handler: "PortalDirectoryFrontChannelLogout"},
-		{url: "/portal/api/user/pending/confirm", suffix: "/user/pending/confirm", method: http.MethodPost, handler: "PortalPendingConfirmWithPassword", xsrf: true},
 		{url: "/portal/api/user/pending/cancel", suffix: "/user/pending/cancel", method: http.MethodPost, handler: "PortalPendingCancel", xsrf: true},
 		{url: "/portal/api/user/pending/code", suffix: "/user/pending/code", method: http.MethodPost, handler: "PortalPendingSendCode", xsrf: true},
 		{url: "/portal/api/user/pending/code/verify", suffix: "/user/pending/code/verify", method: http.MethodPost, handler: "PortalPendingVerifyCode", xsrf: true},
@@ -137,6 +140,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/name", suffix: "/user/name", method: http.MethodPost, handler: "PortalChangeName", xsrf: true},
 		{url: "/portal/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "PortalChangeLook", xsrf: true},
 		{url: "/portal/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "PortalInvitationOpen", xsrf: true},
+		{url: "/portal/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "PortalEmailConfirm", xsrf: true},
 		{url: "/portal/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "PortalInvitationAccept", xsrf: true, validated: true},
 		{url: "/portal/api/user/email", suffix: "/user/email", method: http.MethodPost, handler: "PortalEmailAdd", xsrf: true, validated: true},
 		{url: "/portal/api/user/email/verify", suffix: "/user/email/verify", method: http.MethodPost, handler: "PortalEmailVerify", xsrf: true, validated: true},
@@ -165,6 +169,36 @@ func serveGeneratedRouterRequest(t *testing.T, rec *routerCallRecorder, serverVe
 	router.ServeHTTP(rr, req)
 
 	return rr
+}
+
+// TestGeneratedRouterEnvironment proves every answer names the environment the server
+// reports, the answer for an address no route serves included, and that a server which
+// reports none, as production does, names none.
+func TestGeneratedRouterEnvironment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		environment string
+		want        []string
+	}{
+		{name: "a server told its environment names it", environment: "tst", want: []string{"tst"}},
+		{name: "a server told none names none", environment: "", want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stub := newRouterHandlersStub(newRouterCallRecorder())
+			stub.serverEnvironment = tt.environment
+			rr := httptest.NewRecorder()
+			New(stub, Hooks{}).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/no-such-route", http.NoBody))
+
+			if got := rr.Header().Values(resource.ServerEnvironmentHeader); !slices.Equal(got, tt.want) {
+				t.Errorf("%s = %q, want %q", resource.ServerEnvironmentHeader, got, tt.want)
+			}
+		})
+	}
 }
 
 // TestGeneratedRouter drives every generated route through New: each request answers
@@ -338,6 +372,14 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/console/api/members-group-users", method: http.MethodPost},
 		foreign{url: "/console/api/members-group-users/testMembersGroupUserGroupID/testMembersGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/console/api/members-group-users/testMembersGroupUserGroupID/testMembersGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/console/api/members-held-roles", method: http.MethodGet},
+		foreign{url: "/console/api/members-held-roles", method: http.MethodPost},
+		foreign{url: "/console/api/members-listed-groups", method: http.MethodGet},
+		foreign{url: "/console/api/members-listed-groups", method: http.MethodPost},
+		foreign{url: "/console/api/members-listed-groups/testMembersListedGroupID", method: http.MethodGet},
+		foreign{url: "/console/api/members-listed-groups/testMembersListedGroupID", method: http.MethodPost},
+		foreign{url: "/console/api/members-listed-group-roles", method: http.MethodGet},
+		foreign{url: "/console/api/members-listed-group-roles", method: http.MethodPost},
 		foreign{url: "/console/api/members-roles", method: http.MethodGet},
 		foreign{url: "/console/api/members-roles", method: http.MethodPost},
 		foreign{url: "/console/api/members-role-grants", method: http.MethodGet},
@@ -370,6 +412,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/console/api/members-session-users", method: http.MethodPost},
 		foreign{url: "/console/api/members-session-users/testMembersSessionUserID", method: http.MethodGet},
 		foreign{url: "/console/api/members-session-users/testMembersSessionUserID", method: http.MethodPost},
+		foreign{url: "/console/api/members-taken-roles", method: http.MethodGet},
+		foreign{url: "/console/api/members-taken-roles", method: http.MethodPost},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups", method: http.MethodGet},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups", method: http.MethodPost},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups/testMembersTenantGroupID", method: http.MethodGet},
@@ -382,6 +426,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users", method: http.MethodPost},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users/testMembersTenantGroupUserGroupID/testMembersTenantGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users/testMembersTenantGroupUserGroupID/testMembersTenantGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-held-roles", method: http.MethodGet},
+		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-held-roles", method: http.MethodPost},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities", method: http.MethodGet},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities", method: http.MethodPost},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities/testMembersTenantIdentityID", method: http.MethodGet},
@@ -412,6 +458,10 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/readings", method: http.MethodPost},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/readings/testReadingID", method: http.MethodGet},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/readings/testReadingID", method: http.MethodPost},
+		foreign{url: "/console/api/members-take-lengths", method: http.MethodGet},
+		foreign{url: "/console/api/members-take-lengths", method: http.MethodPost},
+		foreign{url: "/console/api/members-takeable-roles", method: http.MethodGet},
+		foreign{url: "/console/api/members-takeable-roles", method: http.MethodPost},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-roles", method: http.MethodGet},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-roles", method: http.MethodPost},
 		foreign{url: "/console/api/add-members-group-member", method: http.MethodPost},
@@ -453,6 +503,7 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/console/api/set-members-user-email", method: http.MethodPost},
 		foreign{url: "/console/api/set-members-user-name", method: http.MethodPost},
 		foreign{url: "/console/api/take-members-group-role", method: http.MethodPost},
+		foreign{url: "/console/api/take-members-role", method: http.MethodPost},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/take-members-tenant-group-role", method: http.MethodPost},
 		foreign{url: "/console/api/unlink-members-session-identity", method: http.MethodPost},
 		foreign{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/unlink-members-tenant-session-identity", method: http.MethodPost},
@@ -475,6 +526,14 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/staff-group-users", method: http.MethodPost},
 		foreign{url: "/portal/api/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/portal/api/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/portal/api/staff-held-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/staff-held-roles", method: http.MethodPost},
+		foreign{url: "/portal/api/staff-listed-groups", method: http.MethodGet},
+		foreign{url: "/portal/api/staff-listed-groups", method: http.MethodPost},
+		foreign{url: "/portal/api/staff-listed-groups/testStaffListedGroupID", method: http.MethodGet},
+		foreign{url: "/portal/api/staff-listed-groups/testStaffListedGroupID", method: http.MethodPost},
+		foreign{url: "/portal/api/staff-listed-group-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/staff-listed-group-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/staff-roles", method: http.MethodGet},
 		foreign{url: "/portal/api/staff-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/staff-role-grants", method: http.MethodGet},
@@ -507,6 +566,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/staff-session-users", method: http.MethodPost},
 		foreign{url: "/portal/api/staff-session-users/testStaffSessionUserID", method: http.MethodGet},
 		foreign{url: "/portal/api/staff-session-users/testStaffSessionUserID", method: http.MethodPost},
+		foreign{url: "/portal/api/staff-taken-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/staff-taken-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups", method: http.MethodGet},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups/testStaffTenantGroupID", method: http.MethodGet},
@@ -519,6 +580,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users/testStaffTenantGroupUserGroupID/testStaffTenantGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users/testStaffTenantGroupUserGroupID/testStaffTenantGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-held-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-held-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities", method: http.MethodGet},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities/testStaffTenantIdentityID", method: http.MethodGet},
@@ -559,6 +622,10 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/staff-sign-in-methods", method: http.MethodPost},
 		foreign{url: "/portal/api/staff-sign-in-ways", method: http.MethodGet},
 		foreign{url: "/portal/api/staff-sign-in-ways", method: http.MethodPost},
+		foreign{url: "/portal/api/staff-take-lengths", method: http.MethodGet},
+		foreign{url: "/portal/api/staff-take-lengths", method: http.MethodPost},
+		foreign{url: "/portal/api/staff-takeable-roles", method: http.MethodGet},
+		foreign{url: "/portal/api/staff-takeable-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodGet},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodGet},
@@ -606,6 +673,9 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/revoke-staff-session-token", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/revoke-staff-tenant-user-trusted-devices", method: http.MethodPost},
 		foreign{url: "/portal/api/revoke-staff-user-trusted-devices", method: http.MethodPost},
+		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/send-staff-tenant-user-password-reset-link", method: http.MethodPost},
+		foreign{url: "/portal/api/send-staff-user-password-reset-link", method: http.MethodPost},
+		foreign{url: "/portal/api/set-staff-self-service-reset", method: http.MethodPost},
 		foreign{url: "/portal/api/set-staff-temporary-password", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-temporary-password", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-email", method: http.MethodPost},
@@ -613,6 +683,7 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/set-staff-user-email", method: http.MethodPost},
 		foreign{url: "/portal/api/set-staff-user-name", method: http.MethodPost},
 		foreign{url: "/portal/api/take-staff-group-role", method: http.MethodPost},
+		foreign{url: "/portal/api/take-staff-role", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/take-staff-tenant-group-role", method: http.MethodPost},
 		foreign{url: "/portal/api/unlink-staff-session-identity", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/unlink-staff-tenant-session-identity", method: http.MethodPost},
@@ -629,6 +700,7 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/feature-flags", method: http.MethodPost},
 		foreign{url: "/devices/feature-flags/testFeatureFlagName", method: http.MethodGet},
 		foreign{url: "/devices/feature-flags/testFeatureFlagName", method: http.MethodPost},
+		foreign{url: "/devices/feature-flags/testFeatureFlagName/changes", method: http.MethodGet},
 		foreign{url: "/devices/set-feature", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodGet},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodPost},
@@ -646,6 +718,14 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/members-group-users", method: http.MethodPost},
 		foreign{url: "/devices/members-group-users/testMembersGroupUserGroupID/testMembersGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/devices/members-group-users/testMembersGroupUserGroupID/testMembersGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/devices/members-held-roles", method: http.MethodGet},
+		foreign{url: "/devices/members-held-roles", method: http.MethodPost},
+		foreign{url: "/devices/members-listed-groups", method: http.MethodGet},
+		foreign{url: "/devices/members-listed-groups", method: http.MethodPost},
+		foreign{url: "/devices/members-listed-groups/testMembersListedGroupID", method: http.MethodGet},
+		foreign{url: "/devices/members-listed-groups/testMembersListedGroupID", method: http.MethodPost},
+		foreign{url: "/devices/members-listed-group-roles", method: http.MethodGet},
+		foreign{url: "/devices/members-listed-group-roles", method: http.MethodPost},
 		foreign{url: "/devices/members-roles", method: http.MethodGet},
 		foreign{url: "/devices/members-roles", method: http.MethodPost},
 		foreign{url: "/devices/members-role-grants", method: http.MethodGet},
@@ -678,6 +758,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/members-session-users", method: http.MethodPost},
 		foreign{url: "/devices/members-session-users/testMembersSessionUserID", method: http.MethodGet},
 		foreign{url: "/devices/members-session-users/testMembersSessionUserID", method: http.MethodPost},
+		foreign{url: "/devices/members-taken-roles", method: http.MethodGet},
+		foreign{url: "/devices/members-taken-roles", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups", method: http.MethodGet},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups/testMembersTenantGroupID", method: http.MethodGet},
@@ -690,6 +772,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users/testMembersTenantGroupUserGroupID/testMembersTenantGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users/testMembersTenantGroupUserGroupID/testMembersTenantGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-held-roles", method: http.MethodGet},
+		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-held-roles", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities", method: http.MethodGet},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities/testMembersTenantIdentityID", method: http.MethodGet},
@@ -728,6 +812,14 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/staff-group-users", method: http.MethodPost},
 		foreign{url: "/devices/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/devices/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/devices/staff-held-roles", method: http.MethodGet},
+		foreign{url: "/devices/staff-held-roles", method: http.MethodPost},
+		foreign{url: "/devices/staff-listed-groups", method: http.MethodGet},
+		foreign{url: "/devices/staff-listed-groups", method: http.MethodPost},
+		foreign{url: "/devices/staff-listed-groups/testStaffListedGroupID", method: http.MethodGet},
+		foreign{url: "/devices/staff-listed-groups/testStaffListedGroupID", method: http.MethodPost},
+		foreign{url: "/devices/staff-listed-group-roles", method: http.MethodGet},
+		foreign{url: "/devices/staff-listed-group-roles", method: http.MethodPost},
 		foreign{url: "/devices/staff-roles", method: http.MethodGet},
 		foreign{url: "/devices/staff-roles", method: http.MethodPost},
 		foreign{url: "/devices/staff-role-grants", method: http.MethodGet},
@@ -760,6 +852,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/staff-session-users", method: http.MethodPost},
 		foreign{url: "/devices/staff-session-users/testStaffSessionUserID", method: http.MethodGet},
 		foreign{url: "/devices/staff-session-users/testStaffSessionUserID", method: http.MethodPost},
+		foreign{url: "/devices/staff-taken-roles", method: http.MethodGet},
+		foreign{url: "/devices/staff-taken-roles", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups", method: http.MethodGet},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups/testStaffTenantGroupID", method: http.MethodGet},
@@ -772,6 +866,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users/testStaffTenantGroupUserGroupID/testStaffTenantGroupUserUserID", method: http.MethodGet},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users/testStaffTenantGroupUserGroupID/testStaffTenantGroupUserUserID", method: http.MethodPost},
+		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-held-roles", method: http.MethodGet},
+		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-held-roles", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities", method: http.MethodGet},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities/testStaffTenantIdentityID", method: http.MethodGet},
@@ -806,6 +902,10 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/testTenantDirectoryID", method: http.MethodGet},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/testTenantDirectoryID", method: http.MethodPost},
+		foreign{url: "/devices/members-take-lengths", method: http.MethodGet},
+		foreign{url: "/devices/members-take-lengths", method: http.MethodPost},
+		foreign{url: "/devices/members-takeable-roles", method: http.MethodGet},
+		foreign{url: "/devices/members-takeable-roles", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-roles", method: http.MethodGet},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-roles", method: http.MethodPost},
 		foreign{url: "/devices/staff-invited-tenants", method: http.MethodGet},
@@ -814,6 +914,10 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/staff-sign-in-methods", method: http.MethodPost},
 		foreign{url: "/devices/staff-sign-in-ways", method: http.MethodGet},
 		foreign{url: "/devices/staff-sign-in-ways", method: http.MethodPost},
+		foreign{url: "/devices/staff-take-lengths", method: http.MethodGet},
+		foreign{url: "/devices/staff-take-lengths", method: http.MethodPost},
+		foreign{url: "/devices/staff-takeable-roles", method: http.MethodGet},
+		foreign{url: "/devices/staff-takeable-roles", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodGet},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodGet},
@@ -895,10 +999,13 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/revoke-staff-session-token", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/revoke-staff-tenant-user-trusted-devices", method: http.MethodPost},
 		foreign{url: "/devices/revoke-staff-user-trusted-devices", method: http.MethodPost},
+		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/send-staff-tenant-user-password-reset-link", method: http.MethodPost},
+		foreign{url: "/devices/send-staff-user-password-reset-link", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-members-tenant-user-email", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-members-tenant-user-name", method: http.MethodPost},
 		foreign{url: "/devices/set-members-user-email", method: http.MethodPost},
 		foreign{url: "/devices/set-members-user-name", method: http.MethodPost},
+		foreign{url: "/devices/set-staff-self-service-reset", method: http.MethodPost},
 		foreign{url: "/devices/set-staff-temporary-password", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-temporary-password", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-email", method: http.MethodPost},
@@ -906,8 +1013,10 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/set-staff-user-email", method: http.MethodPost},
 		foreign{url: "/devices/set-staff-user-name", method: http.MethodPost},
 		foreign{url: "/devices/take-members-group-role", method: http.MethodPost},
+		foreign{url: "/devices/take-members-role", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/take-members-tenant-group-role", method: http.MethodPost},
 		foreign{url: "/devices/take-staff-group-role", method: http.MethodPost},
+		foreign{url: "/devices/take-staff-role", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/take-staff-tenant-group-role", method: http.MethodPost},
 		foreign{url: "/devices/unlink-members-session-identity", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/unlink-members-tenant-session-identity", method: http.MethodPost},
@@ -1605,6 +1714,10 @@ func (s *routerDefaultSessionStub) InvitationSignUp() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "InvitationSignUp")
 }
 
+func (s *routerDefaultSessionStub) EmailConfirm() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EmailConfirm")
+}
+
 func (s *routerDefaultSessionStub) SignUpStart() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignUpStart")
 }
@@ -1615,6 +1728,18 @@ func (s *routerDefaultSessionStub) SignUpOpen() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) SignUpComplete() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignUpComplete")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetRequest() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetRequest")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetOpen() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetOpen")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetComplete() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetComplete")
 }
 
 func (s *routerDefaultSessionStub) InvitationAccept() http.HandlerFunc {
@@ -1728,10 +1853,6 @@ func (s *routerPortalSessionStub) DirectoryFrontChannelLogout() http.HandlerFunc
 	return s.rec.RecordHandlerCall(s.prefix + "DirectoryFrontChannelLogout")
 }
 
-func (s *routerPortalSessionStub) PendingConfirmWithPassword() http.HandlerFunc {
-	return s.rec.RecordHandlerCall(s.prefix + "PendingConfirmWithPassword")
-}
-
 func (s *routerPortalSessionStub) PendingCancel() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PendingCancel")
 }
@@ -1762,6 +1883,10 @@ func (s *routerPortalSessionStub) ChangeLook() http.HandlerFunc {
 
 func (s *routerPortalSessionStub) InvitationOpen() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "InvitationOpen")
+}
+
+func (s *routerPortalSessionStub) EmailConfirm() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EmailConfirm")
 }
 
 func (s *routerPortalSessionStub) InvitationAccept() http.HandlerFunc {
@@ -1820,6 +1945,8 @@ type routerHandlersStub struct {
 	// serverVersion is the release the stub reports; empty, no release, so a case that
 	// sets none is never refused.
 	serverVersion string
+	// serverEnvironment is the environment's name the stub reports; empty, production's.
+	serverEnvironment string
 	// exporter is where the request log goes when a test sets one, the console for the
 	// request log test; nil hands the router the recording stub.
 	exporter logger.Exporter
@@ -1827,6 +1954,10 @@ type routerHandlersStub struct {
 
 func (s *routerHandlersStub) ServerVersion() string {
 	return s.serverVersion
+}
+
+func (s *routerHandlersStub) ServerEnvironment() string {
+	return s.serverEnvironment
 }
 
 func newRouterHandlersStub(rec *routerCallRecorder) *routerHandlersStub {

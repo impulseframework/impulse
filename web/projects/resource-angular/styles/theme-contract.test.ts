@@ -23,6 +23,9 @@ const styles = read(join(root, 'styles', '_index.scss'));
 const theme = read(join(root, 'styles', '_theme.scss'));
 const tokens = declared(styles);
 const themed = declared(theme);
+// A token that holds a length (how large a title is drawn) is declared with its default
+// like every other, and is not the theme's to set: the theme hands over colors.
+const isLength = (token: string): boolean => token.endsWith('-size');
 // The variables the sheet exposed before the tokens that hold a color: the two the
 // components read, and the section label's presets that name a surface (the label reads
 // the preset the application picks, white unless it picks another).
@@ -31,7 +34,7 @@ const older = [
   '--app-background-color',
   '--layout-label-background-white',
   '--layout-label-background-off-white',
-  '--layout-label-background-grey',
+  '--layout-label-background-gray',
 ];
 
 describe('the theming contract', () => {
@@ -46,12 +49,21 @@ describe('the theming contract', () => {
     expect([...tokens].filter((t) => !used.has(t))).toEqual([]);
   });
 
-  it('sets every token, and the older variables that hold a color, from the theme', () => {
-    expect([...tokens].filter((t) => !themed.has(t))).toEqual([]);
+  it('sets every token that holds a color, and the older variables that hold one, from the theme', () => {
+    expect([...tokens].filter((t) => !isLength(t) && !themed.has(t))).toEqual([]);
+    expect([...themed].filter(isLength)).toEqual([]);
     expect([...themed].filter((t) => !tokens.has(t))).toEqual([]);
     for (const name of older) expect(theme).toMatch(new RegExp(`^\\s*${name}\\s*:\\s*var\\(--mat-sys-`, 'm'));
     for (const line of theme.split('\n').filter((l) => /^\s*--/.test(l)))
       expect(line).toMatch(/var\(--mat-sys-[a-z0-9-]+\)/);
+  });
+
+  // The gray preset was first named in another spelling, and an application's stylesheet
+  // may still say that name: it stays declared, as the preset's value, so it follows the
+  // theme by following the preset and the theme sheet sets the one name.
+  it('keeps the gray preset under the name it had first, as the value of the name it has now', () => {
+    expect(styles).toMatch(/^\s*--layout-label-background-grey\s*:\s*var\(--layout-label-background-gray\)\s*;/m);
+    expect(theme).not.toContain('--layout-label-background-grey');
   });
 
   it('leaves no literal color in a component stylesheet', () => {
@@ -74,5 +86,106 @@ describe('the theming contract', () => {
       });
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+// How large the titles are drawn is declared once, in the styles sheet: a page's title and
+// a section's, for a wide screen and for a phone, at the width the frame's bar folds its
+// menus away. A section's title is under its page's at both.
+describe('the sizes of the titles', () => {
+  const sizes = (text: string): Record<string, number> =>
+    Object.fromEntries(
+      [...text.matchAll(/^\s*(--impulse-(?:page|section)-title-size)\s*:\s*(\d+)px\s*;/gm)].map((m) => [
+        m[1],
+        Number(m[2]),
+      ]),
+    );
+  const phoneAt = styles.indexOf('@media (max-width: 599.98px)');
+
+  it("declares a page's title at 32 pixels and a section's at 24 on a wide screen", () => {
+    expect(phoneAt).toBeGreaterThan(0);
+    expect(sizes(styles.slice(0, phoneAt))).toEqual({
+      '--impulse-page-title-size': 32,
+      '--impulse-section-title-size': 24,
+    });
+  });
+
+  it('declares them at 24 and 20 on a phone, at the width the frame calls a phone', () => {
+    expect(sizes(styles.slice(phoneAt))).toEqual({
+      '--impulse-page-title-size': 24,
+      '--impulse-section-title-size': 20,
+    });
+    expect(read(join(root, 'auth-frame', 'layout.ts'))).toContain("phoneWidth = '(max-width: 599.98px)'");
+  });
+
+  it('keeps a section under its page at both, and both inside the layer an application overrides', () => {
+    const wide = sizes(styles.slice(0, phoneAt));
+    const phone = sizes(styles.slice(phoneAt));
+    expect(wide['--impulse-section-title-size']).toBeLessThan(wide['--impulse-page-title-size']);
+    expect(phone['--impulse-section-title-size']).toBeLessThan(phone['--impulse-page-title-size']);
+    // The layer runs from its opening brace to the brace that closes it.
+    const layer = styles.indexOf('@layer impulse-defaults');
+    let depth = 0;
+    let end = -1;
+    for (let i = styles.indexOf('{', layer); i < styles.length && end < 0; i++) {
+      if (styles[i] === '{') depth++;
+      if (styles[i] === '}' && --depth === 0) end = i;
+    }
+    expect(layer).toBeGreaterThanOrEqual(0);
+    expect(layer).toBeLessThan(styles.indexOf('--impulse-page-title-size'));
+    expect(styles.lastIndexOf('--impulse-section-title-size')).toBeLessThan(end);
+  });
+
+  it('reads a size nowhere but through its token: no stylesheet of a title names a size of its own', () => {
+    const headings = read(join(root, 'styles', '_headings.scss'));
+    expect(headings).toContain('font-size: var(--impulse-page-title-size);');
+    expect(headings).toContain('font-size: var(--impulse-section-title-size);');
+    const offenders: string[] = [];
+    for (const sheet of sheets(join(root, 'resource'))) {
+      if (!read(sheet).includes('headings.')) continue;
+      read(sheet)
+        .split('\n')
+        .forEach((line: string, i: number) => {
+          if (/^\s*(\.title|\.page-title|h1)\b/.test(line)) {
+            const rule = read(sheet)
+              .split('\n')
+              .slice(i, i + 12)
+              .join('\n')
+              .split('}')[0];
+            if (/font-size\s*:/.test(rule)) offenders.push(`${sheet.slice(root.length + 1)}:${i + 1}`);
+          }
+        });
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+// An icon is never drawn as the letters of its name. The fonts sheet declares the icons'
+// font with nothing drawn in its place at first, and draws no icon at all while the root
+// element carries the class IconFontService marks it with; the sheet and the service name
+// the same family and the same class.
+describe('the icons while their font is on its way', () => {
+  const fonts = read(join(root, 'styles', '_fonts.scss'));
+  const service = read(join(root, 'ui-theme', 'icon-font.service.ts'));
+  // The text the service gives a constant, read from every constant it gives text to.
+  const texts = [...service.matchAll(/(\w+) = '([^']+)'/g)];
+  const named = (constant: string): string => texts.find(([, name]) => name === constant)?.[2] ?? '';
+
+  it('draws no icon under the class the service marks the root element with', () => {
+    const mark = named('AWAITS_ICON_FONT');
+    expect(mark).not.toBe('');
+    const rule = new RegExp(`\\.${mark} \\.material-icons \\{([^}]*)\\}`).exec(fonts)?.[1] ?? '';
+    expect(rule).toMatch(/visibility:\s*hidden;/);
+  });
+
+  it('declares the font under the family the service asks for, and draws the icons in it', () => {
+    const family = named('ICON_FONT_FAMILY');
+    expect(family).not.toBe('');
+    const faces = [...fonts.matchAll(/@font-face \{([^}]*)\}/g)]
+      .map((m) => m[1])
+      .filter((face) => face.includes(`font-family: '${family}';`));
+    expect(faces).toHaveLength(1);
+    expect(faces[0]).toMatch(/font-display:\s*block;/);
+    expect(/\.material-icons \{([^}]*)\}/.exec(fonts)?.[1] ?? '').toContain(`font-family: '${family}';`);
   });
 });

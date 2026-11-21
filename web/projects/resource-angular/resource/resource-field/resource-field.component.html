@@ -1,4 +1,4 @@
-<div [class.hidden-field]="!showField()">
+<div [class.hidden-field]="!showField()" [attr.data-field]="fieldConfig().name">
   @if (!hasControl()) {
     <!-- The form owner left this field out: nothing to render and no control to bind. -->
   } @else if (showEmptyField()) {
@@ -107,6 +107,11 @@
         </impulse-text-field>
       }
     }
+  }
+  @if (saysNeverShownAgain()) {
+    <p class="never-shown-again">
+      What you type here is saved, but it is never shown again. This box is empty every time the form opens.
+    </p>
   }
 </div>
 

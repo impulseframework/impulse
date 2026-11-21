@@ -1,6 +1,6 @@
 # access
 
-Go library for role-based access control (RBAC) with domain-partitioned permission management. The release's default roles travel with the release, in a role file embedded in the application binary; custom roles and role memberships live in typed tables owned by this library. Permission checks are answered by an immutable in-memory snapshot compiled from both — lock-free, allocation-free, and never touching the database on the request path.
+Go library for role-based access control (RBAC) with domain-partitioned permission management. The release's default roles travel with the release, in a role file embedded in the application binary; custom roles and role memberships live in typed tables owned by this library. Permission checks are answered by an immutable in-memory snapshot compiled from both — lock-free and allocation-free while the snapshot is fresh, and read again from the store, before the check answers, once it is older than its bound or a change was announced.
 
 ## Overview
 
@@ -29,7 +29,7 @@ go get github.com/impulseframework/impulse/access
 - **User**: Individual with assigned roles
 - **Role**: Named collection of permissions, of one of two kinds. A default role is declared in the release's role file (see Default Roles): a global default is held in the global partition, a domain default in every tenant domain, and the store holds no row for either. A custom role is created at run time through the user manager and held where it was created; its identity is `(policy scope, role)`.
 - **Permission**: Action that can be performed (List, Read, Create, Update, Delete, ...)
-- **Resource**: What a permission applies to. A resource name has at most one dot: `employees` is a parent resource, `employees.name` is one field on it, and `employees.*` grants all fields by implication (covering fields that don't exist yet). An endpoint grant (`employees`) gives no field visibility, and field grants don't grant the endpoint — that separation is the point of field-level control.
+- **Resource**: What a permission applies to. A resource name has at most one dot: `employees` is a parent resource, `employees.name` is one field on it, and `employees.*` grants all fields by implication (covering fields that don't exist yet), except that `Update` on all fields is not `Update` on a field the release marks immutable. An endpoint grant (`employees`) gives no field visibility, and field grants don't grant the endpoint — that separation is the point of field-level control.
 
 ## Policy Stores
 
@@ -43,7 +43,7 @@ The `access.Store` interface the two subpackages implement is sealed: only this 
 - `UserRoles` stands alone. A membership names its role by name alone, since a default role has no row to reference, so `InsertUserRole` writes by role name; the access package checks that the name resolves before it writes. An index led by the user (`{Prefix}{Store}UserRolesByUserID`) serves `ListUserMemberships`, which lists every membership a user holds wherever it is held.
 - `RoleGrants` belongs to its custom role: interleaved in `Roles` on Spanner and a foreign key on PostgreSQL, both with cascading delete. A grant needs its role's row, and deleting a custom role deletes its grants.
 - `DeleteRole` refuses while memberships held in that scope that have not ended still name the role, checked in the same transaction as the delete, and takes the ended ones with the role.
-- A membership, a place in a group and a group's role each carry the period they count in, in two nullable columns, `StartsAt` and `EndsAt` (see Periods). An insert gives the row its period: it writes the row where the key is free, and where it is taken it replaces the period and leaves the rest of the row as it was. No row is written when a period begins or ends. The listings of what a person or a group holds return the rows that count at the database's present; `ReadPolicy` returns every row with its period.
+- A membership, a place in a group and a group's role each carry the period they count in, in two nullable columns, `StartsAt` and `EndsAt` (see Periods). An insert gives the row its period: it writes the row where the key is free, and where it is taken it replaces the period and leaves the rest of the row as it was. A membership carries the reason it was given for too, in a nullable column `Reason` (see What is held and why): its insert writes the reason with the period and replaces both where the key is taken, so the reason kept is the one the role was last given with. No row is written when a period begins or ends. The listings of what a person or a group holds return the rows that count at the database's present; `ReadPolicy` returns every row with its period.
 - `Groups` holds the groups of people, each under an id the access package generates, with where it is kept (`Kind` is `global` or `domain`, checked in the database: no group is kept in every domain), its name and its description. A unique index (`{Prefix}{Store}GroupsByName`) holds a name to one group where the group is kept.
 - `GroupMembers` holds the people in each group and `GroupRoles` the roles each group holds, a role named by name alone as a membership names it. Both reference their group (a foreign key in both stores), so `DeleteGroup` refuses a group that still has a member or holds a role that has not ended, checked in the same transaction as the delete, takes the ended ones with the group, and the database stands behind the check. An index led by the user (`{Prefix}{Store}GroupMembersByUserId`) serves the groups a person is in, and one led by where a role is held (`{Prefix}{Store}GroupRolesByScope`) serves the group roles held in one tenant.
 - `ReadPolicy` reads the custom roles, their grants, the memberships, and the groups with their members and roles, with one consistent view of the store, for the snapshot to compile.
@@ -90,6 +90,8 @@ import (
     "github.com/impulseframework/impulse/access/postgresstore"
     "github.com/impulseframework/impulse/accesstypes"
     "github.com/jackc/pgx/v5/pgxpool"
+
+    "example.com/harbor/pkg/router" // the application's generated router
 )
 
 func main() {
@@ -102,9 +104,11 @@ func main() {
         log.Fatal(err)
     }
 
-    // An application that ships default roles adds
-    // access.WithDefaultRoles(collection, roles.File); see Default Roles.
-    client, err := access.New(store)
+    // The collection is what the release declares, here Read on documents and
+    // their fields: the application's generated router answers it. An
+    // application that ships default roles adds
+    // access.WithDefaultRoles(roles.File); see Default Roles.
+    client, err := access.New(store, router.Collection())
     if err != nil {
         log.Fatal(err)
     }
@@ -137,14 +141,54 @@ func main() {
 
 ## Policy Snapshot, Freshness, and Lifecycle
 
-Permission checks are served from an immutable in-memory snapshot: lock-free,
-allocation-free, and never touching the database on the request path. Policy
-changes propagate between instances in near-realtime through a change signal
-the application supplies (see Change signal below), with a background heartbeat
-as the correctness backstop: it re-reads the policy store (default every 1m) and
-swaps in a new snapshot only when the content changed, so cross-instance
-staleness is bounded by the heartbeat interval even if the signal breaks. Writes
-made through this client are visible to its own checks immediately.
+Permission checks are served from an immutable in-memory snapshot. A check that
+finds the snapshot fresh is lock-free and allocation-free and does not touch the
+database. Policy changes propagate between instances in near-realtime through a
+change signal the application supplies (see Change signal below), and the
+heartbeat interval (default 1m) bounds the staleness whatever happens to the
+signal. Writes made through this client are visible to its own checks at once.
+
+**Freshness is the check's own.** A check reads the policy store before it
+answers in three cases: no snapshot is loaded yet; the snapshot's store read
+began longer ago than the heartbeat interval; or a change was announced, by a
+policy write on this instance or a hint from another, and no store read that
+began after the announcement has landed. One read serves every check waiting at
+that moment, so a burst of requests costs one read and not one each, and the
+snapshot is swapped only when the content changed. A hint that arrives while a
+read is already in flight is not cleared by that read: the next check reads
+once more.
+
+**The background loop is an accelerator.** It re-reads the store on every
+heartbeat tick and on every hint, ahead of the checks, so on an instance that is
+serving a check seldom finds the snapshot due and seldom reads. Nothing depends
+on it. On a platform that gives a process CPU only while a request is in flight
+(Cloud Run's default) the loop does not run between requests, and the first
+check after an idle spell still answers from a store read no older than the
+heartbeat interval, because the check makes that read itself. An instance can
+record a hint only once it has CPU to receive it; one that sat idle is covered
+by the interval until its listener has run.
+
+**No read runs on the caller's context.** The engine reads the store under its
+own context, with its own timeout (ten seconds), whoever asked. A check made
+inside a database transaction is therefore safe: the Spanner client refuses a
+second read under a transaction's context, and the engine's read is not under
+it. A caller that goes away does not cancel a read other checks are waiting on.
+A store that does not answer holds a check for less than twice the timeout: the
+read in flight when the check came, and at most one after it.
+
+**A read that fails** is reported to the reload-error hook and the last good
+snapshot answers. The store is then left alone for one second: the checks that
+come in that pause are answered from the last good snapshot without a read, so a
+store that is down is read, and its failure reported, once a pause and not once
+a check; a hint from another instance that arrives meanwhile stays recorded, and
+the first check after the pause reads. A policy write on this instance ends the
+pause, since a store that has just accepted a write is not down: the next check
+reads it, and a read that fails after the write begins a pause of its own. The
+pause counts from the moment the read's time ran out when the read is found
+failed later than that, so on an instance that lost its CPU with a reload in
+flight, and sat idle past that reload's timeout and the pause after it, the
+first check reads the store itself. Only the first load has no snapshot to fall
+back on: its failure is the check's error.
 
 The snapshot compiles the release's default roles from the role file beside the
 store's rows, in three parts: the global partition; the policy held in every
@@ -157,41 +201,54 @@ tenant, and a thousand tenants share one compiled copy of the defaults.
 
 ```go
 client, err := access.New(store,
+    // What the release declares: the generated router's collection. Every
+    // grant's names are held to it, by one rule: a load skips and reports a
+    // stored grant naming a permission, resource or field this release does
+    // not have, instead of carrying it, and a write refuses one. A grant
+    // that names a permission and no resource is held to the permission. A
+    // client is not built without it.
+    router.Collection(),
     // The release's default roles: the role file embedded in the binary,
-    // validated against what the release declares (see Default Roles). The
-    // collection also lets a load skip and report a stored grant naming a
-    // permission, resource or field this release does not have, instead of
-    // carrying it. An application with no role file passes
-    // access.WithPermissionCollection(router.Collection()) for that check.
-    access.WithDefaultRoles(router.Collection(), roles.File),
+    // validated against the collection (see Default Roles).
+    access.WithDefaultRoles(roles.File),
     // Recommended: propagate changes between instances in near-realtime over
     // the application's signal channel (see Change signal).
     access.WithChangeSignal(policySignal),
-    // Optional: tune the heartbeat backstop (default 1m).
+    // Optional: tune the heartbeat interval, the bound on staleness
+    // (default 1m).
     access.WithHeartbeatInterval(30*time.Second),
-    // Optional: replace the hook that receives background reload/signal
-    // failures and the findings a load reports. The default writes each one
-    // to the standard log; while reloads fail, checks keep serving the last
-    // good snapshot.
+    // Optional: replace the hook that receives reload/signal failures and
+    // the findings a load reports. The default writes each one to the
+    // standard log; while reloads fail, checks keep serving the last good
+    // snapshot.
     access.WithReloadErrorHandler(func(err error) { alert(err) }),
 )
 
 // Readiness: block until the first policy snapshot has loaded.
 if err := client.WaitReady(ctx); err != nil { ... }
 
-// Shutdown: stop background reloading (checks keep serving the last snapshot).
+// Shutdown: stop reloading (checks keep serving the last snapshot, and read
+// the store no more).
 defer client.Close()
 ```
 
 A grant the running release cannot use — a condition that does not parse, a
-row-referencing condition on a scope-wide grant, or, with the collection from
-`WithDefaultRoles` or `WithPermissionCollection`, a permission, resource or
-field the release does not declare — does not stop the load: it is left out of
+row-referencing condition on a scope-wide grant, a permission, resource or
+field the release's collection does not declare, or, on a role's grant on a
+resource, anything else a write of the grant is refused for (below) — does not
+stop the load: it is left out of
 the snapshot and reported to the reload-error hook as a `*access.SkippedGrant`.
 The permission it would grant is denied, the rest of the policy loads, and the
-instance becomes ready. That is what makes a stored grant safe to outlive the
-release that wrote it: after a rollback, or after a release removes a field,
-the grant is denied and reported, and everything else keeps working.
+instance becomes ready. A scope-wide grant names a permission and nothing else,
+and is held to that: one whose permission the collection does not list is
+skipped and reported like the rest, so it gives nobody the permission, is in no
+listing of what the role holds, and is no foothold in its scope. That is what
+makes a stored grant safe to outlive the release that wrote it: after a
+rollback, or after a release removes a field or a permission, the grant is
+denied and reported, and everything else keeps working. The row stays in the
+store until it is removed (`DeleteRolePermission`, `DeleteRoleGrant`), so a
+later release that declares the name again carries the grant again: the
+report is the notice to remove a grant nobody means any more.
 
 A load reports two more findings the same way. A custom role whose name a
 default role of the running release has, in the same kind of scope, is a
@@ -207,31 +264,99 @@ A custom role's grant set changes through `ChangeRoleGrants`, one store write
 for the removals and the additions together, so a reader never sees a role
 with neither its old grant nor its new one.
 
+By the same collection, the writes that give a custom role a grant
+(`AddRoleGrant`, `AddRoleGrants`, `AddRolePermissionResources`, the additions
+of `ChangeRoleGrants`, and `AddRolePermission` for a grant that names no
+resource) refuse a grant the release cannot use by its name: a
+permission the release does not have, a permission it does not declare on the
+resource or the field, and an action no role is given. The refusal is a bad
+request that says which and why (`List on Ledgers cannot be given to a role:
+this release declares no List on Ledgers. ...`), and nothing of the call is
+written, the rows beside the refused one included. The load and the writes go
+by one rule for a grant's names, so the grants a load skips by name are the
+ones another release wrote or that were written straight to the store, never
+ones this release was asked for and took.
+
+A write of a grant on a resource is held to the rest of the rule the role
+file's grants are held to as well, so a role made at run time holds nothing a
+default role could not. The resource is of the role's scope: a global resource
+for a role held globally, a domain's for a role held in one domain or in every
+domain, since a grant of another scope sits in a partition the role's holders
+never look in. `Update` is not given on what the release marks immutable: a
+grant that names such a field is refused, and `Update` on all of a resource's
+fields (`Ledgers.*`) does not reach it. And
+the condition parses and reads only the attributes the resource declares and
+the subject vocabulary the application declares, a field's condition being
+held to its resource's attributes. Each is refused as a bad request in the
+role file's own sentence (`role Auditor is a domain role but grants Execute on
+CloseLedger, a global-scoped resource — a role's grants live at its declared
+scope; move the grant to a global role`, `role Auditor: Read grant on Ledgers:
+condition references "owner", which is not an attribute of Ledgers`), and
+nothing of the call is written. The load holds a role's stored grant on a
+resource to the same rule: one that breaks it, such as a grant of another scope
+or a condition that reads an attribute the release does not declare, is skipped
+and reported as a `*access.SkippedGrant` with the write's reason. So such a
+grant is no foothold where its role is held, no check meets a condition it
+cannot resolve, and its holder's other grants decide as they did. The store
+still holds the row, so `RoleGrants` lists it, marked with the reason
+(`RoleGrant.Skipped`): a page of a role's grants shows it as one the role does
+not hold, with why.
+
+A removal is held to nothing: a grant the release no longer declares can
+always be taken away. No client is without
+the collection: `New` takes it as an argument and refuses a nil one, a nil
+pointer of a collection's type included, so there is no client that checks no
+name. `access.IsNilCollection` is that check, exported for a package that
+takes the collection as a setting and refuses a missing one in its own words,
+naming the setting: the generated auth packages ask it before they open
+anything.
+
 ### Change signal
 
-The engine announces on the change signal after every successful policy write
-and watches it for the hints other instances announce. A hint only nudges the
-background loop to re-read the policy store: the signal carries no policy, so a
-lost or duplicated hint costs latency and nothing else. Announce failures and
-watch errors reach the reload-error hook and never fail the write. `Close`
-waits for an announcement still in flight, bounded by a few seconds, so a write
-made right before it (a migrate command's seed) is heard by the other instances
-before the application closes the channel.
+The engine announces on the change signal once for every call that writes
+policy, as the call's last step and before it returns, and watches the signal
+for the hints other instances announce. A call of the `UserManager` announces
+once however many rows it writes: giving a role to thirty people is one
+announcement, and a call that fails part-way announces what it wrote. Each row
+is visible to this instance's own checks the moment it is stored. The engine
+leaves nothing to publish once the call has returned, so an instance that gets
+no CPU once it has answered (Cloud Run's default) holds no announcement of the
+engine's back, and a write that has returned before `Close` (a migrate
+command's seed) has handed its announcement to the channel before the
+application closes it. The channel is to do the same and return once the signal
+is sent: the resource package's live service sends one write for the signals of
+a kind that overlap, and each of them waits for the write that covers it. The
+announcement has two seconds: one that fails or runs out is reported to the
+reload-error hook, once for the call, and never fails the write, and the other
+instances then learn of the change at their heartbeat interval. So a channel
+that is down costs a call two seconds, whatever the call wrote.
+
+A hint is recorded the moment it arrives, before any reload is tried, and wakes
+the background loop: from then the next check reads the policy store before it
+answers, whether or not the loop got there first, so a change that was
+announced waits for no loop on an instance that heard the announcement; the old
+snapshot answers only while the store cannot be read (see A read that fails,
+above). The signal carries no policy, so a lost hint costs latency, bounded by
+the heartbeat interval, and a duplicated one costs a read. Watch errors reach
+the reload-error hook too.
 
 The application supplies the signal as an adapter over its one signal channel,
 through `access.ChangeSignalFunc(announce, watch)`. `announce` publishes the
-policy kind on the channel. `watch` subscribes to the policy kind, hands every
+policy kind on the channel and returns when its context ends, since the call
+that wrote waits for it. `watch` subscribes to the policy kind, hands every
 signal to the `onChange` the engine passes, and blocks until its context ends;
 that is the `Watch` contract, and it keeps the subscription open for the life of
 the client, its stop running when `watch` returns. Whenever `watch` returns
 early (a subscription that ended), the engine re-invokes it after a delay, so a
 `watch` that returns on connection loss is enough.
 
-The heartbeat is the backstop. With or without a signal, the engine re-reads the
-policy store every heartbeat interval (default 1m, `WithHeartbeatInterval`) and
-swaps in a new snapshot only when the content changed, so cross-instance
-staleness is bounded by that interval while the signal is broken or absent.
-Correctness never depends on the signal.
+The heartbeat interval is the bound. With or without a signal, no check is
+answered from a snapshot whose store read began longer ago than the interval
+(default 1m, `WithHeartbeatInterval`): the loop re-reads on every tick of it,
+and a check that finds it passed re-reads before it answers. So cross-instance
+staleness is bounded by that interval while the signal is broken or absent, on
+an instance that is serving and on one that sat idle alike. Correctness never
+depends on the signal, and never on the loop.
 
 An application built on the resource package has the channel already: its
 `live.Service` (package `github.com/impulseframework/impulse/resource/live`) carries
@@ -256,7 +381,7 @@ policySignal := access.ChangeSignalFunc(
     },
 )
 
-client, err := access.New(store, access.WithChangeSignal(policySignal))
+client, err := access.New(store, router.Collection(), access.WithChangeSignal(policySignal))
 ```
 
 Any channel that publishes a kind to every instance's subscribers adapts the
@@ -288,15 +413,26 @@ separate roles. Grouping is the engine's job: within one
 `CheckUserResources` call, a Conditional decision's
 `ConditionGroup.Resources` lists every checked resource sharing that
 covering-grant set, the same group appearing in each member's Decision —
-deduplicate by sorted-Resources equality. Conditions never attach to
-scope-wide grants (there is no row for them to see — rejected at snapshot
-load; interim — this narrows to row-referencing conditions once the
-condition package classifies row-free, with environment/subject-only
-conditions folding at check time), so `CheckUser` never answers
-`Conditional`. Nothing authors
-conditions yet (the expression language is undesigned), so in practice every
-Decision is `Granted` or `Denied` and an empty `Environment` is the normal
-argument.
+deduplicate by sorted-Resources equality.
+
+A scope-wide grant has no row for a condition to see, so the only condition
+one can carry is about the time of the request (`now < '2027-03-01T00:00:00Z'`).
+No write gives a scope-wide grant a condition: `AddRolePermission` takes none,
+and a role file's grant always names a resource. One that has a condition is a
+row put straight in the store. At snapshot load, a scope-wide grant whose
+condition reads a row is left out and reported as a `*access.SkippedGrant`,
+like any other grant the release cannot use; one whose condition reads only the
+time is kept and settled at check time against the `Environment`. So
+`CheckUser` and `CheckRole` answer `Granted` or `Denied`, never `Conditional`.
+A scope-wide check that cannot settle a condition is a check error, never a
+guess: the condition reads `now` and the `Environment` carries no instant, or
+it compares the time to a subject value, which only the database can read.
+
+A role file's grant on a resource carries a condition (`Condition`), so
+`CheckUserResources` and `CheckRoleResources` do answer `Conditional`. A
+condition that reads `now` is settled against the instant the `Environment`
+carries (`accesstypes.EnvironmentAt`, or `WithNow`), sampled once per request;
+without one the check is an error.
 
 The role checks are the same seams evaluated against a role's effective
 grants — its own and, transitively, every role it inherits — with no member
@@ -320,6 +456,23 @@ decision, err := client.CheckUser(ctx, env, user, scope, "ExportReports") // sco
 decisions, err = client.CheckRoleResources(ctx, env, role, scope, "Update", "documents")
 decision, err = client.CheckRole(ctx, env, role, scope, "ExportReports")
 ```
+
+`ExportReports` here is a permission no resource registers: the application
+checks it for the whole of a scope and for nothing else. A release has such a
+permission because the application declares it, with `@manualAddPermission` on
+a constant of type `accesstypes.Permission` in its resources package, and the
+generated collection then lists it with no resource:
+
+```go
+// ExportReports is checked for the whole of a tenant.
+//
+// @manualAddPermission
+const ExportReports accesstypes.Permission = "ExportReports"
+```
+
+A scope-wide grant of a permission the collection does not list is refused
+when it is written and skipped when the policy is loaded, so a check of a
+permission the application never declared answers `Denied` for everyone.
 
 A request binds its principal once: `client.ForUser(user)` returns a
 `*UserChecker` and `client.ForRole(role)` a `*RoleChecker`, each carrying
@@ -456,9 +609,9 @@ tenant1 := accesstypes.DomainPolicyScope("tenant1")
 // Until Friday noon, from now: no start is from the moment the role is given.
 friday := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 period, err := accesstypes.NewPeriod(nil, &friday)
-mgr.AssignUserRole(ctx, tenant1, "john.doe", "Editor", period)
+mgr.AssignUserRole(ctx, tenant1, "john.doe", "Editor", period, "Covering the release on Friday")
 
-// Assigning again replaces the period; with none, the role stands until it is removed.
+// Assigning again replaces the period and the reason; with none, the role stands until it is removed.
 mgr.AddUserRoles(ctx, tenant1, "john.doe", "Editor")
 
 // A person's place in a group and a group's role take a period the same way.
@@ -494,6 +647,43 @@ mgr.AssignGroupRole(ctx, watch, tenant1, "Editor", period)
   person's ended assignments at their next sign-in; until then the row counts for nothing
 - A caller that writes an assignment's row in a transaction of its own asks
   `ValidatePeriod` before it writes, as it asks `Membership` or `GroupRole` for the key
+
+### What is held and why
+
+A person's role may carry the reason it was given for, and the user manager answers
+three questions a page asks of what is held: where each of a person's roles comes from,
+what each group holds, and who loses a role a group stops holding.
+
+```go
+// The reason is the last argument of AssignUserRole: one line, empty for none.
+mgr.AssignUserRole(ctx, tenant1, "john.doe", "Editor", period, "Covering the release on Friday")
+
+held, err := mgr.UserRolesHeld(ctx, "john.doe")       // []access.HeldRole: their own with period and reason, and through each group
+groups, err := mgr.GroupContents(ctx, tenant1)          // []access.GroupContent: each group with its people counted and its roles
+losers, err := mgr.GroupRoleLosers(ctx, watch, tenant1, "Editor") // who loses Editor in tenant1 when the group stops holding it
+```
+
+- The reason is one line of plain text of at most `MaxReason` characters, kept less the
+  space around it; a line break or a character that cannot be shown is refused
+  (`ValidateReason`, which a caller that writes the row in a transaction of its own asks
+  before it writes). It is not policy: no check reads it, and `ReadPolicy` does not carry
+  it
+- Nothing edits a reason by itself. Assigning again replaces the period and the reason
+  together, and the `Add` methods give neither, so a role given again with no reason
+  carries none
+- `UserRolesHeld` lists a role once for each way the person holds it: a membership of
+  their own (`Group` is nil), with its period and its reason, and each group they are in
+  that holds the role (`Group` names it). The person's own are the memberships that have
+  not ended, one whose period has not begun among them; the ones through a group are the
+  ones `UserRoles` counts now
+- `GroupContents` counts what has not ended, an assignment whose period has not begun
+  among it, which is what `DeleteGroup` refuses a group for: a group listed with no
+  people and no roles is one `DeleteGroup` removes
+- `GroupRoleLosers` lists the people in the group now who hold the role there through
+  this group and in no other way. A person who also holds it themselves, through another
+  group, or in every tenant when the scope is one tenant, keeps it and is not listed.
+  Nobody is listed while the group does not give the role: its period has not begun or
+  has ended, or the role is one its members do not hold through it
 
 ### Role Management
 
@@ -556,7 +746,10 @@ mgr.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "documents", "doc
 mgr.DeleteRolePermissionResources(ctx, tenant1, "Editor", "Read", "documents.*")
 
 // A scope-wide permission (not tied to any resource) is granted through the
-// base-name method — there is no resource value that means it.
+// base-name method — there is no resource value that means it. The
+// permission is one the release has: one its collection lists, because a
+// resource registers it or because the application declares it with
+// @manualAddPermission on a constant of type accesstypes.Permission.
 mgr.AddRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 mgr.DeleteRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 
@@ -564,7 +757,9 @@ mgr.DeleteRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 // folded: the file's grants for a default role, the store's for a custom one.
 permissions, err := mgr.RolePermissions(ctx, accesstypes.DomainScope("tenant1"), "Administrator")
 
-// The role's resource grants as held, with the conditions each is granted under.
+// The role's resource grants, each with the condition it is granted under
+// (access.RoleGrant). A stored row this release cannot use is listed too, with
+// why in Skipped: the load left it out, so the role does not hold it.
 grants, err := mgr.RoleGrants(ctx, tenant1, "Administrator")
 ```
 
@@ -624,6 +819,17 @@ without a description, declares a role twice or at both scopes, grants what
 the collection does not declare, or carries a condition the vocabulary refuses
 fails `New`, so a release whose default roles are wrong does not start.
 
+A collection may mark an action as one no role is given, as the generator marks the
+action of the create-your-tenant route (`NoRole: true` in the generated collection).
+Nothing asks for a grant of such an action: it is registered only so that a permission
+mask can refuse it to a session that acts as someone. A role file that grants one is
+refused, in a sentence that names the role and the action and says to remove the grant,
+and a grant of one that the store already holds for a custom role is skipped at the load
+and reported by `CheckPolicy`, as a grant on a name this release does not declare. The
+collection says which actions are marked through two optional methods,
+`IsNoRoleAction(action)` and `NoRoleActions()`, which the generated collection and
+`UnionCollection` carry; a collection without them marks none.
+
 Every role name follows one grammar, a default role's in the file and a custom
 role's given to `AddRole` alike: letters and digits starting with a capital
 letter, such as `Administrator` or `TenantAdministrator` — no underscore,
@@ -662,11 +868,11 @@ import (
 var File access.RoleFile
 ```
 
-Hand it to `New` with the collection it validates against:
+Hand it to `New`, which validates it against the collection it is given:
 
 ```go
-client, err := access.New(store,
-    access.WithDefaultRoles(router.Collection(), roles.File),
+client, err := access.New(store, router.Collection(),
+    access.WithDefaultRoles(roles.File),
     access.WithChangeSignal(policySignal), // see Change signal
 )
 if err != nil {
@@ -674,8 +880,10 @@ if err != nil {
 }
 ```
 
-`WithDefaultRoles` also gives the client the collection `WithPermissionCollection`
-would, so an application with a role file passes only `WithDefaultRoles`.
+The collection is given once, to `New`: the role file validates against it, and
+the names of every grant the store holds or a write adds are held to it, a
+grant on a resource or a field and a grant of a permission for the whole of a
+scope alike.
 
 The deploy's migrate step calls `CheckPolicy`. It reads the store once and
 returns the role file's warnings (see Warnings) beside what the store holds that
@@ -735,8 +943,8 @@ defines it too.
   auth's roles, which the auth's generated management names
   (`<auth>identity.SuperAdministratorMethods()`). The role then holds Execute on each,
   under no condition, whatever the role file grants anybody, so a super administrator
-  gives and takes any role of the auth for any person. With a collection, `New` refuses a
-  method the release does not declare at the global scope with Execute.
+  gives and takes any role of the auth for any person. `New` refuses a method the
+  release's collection does not declare at the global scope with Execute.
   `Client.SuperAdministratorMethods` answers what the client was built with, and the
   identity library refuses an engine built without the methods its auth names
 - `Client.UserIsSuperAdministrator` and `UserChecker.SuperAdministrator` answer whether a
@@ -889,11 +1097,15 @@ for _, w := range warnings {
 A deployment whose sites each generate their own collection over one schema shares one
 policy store: a login is one identity and a role is one set of powers across the
 application. `UnionCollection` presents the sites' collections as one registry for
-`WithDefaultRoles`: the registries merge, the subject namespace is the union of the sites'
+`New`: the registries merge, the subject namespace is the union of the sites'
 declarations, and every other question about a resource is answered by the first
 collection registering it. A resource several sites serve must be declared identically
 in each; `UnionCollection` refuses collections that disagree on a shared resource's
 permissions (fields included), scope, immutability, computed marking, or method target.
+An action one site marks as an action no role is given is no role's in the union, and a
+site that registers the same name for roles is refused: a name is one or the other in
+every site. A collection passed as nil is refused with a sentence that says which
+argument it was.
 
 ```go
 collection, err := access.UnionCollection(consolerouter.Collection(), portalrouter.Collection())
@@ -901,7 +1113,7 @@ if err != nil {
     return err
 }
 
-client, err := access.New(store, access.WithDefaultRoles(collection, roles.File))
+client, err := access.New(store, collection, access.WithDefaultRoles(roles.File))
 ```
 
 ### JSON Configuration
@@ -942,6 +1154,9 @@ domain-scoped resources and is held in every tenant domain. A job function that 
 both kinds of powers is two roles assigned to one user. Each grant names a base
 `resource`, the `fields` it covers as their wire tags, and an optional `condition`; a role
 may carry several grants on one resource for one permission, each under its own condition.
+`"fields": ["*"]` is all of the resource's fields, the ones a later release adds among
+them: the grant a write to a custom role spells `Documents.*`. `Update` on all the fields
+is not `Update` on a field the release marks immutable.
 
 The file is decoded strictly: a key the shape does not declare is an error, since a
 misspelled key would otherwise silently drop the roles under it. `RoleFile.Parse` decodes

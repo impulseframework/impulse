@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -127,12 +128,6 @@ type DirectorySeater[Tx any] func(ctx context.Context, tx Tx, userID impulse.UUI
 // is held to what InvitationAcceptor is for its reads: tx alone.
 type OnlyInTenant[Tx any] func(ctx context.Context, tx Tx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
 
-// SeededAccount is the application's word on an account the deployment's own seed
-// created for a person who signs in through a directory: whether the account with this
-// id and username is the one a seed made for the registration named
-// (session.SeedUserIDThrough). It reads nothing. See firstLink.
-type SeededAccount func(userID impulse.UUID, username, registration string) bool
-
 // SignUpSeater is the application's half of a sign-up through a method an administrator
 // opened: it gives userID, named by id and by username, the default role the method's
 // row names, inside the transaction that makes the account, which it is handed: the
@@ -187,17 +182,18 @@ type Rules[Tx any] struct {
 	Directories signin.DirectoryReader[Tx]
 	Seat        DirectorySeater[Tx]
 	OnlyIn      OnlyInTenant[Tx]
-	// Seeded reports whether an account is the deployment's own seed for the
-	// registration the sign-in came through, nil for none, and OneOrganization says
-	// that registration admits the people of exactly one organization and nobody else
-	// (signin.Audience.OneOrganization): with Directories the two admit the seed's
-	// first link on the name; see firstLink.
-	Seeded          SeededAccount
-	OneOrganization bool
 	// SeededUsers says the registration declared its provider's names the
 	// application's own (signin.Registration.SeededUsers): the standard rule's first
 	// link of a user created ahead is then made on the name alone; see firstLink.
 	SeededUsers bool
+	// NoPassword says the Auth registers no password method. No sign-in can then prove
+	// a password, so a password an account holds (one the application's API set, or
+	// one kept from a release that had the method) is no reason to hold a sign-in for
+	// a confirmation no route can take: the standard rule and the link decide such an
+	// account as they decide one with no password; see asRegistered. A rule of the
+	// registration's own that asks for the confirmation all the same is refused; see
+	// applyResolution.
+	NoPassword bool
 	// TrustedDevice reports whether the browser is a trusted device of the user, nil
 	// for none; see decideSignIn.
 	TrustedDevice TrustedDeviceCheck
@@ -205,6 +201,19 @@ type Rules[Tx any] struct {
 	// was proved: the session is inserted only while the user still holds that password
 	// (decideAndInsert).
 	Proven dbtype.PasswordProof
+	// ConfirmAddress says a sign-in through a directory that does not vouch for the
+	// person's address is held for the code that confirms one, while the account holds
+	// no confirmed address (addressHold), and that the standard rule's first link to an
+	// account created ahead, on a sign-in name the method does not vouch for, waits for
+	// the code mailed to the address the account holds (nameAloneHold). It is set by an
+	// Auth that sends mail, for a registration that is not the deployment's own
+	// provider of seeded accounts.
+	ConfirmAddress bool
+	// WaitedOn is the user a pending sign-in waited on, for the sign-in that completes
+	// the wait; it is not valid for any other. The rules' answer for an identity that is
+	// still linked to nobody is held to that user before anything is written
+	// (waitedOnAnother).
+	WaitedOn impulse.NullUUID
 }
 
 // SignIn establishes session id for a request that carries a verified identity, in two
@@ -326,7 +335,7 @@ func SignIn[Tx any](
 		return err
 	}
 
-	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules.Policy, trusted, rules.Proven)
+	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules.Policy, trusted, rules.Proven, rules.ConfirmAddress)
 }
 
 // invitedAddressRefusal refuses a sign-in that carries an invitation mailed to another
@@ -415,12 +424,14 @@ func InvitedAddressMessage(inv *sessioninfo.Invitation) string {
 	return fmt.Sprintf("This invitation is for %s. Sign in with that account.", inv.Email)
 }
 
-// sameAddress reports whether two addresses are one, without regard to case and
-// surrounding space; an empty address is nobody's and matches nothing.
+// sameAddress reports whether two addresses are one, without regard to the case of
+// their ASCII letters and surrounding space; an empty address is nobody's and matches
+// nothing. A letter from outside ASCII equals only itself: Unicode's case folding takes
+// the Kelvin sign (U+212A) for k, and an address written with one is another mailbox.
 func sameAddress(a, b string) bool {
 	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
 
-	return a != "" && strings.EqualFold(a, b)
+	return a != "" && util.EqualASCIIFold(a, b)
 }
 
 // trustedDevice asks check, nil for none, whether the browser is a trusted device of
@@ -942,13 +953,17 @@ type unlinkedUser struct {
 }
 
 // resolveUnlinked resolves an identity that is linked to no user: the account rules
-// decide it and their answer is applied.
+// decide it and their answer is applied. The sign-in that completes a wait applies an
+// answer for the wait's user and no other (waitedOnAnother).
 func resolveUnlinked[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rules Rules[Tx],
 ) (resolved unlinkedUser, stop, err error) {
 	decided, stop, err := decideAccount(ctx, d, tx, req, rules)
 	if err != nil || stop != nil {
 		return unlinkedUser{}, stop, err
+	}
+	if stop := waitedOnAnother(rules.WaitedOn, decided.res); stop != nil {
+		return unlinkedUser{}, stop, nil
 	}
 	source, tenant, live, stop, err := applyResolution(ctx, d, tx, req, decided, rules)
 	if err != nil || stop != nil {
@@ -967,6 +982,33 @@ func resolveUnlinked[Tx any](
 	}
 
 	return resolved, nil, nil
+}
+
+// waitedOnAnother refuses the completion of a wait whose identity the account rules no
+// longer give to the user the wait was for (Rules.WaitedOn). The step the person
+// answered was that user's: the code went to the address their account holds, or their
+// password confirmed the link. The rules decide the identity again at the completion,
+// and the name it asserts may have moved to another account during the wait, so their
+// answer is held to the wait's user here, before anything is written: a link to
+// another user, a confirmation by another user and an account made new are refused,
+// and no link or account is left behind. It returns nil for a sign-in that completes
+// no wait, and for an answer that refuses the identity itself.
+func waitedOnAnother(waitedOn impulse.NullUUID, res *signin.Resolution) error {
+	if !waitedOn.Valid || res == nil {
+		return nil
+	}
+	switch res.Outcome() {
+	case signin.LinkIdentity, signin.RequireConfirmation:
+		if res.UserID() == waitedOn.UUID {
+			return nil
+		}
+	case signin.ProvisionUser:
+		// A new account is nobody the wait was for.
+	case signin.RejectIdentity, signin.ApplyStandardRule:
+		return nil
+	}
+
+	return Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "the identity no longer resolves to the user it was pending for")
 }
 
 // accountDecision is what the account rules answered for an unlinked identity: the
@@ -1042,6 +1084,7 @@ func standardRule[Tx any](
 	if err != nil {
 		return accountDecision{}, nil, err
 	}
+	user = asRegistered(user, rules)
 	if user != nil && user.HasPassword {
 		return accountDecision{res: signin.Confirm(user.ID, signin.Tenant(tenant))}, nil, nil
 	}
@@ -1192,8 +1235,9 @@ func defaultSeats(declared []signin.DeclaredDirectory) []signin.DirectorySeat {
 
 // preCreatedUser finds the user an unlinked identity belongs to, before any row is
 // written: the user under the identity's sign-in name, matched without regard to case,
-// or else the user who holds the identity's address verified, when the method verified
-// the address (Identity.EmailVerified; Google does, Entra does not). A person is one
+// or else the user who holds the identity's address verified, when the method vouches
+// for the address (Identity.EmailVerified: Google alone does, and only for a Gmail
+// address or a Workspace account's; no other method's word counts). A person is one
 // user whichever way they sign in, and an address counts once the person has proven
 // it: an address the method did not verify, or one a user holds unverified, matches no
 // one. nil when there is neither.
@@ -1248,6 +1292,13 @@ func applyResolution[Tx any](
 
 		return sessioninfo.UserProvisioned, res.Tenant(), live, nil, nil
 	case signin.RequireConfirmation:
+		// A confirmation is the user's password, and an Auth with no password method
+		// serves nothing that takes one: the sign-in would wait on what nobody can
+		// give. It is refused, and never made a link, which would join the account on
+		// less proof than the rule asked for.
+		if rules.NoPassword {
+			return "", "", false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrConfirmNeedsPasswordMethod, "identity requires a confirmation that cannot be given"), nil
+		}
 		user, err := d.UserIn(ctx, tx, res.UserID())
 		if err != nil {
 			return "", "", false, nil, errors.Wrap(err, "Driver.UserIn()")
@@ -1268,8 +1319,11 @@ func applyResolution[Tx any](
 // user is disabled. An untrusted link to a user with a password, or from a connection
 // a password-less user does not sign in through, is a refusal (stop) and links
 // nothing. So is the standard rule's link, made on the name alone (onName), in two
-// cases. A user with no password and no link, in a tenanted application, is linked only
-// when something vouches for it (firstLink). A user with no password who already signs
+// cases. A user with no password and no link is linked only when something vouches for
+// it (firstLink): a tenant's directory or the user's own invitation in a tenanted
+// application, and in any other the method's word for the name or the code mailed to
+// the address the account holds, which the sign-in waits for (stop, a pending step)
+// with nothing linked. A user with no password who already signs
 // in through an identity is never linked a second one on the name: a name proves
 // nothing (where a username is not an address, a person may hold an account under a
 // colleague's sign-in name, link an identity of their own to it and remove its
@@ -1283,9 +1337,9 @@ func linkUser[Tx any](
 ) (live bool, stop, err error) {
 	// The row is held until the transaction ends, so two link decisions for one
 	// user run one after the other and the second sees the first's link.
-	user, err := d.LockUserIn(ctx, tx, res.UserID())
+	user, err := lockedAsRegistered(ctx, d, tx, res.UserID(), rules)
 	if err != nil {
-		return false, nil, errors.Wrap(err, "Driver.LockUserIn()")
+		return false, nil, err
 	}
 	if user.HasPassword && !res.Trusted() {
 		return false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkRequiresConfirmation, "identity requires confirmation"), nil
@@ -1298,7 +1352,7 @@ func linkUser[Tx any](
 		}
 		switch {
 		case len(links) == 0 && onName:
-			byInvitation, stop, err = firstLink(ctx, d, tx, req, user, rules)
+			byInvitation, stop, err = firstLink(ctx, d, tx, req, user, res.Tenant(), rules)
 			if err != nil || stop != nil {
 				return false, stop, err
 			}
@@ -1314,6 +1368,13 @@ func linkUser[Tx any](
 			}
 		}
 	}
+	if rules.ConfirmAddress {
+		// An account that could not take the address the method vouches for is not
+		// signed in to, and so is linked nothing.
+		if stop, err = addressTaken(ctx, d, tx, req, user); err != nil || stop != nil {
+			return false, stop, err
+		}
+	}
 	if err := d.LinkIdentityIn(ctx, tx, res.UserID(), req.Identity, res.Tenant()); err != nil {
 		return false, nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
 	}
@@ -1324,6 +1385,34 @@ func linkUser[Tx any](
 	live, err = consumeInvitation(ctx, d, tx, req, byInvitation)
 
 	return live, nil, err
+}
+
+// asRegistered is user as the sign-in's rules decide it, nil for nil: under an Auth that
+// registers no password method (rules.NoPassword) a password the account holds counts
+// for nothing, since no sign-in can prove it and no route takes its confirmation, so
+// the account is decided as one with no password. The first link of such an account is
+// then held to what vouches for any account created ahead of its sign-in (firstLink),
+// and a second identity to the proof one needs (linkUser). The row is left as it is:
+// the password is still the account's once the method is registered again.
+func asRegistered[Tx any](user *dbtype.User, rules Rules[Tx]) *dbtype.User {
+	if user == nil || !rules.NoPassword || !user.HasPassword {
+		return user
+	}
+	decided := *user
+	decided.HasPassword = false
+
+	return &decided
+}
+
+// lockedAsRegistered holds the user's row until the transaction ends (Driver.LockUserIn)
+// and returns the user as the sign-in's rules decide it (asRegistered).
+func lockedAsRegistered[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impulse.UUID, rules Rules[Tx]) (*dbtype.User, error) {
+	user, err := d.LockUserIn(ctx, tx, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.LockUserIn()")
+	}
+
+	return asRegistered(user, rules), nil
 }
 
 // holdsAddress reports whether the user holds, verified, the address the method verified
@@ -1363,33 +1452,27 @@ func holdsAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impul
 //   - the sign-in carries the user's own invitation (ownInvitation): the person holds
 //     the link mailed to the account's address. byInvitation then says the invitation
 //     admitted the link, so a dead one ends the sign-in and links nothing. A disabled
-//     user accepts no invitation, so theirs vouches for nothing;
-//   - the account is the deployment's own seed for the registration the sign-in came
-//     through (rules.Seeded: the first administrator of an auth whose people sign in
-//     through a directory, created with no password under the name the directory will
-//     present), and that registration admits one organization and nobody else
-//     (rules.OneOrganization). The deployment named the account and, by the id it
-//     seeded it under, the registration its name is believed from; a registration of
-//     one organization lets no other directory present the name. The same name through
-//     another registration of the Auth, a customer's own provider among them, or
-//     through a registration open to several organizations, to any organization or to
-//     personal accounts, is not the deployment's word and links nothing. A disabled
-//     seed is vouched for by nothing, as a disabled user's invitation vouches for
-//     nothing: no link is left on an account nobody may sign in to.
+//     user accepts no invitation, so theirs vouches for nothing.
+//
+// The deployment's own first administrator is no such account: no account is made ahead
+// of the person, who is invited, and the invitation is what vouches.
 //
 // Any other sign-in under the name is refused as a person no account was created for
 // is, with that refusal's code and words, which say nothing of the account: by
 // invitation only through a directory some tenant has, not invited through any other.
 // An application with no tenant directories has only the directories its deployment
-// registered for itself, and the link is made as before.
+// registered for itself, and no tenant to vouch for a link: the link is made when the
+// method vouches for the name, and otherwise waits for the code mailed to the address
+// the account holds (nameAloneHold; tenant is the link's tenant key, which the wait
+// carries).
 func firstLink[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User, rules Rules[Tx],
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User, tenant string, rules Rules[Tx],
 ) (byInvitation bool, stop, err error) {
-	if rules.Directories == nil || rules.SeededUsers {
+	if rules.SeededUsers {
 		return false, nil, nil
 	}
-	if rules.Seeded != nil && rules.OneOrganization && !user.Disabled && rules.Seeded(user.ID, user.Username, rules.Method) {
-		return false, nil, nil
+	if rules.Directories == nil {
+		return false, nameAloneHold(req, user, tenant), nil
 	}
 	declared, err := declaredDirectory(ctx, tx, req.Identity, rules.Directories)
 	if err != nil {
@@ -1418,6 +1501,41 @@ func firstLink[Tx any](
 	}
 
 	return false, notInvitedRefusal(), nil
+}
+
+// nameAloneHold decides the standard rule's first link to user, an account that stood
+// before the sign-in with no password and no link, in an application with no tenant
+// directories: nothing but the sign-in name ties the account to the person signing in.
+// A name the method vouches for is the person's own: Google names an account by its
+// address, and answers for a Gmail address and for a Workspace account's
+// (Identity.EmailVerified), so that link is made at once (nil). Any other name is the
+// provider's word alone. A Google account can be made under any address from outside
+// Google, an identity provider's administrators give the names they like, and a
+// Microsoft directory answers for no address; the link would hand whoever signs in
+// everything the account holds. So the sign-in waits for the code mailed to the address
+// the account holds, whether or not its person has confirmed it: the answer is a
+// pending MFA step that takes the mailed code alone, and nothing is linked while it
+// waits, so a sign-in that never finishes leaves the account as it was. Whoever reads
+// the account's mail is the account's person, and the sign-in that carries the code's
+// event is linked. An account that holds no address has nowhere to mail the code, and
+// an address given at the sign-in would show only that the person reads their own
+// mail, so the link is refused (signin.ErrLinkNeedsAddress).
+func nameAloneHold(req *sessioninfo.NewSessionRequest, user *dbtype.User, tenant string) error {
+	identity := req.Identity
+	if identity.EmailVerified && sameAddress(identity.SignInName, identity.Email) {
+		return nil
+	}
+	if slices.ContainsFunc(req.AuthEvents, func(e sessioninfo.AuthEvent) bool { return e.Method == sessioninfo.MethodEmailCode }) {
+		return nil
+	}
+	if !user.EmailHeld {
+		return Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkNeedsAddress, "the account under this sign-in name holds no email address to mail a sign-in code to")
+	}
+
+	return &signin.PendingSignInError{
+		Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(user.ID), Username: user.Username, Tenant: tenant,
+		Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+	}
 }
 
 // ownInvitation reports whether the invitation a sign-in carries was mailed to user's
@@ -1537,7 +1655,7 @@ func addressHeld[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *ses
 func invitedAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, insert *dbtype.InsertSessionUser) error {
 	inv := req.Invitation
 	if d.UsernameIsEmail() {
-		insert.EmailVerified = strings.EqualFold(strings.TrimSpace(insert.Username), strings.TrimSpace(inv.Email))
+		insert.EmailVerified = util.EqualASCIIFold(strings.TrimSpace(insert.Username), strings.TrimSpace(inv.Email))
 
 		return nil
 	}
@@ -1590,7 +1708,7 @@ func claimInvitedName[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID i
 // longer holds. The nil proof holds the sign-in to nothing.
 func decideAndInsert[Tx any](
 	ctx context.Context, d Driver[Tx], id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest,
-	source sessioninfo.UserSource, tenant string, policy signin.Policy[Tx], trusted bool, proven dbtype.PasswordProof,
+	source sessioninfo.UserSource, tenant string, policy signin.Policy[Tx], trusted bool, proven dbtype.PasswordProof, confirmAddress bool,
 ) error {
 	base := *req
 	var v verdict
@@ -1614,6 +1732,14 @@ func decideAndInsert[Tx any](
 		v, err = decideSignIn(ctx, req, user, decide, trusted)
 		if err != nil {
 			return err
+		}
+		if confirmAddress && v.proceeds() {
+			v = addressHold(req, user)
+		}
+		if confirmAddress && v.proceeds() {
+			if v.stop, err = addressTaken(ctx, d, tx, req, user); err != nil {
+				return err
+			}
 		}
 		if v.proceeds() {
 			if err := d.InsertSessionIn(ctx, tx, id, insertSession, req); err != nil {
@@ -1703,6 +1829,94 @@ func decideSignIn(
 		return verdict{stop: pending}, nil
 	default:
 		return verdict{stop: Refusal(decision.Refusal(), sessioninfo.RefusedByPolicy, denialCause(decision), "sign-in denied")}, nil
+	}
+}
+
+// addressHold holds a sign-in the rules let through for the code that confirms the
+// person's address: a sign-in through an external method whose directory does not vouch
+// for the address it asserts (Microsoft Entra ID vouches for none), by a person whose
+// account holds no confirmed address. Every account a person signs in to has a confirmed
+// address, so such a person's first sign-in waits for the code the library mails,
+// whatever the sign-in rule says about a second factor, and the code writes the address
+// on the account, confirmed. Nothing stands in for it: a directory that attests to a
+// second factor says nothing of the address, and no browser is remembered for a person
+// who has confirmed none. The sign-in that completes the wait carries the code's event
+// and goes on; so does every later one, since the account then holds the address. A
+// sign-in whose method vouches for the address is not held: Google does, for a Gmail
+// address and a Workspace account's, and the address is written on the account as the
+// session starts. A Google account made with an address from anywhere else is held as
+// another provider's person is. A password sign-in and a session
+// the application starts are not held either: those accounts are given their address
+// where they are made.
+func addressHold(req *sessioninfo.NewSessionRequest, user *dbtype.User) verdict {
+	if user.EmailConfirmed || !dbtype.IsExternal(req.Identity) || !holdsForAddress(req.Reason) {
+		return verdict{}
+	}
+	if req.Identity.EmailVerified && req.Identity.Email != "" {
+		return verdict{}
+	}
+	if slices.ContainsFunc(req.AuthEvents, func(e sessioninfo.AuthEvent) bool { return e.Method == sessioninfo.MethodEmailCode }) {
+		return verdict{}
+	}
+	pending := &signin.PendingSignInError{
+		Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(req.UserID), Username: user.Username, Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+	}
+	if req.User != nil {
+		pending.Tenant = req.User.Tenant
+	}
+
+	return verdict{stop: pending}
+}
+
+// addressTaken refuses a sign-in to an account that could not hold its address. A
+// method that vouches for the address (Identity.EmailVerified) spares the sign-in the
+// wait for the mailed code because the address is written on the account as the
+// session starts (addressHold). Where another user holds that address, confirmed, it
+// is written on nobody, and the person would be signed in to an account with no
+// confirmed address: an account created ahead under the address as its sign-in name is
+// reached so, by the name, beside the account that holds the address. Which of the two
+// is the person's is an administrator's to settle, by removing the duplicate account
+// or its sign-in name, so the sign-in is refused (identity_rejected, with
+// signin.ErrAddressHeldByAnother as its cause, which names both users for the log) and
+// the person is told what any sign-in the rules reject is told, which says nothing of
+// the other account. linkUser asks before it links, so a first sign-in that is refused
+// links nothing, and decideAndInsert asks for an identity linked before.
+//
+// It answers nil for a user who holds a confirmed address, for a session the rules
+// hold for no address (holdsForAddress), for an identity the method does not vouch
+// for, whose address the mailed code answers for, and where no other user holds the
+// address confirmed: an address another user holds unconfirmed was only typed there,
+// and refuses nobody.
+func addressTaken[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User) (stop, err error) {
+	identity := req.Identity
+	if user.EmailConfirmed || !dbtype.IsExternal(identity) || !holdsForAddress(req.Reason) {
+		return nil, nil
+	}
+	if !identity.EmailVerified || identity.Email == "" {
+		return nil, nil
+	}
+	holder, err := d.UserByVerifiedEmailIn(ctx, tx, identity.Email)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.UserByVerifiedEmailIn()")
+	}
+	if holder == nil || holder.ID == user.ID {
+		return nil, nil
+	}
+	cause := fmt.Errorf("%w: user %s (%s) holds the verified address %s, and the sign-in reached user %s (%s)",
+		signin.ErrAddressHeldByAnother, holder.Username, holder.ID, identity.Email, user.Username, user.ID)
+
+	return Refusal("", sessioninfo.RefusedIdentityRejected, cause, "identity rejected"), nil
+}
+
+// holdsForAddress reports whether a session created for reason is one a person signs in
+// with: a login, a link a password confirmed, and the completion of a wait. A session
+// that continues another was held, if it was to be, when that one was established.
+func holdsForAddress(reason sessioninfo.NewSessionReason) bool {
+	switch reason {
+	case sessioninfo.ReasonLogin, sessioninfo.ReasonIdentityLinked, sessioninfo.ReasonStepUp:
+		return true
+	default:
+		return false
 	}
 }
 

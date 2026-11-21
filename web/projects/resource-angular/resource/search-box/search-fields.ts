@@ -7,7 +7,9 @@ import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-c
 // its request must travel in the body. The set is the resource's (its metadata's
 // searchFields) narrowed by the caller's grants, never the page's: a picker's box names
 // the same fields as the list page of the same resource, and a page that should search
-// fewer fields lists a view projecting fewer.
+// fewer fields lists a view projecting fewer. A field of the resource's key takes no
+// grant of its own, so no role's digest names it: whoever lists the resource searches
+// it, as the server does, and the box never says a role leaves it out.
 
 const title = new CamelCaseToTitlePipe();
 
@@ -18,6 +20,14 @@ const title = new CamelCaseToTitlePipe();
 export type ListableFields = (resource: Resource) => ReadonlySet<string> | undefined;
 
 const nothingKnown: ListableFields = () => undefined;
+
+/**
+ * A resource's metadata by name (the application's RESOURCE_META), which says whether a
+ * search branch's child field is part of the child's key.
+ */
+export type MetaOf = (resource: Resource) => ResourceMeta | undefined;
+
+const noMetadata: MetaOf = () => undefined;
 
 /**
  * The digest's List field set for any resource, read through the auth service: the
@@ -44,40 +54,67 @@ function branchOf(meta: ResourceMeta | undefined, field: string): SearchBranchMe
 }
 
 /**
+ * Whether a field is part of its resource's key. A key field takes no grant of its own:
+ * the digest never names it, and whoever lists the resource reads it.
+ */
+function keyField(meta: ResourceMeta | undefined, field: string): boolean {
+  return (
+    meta?.fields?.some((candidate) => candidate.fieldName === field && candidate.primaryKey !== undefined) ?? false
+  );
+}
+
+/**
+ * Whether a field is listed for the caller, by the digest's field set for its resource:
+ * a key field wherever the digest holds List on the resource at all (the empty set is a
+ * digest that holds none), any other field where the set names it. Undefined, nothing
+ * is known and nothing narrows.
+ */
+function listed(fields: ReadonlySet<string> | undefined, field: string, key: boolean): boolean {
+  if (fields === undefined) {
+    return true;
+  }
+  return key ? fields.size > 0 : fields.has(field);
+}
+
+/**
  * Whether the caller searches a field of the box: a field of the resource when the
  * digest lists it for List, a branch when the digest lists the child field on the child
- * resource. A dotted field the metadata does not describe (metadata from before the
- * branches were described) stays.
+ * resource, and a key field of either wherever the caller lists that resource. A dotted
+ * field the metadata does not describe (metadata from before the branches were
+ * described) stays.
  */
 function searched(
   meta: ResourceMeta | undefined,
   field: string,
   listable: ReadonlySet<string> | undefined,
   listableOf: ListableFields,
+  metaOf: MetaOf,
 ): boolean {
   const branch = branchOf(meta, field);
   if (branch) {
-    const fields = listableOf(branch.resource);
-    return fields === undefined || fields.has(branch.fieldName);
+    return listed(listableOf(branch.resource), branch.fieldName, keyField(metaOf(branch.resource), branch.fieldName));
   }
   if (field.includes('.')) {
     return true;
   }
-  return listable === undefined || listable.has(field);
+  return listed(listable, field, keyField(meta, field));
 }
 
 /**
  * The search fields the box reads for this caller: the metadata's searchFields less the
  * fields the digest denies for List, a branch judged by the child field's grant on the
- * child resource. `listable` is the digest's field set for the resource itself and
- * `listableOf` answers it for a child; undefined narrows nothing.
+ * child resource, a key field by List on its resource alone. `listable` is the digest's
+ * field set for the resource itself and `listableOf` answers it for a child; undefined
+ * narrows nothing. `metaOf` answers a child's metadata, which says whether a branch's
+ * field is the child's key; without it a branch is judged as any other field.
  */
 export function searchedFields(
   meta: ResourceMeta | undefined,
   listable: ReadonlySet<string> | undefined,
   listableOf: ListableFields = nothingKnown,
+  metaOf: MetaOf = noMetadata,
 ): string[] {
-  return (meta?.searchFields ?? []).filter((field) => searched(meta, field, listable, listableOf));
+  return (meta?.searchFields ?? []).filter((field) => searched(meta, field, listable, listableOf, metaOf));
 }
 
 /** The resource's search fields the digest denies this caller, so the box can say what it does not search. */
@@ -85,8 +122,9 @@ export function deniedSearchFields(
   meta: ResourceMeta | undefined,
   listable: ReadonlySet<string> | undefined,
   listableOf: ListableFields = nothingKnown,
+  metaOf: MetaOf = noMetadata,
 ): string[] {
-  return (meta?.searchFields ?? []).filter((field) => !searched(meta, field, listable, listableOf));
+  return (meta?.searchFields ?? []).filter((field) => !searched(meta, field, listable, listableOf, metaOf));
 }
 
 /**

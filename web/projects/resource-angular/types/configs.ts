@@ -1,4 +1,4 @@
-import { Directive, input, Type } from '@angular/core';
+import { Directive, Injector, input, Type } from '@angular/core';
 import { TooltipPosition } from '@angular/material/tooltip';
 import { IconName } from './icon-names';
 import { FieldName, Method, PermissionScope, Resource } from './permissions';
@@ -54,6 +54,12 @@ export interface RowAction {
   label: string;
   icon?: string;
   run: () => void;
+  /**
+   * The entry says something and does nothing: the words a row shows in the place of a
+   * method it does not offer (MethodPresentation.otherwise). It is drawn grayed out and
+   * a click runs nothing.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -62,6 +68,37 @@ export interface RowAction {
  * generated field name never carries a colon, so the key collides with none.
  */
 export const rowActionsKey = 'actions:menu';
+
+/**
+ * A button every row of a list carries, for what a row offers that is no method of the
+ * server's: something a person only reads, opened in a pop-up (a flag's history). It is
+ * drawn as an icon button named by its label, ahead of the row's menu of methods, on
+ * every row; what the server lets the caller do is never decided here, so a button that
+ * reads asks the server and shows its answer, a refusal included.
+ */
+export interface RowButton {
+  /** The button's name: its tooltip and what a screen reader says. */
+  label: string;
+  /** The Material Icon the button draws. */
+  icon: IconName;
+  /**
+   * What a click does. The row is the one the server answered, not the one the columns
+   * wrote (a column's getter and formatter change what a cell shows, never what the row
+   * holds), and the injector is the list's own, for a dialog or a service.
+   */
+  run: (row: RecordData, injector: Injector) => void;
+}
+
+/**
+ * The display-row key the row as the server answered it rides under, which a row button
+ * is handed: the grid hands a button the display row, whose cells the columns wrote.
+ */
+export const rowAnswerKey = 'row:answer';
+
+/** The id of the column the n-th row button of a list is drawn in. */
+export function rowButtonKey(index: number): string {
+  return `button:${index}`;
+}
 
 /**
  * How a page presents one method it offers, where the generated metadata's own words
@@ -87,6 +124,14 @@ export interface MethodPresentation {
    */
   when?: (row: RecordData, listed?: readonly RecordData[]) => boolean;
   /**
+   * What a row says in the method's place where `when` answers no: words drawn where the
+   * method's entry would be, which a click does nothing with (a group that still has
+   * people in it says what is left, where Delete would be). Answering nothing draws
+   * nothing. It is said only on a row the server lets the caller run the method on, so
+   * nobody reads about an act that is not theirs to take.
+   */
+  otherwise?: (row: RecordData) => string | undefined;
+  /**
    * The question the dialog asks before a method that takes nothing but the row. For a
    * method above a list it is asked of the row the list sits under, with `listed`, the
    * rows the list shows.
@@ -94,6 +139,13 @@ export interface MethodPresentation {
   confirm?: string | ((row: RecordData, listed?: readonly RecordData[]) => string);
   /** What the notice says once the method has run. */
   successMessage?: string;
+  /**
+   * What the notice says for the method's answer, where the answer itself says how the
+   * method went: a method that mails a person answers whether the message was sent and,
+   * where it was not, why. `failed` draws the notice as a failure. Undefined, or an
+   * undefined result, leaves `successMessage`.
+   */
+  answered?: (answer: unknown) => { message: string; failed?: boolean } | undefined;
   /**
    * The words above a request field's input, by the field's name, where the name in
    * words is not what the page wants (`domain` as the application's own word for its
@@ -229,11 +281,25 @@ interface ColumnConfigBase {
   hidden?: boolean;
   emptyDataValue?: DataType;
   /**
+   * Draws a list field's items a line each, in place of one line of them joined by
+   * commas and cut short: for a short list a person reads whole (the roles a group
+   * holds). A row is as tall as its longest list. On a field that holds no list it
+   * changes nothing.
+   */
+  lines?: boolean;
+  /**
    * Opt the column out of its filter control. A control is drawn only where the
    * generated metadata says the server filters the field (`filterable`); `false` removes
    * it there too. It never adds one where the server would refuse the filter.
    */
   filterable?: boolean;
+  /**
+   * Opt the column out of sorting: its header is drawn as words, with nothing to press.
+   * For a column whose shown value is not the value the server orders the field by (a
+   * moment the server works out for each row), where a sort would order the rows by
+   * something the person cannot see. It never makes a table sortable that is not.
+   */
+  sortable?: boolean;
   hideHeader?: boolean;
 }
 
@@ -814,6 +880,21 @@ export interface BaseConfigOptions {
   };
   showBackButton?: boolean;
   createNavigation?: string[];
+  /**
+   * What a row's page is headed by, from the row: the row's own name (a group's page is
+   * headed by the group's name). Until the row has been read the page is headed by
+   * nothing. Unset, the page is headed by `title`, as the list is.
+   */
+  rowTitle?: (row: RecordData) => string;
+  /**
+   * What the list says of a row that left it while its page was open: a sentence for a
+   * person, from the row as the page last read it (a tenant's people say that a person
+   * whose last role was taken away no longer holds a role here). The row's page leaves
+   * for the list once a method has run and the row is no longer there to read, and the
+   * list says the sentence as a notice. Unset, the list says nothing more than the
+   * method did.
+   */
+  rowGone?: (row: RecordData) => string;
 }
 export interface BaseConfig {
   title: string;
@@ -830,6 +911,10 @@ export interface BaseConfig {
   };
   showBackButton: boolean;
   createNavigation: string[];
+  /** What a row's page is headed by; see BaseConfigOptions.rowTitle. */
+  rowTitle?: (row: RecordData) => string;
+  /** What the list says of a row that left it; see BaseConfigOptions.rowGone. */
+  rowGone?: (row: RecordData) => string;
 }
 
 @Directive()
@@ -969,8 +1054,19 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
   /** The sorts the list is requested in until a header is clicked; none, and the resource's declared order applies. */
   sorts?: FieldSort[];
   shouldRenderActions?: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
-  /** Show the server's total row count in the title. */
+  /**
+   * Show the server's total row count in the title. The count comes with the list's first
+   * answer, so a title that carries it is drawn with the rows and not before.
+   */
   showRowCount?: boolean;
+  /**
+   * Further lists drawn under this one on its page, in order, each a list of its own
+   * with its own title, rows and methods: for a page that is more than one list of the
+   * same kind of thing (what is held right now, then what has ended). Only the list a
+   * page is built on draws them; a list under a row's page names its lists among the
+   * row's related configs.
+   */
+  below?: ListViewConfig[];
   /**
    * A standing notice above the list, drawn in the library's warning colors under a
    * warning icon: what the page must not let a person overlook for as long as it holds
@@ -978,6 +1074,19 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    * again each time they are read, and answering nothing draws none.
    */
   notice?: (rows: RecordData[]) => string | undefined;
+  /**
+   * What the empty table says where the list holds no row at all: the page's own
+   * sentence in place of "No records found" ("This application declares no feature
+   * flags."). It is said only of the whole list: a list narrowed by a filter or the
+   * search box that leaves no row says the plain text, and a refusal, a failed request
+   * and a list with no column the person may see keep their own words.
+   */
+  emptyMessage?: string;
+  /**
+   * The buttons every row carries ahead of its menu of methods; see RowButton. None by
+   * default.
+   */
+  rowButtons?: RowButton[];
   /**
    * Whether the page draws the search box over the resource's search fields
    * (`ResourceMeta.searchFields`): drawn above the table when the metadata lists any,
@@ -1015,12 +1124,13 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    * tenant the person reaches in which they may list it, where a page inside a tenant
    * lists that tenant's. The resource must be declared for it (`@listAcrossTenants`; its
    * descriptor says `acrossTenants`), and the page is refused when it is built otherwise,
-   * naming the resource. The table gains a first column naming each row's tenant, under
-   * the application's word for a tenant, and a row's View link opens the row itself
-   * inside its tenant, on the record's own row route there, drawn where the person may
-   * read the record in that tenant and the application mounts it a row route. The page
-   * is shown, and its route opened, to whoever may list the resource in at least one
-   * tenant they reach, as the server tells the global digest; the config names no
+   * naming the resource. The table gains a column naming each row's tenant, under the
+   * application's word for a tenant: its second column, after the page's first, which names
+   * the row and is the one the table holds while the rest scroll sideways. A row's View
+   * link opens the row itself inside its tenant, on the record's own row route there, drawn
+   * where the person may read the record in that tenant and the application mounts it a row
+   * route. The page is shown, and its route opened, to whoever may list the resource in at
+   * least one tenant they reach, as the server tells the global digest; the config names no
    * permission for it. The server decides, tenant by tenant, which of the page's columns a
    * row shows, so the page asks for no column list and a cell the person may not read in
    * a row's tenant stays empty. The page reads: it offers no create, no delete and no
@@ -1057,8 +1167,14 @@ export interface ListViewConfig extends BaseConfig {
   sorts: FieldSort[];
   shouldRenderActions: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
   showRowCount: boolean;
+  /** The lists drawn under this one on its page; see ListViewConfigOptions.below. */
+  below?: ListViewConfig[];
   /** The page's standing notice; see ListViewConfigOptions.notice. */
   notice?: (rows: RecordData[]) => string | undefined;
+  /** What the empty table says of a list with no row; see ListViewConfigOptions.emptyMessage. */
+  emptyMessage?: string;
+  /** The buttons every row carries; see ListViewConfigOptions.rowButtons. */
+  rowButtons?: RowButton[];
   /** Whether the page draws the search box; see ListViewConfigOptions.showSearchBox. */
   showSearchBox: boolean;
   /** The server page size; see ListViewConfigOptions.pageSize. */

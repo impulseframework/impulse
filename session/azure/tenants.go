@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -300,7 +301,7 @@ func (s TenantSet) attests(tid string) bool {
 // unless the set admits personal accounts; every other address is admitted, since the
 // domains of a tenant's accounts are not known here.
 func (s TenantSet) admitsAddress(domain string) bool {
-	return s.personal || !slices.ContainsFunc(personalDomains, func(d string) bool { return strings.EqualFold(d, domain) })
+	return s.personal || !slices.ContainsFunc(personalDomains, func(d string) bool { return util.EqualASCIIFold(d, domain) })
 }
 
 // refusal is the refusal of a token of tenant tid the set does not admit: a personal

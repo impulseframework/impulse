@@ -216,7 +216,7 @@ func readAuthRule(a *app.App, p *app.AuthPackage) (*AuthRule, error) {
 		return nil, errors.Wrap(err, "os.ReadDir()")
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || isTestFile(e.Name()) {
+		if e.IsDir() || !app.GoToolReads(e.Name()) || isTestFile(e.Name()) {
 			continue
 		}
 		rel := path.Join(p.Dir, e.Name())

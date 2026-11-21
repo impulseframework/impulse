@@ -9,6 +9,7 @@ package app
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/impulseframework/impulse/resource/jobs"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/resource/scheduled"
+	"github.com/impulseframework/impulse/session"
 )
 
 const (
@@ -87,6 +89,10 @@ type Configurer interface {
 	// release built it): what the generated router checks a browser application's
 	// X-Api-Version against.
 	AppVersion() string
+	// Environment is the name of the environment the application runs in
+	// (APP_ENVIRONMENT, unset in production): what every answer of the server names and
+	// the About pop-up shows.
+	Environment() string
 	ConsoleDist() string
 	PortalDist() string
 	// DroidsAPIKey is the droid service account's configured key, which Start seeds as
@@ -177,17 +183,25 @@ type App struct {
 	validate       *validator.Validate
 	logExporter    logger.Exporter
 	version        string
+	environment    string
 	// consoleApp and portalApp serve the two built browser applications
 	// (resource.BrowserApp): the console under /console and the portal under /portal, each
 	// from the directory the configuration names, with the resource package's cache rule
 	// and deep-link rewrite. The generated router's asset and deep-link handlers below
 	// delegate to them.
-	consoleApp     *resource.BrowserApp
-	portalApp      *resource.BrowserApp
-	droidsAPIKey   string
-	scheduler      *scheduled.Guard
-	tenants        *resource.TenantRoster
-	declarations   resource.TenantDeclarations
+	consoleApp   *resource.BrowserApp
+	portalApp    *resource.BrowserApp
+	droidsAPIKey string
+	scheduler    *scheduled.Guard
+	tenants      *resource.TenantRoster
+	declarations resource.TenantDeclarations
+	// collection is the generated permission collection, built once: the session
+	// permissions read each action's classes off it, since the mask of an
+	// impersonated session may refuse a class of actions.
+	collection *resource.GeneratedCollection
+	// impersonations declares the kinds of impersonation the console offers, each
+	// with its grant and the widest mask the grant gives (impersonationKinds).
+	impersonations *session.Impersonations
 	rpcClient      *rpc.Client
 	computedClient *computedresources.Client
 	live           live.Service
@@ -215,14 +229,18 @@ func New(cfg Configurer) *App {
 	// and the RPC client takes the Documents store, which its document methods read
 	// back from.
 	resourceClient := cfg.ResourceClient()
+	collection := router.Collection()
 	a := &App{
 		access:          engine,
 		engines:         map[string]access.Controller{},
+		collection:      collection,
+		impersonations:  session.MustNewImpersonations(collection, impersonationKinds()...),
 		resourceClient:  resourceClient,
 		cursorKey:       cfg.CursorKey(),
 		validate:        cfg.Validator(),
 		logExporter:     cfg.LogExporter(),
 		version:         cfg.AppVersion(),
+		environment:     cfg.Environment(),
 		consoleApp:      resource.NewBrowserApp(cfg.ConsoleDist(), "/console"),
 		portalApp:       resource.NewBrowserApp(cfg.PortalDist(), "/portal"),
 		droidsAPIKey:    cfg.DroidsAPIKey(),
@@ -306,6 +324,13 @@ func (a *App) LogExporter() logger.Exporter {
 // nothing.
 func (a *App) ServerVersion() string {
 	return a.version
+}
+
+// ServerEnvironment is the name of the environment this server runs in, the
+// configuration's APP_ENVIRONMENT: what the generated router names on every answer
+// (X-Environment) and the About pop-up shows. Production is told none and reports none.
+func (a *App) ServerEnvironment() string {
+	return a.environment
 }
 
 // SecurityHeaders is a middleware that sets security-related headers on the response,
@@ -405,7 +430,9 @@ func (a *App) SchedulerAuth(next http.Handler) http.Handler {
 // UserPermissions returns the permission checker for a request, composed from the
 // session's principal: the engine of the auth the request came through, bound to the
 // user for an ordinary or impersonated-user session, bound to the role for a session
-// established as a role, and attenuated by the session's permission mask. The sectors
+// established as a role, and attenuated by the session's permission mask, which reads
+// each action's classes off the generated collection (a session that acts as a person
+// is refused the actions classed credential). The sectors
 // the session lists are the tenant roster filtered by where the checker holds a grant
 // and by what each sector declares about who may enter it (the configuration's
 // TenantDeclarations), so the place switcher and the tenant guard can never disagree, and
@@ -415,15 +442,17 @@ func (a *App) SchedulerAuth(next http.Handler) http.Handler {
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
 	engine := a.engine(r.Context())
 
-	return resource.SessionPermissions(r.Context(), engine.ForUser, engine.ForRole, a.tenants.Domains, a.declarations)
+	return resource.SessionPermissions(r.Context(), engine.ForUser, engine.ForRole, a.tenants.Domains, a.declarations, a.collection)
 }
 
 // TenantRoster is the application's tenant roster (resource.TenantRoster): the sectors
 // every instance serves, which the generated DomainGuard and the consolidated dispatcher
-// ask before a sector-scoped request runs (Has: no read, no wait) and the generated
-// Sector write paths add to and remove from after their commit. The configuration builds
-// it with the generated NewSectorRoster and starts it over the live service's signals,
-// so a sector charted on any instance is served here at the next request.
+// ask before a sector-scoped request runs (Has: no read and no wait while the copy is
+// inside its backstop and behind no signal; a reread of the table first otherwise), and
+// the generated Sector write paths add to and remove from after their commit. The
+// configuration builds it with the generated NewSectorRoster and starts it over the live
+// service's signals, so a sector charted on any instance is served here at the next
+// request.
 //
 // Demonstrates: tenancy.run-time-tenant.
 func (a *App) TenantRoster() *resource.TenantRoster {
@@ -508,11 +537,12 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	// The persona cast: where the persona method is registered (the test environments),
 	// the cast's logins exist for the persona sign-in to link to, seated in their roles;
-	// a login seeded already is left as it is.
+	// a login seeded already is given the roles its entry names that it does not hold,
+	// each said on the standard output, and keeps what it holds.
 	//
 	// Demonstrates: auth.persona.
 	if a.crew != nil && a.crew.PersonaRegistered() {
-		if _, err := a.crew.SeedCast(ctx); err != nil {
+		if _, err := a.crew.SeedCast(ctx, os.Stdout); err != nil {
 			return errors.Wrap(err, "crew.Auth.SeedCast()")
 		}
 	}

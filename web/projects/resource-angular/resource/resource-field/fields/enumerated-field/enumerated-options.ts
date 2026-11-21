@@ -161,19 +161,37 @@ export function closedSourceText(stored: boolean): string {
 export const closedRecordText = 'You do not have access to this record, so only its id is shown.';
 
 /**
- * What a picker says when its request failed for a reason that is no permission's: the
- * server's own words for a request it refused (a 400: a bounded source with no order and
- * no configured sort, say), a plain sentence for any other failure, nothing while it
- * works. A request refused as not permitted (notPermitted) is not said here: the picker
- * says a sentence of its own for it (closedSourceText, closedRecordText), never the
- * server's words. A failed picker must never read as an empty list.
+ * What a picker says under its field when the list it offers could not be read, for a
+ * reason that is no permission's: the server would not serve the request (a bounded
+ * source with no order and no configured sort, say), or the read failed. `showsId` says
+ * whether the field shows the value it holds as its id, which a form that is read does:
+ * the list would have named it. A field that is edited is a picker with nothing in it to
+ * choose from, and so is one that holds nothing. A failed picker must never read as an
+ * empty list.
  */
-export function pickerRefusal(error: unknown): string | undefined {
+export function failedSourceText(showsId: boolean): string {
+  return showsId
+    ? 'This list could not be loaded, so only the id is shown.'
+    : 'This list could not be loaded, so nothing can be chosen here.';
+}
+
+/** What a picker says under its field when the read of the row the field holds failed, for a reason that is no permission's. */
+export const failedRecordText = 'This record could not be loaded, so only its id is shown.';
+
+/**
+ * What a picker says when a request of its own failed for a reason that is no
+ * permission's, in the library's own words: one sentence for the list it offers (`read`
+ * 'list', with `showsId` as failedSourceText takes it), another for the row the field
+ * holds ('record'), nothing while it works. What the server said is never part of it: the
+ * server's message names a resource, a page size, a column or a database, and whoever
+ * looks into the failure finds it in the browser's console, where the picker writes it
+ * after the resource it reads and which of its two reads it was. A request refused as not
+ * permitted (notPermitted) is not said here: the picker says a sentence of its own for it
+ * (closedSourceText, closedRecordText).
+ */
+export function pickerRefusal(error: unknown, read: 'list' | 'record', showsId: boolean): string | undefined {
   if (error === undefined || error === null || notPermitted(error)) {
     return undefined;
   }
-  if (error instanceof ApiError && error.status === 400) {
-    return `The server refused this picker's request: ${error.message}`;
-  }
-  return `This picker could not be loaded: ${error instanceof Error ? error.message : String(error)}`;
+  return read === 'list' ? failedSourceText(showsId) : failedRecordText;
 }

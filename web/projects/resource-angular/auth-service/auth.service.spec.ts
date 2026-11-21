@@ -346,6 +346,48 @@ describe('AuthService under a forced password change', () => {
   });
 });
 
+describe("AuthService, an accepted invitation's tenant", () => {
+  // The server names the tenant an accepted invitation seated the person in on the first
+  // session read after the acceptance and on no later one; the service keeps it until the
+  // person has landed, or the session ends.
+  const sessionOf = (answer: () => Record<string, unknown>): ScriptedTransport =>
+    scriptedTransport((request) =>
+      request.url === '/api/user/session' && request.method === 'GET'
+        ? { status: 200, body: answer() }
+        : serverWith(true)(request),
+    );
+
+  it('keeps the tenant the first session read named through a later read that names none, until the person has landed', async () => {
+    let answer: Record<string, unknown> = { authenticated: true, invitedTenant: 't-2' };
+    const auth = authOver(sessionOf(() => answer));
+    expect(auth.invitedTenant()).toBe('');
+    await firstValueFrom(auth.checkUserSession());
+    expect(auth.invitedTenant()).toBe('t-2');
+
+    answer = { authenticated: true };
+    await firstValueFrom(auth.checkUserSession());
+    expect(auth.invitedTenant()).toBe('t-2');
+
+    auth.invitationLanded();
+    expect(auth.invitedTenant()).toBe('');
+  });
+
+  it('forgets the tenant when the session ends: an unauthenticated answer, and a logout', async () => {
+    let answer: Record<string, unknown> = { authenticated: true, invitedTenant: 't-2' };
+    const auth = authOver(sessionOf(() => answer));
+    await firstValueFrom(auth.checkUserSession());
+    answer = { authenticated: false };
+    await firstValueFrom(auth.checkUserSession());
+    expect(auth.invitedTenant()).toBe('');
+
+    answer = { authenticated: true, invitedTenant: 't-2' };
+    await firstValueFrom(auth.checkUserSession());
+    expect(auth.invitedTenant()).toBe('t-2');
+    await firstValueFrom(auth.logout());
+    expect(auth.invitedTenant()).toBe('');
+  });
+});
+
 describe('AuthService feature flags', () => {
   beforeEach(() => {
     enabledFeatures = ['debriefs'];
@@ -494,5 +536,202 @@ describe('AuthService feature flags', () => {
     expect(auth.authenticated()).toBe(true);
     expect(auth.featureEnabled('debriefs')).toBe(false);
     expect(await firstValueFrom(auth.refreshFeatures())).toEqual([]);
+  });
+});
+
+describe('AuthService and a digest that could not be read', () => {
+  // A read that fails is no answer: nothing is cached for the scope, the reader is told,
+  // and the scope is unread until a read answers. It is never taken for a person who
+  // holds nothing, which is what an empty digest says.
+  const anvil = 'a1111111-1111-4111-8111-111111111111' as Domain;
+  const missions = 'Missions' as Resource;
+  const lists: PermissionScope = { resource: missions, permission: ListPermission };
+  const holds: PermissionDigest = { Missions: { List: 'granted' } };
+  /** The status each digest answers with, global and Anvil's; a spec changes it between reads. */
+  const serving = (status: { global: number; anvil: number }): { transport: ScriptedTransport; asked: string[] } => {
+    const asked: string[] = [];
+    const answer = (code: number): { status: number; body: unknown } =>
+      code === 200 ? { status: 200, body: holds } : { status: code, body: { message: 'no answer' } };
+    const transport = scriptedTransport((request) => {
+      asked.push(request.url);
+      switch (request.url) {
+        case '/api/user/session':
+          return { status: 200, body: { authenticated: true } };
+        case '/api/permission-digest':
+          return answer(status.global);
+        case `/api/permission-digest?domain=${anvil}`:
+          return answer(status.anvil);
+        case '/api/user-domains':
+          return { status: 200, body: [{ domain: anvil, name: 'Anvil' }] };
+        case '/api/features':
+          return { status: 200, body: { enabled: [] } };
+        default:
+          return { status: 404, body: { message: `unscripted ${request.url}` } };
+      }
+    });
+    return { transport, asked };
+  };
+  const globalReads = (asked: string[]): number => asked.filter((url) => url === '/api/permission-digest').length;
+
+  it('loadDigest errors where the read fails, and the scope is unread until a read answers', async () => {
+    const status = { global: 200, anvil: 500 };
+    const auth = authOver(serving(status).transport);
+
+    await expect(firstValueFrom(auth.loadDigest(anvil))).rejects.toBeDefined();
+    expect(auth.hasDigest(anvil)).toBe(false);
+    expect(auth.digestUnread(anvil)).toBe(true);
+    // The scope outside every tenant was not asked: nothing says it is unread.
+    expect(auth.digestUnread()).toBe(false);
+
+    status.anvil = 200;
+    await expect(firstValueFrom(auth.loadDigest(anvil))).resolves.toEqual(holds);
+    expect(auth.digestUnread(anvil)).toBe(false);
+    expect(auth.hasPermission({ ...lists, domain: anvil })).toBe(true);
+  });
+
+  it('loadDigest errors for a tenant the server refuses, which is an answer and not an unread scope', async () => {
+    const auth = authOver(serving({ global: 200, anvil: 404 }).transport);
+
+    await expect(firstValueFrom(auth.loadDigest(anvil))).rejects.toBeDefined();
+    expect(auth.hasDigest(anvil)).toBe(false);
+    expect(auth.digestUnread(anvil)).toBe(false);
+  });
+
+  it('ensurePermission errors where the read fails, and answers false for a tenant the server refuses', async () => {
+    const status = { global: 500, anvil: 404 };
+    const auth = authOver(serving(status).transport);
+
+    await expect(firstValueFrom(auth.ensurePermission(lists))).rejects.toBeDefined();
+    expect(auth.digestUnread()).toBe(true);
+    status.global = 200;
+    await expect(firstValueFrom(auth.ensurePermission(lists))).resolves.toBe(true);
+    expect(auth.digestUnread()).toBe(false);
+
+    // A tenant the server refuses is not there for this session: the answer is no.
+    await expect(firstValueFrom(auth.ensurePermission({ ...lists, domain: anvil }))).resolves.toBe(false);
+  });
+
+  it('leaves the scope outside every tenant unread where the read at sign-in fails, and the next check reads again', async () => {
+    const status = { global: 500, anvil: 200 };
+    const { transport, asked } = serving(status);
+    const auth = authOver(transport);
+
+    await expect(firstValueFrom(auth.checkUserSession())).resolves.toMatchObject({ authenticated: true });
+    expect(auth.authenticated()).toBe(true);
+    expect(auth.hasDigest()).toBe(false);
+    expect(auth.digestUnread()).toBe(true);
+
+    status.global = 200;
+    await firstValueFrom(auth.checkUserSession());
+    expect(globalReads(asked)).toBe(2);
+    expect(auth.digestUnread()).toBe(false);
+    expect(auth.hasPermission(lists)).toBe(true);
+
+    // A check of a session whose digest is held reads nothing again.
+    await firstValueFrom(auth.checkUserSession());
+    expect(globalReads(asked)).toBe(2);
+  });
+
+  it('forgets what was unread when the session ends', async () => {
+    const status = { global: 500, anvil: 200 };
+    const auth = authOver(serving(status).transport);
+
+    await firstValueFrom(auth.checkUserSession());
+    expect(auth.digestUnread()).toBe(true);
+    await firstValueFrom(auth.logout());
+    expect(auth.digestUnread()).toBe(false);
+  });
+});
+
+describe('AuthService and a tenant list that could not be read', () => {
+  // A read of the person's list of tenants that fails is no answer: the reader is told,
+  // and the list is unread until a read answers. It is never taken for a person who is
+  // in no tenant, which is what an empty list says.
+  const anvil = 'a1111111-1111-4111-8111-111111111111' as Domain;
+  /** The status the list answers with; a spec changes it between reads. */
+  const serving = (status: { list: number }): { transport: ScriptedTransport; asked: string[] } => {
+    const asked: string[] = [];
+    const transport = scriptedTransport((request) => {
+      asked.push(request.url);
+      switch (request.url) {
+        case '/api/user/session':
+          return { status: 200, body: { authenticated: true } };
+        case '/api/permission-digest':
+          return { status: 200, body: {} };
+        case '/api/user-domains':
+          return status.list === 200
+            ? { status: 200, body: [{ domain: anvil, name: 'Anvil' }] }
+            : { status: status.list, body: { message: 'no answer' } };
+        case '/api/features':
+          return { status: 200, body: { enabled: [] } };
+        default:
+          return { status: 404, body: { message: `unscripted ${request.url}` } };
+      }
+    });
+    return { transport, asked };
+  };
+  const listReads = (asked: string[]): number => asked.filter((url) => url === '/api/user-domains').length;
+
+  it('says nothing of a list that has not been read: not known, and not unread', () => {
+    const auth = authOver(serving({ list: 200 }).transport);
+
+    expect(auth.hasDomains()).toBe(false);
+    expect(auth.domainsUnread()).toBe(false);
+  });
+
+  it('loadDomains errors where the read fails, with no empty list in its stead, and the list is unread until a read answers', async () => {
+    const status = { list: 500 };
+    const auth = authOver(serving(status).transport);
+
+    await expect(firstValueFrom(auth.loadDomains())).rejects.toBeDefined();
+    expect(auth.hasDomains()).toBe(false);
+    expect(auth.domainsUnread()).toBe(true);
+
+    status.list = 200;
+    await expect(firstValueFrom(auth.loadDomains())).resolves.toEqual([anvil]);
+    expect(auth.hasDomains()).toBe(true);
+    expect(auth.domainsUnread()).toBe(false);
+    expect(auth.domains()).toEqual([anvil]);
+  });
+
+  it('keeps the list it read before where a later read fails, and is not unread', async () => {
+    const status = { list: 200 };
+    const auth = authOver(serving(status).transport);
+
+    await firstValueFrom(auth.loadDomains());
+    status.list = 500;
+    await expect(firstValueFrom(auth.loadDomains())).rejects.toBeDefined();
+    expect(auth.domains()).toEqual([anvil]);
+    expect(auth.domainsUnread()).toBe(false);
+
+    // Reading everything again swallows the failure and keeps the list too.
+    await firstValueFrom(auth.refreshPermissions());
+    expect(auth.domains()).toEqual([anvil]);
+  });
+
+  it('leaves the list unread where the read at sign-in fails, and the next check reads again', async () => {
+    const status = { list: 500 };
+    const { transport, asked } = serving(status);
+    const auth = authOver(transport);
+
+    await expect(firstValueFrom(auth.checkUserSession())).resolves.toMatchObject({ authenticated: true });
+    expect(auth.authenticated()).toBe(true);
+    expect(auth.hasDomains()).toBe(false);
+    expect(auth.domainsUnread()).toBe(true);
+
+    status.list = 200;
+    await firstValueFrom(auth.checkUserSession());
+    expect(listReads(asked)).toBe(2);
+    expect(auth.domainsUnread()).toBe(false);
+    expect(auth.domains()).toEqual([anvil]);
+  });
+
+  it('forgets that the list was unread when the session ends', async () => {
+    const auth = authOver(serving({ list: 500 }).transport);
+
+    await firstValueFrom(auth.checkUserSession());
+    expect(auth.domainsUnread()).toBe(true);
+    await firstValueFrom(auth.logout());
+    expect(auth.domainsUnread()).toBe(false);
   });
 });

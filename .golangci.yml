@@ -207,6 +207,7 @@ linters:
       - .WithMessagef(
       - .Cause(
       - .RetryableError(
+      - sessioninfo.ImpersonatorRefusal(
       - sessioninfo.NewLoginRefusal(
       - sessioninfo.NewTooManyAttemptsRefusal(
       - sessioninfo.NewTooManyAttemptsRefusalSaying(
@@ -309,6 +310,14 @@ linters:
     - linters:
       - goconst
       path: accesstypes/(.*/)?decision\.go
+    # MaskRefusal is a value: the Refuse constructors answer one, Refusing and a kind's
+    # declaration take them in a list, and a refusal is never changed once it is made.
+    # What it leaves alone made it larger than the limit; a pointer would let a caller
+    # change a refusal a mask was built from.
+    - linters:
+      - gocritic
+      path: accesstypes/(.*/)?permissionmask\.go
+      text: 'hugeParam: (r|refusal) is heavy'
     - linters:
       - bodyclose
       - funlen
@@ -382,12 +391,21 @@ linters:
       text: Test_prepareIdentity
     - linters:
       - paralleltest
-      path: generation/identity_(groups|periods)_test\.go
+      path: generation/identity_(groups|periods|holdings)_test\.go
       text: Test_prepareIdentity
     - linters:
       - paralleltest
       path: generation/identity_invitedtenant_test\.go
       text: Test_prepareIdentity
+    - linters:
+      - paralleltest
+      path: generation/identity_classes_test\.go
+      text: Test_prepareIdentity
+    - linters:
+      - paralleltest
+      - tparallel
+      path: session/internal/e2e/impersonation_mask_test\.go
+      text: TestImpersonationMask_storedAndEnforced
     - linters:
       - funlen
       path: resource/(.*/)?resourceset\.go

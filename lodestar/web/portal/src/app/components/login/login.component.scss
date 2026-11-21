@@ -21,7 +21,11 @@
   margin-top: 12px;
 }
 
+// A persona's card is as wide as the sign-in card's content and no wider: its padding and
+// border count inside its width, so it never reaches past the card, or past the screen's
+// edge on a phone, where the sign-in card is the screen's width.
 .persona {
+  box-sizing: border-box;
   width: 100%;
   text-align: left;
   border: 1px solid var(--mat-sys-outline-variant);

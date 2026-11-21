@@ -5,6 +5,13 @@ import { MatTooltip } from '@angular/material/tooltip';
 const CUT_SHORT_TOOLTIP_CLASS = 'impulse-grid-whole-text';
 
 /**
+ * How long after a tooltip is closed its anchor is taken back, in milliseconds: longer
+ * than the tooltip takes to fade, since a tooltip that is still fading follows its anchor
+ * when the list scrolls.
+ */
+const ANCHOR_KEPT_MS = 200;
+
+/**
  * Whether a one-line text is wider than the box that holds it, so its end is cut off.
  * The browser gives the two widths in whole pixels, and a text a fraction of a pixel too
  * wide is cut with an ellipsis all the same. So a text the whole pixels call a fit is
@@ -35,12 +42,19 @@ function isCutShort(text: HTMLElement): boolean {
  *
  * A text is cut short when it is wider than its box, measured as the pointer or the focus
  * arrives, so the answer follows a column being resized and the window changing width
- * with nothing watching either. One tooltip and a handful of listeners on the table
- * serve every cell: the grid draws every row of its page unless it scrolls virtually,
- * and a list served whole is one long page, so a tooltip, a listener or an observer on
- * each cell would be paid for once per cell. The listeners stay on the table while its
- * rows come and go, so virtual scroll is served the same way, and rows read anew under
- * a resting pointer are too: the browser says what the pointer is on now, as if it had moved.
+ * with nothing watching either. The keyboard's focus arrives only on what takes it, and a
+ * cell of text does not: when the Tab key is pressed, wherever the focus is then, each
+ * cell whose text is cut is made a stop of the Tab key before the browser picks the next
+ * stop, and the stop is taken from each cell whose text fits. The cells are looked at for
+ * that at the key and never when the table is drawn, and not again until the table's
+ * owner says that what it draws has changed (`redrawn`).
+ *
+ * One tooltip and a handful of listeners serve every cell: the grid draws every row of
+ * its page unless it scrolls virtually, and a list served whole is one long page, so a
+ * tooltip, a listener or an observer on each cell would be paid for once per cell. The
+ * listeners stay on the table while its rows come and go, so virtual scroll is served the
+ * same way, and rows read anew under a resting pointer are too: the browser says what the
+ * pointer is on now, as if it had moved.
  *
  * The directive sits on an empty element in the positioned box around the table, and
  * that element is the tooltip's anchor: it is laid over the cut text before the tooltip
@@ -70,6 +84,12 @@ export class CutShortTooltipDirective implements OnInit {
   private readonly moved = (event: Event): void => {
     this.arrive(event.target);
   };
+  /** The frame in which what the focus arrived on is offered, while it has not come. */
+  private awaited: number | undefined;
+  /** The wait after which the anchor of a closed tooltip is taken back, while it runs. */
+  private kept: ReturnType<typeof setTimeout> | undefined;
+  /** Whether the cells' stops of the Tab key are those of what the table draws now. */
+  private reached = false;
 
   constructor() {
     this.tooltip.position = 'above';
@@ -88,11 +108,25 @@ export class CutShortTooltipDirective implements OnInit {
         this.leave((event as MouseEvent).relatedTarget);
       });
       this.listen(table, 'focusin', (event) => {
-        this.arrive(event.target);
+        this.arriveOnceInView(event.target);
       });
       this.listen(table, 'focusout', () => {
+        this.forget();
         this.withdraw();
       });
+      // The Tab key is on its way to its next stop, wherever the focus is now: the cells
+      // whose text is cut are stops before the browser picks one. Heard on the way down,
+      // so that nothing on the page keeps the key from here.
+      this.listen(
+        table.ownerDocument,
+        'keydown',
+        (event) => {
+          if ((event as KeyboardEvent).key === 'Tab') {
+            this.reach();
+          }
+        },
+        true,
+      );
       // A scroll does not bubble, so the box around the table hears the table's scroll
       // container on the way down.
       const frame = this.anchor.parentElement;
@@ -109,15 +143,78 @@ export class CutShortTooltipDirective implements OnInit {
     });
     this.destroyRef.onDestroy(() => {
       table.removeEventListener('mousemove', this.moved);
+      this.forget();
+      clearTimeout(this.kept);
     });
   }
 
-  private listen(target: HTMLElement, type: string, handler: (event: Event) => void, capture = false): void {
+  /**
+   * What the table draws has changed, its rows or a width: the cells whose text is cut may
+   * be others now, and the next press of the Tab key looks again. Said by the table's
+   * owner, which knows; nothing is read here.
+   */
+  redrawn(): void {
+    this.reached = false;
+  }
+
+  /**
+   * Lets the keyboard reach the cells whose text is cut short: each is made a stop of the
+   * Tab key, where its whole text is offered as it is under the pointer, and a cell whose
+   * text fits, or that draws its value, is no stop. One read of each cell of this table,
+   * and none of a table inside it, every read before the first stop is set; nothing at all
+   * where the stops are already those of what the table draws.
+   */
+  private reach(): void {
+    if (this.reached) {
+      return;
+    }
+    this.reached = true;
+    const cells = Array.from(this.table().querySelectorAll<HTMLElement>(':scope > tbody > tr > td'));
+    const cut = cells.map((cell) => this.textAt(cell) === cell && isCutShort(cell));
+    cells.forEach((cell, index) => {
+      if (cut[index]) {
+        cell.tabIndex = 0;
+      } else if (cell.hasAttribute('tabindex')) {
+        cell.removeAttribute('tabindex');
+      }
+    });
+  }
+
+  private listen(target: EventTarget, type: string, handler: (event: Event) => void, capture = false): void {
     const options = { capture, passive: true };
     target.addEventListener(type, handler, options);
     this.destroyRef.onDestroy(() => {
       target.removeEventListener(type, handler, options);
     });
+  }
+
+  /**
+   * The focus arrived somewhere in the table. A control that is out of view, or under a
+   * column held at the table's edge, is scrolled into view as it takes the focus, and a
+   * scroll closes the tooltip; so its text is measured and offered in the next frame,
+   * where it has come to rest and the scroll has been heard. An environment with no
+   * frames (a spec) offers it at once.
+   */
+  private arriveOnceInView(target: EventTarget | null): void {
+    this.forget();
+    const view = this.anchor.ownerDocument.defaultView;
+    if (!view || typeof view.requestAnimationFrame !== 'function') {
+      this.arrive(target);
+      return;
+    }
+    this.awaited = view.requestAnimationFrame(() => {
+      this.awaited = undefined;
+      this.arrive(target);
+    });
+  }
+
+  /** Lets go of an offer that waits for its frame: the focus has left, or come somewhere else. */
+  private forget(): void {
+    if (this.awaited === undefined) {
+      return;
+    }
+    this.anchor.ownerDocument.defaultView?.cancelAnimationFrame(this.awaited);
+    this.awaited = undefined;
   }
 
   /** The pointer or the focus arrived somewhere in the table: a text cut short there is offered, and anything else closes the tooltip. */
@@ -157,6 +254,12 @@ export class CutShortTooltipDirective implements OnInit {
     this.withdraw();
   }
 
+  /**
+   * Closes the tooltip and, once it has faded, takes the anchor back to nothing. An
+   * anchor left where a text was would stay there while the list around it changed
+   * width, and could come to lie past the list's edge, where it would give the list
+   * something to scroll to.
+   */
   private withdraw(): void {
     if (!this.offered) {
       return;
@@ -165,35 +268,62 @@ export class CutShortTooltipDirective implements OnInit {
     this.zone.run(() => {
       this.tooltip.hide();
     });
+    clearTimeout(this.kept);
+    this.kept = setTimeout(() => {
+      const style = this.anchor.style;
+      style.left = '0';
+      style.top = '0';
+      style.width = '0';
+      style.height = '0';
+    }, ANCHOR_KEPT_MS);
   }
 
   /**
    * The text an element of the table stands for: a header's label, for the header's
    * button and anything in it, or the cell the element is, where the cell holds text
-   * alone. A cell that draws its value (an icon, a check, a button) has none, and a cell
-   * of a table inside this one belongs to that table's own tooltip.
+   * alone. A row that is one cell across the table holds its words in a box of their own
+   * (the empty list's message), and that box is the text. A cell that draws its value (an
+   * icon, a check, a button, an expanded row's detail) has none, and a cell of a table
+   * inside this one belongs to that table's own tooltip.
    */
   private textAt(target: Element): HTMLElement | null {
     const label = target.closest('.header-label')?.querySelector<HTMLElement>('.col-header') ?? null;
-    const text = label ?? target.closest('td');
-    if (text === null || text.closest('table') !== this.table()) {
+    const cell = label ?? target.closest('td');
+    if (cell === null || cell.closest('table') !== this.table()) {
       return null;
     }
+    const only = label === null && cell.childElementCount === 1 ? cell.firstElementChild : null;
+    const text = only instanceof HTMLElement && only.classList.contains('impulse-grid-across') ? only : cell;
     return label === null && text.childElementCount > 0 ? null : text;
   }
 
-  /** Lays the anchor over the text, in the coordinates of the box the anchor is positioned in. */
+  /**
+   * Lays the anchor over the text, in the coordinates of the box the anchor is positioned
+   * in, and over no more of the text than lies inside that box's line: a cell the list has
+   * partly scrolled out of view is offered over the part in view, and the anchor never
+   * reaches past the list's edge.
+   */
   private place(text: HTMLElement): void {
     const frame = this.anchor.offsetParent;
     if (frame === null) {
       return;
     }
+    clearTimeout(this.kept);
     const over = text.getBoundingClientRect();
-    const within = frame.getBoundingClientRect();
+    const box = frame.getBoundingClientRect();
+    // Inside the box's line, where what it holds lies.
+    const inside = {
+      left: box.left + frame.clientLeft,
+      top: box.top + frame.clientTop,
+      right: box.left + frame.clientLeft + frame.clientWidth,
+      bottom: box.top + frame.clientTop + frame.clientHeight,
+    };
+    const left = Math.max(over.left, inside.left);
+    const top = Math.max(over.top, inside.top);
     const style = this.anchor.style;
-    style.left = `${over.left - within.left - frame.clientLeft + frame.scrollLeft}px`;
-    style.top = `${over.top - within.top - frame.clientTop + frame.scrollTop}px`;
-    style.width = `${over.width}px`;
-    style.height = `${over.height}px`;
+    style.left = `${left - inside.left + frame.scrollLeft}px`;
+    style.top = `${top - inside.top + frame.scrollTop}px`;
+    style.width = `${Math.max(0, Math.min(over.right, inside.right) - left)}px`;
+    style.height = `${Math.max(0, Math.min(over.bottom, inside.bottom) - top)}px`;
   }
 }

@@ -140,13 +140,33 @@ CREATE TABLE SectorDirectories (
 CREATE UNIQUE INDEX SectorDirectoriesBySectorId ON SectorDirectories(SectorId);
 CREATE UNIQUE INDEX SectorDirectoriesByMethodConnection ON SectorDirectories(Method, Connection);
 
+-- The rows of a table that carries a sector's key are the sector's own, so they go with
+-- it: the delete rule on the foreign key to Sectors (ON DELETE CASCADE) removes them in
+-- the transaction that deletes the sector, and impulse check holds every such table to
+-- it (tenant-delete-rule). Wings, Hangars, HangarPasses, Missions, Consignments,
+-- DroidReports and DistressCalls carry it. A sector's directory carries none: the
+-- generated delete of a sector removes that row itself, so its change event is written.
+-- A table that reaches its sector through another row carries the rule on every link of
+-- that way, and the check holds it to that too: a squadron goes with its wing and a
+-- membership with its squadron, a ship with its hangar and a refit with its ship (its
+-- tasks are interleaved in it), a sortie and a document with their mission and an
+-- expense with its sortie. So a sector that is deleted takes all of it. Each of those
+-- rules is the database's and fires for the row deleted by itself too: a wing takes its
+-- squadrons and their memberships, a squadron its memberships, a hangar its ships with
+-- their refits, a ship its refits, a mission its sorties, their expenses and its
+-- documents, a sortie its expenses. Rows removed that way are removed past their own
+-- resource's Delete grant and row condition, and leave no change event. The references
+-- on no table's way to its sector say nothing of a delete, and refuse one: a sortie's
+-- and a droid report's to the ship, a mission's to the squadron it is assigned to and to
+-- its client, a ship's to its class. A hangar pass is the exception among those: it goes
+-- with its hangar and with the squadron it is issued to, as it did before.
 CREATE TABLE Wings (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
   Name STRING(MAX) NOT NULL,
 
   CONSTRAINT CK_Wings_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Wings_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_Wings_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX WingsByName ON Wings(Name);
@@ -296,6 +316,11 @@ CREATE TABLE ShipClasses (
   RoleId STRING(64) NOT NULL,
   Tonnage INT64 NOT NULL,
   Hardened BOOL NOT NULL,
+  -- InService records whether the yards still build this hull. A class enters the catalog in
+  -- service and leaves it only when somebody says so, so the column declares the yes itself: a
+  -- row that names no value is in service, the generator carries the default into the browser
+  -- metadata, and the console's form starts the box checked with nothing written in its config.
+  InService BOOL NOT NULL DEFAULT (TRUE),
 
   CONSTRAINT CK_ShipClasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT FK_ShipClasses_RoleId FOREIGN KEY (RoleId) REFERENCES ShipRoles(Id),
@@ -344,7 +369,7 @@ CREATE TABLE Squadrons (
   Name STRING(MAX) NOT NULL,
 
   CONSTRAINT CK_Squadrons_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Squadrons_WingId FOREIGN KEY (WingId) REFERENCES Wings(Id),
+  CONSTRAINT FK_Squadrons_WingId FOREIGN KEY (WingId) REFERENCES Wings(Id) ON DELETE CASCADE,
   -- Callsigns are the handles a squadron answers to on the open channel, filed by the sector
   -- marshal: a nullable ARRAY<STRING(16)> column typed by the plain []string in the resource
   -- struct, where NULL (the squadron has not filed yet) and an empty array (it flies silent
@@ -362,7 +387,7 @@ CREATE TABLE SquadronMemberships (
   SquadronId STRING(36) NOT NULL,
   UserId STRING(36) NOT NULL,
 
-  CONSTRAINT FK_SquadronMemberships_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id),
+  CONSTRAINT FK_SquadronMemberships_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id) ON DELETE CASCADE,
 ) PRIMARY KEY (SquadronId, UserId);
 
 CREATE INDEX SquadronMembershipsByUserId ON SquadronMemberships(UserId);
@@ -374,31 +399,34 @@ CREATE TABLE Hangars (
   Zone STRING(MAX) NOT NULL,
 
   CONSTRAINT CK_Hangars_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Hangars_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_Hangars_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   -- Hangars: the prefix fact alone. The lowercased name sits after the sector in an
   -- index, so a startswith on Name seeks that index with the sector bound; a hangar's name
   -- joins no box, since the table has no search index.
   Name_Lower STRING(MAX) AS (LOWER(Name)) STORED,
 ) PRIMARY KEY (Id);
 
--- HangarPasses: who a hangar is open to. A pass names a person or a squadron, never both,
--- at a level (visit, or run) and until it expires; no expiry is a standing pass. The two
--- subject sets the resource struct declares read this table: the hangars open to the
--- requester and the hangars the requester runs, each through a pass in their own name or
--- in the name of a squadron they fly with. A pass goes with its hangar and with its
--- squadron.
+-- HangarPasses: who a hangar is open to. A pass names one holder, a person, a squadron or
+-- a group of the crew, at a level (visit, or run) and until it expires; no expiry is a
+-- standing pass. The two subject sets the resource struct declares read this table: the
+-- hangars open to the requester and the hangars the requester runs, each through a pass
+-- in their own name, in the name of a squadron they fly with or in the name of a group
+-- they are in. A pass goes with its hangar, with its squadron and with its group (the
+-- foreign key to CrewGroups is added below that table). The holder check counts the
+-- three columns and takes exactly one; an empty UserId names nobody and is not counted.
 CREATE TABLE HangarPasses (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
   HangarId STRING(36) NOT NULL,
   UserId STRING(36),
   SquadronId STRING(36),
+  GroupId STRING(36),
   LevelId STRING(64) NOT NULL,
   ExpiresAt TIMESTAMP,
 
   CONSTRAINT CK_HangarPasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT CK_HangarPasses_Holder CHECK ((UserId IS NULL) != (SquadronId IS NULL)),
-  CONSTRAINT FK_HangarPasses_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT CK_HangarPasses_Holder CHECK (IF(UserId IS NULL OR UserId = '', 0, 1) + IF(SquadronId IS NULL, 0, 1) + IF(GroupId IS NULL, 0, 1) = 1),
+  CONSTRAINT FK_HangarPasses_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_LevelId FOREIGN KEY (LevelId) REFERENCES PassLevels(Id),
@@ -410,6 +438,8 @@ CREATE TABLE HangarPasses (
 CREATE INDEX HangarPassesBySectorIdUserIdHangarId ON HangarPasses(SectorId, UserId, HangarId);
 
 CREATE INDEX HangarPassesBySectorIdSquadronIdHangarId ON HangarPasses(SectorId, SquadronId, HangarId);
+
+CREATE INDEX HangarPassesBySectorIdGroupIdHangarId ON HangarPasses(SectorId, GroupId, HangarId);
 
 -- The list's own order: a sector's passes by hangar.
 CREATE INDEX HangarPassesBySectorIdHangarId ON HangarPasses(SectorId, HangarId);
@@ -424,7 +454,7 @@ CREATE TABLE Ships (
   UpdatedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 
   CONSTRAINT CK_Ships_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Ships_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id),
+  CONSTRAINT FK_Ships_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id) ON DELETE CASCADE,
   CONSTRAINT FK_Ships_ClassId FOREIGN KEY (ClassId) REFERENCES ShipClasses(Id),
   -- CargoBays is the tonnage each of a ship's cargo bays takes, in order: an ARRAY<INT64>
   -- column, which the generator types number[] in the console's interface and metadata, one
@@ -469,7 +499,7 @@ CREATE TABLE Missions (
   Settlement NUMERIC,
 
   CONSTRAINT CK_Missions_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Missions_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_Missions_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_Missions_ClientId FOREIGN KEY (ClientId) REFERENCES Clients(Id),
   CONSTRAINT FK_Missions_KindId FOREIGN KEY (KindId) REFERENCES MissionKinds(Id),
   CONSTRAINT FK_Missions_RequiredCertId FOREIGN KEY (RequiredCertId) REFERENCES Certifications(Id),
@@ -499,7 +529,7 @@ CREATE TABLE Sorties (
   Debrief STRING(MAX),
 
   CONSTRAINT CK_Sorties_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Sorties_MissionId FOREIGN KEY (MissionId) REFERENCES Missions(Id),
+  CONSTRAINT FK_Sorties_MissionId FOREIGN KEY (MissionId) REFERENCES Missions(Id) ON DELETE CASCADE,
   CONSTRAINT FK_Sorties_ShipId FOREIGN KEY (ShipId) REFERENCES Ships(Id),
 ) PRIMARY KEY (Id);
 
@@ -511,7 +541,7 @@ CREATE TABLE SortieExpenses (
   Note STRING(MAX),
 
   CONSTRAINT CK_SortieExpenses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_SortieExpenses_SortieId FOREIGN KEY (SortieId) REFERENCES Sorties(Id),
+  CONSTRAINT FK_SortieExpenses_SortieId FOREIGN KEY (SortieId) REFERENCES Sorties(Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE TABLE Refits (
@@ -527,7 +557,7 @@ CREATE TABLE Refits (
   Notes STRING(MAX),
 
   CONSTRAINT CK_Refits_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Refits_ShipId FOREIGN KEY (ShipId) REFERENCES Ships(Id),
+  CONSTRAINT FK_Refits_ShipId FOREIGN KEY (ShipId) REFERENCES Ships(Id) ON DELETE CASCADE,
   CONSTRAINT FK_Refits_StatusId FOREIGN KEY (StatusId) REFERENCES RefitStatuses(Id),
 ) PRIMARY KEY (Id);
 
@@ -554,7 +584,7 @@ CREATE TABLE Consignments (
   ReleasedAt TIMESTAMP,
 
   CONSTRAINT CK_Consignments_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Consignments_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_Consignments_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_Consignments_ClientId FOREIGN KEY (ClientId) REFERENCES Clients(Id),
 ) PRIMARY KEY (Id);
 
@@ -569,7 +599,7 @@ CREATE TABLE DroidReports (
   RecordedAt TIMESTAMP NOT NULL,
 
   CONSTRAINT CK_DroidReports_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_DroidReports_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_DroidReports_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_DroidReports_ShipId FOREIGN KEY (ShipId) REFERENCES Ships(Id),
   -- Frame is the telemetry frame as the droid's firmware sent it, a JSON document the
   -- service does not model, stored verbatim: typed in Go by telemetry.Frame, a type declared
@@ -593,7 +623,7 @@ CREATE TABLE DistressCalls (
   FiledByName STRING(320) NOT NULL,
 
   CONSTRAINT CK_DistressCalls_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_DistressCalls_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_DistressCalls_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   Position JSON,
 ) PRIMARY KEY (Id);
 
@@ -614,7 +644,7 @@ CREATE TABLE MissionDocuments (
   UploadedAt TIMESTAMP NOT NULL,
 
   CONSTRAINT CK_MissionDocuments_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_MissionDocuments_MissionId FOREIGN KEY (MissionId) REFERENCES Missions(Id),
+  CONSTRAINT FK_MissionDocuments_MissionId FOREIGN KEY (MissionId) REFERENCES Missions(Id) ON DELETE CASCADE,
   -- Two JSON columns typed by application types: Provenance, a plain struct whose
   -- TypeScript interface the generator derives, and Position, a GeoJSON Point whose
   -- TypeScript type the Go type declares with @typescript. Both nullable: a document filed
@@ -706,6 +736,7 @@ CREATE TABLE CrewUserRoles (
   UserId STRING(320) NOT NULL,
   StartsAt TIMESTAMP,
   EndsAt TIMESTAMP,
+  Reason STRING(MAX),
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CrewUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -742,6 +773,10 @@ CREATE TABLE CrewGroups (
 ) PRIMARY KEY (Id);
 
 CREATE UNIQUE INDEX CrewGroupsByName ON CrewGroups (Kind, Axis, DomainId, Name);
+
+-- A hangar pass may name a group as its holder. The pass goes with the group: deleting
+-- a group leaves no pass that names it.
+ALTER TABLE HangarPasses ADD CONSTRAINT FK_HangarPasses_GroupId FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id) ON DELETE CASCADE;
 
 CREATE TABLE CrewGroupMembers (
   GroupId STRING(36) NOT NULL,
@@ -787,6 +822,7 @@ CREATE TABLE MembersUserRoles (
   UserId STRING(320) NOT NULL,
   StartsAt TIMESTAMP,
   EndsAt TIMESTAMP,
+  Reason STRING(MAX),
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -1090,13 +1126,16 @@ CREATE TABLE CrewSessionSignInAttempts (
 -- role such a person is given with their account, and holds nothing here, where a person
 -- who signs up charts a sector of their own. A method with
 -- no row is invite only, so the table starts empty and every method starts invite only.
--- UpdatedAt takes the commit time.
+-- SelfServiceReset, read on the password method's row alone, says a person may ask at
+-- the sign-in page for a link that resets their own password; it starts false, and with
+-- no row nobody may. UpdatedAt takes the commit time.
 CREATE TABLE CrewSessionSignInMethods (
-    Name        STRING(MAX) NOT NULL,
-    OpenSignUp  BOOL NOT NULL,
-    OpenedFor   STRING(MAX),
-    DefaultRole STRING(MAX),
-    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    Name             STRING(MAX) NOT NULL,
+    OpenSignUp       BOOL NOT NULL,
+    OpenedFor        STRING(MAX),
+    DefaultRole      STRING(MAX),
+    SelfServiceReset BOOL NOT NULL DEFAULT (false),
+    UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
 CREATE UNIQUE NULL_FILTERED INDEX CrewSessionUsersByNormalizedEmail ON CrewSessionUsers(NormalizedEmail);
@@ -1115,11 +1154,15 @@ CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STO
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); a sign-up a person starts by giving their address; or the code a
 -- signed-in person who has no password is mailed to choose their first one (UserId
--- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- names the account, and the row keeps the code's hash where a link keeps its token's);
+-- the link that resets a password (UserId names the account, Email the confirmed
+-- address it was mailed to); or the confirmation of an address an administrator set
+-- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
 -- update so one link completes once. A revoked invitation is consumed by hand. A
--- verification link and a first-password code go with their user. CreatedAt and
+-- verification link, a first-password code, a reset link and an address confirmation
+-- go with their user. CreatedAt and
 -- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE CrewSessionMailLinks (
     Id         STRING(36) NOT NULL,
@@ -1136,7 +1179,7 @@ CREATE TABLE CrewSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_CrewSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
+    CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_CrewSessionMailLinks_CrewSessionUsers FOREIGN KEY (UserId) REFERENCES CrewSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
@@ -1177,13 +1220,16 @@ CREATE TABLE MembersSessionSignInAttempts (
 -- role such a person is given with their account, and holds nothing here, where a person
 -- who signs up charts a sector of their own. A method with
 -- no row is invite only, so the table starts empty and every method starts invite only.
--- UpdatedAt takes the commit time.
+-- SelfServiceReset, read on the password method's row alone, says a person may ask at
+-- the sign-in page for a link that resets their own password; it starts false, and with
+-- no row nobody may. UpdatedAt takes the commit time.
 CREATE TABLE MembersSessionSignInMethods (
-    Name        STRING(MAX) NOT NULL,
-    OpenSignUp  BOOL NOT NULL,
-    OpenedFor   STRING(MAX),
-    DefaultRole STRING(MAX),
-    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    Name             STRING(MAX) NOT NULL,
+    OpenSignUp       BOOL NOT NULL,
+    OpenedFor        STRING(MAX),
+    DefaultRole      STRING(MAX),
+    SelfServiceReset BOOL NOT NULL DEFAULT (false),
+    UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
 CREATE UNIQUE NULL_FILTERED INDEX MembersSessionUsersByNormalizedEmail ON MembersSessionUsers(NormalizedEmail);
@@ -1202,11 +1248,15 @@ CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Usernam
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); a sign-up a person starts by giving their address; or the code a
 -- signed-in person who has no password is mailed to choose their first one (UserId
--- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- names the account, and the row keeps the code's hash where a link keeps its token's);
+-- the link that resets a password (UserId names the account, Email the confirmed
+-- address it was mailed to); or the confirmation of an address an administrator set
+-- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
 -- update so one link completes once. A revoked invitation is consumed by hand. A
--- verification link and a first-password code go with their user. CreatedAt and
+-- verification link, a first-password code, a reset link and an address confirmation
+-- go with their user. CreatedAt and
 -- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE MembersSessionMailLinks (
     Id         STRING(36) NOT NULL,
@@ -1223,7 +1273,7 @@ CREATE TABLE MembersSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_MembersSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
+    CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_MembersSessionMailLinks_MembersSessionUsers FOREIGN KEY (UserId) REFERENCES MembersSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 

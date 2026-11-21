@@ -10,7 +10,9 @@
       } @else {
         <div class="no-title-exp-panel-padding"></div>
       }
-      <ng-container *ngTemplateOutlet="headerSlot"></ng-container>
+      <div class="header-container">
+        <ng-container *ngTemplateOutlet="headerSlot"></ng-container>
+      </div>
       @if (store.rowPresent()) {
         <div class="resource-container" [class.form-edit-mode]="editMode() === 'edit'">
           <form [formGroup]="form()">
@@ -41,8 +43,17 @@
   </div>
 } @else {
   <div class="page-container">
-    @if (!showCreateForm()) {
-      <ng-container *ngTemplateOutlet="headerSlot"></ng-container>
+    <!-- The page's title, where the page hands it over, and the view's buttons: one row,
+         the buttons at its far end or under the title, never over it. -->
+    @if (pageTitle() !== '' || !showCreateForm()) {
+      <div class="header-container show-background">
+        @if (pageTitle() !== '') {
+          <h1 class="page-title" [class.impulse-section]="pageTitleIsSection()">{{ pageTitle() }}</h1>
+        }
+        @if (!showCreateForm()) {
+          <ng-container *ngTemplateOutlet="headerSlot"></ng-container>
+        }
+      </div>
     }
     @if (store.rowPresent()) {
       <div class="resource-container base-container-bg" [class.form-edit-mode]="editMode() === 'edit'">
@@ -99,45 +110,53 @@
 </ng-template>
 
 <ng-template #headerSlot>
-  <div class="header-container">
-    <div class="state-buttons">
-      @if (store.rowPresent()) {
-        @for (rpc of inlineRpcConfigs(); track rpc.context) {
-          <action-access-control-wrapper [actionContext]="rpc.context">
-            <impulse-rpc-button
-              [rpcConfig]="rpc.config"
-              [relatedData]="relatedData()"
-              [primaryResource]="config().primaryResource">
-            </impulse-rpc-button>
-          </action-access-control-wrapper>
-        }
-        @if (editMode() === 'view') {
-          <action-access-control-wrapper [actionContext]="editButtonContext()">
-            <div class="edit-button">
-              <button mat-raised-button color="accent" (click)="setEditMode('edit')">
-                <div class="button-text">
-                  <mat-icon>edit</mat-icon>
-                  <span class="mode-text"> Edit </span>
-                </div>
-              </button>
-            </div>
-          </action-access-control-wrapper>
-
-          <action-access-control-wrapper [actionContext]="deleteButtonContext()">
-            <button mat-raised-button color="primary" (click)="confirmDeleteResource()">Delete</button>
-          </action-access-control-wrapper>
-
-          @if (rowMethods().length > 0) {
-            <!-- The methods the server says the caller may run on this row, in one menu as
-                 on a row of the list: a row may offer a dozen. -->
-            <button mat-raised-button type="button" class="row-methods" [matMenuTriggerFor]="rowMethodsMenu">
+  <div class="state-buttons">
+    @if (store.rowPresent()) {
+      @for (rpc of inlineRpcConfigs(); track rpc.context) {
+        <action-access-control-wrapper [actionContext]="rpc.context">
+          <impulse-rpc-button
+            [rpcConfig]="rpc.config"
+            [relatedData]="relatedData()"
+            [primaryResource]="config().primaryResource">
+          </impulse-rpc-button>
+        </action-access-control-wrapper>
+      }
+      @if (editMode() === 'view') {
+        <action-access-control-wrapper [actionContext]="editButtonContext()">
+          <div class="edit-button">
+            <button mat-raised-button color="accent" (click)="setEditMode('edit')">
               <div class="button-text">
-                <mat-icon>more_vert</mat-icon>
-                <span class="mode-text"> Actions </span>
+                <mat-icon>edit</mat-icon>
+                <span class="mode-text"> Edit </span>
               </div>
             </button>
-            <mat-menu #rowMethodsMenu="matMenu">
-              @for (method of rowMethods(); track method.method) {
+          </div>
+        </action-access-control-wrapper>
+
+        <action-access-control-wrapper [actionContext]="deleteButtonContext()">
+          <button mat-raised-button color="primary" (click)="confirmDeleteResource()">Delete</button>
+        </action-access-control-wrapper>
+
+        @if (rowMethods().length > 0) {
+          <!-- The methods the server says the caller may run on this row, in one menu as
+               on a row of the list: a row may offer a dozen. -->
+          <button mat-raised-button type="button" class="row-methods" [matMenuTriggerFor]="rowMethodsMenu">
+            <div class="button-text">
+              <mat-icon>more_vert</mat-icon>
+              <span class="mode-text"> Actions </span>
+            </div>
+          </button>
+          <mat-menu #rowMethodsMenu="matMenu">
+            @for (method of rowMethods(); track method.method) {
+              @if (method.says) {
+                <!-- What the row says where the method would be: words, and nothing to run. -->
+                <button type="button" mat-menu-item class="row-method row-method-says" disabled>
+                  @if (method.icon) {
+                    <mat-icon>{{ method.icon }}</mat-icon>
+                  }
+                  <span>{{ method.says }}</span>
+                </button>
+              } @else {
                 <button type="button" mat-menu-item class="row-method" (click)="runMethod(method)">
                   @if (method.icon) {
                     <mat-icon>{{ method.icon }}</mat-icon>
@@ -145,30 +164,30 @@
                   <span>{{ method.label }}</span>
                 </button>
               }
-            </mat-menu>
-          }
-        }
-
-        @if (editMode() === 'edit') {
-          @if (form().dirty) {
-            <div class="unsaved message">You have unsaved changes!</div>
-          }
-          @if (displayFormInvalidMessage() && changedFieldsInvalid()) {
-            <div class="invalid message">Please complete or fix required fields.</div>
-          }
-          <button mat-raised-button color="primary" (click)="resetForm()">Cancel</button>
-          <button mat-raised-button color="accent" (click)="saveForm()" [disabled]="form().pristine">Save</button>
-        }
-
-        @if (showCloseButton()) {
-          <div class="close-button">
-            <button mat-icon-button color="warn" (click)="location.back()">
-              <mat-icon>close</mat-icon>
-            </button>
-          </div>
+            }
+          </mat-menu>
         }
       }
-    </div>
+
+      @if (editMode() === 'edit') {
+        @if (form().dirty) {
+          <div class="unsaved message">You have unsaved changes!</div>
+        }
+        @if (displayFormInvalidMessage() && changedFieldsInvalid()) {
+          <div class="invalid message">{{ incomplete() }}</div>
+        }
+        <button mat-raised-button color="primary" (click)="resetForm()">Cancel</button>
+        <button mat-raised-button color="accent" (click)="saveForm()" [disabled]="form().pristine">Save</button>
+      }
+
+      @if (showCloseButton()) {
+        <div class="close-button">
+          <button mat-icon-button color="warn" (click)="location.back()">
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+      }
+    }
   </div>
 </ng-template>
 

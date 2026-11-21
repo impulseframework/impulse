@@ -3,6 +3,7 @@ import { apiDescriptor } from '@app/service/zz_gen_api';
 import { resourceMeta } from '@app/service/zz_gen_resources';
 import { LoginAuthenticationGuard } from '@impulseframework/resource-angular/auth-authentication-guard';
 import { FrameComponent, frameRoutes } from '@impulseframework/resource-angular/auth-frame';
+import { featureFlagsRoute } from '@impulseframework/resource-angular/feature-flags';
 import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
 
 export const routes: Routes = [
@@ -33,7 +34,9 @@ export const routes: Routes = [
       // the library builds the pages from it, each placed in the menus behind the List
       // grant on its resource, each row offering the methods the caller may run on it.
       ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),
-      // The person's account and About pages: the library's.
+      // The feature flags: the library's list page over the flags the application declares.
+      featureFlagsRoute(resourceMeta),
+      // The person's account page: the library's.
       ...frameRoutes(),
       { path: '**', redirectTo: 'dashboard' },
     ],

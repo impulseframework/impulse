@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
@@ -26,8 +27,10 @@ func (p *AuthAPI[S, U, Tx]) ValidateSession(ctx context.Context) (context.Contex
 }
 
 // ValidateCredentials checks a username and password and returns the user ID. A
-// password-less user always fails validation. It starts no session and asks no
-// sign-in policy. It is limited as the login is: a failure counts against the name,
+// password-less user always fails validation, and a disabled user is refused as at the
+// login (signin.ErrUserDisabled): where a store wraps the library's, the user is
+// disabled if either the store's answer or the library's own row says so. It starts no
+// session and asks no sign-in policy. It is limited as the login is: a failure counts against the name,
 // and a name whose attempts reached the limit is refused with a
 // *sessioninfo.LoginRefusal carrying RefusedTooManyAttempts and the wait
 // (sessioninfo.RetryAfterOf), before the user is looked up or the password hashed.
@@ -52,6 +55,15 @@ func (p *AuthAPI[S, U, Tx]) ValidateCredentials(ctx context.Context, username, p
 // CompletePending to finish. There is no session start that skips the policy: a support
 // session is StartImpersonatedSession.
 //
+// events names the application's own steps, each under a name of the application's
+// ("magic-link"). An event without a method, under a method that records a step the
+// library runs itself (sessioninfo.MethodEmailCode, sessioninfo.MethodTrustedDevice,
+// an attestation's), or under the name of a sign-in method the library runs (a
+// password, sessioninfo.MethodAzure, MethodGoogle, MethodWorkOS, MethodOIDC and the
+// method of every registration on the Auth), is a BadRequest, and nothing is started:
+// the session's first event says how the person signed in, and only a sign-in the
+// library ran says it was a password's or a directory's.
+//
 // An event with a zero At records the session's creation time. Optional customData
 // (at most one *S) is written atomically with the session insert, and the custom
 // session data resolver is not called for it; without it the resolver receives
@@ -67,6 +79,9 @@ func (p *AuthAPI[S, U, Tx]) StartAuthenticatedSession(ctx context.Context, w htt
 		return impulse.NilUUID, httpio.NewBadRequestMessage("StartAuthenticatedSession records how the user authenticated: pass at least one auth event")
 	}
 	if err := validateEvents(events); err != nil {
+		return impulse.NilUUID, err
+	}
+	if err := p.auth.reportsNoSignIn(events); err != nil {
 		return impulse.NilUUID, err
 	}
 
@@ -271,6 +286,8 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 		return errors.Wrap(err, "sessionstorage.AuthStore.ChangeUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)
+	// A reset link mailed for the password before does not reset the new one.
+	a.endResetLinks(ctx, user.ID)
 
 	// The regenerated session keeps the provider's session id, and its issuer, of the
 	// session it replaces, so a provider-initiated logout still finds it.
@@ -370,6 +387,7 @@ func (p *AuthAPI[S, U, Tx]) RemoveSessionUserPassword(ctx context.Context, userI
 		return errors.Wrap(err, "sessionstorage.AuthStore.RemoveUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)
+	a.endResetLinks(ctx, user.ID)
 
 	return nil
 }
@@ -418,13 +436,50 @@ func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUI
 		return errors.Wrap(err, "sessionstorage.AuthStore.ReplaceUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)
+	// A reset link mailed for the password before does not reset the new one.
+	a.endResetLinks(ctx, userID)
 
 	return nil
 }
 
-// DeactivateSessionUser disables a user and destroys its sessions. The caller must
+// refuseImpersonatorsOwnAccount refuses a switch of an account, disabling, enabling or
+// deleting it, on the account of the real person behind a session that acts as someone
+// else: in such a session nobody is the subject of what they do. A person who acts as
+// an administrator would otherwise enable their own account again, or remove it, with
+// what the administrator may do. The session is read off the call's context, where
+// ValidateSession put it, so a route an application wrote that calls one of the three
+// is held to the rule with no line of its own. The rule lives here, in the session
+// API's three, which every generated route calls. The store's own three beneath them
+// (sessionstorage's DeactivateUser, ActivateUser and DeleteUser) are the bare writes
+// and are not held to it: they are handed no session to read, so a route that calls
+// the store's method in place of the session API's makes the switch unasked. A call
+// that carries no session, a job of the application's own, is nobody's act on
+// themselves and goes through, and so does a session started by a person of another
+// application, who has no account here. act says what was asked, as the end of "you
+// cannot". The sentence and the log line are the ones the generated user management
+// answers with (sessioninfo.ImpersonatorRefusal).
+func refuseImpersonatorsOwnAccount(ctx context.Context, userID impulse.UUID, act string) error {
+	sess, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !ok || sess == nil || sess.Impersonation == nil {
+		return nil
+	}
+	if actor := sess.Impersonation.ActorID; !actor.Valid || actor.UUID != userID {
+		return nil
+	}
+	line, refusal := sessioninfo.ImpersonatorRefusal(userID, act)
+	logger.FromCtx(ctx).Info(line)
+
+	return refusal
+}
+
+// DeactivateSessionUser disables a user and destroys its sessions. In a session that
+// acts as someone else it refuses the account of the person who started the session
+// (refuseImpersonatorsOwnAccount). In a session of the person's own, the caller must
 // guard against self-deactivation.
 func (p *AuthAPI[S, U, Tx]) DeactivateSessionUser(ctx context.Context, userID impulse.UUID) error {
+	if err := refuseImpersonatorsOwnAccount(ctx, userID, "disable your own account"); err != nil {
+		return err
+	}
 	if err := p.auth.storage.DeactivateUser(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DeactivateUser()")
 	}
@@ -435,8 +490,12 @@ func (p *AuthAPI[S, U, Tx]) DeactivateSessionUser(ctx context.Context, userID im
 	return nil
 }
 
-// ActivateSessionUser enables a user.
+// ActivateSessionUser enables a user. In a session that acts as someone else it refuses
+// the account of the person who started the session (refuseImpersonatorsOwnAccount).
 func (p *AuthAPI[S, U, Tx]) ActivateSessionUser(ctx context.Context, userID impulse.UUID) error {
+	if err := refuseImpersonatorsOwnAccount(ctx, userID, "enable your own account"); err != nil {
+		return err
+	}
 	if err := p.auth.storage.ActivateUser(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.ActivateUser()")
 	}
@@ -446,8 +505,13 @@ func (p *AuthAPI[S, U, Tx]) ActivateSessionUser(ctx context.Context, userID impu
 
 // DeleteSessionUser deletes a user with its identity links and sessions. The
 // sessions are destroyed first, by UserId, so a failed delete leaves no live session
-// behind. The caller must guard against self-deletion.
+// behind. In a session that acts as someone else it refuses the account of the person
+// who started the session (refuseImpersonatorsOwnAccount). In a session of the person's
+// own, the caller must guard against self-deletion.
 func (p *AuthAPI[S, U, Tx]) DeleteSessionUser(ctx context.Context, userID impulse.UUID) error {
+	if err := refuseImpersonatorsOwnAccount(ctx, userID, "delete your own account"); err != nil {
+		return err
+	}
 	if _, err := p.auth.storage.User(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
@@ -518,18 +582,28 @@ func (p *AuthAPI[S, U, Tx]) UpdateCustomUserData(ctx context.Context, userID imp
 	return p.auth.shared().UpdateCustomUserData(ctx, userID, mutate)
 }
 
-// StartImpersonatedSession establishes a session that operates as req.Principal on
-// behalf of req.Actor. A user principal names the person by the id of their account
-// and resolves against the users: a principal that is no id is a BadRequest, a missing
-// user is an error and a disabled one is refused. An actor from another application
-// (req.ActorRealm set) is refused when their name reads as the id of an account, and,
-// for a role principal, when their name is already a user's username.
+// StartImpersonatedSession establishes a session that operates as the request's
+// principal on behalf of its actor. The request is one the application's declaration
+// made (Impersonations.Request for a person signed in here, Impersonations.RequestFor
+// for a server-side caller), which has checked the kind's grant and set the session's
+// mask: a request built by hand does not compile, and the zero value is refused.
+//
+// A user principal names the person by the id of their account and resolves against
+// the users: a principal that is no id is a BadRequest, a missing user is an error and
+// a disabled one is refused. An actor from another application (the request's
+// ActorRealm) is refused when their name reads as the id of an account, and, for a
+// role principal, when their name is already a user's username.
 //
 // A user principal's session belongs to the impersonated user (SessionData.UserID).
 // A role principal's session belongs to no user (null UserID). The session records
 // an impersonation auth event whose connection is the actor.
 func (p *AuthAPI[S, U, Tx]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*S) (impulse.UUID, error) {
-	return p.auth.shared().StartImpersonatedSession(ctx, w, req, customData, sessioncore.UserIdentity(p.auth.storage))
+	established, err := req.established()
+	if err != nil {
+		return impulse.NilUUID, err
+	}
+
+	return p.auth.shared().StartImpersonatedSession(ctx, w, established, customData, sessioncore.UserIdentity(p.auth.storage))
 }
 
 // DestroyImpersonatedSessions expires every impersonated session started by actor.

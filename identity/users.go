@@ -141,7 +141,9 @@ func distinctRoles(roles []accesstypes.Role) []accesstypes.Role {
 // request is refused, and so is their next sign-in. The sign-in paths cache neither
 // fact. Nobody disables themselves: the person acting, the real person behind the
 // session, is refused their own account, and a session that views as someone else the
-// account it views as (refuseOwnAccount).
+// account it views as (refuseOwnAccount). In a session that acts as someone else the
+// refusal of the real person's own account is the one EnableUser and DeleteUser give
+// there, in the same sentence form and with the same log line.
 // A super administrator's account is disabled by a super administrator alone, since it
 // removes one in effect (requireSuperAdministratorFor), and the last super administrator
 // who can sign in is disabled by nobody (refuseLastSuperAdministrator).
@@ -169,7 +171,7 @@ func (m *Manager) DisableUser(ctx context.Context, txn resource.ReadWriteTransac
 		return err
 	}
 	disabled := true
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: &disabled, PasswordChangeRequired: nil, Email: nil, Name: nil}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: &disabled, PasswordChangeRequired: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 
@@ -177,13 +179,18 @@ func (m *Manager) DisableUser(ctx context.Context, txn resource.ReadWriteTransac
 }
 
 // EnableUser buffers the enabling of a disabled user, who may sign in again once it
-// commits. The sessions that ended when the user was disabled stay ended. A super
+// commits. The sessions that ended when the user was disabled stay ended. In a session
+// that acts as someone else the real person behind it does not enable their own
+// account, as they do not disable or delete it (refuseImpersonatorAsSubject). A super
 // administrator's account is enabled by a super administrator alone, since it makes one
 // who can sign in (requireSuperAdministratorFor).
 func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "enable your own account"); err != nil {
+		return err
+	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "enables a super administrator's account"); err != nil {
 		return err
 	}
@@ -191,7 +198,7 @@ func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransact
 		return err
 	}
 	disabled := false
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: &disabled, PasswordChangeRequired: nil, Email: nil, Name: nil}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: &disabled, PasswordChangeRequired: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 
@@ -212,6 +219,9 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "require a password change of your own account"); err != nil {
+		return err
+	}
 	has, found, err := m.store.UserHasPassword(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.UserHasPassword()")
@@ -229,34 +239,44 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 		return httpio.NewBadRequestMessage("a password change can only be required of a user that has a password")
 	}
 	required := true
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: &required, Email: nil, Name: nil}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: &required, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 
 	return nil
 }
 
-// SetEmail buffers an address on a user, entered by hand, or takes the address off
-// (nil): an operator's entry, for a person whose address changed or who was created
-// without one. The address is held unverified, whatever the one before it was, and is
-// trusted for nothing until the person verifies it themselves; it reserves the address
-// all the same, so one another user holds is refused by the table's unique index when
-// the transaction commits.
+// SetEmail asks for a change of a user's address, in the caller's transaction. Nothing
+// about the account changes: once the transaction commits, a link is mailed to the new
+// address, and the account keeps the address it has, where its codes and links still
+// go, until the person follows that link from the new mailbox. Nothing is mailed to the
+// old address to confirm the change; it is told once the change is made. sent is told
+// how the mailing went, once the transaction has committed: whether the link was mailed
+// and, where it was not, why, in a sentence for the administrator who asked.
 //
-// It is for an auth whose usernames are not the addresses: where they are, the address
-// is the username, and it changes when the person verifies a new one.
+// An account always keeps an address, so one is replaced and never taken off. The
+// address of a person who signs in through an organization's directory is the
+// directory's to change, and the session library refuses it (the reason says so). Where
+// the usernames are the addresses, the username changes with the address, when the
+// link is followed.
 //
-// A super administrator's address is set by a super administrator alone: it is where the
-// code of their second factor is mailed, so whoever sets it receives the code
-// (requireSuperAdministratorFor).
+// A super administrator's address is changed by a super administrator alone, and an
+// administrator of a tenant the caller does not enter by one who does: the new address
+// is where the person's codes and links will be mailed (requireSuperAdministratorFor,
+// requireEnteringFor).
 //
-// Shared rule: the session library's SetSessionUserEmail, which writes the address bare
-// and clears the time it was verified.
-func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, email *string) error {
+// Shared rule: the session library's RequestAddressChange.
+func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, email string, sent func(sent bool, reason string)) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	bare, err := optionalAddress(email)
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "change your own email address"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(email) == "" {
+		return httpio.NewBadRequestMessage("an address is required: an account always keeps an email address, so one is replaced and never taken off")
+	}
+	bare, err := optionalAddress(&email)
 	if err != nil {
 		return err
 	}
@@ -271,11 +291,11 @@ func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransactio
 	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
 		return err
 	}
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: nil, Email: &EmailChange{Address: bare}, Name: nil}); err != nil {
-		return errors.Wrap(err, "identity.Store.UpdateUser()")
-	}
+	by := askedBy(ctx)
 
-	return nil
+	return m.mailAfterCommit(txn, "the link that confirms a new address for user "+userID.String(), sent, func(ctx context.Context) error {
+		return m.sessions.RequestAddressChange(ctx, userID, *bare, by)
+	})
 }
 
 // SetName buffers a person's name on a user, or takes the name off (nil, or nothing
@@ -290,6 +310,9 @@ func (m *Manager) SetName(ctx context.Context, txn resource.ReadWriteTransaction
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "change your own name"); err != nil {
+		return err
+	}
 	clean, err := sessioninfo.CleanName(name)
 	if err != nil {
 		return errors.Wrap(err, "sessioninfo.CleanName()")
@@ -299,7 +322,7 @@ func (m *Manager) SetName(ctx context.Context, txn resource.ReadWriteTransaction
 	} else if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 	}
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: nil, Email: nil, Name: &NameChange{Name: clean}}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: nil, Name: &NameChange{Name: clean}}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 

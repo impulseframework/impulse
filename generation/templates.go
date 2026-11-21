@@ -62,6 +62,29 @@ func ({{ .Resource.Name }}) FileKeys() []resource.FileKey {
 	}
 }
 {{- end }}
+{{- if .Resource.HasDeleteTree }}
+{{ if .Resource.IsTenant }}
+// DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it, as the library
+// declares for the tenant record: every kind of the application's rows under the tenant
+// goes with it, and nothing refuses it. The kinds are in the order their rows are
+// deleted, deepest first, each with its ways up to the {{ .Resource.Name }} and what the delete
+// of one of its rows costs.
+{{- else if .Resource.DeclaresDeleteCascade }}
+// DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the {{ .Resource.Name }} and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a {{ .Resource.Name }}
+// that the database does not remove with it.
+{{- else }}
+// DeleteTree describes what keeps a {{ .Resource.Name }} from being deleted: the kinds with a
+// row directly under a {{ .Resource.Name }} that the database does not remove with it, each
+// with the columns that name the {{ .Resource.Name }}. A delete of a {{ .Resource.Name }} with
+// such a row is refused in a sentence that says what is in the way.
+{{- end }}
+func ({{ .Resource.Name }}) DeleteTree() *resource.DeleteTree {
+	return {{ .Resource.DeleteTreeLiteral }}
+}
+{{- end }}
 {{- if .Resource.SearchBranches }}
 
 // SearchBranches names the child text the resource's search box also searches
@@ -754,7 +777,14 @@ patchSet *resource.PatchSet[{{ .Resource.Name }}]) *{{ .Resource.Name }}DeletePa
 	{{ end }}
 		SetPatchType(resource.DeletePatchType)
 
+{{ if .Resource.HasValidateDeleteType }}
+	patch := &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
+
+	return patch
+{{- else }}
 	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+{{- end }}
 }
 
 func New{{ .Resource.Name }}DeletePatch(
@@ -770,9 +800,27 @@ func New{{ .Resource.Name }}DeletePatch(
 {{- end }}
 		SetPatchType(resource.DeletePatchType)
 
-	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
-}
+{{ if .Resource.HasValidateDeleteType }}
+	patch := &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
 
+	return patch
+{{- else }}
+	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+{{- end }}
+}
+{{ if .Resource.HasValidateDeleteType }}
+// registerValidateFunc hands the patch set the resource's delete rule
+// (@validateDeleteType): {{ .Resource.ValidateDeleteType }}.Validate is asked about the
+// row before it is deleted, by the delete of the one row and by a delete that takes the
+// row with a record it is under. An error it returns refuses the delete, and nothing
+// is deleted.
+func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
+	p.patchSet.RegisterValidateDeleteFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return new({{ .Resource.ValidateDeleteType }}).Validate(ctx, txn, p)
+	})
+}
+{{ end }}
 func (p *{{ .Resource.Name }}DeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
@@ -856,6 +904,20 @@ const (
 					}
 					{{- end }}`
 
+	// tenantDirectoryCleared is spliced into the tenant record's delete, after the row's
+	// removal is buffered under its id (id, which the splice's place sets) and before the
+	// auths are cleared: the tenant's directory goes with the tenant, in the same
+	// transaction, through the generated Clear<Record>Directory of the record's roster
+	// file, whether the tenant is directory only or not. The row's removal is buffered
+	// first, so the caller's Delete grant on the tenant record has answered by then; the
+	// directories record's own grants and the rule on its removal are for a tenant that
+	// stays, and are not asked. The splice reads what it clears through as its dot.
+	tenantDirectoryCleared = `// A {{ .Word }} that goes takes its directory with it, directory only or
+					// not, in this transaction.
+					if err := {{ .Func }}(ctx, txn, {{ .Tenant }}, eventSource); err != nil {
+						return errors.Wrap(err, "{{ .Func }}()")
+					}`
+
 	// directoryStamped is spliced into the directories record's create, once the create
 	// patch is built and before it is buffered (patchSet, patch and domain, which the
 	// splice's place sets): a directory is never typed in, so the wire carries neither
@@ -894,6 +956,85 @@ const (
 					if err := {{ .DirectoryRules }}.Remove(ctx, txn, domain); err != nil {
 						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
 					}`
+
+	// subjectGuarded is spliced into the generated write of a record that decides what
+	// a person may do (resourceInfo.SubjectGuarded), once the operation is decoded and
+	// before its create, update or delete is built (op, patchSet and $subjectReq, the
+	// request that carries the row's key, which the splice's place sets). In a session
+	// that acts as someone else nobody is the subject of what they do, so the write is
+	// refused when the row gives something to the real person behind the session, by
+	// each road a row reaches a person. A row that names them
+	// (identity.RefuseImpersonatorAsRowSubject, for resourceInfo.SubjectUserFields): the
+	// person the stored row names, read by the key the operation's path carries, and
+	// the person the write names, read from the decoded fields and the key. A row that
+	// names a set they are in (identity.RefuseImpersonatorAsSetSubject, once for each
+	// of resourceInfo.SubjectSetTests): the splice names the column and the set, and
+	// the library asks the set by its own declaration. The row a fact of theirs is read
+	// through (identity.RefuseImpersonatorAsReadThroughSubject, once for each of
+	// resourceInfo.SubjectReadThroughs), asked only of a change that sets the column.
+	// The splice sits ahead of the three arms so that none of them can be reached
+	// around it. A create under a generated id has no key in its path, and no stored
+	// row. The splice reads the resource as its dot.
+	//
+	// The generated comment says, where a reader of the handler meets the rule, which of
+	// the three questions the record is asked and that they hold whatever the session's
+	// mask keeps. It names the two limits that remain, a row removed with its parent and
+	// a column that records who made a row, and where each is described.
+	subjectGuarded = `// This record's rows decide what a person may do, so nobody writes the
+					// row that decides it for themselves while they act as someone else,
+					// whatever the session's mask keeps, an exception that keeps this
+					// record's writes included. The caller's grants answer first.
+					{{- if .SubjectUserFields }}
+					//
+					// A row that names a person: the rule is asked about the person the
+					// row names before the write and the person it names after it.
+					{{- end }}
+					{{- if .SubjectSetTests }}
+					//
+					// A row that names a set of people reaches every person in the set:
+					// the rule is asked whether the real person is in the set the row
+					// names, before the write and after it. The set is asked by its own
+					// declaration, so the rule and the policy agree on who is in it.
+					{{- end }}
+					{{- if .SubjectReadThroughs }}
+					//
+					// A row a person's set or value is read through: a change that sets
+					// the column it is read from is refused on the row the real person's
+					// own is read through, and a change that leaves the column alone
+					// asks nothing.
+					{{- end }}
+					//
+					// A row removed with its parent, and a column that records who made a
+					// row, are the rule's stated limits:
+					// identity.RefuseImpersonatorAsRowSubject says what closes each.
+					{{- $subjectRecord := .SubjectRecordWords }}
+					subjectKey := resource.KeySet{}
+					{{- if .PrimaryKeyIsGeneratedUUID }}
+					if op.Type != resource.OperationCreate {
+						subjectKey = subjectKey.Add("{{ .PrimaryKey.Name }}", httpio.Param[{{ .PrimaryKeyType }}]({{ $subjectReq }}, "id"))
+					}
+					{{- else if .HasCompoundPrimaryKey }}
+					{{- range $i, $field := .PrimaryKeys }}
+					subjectKey = subjectKey.Add("{{ $field.Name }}", httpio.Param[{{ $field.Type }}]({{ $subjectReq }}, "id{{ Add $i 1 }}"))
+					{{- end }}
+					{{- else }}
+					subjectKey = subjectKey.Add("{{ .PrimaryKey.Name }}", httpio.Param[{{ .PrimaryKeyType }}]({{ $subjectReq }}, "id"))
+					{{- end }}
+					{{- if .SubjectUserFields }}
+					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}"{{ range .SubjectUserFields }}, "{{ .Name }}"{{ end }}); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+					}
+					{{- end }}
+					{{- range .SubjectSetTests }}
+					if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}", "{{ .Field.Name }}", "{{ .Set }}"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
+					}
+					{{- end }}
+					{{- range .SubjectReadThroughs }}
+					if err := identity.RefuseImpersonatorAsReadThroughSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}", "{{ .Field.Name }}", "{{ .Fact }}"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsReadThroughSubject()")
+					}
+					{{- end }}`
 
 	// permissionsTemplate emits the application's permission endpoints — the
 	// PermissionDigest and UserDomains handlers — as one-line delegations to the
@@ -1059,8 +1200,9 @@ func SecretHolders() []resource.SecretHolder {
 
 	// featuresTemplate emits the application's feature flag handlers as delegations to
 	// the library-owned handlers over the application's FeatureSet: the features route
-	// on every outlet, the FeatureFlags routes and SetFeature where routes are
-	// generated, and the FeatureGuard the gated routes are wrapped in.
+	// on every outlet, the FeatureFlags routes (a flag's history among them) and
+	// SetFeature where routes are generated, and the FeatureGuard the gated routes are
+	// wrapped in.
 	featuresTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
 // Source: {{ .Source }}
 
@@ -1096,6 +1238,16 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) FeatureFlags() http.HandlerFu
 // session-serving outlet, under that outlet's prefix{{ end }}.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) FeatureFlag() http.HandlerFunc {
 	return resource.FeatureFlagHandler({{ .ReceiverName }}, {{ .RouterPackage }}.Collection())
+}
+
+// FeatureFlagChanges serves one flag's history, each time it was turned on or off with
+// who did it, newest first, to a caller holding List on FeatureFlags in the global
+// scope: the grant that lists the flags reads their history. A flag the package does
+// not declare is 404. The generated router registers it at
+// GET /{{ .RoutePrefix }}/{{ FeatureFlagsRoute }}/{ {{- FeatureFlagNameParam -}} }/{{ FeatureFlagChangesRoute }}{{ if .HasExtraSessionOutlets }} and, for each
+// additional session-serving outlet, under that outlet's prefix{{ end }}.
+func ({{ .ReceiverName }} *{{ .ApplicationName }}) FeatureFlagChanges() http.HandlerFunc {
+	return resource.FeatureFlagChangesHandler({{ .ReceiverName }}, {{ .RouterPackage }}.Collection())
 }
 
 // SetFeature flips a flag for a caller holding Execute on SetFeature in the global
@@ -1383,7 +1535,8 @@ var liveDerivations = live.Merge(
 
 	// domainGuardTemplate emits the application's DomainGuard middleware once; generated
 	// route registration wraps every domain-scoped route in it. The guard reads the
-	// application's tenant roster first (TenantRoster().Has: no read, no wait), the
+	// application's tenant roster first (TenantRoster().Has: answered from the roster's
+	// copy, with no read while the copy is inside its backstop and behind no signal), the
 	// session's reach next (UserPermissions.Reaches: whether the tenant admits the way
 	// the session was established) and, under WithConcealedDomains, the caller's
 	// foothold last, answering the same not-found every time. No marker check is
@@ -1455,7 +1608,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) DomainGuard() func(http.Handl
 
 	// tenantsTemplate emits the tenant record's roster constructor into the handler
 	// package: New<Record>Roster, carrying the record's table and key column, so the
-	// application builds its roster without naming either.
+	// application builds its roster without naming either, and the sign-in policy's
+	// reader beside it, New<Record>DeclarationReader: for a record that declares
+	// directories, and for one that declares none where its rows are made in this
+	// package (NoDirectories). A package that declares the record another site serves
+	// gets no reader: whether the tenants have directories is that site's to say.
 	tenantsTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
 // Source: {{ .Source }}
 
@@ -1470,6 +1627,8 @@ import (
 {{- end }}
 {{- if .Declaration }}
 
+	"cloud.google.com/go/spanner"
+{{- else if .NoDirectories }}{{ if .Maker }}{{ "\n" }}{{ end }}
 	"cloud.google.com/go/spanner"
 {{- end }}
 {{- if or .Declaration .Maker }}
@@ -1496,7 +1655,7 @@ import (
 {{- if and .Maker .Declaration }}
 	"github.com/impulseframework/impulse/session/sessioninfo"
 {{- end }}
-{{- if .Declaration }}
+{{- if or .Declaration .NoDirectories }}
 	"github.com/impulseframework/impulse/session/signin"
 {{- end }}
 )
@@ -1546,6 +1705,20 @@ func New{{ .Name }}Roster(client resource.Client, opts ...resource.TenantRosterO
 
 	return resource.NewTenantRoster(client, {{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, opts...)
 }
+{{- if .NoDirectories }}
+
+// New{{ .Name }}DeclarationReader builds the sign-in policy's reader of what a {{ .RecordLower }} declares
+// about who may enter it (signin.TenantPolicy, through signin.DeclarationReader). The
+// {{ .Name }} record declares no directories (no record is annotated @tenantDirectory), so no
+// {{ .RecordLower }} declares anything: the reader answers nothing for every one and makes no
+// read, and the policy admits everyone a {{ .RecordLower }} seats, however they signed in. The
+// application hands it to each auth through the auth's settings, as an application
+// whose {{ .RecordLower }}s have directories does, so the sign-in rule is set the same way
+// in both.
+func New{{ .Name }}DeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTransaction] {
+	return resource.NewTenantDeclarationReader({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, nil)
+}
+{{- end }}
 {{- if .Declaration }}
 
 // New{{ .Name }}DeclarationReader builds the sign-in policy's reader of what a {{ .RecordLower }} declares
@@ -1579,9 +1752,11 @@ func New{{ .Name }}DirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTr
 // (resource.TenantDirectoryRules) over the {{ .Name }} record's table and its declaration's
 // columns: a {{ .Word }} has one directory, a directory is one {{ .Word }}'s, a personal account
 // is no directory, and the directory of a {{ .Word }} that is directory only is not removed.
-// Every write of the {{ .Directories }} record is held to them. The generated {{ .Directories }}
-// write paths ask them: the create stamps the directory the caller is signed in
-// through, which no request types, and the delete asks before it removes.
+// Every write of the {{ .Directories }} record a request asks for is held to them. The generated
+// {{ .Directories }} write paths ask them: the create stamps the directory the caller is signed in
+// through, which no request types, and the delete asks before it removes. The one
+// removal they are not asked is the delete of the {{ .Word }} itself, which takes its
+// directory with it (Clear{{ .Name }}Directory).
 func New{{ .Name }}DirectoryRules() *resource.TenantDirectoryRules {
 	return resource.NewTenantDirectoryRules({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, &{{ GoCamel .Name }}Declaration, {{ printf "%q" .Word }})
 }
@@ -1608,6 +1783,37 @@ func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransact
 	patch.Set{{ .Directory.TenantField }}({{ .Directory.TenantParam }}).Set{{ .Directory.MethodField }}(string(directory.Method)).Set{{ .Directory.ConnectionField }}(directory.Connection)
 	if err := patch.Buffer(ctx, txn, eventSource...); err != nil {
 		return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}CreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// Clear{{ .Name }}Directory buffers the removal of the {{ .Word }}'s directory, in the transaction
+// that deletes the {{ .Word }}'s row: a {{ .Word }} that goes takes its directory with it, as it
+// takes the roles people hold in it. The rule that keeps the directory of a {{ .Word }} that is
+// directory only (New{{ .Name }}DirectoryRules, Remove) is not asked here: it keeps a {{ .Word }}
+// that stays from being left with no way in, and this {{ .Word }} does not stay. The row is
+// removed through the record's delete patch, so its change event is written with it, and
+// the directory is free for another {{ .Word }} once the transaction has committed. The
+// generated delete of the {{ .Name }} record calls it once the caller's grant on that record
+// has answered; code that deletes a {{ .Word }}'s row any other way calls it in the same
+// transaction. A {{ .Word }} that has no directory is no error.
+func Clear{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransaction, {{ .Directory.TenantParam }} {{ .Directory.TenantType }}, eventSource ...string) error {
+	query := {{ .ResourcePackage }}.New{{ .Directories }}Query().
+		AddColumns({{ .ResourcePackage }}.New{{ .Directories }}Columns().{{ .Directory.KeyField }}()).
+		Where({{ .ResourcePackage }}.New{{ .Directories }}QueryClause().{{ .Directory.TenantField }}().Equal({{ .Directory.TenantParam }}))
+	// The rows are read before any removal is buffered. The schema keeps a {{ .Word }} to one.
+	var removals []*{{ .ResourcePackage }}.{{ .Directories }}DeletePatch
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}Query.List()")
+		}
+		removals = append(removals, {{ .ResourcePackage }}.New{{ .Directories }}DeletePatch(row.Data.{{ .Directory.KeyField }}))
+	}
+	for _, removal := range removals {
+		if err := removal.Buffer(ctx, txn, eventSource...); err != nil {
+			return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}DeletePatch.Buffer()")
+		}
 	}
 
 	return nil
@@ -1796,6 +2002,7 @@ import (
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/logger"
 	{{- if .Directory }}
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -1817,9 +2024,23 @@ var _ interface {
 // a sign-in method of the {{ .Auth }} auth open to sign-up. No grant admits the call. The session
 // must be established, which the router's session group holds it to, and must hold a
 // grant in no {{ .RecordLower }}: a person creates one {{ .RecordLower }}, and the member or administrator of
-// one is refused (403). Whether sign-up is open is read in the transaction that writes
-// the row, from the auth's sign-in methods table: while every method is invite only the
-// call is refused (403) and nothing is written. The row is written first, in
+// one is refused (403). The rule is asked twice. The request's permissions answer it
+// before a body is read: every {{ .RecordLower }} the person holds a grant in, whatever the
+// session's mask shows of it (resource.UserPermissions.HeldDomains). The {{ .Auth }} auth's
+// tables answer it again in the transaction that writes the row: a role the person
+// holds in a {{ .RecordLower }} ({{ .IdentityAccessor }}().HoldsTenant), so of two creations by one
+// person at once one is written and the other refused. The route is the action {{ .Action }} of the permission collection,
+// classed access, so that a permission mask decides it: in a session that acts as a
+// person the creator is the person acted as, and a session whose mask refuses the class,
+// the action by name or every action is refused before anything is read (403,
+// resource.RefuseActionUnderMask, logged as the mask's denial), while a session that
+// acts with no mask creates the {{ .RecordLower }} as the person would. Nobody is the subject of what
+// they do while they act as someone else: in a session that acts as a role the person
+// who would become the administrator is the real person behind it, who is refused
+// whatever the mask keeps (403, identity.RefuseImpersonatorAsSubject). Whether sign-up
+// is open is read in the transaction that writes the row, from the auth's sign-in
+// methods table: while every method is invite only the call is refused (403) and
+// nothing is written. The row is written first, in
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // {{ .Auth }} auth's generated identity client, so the {{ .RecordLower }} and its administrator are
@@ -1856,15 +2077,38 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 	if len(roles) == 0 {
 		panic("{{ .RolesAccessor }}() names no role: the person who creates a {{ .Record }} holds its administrator role, which the application names there")
 	}
-	identity := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
+	identityClient := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
+	collection := {{ .RouterPackage }}.Collection()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
+		// The mask decides: no grant admits the route, so no permission check runs here
+		// for a mask to deny, and the route asks the session's mask about its action. A
+		// session that acts as someone under a mask that refuses the action is told so
+		// before anything is read or written.
+		if err := resource.RefuseActionUnderMask(ctx, collection, {{ printf "%q" .Action }}, {{ printf "%q" .Act }}); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		userPermissions := {{ .ReceiverName }}.UserPermissions(r)
-		// One {{ .RecordLower }} per person: a session holding a grant in any {{ .RecordLower }} is refused.
-		held, err := userPermissions.Domains(ctx)
+		// Nobody is the subject of what they do while they act as someone else: the
+		// creator becomes the {{ .RecordLower }}'s administrator, and in a session that acts as a
+		// role the creator is the real person behind it, who is told so before anything
+		// is read or written.
+		if creator, ok := identity.UserID(userPermissions.User()); ok {
+			if err := identity.RefuseImpersonatorAsSubject(ctx, creator, "{{ .OwnCreation }}"); err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+		}
+		// One {{ .RecordLower }} per person: a person holding a grant in any {{ .RecordLower }} is refused. Every
+		// {{ .RecordLower }} they hold counts, read around the session's mask and its admission: a
+		// session that acts as a person under a mask that hides the person's {{ .RecordLower }}
+		// creates no second one. The permissions answer it themselves, whatever the
+		// application wrapped them in: what a person holds is a method of
+		// resource.UserPermissions, and there is no list of the session's to read in its
+		// place.
+		held, err := userPermissions.HeldDomains(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -1883,11 +2127,24 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 		var id {{ .Key.Type }}
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			// One {{ .RecordLower }} per person, decided where the {{ .RecordLower }} is written: what the
+			// creator holds is read again, in this transaction, from the {{ .Auth }} auth's
+			// tables. The answer above is the permission engine's, which cannot show a
+			// creation that has not committed, or one this instance has not heard of yet.
+			// Of two creations by one person at once, one commits and the other reads
+			// its membership here and is refused.
+			holds, err := identityClient.HoldsTenant(ctx, txn, userPermissions.User())
+			if err != nil {
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().HoldsTenant()")
+			}
+			if holds {
+				return httpio.NewForbiddenMessage("{{ .Refusal }}")
+			}
 			// Who is admitted: a person who signed up, which is a person with no {{ .RecordLower }}
 			// while an administrator has a sign-in method open to sign-up. A person who
 			// holds an invitation to create a {{ .RecordLower }} is the next admission, and is
 			// decided here, before the refusal, when that invitation exists.
-			open, err := identity.AnySignInMethodOpen(ctx, txn)
+			open, err := identityClient.AnySignInMethodOpen(ctx, txn)
 			if err != nil {
 				return errors.Wrap(err, "{{ .IdentityAccessor }}().AnySignInMethodOpen()")
 			}
@@ -1923,7 +2180,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			// The first administrator: the person's membership of each role, in the row's
 			// transaction.
 			for _, role := range roles {
-				if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
+				if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
 					return errors.Wrap(err, "{{ .IdentityAccessor }}().AssignRole()")
 				}
 			}
@@ -1962,30 +2219,46 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 // their own now. A page offers a person only what they may do, so the page that offers
 // the create-your-{{ .RecordLower }} card asks this first and hides the card on a no. The answer is
 // the one {{ .HandlerFunc }} would reach for the same caller before it reads a body, by the
-// same two facts: the session holds a grant in no {{ .RecordLower }}, and an administrator has a
-// sign-in method of the {{ .Auth }} auth open to sign-up, read as committed. No grant admits the
-// call, which any signed-in person makes, and nothing is written. The POST decides again
-// in its own transaction: what is offered here may be refused there a moment later.
+// same four facts: the session's permission mask does not refuse the action {{ .Action }}
+// (resource.MaskRefusesAction), the creator would not be the real person behind a
+// session that acts as someone else (identity.ImpersonatorIs), the session holds a
+// grant in no {{ .RecordLower }}, and an administrator has a sign-in method of the {{ .Auth }} auth open to
+// sign-up, read as committed. No grant admits the call, which any signed-in person
+// makes, and nothing is written or logged. The POST decides again in its own
+// transaction: what is offered here may be refused there a moment later.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .OfferedHandlerFunc }}() http.HandlerFunc {
 	type offer struct {
 		Offered bool ` + "`json:\"offered\"`" + `
 	}
 
-	identity := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
+	identityClient := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
+	collection := {{ .RouterPackage }}.Collection()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		// One {{ .RecordLower }} per person: a session holding a grant in any {{ .RecordLower }} is offered none.
-		held, err := {{ .ReceiverName }}.UserPermissions(r).Domains(ctx)
+		// A session whose permission mask refuses the action is offered none: the POST
+		// refuses it.
+		if _, refused := resource.MaskRefusesAction(ctx, collection, {{ printf "%q" .Action }}); refused {
+			return httpio.NewEncoder(w).Ok(offer{Offered: false})
+		}
+		userPermissions := {{ .ReceiverName }}.UserPermissions(r)
+		// The real person behind a session that acts as someone else is offered none: the
+		// POST refuses them.
+		if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {
+			return httpio.NewEncoder(w).Ok(offer{Offered: false})
+		}
+		// One {{ .RecordLower }} per person: a person holding a grant in any {{ .RecordLower }} is offered none,
+		// by every {{ .RecordLower }} they hold, as the POST judges it before it reads a body.
+		held, err := userPermissions.HeldDomains(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if len(held) > 0 {
 			return httpio.NewEncoder(w).Ok(offer{Offered: false})
 		}
-		open, err := identity.AnySignInMethodOpen(ctx, {{ .ReceiverName }}.ResourceClient())
+		open, err := identityClient.AnySignInMethodOpen(ctx, {{ .ReceiverName }}.ResourceClient())
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "{{ .IdentityAccessor }}().AnySignInMethodOpen()"))
 		}
@@ -2193,9 +2466,12 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 // <prefix>/{{ .DomainRoute }}/{{ .StateRoute }}: what the {{ .Word }}'s Sign-in page shows the person
 // who may turn it, who does not read the global {{ .Name }} record. It is asked under the
 // grant of either method that turns it, Execute on {{ .Make.Name }} or on {{ .End.Name }} in the
-// {{ .Word }}, and writes nothing (resource.DirectoryOnlyStateHandler).
+// {{ .Word }}, and writes nothing (resource.DirectoryOnlyStateHandler). It is given the
+// rules the two methods are given, each auth's answer about the caller's password
+// with them, so it says what turning the switch on takes of the caller in the words
+// the method refuses in.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .StateFunc }}() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler({{ .ReceiverName }}.ResourceClient(), {{ .Rules }}, {{ .ReceiverName }}.UserPermissions, {{ .RouterPackage }}.Domain, {{ printf "%q" .Make.Name }}, {{ printf "%q" .End.Name }})
+	return resource.DirectoryOnlyStateHandler({{ .ReceiverName }}.ResourceClient(), {{ .SwitchRules }}, {{ .ReceiverName }}.UserPermissions, {{ .RouterPackage }}.Domain, {{ printf "%q" .Make.Name }}, {{ printf "%q" .End.Name }})
 }
 `
 
@@ -2881,6 +3157,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -2896,6 +3173,9 @@ import (
 	type {{ GoCamel .Resource.Name }} struct {
 		{{- range $field := .Resource.Fields }}
 		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTag }} {{ $field.IndexTag }} {{ $field.AllowFilterTag }} {{ $field.PermTag }} {{ $field.PIITag }} {{ $field.MaskingTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTag }} {{ $field.SearchTag }}`" + `
+		{{- end }}
+		{{- range $name := .Resource.NameFields }}
+		{{ $name.Name }} *string ` + "`{{ $name.StructTag }}`" + `
 		{{- end }}
 	}
 
@@ -2936,7 +3216,7 @@ import (
 			if !page.Add(row) {
 				break
 			}
-			rec := (*{{ GoCamel .Resource.Name }})(&row.Data)
+			rec := {{ if .Resource.NameFields }}&row.Data{{ else }}(*{{ GoCamel .Resource.Name }})(&row.Data){{ end }}
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -2990,6 +3270,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		{{- range $field := .Resource.Fields }}
 		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTag }} {{ $field.IndexTag }} {{ $field.AllowFilterTag }} {{ $field.PermTag }} {{ $field.PIITag }} {{ $field.MaskingTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTag }} {{ $field.SearchTag }}`" + `
 		{{- end }}
+		{{- range $name := .Resource.NameFields }}
+		{{ $name.Name }} *string ` + "`{{ $name.StructTag }}`" + `
+		{{- end }}
 	}
 
 	type response []map[string]any
@@ -3029,7 +3312,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 			if !page.Add(row) {
 				break
 			}
-			rec := (*{{ GoCamel .Resource.Name }})(&row.Data)
+			rec := {{ if .Resource.NameFields }}&row.Data{{ else }}(*{{ GoCamel .Resource.Name }})(&row.Data){{ end }}
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -3069,6 +3352,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		{{- range $field := .Resource.Fields }}
 		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTag }} {{ $field.UniqueIndexTag }} {{ $field.PermTag }} {{ $field.PIITag }} {{ $field.MaskingTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTag }} {{ $field.SearchTag }}`" + `
 		{{- end }}
+		{{- range $name := .Resource.NameFields }}
+		{{ $name.Name }} *string ` + "`{{ $name.StructTag }}`" + `
+		{{- end }}
 	}
 
 	decoder := NewQueryDecoder[{{ if .Resource.IsVirtual }}{{ .VirtualResourcesPackage }}{{ else }}{{ .ResourcePackage }}{{ end }}.{{ .Resource.Name }}, response]({{ .ReceiverName }}, accesstypes.Read)
@@ -3106,7 +3392,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := {{ if .Resource.NameFields }}&row.Data{{ else }}(*response)(&row.Data){{ end }}
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -3233,6 +3519,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 				{{- if .Resource.SignalsTenants }}
 				tenantsWritten = true
 				{{- end }}
+				{{- if .Resource.SubjectGuarded }}
+				{{- with .Resource }}
+				{{- $subjectReq := "op.Req" }}
+
+				` + subjectGuarded + `
+				{{- end }}
+				{{- end }}
 
 				switch op.Type {
 				case resource.OperationCreate:
@@ -3303,6 +3596,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
+					{{- with .DirectoryClear }}
+					` + tenantDirectoryCleared + `
+					{{- end }}
 					{{- if .Clears }}
 					` + tenantCleared + `
 					{{- end }}
@@ -3342,6 +3638,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -3529,6 +3826,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
 						}
+						{{- if .SubjectGuarded }}
+						{{- $subjectReq := "req" }}
+
+						` + subjectGuarded + `
+						{{- end }}
 
 						switch op.Type {
 						case resource.OperationCreate:
@@ -3595,6 +3897,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
+							{{- with .DirectoryClear }}
+							` + tenantDirectoryCleared + `
+							{{- end }}
 							{{- if .Clears }}
 							` + tenantCleared + `
 							{{- end }}
@@ -3741,10 +4046,10 @@ export const Methods = {
 {{ range $resource, $tags := $resourcetags }}
 export namespace {{ $resource }} {
   {{- $hasFieldName := false }}
-  {{- range $_, $tag := $tags }}{{ if not (index $.PIIMap $resource $tag) }}{{ $hasFieldName = true }}{{ end }}{{ end }}
+  {{- range $_, $tag := $.NameFields.FieldNameTags $resource $tags }}{{ if not (index $.PIIMap $resource $tag) }}{{ $hasFieldName = true }}{{ end }}{{ end }}
   {{- if $hasFieldName }}
   export const fieldName = {
-  {{- range $_, $tag := $tags }}
+  {{- range $_, $tag := $.NameFields.FieldNameTags $resource $tags }}
   {{- if not (index $.PIIMap $resource $tag) }}
     {{ $tag }}: '{{ $tag }}' as FieldName,
   {{- end }}
@@ -3755,7 +4060,7 @@ export namespace {{ $resource }} {
   {{- end }}
   {{- if index $.PIIMap $resource }}
   export const piiFieldName = {
-  {{- range $_, $tag := $tags }}
+  {{- range $_, $tag := $.NameFields.FieldNameTags $resource $tags }}
   {{- if index $.PIIMap $resource $tag }}
     {{ $tag }}: '{{ $tag }}' as FieldName,
   {{- end }}
@@ -3797,6 +4102,9 @@ export interface {{ Pluralize $resource.Name }} {
   {{ Camel $field.Name }}{{ if not $field.IsPrimaryKey }}?{{ end }}: {{ $field.TypescriptDataType }};
 {{- end }}
 {{- end }}
+{{- range $name := $resource.NameFields }}
+  {{ $name.WireName }}?: string;
+{{- end }}
 }
 {{ TypescriptNamespaceOf (Pluralize $resource.Name) $resource.ColumnShapes }}{{ end }}
 {{- range $resource := .ComputedResources }}
@@ -3809,12 +4117,16 @@ export interface {{ Pluralize $resource.Name }} {
 }
 {{ TypescriptNamespace (Pluralize $resource.Name) $resource.Shape }}{{ end }}
 {{- if .FeatureFlags }}
-/** A feature flag: one declared flag's row, as the feature flags dialog lists it. */
+/**
+ * A feature flag: one declared flag's row, as the Feature flags page lists it. updatedAt
+ * and updatedBy are when the flag was last turned on or off and by whom: null and empty
+ * for a flag nobody has flipped.
+ */
 export interface FeatureFlags {
   name: string;
   description?: string;
   enabled?: boolean;
-  updatedAt?: Date;
+  updatedAt?: Date | null;
   updatedBy?: string;
 }
 {{ end }}
@@ -3868,7 +4180,7 @@ const resourceMap = defineResourceMap({
       {{- if not $field.IsFileKey }}
       { fieldName: '{{ Camel $field.Name }}', 
        {{- if $field.IsPrimaryKey }} primaryKey: { ordinalPosition: {{ $field.KeyOrdinalPosition }} }, 
-       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsRequired }}, isIndex: {{ $field.IsIndex }}{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}{{ if $field.IsPositional }}, masking: 'positional'{{ end }}{{ if $field.TypescriptMaxLength }}, maxLength: {{ $field.TypescriptMaxLength }}{{ end -}}
+       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsRequired }}{{ if $field.YesOrNoDefault }}, schemaDefault: {{ $field.YesOrNoDefault }}{{ end }}, isIndex: {{ $field.IsIndex }}{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}{{ if $field.IsPositional }}, masking: 'positional'{{ end }}{{ if $field.TypescriptMaxLength }}, maxLength: {{ $field.TypescriptMaxLength }}{{ end -}}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}{{ if or $field.IsOutputOnly $resource.IsEnumeration }}, readOnly: true{{ end }}{{ if $field.IsInputOnly }}, writeOnly: true{{ end }}{{ if $field.IsSecret }}, secret: true{{ end }}{{ if $field.FeatureName }}, feature: '{{ $field.FeatureName }}'{{ end }} },
       {{- end }}
@@ -3879,6 +4191,9 @@ const resourceMap = defineResourceMap({
     {{- end }}
     {{- if $resource.SearchBranches }}
     searchBranches: [{{ range $i, $branch := $resource.SearchBranches }}{{ if $i }}, {{ end }}{ field: '{{ $branch.Name }}', resource: Resources.{{ Pluralize $branch.ChildName }}, fieldName: '{{ $branch.ChildWireName }}'{{ if $branch.PII }}, pii: true{{ end }} }{{ end }}],
+    {{- end }}
+    {{- if $resource.NameFields }}
+    nameFields: [{{ range $i, $name := $resource.NameFields }}{{ if $i }}, {{ end }}{ fieldName: '{{ $name.WireName }}', of: '{{ $name.KeyWireName }}'{{ if $name.IsPII }}, pii: true{{ end }} }{{ end }}],
     {{- end }}
   },
 
@@ -3907,7 +4222,7 @@ const resourceMap = defineResourceMap({
       {{- if not $field.IsFileKey }}
       { fieldName: '{{ Camel $field.Name }}', 
        {{- if $field.IsPrimaryKey }} primaryKey: { ordinalPosition: {{ $field.KeyOrdinalPosition }} }, 
-       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsPrimaryKey }}, isIndex: false{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}
+       {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsPrimaryKey }}, isIndex: false{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.Unordered }}, sortable: false{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}{{ if $field.FeatureName }}, feature: '{{ $field.FeatureName }}'{{ end }} },
       {{- end }}
@@ -4128,6 +4443,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -4171,7 +4494,7 @@ const methodMap: MethodMap = {
     transition: { target: Resources.{{ $t.RootResource }}, from: [{{ range $i, $v := $t.From }}{{ if $i }}, {{ end }}'{{ $v }}'{{ end }}], to: '{{ $t.To }}' },
     {{- end }}
     {{- with $t := $rpcMethod.Target }}
-    target: { resource: Resources.{{ $t.RootResource }}, key: { {{ range $i, $k := $t.Keys }}{{ if $i }}, {{ end }}{{ Camel $k.TargetField }}: '{{ Camel $k.RootPKField }}'{{ end }} } },
+    target: { resource: Resources.{{ $t.RootResource }}, key: { {{ range $i, $k := $t.Keys }}{{ if $i }}, {{ end }}{{ Camel $k.TargetField }}: '{{ Camel $k.RootPKField }}'{{ end }} }{{ with $t.MayBeEmptyFields }}, mayBeEmpty: [{{ . }}]{{ end }} },
     {{- end }}
     {{- if $rpcMethod.Answers }}
     answers: true,
@@ -4374,6 +4697,9 @@ export const apiDescriptor = defineApiDescriptor({
       {{- if $a.TenantResource }}
       tenantResource: Resources.{{ $a.TenantResource }},
       {{- end }}
+      {{- if $a.RolesFrom }}
+      rolesFrom: '{{ $a.RolesFrom }}',
+      {{- end }}
       sides: [
 {{- range $side := $a.Sides }}
         {
@@ -4501,6 +4827,19 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+{{ with .Classes -}}
+// The classes the application's actions carry (@class) and the ones the generator
+// gives the writes of its records, each under the name a permission mask refuses it
+// by: accesstypes.RefuseClass({{ (index . 0).Name }}). A mask written against a class
+// nothing carries any more does not compile, since its constant is gone from this file.
+const (
+	{{- range . }}
+	// {{ .Name }} is the class {{ .Class }}.
+	{{ .Name }} accesstypes.ActionClass = "{{ .Class }}"
+	{{- end }}
+)
+
+{{ end -}}
 // Collection returns the application's permission collection, computed by the Resource
 // Generator from the resource definitions and generated routes, for deployment tooling
 // such as role migration and bootstrap.
@@ -4522,6 +4861,19 @@ func Collection() *resource.GeneratedCollection {
 				{{- end }}
 				{{- with .Permissions }}
 				Permissions: []accesstypes.Permission{ {{- range $i, $p := . }}{{ if $i }}, {{ end }}{{ PermissionConstant $p }}{{ end -}} },
+				{{- end }}
+				{{- with .Classes }}
+				Classes: []accesstypes.ActionClass{ {{- range $i, $c := . }}{{ if $i }}, {{ end }}{{ ClassConstant $c }}{{ end -}} },
+				{{- end }}
+				{{- with .WriteClasses }}
+				WriteClasses: []resource.WriteClassData{
+					{{- range . }}
+					{Permission: {{ PermissionConstant .Permission }}, Classes: []accesstypes.ActionClass{ {{- range $i, $c := .Classes }}{{ if $i }}, {{ end }}{{ ClassConstant $c }}{{ end -}} }},
+					{{- end }}
+				},
+				{{- end }}
+				{{- if .NoRole }}
+				NoRole: true,
 				{{- end }}
 				{{- with .Tags }}
 				Tags: []resource.TagData{
@@ -4546,7 +4898,7 @@ func Collection() *resource.GeneratedCollection {
 				{{- with .SubjectSets }}
 				SubjectSets: []resource.SubjectBindingData{
 					{{- range . }}
-					{Name: "{{ .Name }}", UserColumn: "{{ .UserColumn }}", Column: "{{ .Column }}", Type: "{{ .Type }}"{{ BindingHops .Path }}{{ SubjectParts .Who .Where }}},
+					{Name: "{{ .Name }}", UserColumn: "{{ .UserColumn }}", Column: "{{ .Column }}", Type: "{{ .Type }}"{{ BindingHops .Path }}{{ SubjectParts .Who .Where }}{{ SubjectDomain .Domain }}},
 					{{- end }}
 				},
 				{{- end }}
@@ -4578,6 +4930,9 @@ func Collection() *resource.GeneratedCollection {
 			},
 			{{- end }}
 		},
+		{{- with .Data.Permissions }}
+		Permissions: []accesstypes.Permission{ {{- range $i, $p := . }}{{ if $i }}, {{ end }}{{ PermissionConstant $p }}{{ end -}} },
+		{{- end }}
 	})
 }
 `
@@ -5837,16 +6192,22 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 					{{- end }}
 					Read(ctx, txn)
 				if err != nil {
+					if httpio.HasNotFound(err) {
+						// No row has the key. Every row the method cannot reach is
+						// answered alike, so the words never say a row is there.
+						return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
+					}
+
 					return errors.Wrap(err, "{{ $.ResourcesPackage }}.{{ $t.RootStruct }}Query.Read()")
 				}
 				if row == nil {
-					return httpio.NewNotFoundMessagef("{{ $t.RootStruct }} {{ $t.KeyVerbs }} does not exist", {{ $t.KeyArgs "p" }})
+					return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
 				}
 				{{- if $t.TenantField }}
 				if ok, err := resource.TenantKeyEquals(row.Data.{{ $t.TenantField }}, domain); err != nil {
 					return errors.Wrap(err, "resource.TenantKeyEquals()")
 				} else if !ok {
-					return httpio.NewNotFoundMessagef("{{ $t.RootStruct }} {{ $t.KeyVerbs }} does not exist", {{ $t.KeyArgs "p" }})
+					return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
 				}
 				{{- end }}
 				{{- if $t.TenantByPath }}
@@ -5866,7 +6227,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 				default:
 					// One refusal for the state check and the grant condition
 					// alike: the wire never says which said no (§12).
-					return httpio.NewForbiddenMessagef("{{ $.RPCMethod.Name }} may not run against {{ $t.RootStruct }} {{ $t.KeyVerbs }}", {{ $t.KeyArgs "p" }})
+					return resource.TargetRefused("{{ $.RPCMethod.Name }}", "{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
 				}
 				{{- end }}
 				{{- with $t := .RPCMethod.Target }}
@@ -6381,7 +6742,7 @@ func ({{ $.ReceiverName }} *{{ $.ApplicationName }}) {{ $.Resource.Name }}{{ $fi
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 			if !shown {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("{{ $.Resource.Name }} {{ $.Resource.KeyFormat }} does not exist", {{ $.Resource.KeyParamList }}))
+				return httpio.NewEncoder(w).ClientMessage(ctx, resource.TargetNotFound("{{ $.Resource.Name }}", {{ $.Resource.KeyParamList }}))
 			}
 		}
 
@@ -6410,7 +6771,7 @@ func ({{ $.ReceiverName }} *{{ $.ApplicationName }}) {{ $.Resource.Name }}{{ $fi
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if !shown {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("{{ $.Resource.Name }} {{ $.Resource.KeyFormat }} does not exist", {{ $.Resource.KeyParamList }}))
+			return httpio.NewEncoder(w).ClientMessage(ctx, resource.TargetNotFound("{{ $.Resource.Name }}", {{ $.Resource.KeyParamList }}))
 		}
 		{{- template "storedFileOfRow" $file }}
 

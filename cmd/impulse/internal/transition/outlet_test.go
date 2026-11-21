@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -576,13 +577,18 @@ func TestOutletApplyGeneratedRouter(t *testing.T) {
 	moveDid := []string{
 		`cmd/generate/resourcegenerator/main.go: with two browser applications none is mounted at /, so the default outlet's application moves to /console and its API to /console/api: GenerateRoutes("pkg/router", "console/api", ..., WebApp("/console")) in place of "api" and WebApp("/"); the regenerated router answers the root alone with a redirect to /console/`,
 		"web/console: the console project serves under /console/ with its API at /console/api (angular.json baseHref and servePath, the proxy, the environments, the base element)",
+		`app/assets.go:11: the App builds the console's served browser app under /console, where the generated router mounts it now: NewBrowserApp(..., "/console") in place of "/"`,
+		"the console's API was under /api and is under /console/api, and the application's own Go, README, process files and environment template say so where they named the old path; they were rewritten as text, so read each line: Procfile:2; README.md:3, 5; test/integration/login_test.go:5, 9",
 	}
-	moveSkipped := []string{
-		`app/assets.go:11: serves the console's bundle at "/"; it moves to "/console/": resource.NewBrowserApp(cfg.ConsoleDist(), "/console") serves it under the mount path, as a second browser application's does (a spaassets.DeepLink and Assets pair becomes that one type)`,
-		`pkg/config/site.go:5: LoginURL "/login" is the console's login page, which is now under /console/: "/console/login"`,
-		`test/integration/login_test.go:5, 9: names "/api", the console's old prefix, in a string literal; the console's API is now /console/api`,
-		"Procfile:2: names /api, the console's old prefix; the console's API is now /console/api and its pages are under /console/",
-		"README.md:3, 5: names /api, the console's old prefix; the console's API is now /console/api and its pages are under /console/",
+	// What the fixture leaves for the agent: a login page named outside the settings of
+	// the console's auth, which the command does not read, and an App that is not the
+	// base's, so the command has no Configurer to ask for the outlet's bundle on and no
+	// handlers of the auth to return.
+	const loginPageSkipped = `pkg/config/site.go:5: LoginURL "/login" is the console's login page, which is now under /console/: "/console/login"`
+	const portalSkipped = `no file declares a Configurer interface, so the App does not serve the portal outlet yet: the generated router's Handlers requires Portal() returning the %s auth's session handlers (router.PortalSession), and PortalDeepLink and PortalAssets serving the outlet's built bundle from a directory the configuration names (resource.NewBrowserApp(<directory>, "/portal"), with web/dist/portal as the directory by default)`
+	machinesSkipped := []string{
+		"the default outlet's browser project has no routes the command reads (app/app.routes.ts under its source root), so the device page is not mounted: mount the library's device approval page (DeviceApprovalComponent of @impulseframework/resource-angular/tokens) at /device, among the signed-in pages of the browser application that binds to the staff auth, as the reference's console does (app/components/ui/device/device.component.ts and the device route of its app/app.routes.ts)",
+		"app/assets.go: App holds no *staff.Handlers, so Machines() is not declared: the generated router's Handlers requires Machines() returning the outlet's token check (MachinesTokens), which the staff auth's handlers return from MachinesTokens()",
 	}
 
 	tests := []struct {
@@ -592,8 +598,10 @@ func TestOutletApplyGeneratedRouter(t *testing.T) {
 		wantCommand string
 		wantDid     string
 		// wantMoved pins the console's move: the Did lines after the project copy, the
-		// Skipped lines listing what still names the old prefix, and the program.
-		wantMoved   bool
+		// application's own sources rewritten after it, and the program.
+		wantMoved bool
+		// wantSkipped is what the fixture, which is not the base, leaves for the agent.
+		wantSkipped []string
 		wantProgram []string
 		wantAbsent  []string
 		wantCookie  string
@@ -609,8 +617,9 @@ func TestOutletApplyGeneratedRouter(t *testing.T) {
 				movedConsole,
 				"\t\tgeneration.WithRouterOutlet(\"portal\", \"portal/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/staff\", generation.PasswordMethod()),\n\t\t\tgeneration.WebApp(\"/portal\"),\n\t\t),\n",
 			},
-			wantAbsent: []string{"ServesSessions", rootConsole},
-			wantCookie: "cookieName: 'staff-xsrf'",
+			wantSkipped: []string{loginPageSkipped, fmt.Sprintf(portalSkipped, "staff")},
+			wantAbsent:  []string{"ServesSessions", rootConsole},
+			wantCookie:  "cookieName: 'staff-xsrf'",
 		},
 		{
 			name:        "a session outlet bound to a named auth",
@@ -622,8 +631,9 @@ func TestOutletApplyGeneratedRouter(t *testing.T) {
 				movedConsole,
 				"\t\tgeneration.WithRouterOutlet(\"portal\", \"portal/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/members\", generation.PasswordMethod()),\n\t\t\tgeneration.WebApp(\"/portal\"),\n\t\t),\n",
 			},
-			wantAbsent: []string{"ServesSessions", rootConsole},
-			wantCookie: "cookieName: 'members-xsrf'",
+			wantSkipped: []string{loginPageSkipped, fmt.Sprintf(portalSkipped, "members")},
+			wantAbsent:  []string{"ServesSessions", rootConsole},
+			wantCookie:  "cookieName: 'members-xsrf'",
 		},
 		{
 			name:    "a session outlet bound to an auth the application lacks",
@@ -637,6 +647,7 @@ func TestOutletApplyGeneratedRouter(t *testing.T) {
 			wantCommand: "impulse add outlet machines --prefix machines --tokens staff",
 			wantDid:     `cmd/generate/resourcegenerator/main.go: added WithRouterOutlet("machines", "machines", generation.Tokens("example.com/acme/beacon/pkg/auth/staff"))`,
 			wantProgram: []string{"\t\tgeneration.WithRouterOutlet(\"machines\", \"machines\", generation.Tokens(\"example.com/acme/beacon/pkg/auth/staff\")),\n", rootConsole},
+			wantSkipped: machinesSkipped,
 			wantAbsent:  []string{"ServesSessions", "console/api", "APIKey"},
 		},
 		{
@@ -685,21 +696,49 @@ func TestOutletApplyGeneratedRouter(t *testing.T) {
 					t.Errorf("app.config.ts = %q, want %q", got, tt.wantCookie)
 				}
 			}
-			var wantMoveDid, wantMoveSkipped []string
+			var wantMoveDid []string
 			if tt.wantMoved {
-				wantMoveDid, wantMoveSkipped = moveDid, moveSkipped
+				wantMoveDid = moveDid
 			}
 			gotMoveDid := []string(nil)
 			for _, d := range ch.Did {
-				if strings.Contains(d, "moves to /console") || strings.Contains(d, "serves under /console/") {
+				if strings.Contains(d, "moves to /console") || strings.Contains(d, "serves under /console/") || strings.Contains(d, "served browser app under /console") || strings.Contains(d, "is under /console/api") {
 					gotMoveDid = append(gotMoveDid, d)
 				}
 			}
 			if diff := cmp.Diff(wantMoveDid, gotMoveDid); diff != "" {
 				t.Errorf("the move's Did lines mismatch (-want +got):\n%s", diff)
 			}
-			if diff := cmp.Diff(wantMoveSkipped, ch.Skipped); diff != "" {
+			if diff := cmp.Diff(tt.wantSkipped, ch.Skipped); diff != "" {
 				t.Errorf("Skipped mismatch (-want +got):\n%s", diff)
+			}
+			// The application's own sources after the move: the App's bundle, the tests and
+			// the prose name the console's new place; a longer path, another module's and
+			// a generated file are as they were, and so is the login page the command does
+			// not read.
+			ownFiles := map[string]string{
+				"app/assets.go":                  "func New(dist string) *App { return &App{console: resource.NewBrowserApp(dist, \"/\")} }\n",
+				"test/integration/login_test.go": "const session = \"/api/user/session\"\n\nfunc TestLogin(t *testing.T) {\n\tt.Log(session)\n\tt.Log(\"/api/permission-digest\")\n}\n",
+				"README.md":                      "The console on `/api`.\n\nRoutes under `/api/tenants/{tenantID}/`; the portal on `/portal/api`; the Go API package google.golang.org/api is not it.\n",
+				"Procfile":                       "# console: ng serve with /api proxied.\n",
+				"pkg/router/zz_gen_router.go":    "const prefix = \"/api/\"\n",
+				"pkg/config/site.go":             "\tLoginURL: \"/login\",\n",
+			}
+			if tt.wantMoved {
+				ownFiles["app/assets.go"] = "func New(dist string) *App { return &App{console: resource.NewBrowserApp(dist, \"/console\")} }\n"
+				ownFiles["test/integration/login_test.go"] = "const session = \"/console/api/user/session\"\n\nfunc TestLogin(t *testing.T) {\n\tt.Log(session)\n\tt.Log(\"/console/api/permission-digest\")\n}\n"
+				ownFiles["README.md"] = "The console on `/console/api`.\n\nRoutes under `/console/api/tenants/{tenantID}/`; the portal on `/portal/api`; the Go API package google.golang.org/api is not it.\n"
+				ownFiles["Procfile"] = "# console: ng serve with /console/api proxied.\n"
+			} else {
+				// A machine outlet's tokens are the console's auth's: its file registers the
+				// outlet, and the data level names the device page.
+				ownFiles["pkg/auth/staff/staff.go"] = "\thandlers.machines = session.RegisterMachineOutlet(authSession, MachinesOutlet)\n"
+				ownFiles["pkg/config/data.go"] = "&staff.Settings{CookieKey: cookieKey, DevicePage: \"/device\"}"
+			}
+			for rel, want := range ownFiles {
+				if got := read(t, a, rel); !strings.Contains(got, want) {
+					t.Errorf("%s = %q, want %q", rel, got, want)
+				}
 			}
 			consoleFiles := map[string]string{
 				"web/console/proxy.conf.js":                   "'/api/': {",
@@ -834,7 +873,10 @@ func TestOutletApplyConsoleUnderPath(t *testing.T) {
 	if diff := cmp.Diff(wantDid, ch.Did); diff != "" {
 		t.Errorf("Did mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff([]string(nil), ch.Skipped); diff != "" {
+	// The fixture's App is not the base's: it has no Configurer to ask for the kiosk's
+	// bundle on, so the Go half is the agent's, and the change says what it is.
+	wantSkipped := []string{`no file declares a Configurer interface, so the App does not serve the kiosk outlet yet: the generated router's Handlers requires Kiosk() returning the staff auth's session handlers (router.KioskSession), and KioskDeepLink and KioskAssets serving the outlet's built bundle from a directory the configuration names (resource.NewBrowserApp(<directory>, "/kiosk"), with web/dist/kiosk as the directory by default)`}
+	if diff := cmp.Diff(wantSkipped, ch.Skipped); diff != "" {
 		t.Errorf("Skipped mismatch (-want +got):\n%s", diff)
 	}
 	for rel, want := range map[string]string{

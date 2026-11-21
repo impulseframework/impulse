@@ -33,8 +33,9 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type AddCrewGroupMember struct {
-	// @target(CrewGroup)
+	// @target(CrewListedGroup)
 	GroupID impulse.UUID
 	// UserID is the person, picked from the people the caller may list.
 	//

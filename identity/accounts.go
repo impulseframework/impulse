@@ -29,6 +29,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "rename your own account"); err != nil {
+		return err
+	}
 	name := strings.TrimSpace(username)
 	if name == "" {
 		return httpio.NewBadRequestMessage("a username is required")
@@ -79,7 +82,7 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 			sessions = append(sessions, record.SessionID)
 		}
 	}
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: &name, Disabled: nil, PasswordChangeRequired: nil, Email: nil, Name: nil}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: &name, Disabled: nil, PasswordChangeRequired: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 	for _, id := range sessions {
@@ -102,7 +105,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 // transaction has committed. Nobody
 // deletes themselves: the person acting, the real person behind the session, is refused
 // their own account, and a session that views as someone else the account it views as
-// (refuseOwnAccount). A super
+// (refuseOwnAccount). In a session that acts as someone else the refusal of the real
+// person's own account is the one DisableUser and EnableUser give there, in the same
+// sentence form and with the same log line. A super
 // administrator's account is deleted by a super administrator alone, and the last one
 // who can sign in by nobody (requireSuperAdministrator, refuseLastSuperAdministrator).
 //
@@ -176,6 +181,9 @@ func (m *Manager) SetTemporaryPassword(ctx context.Context, txn resource.ReadWri
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "set your own password"); err != nil {
+		return err
+	}
 	username, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")
@@ -204,19 +212,67 @@ func (m *Manager) SetTemporaryPassword(ctx context.Context, txn resource.ReadWri
 		return errors.Wrap(err, "identity.Store.ClearAttempts()")
 	}
 
-	return nil
+	return m.resetLinksEndAtCommit(txn, userID)
+}
+
+// resetLinksEndAtCommit registers the withdrawal of the user's standing password reset
+// links for after the commit of a transaction that writes or removes their password: a
+// link mailed for the password before does not reset the one after.
+func (m *Manager) resetLinksEndAtCommit(txn resource.ReadWriteTransaction, userID impulse.UUID) error {
+	return m.noticeAfterCommit(txn, "the withdrawal of the password reset links of user "+userID.String(), func(ctx context.Context) error {
+		return m.sessions.EndPasswordResetLinks(ctx, userID)
+	})
+}
+
+// SendPasswordResetLink has a link that resets a user's password mailed to the address
+// they confirmed, once the caller's transaction commits. Nothing about the account
+// changes when it is sent: the password it has signs the person in, and their sessions
+// stand, until the link is used. The message says who asked: an administrator of the
+// tenant the request was checked in, or of the application. sent is told how the
+// mailing went, once the transaction has committed: whether the link was mailed and,
+// where it was not, why, in a sentence for the administrator who asked (the account has
+// no password to reset or no confirmed address, or the address was mailed too often).
+//
+// The link goes to the person's own mailbox and to nowhere the caller names, so it is
+// the caller's to send for whoever the role file lets them manage; an account of
+// another auth, and no account, are NotFound.
+//
+// Shared rule: the session library's SendPasswordReset, which counts the message
+// against the limit on reset links to an address, the person's own requests with it.
+func (m *Manager) SendPasswordResetLink(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, sent func(sent bool, reason string)) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "send yourself a password reset link"); err != nil {
+		return err
+	}
+	if _, found, err := m.store.Username(ctx, txn, userID); err != nil {
+		return errors.Wrap(err, "identity.Store.Username()")
+	} else if !found {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	by := askedBy(ctx)
+
+	return m.mailAfterCommit(txn, "the password reset link of user "+userID.String(), sent, func(ctx context.Context) error {
+		return m.sessions.SendPasswordReset(ctx, userID, by)
+	})
 }
 
 // RevokeTrustedDevices buffers an administrator's reset of a user's second factor, in
 // the caller's transaction: every browser the person asked to be remembered is
 // forgotten, so their next sign-in from any of them asks for the factor. The sessions
-// that stand are not touched (EndUserSessions ends them).
+// that stand are not touched (EndUserSessions ends them). Once the transaction has
+// committed the person is told, at the address they confirmed, that their sign-in was
+// reset.
 //
 // Shared rule: the session library's ResetFactors.
 func (m *Manager) RevokeTrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "revoke your own trusted devices"); err != nil {
+		return err
+	}
 	devices, err := m.store.TrustedDevices(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.TrustedDevices()")
@@ -227,14 +283,19 @@ func (m *Manager) RevokeTrustedDevices(ctx context.Context, txn resource.ReadWri
 		}
 	}
 
-	return nil
+	return m.noticeAfterCommit(txn, "the notice of a second factor reset to user "+userID.String(), func(ctx context.Context) error {
+		return m.sessions.NoticeFactorReset(ctx, userID)
+	})
 }
 
 // UnlockSignIn buffers the removal of the count of failed sign-ins kept under a name,
 // in the caller's transaction, and with it the lock the count earned: once it commits,
 // the name may sign in again. The name is what was typed into the username field,
-// whether or not a user holds it, and is keyed as the session library keys it
-// (session.SignInAttemptName); a name with no count is no error.
+// whether or not a user holds it, and is keyed as the session library keys it; a name
+// with no count is no error. The table also keeps the session library's own counts (the
+// mail an address was sent, its reset links, the guesses at a first password's code)
+// under keys no name folds to, and a row of one, named as the list shows it, is cleared
+// the same way (session.SignInAttemptKey).
 //
 // Each instance of the application trusts what it remembers of a name for a few
 // seconds, a lock included, so the lock is gone from every instance within that time
@@ -248,7 +309,10 @@ func (m *Manager) UnlockSignIn(ctx context.Context, txn resource.ReadWriteTransa
 	if strings.TrimSpace(name) == "" {
 		return httpio.NewBadRequestMessage("a name is required: the name the failed sign-ins are counted under")
 	}
-	if err := m.store.ClearAttempts(ctx, txn, session.SignInAttemptName(name)); err != nil {
+	if err := m.refuseImpersonatorsName(ctx, txn, name); err != nil {
+		return err
+	}
+	if err := m.store.ClearAttempts(ctx, txn, session.SignInAttemptKey(name)); err != nil {
 		return errors.Wrap(err, "identity.Store.ClearAttempts()")
 	}
 

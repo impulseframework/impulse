@@ -138,11 +138,11 @@ type doorWorld struct {
 	accounts Accounts
 	seeded   bool
 	resolve  func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
+	// noPassword says the application's Auth registers no password method.
+	noPassword bool
 	// admits is whom the sign-in method's registration admits, one organization when it
-	// is not set, and seededFor the application's word on an account its own seed made
-	// for a registration, nil where it recognizes none.
-	admits    Admits
-	seededFor func(userID impulse.UUID, username, registration string) bool
+	// is not set.
+	admits Admits
 
 	mu      sync.Mutex
 	deleted map[accesstypes.Domain]bool
@@ -227,9 +227,9 @@ func (w *doorWorld) start(ctx context.Context, t *testing.T, h *AuthHarness) *Au
 		accounts = Open
 	}
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Resolve: w.resolve, Accounts: accounts, SeededUsers: w.seeded, Admits: w.admits, Accept: w.seats.accept,
+		Auth: true, Resolve: w.resolve, Accounts: accounts, SeededUsers: w.seeded, NoPassword: w.noPassword, Admits: w.admits, Accept: w.seats.accept,
 		Policy:    signin.TenantPolicy(w.seats, w.declaration),
-		Admission: &DirectoryAdmission{Directories: w.directories, Seat: w.seats.seat, OnlyIn: w.seats.onlyIn, Seeded: w.seededFor},
+		Admission: &DirectoryAdmission{Directories: w.directories, Seat: w.seats.seat, OnlyIn: w.seats.onlyIn},
 	})
 	for tenant, declaration := range w.declared {
 		h.Record(ctx, t, in.Raw, declarationKeyPrefix+string(tenant), declarationValue(declaration))

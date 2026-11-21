@@ -43,6 +43,7 @@ export interface AssignMembersRoleConfig {
   everyDomain: boolean | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignMembersRole {
   userId: string;
@@ -51,6 +52,7 @@ export interface AssignMembersRole {
   everyDomain: boolean;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignMembersRole declares; the method chooses one per response. */
 export type AssignMembersRoleStatus = 204;
@@ -60,12 +62,14 @@ export interface AssignMembersTenantRoleConfig {
   role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignMembersTenantRole {
   userId: string;
   role: string;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignMembersTenantRole declares; the method chooses one per response. */
 export type AssignMembersTenantRoleStatus = 204;
@@ -365,10 +369,12 @@ export type RemoveMembersTenantGroupMemberStatus = 204;
 export interface RemoveMembersTenantRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
+  groupId: string | FieldPointer;
 }
 export interface RemoveMembersTenantRole {
   userId: string;
   role: string;
+  groupId: string;
 }
 /** The statuses RemoveMembersTenantRole declares; the method chooses one per response. */
 export type RemoveMembersTenantRoleStatus = 204;
@@ -424,14 +430,17 @@ export type RevokeMembersUserTrustedDevicesStatus = 204;
 
 export interface SetMembersTenantUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersTenantUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersTenantUserEmail declares; the method chooses one per response. */
-export type SetMembersTenantUserEmailStatus = 204;
+/** The result SetMembersTenantUserEmail answers with. */
+export interface SetMembersTenantUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersTenantUserNameConfig {
   userId: string | FieldPointer;
@@ -446,14 +455,17 @@ export type SetMembersTenantUserNameStatus = 204;
 
 export interface SetMembersUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersUserEmail declares; the method chooses one per response. */
-export type SetMembersUserEmailStatus = 204;
+/** The result SetMembersUserEmail answers with. */
+export interface SetMembersUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersUserNameConfig {
   userId: string | FieldPointer;
@@ -480,6 +492,21 @@ export interface TakeMembersGroupRole {
 }
 /** The statuses TakeMembersGroupRole declares; the method chooses one per response. */
 export type TakeMembersGroupRoleStatus = 204;
+
+export interface TakeMembersRoleConfig {
+  domain: string | FieldPointer;
+  role: string | FieldPointer;
+  length: string | FieldPointer;
+  reason: string | FieldPointer;
+}
+export interface TakeMembersRole {
+  domain: string;
+  role: string;
+  length: string;
+  reason: string;
+}
+/** The statuses TakeMembersRole declares; the method chooses one per response. */
+export type TakeMembersRoleStatus = 204;
 
 export interface TakeMembersTenantGroupRoleConfig {
   groupId: string | FieldPointer;
@@ -596,6 +623,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -631,7 +666,7 @@ export type MethodMap = Record<Method, MethodMeta>;
 const methodMap: MethodMap = {
   [Methods.AddMembersGroupMember]: {
     route: 'add-members-group-member',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -664,6 +699,7 @@ const methodMap: MethodMap = {
       { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.AssignMembersTenantRole]: {
@@ -676,6 +712,7 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.MembersTenantRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.CreateMembersGroup]: {
@@ -723,7 +760,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteMembersGroup]: {
     route: 'delete-members-group',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -759,7 +796,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DescribeMembersGroup]: {
     route: 'describe-members-group',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -842,7 +879,7 @@ const methodMap: MethodMap = {
   },
   [Methods.GiveMembersGroupRole]: {
     route: 'give-members-group-role',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -920,12 +957,13 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveMembersTenantRole]: {
     route: 'remove-members-tenant-role',
-    target: { resource: Resources.MembersTenantUserRoles, key: { userId: 'userId', role: 'role' } },
+    target: { resource: Resources.MembersTenantHeldRoles, key: { userId: 'userId', role: 'role', groupId: 'groupId' }, mayBeEmpty: ['groupId'] },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'groupId', displayType: 'string' },
     ],
   },
   [Methods.RenameMembersTenantUser]: {
@@ -978,11 +1016,11 @@ const methodMap: MethodMap = {
   [Methods.SetMembersTenantUserEmail]: {
     route: 'set-members-tenant-user-email',
     target: { resource: Resources.MembersTenantUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersTenantUserName]: {
@@ -998,11 +1036,11 @@ const methodMap: MethodMap = {
   [Methods.SetMembersUserEmail]: {
     route: 'set-members-user-email',
     target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersUserName]: {
@@ -1024,6 +1062,17 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.TakeMembersRole]: {
+    route: 'take-members-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'domain', displayType: 'string', required: true },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.MembersTakeableRoles, required: true, attribute: 'role' },
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.MembersTakeLengths, required: true },
+      { fieldName: 'reason', displayType: 'string', required: true },
     ],
   },
   [Methods.TakeMembersTenantGroupRole]: {

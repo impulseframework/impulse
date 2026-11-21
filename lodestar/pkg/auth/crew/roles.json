@@ -32,7 +32,8 @@
                 "designation",
                 "roleId",
                 "tonnage",
-                "hardened"
+                "hardened",
+                "inService"
               ]
             },
             {
@@ -65,7 +66,8 @@
                 "designation",
                 "roleId",
                 "tonnage",
-                "hardened"
+                "hardened",
+                "inService"
               ]
             },
             {
@@ -154,7 +156,8 @@
               "fields": [
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -184,6 +187,13 @@
             {
               "resource": "MembersUserRoles",
               "fields": [
+                "createdAt"
+              ]
+            },
+            {
+              "resource": "MembersHeldRoles",
+              "fields": [
+                "username",
                 "createdAt"
               ]
             },
@@ -258,7 +268,8 @@
                 "label",
                 "openSignUp",
                 "ownRule",
-                "says"
+                "says",
+                "selfServiceReset"
               ]
             },
             {
@@ -416,6 +427,62 @@
                 "groupName",
                 "startsAt",
                 "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewHeldRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "CrewListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
+              ]
+            },
+            {
+              "resource": "CrewListedGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "losing"
+              ]
+            },
+            {
+              "resource": "CrewTakenRoles",
+              "fields": [
+                "username",
+                "name",
+                "reason",
+                "startsAt",
+                "endsAt",
+                "ended"
+              ]
+            },
+            {
+              "resource": "CrewTakeableRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
+              "resource": "CrewTakeLengths",
+              "fields": [
+                "minutes"
               ]
             },
             {
@@ -620,6 +687,19 @@
                 "description",
                 "updatedAt"
               ]
+            },
+            {
+              "resource": "CrewListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
+              ]
             }
           ],
           "Create": [
@@ -639,7 +719,8 @@
                 "designation",
                 "roleId",
                 "tonnage",
-                "hardened"
+                "hardened",
+                "inService"
               ]
             },
             {
@@ -688,7 +769,8 @@
               "fields": [
                 "roleId",
                 "tonnage",
-                "hardened"
+                "hardened",
+                "inService"
               ]
             },
             {
@@ -754,6 +836,9 @@
               "resource": "RemoveCrewRole"
             },
             {
+              "resource": "TakeCrewRole"
+            },
+            {
               "resource": "DisableMembersUser"
             },
             {
@@ -799,6 +884,9 @@
               "resource": "SetCrewTemporaryPassword"
             },
             {
+              "resource": "SendCrewUserPasswordResetLink"
+            },
+            {
               "resource": "RevokeCrewUserTrustedDevices"
             },
             {
@@ -821,6 +909,9 @@
             },
             {
               "resource": "MakeCrewInviteOnly"
+            },
+            {
+              "resource": "SetCrewSelfServiceReset"
             },
             {
               "resource": "InviteCrewUser"
@@ -917,14 +1008,72 @@
       },
       {
         "name": "CommandStaff",
-        "description": "Views the application as another user and assumes any role, for support and demonstrations.",
+        "description": "Views the application as another user, reading only, and assumes any role, for support and demonstrations, and keeps the watch desk: sees every session held as someone else and ends one.",
         "permissions": {
+          "List": [
+            {
+              "resource": "CrewSessionUsers",
+              "fields": [
+                "username"
+              ]
+            },
+            {
+              "resource": "CrewSessionImpersonations",
+              "fields": [
+                "actorRealm",
+                "actorUsername",
+                "endReason",
+                "endedAt",
+                "expiresAt",
+                "mask",
+                "principalKind",
+                "principalRole",
+                "principalUserId",
+                "reason",
+                "sourceSessionId",
+                "startedAt"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "CrewSessionImpersonations",
+              "fields": [
+                "actorRealm",
+                "actorUsername",
+                "endReason",
+                "endedAt",
+                "expiresAt",
+                "mask",
+                "principalKind",
+                "principalRole",
+                "principalUserId",
+                "reason",
+                "sourceSessionId",
+                "startedAt"
+              ]
+            }
+          ],
           "Execute": [
             {
               "resource": "ViewAsUser"
             },
             {
               "resource": "AssumeRole"
+            },
+            {
+              "resource": "EndCrewSessionImpersonation"
+            }
+          ]
+        }
+      },
+      {
+        "name": "StandIn",
+        "description": "Acts as another crew member: does what they may do, except change how they sign in or who may do what.",
+        "permissions": {
+          "Execute": [
+            {
+              "resource": "ActAsUser"
             }
           ]
         }
@@ -1140,6 +1289,7 @@
                 "hangarId",
                 "userId",
                 "squadronId",
+                "groupId",
                 "levelId",
                 "expiresAt"
               ]
@@ -1328,7 +1478,22 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "CrewSectorHeldRoles",
+              "fields": [
+                "username",
+                "everyDomain",
+                "groupName",
+                "globalGroup",
+                "groupPage",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -1414,7 +1579,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             },
             {
@@ -1434,7 +1601,8 @@
                 "groupName",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "losing"
               ]
             },
             {
@@ -1509,6 +1677,7 @@
                 "hangarId",
                 "userId",
                 "squadronId",
+                "groupId",
                 "levelId",
                 "expiresAt"
               ]
@@ -1650,7 +1819,8 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -1711,7 +1881,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ],
@@ -1747,6 +1919,7 @@
                 "hangarId",
                 "userId",
                 "squadronId",
+                "groupId",
                 "levelId",
                 "expiresAt"
               ]
@@ -2088,6 +2261,9 @@
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
             {
+              "resource": "SendCrewSectorUserPasswordResetLink"
+            },
+            {
               "resource": "RequireCrewSectorPasswordChange",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
@@ -2169,7 +2345,9 @@
               "resource": "CrewSectorGroups",
               "fields": [
                 "name",
-                "description"
+                "description",
+                "people",
+                "roles"
               ],
               "condition": "group IN subject.groups"
             },
@@ -2203,7 +2381,9 @@
               "resource": "CrewSectorGroups",
               "fields": [
                 "name",
-                "description"
+                "description",
+                "people",
+                "roles"
               ],
               "condition": "group IN subject.groups"
             }
@@ -4080,7 +4260,7 @@
       },
       {
         "name": "Armorer",
-        "description": "Serves a squadron's ships where its hangar passes reach: sees the hangars a pass opens to them or to a squadron they fly with, and re-zones the ones a pass lets them run.",
+        "description": "Serves a squadron's ships where its hangar passes reach: sees the hangars a pass opens to them, to a squadron they fly with or to a group they are in, and re-zones the ones a pass lets them run.",
         "permissions": {
           "List": [
             {

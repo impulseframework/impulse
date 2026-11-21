@@ -55,9 +55,15 @@ func Test_identityOn(t *testing.T) {
 			served: []string{
 				"CrewSessionUsers", "CrewUserRoles", "CrewSessionIdentities", "CrewSessionMailLinks", "CrewSessions", "CrewSessionSignInAttempts",
 				"CrewSignInMethods", "CrewSignInWays",
-				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorInvitations", "CrewSectorSignInWays",
+				// A tenant's roles are the one list that says where each comes from, and the
+				// list of the roles people hold themselves is no part of the description.
+				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorHeldRoles", "CrewSectorInvitations", "CrewSectorSignInWays",
 				"DisableCrewUser", "EndCrewSession", "EndCrewUserSessions", "UnlockCrewSignIn", "UnlinkCrewSessionIdentity", "CreateCrewUser",
 				"RemoveCrewPassword", "OpenCrewSignUp", "MakeCrewInviteOnly",
+				// The way back in: the link an administrator sends from a person's row, on
+				// each side, and the switch for a person's own request, which is the whole
+				// application's alone.
+				"SendCrewUserPasswordResetLink", "SetCrewSelfServiceReset", "SendCrewSectorUserPasswordResetLink",
 				"DisableCrewSectorUser", "AssignCrewSectorRole", "RemoveCrewSectorRole", "RevokeCrewSectorUserTrustedDevices", "RemoveCrewSectorPassword",
 				// Served by the outlet and no part of the auth's management; the tenant record
 				// is named, since a page reads a tenant's name from it.
@@ -81,10 +87,12 @@ func Test_identityOn(t *testing.T) {
 							part("signInMethods", "CrewSignInMethods"),
 						},
 						Methods: []identityPart{
-							part("create", "CreateCrewUser"), part("disable", "DisableCrewUser"), part("endUserSessions", "EndCrewUserSessions"),
+							part("create", "CreateCrewUser"), part("disable", "DisableCrewUser"),
+							part("sendPasswordResetLink", "SendCrewUserPasswordResetLink"), part("endUserSessions", "EndCrewUserSessions"),
 							part("unlinkIdentity", "UnlinkCrewSessionIdentity"), part("removePassword", "RemoveCrewPassword"),
 							part("endSession", "EndCrewSession"), part("unlockSignIn", "UnlockCrewSignIn"),
 							part("openSignUp", "OpenCrewSignUp"), part("makeInviteOnly", "MakeCrewInviteOnly"),
+							part("setSelfServiceReset", "SetCrewSelfServiceReset"),
 						},
 					},
 					{
@@ -92,11 +100,12 @@ func Test_identityOn(t *testing.T) {
 						// The outlet serves no list of the identities a tenant's people hold; how each
 						// signs in is a list of its own, named where the outlet serves it.
 						Lists: []identityPart{
-							part("users", "CrewSectorUsers"), part("roles", "CrewSectorUserRoles"), part("signInWays", "CrewSectorSignInWays"),
+							part("users", "CrewSectorUsers"), part("roles", "CrewSectorHeldRoles"), part("signInWays", "CrewSectorSignInWays"),
 							part("invitations", "CrewSectorInvitations"),
 						},
 						Methods: []identityPart{
 							part("assignRole", "AssignCrewSectorRole"), part("removeRole", "RemoveCrewSectorRole"), part("disable", "DisableCrewSectorUser"),
+							part("sendPasswordResetLink", "SendCrewSectorUserPasswordResetLink"),
 							part("revokeTrustedDevices", "RevokeCrewSectorUserTrustedDevices"), part("removePassword", "RemoveCrewSectorPassword"),
 						},
 					},

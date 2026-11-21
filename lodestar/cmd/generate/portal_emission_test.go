@@ -56,14 +56,14 @@ func TestPortalTargetEmission(t *testing.T) {
 	columnTypes := []string{
 		"import { Point } from 'geojson';",
 		"  position?: Point;",
-		"{ fieldName: 'position', displayType: 'object', required: false, isIndex: false }",
+		"{ fieldName: 'position', displayType: 'object', required: false, isIndex: false, sortable: false }",
 		"  provenance?: MissionDocuments.Provenance;",
 		"export namespace MissionDocuments {\n  export interface Provenance {\n    system: string;\n    reference?: string;\n    receivedAt: Date;\n  }\n}",
-		"{ fieldName: 'provenance', displayType: 'object', required: false, isIndex: false }",
+		"{ fieldName: 'provenance', displayType: 'object', required: false, isIndex: false, sortable: false }",
 		"  digest?: string;",
-		"{ fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false }",
+		"{ fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false, sortable: false }",
 		"  layout?: unknown;",
-		"{ fieldName: 'layout', displayType: 'object', required: false, isIndex: false }",
+		"{ fieldName: 'layout', displayType: 'object', required: false, isIndex: false, sortable: false }",
 	}
 
 	tests := []struct {
@@ -107,7 +107,7 @@ func TestPortalTargetEmission(t *testing.T) {
 			source: consoleResources,
 			want: []string{
 				"  cargoBays?: number[];",
-				"{ fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false }",
+				"{ fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false, sortable: false }",
 			},
 		},
 		{
@@ -115,7 +115,7 @@ func TestPortalTargetEmission(t *testing.T) {
 			source: consoleResources,
 			want: []string{
 				"  callsigns?: string[];",
-				"{ fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, maxLength: 16 }",
+				"{ fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, sortable: false, maxLength: 16 }",
 			},
 		},
 		{
@@ -151,9 +151,10 @@ func TestPortalTargetEmission(t *testing.T) {
 	// The portal emits exactly its members' resource interfaces (the members with a
 	// struct, and with them the resources Mission's declared pickers name, which follow
 	// Mission onto every outlet it serves, the library's FeatureFlags, which every
-	// session outlet serves, and the members auth's own tables and the lists a sector
-	// keeps of the members, declared by the generated management of the auth and served
-	// on its outlet) and the console emits every one.
+	// session outlet serves, and the members auth's own tables, the one list of the
+	// roles its people hold and the lists a sector keeps of the members, declared by the
+	// generated management of the auth and served on its outlet) and the console emits
+	// every one.
 	iface := regexp.MustCompile(`(?m)^export interface (\w+) \{`)
 	portalIfaces := iface.FindAllStringSubmatch(read("web/portal/src/app/core/service/zz_gen_resources.ts"), -1)
 	var names []string
@@ -165,7 +166,7 @@ func TestPortalTargetEmission(t *testing.T) {
 		}
 		names = append(names, m[1])
 	}
-	want := "ClientContacts,ClientRosters,DistressCalls,MembersRoles,MembersRoleGrants,MembersSectorIdentities,MembersSectorInvitations,MembersSectorUsers,MembersSectorUserRoles,MembersSessions,MembersSessionAuthEvents,MembersSessionIdentities,MembersSessionMailLinks,MembersSessionSignInAttempts,MembersSessionTrustedDevices,MembersSessionUsers,MembersUserRoles,Missions,MissionDocuments,BriefingTemplates,FeatureFlags"
+	want := "ClientContacts,ClientRosters,DistressCalls,MembersHeldRoles,MembersRoles,MembersRoleGrants,MembersSectorHeldRoles,MembersSectorIdentities,MembersSectorInvitations,MembersSectorUsers,MembersSectorUserRoles,MembersSessions,MembersSessionAuthEvents,MembersSessionIdentities,MembersSessionMailLinks,MembersSessionSignInAttempts,MembersSessionTrustedDevices,MembersSessionUsers,MembersUserRoles,Missions,MissionDocuments,BriefingTemplates,FeatureFlags"
 	if strings.Join(names, ",") != want {
 		t.Errorf("portal resource interfaces = %v, want %s", names, want)
 	}

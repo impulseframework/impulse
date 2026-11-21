@@ -38,6 +38,10 @@ func (a *App) Missions() http.HandlerFunc {
 		StatusID           string                `json:"statusId"           index:"true"`
 		Notes              *string               `json:"notes"`
 		Settlement         decimal.NullDecimal   `json:"settlement"`
+		SectorName         *string               `json:"sectorName"         nameof:"SectorID"`
+		KindName           *string               `json:"kindName"           nameof:"KindID"`
+		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"`
+		StatusName         *string               `json:"statusName"         nameof:"StatusID"`
 	}
 
 	type response []map[string]any
@@ -76,7 +80,7 @@ func (a *App) Missions() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*mission)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -188,6 +192,10 @@ func (a *App) Mission() http.HandlerFunc {
 		StatusID           string                `json:"statusId"`
 		Notes              *string               `json:"notes"`
 		Settlement         decimal.NullDecimal   `json:"settlement"`
+		SectorName         *string               `json:"sectorName"         nameof:"SectorID"`
+		KindName           *string               `json:"kindName"           nameof:"KindID"`
+		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"`
+		StatusName         *string               `json:"statusName"         nameof:"StatusID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Mission, response](a, accesstypes.Read)
@@ -214,7 +222,7 @@ func (a *App) Mission() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -322,6 +330,10 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 		StatusID           string                `json:"statusId"           index:"true"`
 		Notes              *string               `json:"notes"`
 		Settlement         decimal.NullDecimal   `json:"settlement"`
+		SectorName         *string               `json:"sectorName"         nameof:"SectorID"`
+		KindName           *string               `json:"kindName"           nameof:"KindID"`
+		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"`
+		StatusName         *string               `json:"statusName"         nameof:"StatusID"`
 	}
 
 	type response []map[string]any
@@ -362,7 +374,7 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*mission)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {

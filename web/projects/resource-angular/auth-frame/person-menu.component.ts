@@ -28,11 +28,27 @@ function firstCharacter(text: string): string {
 }
 
 /**
- * The person's own corner: their initial and name at the right of the bar (the name they
+ * The initials a person is drawn by, each a whole character: the first of the first word
+ * and the first of the last word of the name they are shown as, "RG" for Rey Gale and
+ * "MS" for Mary Jo Smith, and one where the name is one word, as a username is.
+ */
+export function initialsOf(name: string): string[] {
+  const words = name.split(/\s+/).filter((word) => word !== '');
+  const first = words[0];
+  if (first === undefined) {
+    return [];
+  }
+  const last = words.length > 1 ? words[words.length - 1] : undefined;
+  return [first, ...(last === undefined ? [] : [last])].map((word) => firstCharacter(word).toUpperCase());
+}
+
+/**
+ * The person's own corner: their initials and name at the right of the bar (the name they
  * hold, else their username), and under it
  * what is theirs rather than the application's: their account page where it holds
  * something for them, their API keys where the application issues tokens, the application's own entries, how the application looks
- * to them, and signing out. On a phone the name is left out and the initial stays.
+ * to them, and signing out. On a phone the name is left out and the initials stay. Two
+ * initials share the circle one has, drawn a little smaller.
  */
 @Component({
   selector: 'impulse-person-menu',
@@ -41,29 +57,39 @@ function firstCharacter(text: string): string {
   template: `
     <button
       type="button"
-      class="person"
+      class="impulse-person-menu-button"
       [cdkMenuTriggerFor]="menu"
       [attr.aria-label]="'Signed in as ' + name() + '. Your menu'">
-      <span class="initial" aria-hidden="true">{{ initial() }}</span>
-      <span class="name">{{ name() }}</span>
-      <mat-icon class="chevron">expand_more</mat-icon>
+      <span
+        class="impulse-person-menu-initial"
+        [class.impulse-person-menu-two]="initials().length > 1"
+        aria-hidden="true"
+        >{{ initialsText() }}</span
+      >
+      <span class="impulse-person-menu-name">{{ name() }}</span>
+      <mat-icon class="impulse-person-menu-chevron">expand_more</mat-icon>
     </button>
 
     <ng-template #menu>
       <impulse-menu-list [groups]="groups()">
-        <div class="who">
-          <span class="initial large" aria-hidden="true">{{ initial() }}</span>
-          <span class="lines">
-            <span class="who-name">{{ name() }}</span>
+        <div class="impulse-person-menu-who">
+          <span
+            class="impulse-person-menu-initial impulse-person-menu-large"
+            [class.impulse-person-menu-two]="initials().length > 1"
+            aria-hidden="true"
+            >{{ initialsText() }}</span
+          >
+          <span class="impulse-person-menu-lines">
+            <span class="impulse-person-menu-who-name">{{ name() }}</span>
             @if (name() !== username()) {
-              <span class="who-login">{{ username() }}</span>
+              <span class="impulse-person-menu-who-login">{{ username() }}</span>
             }
             @if (email()) {
-              <span class="who-email">{{ email() }}</span>
+              <span class="impulse-person-menu-who-email">{{ email() }}</span>
             }
           </span>
         </div>
-        <div class="line" role="separator"></div>
+        <div class="impulse-person-menu-line" role="separator"></div>
       </impulse-menu-list>
     </ng-template>
   `,
@@ -84,7 +110,10 @@ export class PersonMenuComponent {
   /** What the person is shown as: their name where they hold one, else the username. */
   readonly name = computed(() => this.auth.sessionInfo().name || this.username());
   readonly email = computed(() => this.auth.sessionInfo().email ?? '');
-  readonly initial = computed(() => firstCharacter(this.name()).toUpperCase());
+  /** The person's initials, of the name they are shown as: two for a name of several words, one for a single word. */
+  readonly initials = computed(() => initialsOf(this.name()));
+  /** The initials as the circles write them. */
+  readonly initialsText = computed(() => this.initials().join(''));
 
   private account = page({ label: 'Your account', icon: 'account_circle', route: [here, framePages.account] });
   private apiKeys = page({ label: 'Your API keys', icon: 'key', route: [here, framePages.apiKeys] });

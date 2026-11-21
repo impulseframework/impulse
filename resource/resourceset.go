@@ -55,6 +55,13 @@ type fileKeyer interface {
 	FileKeys() []FileKey
 }
 
+// deleteTreer is the generated description of what a delete of a record takes with it
+// and what refuses it (DeleteTree). The generator writes it from the schema and the
+// record's @deleteCascade; the patch machinery reads it when the record is deleted.
+type deleteTreer interface {
+	DeleteTree() *DeleteTree
+}
+
 // virtualQuerier is an interface for types that can provide a subquery with params.
 type virtualQuerier interface {
 	Subquery() (string, map[string]any)
@@ -269,6 +276,11 @@ func permissionsFromTags(t reflect.Type, perms []accesstypes.Permission, secret 
 
 	fields := make([]FieldTags, 0, t.NumField())
 	for field := range t.Fields() {
+		// A name field takes no grant of its own: the id beside it and the pointed-to
+		// resource's name field carry the grants a name is read under.
+		if isNameField(field.Tag) {
+			continue
+		}
 		fields = append(fields, FieldTagsFromStructTag(accesstypes.Field(field.Name), field.Tag))
 	}
 
@@ -431,10 +443,9 @@ func permissionsFromFieldTags(fields []FieldTags, perms []accesstypes.Permission
 
 // Metadata contains cached metadata about a resource, such as its database schema mapping and configuration.
 type Metadata[Resource Resourcer] struct {
-	dbMap               map[DBType]map[accesstypes.Field]dbFieldMetadata
-	dbFields            map[DBType][]accesstypes.Field
-	changeTrackingTable string
-	trackChanges        bool
+	dbMap        map[DBType]map[accesstypes.Field]dbFieldMetadata
+	dbFields     map[DBType][]accesstypes.Field
+	trackChanges bool
 	// fileKeys are the fields holding a stored file's key (the generated FileKeys):
 	// the patch machinery reads their old values on a delete and on a write that sets
 	// one, and records the released objects on the transaction.
@@ -450,6 +461,10 @@ type Metadata[Resource Resourcer] struct {
 	// SecretContext): the primary key's fields in key order. Empty for a resource struct
 	// written by hand, whose secrets are bound to the key as it is given.
 	secretContext []accesstypes.Field
+	// deleteTree is what a delete of the record takes with it and what refuses it (the
+	// generated DeleteTree), nil for a record with no description: a delete of the
+	// record is held to it before the commit (delete_refusal.go).
+	deleteTree *DeleteTree
 }
 
 // secret reports whether the resource struct declares the field a secret.
@@ -466,14 +481,14 @@ func NewMetadata[Resource Resourcer]() *Metadata[Resource] {
 	c := resMetadataCache.get(res)
 
 	return &Metadata[Resource]{
-		dbMap:               c.dbMap,
-		dbFields:            c.dbFields,
-		changeTrackingTable: c.cfg.ChangeTrackingTable,
-		trackChanges:        c.cfg.TrackChanges,
-		fileKeys:            c.fileKeys,
-		searchBranches:      c.searchBranches,
-		secrets:             c.secrets,
-		secretContext:       c.secretContext,
+		dbMap:          c.dbMap,
+		dbFields:       c.dbFields,
+		trackChanges:   c.cfg.TrackChanges,
+		fileKeys:       c.fileKeys,
+		searchBranches: c.searchBranches,
+		secrets:        c.secrets,
+		secretContext:  c.secretContext,
+		deleteTree:     c.deleteTree,
 	}
 }
 
@@ -506,6 +521,7 @@ type resourceMetadataCacheEntry struct {
 	searchBranches []SearchBranch
 	secrets        map[accesstypes.Field]struct{}
 	secretContext  []accesstypes.Field
+	deleteTree     *DeleteTree
 }
 
 type resourceMetadataCache struct {
@@ -562,6 +578,11 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		secretContext = s.SecretContext()
 	}
 
+	var deleteTree *DeleteTree
+	if d, ok := res.(deleteTreer); ok {
+		deleteTree = d.DeleteTree()
+	}
+
 	dbMap := make(map[DBType]map[accesstypes.Field]dbFieldMetadata)
 	dbFields := make(map[DBType][]accesstypes.Field)
 	for _, dbType := range dbTypes() {
@@ -578,6 +599,7 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		searchBranches: searchBranches,
 		secrets:        secretFields(t),
 		secretContext:  secretContext,
+		deleteTree:     deleteTree,
 	}
 
 	return c.cache[t]

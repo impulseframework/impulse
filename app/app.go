@@ -112,6 +112,15 @@ type App struct {
 
 	// goFiles are the non-test Go files scanned, for the passes that follow the walk.
 	goFiles []string
+	// goRead are the Go files scanned, tests among them: what a pass that follows every
+	// Go file the application's builds compile reads (the imports, a flag's uses).
+	goRead []string
+	// walked are the directories whose Go files were read, root-relative, and leftAlone
+	// says the walk left at least one directory alone, so an import may lead into one.
+	walked    map[string]bool
+	leftAlone bool
+	// nestedModules are the directories under the root that hold a go.mod of their own.
+	nestedModules []string
 	// unattached are the methods the per-file scan could not attach, resolved per package
 	// after the walk.
 	unattached []Method
@@ -278,14 +287,6 @@ type Method struct {
 	// (google.AnyGoogleAccount), alone (WorkspacesAccounts) or beside the Workspaces
 	// Workspaces describes.
 	GoogleAccounts bool
-	// SeveralDomains reports a Google registration that names a Workspace with more
-	// than one domain, or with a spread of them (google.Workspace(name, domains...)).
-	// It changes nothing of Workspaces, which counts Workspaces: such a registration
-	// may still read WorkspacesOne. It is for a rule that counts organizations as the
-	// sign-in does, which lists a Workspace by each of its domains
-	// (signin.Audience.OneOrganization), so one Workspace of two domains is not one
-	// organization to it.
-	SeveralDomains bool
 	// AuthVar is the identifier the registration's first argument names: the Auth it is
 	// registered on. The scan attaches the method to that construction, or to the only
 	// Auth of its package when the identifier does not resolve.
@@ -350,6 +351,23 @@ type DomainResource struct {
 	File string
 	Line int
 	Name string
+	// Table reports a struct annotated @resource: its rows are a table's. A virtual or
+	// computed resource and a method are tenant-scoped with no table of their own.
+	Table bool
+	// DomainColumn is the column that holds the tenant's key on the row itself: the
+	// spanner tag of the field annotated with the bare @domain. Empty where the struct
+	// reaches its tenant through another row (DomainVia), and where it declares no
+	// binding of its own, as a computed resource or a method does.
+	DomainColumn string
+	// DomainVia is the join path of a field annotated @domain(via: ...), by which a
+	// table that carries no tenant key reaches its tenant through the row the field
+	// names; empty for any other struct. The path names a Go field on each row it
+	// passes, the last one the field that holds the tenant's key.
+	DomainVia string
+	// ViaColumn is the column of the field annotated @domain(via: ...): the column the
+	// row leaves by, toward the row it reaches its tenant through. Empty where DomainVia
+	// is.
+	ViaColumn string
 }
 
 // TenantRecord is one struct annotated @tenant: the tenant record, the global resource

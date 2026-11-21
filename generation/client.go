@@ -455,6 +455,7 @@ func (t *tableMetadata) addSchemaResult(result *informationSchemaResult) {
 
 	column.IsNullable = result.IsNullable
 	column.HasDefault = result.HasDefault
+	column.Default = valueOrEmpty(result.ColumnDefault)
 	column.SpannerType = result.SpannerType
 	column.GenerationExpression = valueOrEmpty(result.GenerationExpression)
 
@@ -487,6 +488,28 @@ func (t *tableMetadata) addIndexResult(result *indexSchemaResult) {
 		Column:     result.ColumnName,
 		Descending: result.ColumnOrdering != nil && *result.ColumnOrdering == descendingOrdering,
 	})
+}
+
+// addForeignKeyResult folds one row of the foreign key query into the table's foreign
+// keys: rows arrive grouped by constraint, its columns in constraint order.
+func (t *tableMetadata) addForeignKeyResult(result *foreignKeySchemaResult) {
+	if len(t.ForeignKeys) == 0 || t.ForeignKeys[len(t.ForeignKeys)-1].Name != result.ConstraintName {
+		t.ForeignKeys = append(t.ForeignKeys, foreignKeyMeta{
+			Name:            result.ConstraintName,
+			ReferencedTable: valueOrEmpty(result.ReferencedTable),
+			DeleteRule:      valueOrEmpty(result.DeleteRule),
+		})
+	}
+
+	foreignKey := &t.ForeignKeys[len(t.ForeignKeys)-1]
+	foreignKey.Columns = append(foreignKey.Columns, result.ColumnName)
+	if result.ReferencedColumn == nil {
+		// A column with no match leaves the constraint unresolved as a whole.
+		foreignKey.ReferencedTable = ""
+
+		return
+	}
+	foreignKey.ReferencedColumns = append(foreignKey.ReferencedColumns, *result.ReferencedColumn)
 }
 
 // deriveIndexFlags sets the per-column index flags from the index composition. A
@@ -566,8 +589,10 @@ func (c *client) templateFuncs() map[string]any {
 		"PermissionConstant":      permissionConstant,
 		"ScopeConstant":           scopeConstant,
 		"MaskingConstant":         maskingConstant,
+		"ClassConstant":           classConstantName,
 		"BindingHops":             bindingHopsLiteral,
 		"SubjectParts":            subjectPartsLiteral,
+		"SubjectDomain":           subjectDomainLiteral,
 		// The feature flag routes under an outlet's prefix and the read route's
 		// parameter, from the resource package's constants, so the routes, the router
 		// tests and the TypeScript descriptor spell them once.
@@ -579,6 +604,9 @@ func (c *client) templateFuncs() map[string]any {
 		},
 		"SetFeatureRoute": func() string {
 			return resource.SetFeatureRoute
+		},
+		"FeatureFlagChangesRoute": func() string {
+			return resource.FeatureFlagChangesRoute
 		},
 		// The header a request asks a method's warning with, from the resource package's
 		// constant, so the frames' refusal spells it as the frame reads it.
@@ -661,6 +689,17 @@ func subjectPartsLiteral(who []resource.SubjectWhoData, where *resource.SubjectW
 	}
 
 	return b.String()
+}
+
+// subjectDomainLiteral renders a subject set's own way to a row's tenant as the
+// trailing Domain field of its SubjectBindingData literal. A set that names none
+// renders nothing, so its literal is the one it has always had.
+func subjectDomainLiteral(domain *resource.DomainBindingData) string {
+	if domain == nil {
+		return ""
+	}
+
+	return fmt.Sprintf(", Domain: &resource.DomainBindingData{Column: %q%s}", domain.Column, bindingHopsLiteral(domain.Path))
 }
 
 // permissionConstant renders a permission as its accesstypes constant when one exists,

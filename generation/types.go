@@ -50,7 +50,7 @@ const (
 type Generator interface {
 	Generate() error
 	// Warnings reports the schema findings the last Generate raised: informational,
-	// never a refusal, performance matters the application decides (see Warning).
+	// never a refusal, each a matter the application decides (see Warning).
 	// Nil before Generate runs.
 	Warnings() []Warning
 	// Audit reports the advisory findings the last Generate raised: shapes the
@@ -328,6 +328,7 @@ type informationSchemaResult struct {
 	OrdinalPosition      int64   `spanner:"ORDINAL_POSITION"`
 	KeyOrdinalPosition   int64   `spanner:"KEY_ORDINAL_POSITION"`
 	HasDefault           bool    `spanner:"HAS_DEFAULT"`
+	ColumnDefault        *string `spanner:"COLUMN_DEFAULT"`
 	IsInterleaved        bool    `spanner:"IS_INTERLEAVED"`
 	ParentTable          *string `spanner:"PARENT_TABLE_NAME"`
 	OnDeleteAction       *string `spanner:"ON_DELETE_ACTION"`
@@ -353,6 +354,31 @@ type indexSchemaResult struct {
 	ColumnOrdering  *string `spanner:"COLUMN_ORDERING"`
 }
 
+// foreignKeySchemaResult is one column of one foreign key, as the foreign key query
+// reads it: the constraint's columns arrive in constraint order, each beside the column
+// it references.
+type foreignKeySchemaResult struct {
+	TableName        string  `spanner:"TABLE_NAME"`
+	ConstraintName   string  `spanner:"CONSTRAINT_NAME"`
+	ColumnName       string  `spanner:"COLUMN_NAME"`
+	ReferencedTable  *string `spanner:"REFERENCED_TABLE"`
+	ReferencedColumn *string `spanner:"REFERENCED_COLUMN"`
+	DeleteRule       *string `spanner:"DELETE_RULE"`
+}
+
+// foreignKeyMeta is one foreign key of a table: its columns in constraint order, the
+// table it references and the referenced columns in the same order. A foreign key to
+// columns that are not the referenced table's key reads with no referenced table, and
+// nothing follows it (the per-column facts have the same limit).
+type foreignKeyMeta struct {
+	Name              string
+	Columns           []string
+	ReferencedTable   string
+	ReferencedColumns []string
+	// DeleteRule is the constraint's ON DELETE action: CASCADE or NO ACTION.
+	DeleteRule string
+}
+
 type tableMetadata struct {
 	Columns       map[string]columnMeta
 	PkCount       int
@@ -368,6 +394,10 @@ type tableMetadata struct {
 	// manages for foreign keys. The per-column index flags derive from it
 	// (deriveIndexFlags), and the generation-time index warning reads it.
 	Indexes []indexMeta
+	// ForeignKeys is the table's foreign keys, each whole: the per-column facts name one
+	// referenced table for a column and cannot tell a key of two columns from two keys
+	// of one. What is under a record is read from these (deletecascade.go).
+	ForeignKeys []foreignKeyMeta
 }
 
 // indexMeta is one index of a table: its key in order, with each column's
@@ -397,13 +427,11 @@ type indexColumn struct {
 }
 
 type columnMeta struct {
+	// The yes or no facts stand together, so that they take one word between them: a
+	// column is copied wherever the columns of a table are ranged over.
 	IsPrimaryKey bool
 	IsForeignKey bool
 	IsNullable   bool
-	// SpannerType is the column's declared type as INFORMATION_SCHEMA.COLUMNS spells
-	// it: STRING(64), STRING(MAX), NUMERIC, ARRAY<STRING(4)>. The patch request structs
-	// carry it as sqltype where the decoder sizes the field's value against it.
-	SpannerType string
 	// IsIndex marks a column that leads some index of the table, the PRIMARY_KEY index
 	// and Spanner's managed foreign-key indexes included: a filter on it alone has a
 	// seek path. A trailing key column and a stored column are not marked; a predicate
@@ -414,7 +442,13 @@ type columnMeta struct {
 	// the PRIMARY_KEY index included, has exactly this column as its key. A column of
 	// a composite key or composite unique index is not one; the database enforces
 	// nothing per value of it.
-	IsUniqueIndex      bool
+	IsUniqueIndex bool
+	// HasDefault marks a column that declares a DEFAULT, whose expression Default holds.
+	HasDefault bool
+	// SpannerType is the column's declared type as INFORMATION_SCHEMA.COLUMNS spells
+	// it: STRING(64), STRING(MAX), NUMERIC, ARRAY<STRING(4)>. The patch request structs
+	// carry it as sqltype where the decoder sizes the field's value against it.
+	SpannerType        string
 	OrdinalPosition    int64
 	KeyOrdinalPosition int64
 	ReferencedTable    string
@@ -424,7 +458,11 @@ type columnMeta struct {
 	// row with the referenced one, outside the patch machinery, which the audit pass
 	// reads for a table that stores files (CascadeReleaseFinding).
 	DeleteRule string
-	HasDefault bool
+	// Default is the column's DEFAULT expression as INFORMATION_SCHEMA.COLUMNS spells
+	// it, without the parentheses the DDL wraps it in ("TRUE", "false", "0"); "" where
+	// the column declares none, which HasDefault says. A yes or no column's reaches
+	// the browser metadata (resourceField.YesOrNoDefault).
+	Default string
 	// GenerationExpression is a generated column's expression as
 	// INFORMATION_SCHEMA.COLUMNS spells it, "" on a plain column. A TOKENLIST column's
 	// names the tokenizer the search facts derive from, and a LOWER(col) column
@@ -615,6 +653,10 @@ type rpcMethodInfo struct {
 	// method never renamed. The router answers the former route beside the current
 	// one, and the collection carries the name for the role migration.
 	Formerly string
+	// Classes are the classes the method carries (@class on the struct), sorted: what
+	// a permission mask refers to when it refuses a class of actions. The collection
+	// carries them for the masked check. Empty for a method of no class.
+	Classes []accesstypes.ActionClass
 	// Schedule is the method's @schedule: when Cloud Scheduler calls it. A scheduled
 	// method is served under the scheduled prefix alone, behind the scheduler's token
 	// check, and never on an outlet; nil for a method a person calls.
@@ -1106,11 +1148,6 @@ func (c *computedResource) KeyParamList() string {
 	return keyParamList(c.HasCompoundPrimaryKey(), names)
 }
 
-// KeyFormat renders one %v per key part, slash-joined, for a refusal naming the row.
-func (c *computedResource) KeyFormat() string {
-	return keyFormat(len(c.PrimaryKeys()))
-}
-
 // Converters renders the closures a handler needs to build the named root mirror
 // from a computed row; empty for a flat resource, which converts whole.
 func (c *computedResource) Converters(rootMirror string) string {
@@ -1270,6 +1307,13 @@ func (c *computedField) TypescriptFilterable() string {
 	return ""
 }
 
+// Unordered reports whether the server refuses a sort by the field, so the TypeScript
+// field metadata says sortable: false and a table draws the column's heading as words;
+// see resourceField.Unordered.
+func (c *computedField) Unordered() bool {
+	return c.Field != nil && !ordersType(c.GoType())
+}
+
 // PermTag renders the perm:"-" primary-key exemption marker on @primarykey fields; see
 // resourceField.PermTag.
 func (c *computedField) PermTag() string {
@@ -1322,6 +1366,13 @@ type resourceInfo struct {
 	DefaultsUpdateType string
 	ValidateCreateType string
 	ValidateUpdateType string
+	ValidateDeleteType string
+	// deleteCascade is the resource's @deleteCascade as written, nil where it declares
+	// none, and DeleteTree the description resolved from it once every resource is
+	// extracted (resolveDeleteTrees), which the tenant record has with no declaration,
+	// and so has any record with a kind of row under it that refuses its plain delete.
+	deleteCascade *deleteCascadeDecl
+	DeleteTree    *deleteTree
 	// EnumerationType names the @enumerate type whose table this struct backs. Such a
 	// resource is read-only by derivation: the table's rows are the program's
 	// constants, so no mutation handler is generated and its permissions stop at
@@ -1337,6 +1388,9 @@ type resourceInfo struct {
 	DomainBinding *domainBinding
 	SubjectSets   []*subjectBinding
 	SubjectValues []*subjectBinding
+	// subjectReadThroughs are the record's columns that facts about people declared on
+	// other records are read through (attachSubjectReadThroughs).
+	subjectReadThroughs []subjectReadThrough
 
 	// Files are the resource's @file routes, one per field-scope declaration: a
 	// stored file served under the read route, its key column off the wire.
@@ -1373,6 +1427,12 @@ type resourceInfo struct {
 	// people know it; nil where the record marks none, and the tenant list names each
 	// tenant by its key.
 	TenantNameField *resourceField
+	// RowNameField is the field the resource's rows are known by (@name); nil where it
+	// declares none, and a field pointing to one of its rows shows the stored value.
+	RowNameField *resourceField
+	// NameFields are the name fields the generator adds beside the resource's id fields
+	// that point to a row with a name (resolveNameFields), in field order.
+	NameFields []*nameField
 	// DirectoryOnlyField is the tenant record's @directoryOnly column, the BOOL saying
 	// the tenant's people enter through its directories only; nil when the record
 	// declares none, and every tenant admits a password.
@@ -1604,11 +1664,6 @@ func (r *resourceInfo) KeyParamList() string {
 	}))
 }
 
-// KeyFormat renders one %v per key part, slash-joined, for a refusal naming the row.
-func (r *resourceInfo) KeyFormat() string {
-	return keyFormat(r.keyCount())
-}
-
 func (r *resourceInfo) UpdateHandlerDisabled() bool {
 	return slices.Contains(r.SuppressedHandlers, PatchHandler)
 }
@@ -1635,6 +1690,11 @@ func (r *resourceInfo) HasValidateCreateType() bool {
 // HasValidateUpdateType indicates if a validate update type has been registered
 func (r *resourceInfo) HasValidateUpdateType() bool {
 	return r.ValidateUpdateType != ""
+}
+
+// HasValidateDeleteType indicates if a validate delete type has been registered
+func (r *resourceInfo) HasValidateDeleteType() bool {
+	return r.ValidateDeleteType != ""
 }
 
 func (r *resourceInfo) PrimaryKeys() iter.Seq2[int, *resourceField] {
@@ -1778,6 +1838,9 @@ type resourceField struct {
 	EnumerationValues []*enumData
 	ReferencedField   string
 	HasDefault        bool
+	// Default is the backing column's DEFAULT expression (columnMeta.Default); "" where
+	// the column declares none, and on a view.
+	Default string
 	// SpannerType is the backing column's declared type (columnMeta.SpannerType);
 	// empty on a view, whose fields have no schema type.
 	SpannerType string
@@ -1944,7 +2007,7 @@ func (f *resourceField) UnwrappedNullType() *string {
 
 	var hasValidColumn bool
 	for i := range fields {
-		if fields[i].Name() == "Valid" && fields[i].DerefUnqualifiedType() == boolGoType {
+		if fields[i].Name() == validField && fields[i].DerefUnqualifiedType() == boolGoType {
 			hasValidColumn = true
 		}
 	}
@@ -1954,7 +2017,7 @@ func (f *resourceField) UnwrappedNullType() *string {
 	}
 
 	for i := range fields {
-		if fields[i].Name() != "Valid" {
+		if fields[i].Name() != validField {
 			return new(fields[i].DerefResolvedType())
 		}
 	}
@@ -1963,11 +2026,11 @@ func (f *resourceField) UnwrappedNullType() *string {
 }
 
 // TypescriptDataType is the field's type in the generated interface: the table row's
-// interface type (uuid is a string, civilDate a Date, a nullable boolean the
-// NullBoolean value type), with [] for a list, or the final type a derived struct or
-// a declared type carries.
+// interface type (uuid and a decimal are strings, civilDate a Date, a nullable boolean
+// the NullBoolean value type), with [] for a list, or the final type a derived struct
+// or a declared type carries.
 func (f *resourceField) TypescriptDataType() string {
-	if f.typescriptDisplay != "" {
+	if f.typescriptDisplay != "" && !f.isDecimal() {
 		return f.typescriptType
 	}
 	if f.IsNullable && f.typescriptType == booleanStr {
@@ -1993,6 +2056,13 @@ func (f *resourceField) TypescriptDisplayType() string {
 	}
 
 	return f.typescriptType
+}
+
+// isDecimal reports whether the column is the table's decimal row, or a list of it: the
+// one built-in row that carries a display type of its own (number), where every other
+// field that carries one holds its final interface type already.
+func (f *resourceField) isDecimal() bool {
+	return f.tsImport == nil && strings.TrimSuffix(f.typescriptType, sliceSuffix) == decimalTSType
 }
 
 // setColumnType records a column's resolved TypeScript type: the leaf's table type, or
@@ -2334,6 +2404,26 @@ func (f *resourceField) IsRequired() bool {
 	return false
 }
 
+// YesOrNoDefault is the default a BOOL column declares, as the browser metadata spells
+// it: "true" or "false" where the schema says DEFAULT (TRUE) or DEFAULT (FALSE) in
+// either case, and "" where the column declares no default, declares an expression
+// that is neither word, or is not a BOOL. A create form starts the field's box there,
+// so a form saved untouched sends what the schema would have stored.
+func (f *resourceField) YesOrNoDefault() string {
+	if f.SpannerType != "BOOL" {
+		return ""
+	}
+
+	switch strings.ToUpper(strings.TrimSpace(f.Default)) {
+	case "TRUE":
+		return "true"
+	case "FALSE":
+		return "false"
+	default:
+		return ""
+	}
+}
+
 func (f *resourceField) IsQueryClauseEligible() bool {
 	if f.IsIndex || f.IsUniqueIndex || f.Search != nil {
 		return true
@@ -2361,6 +2451,16 @@ func (f *resourceField) TypescriptFilterable() string {
 	}
 
 	return ""
+}
+
+// Unordered reports whether the server refuses a sort by the field: its type is one
+// the query decoder does not order (a list, a map, a nested struct, a type that carries
+// the resource package's Unordered mark; see ordersType).
+// The TypeScript field metadata then says sortable: false, so a table draws the
+// column's heading as words with nothing to press and never offers a sort the server
+// answers 400 to. A field the server orders carries nothing.
+func (f *resourceField) Unordered() bool {
+	return f.Field != nil && !ordersType(f.GoType())
 }
 
 func generatedGoFileName(name string) string {
@@ -2404,8 +2504,10 @@ const (
 	defaultsUpdateTypeKeyword   string = "defaultsUpdateType"   // Specifies a type to call "Defaults()" on for setting defaults on resource update
 	validateCreateTypeKeyword   string = "validateCreateType"   // Specifies a type to call "Validate()" on for validating a resource on creation
 	validateUpdateTypeKeyword   string = "validateUpdateType"   // Specifies a type to call "Validate()" on for validating a resource on update
+	validateDeleteTypeKeyword   string = "validateDeleteType"   // Specifies a type to call "Validate()" on before a row of the resource is deleted: a delete rule no grant gets around
 	primarykeyKeyword           string = "primarykey"           // Designates a field as (part of) the primary key in a Computed or Virtual Resource
 	manualAddResourceKeyword    string = "manualAddResource"    // Declares a manual permission registration on an accesstypes.Resource constant
+	manualAddPermissionKeyword  string = "manualAddPermission"  // Declares a permission with no resource on an accesstypes.Permission constant: one checked for the whole of a scope
 	manualAddResourceSetKeyword string = "manualAddResourceSet" // Declares that hand-written handlers register this resource's permission Sets for the given handler types
 	permissionScopeKeyword      string = "permissionScope"      // Declares the permission scope (global or domain) all of a resource's registrations use
 	outletKeyword               string = "outlet"               // Declares the router outlets a resource's routes — or a manual registration's hand-written route — are registered under
@@ -2430,6 +2532,7 @@ const (
 	tenantKeyword               string = "tenant"               // Declares the tenant record: the global, table-backed @resource whose rows are the tenants and whose key is the domain in every tenant-scoped URL
 	directoryOnlyKeyword        string = "directoryOnly"        // Marks the tenant record's BOOL column saying the tenant's people enter through its directories only, so a password does not reach it
 	tenantNameKeyword           string = "tenantName"           // Marks the tenant record's string column holding a tenant's name, which the session's tenant list carries for the tenant's own people to see
+	nameKeyword                 string = "name"                 // Marks the string field a resource's rows are known by: a field pointing to one of its rows gains a name field beside it, read-only and stored nowhere
 	tenantDirectoryKeyword      string = "tenantDirectory"      // Declares the directories record: the tenant-scoped @resource whose rows are the directories a tenant admits its people through, one per declaration
 	directoryMethodKeyword      string = "directoryMethod"      // Marks the directories record's string column holding the sign-in method a directory is reached through (google, azure, workos)
 	directoryConnectionKeyword  string = "directoryConnection"  // Marks the directories record's string column holding the connection a directory's identities carry (a Google Workspace by its domain, a Microsoft Entra tenant by its tenant id)
@@ -2438,6 +2541,7 @@ const (
 	scheduleKeyword             string = "schedule"             // Declares an RPC method a scheduled route Cloud Scheduler calls: @schedule("0 3 * * *"[, zone: "America/Denver", log: onEvent])
 	searchAlsoKeyword           string = "searchAlso"           // Declares a child table's text a table-backed resource's search box also searches, one hop down a foreign key: @searchAlso(ClientContact.DisplayName[, via: ClientId])
 	listAcrossTenantsKeyword    string = "listAcrossTenants"    // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
+	classKeyword                string = "class"                // Marks an action, an RPC method or a manual registration of Execute, with the classes a permission mask refers to: @class(credential)
 )
 
 func resourceKeywords() map[string]genlang.KeywordOpts {
@@ -2452,8 +2556,11 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		defaultsUpdateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		validateCreateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		validateUpdateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		validateDeleteTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		deleteCascadeKeyword:        {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		primarykeyKeyword:           {genlang.ScanField: genlang.NoArgs},
 		manualAddResourceKeyword:    {genlang.ScanConstant: genlang.ArgsRequired},
+		manualAddPermissionKeyword:  {genlang.ScanConstant: genlang.NoArgs | genlang.Exclusive},
 		manualAddResourceSetKeyword: {genlang.ScanStruct: genlang.ArgsRequired},
 		permissionScopeKeyword:      {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		outletKeyword:               {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
@@ -2478,6 +2585,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		tenantKeyword:               {genlang.ScanStruct: genlang.Exclusive},
 		directoryOnlyKeyword:        {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantNameKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		nameKeyword:                 {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantDirectoryKeyword:      {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
 		directoryMethodKeyword:      {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		directoryConnectionKeyword:  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
@@ -2486,6 +2594,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		scheduleKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		searchAlsoKeyword:           {genlang.ScanStruct: genlang.ArgsRequired},
 		listAcrossTenantsKeyword:    {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		classKeyword:                {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
 	}
 }
 

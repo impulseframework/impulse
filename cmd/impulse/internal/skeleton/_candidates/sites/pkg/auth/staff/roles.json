@@ -35,6 +35,9 @@
               "resource": "RemoveStaffRole"
             },
             {
+              "resource": "TakeStaffRole"
+            },
+            {
               "resource": "EndStaffSession"
             },
             {
@@ -62,6 +65,9 @@
               "resource": "SetStaffTemporaryPassword"
             },
             {
+              "resource": "SendStaffUserPasswordResetLink"
+            },
+            {
               "resource": "RevokeStaffUserTrustedDevices"
             },
             {
@@ -72,6 +78,9 @@
             },
             {
               "resource": "MakeStaffInviteOnly"
+            },
+            {
+              "resource": "SetStaffSelfServiceReset"
             },
             {
               "resource": "InviteStaffUser"
@@ -150,7 +159,8 @@
               "fields": [
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -237,7 +247,8 @@
                 "label",
                 "openSignUp",
                 "ownRule",
-                "says"
+                "says",
+                "selfServiceReset"
               ]
             },
             {
@@ -309,6 +320,62 @@
                 "groupName",
                 "startsAt",
                 "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffHeldRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "StaffListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
+              ]
+            },
+            {
+              "resource": "StaffListedGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "losing"
+              ]
+            },
+            {
+              "resource": "StaffTakenRoles",
+              "fields": [
+                "username",
+                "name",
+                "reason",
+                "startsAt",
+                "endsAt",
+                "ended"
+              ]
+            },
+            {
+              "resource": "StaffTakeableRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
+              "resource": "StaffTakeLengths",
+              "fields": [
+                "minutes"
               ]
             }
           ],
@@ -407,6 +474,19 @@
                 "name",
                 "description",
                 "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ],
@@ -527,6 +607,9 @@
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
             {
+              "resource": "SendStaffTenantUserPasswordResetLink"
+            },
+            {
               "resource": "RequireStaffTenantPasswordChange",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
@@ -628,7 +711,22 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "StaffTenantHeldRoles",
+              "fields": [
+                "username",
+                "everyDomain",
+                "groupName",
+                "globalGroup",
+                "groupPage",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -695,7 +793,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             },
             {
@@ -715,7 +815,8 @@
                 "groupName",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "losing"
               ]
             },
             {
@@ -778,7 +879,8 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -821,7 +923,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ],

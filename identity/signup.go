@@ -60,6 +60,10 @@ type SignInMethodRow struct {
 	OpenedFor *string
 	// DefaultRole is the role such a person is given with their account, nil for none.
 	DefaultRole *string
+	// SelfServiceReset says a person may ask at the sign-in page for a link that
+	// resets their own password. It is read on the password method's row alone, and is
+	// written by SetSelfServiceReset alone: SetSignInMethod leaves it as it stands.
+	SelfServiceReset bool
 }
 
 // SignInMethod is one sign-in method the auth registers, with what an administrator
@@ -88,6 +92,9 @@ type SignInMethod struct {
 	// Says is the row's state as a sentence a person reads: what a person with no
 	// invitation meets at this method.
 	Says string
+	// SelfServiceReset says a person may ask at the sign-in page for a link that
+	// resets their own password: the password method's alone, false for every other.
+	SelfServiceReset bool
 }
 
 // SignUp is what opening a sign-in method to sign-up asks for.
@@ -143,6 +150,7 @@ func (m *Manager) signInMethod(registered *session.RegisteredMethod, row *SignIn
 	method := SignInMethod{
 		Name: registered.Name, Label: registered.Label, Admits: sentenceStart(registered.Audience.Words()),
 		OpenSignUp: false, DefaultRole: "", DirectoryGivesRoles: registered.SyncsRoles, OwnRule: registered.OwnRule, Says: "",
+		SelfServiceReset: row != nil && row.SelfServiceReset && registered.Method == sessioninfo.MethodPassword,
 	}
 	now := registered.Audience.Words()
 	switch {
@@ -250,7 +258,8 @@ func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransact
 		return err
 	}
 	audience := registered.Audience.Key()
-	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, OpenedFor: &audience, DefaultRole: nil}
+	// SelfServiceReset is not this write's: SetSignInMethod leaves it as it stands.
+	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, OpenedFor: &audience, DefaultRole: nil, SelfServiceReset: false}
 	switch {
 	case open.CreatesTenant && open.DefaultRole != "":
 		return httpio.NewBadRequestMessagef("no default role is chosen here: a person who signs up creates %s of their own and administers it, so send the request without a role", withArticle(m.tenantWord))
@@ -317,8 +326,32 @@ func (m *Manager) MakeInviteOnly(ctx context.Context, txn resource.ReadWriteTran
 	if row := rowNamed(rows, method); row == nil || !row.OpenSignUp {
 		return nil
 	}
-	if err := m.store.SetSignInMethod(ctx, txn, &SignInMethodRow{Name: method, OpenSignUp: false, OpenedFor: nil, DefaultRole: nil}); err != nil {
+	// SelfServiceReset is not this write's: SetSignInMethod leaves it as it stands.
+	closed := &SignInMethodRow{Name: method, OpenSignUp: false, OpenedFor: nil, DefaultRole: nil, SelfServiceReset: false}
+	if err := m.store.SetSignInMethod(ctx, txn, closed); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSignInMethod()")
+	}
+
+	return nil
+}
+
+// SetSelfServiceReset buffers an administrator's choice of whether a person may ask at
+// the sign-in page for a link that resets their own password, in the caller's
+// transaction: the one field of the password method's row, with what else the row says
+// left as it stands. The session library reads the row on every request, so the choice
+// holds in the running application from the commit on, with no restart. A link asked
+// for while it was on still works once it is off, until it is used or runs out; a link
+// an administrator sends is never held to the choice. An auth nobody signs in to with
+// a password is refused.
+func (m *Manager) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, on bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !m.signsInWithPassword() {
+		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset")
+	}
+	if err := m.store.SetSelfServiceReset(ctx, txn, string(sessioninfo.MethodPassword), on); err != nil {
+		return errors.Wrap(err, "identity.Store.SetSelfServiceReset()")
 	}
 
 	return nil
@@ -348,10 +381,19 @@ func (m *Manager) choosable(name string) (*session.RegisteredMethod, error) {
 	return &registered[i], nil
 }
 
+// signUpRoleNotGiven is what a person is told who opens a method with a default role
+// they may not give, with the role in words (roleInWords). It is the role the request
+// named, so it reads the same of a role the application holds and of one it does not;
+// the role's code name and the advice are the refusal's cause, kept for the server's
+// log.
+func signUpRoleNotGiven(role accesstypes.Role) string {
+	return "Opening the method gives every person who signs up the role " + roleInWords(role) + ", which you may not give."
+}
+
 // requireSignUpRole holds a default role to its rule: never the Super Administrator
 // role, one the request's caller may give a person directly (mayGiveBySignUp), refused
-// with 403 naming the role otherwise, and a role held for the whole application, by the
-// rule a membership's role is held to. The grant answers before the role is looked
+// with 403 otherwise (signUpRoleNotGiven), and a role held for the whole application, by
+// the rule a membership's role is held to. The grant answers before the role is looked
 // for, so the refusal says the same of a role the application holds and of one it does
 // not: a caller learns of no role the grant keeps from them. The Super Administrator
 // role is the framework's own, the same in every application, so refusing it first
@@ -365,9 +407,12 @@ func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteT
 		return err
 	}
 	if !may {
-		return httpio.NewForbiddenMessagef(
-			"opening the method gives every person who signs up the role %s, which you may not give: choose a role you may give, or have someone who may give %s open the method",
-			string(role), string(role))
+		return httpio.NewForbiddenMessageWithError(
+			errors.Newf(
+				"opening the method gives every person who signs up the role %s, which you may not give: choose a role you may give, or have someone who may give %s open the method",
+				string(role), string(role)),
+			signUpRoleNotGiven(role),
+		)
 	}
 	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{accesstypes.GlobalPolicyScope()})
 	if err != nil {

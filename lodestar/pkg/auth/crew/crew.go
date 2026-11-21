@@ -45,7 +45,14 @@
 // a person's remembered browsers from the person's account
 // (RevokeCrewUserTrustedDevices).
 //
-// Demonstrates: auth.password, auth.two-populations, auth.multi-method, auth.directory-roles, auth.open-sign-up, auth.invitation, auth.email-address, auth.password-sign-up, auth.second-factor, auth.trusted-device.
+// A person who forgot their password gets back in by a link mailed to the address they
+// confirmed (session.Auth.PasswordReset, whose three handlers the generated router
+// mounts): Headquarters or a sector's marshal sends one from the person's row, and the
+// person asks for one at the sign-in page while Headquarters allows it
+// (SetCrewSelfServiceReset). An address Headquarters sets for a person is theirs once
+// its mailbox confirms it (session.EmailHandlers.Confirm).
+//
+// Demonstrates: auth.password, auth.two-populations, auth.multi-method, auth.directory-roles, auth.open-sign-up, auth.invitation, auth.email-address, auth.password-sign-up, auth.password-reset, auth.second-factor, auth.trusted-device.
 package crew
 
 import (
@@ -131,8 +138,9 @@ const (
 	// flow keep.
 	tokensTable      = "CrewSessionTokens"
 	deviceCodesTable = "CrewSessionDeviceCodes"
-	// ImpersonationsTable is exported: the watch desk names it.
-	ImpersonationsTable = "CrewSessionImpersonations"
+	// The records of the sessions held as someone else, which the watch desk lists
+	// through the auth's generated resource.
+	impersonationsTable = "CrewSessionImpersonations"
 
 	// DroidsOutlet is the machine outlet the auth issues tokens for: the droids'
 	// telemetry channel (/droids), which the generator program declares Tokens of this
@@ -233,9 +241,14 @@ type Settings struct {
 	// path joined with /device, where the console mounts the library's device approval
 	// page.
 	DevicePage string
-	// Collection is the generated permission collection the role file validates against:
-	// the resources, fields and conditions the release declares. The router package
-	// generates it and imports this one, so the configuration passes it in.
+	// Collection is the generated permission collection: the resources, permissions and
+	// fields the release declares, which the permission engine holds every grant to. The
+	// role file validates against it when the engine opens, a grant written to a custom
+	// role is refused unless the collection lists what it names, and a stored grant that
+	// names anything else is skipped and reported each time the policy loads. The router
+	// package generates it (router.Collection()) and imports this one, so the
+	// configuration passes it in. Required; New refuses nil, a nil
+	// pointer of a collection's type included (access.IsNilCollection).
 	Collection access.PermissionCollection
 	// ChangeSignal carries the engine's policy-change hints between the application's
 	// instances (auth.PolicySignal over the live service): the engine announces after
@@ -263,6 +276,8 @@ type Settings struct {
 // saying what the missing piece is for.
 func (s *Settings) required() error {
 	switch {
+	case access.IsNilCollection(s.Collection):
+		return errors.New("crew.Settings.Collection is required: the permission engine holds every grant to the permission collection the release declares; pass the generated router's (router.Collection())")
 	case s.ChangeSignal == nil:
 		return errors.New("crew.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
 	case s.TenantDeclarations == nil:
@@ -473,6 +488,27 @@ func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
 	return h.FirstPassword().Set()
 }
 
+// PasswordResetRequest takes a person's own request for a link that resets their
+// password ({"email"}), served while an administrator has turned that on: the answer is
+// the same whether or not the address has a login, and an address with none is mailed
+// nothing.
+func (h *Handlers) PasswordResetRequest() http.HandlerFunc {
+	return h.PasswordReset().Request()
+}
+
+// PasswordResetOpen opens a password reset link ({"token"}), the person's own or one an
+// administrator sent, and answers the username it resets the password of.
+func (h *Handlers) PasswordResetOpen() http.HandlerFunc {
+	return h.PasswordReset().Open()
+}
+
+// PasswordResetComplete sets the new password a reset link's reader chose ({"token",
+// "password"}): the link is spent, the old password is refused from then on, every
+// session of the person ends, and they sign in with the new password.
+func (h *Handlers) PasswordResetComplete() http.HandlerFunc {
+	return h.PasswordReset().Complete()
+}
+
 // GoogleLogin sends the browser to the fleet's Google directory.
 func (h *Handlers) GoogleLogin() http.HandlerFunc {
 	return h.google.Login()
@@ -551,6 +587,14 @@ func (h *Handlers) EmailAdd() http.HandlerFunc {
 // EmailVerify marks the address verified from the mailed link's token ({"token"}).
 func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
+}
+
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address ({"token"}): the login holds the address it had until then.
+// The reader of the link confirms it signed in or not, since they may have lost the
+// mailbox their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
 }
 
 // SignUpStart mails a sign-up link to the address a stranger gives ({"email"}): the
@@ -638,7 +682,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// anyone, but for the Super Administrator role she also holds.
 	//
 	// Demonstrates: auth.super-administrator, tenancy.directory-only.
-	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.ChangeSignal),
+	accessClient, err := access.New(store, settings.Collection, access.WithDefaultRoles(Roles()), access.WithChangeSignal(settings.ChangeSignal),
 		access.WithSuperAdministratorMethods(crewidentity.SuperAdministratorMethods()...),
 		access.WithTenantAdministratorRoles(sectorAdministratorRoles()...))
 	if err != nil {
@@ -651,7 +695,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The impersonation record rides beside the sessions, so StartImpersonatedSession
 	// can mint view-as and act-as-role sessions, and the auth events table records how
 	// each session was authenticated.
-	impersonation, err := sessionstorage.NewImpersonationTable(ImpersonationsTable)
+	impersonation, err := sessionstorage.NewImpersonationTable(impersonationsTable)
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.NewImpersonationTable()")
 	}
@@ -947,8 +991,13 @@ func (a *Auth) Identity() *crewidentity.Client {
 	return a.identity
 }
 
-// Close releases the permission engine.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine. A reset link a crew member asked for is mailed after their request is answered
+// (session.AuthAPI.WaitForMail), so the configuration closes the auth once the server
+// has stopped and before it closes the database, and no link a person was promised is
+// lost.
 func (a *Auth) Close() error {
+	a.handlers.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}

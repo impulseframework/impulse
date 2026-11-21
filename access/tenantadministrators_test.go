@@ -232,7 +232,7 @@ func Test_tenantAdministrators_periods(t *testing.T) {
 	e.clock = clock.now
 	stored := newStoreManager(store)
 	stored.onPolicyChange = e.policyChanged
-	manager := newUserManager(stored, nil, e, opts.tenantAdministrators)
+	manager := newUserManager(stored, nil, e, opts.tenantAdministrators, fixtureCollection)
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
@@ -240,7 +240,7 @@ func Test_tenantAdministrators_periods(t *testing.T) {
 		}
 	}
 	must(manager.AddRole(ctx, tenant1Policy, "Keeper", aDescription))
-	must(manager.AssignUserRole(ctx, tenant1Policy, "ann", "Keeper", between(1, 2)))
+	must(manager.AssignUserRole(ctx, tenant1Policy, "ann", "Keeper", between(1, 2), ""))
 	keepers, err := manager.AddGroup(ctx, tenant1Policy, "Keepers", aDescription)
 	must(err)
 	must(manager.AssignGroupRole(ctx, keepers, tenant1Policy, "Keeper", between(3, 6)))

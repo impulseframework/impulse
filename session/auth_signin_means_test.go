@@ -15,10 +15,10 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/workos"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -30,7 +30,7 @@ import (
 // Entra registration is registered and not listed. The store is its own mock: the
 // shared fixture's answers every read of a user's identities with none, and these tests
 // say what the user is linked to.
-func signInMeansAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *mock_sessionstorage.MockAuthStore[mockTx]) {
+func signInMeansAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *mockstore.AuthStore[mockTx]) {
 	t.Helper()
 
 	a, store := directoriesAuth(t)
@@ -61,7 +61,7 @@ func signInMeansList(path, fleet, lakeside string) *MethodList {
 // registrations alone, the Google one taking the Workspace "fleet", the Entra ones the
 // tenants tenantLake ("lakeside-entra"), tenantRiver ("river-entra") and tenantOther
 // ("unlisted-entra"), and the WorkOS one, which cannot tell one connection from another.
-func directoriesAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *mock_sessionstorage.MockAuthStore[mockTx]) {
+func directoriesAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *mockstore.AuthStore[mockTx]) {
 	t.Helper()
 
 	a, _, store := directoriesAuthWithPassword(t)
@@ -72,10 +72,10 @@ func directoriesAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *
 // directoriesAuthWithPassword is directoriesAuth with its password method, whose
 // handlers a test serves. The store gives every attempt its place under the limit and
 // holds no name.
-func directoriesAuthWithPassword(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *PasswordMethod, *mock_sessionstorage.MockAuthStore[mockTx]) {
+func directoriesAuthWithPassword(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *PasswordMethod, *mockstore.AuthStore[mockTx]) {
 	t.Helper()
 
-	store := mock_sessionstorage.NewMockAuthStore[mockTx](gomock.NewController(t))
+	store := mockstore.NewAuthStore[mockTx](gomock.NewController(t))
 	store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 	store.EXPECT().SetUsernameIsEmail(gomock.Any()).AnyTimes()
 	store.EXPECT().SignInAttempts(gomock.Any(), gomock.Any()).Return(nil, httpio.NewNotFoundMessage("no sign-in attempts recorded")).AnyTimes()

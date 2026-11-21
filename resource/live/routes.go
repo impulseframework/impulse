@@ -325,6 +325,15 @@ func recheck(ctx context.Context, perms resource.UserPermissions, o *renewOption
 // signed in. The answer is 204 whether or not anything was there: the client sends it
 // best effort as the page leaves. An id over Firebase's uid limit is refused with 403,
 // as the token route refused it, so nothing was ever registered or minted for it.
+//
+// Once the request has arrived, what it asks for is finished whatever becomes of the
+// connection: the deletes and the revocation run under the handler's own limit
+// (RecordTimeout) and not under the request's context. A page sends this as it closes,
+// and the browser, or a proxy in front of the application, may end the connection before
+// the record has answered; a delete that ended with the connection would leave the
+// subscriptions to their expiry and log a failure for a page that did nothing but
+// close. The work is done inside the handler's call, and nothing is left running when
+// it returns.
 func UnsubscribeHandler(svc Service) http.HandlerFunc {
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -338,7 +347,9 @@ func UnsubscribeHandler(svc Service) http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		ctx, cancel := context.WithTimeout(ctx, RecordTimeout)
+		// The request's values stay (its log, its trace, its session); its end does not
+		// reach the record.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RecordTimeout)
 		defer cancel()
 		switch {
 		case req.All:

@@ -40,15 +40,29 @@ const (
 	signalByField = "by"
 )
 
+// errSignalLimit is what a Signal fails with when the service's own limit ended it
+// (live.SignalTimeout) and not the caller's context.
+var errSignalLimit = errors.New("live: the signal was not sent within the live service's own limit")
+
+// limitKey is the key under which a Signal's context carries the time the service's own
+// limit ends it, so that a deadline that has passed can be told for the limit's or the
+// caller's own before the context says which.
+type limitKey struct{}
+
 // signalsState is the signaler's and the subscriber's state: the per-kind write in
-// flight and whether another is owed, and the one listener with its consumers.
+// flight and the write that covers the signals made meanwhile, and the one listener
+// with its consumers.
 type signalsState struct {
 	mu sync.Mutex
+	// limit is the service's own limit on one Signal, its wait and its write together:
+	// live.SignalTimeout outside a test.
+	limit time.Duration
 	// writes is the coalescing state per kind.
 	writes map[live.Kind]*signalWrite
-	// onWrite, when set, observes every write of the document before it is sent; the
-	// package's tests count and hold writes through it.
-	onWrite func(kind live.Kind)
+	// onWrite, when set, observes every write of the document before it is sent, with
+	// the context it is sent under, and what it returns observes the write's outcome;
+	// the package's tests count and hold writes through it.
+	onWrite func(ctx context.Context, kind live.Kind) (written func(err error))
 	// onSnapshot, when set, observes the times each snapshot of the document carries
 	// before the kinds it advances fire; the package's tests explain a count through it.
 	onSnapshot func(times map[live.Kind]time.Time)
@@ -84,8 +98,34 @@ type signalsState struct {
 
 // signalWrite is one kind's coalescing state.
 type signalWrite struct {
+	// inFlight says the kind's write slot is taken: a write of the kind is being sent,
+	// or the write that covers the signals made during the last one is owed and one of
+	// their callers is about to make it.
 	inFlight bool
-	pending  bool
+	// covering is the write that covers every Signal of the kind made since the write
+	// in flight began, nil until one is made. When the write in flight ends, the slot
+	// passes to it, and the signals made from then on are covered by the next.
+	covering *coveringWrite
+}
+
+// coveringWrite is the one write that covers every Signal of a kind made while the
+// write before it was in flight. The callers it covers wait for it and one of them
+// makes it, inside its own call: the service sends nothing on a goroutine of its own,
+// so nothing is left to send once the callers have returned.
+type coveringWrite struct {
+	// waiting counts the callers the write covers that are still in their call, the one
+	// making the write among them. The signals mutex guards it.
+	waiting int
+	// due says the write before this one has ended, and this one is to be made. The
+	// signals mutex guards it.
+	due bool
+	// turn holds one token from the moment the write is due until a waiting caller takes
+	// it and makes the write. A caller whose own context ended under its write puts the
+	// token back for the next.
+	turn chan struct{}
+	// done is closed once the write has been made or refused, and err is its outcome.
+	done chan struct{}
+	err  error
 }
 
 // newSignalsState returns the empty state with the default backoff.
@@ -94,6 +134,7 @@ func newSignalsState() signalsState {
 		writes:         make(map[live.Kind]*signalWrite),
 		consumers:      make(map[live.Kind]map[int]func()),
 		seen:           make(map[live.Kind]time.Time),
+		limit:          live.SignalTimeout,
 		reopenFirst:    ReopenFirst,
 		reopenMost:     ReopenMost,
 		firstWithin:    FirstSnapshotWithin,
@@ -106,28 +147,72 @@ func (s *Service) signalsDoc() *cloudfirestore.DocumentRef {
 	return s.client.Collection(ApplicationCollection).Doc(SignalsDocument)
 }
 
-// Signal writes the kind's field of the signals document, {at: the server timestamp,
-// by: this instance}, merged so the other kinds' fields stay: one write, which every
-// instance's listener observes as the kind's time advancing. While a write of the kind
-// is in flight a later Signal of the kind is absorbed and answers nil at once; when the
-// write in flight ends, the service makes one following write of its own for every
-// Signal absorbed meanwhile (a signal carries nothing but the fact of a change, so one
-// write after the last call covers every call before it), and logs that write's
-// failure. The error of the caller's own write is returned for the caller to log; the
-// caller's contract stays log and never fail the request.
+// Signal writes the kind's field of the signals document, {at: the server timestamp, by:
+// this instance}, merged so the other kinds' fields stay: one write, which every
+// instance's listener observes as the kind's time advancing.
+//
+// While a write of the kind is in flight a later Signal of the kind makes no write of its
+// own at once: it waits for the one write that covers every Signal made meanwhile (a
+// signal carries nothing but the fact of a change, so one write that begins after the
+// last of those calls covers them all). That write is made when the one in flight ends,
+// by one of the callers waiting for it, inside its call and under its context, and each
+// of them returns when it has been made, with its outcome: a covering write that fails is
+// the failure of every caller that waited for it. So a burst of signals costs two writes
+// where the channel answers well inside the limit below, and Signal never returns leaving
+// a write to be sent behind it: an instance that gets no CPU once its requests have
+// answered owes nothing.
+//
+// Every Signal has the service's own limit (live.SignalTimeout) on top of its caller's
+// context, for its wait and its write together: a caller that brings no deadline, as a
+// write path that signals under its request's context does, is not held by a channel that
+// does not answer. A Signal the limit ends fails with errSignalLimit; a caller whose own
+// deadline is shorter keeps it, and fails with its context's error.
+//
+// No caller's time ends another caller's signal. A caller whose time ends while it waits
+// returns, and the write stays with the callers still waiting; one whose time ends under
+// the covering write it is making fails alone, and another waiting caller makes the write
+// under its own. A maker's time has ended once its deadline has passed, whether or not
+// its context has ended yet (see whatEnded). So a covering write has what is left of its
+// maker's time, a channel that does not answer, or answers too slowly for the write in
+// flight and the covering write to fit in one caller's time, is tried by each waiting
+// caller in turn while its own time lasts, and no call makes more than one write or waits
+// past its context or the limit. A Signal made once the write in flight has ended is not
+// covered by the write that is then due, which may begin before it: it waits for the
+// next. The error is returned for the caller to log; the caller's contract stays log and
+// never fail the request.
 func (s *Service) Signal(ctx context.Context, kind live.Kind) error {
-	if !s.beginWrite(kind) {
-		return nil
+	limitAt := time.Now().Add(s.signals.limit)
+	ctx, cancel := context.WithDeadlineCause(context.WithValue(ctx, limitKey{}, limitAt), limitAt, errSignalLimit)
+	defer cancel()
+	covering := s.beginWrite(kind)
+	if covering != nil {
+		return s.awaitCovering(ctx, kind, covering)
 	}
-	err := s.writeSignal(ctx, kind)
-	s.endWrite(kind)
+	// The slot is passed on however the write ends, a panic included: a slot left taken
+	// would hold every later signal of the kind for the length of its context.
+	defer s.endWrite(kind)
 
-	return err
+	return s.writeSignal(ctx, kind)
 }
 
-// beginWrite takes the kind's write slot, or notes that a following write is owed when
-// the slot is taken, and reports whether the caller writes.
-func (s *Service) beginWrite(kind live.Kind) bool {
+// awaitCovering waits, as one of the callers the covering write covers, until the write
+// has been made, by another of them or by this one when the turn comes to it, or until
+// the caller's time ends: its context, or the service's limit on its signal.
+func (s *Service) awaitCovering(ctx context.Context, kind live.Kind, covering *coveringWrite) error {
+	select {
+	case <-covering.done:
+		return covering.err
+	case <-covering.turn:
+		return s.makeCovering(ctx, kind, covering)
+	case <-ctx.Done():
+		return s.leaveCovering(ctx, kind, covering)
+	}
+}
+
+// beginWrite takes the kind's write slot and returns nil: the caller writes. Where the
+// slot is taken it returns the write that covers the caller's signal, with the caller
+// counted among those waiting for it.
+func (s *Service) beginWrite(kind live.Kind) *coveringWrite {
 	s.signals.mu.Lock()
 	defer s.signals.mu.Unlock()
 	write := s.signals.writes[kind]
@@ -135,43 +220,147 @@ func (s *Service) beginWrite(kind live.Kind) bool {
 		write = &signalWrite{}
 		s.signals.writes[kind] = write
 	}
-	if write.inFlight {
-		write.pending = true
+	if !write.inFlight {
+		write.inFlight = true
 
-		return false
+		return nil
 	}
-	write.inFlight = true
+	if write.covering == nil {
+		write.covering = &coveringWrite{turn: make(chan struct{}, 1), done: make(chan struct{})}
+	}
+	write.covering.waiting++
 
-	return true
+	return write.covering
 }
 
-// endWrite releases the kind's write slot, or keeps it and makes the following write
-// the absorbed signals are owed, on the service's own goroutine and context.
+// endWrite ends the write the caller made with the kind's slot.
 func (s *Service) endWrite(kind live.Kind) {
 	s.signals.mu.Lock()
+	defer s.signals.mu.Unlock()
+	s.passSlot(kind)
+}
+
+// passSlot passes the kind's write slot on from a write that has ended: to the write
+// that covers the signals made meanwhile, which becomes due and whose turn one of the
+// callers waiting for it takes, or to nobody where no caller waits. The signals made
+// from now on are covered by the write after it. The caller holds the signals mutex.
+func (s *Service) passSlot(kind live.Kind) {
 	write := s.signals.writes[kind]
-	if !write.pending {
+	covering := write.covering
+	write.covering = nil
+	if covering == nil || covering.waiting == 0 {
 		write.inFlight = false
-		s.signals.mu.Unlock()
 
 		return
 	}
-	write.pending = false
-	s.signals.mu.Unlock()
-
-	go s.followingWrite(kind)
+	covering.due = true
+	covering.turn <- struct{}{}
 }
 
-// followingWrite is the one write the signals absorbed during a write in flight are
-// owed: bounded like a request's publish, its failure logged, and the slot handled as
-// any write's is, so signals absorbed meanwhile get one more.
-func (s *Service) followingWrite(kind live.Kind) {
-	ctx, cancel := context.WithTimeout(s.lifetime, live.PublishTimeout)
-	defer cancel()
-	if err := s.writeSignal(ctx, kind); err != nil && s.lifetime.Err() == nil {
-		logger.FromCtx(s.lifetime).Errorf("live: the following signal of kind %q failed; the subscribers reread at their backstop: %v", kind, err)
+// makeCovering makes the covering write, as the waiting caller that took its turn and
+// under that caller's context, and hands its outcome to every caller waiting for it.
+// Where the caller's own time has ended, before the write or under it, the failure
+// is the caller's alone and the turn goes back to the callers still waiting; under the
+// write its time has ended once its deadline has passed, which the client acts on
+// before the context says so (see whatEnded). The turn is settled however the write
+// ends, a panic included: a turn that was neither used nor given back would hold the
+// slot, and every caller waiting, for good.
+func (s *Service) makeCovering(ctx context.Context, kind live.Kind, covering *coveringWrite) (err error) {
+	made := false
+	defer func() {
+		if made {
+			s.finishCovering(kind, covering, err)
+
+			return
+		}
+		s.returnTurn(kind, covering)
+	}()
+	if ctx.Err() != nil {
+		return timeEnded(ctx)
 	}
-	s.endWrite(kind)
+	err = s.writeSignal(ctx, kind)
+	// A write that failed once its maker's time had ended is the maker's own failure.
+	made = err == nil || whatEnded(ctx) == nil
+
+	return err
+}
+
+// finishCovering records the covering write as made, with its outcome, for every caller
+// waiting for it, and passes the slot on.
+func (s *Service) finishCovering(kind live.Kind, covering *coveringWrite, err error) {
+	s.signals.mu.Lock()
+	defer s.signals.mu.Unlock()
+	covering.err = err
+	close(covering.done)
+	s.passSlot(kind)
+}
+
+// returnTurn gives the covering write's turn back, from a caller that leaves without
+// having made the write: to the callers still waiting, or, where none is left, to
+// nobody, and the slot passes on.
+func (s *Service) returnTurn(kind live.Kind, covering *coveringWrite) {
+	s.signals.mu.Lock()
+	defer s.signals.mu.Unlock()
+	covering.waiting--
+	if covering.waiting == 0 {
+		s.passSlot(kind)
+
+		return
+	}
+	covering.turn <- struct{}{}
+}
+
+// leaveCovering is a waiting caller whose time ended: the covering write's outcome is
+// its own where the write was made meanwhile, and otherwise it leaves the write to the
+// callers still waiting and returns what ended its time. Where the write is due and it
+// was the last one waiting, nobody is owed the write and the slot passes on.
+func (s *Service) leaveCovering(ctx context.Context, kind live.Kind, covering *coveringWrite) error {
+	s.signals.mu.Lock()
+	defer s.signals.mu.Unlock()
+	select {
+	case <-covering.done:
+		return covering.err
+	default:
+	}
+	covering.waiting--
+	if covering.due && covering.waiting == 0 {
+		s.passSlot(kind)
+	}
+
+	return timeEnded(ctx)
+}
+
+// timeEnded is the failure of a Signal whose time ended before the write that covers it
+// was made. It carries what ended the time: the caller's context's error, or
+// errSignalLimit where the service's own limit came first.
+func timeEnded(ctx context.Context) error {
+	return errors.Wrap(context.Cause(ctx), "the signal's time ended before the write that covers it was made")
+}
+
+// whatEnded returns what ended a Signal's time, and nil while the time lasts: the cause
+// of its context once that has ended, and before that, once its deadline has passed,
+// whose deadline it was (errSignalLimit where it is the service's limit,
+// context.DeadlineExceeded where it is the caller's own; a cause the caller gave its
+// deadline is known only once the context has ended).
+//
+// The clock is asked as well as the context because the two part for a moment. A context
+// ends when its timer runs, which on a busy machine is some time after its deadline, and
+// the client does not wait for it: it refuses to begin a call whose deadline has passed
+// and answers DeadlineExceeded with the context still open. A write refused so is its
+// maker's own time ending, as much as one the context cut short.
+func whatEnded(ctx context.Context) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok || time.Now().Before(deadline) {
+		return nil
+	}
+	if limitAt, ok := ctx.Value(limitKey{}).(time.Time); ok && limitAt.Equal(deadline) {
+		return errSignalLimit
+	}
+
+	return context.DeadlineExceeded
 }
 
 // writeSignal is the one write: the kind's field set with merge.
@@ -179,9 +368,20 @@ func (s *Service) writeSignal(ctx context.Context, kind live.Kind) error {
 	s.signals.mu.Lock()
 	onWrite := s.signals.onWrite
 	s.signals.mu.Unlock()
+	var written func(err error)
 	if onWrite != nil {
-		onWrite(kind)
+		written = onWrite(ctx, kind)
 	}
+	err := s.setSignal(ctx, kind)
+	if written != nil {
+		written(err)
+	}
+
+	return err
+}
+
+// setSignal sets the kind's field of the signals document, the other kinds' kept.
+func (s *Service) setSignal(ctx context.Context, kind live.Kind) error {
 	field := string(kind)
 	data := map[string]any{
 		field: map[string]any{
@@ -190,6 +390,12 @@ func (s *Service) writeSignal(ctx context.Context, kind live.Kind) error {
 		},
 	}
 	if _, err := s.signalsDoc().Set(ctx, data, cloudfirestore.Merge(cloudfirestore.FieldPath{field})); err != nil {
+		if why := whatEnded(ctx); why != nil {
+			// The signal's time ended under the write. The client's error does not say
+			// whose time it was, the caller's or the service's limit; what ended it does.
+			return errors.Wrapf(why, "firestore.DocumentRef.Set(): %v", err)
+		}
+
 		return errors.Wrap(err, "firestore.DocumentRef.Set()")
 	}
 
@@ -475,7 +681,7 @@ func (s *Service) lateReopenCount() int {
 	return s.signals.lateReopens
 }
 
-// signalsIdle reports whether no signal write is in flight for any kind.
+// signalsIdle reports whether no signal write is in flight or owed for any kind.
 func (s *Service) signalsIdle() bool {
 	s.signals.mu.Lock()
 	defer s.signals.mu.Unlock()
@@ -488,8 +694,23 @@ func (s *Service) signalsIdle() bool {
 	return true
 }
 
-// observeWrites sets the function every signal write is reported to before it is sent.
-func (s *Service) observeWrites(onWrite func(kind live.Kind)) {
+// signalsWaiting is how many callers wait for the kind's covering write that is not yet
+// due: the signals made since the write in flight began.
+func (s *Service) signalsWaiting(kind live.Kind) int {
+	s.signals.mu.Lock()
+	defer s.signals.mu.Unlock()
+	write := s.signals.writes[kind]
+	if write == nil || write.covering == nil {
+		return 0
+	}
+
+	return write.covering.waiting
+}
+
+// observeWrites sets the function every signal write is reported to before it is sent,
+// with the context it is sent under; what the function returns, when it returns
+// something, is told the write's outcome.
+func (s *Service) observeWrites(onWrite func(ctx context.Context, kind live.Kind) (written func(err error))) {
 	s.signals.mu.Lock()
 	defer s.signals.mu.Unlock()
 	s.signals.onWrite = onWrite

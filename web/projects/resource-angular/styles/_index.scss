@@ -42,6 +42,13 @@
     --impulse-alert-success-border: #4caf50; // a success notice
     --impulse-alert-success-bg: #f0fff0;
 
+    // How large the title of a page and the title of a section of it are drawn (a list
+    // page, a row's own page with the lists and forms under it, a create form). Lengths,
+    // not colors: the theme sheet leaves them alone, and an application sets one after
+    // this sheet to change it. A phone's sizes follow, below.
+    --impulse-page-title-size: 32px;
+    --impulse-section-title-size: 24px;
+
     // Visual updates variables
     --underline-fields-on: block;
     --underline-fields-off: none;
@@ -51,7 +58,10 @@
 
     --layout-label-background-white: #ffffff;
     --layout-label-background-off-white: #fafafa;
-    --layout-label-background-grey: #bdbdbd;
+    --layout-label-background-gray: #bdbdbd;
+    // The name the gray preset had first, kept for applications that set it: it holds
+    // the preset's value, the theme's where a theme sheet sets one.
+    --layout-label-background-grey: var(--layout-label-background-gray);
     --layout-label-background-blue: var(--default-blue);
 
     --form-edit-mode-bg-transparent: transparent;
@@ -64,9 +74,24 @@
     --form-edit-mode-bg: var(--form-edit-mode-bg-transparent);
     --app-background-color: var(--light-mode-background-color);
   }
+
+  // On a phone (the width at which the frame's bar folds its menus away) the titles are a
+  // step smaller, and a section's is still under its page's.
+  @media (max-width: 599.98px) {
+    :root {
+      --impulse-page-title-size: 24px;
+      --impulse-section-title-size: 20px;
+    }
+  }
 }
 
 // Resource config classes
+//
+// These names are plain and bound to no component: a rule here reaches every element of
+// the application that carries the class, inside any component. A component that draws
+// something else names none of them. global-classes.test.ts holds the permissions card to
+// that: a cell of its table named `resource` is laid out as the flex row below, is no
+// longer a cell of its row, and the row's line is drawn with a step.
 
 // Variables
 $columns: 12;

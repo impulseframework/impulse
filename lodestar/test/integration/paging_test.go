@@ -520,7 +520,7 @@ func TestPaging_visibleProjection(t *testing.T) {
 			status, body := doRequestAs(t, h, tt.user, http.MethodGet, tt.target, "")
 			assertStatus(t, status, tt.wantStatus, body)
 			if status != http.StatusOK {
-				want := "cannot sort or filter on fee"
+				want := "You may not sort or filter missions by the fee here."
 				if status == http.StatusBadRequest {
 					want = "fee: 'abc' is not a number."
 				}

@@ -19,6 +19,7 @@ import { of } from 'rxjs';
 import packageJson from '../package.json';
 import {
   LoginMethodsComponent,
+  NO_PASSWORD_CONFIRMATION,
   PAGE_OLDER_THAN_SERVER,
   PASSWORDS_DIFFER,
   SIGN_IN_STEPS,
@@ -99,6 +100,12 @@ const signUpRoutes = {
   open: '/console/api/user/sign-up/open',
   complete: '/console/api/user/sign-up/complete',
 };
+const resetRoutes = {
+  request: '/console/api/user/password-reset',
+  open: '/console/api/user/password-reset/open',
+  complete: '/console/api/user/password-reset/complete',
+};
+const emailConfirmRoute = '/console/api/user/email/confirm';
 /** The list of a server that sends mail: invitations, the address step and an open sign-up. */
 const mailingList: LoginMethods = {
   ...consoleList,
@@ -142,6 +149,10 @@ interface Server {
   signUpStart: TransportResponse;
   signUpOpen: TransportResponse;
   signUpComplete: TransportResponse;
+  resetRequest: TransportResponse;
+  resetOpen: TransportResponse;
+  resetComplete: TransportResponse;
+  emailConfirm: TransportResponse;
   authenticated: boolean;
   /** The session's operator-set password must change before anything else is served. */
   passwordChangeRequired: boolean;
@@ -166,6 +177,10 @@ function server(overrides: Partial<Server> = {}): Server {
     invitationSignUp: { status: 200, body: { mfaIsRequired: false } },
     emailVerify: { status: 200, body: { email: 'pax@fleet.example' } },
     signUpStart: { status: 200, body: {} },
+    resetRequest: { status: 200, body: {} },
+    resetOpen: { status: 200, body: { username: 'mate' } },
+    resetComplete: { status: 200, body: { username: 'mate' } },
+    emailConfirm: { status: 200, body: { email: 'mate@harbor.example' } },
     signUpOpen: { status: 200, body: { email: 'rookie@fleet.example', usernameIsEmail: false } },
     signUpComplete: { status: 200, body: { mfaIsRequired: false } },
     authenticated: true,
@@ -201,6 +216,14 @@ function transportOf(state: Server): ScriptedTransport {
         return state.emailVerify;
       case `POST ${signUpRoutes.start}`:
         return state.signUpStart;
+      case `POST ${resetRoutes.request}`:
+        return state.resetRequest;
+      case `POST ${resetRoutes.open}`:
+        return state.resetOpen;
+      case `POST ${resetRoutes.complete}`:
+        return state.resetComplete;
+      case `POST ${emailConfirmRoute}`:
+        return state.emailConfirm;
       case `POST ${signUpRoutes.open}`:
         return state.signUpOpen;
       case `POST ${signUpRoutes.complete}`:
@@ -572,6 +595,24 @@ describe('LoginMethodsComponent signs in with the password', () => {
       want: DEFAULT_LOGIN_MESSAGES['too_many_attempts'],
     },
   ];
+  it('tells a person a directory-only organization refused what is true of how they signed in', async () => {
+    // After a password: the organization does not sign in with one here.
+    const password = await pageOver(
+      server({ login: { status: 401, body: { message: 'Sign-in denied', code: 'directory_only' } } }),
+    );
+    await signIn(password, 'overseer', 'right');
+    expect(messageOf(password)).toBe(
+      'Your organization does not sign in with a password here. Please sign in the way your organization has set up.',
+    );
+    TestBed.resetTestingModule();
+    // After Google or Microsoft with a personal account: no password was used, so none is named.
+    const personal = await pageOver(server(), { code: 'directory_only_personal_account' });
+    expect(messageOf(personal)).toBe(
+      "Your organization admits only people who sign in with the account it gave them. Sign in with your organization's account, not a personal one.",
+    );
+    expect(messageOf(personal)).not.toContain('password');
+  });
+
   for (const tt of refusals) {
     it(tt.name, async () => {
       const page = await pageOver(server({ login: tt.answer }));
@@ -954,6 +995,57 @@ describe('LoginMethodsComponent renders the pending step', () => {
       expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
     });
   }
+
+  describe('on a server with no password sign-in, whose list names no confirmation route', () => {
+    const directoryList: LoginMethods = {
+      methods: [google],
+      pending: {
+        status: pendingRoutes.status,
+        cancel: pendingRoutes.cancel,
+        sendCode: pendingRoutes.sendCode,
+        verifyCode: pendingRoutes.verifyCode,
+        enrollEmail: pendingRoutes.enrollEmail,
+      },
+    };
+
+    it('a sign-in that waits for the mailed code shows the code form', async () => {
+      const body = { ...waiting, reason: 'mfa', factors: ['email-code'], emailCode: { ...codeMailed } };
+      const page = await pageOver(server({ methods: directoryList, status: { status: 200, body } }), {
+        pending: 'mfa',
+      });
+      expect(page.component.confirmOffered()).toBe(false);
+      expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+      expect(page.element.querySelector('input[name="confirmation"]')).toBeNull();
+      expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
+    });
+
+    it('a sign-in that waits for a password offers no password form, says why, and posts nothing but the cancel', async () => {
+      const page = await pageOver(server({ methods: directoryList, status: { status: 200, body: waiting } }), {
+        pending: 'confirmation',
+      });
+      expect(page.element.querySelector('input[name="confirmation"]')).toBeNull();
+      expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).toBe(
+        NO_PASSWORD_CONFIRMATION,
+      );
+      page.component.confirmation = 'lodestar';
+      await page.component.confirm();
+      expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', 'GET /console/api/user/pending']);
+      expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
+      await page.component.cancel();
+      expect(sent(page.transport).slice(2)).toEqual([
+        'GET /console/api/user/methods',
+        'POST /console/api/user/pending/cancel',
+      ]);
+    });
+  });
+
+  it('a list that names the confirmation route offers the password form', async () => {
+    const page = await pageOver(server({ status: { status: 200, body: waiting } }), { pending: 'confirmation' });
+    expect(page.component.confirmOffered()).toBe(true);
+    expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).not.toBe(
+      NO_PASSWORD_CONFIRMATION,
+    );
+  });
 
   it('declares the steps it renders in the package as in the code', () => {
     expect(packageJson.impulseframework.signInSteps).toEqual([...SIGN_IN_STEPS]);
@@ -2345,6 +2437,86 @@ describe('LoginMethodsComponent shows the directory buttons that could admit the
   });
 });
 
+describe('LoginMethodsComponent over an auth that registers no password method', () => {
+  /**
+   * What the methods route of such an auth answers: its two directory methods, and none
+   * of the password method's routes (the change of a password, the reset of one, signing
+   * up with one, an account with a password for an invitation), which the server names
+   * only where the method is registered.
+   */
+  const directoryList: LoginMethods = {
+    methods: [google, entra],
+    pending: pendingRoutes,
+    invitation: { open: invitationRoutes.open, accept: invitationRoutes.accept },
+    email: emailRoutes,
+  };
+
+  it('offers the directory buttons alone: no password form, no "Forgot your password?" and no account to create', async () => {
+    const page = await pageOver(server({ methods: directoryList }));
+    expect(buttonsOf(page)).toEqual(['Sign in with Google', 'Sign in with Lakeside staff']);
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-forgot')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-sign-up')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(orderOf(page)).toEqual([
+      'impulse-login-redirect',
+      'impulse-login-redirect',
+      'impulse-login-different-account',
+    ]);
+    // Nothing of the password method is asked for, whatever is called.
+    page.transport.requests.length = 0;
+    page.component.username = 'gale';
+    page.component.password = 'orbit-and-anchor';
+    await page.component.login();
+    page.component.beginReset();
+    page.component.beginSignUp();
+    await page.settle();
+    expect(sent(page.transport)).toEqual([]);
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it('an invitation is accepted through a directory button: no password form and no account with a password', async () => {
+    const page = await pageOver(
+      server({
+        methods: directoryList,
+        invitationOpen: {
+          status: 200,
+          body: {
+            ...invited,
+            signUp: false,
+            methods: ['google', 'lakeside-entra'],
+            accountExists: false,
+            hasPassword: false,
+          },
+        },
+      }),
+      { invitation: 'tok-1' },
+      { home: '/dashboard' },
+    );
+    expect(page.component.invitationPaths()).toEqual({
+      known: true,
+      redirects: [google, entra],
+      password: false,
+      create: false,
+    });
+    expect(buttonsOf(page)).toEqual([
+      'Continue with Google as ensign@fleet.example',
+      'Continue with Lakeside staff as ensign@fleet.example',
+    ]);
+    expect(page.element.querySelector('.impulse-login-invitation-note')?.textContent?.trim()).toBe(
+      'The invitation is for ensign@fleet.example.',
+    );
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(page.component.account()).toBeUndefined();
+    page.component.signInThrough(entra);
+    expect(page.left).toEqual([
+      `/console/api/user/lakeside-entra/login?returnUrl=${encodeURIComponent('/dashboard')}&login_hint=${encodeURIComponent('ensign@fleet.example')}`,
+    ]);
+  });
+});
+
 describe('LoginMethodsComponent signs a person up', () => {
   it('offers the step when the list names sign-up routes, asks for the address, posts it and says the link is on its way', async () => {
     const page = await pageOver(server({ methods: mailingList }));
@@ -2430,6 +2602,179 @@ describe('LoginMethodsComponent signs a person up', () => {
     expect(page.component.account()).toBeUndefined();
     expect(messageOf(page)).toBe(dead.body.message);
     expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+});
+
+describe('LoginMethodsComponent resets a password', () => {
+  /** A server whose administrator lets people reset their own password: the list names where a link is asked for. */
+  const selfService: LoginMethods = { ...mailingList, passwordReset: resetRoutes };
+  /** The same server with that turned off: a mailed link is still opened and completed, and none is asked for here. */
+  const administratorOnly: LoginMethods = {
+    ...mailingList,
+    passwordReset: { open: resetRoutes.open, complete: resetRoutes.complete },
+  };
+
+  it('offers "Forgot your password?" while the list names where a link is asked for', async () => {
+    const on = await pageOver(server({ methods: selfService }));
+    expect(on.element.querySelector('.impulse-login-forgot')?.textContent).toContain('Forgot your password?');
+  });
+
+  it('offers no "Forgot your password?" while the list names no place to ask, and asks for none', async () => {
+    const off = await pageOver(server({ methods: administratorOnly }));
+    expect(off.element.querySelector('.impulse-login-forgot')).toBeNull();
+    off.component.beginReset();
+    await off.settle();
+    expect(off.component.forgetting()).toBe(false);
+    expect(off.element.querySelector('input[name="resetEmail"]')).toBeNull();
+  });
+
+  it('offers no "Forgot your password?" where the list names no password reset at all', async () => {
+    const none = await pageOver(server({ methods: mailingList }));
+    expect(none.element.querySelector('.impulse-login-forgot')).toBeNull();
+  });
+
+  it("asks for a link with the address, and promises one only if the address is an account's", async () => {
+    const page = await pageOver(server({ methods: selfService }));
+    page.component.beginReset();
+    await page.settle();
+    expect(page.element.querySelector('input[name="resetEmail"]')).not.toBeNull();
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+    page.transport.requests.length = 0;
+    page.component.resetEmail = 'mate@harbor.example';
+    await page.component.sendResetLink();
+    await page.settle();
+    expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', `POST ${resetRoutes.request}`]);
+    expect(page.transport.requests[1].body).toEqual({ email: 'mate@harbor.example' });
+    const note = page.element.querySelector('.impulse-login-reset-note')?.textContent ?? '';
+    expect(note).toContain('If mate@harbor.example is the email address of an account with a password');
+    page.component.leaveLink();
+    await page.settle();
+    expect(page.component.resetAsked()).toBeUndefined();
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+
+  it('a mailbox sent too many reset links is refused with the sentence, the address field staying', async () => {
+    const page = await pageOver(
+      server({
+        methods: selfService,
+        resetRequest: { status: 429, body: { message: 'Too many links', code: 'too_many_emails', retryAfter: 600 } },
+      }),
+    );
+    page.component.beginReset();
+    page.component.resetEmail = 'mate@harbor.example';
+    await page.component.sendResetLink();
+    await page.settle();
+    expect(page.component.resetAsked()).toBeUndefined();
+    expect(page.element.querySelector('input[name="resetEmail"]')).not.toBeNull();
+    expect(messageOf(page)).not.toBeNull();
+    // The server counts reset links apart from codes: the hold is the reset form's alone.
+    expect(page.component.resetHeld()).toBe(true);
+    expect(page.component.mailHeld()).toBe(false);
+    const send = page.element.querySelector<HTMLButtonElement>('.impulse-login-forgetting .impulse-login-submit');
+    expect(send?.disabled).toBe(true);
+  });
+
+  it('says to ask an administrator when resetting was turned off after the page was drawn, and posts no address', async () => {
+    const state = server({ methods: selfService });
+    const page = await pageOver(state);
+    page.component.beginReset();
+    await page.settle();
+    state.methods = administratorOnly;
+    page.transport.requests.length = 0;
+    page.component.resetEmail = 'mate@harbor.example';
+    await page.component.sendResetLink();
+    await page.settle();
+    expect(sent(page.transport)).toEqual(['GET /console/api/user/methods']);
+    expect(messageOf(page)).toBe(
+      'Resetting your own password is turned off here. Ask an administrator to send you a reset link',
+    );
+    expect(page.component.resetAsked()).toBeUndefined();
+  });
+
+  it("a password that changed while the reader was choosing shows the server's words, the form staying", async () => {
+    const changed = 'Your password was changed while you were choosing a new one, so this link did not change it.';
+    const page = await pageOver(
+      server({ methods: administratorOnly, resetComplete: { status: 409, body: { message: changed } } }),
+      { reset: 'tok-reset' },
+    );
+    page.component.resetPassword = 'a new password';
+    page.component.resetPasswordAgain = 'a new password';
+    await page.component.completeReset();
+    await page.settle();
+    expect(messageOf(page)).toBe(changed);
+    expect(page.component.resetDone()).toBe(false);
+    expect(page.component.resetting()).toBeDefined();
+  });
+
+  it('a reset link opens the new password form, and completing it sends the person back to sign in', async () => {
+    const page = await pageOver(server({ methods: administratorOnly }), { reset: 'tok-reset' });
+    expect(
+      page.transport.requests.some(
+        (r) => r.url === resetRoutes.open && (r.body as { token: string }).token === 'tok-reset',
+      ),
+    ).toBe(true);
+    expect(page.element.querySelector('.impulse-login-reset-note')?.textContent).toContain('mate');
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+
+    page.component.resetPassword = 'a new password';
+    page.component.resetPasswordAgain = 'another password';
+    await page.component.completeReset();
+    await page.settle();
+    expect(page.transport.requests.some((r) => r.url === resetRoutes.complete)).toBe(false);
+    expect(messageOf(page)).not.toBeNull();
+
+    page.component.resetPasswordAgain = 'a new password';
+    await page.component.completeReset();
+    await page.settle();
+    const completed = page.transport.requests.find((r) => r.url === resetRoutes.complete);
+    expect(completed?.body).toEqual({ token: 'tok-reset', password: 'a new password' });
+    expect(page.element.querySelector('.impulse-login-reset-note')?.textContent).toContain(
+      'you are signed out everywhere',
+    );
+    expect(page.signedIn).toEqual([]);
+
+    page.component.leaveLink();
+    await page.settle();
+    expect(page.component.username).toBe('mate');
+    expect(page.element.querySelector('input[name="password"]')).not.toBeNull();
+  });
+
+  it("a dead reset link shows the server's words and the list", async () => {
+    const page = await pageOver(server({ methods: administratorOnly, resetOpen: dead }), { reset: 'tok-dead' });
+    expect(page.component.resetting()).toBeUndefined();
+    expect(messageOf(page)).toBe(dead.body.message);
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+});
+
+describe('LoginMethodsComponent confirms an address an administrator set', () => {
+  const confirming: LoginMethods = { ...mailingList, email: { ...emailRoutes, confirm: emailConfirmRoute } };
+
+  it('posts nothing on arrival, confirms when the reader says so, and names the address the account now holds', async () => {
+    const page = await pageOver(server({ methods: confirming }), { address: 'tok-address' });
+    expect(page.transport.requests.some((r) => r.url === emailConfirmRoute)).toBe(false);
+    expect(page.element.querySelector('.impulse-login-address-note')?.textContent).toContain('Confirm it');
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+
+    await page.component.confirmAddress();
+    await page.settle();
+    const posted = page.transport.requests.find((r) => r.url === emailConfirmRoute);
+    expect(posted?.body).toEqual({ token: 'tok-address' });
+    expect(page.element.querySelector('.impulse-login-address-note')?.textContent).toContain(
+      'mate@harbor.example is now the email address of your account.',
+    );
+
+    page.component.leaveLink();
+    await page.settle();
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+
+  it("a dead link shows the server's words and stays on the question", async () => {
+    const page = await pageOver(server({ methods: confirming, emailConfirm: dead }), { address: 'tok-dead' });
+    await page.component.confirmAddress();
+    await page.settle();
+    expect(page.component.addressConfirmed()).toBeUndefined();
+    expect(messageOf(page)).toBe(dead.body.message);
   });
 });
 

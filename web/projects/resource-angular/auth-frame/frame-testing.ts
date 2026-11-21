@@ -124,3 +124,28 @@ export function provideFrameTesting(
     provideFrame({ name: 'Lodestar', home: 'dashboard', menus: [], ...config }),
   ];
 }
+
+/**
+ * The class names of one of the frame's components that are not its own: those its elements
+ * carry wherever they are drawn, the page and its pop-ups alike, and those its stylesheet
+ * names. An application's stylesheet is global, so a rule it writes for its own `.row`,
+ * `.label` or `.bar` lands on every element of the library that carries that class; a name
+ * that starts with the component's own element name is one no application writes for
+ * itself. `host` is the component's element, and `prefix` what its names start with.
+ */
+export function notNamedFor(prefix: string, host: Element): string[] {
+  const hostMark = Array.from(host.attributes).find((attribute) => attribute.name.startsWith('_nghost'))?.name;
+  if (!hostMark) {
+    return ['(no stylesheet of the component is on the page to read)'];
+  }
+  const mark = hostMark.replace('_nghost', '_ngcontent');
+  const drawn = Array.from(document.querySelectorAll(`[${mark}]`)).flatMap((element) => Array.from(element.classList));
+  const styled = Array.from(document.querySelectorAll('style'))
+    .map((style) => style.textContent ?? '')
+    .filter((sheet) => sheet.includes(`[${mark}]`))
+    .flatMap((sheet) => Array.from(sheet.matchAll(/\.(-?[A-Za-z_][\w-]*)/g), (match) => match[1]));
+  // What Material, the CDK and Angular's forms put on an element are theirs to name; Material
+  // marks a button whose animations are off, as they are in a spec, `_mat-animation-noopable`.
+  const theirs = /^_?(mat|mdc|cdk|ng)-|^(notranslate|material-icons)$/;
+  return [...new Set([...drawn, ...styled])].filter((name) => !name.startsWith(prefix) && !theirs.test(name)).sort();
+}

@@ -315,9 +315,6 @@ func parseWorkspaceWorkspaces(value string) (google.WorkspaceSet, error) {
 		decls          []string
 		wantWorkspaces string
 		wantAccounts   bool
-		// wantDomains is whether a Workspace the slot names was given several domains:
-		// read beside the shape, which it leaves as it is.
-		wantDomains bool
 	}{
 		{
 			name:           "one Workspace",
@@ -337,32 +334,28 @@ func parseWorkspaceWorkspaces(value string) (google.WorkspaceSet, error) {
 			statements:     fallible,
 			decls:          []string{listedWorkspaces},
 			wantWorkspaces: WorkspacesListed,
-			wantDomains:    true,
 		},
 		{
-			name:       "one Workspace of two domains is one Workspace, and several domains",
+			name:       "one Workspace of two domains is one Workspace",
 			statements: infallible,
 			decls: []string{`func workspaceSlot(settings *Settings) google.WorkspaceSet {
 	return google.Workspace("fleet", "fleet.example", "fleet.test")
 }`},
 			wantWorkspaces: WorkspacesOne,
-			wantDomains:    true,
 		},
 		{
-			name:       "one Workspace given a spread of domains is one Workspace, and several domains",
+			name:       "one Workspace given a spread of domains is one Workspace",
 			statements: infallible,
 			decls: []string{`func workspaceSlot(settings *Settings) google.WorkspaceSet {
 	return google.Workspace("fleet", settings.Workspace.Domains...)
 }`},
 			wantWorkspaces: WorkspacesOne,
-			wantDomains:    true,
 		},
 		{
 			name:           "a Workspace of several domains beside any Google account",
 			statements:     `	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{Workspaces: google.Workspaces(google.Workspace("fleet", "fleet.example", "fleet.test"), google.AnyGoogleAccount()), RoleSync: google.DisableRoleSync()})`,
 			wantWorkspaces: WorkspacesOne,
 			wantAccounts:   true,
-			wantDomains:    true,
 		},
 		{
 			name:           "any Workspace",
@@ -424,9 +417,6 @@ func parseWorkspaceWorkspaces(value string) (google.WorkspaceSet, error) {
 			m := auths[0].Methods[0]
 			if m.Workspaces != tt.wantWorkspaces || m.GoogleAccounts != tt.wantAccounts {
 				t.Errorf("Workspaces = %q, GoogleAccounts = %v; want %q, %v", m.Workspaces, m.GoogleAccounts, tt.wantWorkspaces, tt.wantAccounts)
-			}
-			if m.SeveralDomains != tt.wantDomains {
-				t.Errorf("SeveralDomains = %v, want %v", m.SeveralDomains, tt.wantDomains)
 			}
 		})
 	}
@@ -517,7 +507,7 @@ func TestReadSuperAdministrators(t *testing.T) {
 		res     = "github.com/impulseframework/impulse/resource"
 		// The engine as an auth package opens it, on line 15 of the file, and the
 		// construction of the Auth over an argument.
-		ownEngine = `	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.Signals))
+		ownEngine = `	accessClient, err := access.New(store, settings.Collection, access.WithDefaultRoles(Roles()), access.WithChangeSignal(settings.Signals))
 	if err != nil {
 		return
 	}
@@ -555,7 +545,7 @@ func TestReadSuperAdministrators(t *testing.T) {
 		},
 		{
 			name: "an engine handed no role file here",
-			body: strings.Replace(ownEngine, "access.WithDefaultRoles(settings.Collection, Roles()), ", "", 1) + fmt.Sprintf(construct, scaffolded),
+			body: strings.Replace(ownEngine, "access.WithDefaultRoles(Roles()), ", "", 1) + fmt.Sprintf(construct, scaffolded),
 			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, Packages: []string{res, session, signin}},
 		},
 		{

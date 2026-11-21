@@ -37,19 +37,20 @@ var candidateAuths = map[string][]authpkg.Spec{
 }
 
 // staffSpec is the staff auth of each candidate: a password auth whose first administrator
-// holds what the development administrator holds (cmd/bootstrap/users.json): the global
+// is invited to what the development administrator holds (cmd/bootstrap/users.json): the global
 // roles, and the domain role in every domain where the candidate has tenants, with the
 // sign-in rule over the tenant record's declaration where the candidate has one. The
 // roles that count as an administrator's are the ones that give a role back:
 // Administrator, and TenantAdministrator in a tenant. FeatureAdministrator turns flags
 // on and off and manages nobody, so its holder is no administrator left behind.
 func staffSpec(candidate string) authpkg.Spec {
+	if candidate == Base {
+		// The base's auth is the one description impulse new renders a first auth from,
+		// so the candidate is held to it and not to a copy of it.
+		return authpkg.FirstAuth(candidateModule(candidate), PlaceholderAuth)
+	}
 	roles := authpkg.AdministratorRoles{Global: []string{"Administrator"}, EveryDomain: []string{"TenantAdministrator"}}
 	first := authpkg.AdministratorRoles{Global: []string{"Administrator", "FeatureAdministrator"}, EveryDomain: []string{"TenantAdministrator"}}
-	if candidate == Base {
-		roles.EveryDomain = nil
-		first.EveryDomain = nil
-	}
 	// The outlets candidate's staff auth issues the devices outlet's tokens.
 	var outlets []string
 	if candidate == "outlets" {
@@ -91,9 +92,9 @@ func tenantPolicy(candidate string) *authpkg.TenantPolicy {
 	case Base:
 		return nil
 	case "sites":
-		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "consoleapp.NewTenantDeclarationReader", AdmitWithoutTenant: true}
+		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "consoleapp.NewTenantDeclarationReader", Directories: true, AdmitWithoutTenant: true}
 	default:
-		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", AdmitWithoutTenant: true}
+		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", Directories: true, AdmitWithoutTenant: true}
 	}
 }
 
@@ -101,7 +102,7 @@ func tenantPolicy(candidate string) *authpkg.TenantPolicy {
 // portal's people, whose outlet does not serve the Tenant record, so nobody signs up to
 // it and a person who holds no tenant is refused.
 func membersTenantPolicy() *authpkg.TenantPolicy {
-	return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader"}
+	return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", Directories: true}
 }
 
 // tenantedStaffSpec is the tenanted candidate's staff auth: the password auth with a

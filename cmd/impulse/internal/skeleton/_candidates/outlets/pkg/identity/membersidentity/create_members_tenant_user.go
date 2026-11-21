@@ -28,6 +28,7 @@ type (
 	// @rpc
 	// @permissionScope(domain)
 	// @outlet(portal)
+	// @class(access)
 	CreateMembersTenantUser struct {
 		Username string `validate:"required"`
 		Name     *string

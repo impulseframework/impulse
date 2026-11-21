@@ -1,4 +1,5 @@
 import { EnvironmentProviders, inject, makeEnvironmentProviders, provideEnvironmentInitializer } from '@angular/core';
+import { IconFontService } from './icon-font.service';
 import { THEME_PALETTES, ThemePalette, ThemeService } from './theme.service';
 
 /** What provideTheme takes: the palettes the application offers, in the order shown; the first is the default. */
@@ -12,10 +13,16 @@ export interface ThemeOptions {
  * its theme's palette map): add it to the application's providers. The picker,
  * `<impulse-theme-picker>`, goes on whichever page the application keeps a person's own
  * settings on.
+ *
+ * It starts IconFontService too, so the icons' font is asked for before the first page
+ * renders and no icon is drawn as the letters of its name while the font is on its way.
  */
 export function provideTheme(options: ThemeOptions = {}): EnvironmentProviders {
   return makeEnvironmentProviders([
     { provide: THEME_PALETTES, useValue: options.palettes ?? [] },
-    provideEnvironmentInitializer(() => inject(ThemeService).start()),
+    provideEnvironmentInitializer(() => {
+      inject(ThemeService).start();
+      inject(IconFontService).start();
+    }),
   ]);
 }

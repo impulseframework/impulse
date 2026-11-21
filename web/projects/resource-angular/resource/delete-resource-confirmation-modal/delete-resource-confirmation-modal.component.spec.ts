@@ -1,22 +1,251 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
+import { MAT_DIALOG_DATA, MatDialog, MatDialogRef, MatDialogState } from '@angular/material/dialog';
+import { provideNoopAnimations } from '@angular/platform-browser/animations';
+import { ApiError } from '@impulseframework/resource';
 
-import { DeleteResourceConfirmationModalComponent } from './delete-resource-confirmation-modal.component';
+import {
+  DeleteConfirmation,
+  DeleteResourceConfirmationModalComponent,
+  deleteQuestion,
+} from './delete-resource-confirmation-modal.component';
 
+// The confirmation before a delete says in plain words what is about to go: the row by
+// its own name where the page has one, the list by its title, and a button that says
+// what it does. Handed the delete, it runs it and keeps the server's refusal where the
+// question was asked.
 describe('DeleteResourceConfirmationModal', () => {
-  let component: DeleteResourceConfirmationModalComponent;
-  let fixture: ComponentFixture<DeleteResourceConfirmationModalComponent>;
+  const textOf = (element: Element | null): string => (element?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const rest = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+  const buttons = (): HTMLButtonElement[] => [
+    ...document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button'),
+  ];
+  const press = async (words: string): Promise<void> => {
+    await rest();
+    const button = buttons().find((candidate) => textOf(candidate) === words);
+    expect(button, `the dialog has no "${words}" button`).toBeTruthy();
+    button?.click();
+    await rest();
+  };
 
-  beforeEach(async () => {
+  // The dialog opened as a page opens it, with the answers it closes with.
+  function opened(asked: DeleteConfirmation): {
+    ref: MatDialogRef<DeleteResourceConfirmationModalComponent>;
+    answers: unknown[];
+  } {
+    TestBed.configureTestingModule({ providers: [provideNoopAnimations()] });
+    const answers: unknown[] = [];
+    const ref = TestBed.inject(MatDialog).open(DeleteResourceConfirmationModalComponent, { data: asked });
+    ref.afterClosed().subscribe((answer) => answers.push(answer));
+
+    return { ref, answers };
+  }
+
+  async function drawn(asked?: DeleteConfirmation): Promise<HTMLElement> {
     await TestBed.configureTestingModule({
       imports: [DeleteResourceConfirmationModalComponent],
+      providers: [
+        provideNoopAnimations(),
+        {
+          provide: MatDialogRef,
+          useValue: { close: (): void => undefined, getState: (): MatDialogState => MatDialogState.OPEN },
+        },
+        ...(asked ? [{ provide: MAT_DIALOG_DATA, useValue: asked }] : []),
+      ],
     }).compileComponents();
-
-    fixture = TestBed.createComponent(DeleteResourceConfirmationModalComponent);
-    component = fixture.componentInstance;
+    const fixture = TestBed.createComponent(DeleteResourceConfirmationModalComponent);
     fixture.detectChanges();
+
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    document.querySelectorAll('.cdk-overlay-container').forEach((overlay) => (overlay.innerHTML = ''));
   });
 
-  it('should create', () => {
-    expect(component).toBeTruthy();
+  it('asks about a row of a list by the list it is in', async () => {
+    const dialog = await drawn({ from: 'Passes', inList: true });
+
+    expect(textOf(dialog.querySelector('[mat-dialog-title]'))).toBe('Delete');
+    expect(textOf(dialog.querySelector('.question'))).toBe('Delete this row from Passes?');
+  });
+
+  it('names the row where the page knows its name', async () => {
+    const dialog = await drawn({ name: 'Night Watch', from: 'Groups' });
+
+    expect(textOf(dialog.querySelector('.question'))).toBe('Delete Night Watch from Groups?');
+  });
+
+  it('asks about the record of a page that has no name for it', async () => {
+    const dialog = await drawn({ from: 'Missions' });
+
+    expect(textOf(dialog.querySelector('.question'))).toBe('Delete this record from Missions?');
+  });
+
+  it('asks in plain words when it is told nothing', async () => {
+    const dialog = await drawn();
+
+    expect(textOf(dialog.querySelector('.question'))).toBe('Delete this record?');
+    expect(textOf(dialog)).not.toMatch(/resource|Are you sure|Confirm/);
+  });
+
+  it('carries Cancel and a button in the words of what it does', async () => {
+    const dialog = await drawn({ from: 'Passes', inList: true });
+
+    expect([...dialog.querySelectorAll('button')].map(textOf)).toEqual(['Cancel', 'Delete']);
+  });
+
+  it('answers true from Delete, false from Cancel and nothing when it is closed any other way', async () => {
+    TestBed.configureTestingModule({ providers: [provideNoopAnimations()] });
+    const dialogs = TestBed.inject(MatDialog);
+    const answers: unknown[] = [];
+    const ask = (): MatDialogRef<DeleteResourceConfirmationModalComponent> => {
+      const ref = dialogs.open(DeleteResourceConfirmationModalComponent, { data: { from: 'Passes', inList: true } });
+      ref.afterClosed().subscribe((answer) => answers.push(answer));
+
+      return ref;
+    };
+
+    ask();
+    await press('Delete');
+    ask();
+    await press('Cancel');
+    const closed = ask();
+    closed.close();
+    await rest();
+
+    expect(answers).toEqual([true, false, undefined]);
+  });
+
+  it('runs the delete it was handed and answers true once the row is gone', async () => {
+    let runs = 0;
+    const { answers } = opened({
+      from: 'Squadrons',
+      delete: () => {
+        runs++;
+
+        return Promise.resolve();
+      },
+    });
+
+    await press('Delete');
+
+    expect(runs).toBe(1);
+    expect(answers).toEqual([true]);
+  });
+
+  it('waits for the server with its buttons off, and cannot be closed meanwhile', async () => {
+    let gone: () => void = () => undefined;
+    const { ref, answers } = opened({
+      from: 'Squadrons',
+      delete: () => new Promise<void>((resolve) => (gone = resolve)),
+    });
+
+    await press('Delete');
+
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+      ['Cancel', true],
+      ['Delete', true],
+    ]);
+    expect(ref.disableClose).toBe(true);
+    expect(answers).toEqual([]);
+
+    gone();
+    await rest();
+
+    expect(answers).toEqual([true]);
+  });
+
+  it("keeps a refused delete open with the server's sentence and one button, Close", async () => {
+    const sentence = 'This squadron has 3 missions. Delete them first.';
+    const { ref, answers } = opened({
+      name: 'Hammer',
+      from: 'Squadrons',
+      delete: () => Promise.reject(new ApiError('POST', '/api/batch', 409, { message: sentence })),
+    });
+
+    await press('Delete');
+
+    const overlay = document.querySelector('.cdk-overlay-container');
+    expect(answers).toEqual([]);
+    expect(textOf(overlay?.querySelector('.question') ?? null)).toBe('Delete Hammer from Squadrons?');
+    expect(textOf(overlay?.querySelector('.refusal') ?? null)).toBe(sentence);
+    expect(overlay?.querySelector('.refusal')?.getAttribute('role')).toBe('alert');
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([['Close', false]]);
+    expect(ref.disableClose).toBeFalsy();
+
+    await press('Close');
+
+    expect(answers).toEqual([false]);
+  });
+
+  it('closes with false on any other failure and leaves it to the page', async () => {
+    const closedWith: unknown[] = [];
+    await TestBed.configureTestingModule({
+      imports: [DeleteResourceConfirmationModalComponent],
+      providers: [
+        provideNoopAnimations(),
+        {
+          provide: MatDialogRef,
+          useValue: {
+            close: (answer: unknown): void => void closedWith.push(answer),
+            getState: (): MatDialogState => MatDialogState.OPEN,
+          },
+        },
+        { provide: MAT_DIALOG_DATA, useValue: { delete: () => Promise.reject(new Error('the network is down')) } },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(DeleteResourceConfirmationModalComponent);
+    fixture.detectChanges();
+
+    await expect(fixture.componentInstance.confirm()).rejects.toThrow('the network is down');
+
+    expect(closedWith).toEqual([false]);
+    expect(fixture.componentInstance.refusal()).toBe('');
+    expect(fixture.componentInstance.busy()).toBe(false);
+  });
+
+  it('leaves closing to the page that already closed it by leaving', async () => {
+    const closedWith: unknown[] = [];
+    await TestBed.configureTestingModule({
+      imports: [DeleteResourceConfirmationModalComponent],
+      providers: [
+        provideNoopAnimations(),
+        {
+          provide: MatDialogRef,
+          useValue: {
+            close: (answer: unknown): void => void closedWith.push(answer),
+            getState: (): MatDialogState => MatDialogState.CLOSED,
+          },
+        },
+        { provide: MAT_DIALOG_DATA, useValue: { delete: () => Promise.resolve() } },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(DeleteResourceConfirmationModalComponent);
+    fixture.detectChanges();
+
+    await fixture.componentInstance.confirm();
+
+    expect(closedWith).toEqual([]);
+  });
+});
+
+describe('deleteQuestion', () => {
+  it('names the row and the list where it has both', () => {
+    expect(deleteQuestion({ name: 'Night Watch', from: 'Groups', inList: true })).toBe(
+      'Delete Night Watch from Groups?',
+    );
+  });
+
+  it('names the row alone where the list has no title', () => {
+    expect(deleteQuestion({ name: 'Night Watch' })).toBe('Delete Night Watch?');
+    expect(deleteQuestion({ name: 'Night Watch', from: '  ' })).toBe('Delete Night Watch?');
+  });
+
+  it('says "this row" in a list and "this record" on a page for a row with no name', () => {
+    expect(deleteQuestion({ inList: true })).toBe('Delete this row?');
+    expect(deleteQuestion({ name: ' ', from: 'Passes', inList: true })).toBe('Delete this row from Passes?');
+    expect(deleteQuestion({ from: 'Missions' })).toBe('Delete this record from Missions?');
+    expect(deleteQuestion()).toBe('Delete this record?');
   });
 });

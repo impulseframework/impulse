@@ -136,6 +136,14 @@ type User struct {
 	// for a user with no password, as UserIn and LockUserIn read it: what a sign-in's
 	// own proof is checked against in the transaction that inserts on its strength.
 	PasswordProof PasswordProof
+	// EmailConfirmed says the row holds an address its person has confirmed, as UserIn
+	// and LockUserIn read it: a sign-in through a directory that does not vouch for the
+	// address is held for a mailed code while it is false (signinflow.decideSignIn).
+	EmailConfirmed bool
+	// EmailHeld says the row holds an address, confirmed or not, as UserIn and
+	// LockUserIn read it: a first link made on a name alone waits for the code mailed
+	// to it, and is refused where the row holds none (signinflow.nameAloneHold).
+	EmailHeld bool
 }
 
 // SignInConflict is a driver's classification of the error a sign-in's transaction

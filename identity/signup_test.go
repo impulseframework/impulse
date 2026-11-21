@@ -73,6 +73,9 @@ func TestManager_OpenSignUp(t *testing.T) {
 		// refused says how a refusal answers, and wantHas what its words say.
 		refused func(err error) bool
 		wantHas string
+		// wantTold is the one sentence a person refused for the role is sent; wantHas
+		// is then kept in the refusal's cause, which the server's log prints.
+		wantTold string
 		// wantAsked is what the role file's grants were asked.
 		wantAsked []string
 	}{
@@ -95,6 +98,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 			open:   SignUp{Method: "google", DefaultRole: "Steward"},
 			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Steward"}},
 			refused: httpio.HasForbidden, wantHas: "the role Steward, which you may not give",
+			wantTold:  "Opening the method gives every person who signs up the role Steward, which you may not give.",
 			wantAsked: askedToGive("Steward"),
 		},
 		{
@@ -137,6 +141,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 			open:   SignUp{Method: "google", DefaultRole: "Ghost"},
 			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Ghost"}},
 			refused: httpio.HasForbidden, wantHas: "opening the method gives every person who signs up the role Ghost, which you may not give: choose a role you may give, or have someone who may give Ghost open the method",
+			wantTold:  "Opening the method gives every person who signs up the role Ghost, which you may not give.",
 			wantAsked: askedToGive("Ghost"),
 		},
 		{
@@ -208,6 +213,9 @@ func TestManager_OpenSignUp(t *testing.T) {
 				}
 			} else if !tt.refused(err) || !containsText(err, tt.wantHas) {
 				t.Fatalf("OpenSignUp() error = %v, want the refusal saying %q", err, tt.wantHas)
+			}
+			if tt.wantTold != "" {
+				toldPlainly(t, err, tt.wantTold, "choose a role you may give")
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
@@ -347,6 +355,7 @@ func TestManager_OpenSignUpWarning_roleTheCallerMayNotGive(t *testing.T) {
 	if !httpio.HasForbidden(err) || !containsText(err, "the role Steward, which you may not give") {
 		t.Errorf("OpenSignUpWarning() error = %v, want it forbidden, naming the role", err)
 	}
+	toldPlainly(t, err, "Opening the method gives every person who signs up the role Steward, which you may not give.", "choose a role you may give")
 }
 
 func TestManager_MakeInviteOnly(t *testing.T) {
@@ -672,5 +681,60 @@ func Test_withArticle(t *testing.T) {
 				t.Errorf("withArticle(%q) = %q, want %q", tt.word, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestManager_SetSelfServiceReset pins an administrator's switch for a person's own
+// password reset: the one field of the password method's row is written, on and off;
+// the list of sign-in methods says it of the password method alone; and an auth nobody
+// signs in to with a password has nothing to switch.
+func TestManager_SetSelfServiceReset(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{}
+	m := newSignUpManager(t, store)
+	for _, on := range []bool{true, false} {
+		if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			return m.SetSelfServiceReset(ctx, txn, on)
+		}); err != nil {
+			t.Fatalf("SetSelfServiceReset(%v) error = %v", on, err)
+		}
+	}
+	want := []string{"set self-service reset of password on=true", "set self-service reset of password on=false"}
+	if diff := cmp.Diff(want, store.writes); diff != "" {
+		t.Errorf("buffered writes (-want +got):\n%s", diff)
+	}
+
+	// The row says it, and the list says it of the password method and of no other,
+	// whatever a row of another method holds.
+	store = &fakeStore{methodRows: map[string]SignInMethodRow{
+		"password": {Name: "password", SelfServiceReset: true},
+		"google":   {Name: "google", SelfServiceReset: true},
+	}}
+	m = newSignUpManager(t, store)
+	var methods []SignInMethod
+	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		var err error
+		methods, err = m.SignInMethods(ctx, txn)
+
+		return err
+	}); err != nil {
+		t.Fatalf("SignInMethods() error = %v", err)
+	}
+	for i := range methods {
+		if got, want := methods[i].SelfServiceReset, methods[i].Name == "password"; got != want {
+			t.Errorf("SignInMethods(): %s says SelfServiceReset %v, want %v", methods[i].Name, got, want)
+		}
+	}
+
+	directory, err := New(managedAuth, &fakeStore{}, &fakeEngine{roles: engineRoles}, fakeSessions{methods: registeredMethods()[1:]})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return directory.SetSelfServiceReset(ctx, txn, true)
+	})
+	if !httpio.HasConflict(err) || httpio.Message(err) != "Nobody signs in to this application with a password, so there is none to reset" {
+		t.Errorf("SetSelfServiceReset() on an auth with no password method error = %v, want Conflict in the sentence the session library refuses with", err)
 	}
 }

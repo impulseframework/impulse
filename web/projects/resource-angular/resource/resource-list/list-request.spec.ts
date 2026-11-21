@@ -2,6 +2,7 @@ import { ApiError, FieldMeta, Resource, ResourceMeta } from '@impulseframework/r
 import { PageTurn } from '@impulseframework/resource-angular/grid';
 import { ColumnConfig } from '@impulseframework/resource-angular/types';
 import {
+  filterChoiceLists,
   filterEligibility,
   filterInputKinds,
   listEmptyMessage,
@@ -10,7 +11,9 @@ import {
   positionAfter,
   refuseKeylessConfig,
   refuseWriteOnlyColumns,
+  relatedUnreadMessage,
   searchEligibility,
+  unorderedFields,
 } from './list-request';
 
 // The list component's pure parts: which columns the server filters, where the page
@@ -50,6 +53,24 @@ describe('filterEligibility', () => {
   }
 });
 
+describe('unorderedFields', () => {
+  const groups: ResourceMeta = {
+    route: 'crew-groups',
+    fields: [field('name'), field('people', { displayType: 'number' }), field('roles', { displayType: 'string[]', sortable: false })],
+  };
+  const cases: { name: string; meta: ResourceMeta | undefined; want: string[] }[] = [
+    { name: 'the fields the metadata marks sortable: false, and no other', meta: groups, want: ['roles'] },
+    { name: 'a display type alone says nothing: the metadata is asked, not a list of types', meta: boards, want: [] },
+    { name: 'no metadata, nothing is marked', meta: undefined, want: [] },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect([...unorderedFields(tt.meta)]).toEqual(tt.want);
+    });
+  }
+});
+
 describe('filterInputKinds', () => {
   const dated: ResourceMeta = {
     route: 'sectors/{sectorID}/consignments',
@@ -74,6 +95,49 @@ describe('filterInputKinds', () => {
   for (const tt of cases) {
     it(tt.name, () => {
       expect(filterInputKinds(tt.meta, tt.columns.map((id) => ({ id })))).toEqual(tt.want as never);
+    });
+  }
+});
+
+describe('filterChoiceLists', () => {
+  const missions: ResourceMeta = {
+    route: 'sectors/{sectorID}/missions',
+    fields: [
+      field('title', { isIndex: true, filterable: 'always' }),
+      field('statusId', {
+        displayType: 'enumerated',
+        isIndex: true,
+        filterable: 'always',
+        enumeration: [
+          { id: 'claimed', display: 'Claimed' },
+          { id: 'on_hold', display: 'On hold' },
+          { id: 'open', display: 'Open' },
+        ],
+      }),
+      field('pilotId', { displayType: 'enumerated', filterable: 'always', enumeratedResource: 'Pilots' as never }),
+    ],
+  };
+  const cases: { name: string; meta: ResourceMeta | undefined; columns: string[]; want: Record<string, unknown> }[] = [
+    {
+      name: "a field that takes fixed values offers each value beside its name, in the metadata's order",
+      meta: missions,
+      columns: ['title', 'statusId'],
+      want: {
+        statusId: [
+          { value: 'claimed', label: 'Claimed' },
+          { value: 'on_hold', label: 'On hold' },
+          { value: 'open', label: 'Open' },
+        ],
+      },
+    },
+    { name: "a key into another resource's rows lists no values", meta: missions, columns: ['pilotId'], want: {} },
+    { name: 'an action column and a renamed duplicate are absent', meta: missions, columns: ['view', 'statusId_1'], want: {} },
+    { name: 'no metadata, no values', meta: undefined, columns: ['statusId'], want: {} },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(filterChoiceLists(tt.meta, tt.columns.map((id) => ({ id })))).toEqual(tt.want as never);
     });
   }
 });
@@ -117,28 +181,116 @@ describe('positionAfter', () => {
   }
 });
 
+// What the server says of a request it refuses or cannot serve, as it says it: the scope,
+// the person's id, the permission and the resource of a refusal; a filter's own grammar; a
+// database's own error. None of it is for the screen, so each sentence below is asked with
+// the server's words in the error and must come out without one of them.
+const serverSays = {
+  notPermitted: 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [MissionBoards]',
+  badRequest: 'filter: unknown field "ownerId" in clause "ownerId:eq:9"; limit 500 exceeds the maximum of 200',
+  failed: 'spanner: code = "Unavailable", desc = "the session pool is closed"',
+};
+
+/** Whether a sentence carries any of what only the server says: an id, a permission, a resource's name, an error's text. */
+function carriesServerWords(sentence: string): boolean {
+  return /scope \(|user \(|3f2a9c1e|does not have|\(List\)|MissionBoards|Sectors|ownerId|limit 500|spanner|Unavailable|session pool|network down/.test(
+    sentence,
+  );
+}
+
 describe('listEmptyMessage', () => {
-  const cases: { name: string; error: unknown; noColumns: boolean; want: string }[] = [
+  const own = 'This application declares no feature flags.';
+  const cases: { name: string; error: unknown; noColumns: boolean; empty?: string; want: string }[] = [
     { name: 'no error, an empty list', error: undefined, noColumns: false, want: 'No records found' },
+    { name: "no error, an empty list on a page with a sentence of its own", error: undefined, noColumns: false, empty: own, want: own },
+    { name: 'an empty sentence is no sentence', error: undefined, noColumns: false, empty: '', want: 'No records found' },
+    {
+      name: "the digest leaves no column, whatever the page's own sentence",
+      error: undefined,
+      noColumns: true,
+      empty: own,
+      want: 'Your permissions cover none of the columns on this page.',
+    },
+    {
+      name: "a refused list reads as a refusal, never as the page's own sentence, and never in the server's words",
+      error: new ApiError('GET', '/api/mission-boards', 403, { message: serverSays.notPermitted }),
+      noColumns: false,
+      empty: own,
+      want: 'You do not have permission to see this list.',
+    },
     { name: 'the digest leaves no column', error: undefined, noColumns: true, want: 'Your permissions cover none of the columns on this page.' },
     {
       name: 'a refused list reads as a refusal',
-      error: new ApiError('GET', '/api/mission-boards', 403, { message: 'no List on MissionBoards' }),
+      error: new ApiError('GET', '/api/mission-boards', 403, { message: serverSays.notPermitted }),
       noColumns: false,
-      want: 'This list is not available to you: no List on MissionBoards',
+      want: 'You do not have permission to see this list.',
     },
     {
-      name: 'a refused filter or page size reads in the server\'s words',
-      error: new ApiError('GET', '/api/mission-boards?limit=500', 400, { message: 'limit 500 exceeds the maximum of 200' }),
+      name: 'a filter, a sort or a page size the server would not serve says what the person can try',
+      error: new ApiError('GET', '/api/mission-boards?limit=500', 400, { message: serverSays.badRequest }),
       noColumns: false,
-      want: "The server refused this list's request: limit 500 exceeds the maximum of 200",
+      want: 'This list could not be loaded the way it was asked for. Try changing its filters or how it is sorted.',
     },
-    { name: 'any other failure names itself', error: new Error('network down'), noColumns: false, want: 'This list could not be loaded: network down' },
+    {
+      name: 'a request the server could not serve says the list could not be loaded',
+      error: new ApiError('GET', '/api/mission-boards', 500, { message: serverSays.failed }),
+      noColumns: false,
+      want: 'This list could not be loaded.',
+    },
+    { name: 'a request that never got an answer says the same', error: new Error('network down'), noColumns: false, want: 'This list could not be loaded.' },
   ];
 
   for (const tt of cases) {
     it(tt.name, () => {
-      expect(listEmptyMessage(tt.error, tt.noColumns)).toBe(tt.want);
+      const said = listEmptyMessage(tt.error, tt.noColumns, tt.empty);
+      expect(said).toBe(tt.want);
+      expect(carriesServerWords(said)).toBe(false);
+    });
+  }
+});
+
+describe('relatedUnreadMessage', () => {
+  const refused = new ApiError('GET', '/api/sectors', 403, {
+    message: 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [Sectors]',
+  });
+  const cases: { name: string; error: unknown; headings: string[]; want: string }[] = [
+    {
+      name: 'a refused read names the column and says the person may not see its records',
+      error: refused,
+      headings: ['Kept in'],
+      want: 'You do not have permission to see the records named in the Kept in column.',
+    },
+    {
+      name: 'two columns over one read are both named',
+      error: refused,
+      headings: ['Kept in', 'Owner'],
+      want: 'You do not have permission to see the records named in the Kept in and Owner columns.',
+    },
+    {
+      name: 'three are named as a person lists them',
+      error: refused,
+      headings: ['Kept in', 'Owner', 'Home port'],
+      want: 'You do not have permission to see the records named in the Kept in, Owner and Home port columns.',
+    },
+    {
+      name: 'a read the server could not serve is not a refusal of the person',
+      error: new ApiError('GET', '/api/sectors', 500, { message: serverSays.failed }),
+      headings: ['Kept in'],
+      want: 'The records named in the Kept in column could not be loaded.',
+    },
+    {
+      name: 'a read that never got an answer says the same',
+      error: new Error('network down'),
+      headings: ['Kept in'],
+      want: 'The records named in the Kept in column could not be loaded.',
+    },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      const said = relatedUnreadMessage(tt.error, tt.headings);
+      expect(said).toBe(tt.want);
+      expect(carriesServerWords(said)).toBe(false);
     });
   }
 });

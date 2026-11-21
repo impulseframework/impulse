@@ -7,11 +7,12 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -45,9 +46,23 @@ func (s *BaseSession) ImpersonationTTL(maxDuration time.Duration) time.Duration 
 // lives), writes the auth and XSRF cookies, and stamps the evidence on the establishing
 // request's log entry. req.Username is the session's effective identity; imp.SessionID
 // is set on return.
+//
+// Only a base session the library built (New) starts one. Any other, which is one a
+// program made by reflection, is answered sessionstorage.ErrImpersonationSealed before
+// anything is read or written. The same error comes back from the write itself over a
+// store that holds no write of the library's making: a mock of the store, or a store
+// that embeds sessionstorage.NoImpersonatedSessions.
 func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+
+	// Every session type reaches here from a request the application's declaration made,
+	// on the base session the library built (New). A BaseSession nobody built is one a
+	// program made by reflection, to hand this method a request and a record of its own:
+	// it is refused before anything is read or written.
+	if !s.built {
+		return impulse.NilUUID, sessionstorage.ErrImpersonationSealed
+	}
 
 	if err := bindActorToSession(ctx, imp); err != nil {
 		return impulse.NilUUID, err
@@ -56,9 +71,14 @@ func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.Respo
 		return impulse.NilUUID, err
 	}
 
-	id, err := s.Storage.CreateImpersonatedSession(ctx, req, imp)
+	// The storage's write is sealed to the session library: it is a method no package
+	// outside the library's directory can name, reached through the library's internal
+	// package and nowhere else. The store the application handed the session type has
+	// the write only from a store the library made (its own, or one it embeds); any
+	// other store refuses here with nothing written.
+	id, err := sealed.CreateImpersonatedSession(ctx, s.Storage, req, imp)
 	if err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "sessionstorage.BaseStore.CreateImpersonatedSession()")
+		return impulse.NilUUID, errors.Wrap(err, "sealed.CreateImpersonatedSession()")
 	}
 	imp.SessionID = id
 	// The establishing call's own span carries the evidence on the source side.
@@ -90,10 +110,13 @@ func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.Respo
 // bindActorToSession ties an establishing call that arrives on a validated session of
 // this application to that session. The request's own session is proof of who is at
 // the keyboard, so the actor must be its user, and a local actor's SourceSessionID
-// must be it (and defaults to it when omitted). A claim to a foreign realm is refused:
-// an actor logged in here is local. Without a validated session in ctx (a
-// server-to-server handoff) the request's claims stand as given, for verifyLocalActor
-// and the application's guard to check.
+// must be it (and defaults to it when omitted). The session of a request is the one its
+// cookie names (RequestSessionID), and the validated session in ctx must be that
+// session too: one put there under another id is refused. A claim to a foreign realm
+// is refused: an actor logged in here is local. Without a validated session in ctx (a
+// server-side caller, which names the actor through session.Impersonations.RequestFor)
+// the request's claims stand as given, for verifyLocalActor and the caller's own check
+// of the kind's grant to hold.
 //
 // Without this, an actor who learned another user's session ID — it appears in logs,
 // spans and ActiveImpersonations — could mint a session as that user by naming them.
@@ -104,21 +127,41 @@ func bindActorToSession(ctx context.Context, imp *sessioninfo.Impersonation) err
 	}
 
 	if imp.ActorRealm != "" {
-		return httpio.NewForbiddenMessage("the request carries a session of this application, so the actor is local: leave ActorRealm empty")
+		return httpio.NewForbiddenMessage(
+			"the request carries a session of this application, so the actor is that session's user: " +
+				"an actor another system signed in is named only by a call that carries no session here",
+		)
 	}
 	if imp.Actor != sessData.Username {
 		return httpio.NewForbiddenMessagef("actor %q is not the user of the session making the request", imp.Actor)
 	}
+	own := RequestSessionID(ctx, sessData)
+	if sessData.ID != own {
+		return httpio.NewForbiddenMessage("the session this request was validated as is not the session its cookie names, so it starts no session that acts as someone else")
+	}
 	if !imp.SourceSessionID.Valid {
-		imp.SourceSessionID = impulse.NullUUID{UUID: sessData.ID, Valid: true}
+		imp.SourceSessionID = impulse.NullUUID{UUID: own, Valid: true}
 
 		return nil
 	}
-	if imp.SourceSessionID.UUID != sessData.ID {
-		return httpio.NewForbiddenMessage("SourceSessionID is not the session making the request")
+	if imp.SourceSessionID.UUID != own {
+		return httpio.NewForbiddenMessage("the session named as the actor's own is not the session making the request")
 	}
 
 	return nil
+}
+
+// RequestSessionID is the session a request arrived as: the one its cookie names
+// (sessioninfo.CTXSessionID, which StartSession and a token's validation put in the
+// context), never the id a store answered for it. A context that carries a validated
+// session and no such id is one a program put together itself, and the session it put
+// there is the one it arrived as.
+func RequestSessionID(ctx context.Context, sessData *sessioninfo.SessionData) impulse.UUID {
+	if id, ok := ctx.Value(sessioninfo.CTXSessionID).(impulse.UUID); ok {
+		return id
+	}
+
+	return sessData.ID
 }
 
 // verifyLocalActor proves a local actor's claim. An actor with no ActorRealm is an
@@ -128,20 +171,37 @@ func bindActorToSession(ctx context.Context, imp *sessioninfo.Impersonation) err
 // session (Impersonation.ActorID), which is what the permission store names the actor
 // by; a session type whose sessions belong to no account leaves it null. A foreign
 // actor (ActorRealm set) was authenticated elsewhere and has nothing here to check.
+//
+// The actor's session is read through the library's own store (sealed.Session), never
+// through the exported Session of a store that wraps it: who is recorded as the actor is
+// what the library's own row says. And when the call arrived on a validated session,
+// which bindActorToSession has held to be that same session, the row must name the
+// account that session names as well as its username: a session that reached the request
+// as another account's than the store holds it under starts nothing.
 func (s *BaseSession) verifyLocalActor(ctx context.Context, imp *sessioninfo.Impersonation) error {
 	if !imp.IsLocalActor() {
 		return nil
 	}
 	if !imp.SourceSessionID.Valid {
-		return httpio.NewBadRequestMessage("a local actor must name their own session as SourceSessionID; an actor authenticated by another application sets ActorRealm")
+		return httpio.NewBadRequestMessage("a person of this application acts from their own session, and the call names none: name it, or, for an actor another system signed in, name that system")
 	}
 
-	src, err := s.Storage.Session(ctx, imp.SourceSessionID.UUID)
+	src, err := sealed.Session(ctx, s.Storage, imp.SourceSessionID.UUID)
 	if err != nil {
+		if errors.Is(err, sealed.ErrSealed) {
+			return errors.Wrap(err, "sealed.Session()")
+		}
+
 		return httpio.NewForbiddenMessageWithError(err, "the actor's source session is not a session of this application")
 	}
 	if !s.live(src) || src.Impersonation != nil || src.Username != imp.Actor {
 		return httpio.NewForbiddenMessagef("session %s is not a live session of %q in this application", src.ID, imp.Actor)
+	}
+	if current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && current != nil && current.UserID != src.UserID {
+		return httpio.NewForbiddenMessagef(
+			"session %s reached this request as the session of another account than the one the session store holds it under, so it starts no session that acts as someone else",
+			src.ID,
+		)
 	}
 	imp.ActorID = src.UserID
 
@@ -227,10 +287,12 @@ func (s *BaseSession) restorableSource(ctx context.Context, imp *sessioninfo.Imp
 		return nil, false
 	}
 
-	src, err := s.Storage.Session(ctx, imp.SourceSessionID.UUID)
+	// The library's own read (sealed.Session): the session the actor is returned to is
+	// the one the library's own store holds, whatever a store that wraps it answers.
+	src, err := sealed.Session(ctx, s.Storage, imp.SourceSessionID.UUID)
 	if err != nil {
 		if !httpio.HasNotFound(err) {
-			logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.BaseStore.Session()"))
+			logger.FromCtx(ctx).Error(errors.Wrap(err, "sealed.Session()"))
 		}
 
 		return nil, false
@@ -268,17 +330,49 @@ func (s *BaseSession) DestroyImpersonatedSessions(ctx context.Context, actor str
 // present only for an impersonated session so a frontend can banner it and render
 // read-only affordances.
 type ImpersonationResponse struct {
-	Actor         string    `json:"actor"`
-	ActorRealm    string    `json:"actorRealm,omitempty"`
-	PrincipalKind string    `json:"principalKind"`
-	Principal     string    `json:"principal"`
-	Mask          []string  `json:"mask,omitempty"`
-	Reason        string    `json:"reason,omitempty"`
-	ExpiresAt     time.Time `json:"expiresAt"`
+	Actor         string `json:"actor"`
+	ActorRealm    string `json:"actorRealm,omitempty"`
+	PrincipalKind string `json:"principalKind"`
+	Principal     string `json:"principal"`
+	// Mask lists the permission kinds the session keeps. It is omitted for a session
+	// that keeps every kind, and also for one that keeps none: MaskWords tells the two
+	// apart ("nothing" for the second), and a banner shows that.
+	Mask []string `json:"mask,omitempty"`
+	// RefusedClasses are the classes of action the mask refuses inside the kinds it
+	// keeps, and Refused the permissions it refuses on a named action or record;
+	// each omitted when the mask refuses none.
+	RefusedClasses []string             `json:"refusedClasses,omitempty"`
+	Refused        []ImpersonationNamed `json:"refused,omitempty"`
+	// Excepted is what the mask keeps out of the classes it refuses: each entry is one
+	// permission on one named action, record or field that a refused class would
+	// otherwise take. It is omitted when no refused class carries an exception.
+	Excepted []ImpersonationExcepted `json:"excepted,omitempty"`
+	// MaskWords says the whole mask as a person would (accesstypes.PermissionMask.Words):
+	// "everything", "reading only", "everything except credential actions", "everything
+	// except access actions (still allowed: writing Passes)". A banner shows it as it is.
+	MaskWords string    `json:"maskWords"`
+	Reason    string    `json:"reason,omitempty"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// ImpersonationNamed is one permission a mask refuses on one named action or record.
+type ImpersonationNamed struct {
+	Permission string `json:"permission"`
+	Resource   string `json:"resource"`
+}
+
+// ImpersonationExcepted is one permission on one named action, record or field that a
+// mask keeps out of a class it refuses.
+type ImpersonationExcepted struct {
+	Class      string `json:"class"`
+	Permission string `json:"permission"`
+	Resource   string `json:"resource"`
 }
 
 // NewImpersonationResponse renders the record for the Authenticated response; nil in,
-// nil out. Mask is omitted for an unrestricted session.
+// nil out. Mask is omitted for a session that keeps every kind and for one that keeps
+// none, which MaskWords tells apart, and the refusals for a mask that refuses nothing
+// inside the kinds it keeps.
 func NewImpersonationResponse(imp *sessioninfo.Impersonation) *ImpersonationResponse {
 	if imp == nil {
 		return nil
@@ -289,6 +383,7 @@ func NewImpersonationResponse(imp *sessioninfo.Impersonation) *ImpersonationResp
 		ActorRealm:    imp.ActorRealm,
 		PrincipalKind: imp.PrincipalKind(),
 		Principal:     imp.PrincipalName(),
+		MaskWords:     imp.Mask.Words(),
 		Reason:        imp.Reason,
 		ExpiresAt:     imp.ExpiresAt,
 	}
@@ -297,6 +392,19 @@ func NewImpersonationResponse(imp *sessioninfo.Impersonation) *ImpersonationResp
 		for i, perm := range perms {
 			res.Mask[i] = string(perm)
 		}
+	}
+	for _, refusal := range imp.Mask.Refusals() {
+		if class, ok := refusal.Class(); ok {
+			res.RefusedClasses = append(res.RefusedClasses, string(class))
+			for _, exception := range refusal.Exceptions() {
+				perm, resource := exception.Named()
+				res.Excepted = append(res.Excepted, ImpersonationExcepted{Class: string(class), Permission: string(perm), Resource: string(resource)})
+			}
+
+			continue
+		}
+		perm, resource, _ := refusal.Named()
+		res.Refused = append(res.Refused, ImpersonationNamed{Permission: string(perm), Resource: string(resource)})
 	}
 
 	return res
@@ -384,10 +492,13 @@ func (s *BaseSession) ActiveImpersonations(ctx context.Context, q *sessioninfo.I
 }
 
 // EnforceReadOnlyMask refuses non-safe requests (anything but GET, HEAD, OPTIONS and
-// TRACE) from an impersonated session whose mask is read-only — a mask allowing nothing
-// beyond List and Read — with 403 Forbidden, evidenced as a WriteBlocked event. Every
-// other request, including every request of a session that is not impersonated or not
-// masked, passes through. It runs after ValidateSession; without a validated session in
+// TRACE) from an impersonated session whose mask is read-only — a mask that names the
+// kinds it keeps and keeps nothing beyond List and Read
+// (accesstypes.PermissionMask.ReadOnly) — with 403 Forbidden, evidenced as a
+// WriteBlocked event. Every other request, including every request of a session that
+// is not impersonated or not masked, passes through: a mask that keeps every kind and
+// refuses a class or a named action inside them is not read-only, and its refusals are
+// the permission check's. It runs after ValidateSession; without a validated session in
 // the context it passes the request through.
 //
 // The middleware is a coarse, opt-in backstop: it stops a read-only session from
@@ -399,7 +510,7 @@ func (s *BaseSession) EnforceReadOnlyMask(next http.Handler) http.Handler {
 		ctx := r.Context()
 
 		if !internalcookie.SafeMethods.Contain(r.Method) {
-			if sessData, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && sessData.Impersonation != nil && readOnlyMask(sessData.Impersonation.Mask) {
+			if sessData, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && sessData.Impersonation != nil && sessData.Impersonation.Mask.ReadOnly() {
 				operation := r.Method + " " + r.URL.Path
 				if err := s.EmitImpersonationEvent(ctx, sessioninfo.ImpersonationWriteBlocked, sessData.Impersonation, operation); err != nil {
 					logger.FromCtx(ctx).Error(err)
@@ -413,22 +524,6 @@ func (s *BaseSession) EnforceReadOnlyMask(next http.Handler) http.Handler {
 
 		return nil
 	})
-}
-
-// readOnlyMask reports whether mask is read-only: restricted, and allowing nothing
-// beyond List and Read. The unrestricted mask is not read-only; the mask that allows
-// nothing is.
-func readOnlyMask(mask accesstypes.PermissionMask) bool {
-	if mask.IsZero() {
-		return false
-	}
-	for _, perm := range mask.Permissions() {
-		if perm != accesstypes.List && perm != accesstypes.Read {
-			return false
-		}
-	}
-
-	return true
 }
 
 // endImpersonation records an observed end of an impersonated session — an expiry

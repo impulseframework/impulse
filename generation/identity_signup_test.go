@@ -98,8 +98,8 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 		// no route, and every write leaves its change event.
 		"internal/crewresources/crew_session_sign_in_methods.go": {
 			generationHeader, "// @resource\n\t// @suppress(listHandler)\n\t// @suppress(readHandler)\n\t// @suppress(patchHandler)\n\t// @outlet(default)\n\tCrewSessionSignInMethod struct {",
-			"Name        string    `spanner:\"Name\"`", "OpenSignUp  bool      `spanner:\"OpenSignUp\"`", "OpenedFor   *string   `spanner:\"OpenedFor\"`",
-			"DefaultRole *string   `spanner:\"DefaultRole\"`",
+			"Name             string    `spanner:\"Name\"`", "OpenSignUp       bool      `spanner:\"OpenSignUp\"`", "OpenedFor        *string   `spanner:\"OpenedFor\"`",
+			"DefaultRole      *string   `spanner:\"DefaultRole\"`", "SelfServiceReset bool      `spanner:\"SelfServiceReset\"`",
 			"func (CrewSessionSignInMethod) Config() resource.Config {\n\treturn defaultConfig().SetTrackChanges(true)\n}",
 		},
 		"crewidentity/crew_sign_in_methods.go": {
@@ -121,17 +121,21 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 		// from the roles a person who signs up may be given, and is not required of the
 		// request that asks for the warning.
 		"crewidentity/open_crew_sign_up.go": {
-			generationHeader, "// @rpc\n// @outlet(default)\n// @answers(204)\n// @warning(typed: open)\ntype OpenCrewSignUp struct {",
+			generationHeader, "// @rpc\n// @outlet(default)\n// @answers(204)\n// @warning(typed: open)\n// @class(access)\ntype OpenCrewSignUp struct {",
 			"Name string `validate:\"required\"`", "// @enumerate(CrewSignUpRoles)\n\tDefaultRole string\n",
 			"func (m *OpenCrewSignUp) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {",
 			"client.manager.OpenSignUpWarning(ctx, txn, m.signUp())", "client.manager.OpenSignUp(ctx, txn, m.signUp())",
 			"return &identity.SignUp{Method: m.Name, DefaultRole: accesstypes.Role(m.DefaultRole)}",
 		},
 		"crewidentity/make_crew_invite_only.go": {
-			generationHeader, "// @rpc\n// @outlet(default)\n// @answers(204)\ntype MakeCrewInviteOnly struct {", "Name string `validate:\"required\"`",
+			generationHeader, "// @rpc\n// @outlet(default)\n// @answers(204)\n// @class(access)\ntype MakeCrewInviteOnly struct {", "Name string `validate:\"required\"`",
 			"client.manager.MakeInviteOnly(ctx, txn, m.Name)",
 		},
 		"crewidentity/store.go": {
+			"func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, name string, on bool) error {",
+			"crewresources.NewCrewSessionSignInMethodUpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)",
+			"crewresources.NewCrewSessionSignInMethodCreatePatch(name).SetOpenSignUp(false).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)",
+			"SelfServiceReset: row.Data.SelfServiceReset,",
 			"func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {",
 			"func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {",
 			// Either write is the generated patch's, buffered under the caller, which is
@@ -139,7 +143,7 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 			"patch.Buffer(ctx, txn, resource.UserEvent(ctx))",
 			// The row is read with the audience it was opened for, and each of the two
 			// writes, of a row that exists and of one that does not, writes it.
-			"Columns().Name().OpenSignUp().OpenedFor().DefaultRole())", "OpenedFor: row.Data.OpenedFor",
+			"Columns().Name().OpenSignUp().OpenedFor().DefaultRole().SelfServiceReset())", "OpenedFor: row.Data.OpenedFor",
 			"crewresources.NewCrewSessionSignInMethodUpdatePatch(row.Name).\n\t\t\tSetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole)",
 			"crewresources.NewCrewSessionSignInMethodCreatePatch(row.Name).\n\t\tSetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole)",
 		},
@@ -196,7 +200,7 @@ func Test_prepareIdentity_signUpWithTenants(t *testing.T) {
 	}
 	assertFileContains(t, "crewidentity/open_crew_sign_up.go",
 		[]string{
-			"// @warning(typed: open)\ntype OpenCrewSignUp struct {", "Name string `validate:\"required\"`\n}",
+			"// @warning(typed: open)\n// @class(access)\ntype OpenCrewSignUp struct {", "Name string `validate:\"required\"`\n}",
 			"return &identity.SignUp{Method: m.Name, CreatesTenant: true}", "they create a ship of their own",
 		},
 		[]string{"DefaultRole", "accesstypes"},

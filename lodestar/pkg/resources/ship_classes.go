@@ -8,6 +8,13 @@ type (
 	// is the target of a join-path attribute from a SECTOR-scoped table: Ship's shipRole
 	// attribute reaches ClassId.RoleId, a join path into a global table.
 	//
+	// InService is the yes or no whose column declares its own default: the table says
+	// NOT NULL DEFAULT (TRUE), so a create that names no value stores yes, the field is not
+	// one a create must be given, and the generated browser metadata carries the yes, which
+	// is where the console's form starts the box. Hardened declares nothing, so a create
+	// must be given it, and the console's form draws it as a choice of yes or no that
+	// starts at No.
+	//
 	// It declares no @order, the one listed table in the demo that does not, and no
 	// maximum, so the ship form's class picker reads the whole catalog with limit=all:
 	// that whole read is not sorted, the statement carries no ORDER BY and the hulls
@@ -26,5 +33,6 @@ type (
 		RoleID      string       `spanner:"RoleId"`
 		Tonnage     int64        `spanner:"Tonnage"`
 		Hardened    bool         `spanner:"Hardened"`
+		InService   bool         `spanner:"InService"`
 	}
 )

@@ -813,3 +813,79 @@ func TestCopyMethod(t *testing.T) {
 		})
 	}
 }
+
+// harnessSource is a test file that builds the auth's settings twice, once on one line
+// and once over lines, and once more with the element set already.
+const harnessSource = `package integration
+
+import "example.com/acme/beacon/pkg/auth/staff"
+
+func first() *staff.Settings {
+	return &staff.Settings{CookieKey: "a"}
+}
+
+func second() *staff.Settings {
+	return &staff.Settings{
+		CookieKey: "b",
+	}
+}
+
+func third() *staff.Settings {
+	return &staff.Settings{CookieKey: "c", DevicePage: "/console/device"}
+}
+
+func other() *staff.Signals {
+	return &staff.Signals{}
+}
+`
+
+func TestAddLiteralElementToEachOfType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		typeName string
+		element  string
+		want     string
+		wantErr  string
+		noAnchor bool
+	}{
+		{
+			name: "every literal that lacks the element gains it, as each is written", typeName: "staff.Settings", element: `DevicePage: "/device"`,
+			want: strings.Replace(strings.Replace(harnessSource, `{CookieKey: "a"}`, `{CookieKey: "a", DevicePage: "/device"}`, 1),
+				"\t\tCookieKey: \"b\",\n", "\t\tCookieKey:  \"b\",\n\t\tDevicePage: \"/device\",\n", 1),
+		},
+		{
+			name: "an element every literal sets already", typeName: "staff.Settings", element: `CookieKey: "z"`,
+			want: harnessSource,
+		},
+		{
+			name: "a type the file builds no literal of", typeName: "members.Settings", element: `DevicePage: "/device"`,
+			wantErr: "builds no members.Settings literal", noAnchor: true,
+		},
+		{
+			name: "an element without a key", typeName: "staff.Settings", element: `"/device"`,
+			wantErr: "has no key",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := AddLiteralElementToEachOfType("harness_test.go", []byte(harnessSource), tt.typeName, tt.element)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) || errors.Is(err, ErrNoAnchor) != tt.noAnchor {
+					t.Fatalf("AddLiteralElementToEachOfType() error = %v, want %q (ErrNoAnchor %v)", err, tt.wantErr, tt.noAnchor)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("AddLiteralElementToEachOfType() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, string(got)); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

@@ -1,5 +1,12 @@
 import { Commendations, Pilots, Resources } from '@app/service/zz_gen_constants';
-import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@impulseframework/resource-angular/types';
+import {
+  enumeratedConfig,
+  field,
+  listViewConfig,
+  multiColumnConfig,
+  rootConfig,
+  section,
+} from '@impulseframework/resource-angular/types';
 
 // Commendations is the commendations desk: a citation on a pilot's record for a sortie
 // flown well, filed by headquarters and read by the crew. It is the one resource behind a
@@ -23,9 +30,21 @@ export const commendationsConfig = rootConfig({
   parentConfig: listViewConfig({
     title: 'Commendations',
     createTitle: 'Commendation',
+    createButtonLabel: 'Add a commendation',
     primaryResource: Resources.Commendations,
     listColumns: [
-      { id: Commendations.fieldName.pilotId, header: 'Pilot' },
+      // The pilot by the name on the registry: a citation holds the pilot's id, which
+      // nobody reads. One request resolves a page's pilots. The field behind the column
+      // is the id, so a filter typed over it, or a sort by it, would be asked of ids:
+      // the column offers neither.
+      multiColumnConfig({
+        id: Commendations.fieldName.pilotId,
+        header: 'Pilot',
+        additionalIds: [{ id: Pilots.fieldName.id, resource: Resources.Pilots, field: Pilots.fieldName.displayName }],
+        concatFn: 'hyphen-concat',
+        filterable: false,
+        sortable: false,
+      }),
       { id: Commendations.fieldName.citation },
       { id: Commendations.fieldName.awardedByName, header: 'Awarded by' },
       { id: Commendations.fieldName.awardedAt, header: 'Awarded' },

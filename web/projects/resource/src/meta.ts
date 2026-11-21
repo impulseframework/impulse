@@ -17,6 +17,11 @@ import { Resource } from './brands';
  */
 export type ValidDisplayTypes =
   | 'string'
+  /**
+   * An integer, a float, or a decimal. A decimal is a string in the interface, because
+   * its JSON is a quoted string that keeps every digit, and this name says it is drawn
+   * and entered as a number.
+   */
   | 'number'
   | 'boolean'
   /** A nullable BOOL column: null, true, or false (NullBoolean), one tri-state control. */
@@ -103,6 +108,14 @@ export interface MethodTransition {
 export interface MethodTarget {
   resource: Resource;
   key: Record<string, string>;
+  /**
+   * The request fields of the key whose empty text is a value of the key, such as the
+   * group of a role a person holds directly: a text field the method does not declare
+   * required. A row that holds the empty text there is named by it, and it is sent as it
+   * is. Every other part of the key holds a value on every row, and a row that holds
+   * none there is refused. Absent where no part of the key may be empty.
+   */
+  mayBeEmpty?: string[];
 }
 
 export interface MethodMeta {
@@ -152,6 +165,14 @@ export interface FieldMeta {
    * Use the validators config parameter in all other contexts
    */
   required: boolean;
+  /**
+   * The default the schema declares for a yes or no field, emitted by the generator from
+   * the column's `DEFAULT (TRUE)` or `DEFAULT (FALSE)`: what the server stores for a create
+   * that leaves the field out. A create form starts the field there, so the form shows
+   * what an untouched save stores. Absent where the column declares no default, or one
+   * that is neither word, and on every field that is not a yes or no.
+   */
+  schemaDefault?: boolean;
   primaryKey?: { ordinalPosition: number };
   displayType: ValidDisplayTypes;
   /** The resource whose rows a picker for this key lists; absent when the values are fixed (see enumeration). */
@@ -179,6 +200,15 @@ export interface FieldMeta {
    * a filter naming the field is refused.
    */
   filterable?: FilterEligibility;
+  /**
+   * Set when the server refuses a sort by this field: its values have no order the query
+   * decoder knows (a list, a map, a nested object), and a request that sorts by it is
+   * answered 400. A table draws such a column's heading as words, with nothing to press,
+   * so it offers no sort the server would refuse. Absent on every field the server
+   * orders: text, numbers, yes or no, moments, dates, decimals and UUIDs. Emitted by the
+   * generator from the field's declared type.
+   */
+  sortable?: false;
   /**
    * The text matches the server answers on this field, derived from the schema: a stored
    * LOWER(col) column leading an index answers `startswith`; a token column under the
@@ -311,11 +341,33 @@ export interface ResourceMeta {
    */
   searchBranches?: SearchBranchMeta[];
   /**
+   * The resource's name fields: beside an id field that points to a row with a name, the
+   * name of that row. A name is no column of the resource: it is looked up by the id in
+   * the pointed-to table, stored nowhere and never written. Absent on a resource none of
+   * whose id fields points to a row with a name.
+   */
+  nameFields?: NameFieldMeta[];
+  /**
    * The feature flag that gates the resource, by name; absent on an ungated resource.
    * The generated routes read it to skip the page while the flag is off. See
    * ResourceDescriptor.feature.
    */
   feature?: string;
+}
+
+/**
+ * One name field of a resource: the name of the row an id field points to, where the
+ * pointed-to resource says what its rows are known by (`@name`, the tenant record's
+ * `@tenantName`, or an enumeration table's description). It is spelled as the id field
+ * with a trailing `Id` dropped, then `Name`: `squadronId` gives `squadronName`.
+ */
+export interface NameFieldMeta {
+  /** The name field's JSON name, as the row type carries it. */
+  fieldName: string;
+  /** The id field the name stands beside, by JSON name. */
+  of: string;
+  /** Set when the pointed-to name is declared `pii`: a filter by it travels in the body. */
+  pii?: true;
 }
 
 export type Meta = MethodMeta | ResourceMeta;

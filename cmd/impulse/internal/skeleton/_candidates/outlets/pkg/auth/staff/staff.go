@@ -20,6 +20,10 @@
 // adds an address and proves it by following the link sent to it; and, while an
 // administrator has the password method open to sign-up, a stranger signs up from a link
 // mailed to the address they give.
+// An address an administrator sets for a person is theirs once its mailbox confirms it,
+// by the link the auth mails there; and a person who forgot their password gets back
+// in by a link mailed to the address they confirmed, which an administrator sends or,
+// while an administrator allows it, the person asks for at the sign-in page.
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
@@ -125,14 +129,19 @@ func Roles() access.RoleFile {
 	return roleFile
 }
 
-// Settings are the auth's settings: the collection the role file validates against, the
-// live service the permission engine signals through, and the environment-derived values,
-// the settings of each sign-in method among them.
+// Settings are the auth's settings: the collection the permission engine holds every
+// grant to, the live service it signals through, and the environment-derived values, the
+// settings of each sign-in method among them.
 type Settings struct {
 	// Collection is the generated permission collection: the resources, permissions and
-	// fields the release declares, which the role file validates against when the engine
-	// opens. The package that constructs the auth passes it in; this package imports no
-	// router.
+	// fields the release declares, which the permission engine holds every grant to. The
+	// role file validates against it when the engine opens, a grant written to a custom
+	// role is refused unless the collection lists what it names, and a stored grant that
+	// names anything else is skipped and reported each time the policy loads. The package
+	// that constructs the auth passes it in, the generated router's Collection() or, where
+	// the application has several sites, the union of theirs (access.UnionCollection);
+	// this package imports no router. Required; New refuses nil, a nil
+	// pointer of a collection's type included (access.IsNilCollection).
 	Collection access.PermissionCollection
 	// Signals is the application's live service: the permission engine signals the policy
 	// kind on it after every policy write and follows the kind from every other instance
@@ -195,10 +204,8 @@ type Signals interface {
 type Session = session.Auth[session.NoCustomData, session.NoCustomData, *cloudspanner.ReadWriteTransaction]
 
 // Auth is the staff auth: its permission store and its session manager with the
-// sign-in methods registered on it, and the database client it reads its own tables
-// through (the users table, when the deployment seeds the first administrator).
+// sign-in methods registered on it.
 type Auth struct {
-	db       *cloudspanner.Client
 	access   *access.Client
 	handlers *Handlers
 	// identity is the auth's identity client: the generated management of its people
@@ -281,6 +288,14 @@ func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
 }
 
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address: the account holds the address it had until then. The
+// reader of the link confirms it signed in or not, since they may have lost the mailbox
+// their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
+}
+
 // DeviceAuthorize starts a command-line client's device authorization ({"client_id",
 // "outlet"}, form-encoded or JSON): the client is told the code the person types and
 // the device code it polls with. The generated router mounts it under the machine
@@ -342,6 +357,9 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // for the whole application alone: its holder gives and takes any role of the auth, enters
 // every tenant, and signs in with a second factor whatever the sign-in rule asks.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
+	if access.IsNilCollection(settings.Collection) {
+		return nil, errors.New("staff.Settings.Collection is nil: the permission engine holds every grant to the permission collection the release declares; pass the generated router's Collection(), or where the application has several sites the union of theirs (the configuration's Collection(), over access.UnionCollection)")
+	}
 	if settings.Signals == nil {
 		return nil, errors.New("staff.Settings.Signals is nil: the permission engine signals policy changes through the application's live service, which every application wires")
 	}
@@ -362,8 +380,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
 	_, tenantAdministrators := AdministratorRoles()
-	accessClient, err := access.New(store,
-		access.WithDefaultRoles(settings.Collection, Roles()),
+	accessClient, err := access.New(store, settings.Collection,
+		access.WithDefaultRoles(Roles()),
 		access.WithChangeSignal(access.ChangeSignalFunc(announcePolicy(settings.Signals), watchPolicy(settings.Signals))),
 		// What no role file takes from a super administrator: the methods that give and
 		// take the auth's roles, as the generated management names them.
@@ -520,7 +538,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// Tenant of their own, and an open method names no default role.
 	authSession.SetSignUpSeated(identityClient.SignedUp())
 
-	return &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil
+	return &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil
 }
 
 // Access returns the auth's permission engine: the handlers check against it, and its
@@ -547,8 +565,13 @@ func (a *Auth) Identity() *staffidentity.Client {
 	return a.identity
 }
 
-// Close releases the permission engine, which ends its subscription to the policy kind.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine, which ends its subscription to the policy kind. A reset link a person asked
+// for is mailed after their request is answered (session.AuthAPI.WaitForMail), so an
+// application that has stopped serving closes the auth before it closes the database,
+// and no link a person was promised is lost.
 func (a *Auth) Close() error {
+	a.handlers.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}

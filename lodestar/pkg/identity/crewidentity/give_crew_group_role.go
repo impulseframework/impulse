@@ -37,8 +37,9 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type GiveCrewGroupRole struct {
-	// @target(CrewGroup)
+	// @target(CrewListedGroup)
 	GroupID impulse.UUID
 	// Role is the role the group is given. A grant's condition reads it as new.role, so a
 	// role file can limit which roles the grant's holder gives a group.

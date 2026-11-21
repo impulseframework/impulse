@@ -73,11 +73,32 @@ type PermissionCollection interface {
 	RequiredOnCreate(scope accesstypes.PermissionScope, res accesstypes.Resource) []accesstypes.Tag
 }
 
+// noRoleActions is what a permission collection answers beside PermissionCollection
+// when it marks actions no role is given: an action registered so that a permission
+// mask can refuse it to a session that acts as someone, where nothing asks for a grant
+// of it (the action of the generated create-your-tenant route, which admits a person
+// who holds nothing). Such an action is not in the collection's List, so a role's grant
+// that names it is refused whatever the collection answers here; a collection that
+// answers lets the refusal say why. The generated collection answers
+// (resource.GeneratedCollection), and UnionCollection answers for its members.
+type noRoleActions interface {
+	IsNoRoleAction(action accesstypes.Resource) bool
+	NoRoleActions() []accesstypes.Resource
+}
+
+// isNoRoleAction reports whether store marks action as one no role is given.
+func isNoRoleAction(store PermissionCollection, action accesstypes.Resource) bool {
+	marker, ok := store.(noRoleActions)
+
+	return ok && marker.IsNoRoleAction(action)
+}
+
 // RoleFile is the bytes of a role file: the release's default roles, authored
 // as JSON in the RoleConfig shape and embedded in the application binary
-// (//go:embed roles.json). It is handed to New through WithDefaultRoles,
-// which parses and validates it, so a release whose file is malformed or
-// names what its collection does not declare does not start.
+// (//go:embed roles.json). It is handed to New through WithDefaultRoles, and
+// New parses it and validates it against the collection it is given, so a
+// release whose file is malformed or names what its collection does not
+// declare does not start.
 type RoleFile []byte
 
 // Parse decodes the file into its configuration and checks its shape: the
@@ -167,13 +188,34 @@ type Grant struct {
 	Resource accesstypes.Resource `json:"resource"`
 
 	// Fields is the field set the grant covers, spelled as the fields' wire
-	// tags; each expands to a Resource.field grant row.
+	// tags; each expands to a Resource.field grant row. "*" is all of the
+	// resource's fields, the ones a later release adds among them, and
+	// expands to the Resource.* row, which a write to a custom role spells
+	// the same way. Update on all the fields is not Update on a field the
+	// release marks immutable.
 	Fields []accesstypes.Tag `json:"fields,omitempty"`
 
 	// Condition is the grant's limiting condition in the condition expression
 	// language; empty is unconditional. One condition scopes exactly this
 	// grant's field set.
 	Condition string `json:"condition,omitempty"`
+}
+
+// allFields is a field set's spelling of all of a resource's fields: the tag of
+// a Resource.* grant.
+const allFields accesstypes.Tag = "*"
+
+// declaredName is the name the collection declares a role file's grant under:
+// the resource's own for a grant of all its fields (Resource.*), which names
+// no field, and the name as written for every other. A write to a custom role
+// is held to the same name (grantResourceName), so the file and a write give
+// the same grants of all a resource's fields and refuse the same ones.
+func declaredName(res accesstypes.Resource) accesstypes.Resource {
+	if base, tag := res.ResourceAndTag(); tag == allFields {
+		return base
+	}
+
+	return res
 }
 
 // expand returns the grant's stored resource rows: the base resource plus one
@@ -228,8 +270,8 @@ type defaultRole struct {
 // compileDefaultRoles validates and expands the configuration, and adds the
 // role the framework defines beside the file's: Super Administrator, a
 // global role holding Execute on methods, the methods that give and take the
-// auth's roles (WithSuperAdministratorMethods). store may be nil for a
-// configuration that declares no role, a Client built without a role file.
+// auth's roles (WithSuperAdministratorMethods). A Client built without a role
+// file compiles a configuration that declares no role.
 func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, methods []accesstypes.Resource) (*defaultRoles, error) {
 	if err := validateRoleNames(roleConfig.Roles); err != nil {
 		return nil, err
@@ -369,23 +411,18 @@ func isSuperAdministratorName(name accesstypes.Role) bool {
 // auth: Super Administrator, a global role whose one fixed power is Execute,
 // under no condition, on methods, the methods that give and take the auth's
 // roles, so no role file takes from its holder the means to give any role to
-// anyone. With a collection, each method must be one the release declares at
-// the global scope with Execute: the methods give a role wherever it is held,
-// and the role is held in the global partition alone.
+// anyone. Each method must be one the release declares at the global scope
+// with Execute: the methods give a role wherever it is held, and the role is
+// held in the global partition alone.
 func superAdministratorRole(store PermissionCollection, methods []accesstypes.Resource) (defaultRole, error) {
 	role := defaultRole{description: superAdministratorDescription, grants: make(grantSet)}
-	var executable []accesstypes.Resource
-	if store != nil {
-		executable = store.List()[accesstypes.Execute]
-	}
+	executable := store.List()[accesstypes.Execute]
 	for _, method := range methods {
 		if method == "" {
 			return defaultRole{}, errors.New("WithSuperAdministratorMethods names an empty method: pass the methods that give and take the auth's roles")
 		}
-		if store != nil {
-			if scope := store.Scope(method); scope != accesstypes.GlobalPermissionScope || !slices.Contains(executable, method) {
-				return defaultRole{}, errors.Newf("WithSuperAdministratorMethods names %s, which the release does not declare as a method of the global scope: pass the methods that give and take the auth's roles for the whole application, as the auth's generated management names them", method)
-			}
+		if scope := store.Scope(method); scope != accesstypes.GlobalPermissionScope || !slices.Contains(executable, method) {
+			return defaultRole{}, errors.Newf("WithSuperAdministratorMethods names %s, which the release does not declare as a method of the global scope: pass the methods that give and take the auth's roles for the whole application, as the auth's generated management names them", method)
 		}
 		role.grants.add(accesstypes.Execute, method, "")
 	}
@@ -537,13 +574,18 @@ func (s grantSet) reads(res accesstypes.Resource) bool {
 }
 
 // listed renders the set in the shape UserManager.RoleGrants speaks: each
-// resource's conditions, sorted.
-func (s grantSet) listed() map[accesstypes.Permission]map[accesstypes.Resource][]string {
-	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]string, len(s))
+// resource's grants, sorted by condition. The set is a role's of the release, held to
+// the whole rule when the role file was read, so the role holds each.
+func (s grantSet) listed() map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant {
+	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant, len(s))
 	for perm, resources := range s {
-		out[perm] = make(map[accesstypes.Resource][]string, len(resources))
+		out[perm] = make(map[accesstypes.Resource][]RoleGrant, len(resources))
 		for res, conditions := range resources {
-			out[perm][res] = sortedConditions(conditions)
+			grants := make([]RoleGrant, 0, len(conditions))
+			for _, text := range sortedConditions(conditions) {
+				grants = append(grants, RoleGrant{Condition: text})
+			}
+			out[perm][res] = grants
 		}
 	}
 
@@ -596,18 +638,19 @@ func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.
 			}
 
 			for _, res := range grant.expand() {
-				scope := store.Scope(res)
+				name := declaredName(res)
+				if isNoRoleAction(store, name) {
+					return nil, errors.Newf("role %s grants %s on %s, which is an action no role is given: nothing asks for a grant of it, so the grant would do nothing, and the action is registered only so that a permission mask can refuse it to a session that acts as someone; remove the grant from the role", r.Name, perm, name)
+				}
+				scope := store.Scope(name)
 				if scope == "" {
-					return nil, errors.Newf("resource %s does not require a permission or does not exist", res)
+					return nil, errors.Newf("resource %s does not require a permission or does not exist", name)
 				}
-				if !slices.Contains(storePermissions[perm], res) {
-					return nil, errors.Newf("resource %s does not require permission %s", res, perm)
+				if !slices.Contains(storePermissions[perm], name) {
+					return nil, errors.Newf("resource %s does not require permission %s", name, perm)
 				}
-				if perm == accesstypes.Update && store.IsResourceImmutable(scope, res) {
-					return nil, errors.Newf("role %s cannot have update permission on immutable resource %s", r.Name, res)
-				}
-				if scope != declared {
-					return nil, errors.Newf("role %s is a %s role but grants %s on %s, a %s-scoped resource — a role's grants live at its declared scope; move the grant to a %s role", r.Name, declared, perm, res, scope, scope)
+				if err := misplacedGrant(store, r.Name, declared, perm, name, scope); err != nil {
+					return nil, err
 				}
 
 				desired.add(perm, res, grant.Condition)
@@ -616,6 +659,27 @@ func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.
 	}
 
 	return desired, nil
+}
+
+// misplacedGrant says why a role declared at a scope cannot hold a permission
+// on a resource of the collection's, held there in scope, or nil when it can:
+// Update is not given on a resource the release marks immutable (a grant of
+// all a resource's fields names none and reaches no immutable one:
+// snapshot.allFieldsLeaveOut), and a role's
+// grants are of its own scope, since one on a resource of another scope would
+// be provisioned into a partition the role's holders never look in. It is the
+// part of the role file's rule a listed name can still break, and a write to a
+// custom role and a load of a role's stored grant are held to it in the same
+// sentences (grantRule.refusal).
+func misplacedGrant(store PermissionCollection, role accesstypes.Role, declared accesstypes.PermissionScope, perm accesstypes.Permission, res accesstypes.Resource, scope accesstypes.PermissionScope) error {
+	if perm == accesstypes.Update && store.IsResourceImmutable(scope, res) {
+		return errors.Newf("role %s cannot have update permission on immutable resource %s", role, res)
+	}
+	if scope != declared {
+		return errors.Newf("role %s is a %s role but grants %s on %s, a %s-scoped resource — a role's grants live at its declared scope; move the grant to a %s role", role, declared, perm, res, scope, scope)
+	}
+
+	return nil
 }
 
 // authoredGrants tracks the (permission, resource, condition) triples a role's

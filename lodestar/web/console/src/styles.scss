@@ -17,18 +17,18 @@ body {
   color: var(--mat-sys-on-surface);
 }
 
-.page-content {
-  padding: 16px 24px;
-}
-
 .empty {
   padding: 16px;
   color: var(--mat-sys-on-surface-variant);
 }
 
+// The cards a page of the console draws: a table, the row that is open, a form drawn on
+// its page, and the Roster's card of the two buttons that view as a crew member or act as
+// a role.
 .table-card,
 .detail-card,
-.create-card {
+.create-card,
+.impersonation-card {
   margin: 16px 0;
 
   table {
@@ -46,6 +46,48 @@ body {
   .grow {
     flex: 1;
     min-width: 240px;
+  }
+}
+
+// A row of a page's own buttons. One that adds or changes something opens its form in a
+// dialog over the page; the row wraps where the page is narrow.
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+// A form of a page's own, opened in a dialog over the page: the fields one under another,
+// each as wide as the dialog, so the form reads the same at every width.
+.dialog-form {
+  mat-form-field {
+    width: 100%;
+  }
+
+  input[type='file'] {
+    display: block;
+    max-width: 100%;
+    margin: 4px 0 12px;
+  }
+
+  // What the dialog asks before anything is sent: the action, what it is done to, and what
+  // will happen.
+  .asks {
+    margin: 0 0 12px;
+  }
+
+  .hint {
+    margin: 0 0 12px;
+    color: var(--mat-sys-on-surface-variant);
+    font-size: 0.85rem;
+  }
+
+  // What the server refused of the form, under its fields, as the library's dialogs show one.
+  .refusal {
+    margin: 12px 0 0;
+    color: var(--mat-sys-error);
   }
 }
 

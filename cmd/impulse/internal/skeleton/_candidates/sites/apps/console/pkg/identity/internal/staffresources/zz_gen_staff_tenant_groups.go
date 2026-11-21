@@ -31,6 +31,8 @@ type staffTenantGroupRead struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description"`
 	UpdatedAt   time.Time    `json:"updatedAt"`
+	People      int64        `json:"people"`
+	Roles       []string     `json:"roles"`
 }
 
 var staffTenantGroupReadSets resource.SetCache[StaffTenantGroup, staffTenantGroupRead]
@@ -144,6 +146,8 @@ func (c *StaffTenantGroupColumns) All() *StaffTenantGroupColumns {
 		"Name",
 		"Description",
 		"UpdatedAt",
+		"People",
+		"Roles",
 	}
 
 	return c
@@ -175,6 +179,18 @@ func (c *StaffTenantGroupColumns) Description() *StaffTenantGroupColumns {
 
 func (c *StaffTenantGroupColumns) UpdatedAt() *StaffTenantGroupColumns {
 	c.fields = append(c.fields, "UpdatedAt")
+
+	return c
+}
+
+func (c *StaffTenantGroupColumns) People() *StaffTenantGroupColumns {
+	c.fields = append(c.fields, "People")
+
+	return c
+}
+
+func (c *StaffTenantGroupColumns) Roles() *StaffTenantGroupColumns {
+	c.fields = append(c.fields, "Roles")
 
 	return c
 }
@@ -287,6 +303,14 @@ func (c *staffTenantGroupSort) Description() *StaffTenantGroupSort {
 
 func (c *staffTenantGroupSort) UpdatedAt() *StaffTenantGroupSort {
 	return c.addField("UpdatedAt")
+}
+
+func (c *staffTenantGroupSort) People() *StaffTenantGroupSort {
+	return c.addField("People")
+}
+
+func (c *staffTenantGroupSort) Roles() *StaffTenantGroupSort {
+	return c.addField("Roles")
 }
 
 type StaffTenantGroupSort struct {

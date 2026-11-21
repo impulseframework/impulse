@@ -443,4 +443,4 @@ jobs:
             echo "infrastructure/placement.json pins no bedrock (bedrockVersion); bedrock org register writes the pin"
             exit 1
           fi
-          go run github.com/impulseframework/impulse/bedrock@"$pin" migration check
+          go run [[.BedrockModule]]@"$pin" migration check

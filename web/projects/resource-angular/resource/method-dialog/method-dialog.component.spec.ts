@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideNativeDateAdapter } from '@angular/material/core';
-import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
+import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { provideRouter } from '@angular/router';
 import {
   ApiDescriptor,
@@ -16,13 +16,16 @@ import {
 } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
-import { METHOD_META, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
+import { METHOD_META, RecordData, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
+import { EMPTY } from 'rxjs';
+import { offered } from '../row-methods/row-methods';
 import {
   declaredRefusal,
   MethodDialogComponent,
   MethodDialogData,
   MethodDialogResult,
 } from './method-dialog.component';
+import { openMethodDialog } from './open-method-dialog';
 
 // The dialog a page runs a generated method through: drawn from the method's metadata,
 // it calls the method itself in the selected tenant, shows a refusal in the server's
@@ -47,6 +50,13 @@ const descriptor: ApiDescriptor = {
       property: 'renameCrewSectorUser',
       route: 'rename-crew-sector-user',
       scope: 'domain',
+    },
+    RemoveCrewSectorRole: {
+      method: 'RemoveCrewSectorRole' as Method,
+      property: 'removeCrewSectorRole',
+      route: 'remove-crew-sector-role',
+      scope: 'domain',
+      statuses: [204],
     },
     SettleAccount: {
       method: 'SettleAccount' as Method,
@@ -111,8 +121,24 @@ const descriptor: ApiDescriptor = {
 };
 
 const people = 'CrewSectorUsers' as Resource;
+const heldRoles = 'CrewSectorHeldRoles' as Resource;
 const documents = 'MissionDocuments' as Resource;
 const methodMeta: Record<string, MethodMeta> = {
+  // Runs against a role a person holds, whose key names the group the role comes through:
+  // the empty text on a role held directly, which the method says the part may be.
+  RemoveCrewSectorRole: {
+    route: 'remove-crew-sector-role',
+    target: {
+      resource: heldRoles,
+      key: { userId: 'userId', role: 'role', groupId: 'groupId' },
+      mayBeEmpty: ['groupId'],
+    },
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'groupId', displayType: 'string' },
+    ],
+  },
   DisableCrewSectorUser: {
     route: 'disable-crew-sector-user',
     target: { resource: people, key: { userId: 'id' } },
@@ -230,6 +256,26 @@ async function open(data: MethodDialogData, transport: ScriptedTransport): Promi
 const text = (o: Opened, selector: string): string =>
   (o.fixture.nativeElement as HTMLElement).querySelector(selector)?.textContent?.trim() ?? '';
 
+/**
+ * What a row's action hands the dialog: the page's own call (openMethodDialog) for the
+ * method on the row, with the dialog it would open kept from opening.
+ */
+function fromRow(method: string, row: RecordData, confirm?: string): MethodDialogData {
+  let handed: MethodDialogData | undefined;
+  const dialog = {
+    open: (_: unknown, config: { data: MethodDialogData }) => {
+      handed = config.data;
+      return { afterClosed: () => EMPTY };
+    },
+  } as unknown as MatDialog;
+  const presented = confirm ? [{ method: method as Method, confirm }] : [];
+  openMethodDialog(dialog, offered(method as Method, methodMeta[method], presented), row);
+  if (!handed) {
+    throw new Error(`${method}: the row's action opened no dialog`);
+  }
+  return handed;
+}
+
 describe('MethodDialogComponent', () => {
   it('asks before a method that takes nothing but the row, runs it in the selected tenant, and closes with its answer', async () => {
     const o = await open(
@@ -247,6 +293,34 @@ describe('MethodDialogComponent', () => {
     expect(o.transport.requests[0].body).toEqual({ userId: 'u-1' });
     expect(o.closed).toEqual([{ answer: undefined }]);
     expect(o.component.busy()).toBe(false);
+  });
+
+  it('runs a row action whose key holds a part that is empty on the row, and sends the part as the empty text it is', async () => {
+    // A role held directly comes through no group: the row's group is the empty text.
+    const own = { userId: 'u-1', role: 'Pilot', groupId: '', username: 'ada' };
+    const o = await open(
+      fromRow('RemoveCrewSectorRole', own, 'Take Pilot away from ada?'),
+      scriptedTransport({ status: 204, body: undefined }),
+    );
+    expect(text(o, '.question')).toBe('Take Pilot away from ada?');
+    expect(o.component.asked).toEqual([]);
+
+    await o.component.run();
+
+    expect(o.transport.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
+      'POST /api/sectors/anvil/remove-crew-sector-role',
+    ]);
+    expect(o.transport.requests[0].body).toEqual({ userId: 'u-1', role: 'Pilot', groupId: '' });
+    expect(o.closed).toEqual([{ answer: undefined }]);
+  });
+
+  it('opens no dialog on a row whose key is empty in a part that must hold a value', () => {
+    expect(() => fromRow('RemoveCrewSectorRole', { userId: 'u-1', role: '', groupId: '' })).toThrow(
+      'RemoveCrewSectorRole names its target row by role, which is empty on this row',
+    );
+    expect(() => fromRow('DisableCrewSectorUser', { id: '' })).toThrow(
+      'DisableCrewSectorUser names its target row by id, which is empty on this row',
+    );
   });
 
   it('asks the question from the label where the page gives none', async () => {
@@ -561,7 +635,7 @@ describe('MethodDialogComponent with a method that takes files', () => {
 // each change; a refusal as not permitted turns the inputs a condition may read red and
 // holds the button until a marked input changes.
 describe('MethodDialogComponent rehearsing a method whose grant is conditional', () => {
-  const notPermitted = 'user ada, scope anvil, does not have Execute on [GiveRole]';
+  const notPermitted = 'You may not do this here.';
   /** What the server answers a dry run with, by the role it names; a test replaces it. */
   let dryRun: (body: Record<string, unknown>) => TransportResponse | Promise<TransportResponse>;
   let digest: PermissionDigest;
@@ -1025,12 +1099,12 @@ describe('MethodDialogComponent running a method that warns', () => {
   it("shows a refusal of the question in the server's words, and holds the button though the word is typed", async () => {
     warning = () => ({
       status: 403,
-      body: { message: 'user ada, scope global, does not have Execute on [OpenSignUp]' },
+      body: { message: 'You may not do this here.' },
     });
     const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
     await settle(o);
 
-    expect(text(o, '.refusal')).toBe('user ada, scope global, does not have Execute on [OpenSignUp]');
+    expect(text(o, '.refusal')).toBe('You may not do this here.');
     expect((o.fixture.nativeElement as HTMLElement).querySelector('.warning')).toBeNull();
 
     o.component.typed.setValue('open');

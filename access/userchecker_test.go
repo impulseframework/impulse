@@ -14,7 +14,7 @@ func TestClient_ForUser(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client, err := New(newFakeStore())
+	client, err := New(newFakeStore(), fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -94,7 +94,7 @@ func TestUserChecker_PermissionDigest(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client, err := New(newFakeStore())
+	client, err := New(newFakeStore(), fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -165,7 +165,7 @@ func TestUserChecker_HasGrants(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	client, err := New(newFakeStore())
+	client, err := New(newFakeStore(), fixtureCollection)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

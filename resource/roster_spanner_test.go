@@ -295,7 +295,9 @@ func TestTenantRoster_follows(t *testing.T) {
 	}{
 		{name: "the signal reloads the second roster at once", signals: true, backstop: time.Hour, within: 2 * time.Second},
 		{name: "the backstop brings the row in without a signal", backstop: 50 * time.Millisecond, within: 2 * time.Second},
-		{name: "a failed reread keeps the last set until the next succeeds", signals: true, backstop: time.Hour, failReads: true, within: 2 * time.Second},
+		// The second signal comes inside the pause after the failed reread, so the reread
+		// that brings the row in is the first lookup's past the pause, a second later.
+		{name: "a failed reread keeps the last set until the next succeeds", signals: true, backstop: time.Hour, failReads: true, within: 5 * time.Second},
 	}
 
 	for i, tt := range tests {
@@ -335,7 +337,9 @@ func TestTenantRoster_follows(t *testing.T) {
 			if !first.Has("beta") {
 				t.Fatal("first.Has(beta) = false right after Add; a write must be visible at once")
 			}
-			if second.Has("beta") {
+			// A roster on a short backstop may have reread already, by its tick or by this
+			// very lookup, so only the rosters that wait for the signal are asked.
+			if tt.signals && second.Has("beta") {
 				t.Fatal("second.Has(beta) = true before any reload")
 			}
 			secondClient.fail.Store(tt.failReads)
@@ -359,6 +363,13 @@ func TestTenantRoster_follows(t *testing.T) {
 			}
 			if !eventually(t, tt.within, func() bool { return second.Has("beta") }) {
 				t.Fatalf("the second roster did not show beta within %s", tt.within)
+			}
+
+			// The first roster heard the signal too. Its lookup returns once the reread that
+			// followed the signal has landed, so that reread cannot land behind the Remove
+			// below and bring the row back.
+			if !first.Has("beta") {
+				t.Fatal("first.Has(beta) = false once its reread landed; the row is committed")
 			}
 
 			// The first instance's delete path: the commit, then Remove, then the signal.
@@ -414,8 +425,9 @@ func TestTenantRoster_HasPerformsNoRead(t *testing.T) {
 }
 
 // TestTenantRoster_concurrentHas pins the set's safety under the race detector: lookups
-// never wait on, and never tear under, the writers (Add, Remove and the rereads a tight
-// backstop and a stream of signals drive).
+// never tear under the writers (Add, Remove and the rereads a tight backstop and a
+// stream of signals drive), whether a lookup is answered from the copy as it stands or
+// rereads the table first.
 func TestTenantRoster_concurrentHas(t *testing.T) {
 	t.Parallel()
 
@@ -489,6 +501,11 @@ func TestTenantRoster_stopsWithContext(t *testing.T) {
 	}
 	if !r.Has("alpha") {
 		t.Error("Has(alpha) = false after the context ended; the last set stays")
+	}
+	// The lookup found the copy past its backstop, and read nothing: the roster is kept
+	// current until the context ends and no longer.
+	if got := counting.reads.Load(); got != reads {
+		t.Errorf("reads after a lookup past the backstop, once the context ended = %d, want %d", got, reads)
 	}
 }
 

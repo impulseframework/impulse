@@ -2,6 +2,7 @@
 package integration
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,7 +35,7 @@ func TestDryRun(t *testing.T) {
 		wantRefusal   string
 	}{
 		{name: "the marshal's hold would commit", user: "marshal", method: "hold-mission", body: `{"missionId":%q,"reason":"debris"}`, wantStatus: http.StatusOK, table: "Missions", column: "StatusId", key: missionConvoyID},
-		{name: "the flight lead's hold would be refused on the notes", user: "lead", method: "hold-mission", body: `{"missionId":%q,"reason":"debris"}`, wantStatus: http.StatusForbidden, table: "Missions", column: "StatusId", key: missionConvoyID, wantRefusal: "does not have (Update) on [Missions]"},
+		{name: "the flight lead's hold would be refused on the notes", user: "lead", method: "hold-mission", body: `{"missionId":%q,"reason":"debris"}`, wantStatus: http.StatusForbidden, table: "Missions", column: "StatusId", key: missionConvoyID, wantRefusal: "You may not change missions here."},
 		{name: "an inspection would commit and answers with no body", user: "engineer", method: "inspect-ship", body: `{"refitId":%q}`, wantStatus: http.StatusOK, table: "Refits", column: "StatusId", key: refitLanternID},
 	}
 	for _, tt := range tests {
@@ -197,7 +198,7 @@ func TestHeadersAskNothingOfACallThatHasNeither(t *testing.T) {
 	if after := readRows(t, h, "quartermaster", expenses); !reflect.DeepEqual(after, expensesBefore) {
 		t.Errorf("the sector's expenses after the refused calls = %v, want them as seeded: %v", after, expensesBefore)
 	}
-	if _, after := doRequestAs(t, h, "governor", http.MethodGet, client, ""); string(after) != string(clientBefore) {
+	if _, after := doRequestAs(t, h, "governor", http.MethodGet, client, ""); !bytes.Equal(after, clientBefore) {
 		t.Errorf("the client after the refused calls = %s, want it as seeded: %s", after, clientBefore)
 	}
 }

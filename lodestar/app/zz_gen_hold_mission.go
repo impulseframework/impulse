@@ -80,22 +80,28 @@ func (a *App) HoldMission() http.HandlerFunc {
 				SetID(p.MissionID).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("Mission", p.MissionID)
+				}
+
 				return errors.Wrap(err, "resources.MissionQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("Mission %s does not exist", p.MissionID)
+				return resource.TargetNotFound("Mission", p.MissionID)
 			}
 			if ok, err := resource.TenantKeyEquals(row.Data.SectorID, domain); err != nil {
 				return errors.Wrap(err, "resource.TenantKeyEquals()")
 			} else if !ok {
-				return httpio.NewNotFoundMessagef("Mission %s does not exist", p.MissionID)
+				return resource.TargetNotFound("Mission", p.MissionID)
 			}
 			switch row.Data.StatusID {
 			case "underway":
 			default:
 				// One refusal for the state check and the grant condition
 				// alike: the wire never says which said no (§12).
-				return httpio.NewForbiddenMessagef("HoldMission may not run against Mission %s", p.MissionID)
+				return resource.TargetRefused("HoldMission", "Mission", p.MissionID)
 			}
 
 			// A row-referencing condition on the caller's Execute grant

@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -141,6 +142,10 @@ type consolidatedCaseData struct {
 	// record's delete clears the tenant through (tenantClears); empty on every other
 	// case.
 	Clears []string
+	// DirectoryClear is what the tenant record's delete takes the tenant's directory
+	// through (tenantDirectoryClear); nil on every other case, and on a tenant record
+	// that declares no directories.
+	DirectoryClear *tenantDirectoryClear
 }
 
 func (d *consolidatedPatchData) typeImports() []fixerImport {
@@ -162,6 +167,10 @@ type handlerContentData struct {
 	// record's delete clears the tenant through (tenantClears); empty on every other
 	// resource.
 	Clears []string
+	// DirectoryClear is what the tenant record's delete takes the tenant's directory
+	// through (tenantDirectoryClear); nil on every other resource, and on a tenant
+	// record that declares no directories.
+	DirectoryClear *tenantDirectoryClear
 	// Home is where the handler is written, nil for the application's handler package:
 	// it says what the handler hands to every publish (handlerHome.LiveDerivations).
 	Home *handlerHome
@@ -199,6 +208,18 @@ type collectionFileData struct {
 	Source  string
 	Package string
 	Data    resource.CollectionData
+}
+
+// Classes lists the classes the collection's actions carry, each with the constant the
+// collection file declares for it. The names were checked when the data was computed
+// (computeCollectionData), so a clash, which would fail there, leaves none here.
+func (d *collectionFileData) Classes() []actionClassConstant {
+	constants, err := actionClassConstants(d.Data)
+	if err != nil {
+		return nil
+	}
+
+	return constants
 }
 
 type routerFileData struct {
@@ -632,6 +653,25 @@ type tsConstantsData struct {
 	// generated methods.
 	ManualMethods []accesstypes.Resource
 	PIIMap        map[accesstypes.Resource]map[accesstypes.Tag]bool
+	// NameFields are each resource's name fields, which the field-name constants are
+	// written for beside its registered tags.
+	NameFields tsNameFields
+}
+
+// tsNameFields are each resource's name fields by JSON name, in field order. A name
+// field registers no tag, since a name takes no grant of its own, so the field-name
+// constants read them from here.
+type tsNameFields map[accesstypes.Resource][]accesstypes.Tag
+
+// FieldNameTags are the names a resource's field-name constants are written for: its
+// registered tags, then its name fields.
+func (n tsNameFields) FieldNameTags(res accesstypes.Resource, tags []accesstypes.Tag) []accesstypes.Tag {
+	names := n[res]
+	if len(names) == 0 {
+		return tags
+	}
+
+	return append(slices.Clone(tags), names...)
 }
 
 type tsResourcesData struct {

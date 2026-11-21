@@ -22,7 +22,17 @@ type (
 	// slice would fail the client's first read and is refused at generation naming the
 	// plain slice.
 	//
-	// Demonstrates: @domain.join-path, @attribute, decode.nullable-slice.
+	// A squadron goes with its wing and its memberships go with it, by the delete rule
+	// on each link of their way to the sector: the database removes them with the row
+	// they reach, past their own Delete grants. A mission names the squadron it is
+	// assigned to from outside that way and says nothing of a delete, so a squadron a
+	// mission is assigned to is not deleted, nor the wing that would take it along. The
+	// squadron's own delete is refused before the commit, counting what is in the way
+	// ("This squadron has 8 missions. Move or delete them first.": a mission may be
+	// assigned to no squadron, so the missions can be moved); the wing's is refused by
+	// the database at the commit.
+	//
+	// Demonstrates: @domain.join-path, @attribute, decode.nullable-slice, delete.rows-under-refusal.
 	//
 	// @resource
 	// @permissionScope(domain)

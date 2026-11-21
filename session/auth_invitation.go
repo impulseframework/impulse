@@ -42,6 +42,18 @@ import (
 // invitationCookieKey is the invitation cookie's value holding the token.
 const invitationCookieKey cookie.Key = "invitation"
 
+// seatedCookieSuffix ends the name of the cookie that carries the tenant an accepted
+// invitation seated a person in to the session read after it: the invitation cookie's
+// name with it.
+const seatedCookieSuffix = "-seated"
+
+// seatedTenantKey and seatedUserKey are that cookie's values: the tenant, and the user
+// the invitation seated in it.
+const (
+	seatedTenantKey cookie.Key = "tenant"
+	seatedUserKey   cookie.Key = "user"
+)
+
 // invitationCtxKey is the context key for the hash of the browser's invitation token,
 // set by StartSession.
 type invitationCtxKey struct{}
@@ -150,6 +162,54 @@ func (a *Auth[S, U, Tx]) endInvitation(ctx context.Context, w http.ResponseWrite
 	a.invitationCookies.Cookie().Delete(w, a.settings.invitationCookie, a.invitationCookies.Domain)
 }
 
+// seatedCookie names the cookie that carries the tenant an accepted invitation seated
+// a person in from the acceptance to the first session read after it.
+func (a *Auth[S, U, Tx]) seatedCookie() string {
+	return a.settings.invitationCookie + seatedCookieSuffix
+}
+
+// noteSeated has the browser carry the tenant the accepted invitation inv seated
+// userID in, so that the first session read after the acceptance names it
+// (Authenticated's invitedTenant) and the application opens for the person in the
+// tenant they were invited to, whatever else they hold. The tenant is the one the
+// invitation names, or the one its acceptance made, which the application's
+// acceptance hook tells the library (sessioninfo.Invitation.MadeTenantID). Nothing is
+// written for an invitation that was not accepted, or that seated the person in no
+// tenant the library knows: one into the application's global surface, and one that
+// makes a tenant whose hook did not say which. The cookie is the server's alone to
+// read, and lives as long as a pending sign-in may wait, since an acceptance can come
+// a step before its session.
+func (a *Auth[S, U, Tx]) noteSeated(w http.ResponseWriter, userID impulse.UUID, inv *sessioninfo.Invitation) {
+	if inv == nil || !inv.Accepted || inv.SeatedTenantID() == "" || userID == impulse.NilUUID {
+		return
+	}
+	cval := cookie.NewValues().SetString(seatedTenantKey, inv.SeatedTenantID()).SetString(seatedUserKey, userID.String())
+	a.invitationCookies.Cookie().WritePersistentCookie(w, a.seatedCookie(), a.invitationCookies.Domain, true, http.SameSiteLaxMode, a.settings.pendingTimeout, cval)
+}
+
+// takeSeated answers the tenant the browser carries from an acceptance by userID, ""
+// for none, and has the browser stop carrying it: the tenant is told once, to the
+// first session read after the acceptance. A tenant carried for another user, from an
+// acceptance whose sign-in was never finished on this browser, is told to nobody and
+// goes too.
+func (a *Auth[S, U, Tx]) takeSeated(w http.ResponseWriter, r *http.Request, userID impulse.UUID) string {
+	cval, found, err := a.invitationCookies.Cookie().Read(r, a.seatedCookie())
+	if err != nil || !found {
+		return ""
+	}
+	a.invitationCookies.Cookie().Delete(w, a.seatedCookie(), a.invitationCookies.Domain)
+	seated, err := cval.GetString(seatedUserKey)
+	if err != nil || seated != userID.String() {
+		return ""
+	}
+	tenant, err := cval.GetString(seatedTenantKey)
+	if err != nil {
+		return ""
+	}
+
+	return tenant
+}
+
 // InvitationHandlers are the HTTP handlers of invitations.
 type InvitationHandlers struct {
 	open   http.HandlerFunc
@@ -181,7 +241,8 @@ func (h *InvitationHandlers) Open() http.HandlerFunc { return h.open }
 // invitation that makes a tenant entered through its directory only is refused (403,
 // naming what to do) for a session that came through no organization's directory, the
 // invitation left standing. It answers {"accepted": true}; 404 when the browser
-// carries no live invitation. Route it behind ValidateSession.
+// carries no live invitation. An invitation into a tenant has the next session read
+// name the tenant (Authenticated's invitedTenant). Route it behind ValidateSession.
 func (h *InvitationHandlers) Accept() http.HandlerFunc { return h.accept }
 
 // SignUp accepts {"password", "username"} and creates the invited person's account
@@ -349,6 +410,7 @@ func (a *Auth[S, U, Tx]) invitationAccept() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		a.invitationCookies.Cookie().Delete(w, a.settings.invitationCookie, a.invitationCookies.Domain)
+		a.noteSeated(w, user.ID, inv)
 
 		return httpio.NewEncoder(w).Ok(response{Accepted: true})
 	})

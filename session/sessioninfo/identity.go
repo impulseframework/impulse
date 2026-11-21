@@ -38,21 +38,25 @@ const (
 	MethodApplication AuthMethod = "application"
 	// MethodEmailCode records the library's own second factor: a one-time code mailed
 	// to the user's address and entered at the pending step (Pending().SendCode() and
-	// VerifyCode()). It has no connection.
+	// VerifyCode()). It has no connection. Only the library records it: an event under
+	// it that an application reports is refused.
 	MethodEmailCode AuthMethod = "email-code"
 	// MethodTrustedDevice records that a browser the person asked to be remembered
 	// after a second factor stood in for it: the trusted device cookie named a live
-	// device of the user. It has no connection.
+	// device of the user. It has no connection. Only the library records it: an event
+	// under it that an application reports is refused.
 	MethodTrustedDevice AuthMethod = "trusted-device"
 	// MethodAttestedByEvidence records that the identity provider attested to a second
 	// factor in the sign-in's token (an amr claim naming mfa): the provider ran one at
 	// this sign-in. Its connection is the sign-in's and IDPAMR what the provider
-	// asserted.
+	// asserted. Only the library records it: an event under it that an application
+	// reports is refused.
 	MethodAttestedByEvidence AuthMethod = "attested-by-evidence"
 	// MethodAttestedByDeclaration records that the registration declares the sign-in's
 	// connection as a directory that enforces a second factor (Attesting() on the
 	// Google and Entra organization slots): the application administers the directory
-	// and vouches for it. Its connection is the sign-in's.
+	// and vouches for it. Its connection is the sign-in's. Only the library records
+	// it: an event under it that an application reports is refused.
 	MethodAttestedByDeclaration AuthMethod = "attested-by-declaration"
 )
 
@@ -176,7 +180,10 @@ type Identity struct {
 	// account that holds no name yet, and never over a name the account holds. It is an
 	// attribute, never a key.
 	Name string
-	// EmailVerified reports whether the method asserts the email is verified.
+	// EmailVerified reports whether the method vouches for the email: Google's method
+	// alone does, and only for an address Google is the authority for (a Gmail address,
+	// a Workspace account's). No other method's word is kept, whatever it fills in
+	// here: an address nothing vouches for is confirmed by the code mailed to it.
 	EmailVerified bool
 	// Claims is the method's verified payload (ID-token claims or WorkOS profile). It
 	// is passed to resolvers and custom data hooks.
@@ -360,11 +367,18 @@ const (
 	// person whose every tenant admits its people through its own directory only, none
 	// of which is the directory the sign-in came through, under the tenant policy.
 	RefusedConnectionNotInTenant LoginRefusalCode = "connection_not_in_tenant"
-	// RefusedDirectoryOnly is the code for a sign-in that is not through a directory (a
-	// password, a personal account, a session the application starts itself) by a
-	// person whose every tenant admits its people through its own directory only,
-	// under the tenant policy.
+	// RefusedDirectoryOnly is the code for a sign-in with a password, or a session the
+	// application starts itself, by a person whose every tenant admits its people
+	// through its own directory only, under the tenant policy.
 	RefusedDirectoryOnly LoginRefusalCode = "directory_only"
+	// RefusedDirectoryOnlyPersonalAccount is the code for a sign-in with a personal
+	// account (through Google or Microsoft, with an account that is in no
+	// organization's directory) by a person whose every tenant admits its people
+	// through its own directory only, under the tenant policy. It is told apart from
+	// RefusedDirectoryOnly so that a login page says what is true of how the person
+	// signed in: they used no password, and are asked for their organization's account.
+	// The code names nothing of the person or of their tenants.
+	RefusedDirectoryOnlyPersonalAccount LoginRefusalCode = "directory_only_personal_account"
 	// RefusedOtherTenant is the code for a role in a tenant that is refused because the
 	// person belongs to another tenant, in an application where a person belongs to
 	// one (the identity package's WithOneTenantPerPerson). The session library never
@@ -390,6 +404,7 @@ const (
 	// code sent stands, with one fewer attempt left.
 	RefusedInvalidCode LoginRefusalCode = "invalid_code"
 	// RefusedCodeExpired is the code for an email code entered after the one sent
-	// expired, was used, or took its last attempt; the page asks for a new one.
+	// expired, was used, took its last attempt, or was mailed to an address the account
+	// no longer holds; the page asks for a new one.
 	RefusedCodeExpired LoginRefusalCode = "code_expired"
 )

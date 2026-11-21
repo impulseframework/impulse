@@ -600,7 +600,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 	t.Run("the switch as it stands is the station's own, read under the grant of either method that turns it", func(t *testing.T) {
 		t.Parallel()
 
-		serve := func(ctx context.Context, perms *switchPermissions, path string) *httptest.ResponseRecorder {
+		serveBy := func(ctx context.Context, rules *TenantDirectoryRules, perms *switchPermissions, path string) *httptest.ResponseRecorder {
 			r := chi.NewRouter()
 			r.Use(httpio.WithParams)
 			r.Get("/api/stations/{stationID}/"+DirectoryOnlyRoute, DirectoryOnlyStateHandler(client, rules, func(*http.Request) UserPermissions { return perms }, "stationID", makeMethod, endMethod))
@@ -609,15 +609,46 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 
 			return rr
 		}
+		serve := func(ctx context.Context, perms *switchPermissions, path string) *httptest.ResponseRecorder {
+			return serveBy(ctx, rules, perms, path)
+		}
 
 		granted := &switchPermissions{}
-		for station, want := range map[string]string{"alpha": `{"directoryOnly":true}`, "beta": `{"directoryOnly":false}`, "gamma": `{"directoryOnly":false}`} {
+		for station, want := range map[string]string{"alpha": `{"directoryOnly":true}`, "gamma": `{"directoryOnly":false}`} {
 			if rr := serve(password, granted, station+"/"+DirectoryOnlyRoute); rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != want {
 				t.Errorf("the switch of %s: status = %d, body %q, want 200 %s", station, rr.Code, rr.Body.String(), want)
 			}
 		}
+		// A station that could be turned directory only says what that takes of the
+		// caller beside the switch.
+		const offWithConditions = `{"directoryOnly":false,"conditions":[{"sentence":"Directory only is turned on by a person who is signed in through this station`
+		if rr := serve(password, granted, "beta/"+DirectoryOnlyRoute); rr.Code != http.StatusOK || !strings.HasPrefix(rr.Body.String(), offWithConditions) {
+			t.Errorf("the switch of beta: status = %d, body %q, want 200 with the switch off and what turning it on takes", rr.Code, rr.Body.String())
+		}
 		if want := "Execute MakeStationDirectoryOnly in alpha"; !slices.Contains(granted.asked, want) {
 			t.Errorf("the grants the read asked = %v, want %q among them: the read is asked in the station's own scope", granted.asked, want)
+		}
+
+		// The read stamps the caller it checked before it asks the rules, as the frame of
+		// the method that turns the switch does. An auth's reader of the caller's password
+		// answers nothing for a call that names no caller, so a read that stamped none
+		// would never say the password condition the method holds the same person to.
+		reader := &switchPermissions{stubPermissions: stubPermissions{user: "reader"}}
+		var asked *Caller
+		asksWho := rules.PasswordsBy(func(ctx context.Context, _ ReadWriteTransaction) (has, applies bool, err error) {
+			asked = CallerFrom(ctx)
+
+			return false, !asked.IsZero(), nil
+		})
+		const wantPassword = `{"sentence":"Directory only is turned on by a person who has a password: an administrator of this station enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem.","met":false,"toDo":"Choose a password on Your account first, then try again."}]}`
+		if rr := serveBy(through(entra), asksWho, reader, "beta/"+DirectoryOnlyRoute); rr.Code != http.StatusOK || !strings.HasSuffix(strings.TrimSpace(rr.Body.String()), wantPassword) {
+			t.Errorf("the switch of beta, read by a person with no password: status = %d, body %q, want 200 ending in the password condition %s", rr.Code, rr.Body.String(), wantPassword)
+		}
+		if asked.IsZero() {
+			t.Fatal("the read asked the password reader under no caller, want the caller it checked")
+		}
+		if domain, _ := asked.Scope.Domain(); asked.Permissions.User() != "reader" || domain != "beta" {
+			t.Errorf("the caller the read stamped = %q in %q, want the reader in beta, the station read", asked.Permissions.User(), domain)
 		}
 
 		// Either method's grant reads the switch: the person who may only turn it off
@@ -647,6 +678,87 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		}
 		if rr := serve(through(entra), &switchPermissions{}, "nowhere/"+DirectoryOnlyRoute); rr.Code != http.StatusNotFound {
 			t.Errorf("for a station that is not one: status = %d, want 404 (body %q)", rr.Code, rr.Body.String())
+		}
+	})
+
+	// The page that offers the switch says what turning it on takes before the person
+	// tries, in the server's words: the read answers each condition for the caller, and
+	// the call refuses on the first one not met in the same words.
+	t.Run("the switch as it stands says what turning it on takes of the caller, in the words its refusals use", func(t *testing.T) {
+		t.Parallel()
+
+		const (
+			throughIt   = "Directory only is turned on by a person who is signed in through this station's directory, your organization's Microsoft directory: that shows the directory works, and that you will not shut yourself out."
+			signInAgain = "You signed in with a password. Sign in through your organization's Microsoft directory and try again."
+			hasPassword = "Directory only is turned on by a person who has a password: an administrator of this station enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem."
+			chooseOne   = "Choose a password on Your account first, then try again."
+		)
+		answers := func(has, applies bool) CallerPassword {
+			return func(context.Context, ReadWriteTransaction) (bool, bool, error) {
+				return has, applies, nil
+			}
+		}
+		tests := []struct {
+			name    string
+			station accesstypes.Domain
+			ctx     context.Context
+			reader  CallerPassword
+			want    []DirectoryOnlyCondition
+		}{
+			{
+				name: "a caller who meets both is asked nothing more", station: "beta", ctx: through(entra), reader: answers(true, true),
+				want: []DirectoryOnlyCondition{{Sentence: throughIt, Met: true}, {Sentence: hasPassword, Met: true}},
+			},
+			{
+				name: "a caller signed in through the directory who has no password is told to choose one", station: "beta", ctx: through(entra), reader: answers(false, true),
+				want: []DirectoryOnlyCondition{{Sentence: throughIt, Met: true}, {Sentence: hasPassword, ToDo: chooseOne}},
+			},
+			{
+				name: "a caller who signed in with their password is told to sign in through the directory", station: "beta", ctx: password, reader: answers(true, true),
+				want: []DirectoryOnlyCondition{{Sentence: throughIt, ToDo: signInAgain}, {Sentence: hasPassword, Met: true}},
+			},
+			{
+				name: "a caller who meets neither is told both", station: "beta", ctx: password, reader: answers(false, true),
+				want: []DirectoryOnlyCondition{{Sentence: throughIt, ToDo: signInAgain}, {Sentence: hasPassword, ToDo: chooseOne}},
+			},
+			{
+				name: "an auth with no password method asks for none", station: "beta", ctx: through(entra), reader: answers(false, false),
+				want: []DirectoryOnlyCondition{{Sentence: throughIt, Met: true}},
+			},
+			{name: "a station with no directory is refused before anything is asked of the person, so none is said", station: "gamma", ctx: password, reader: answers(false, true)},
+			{name: "a station that is directory only already has nothing to turn on, so none is said", station: "alpha", ctx: password, reader: answers(false, true)},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				asked := rules.PasswordsBy(tt.reader)
+				var state *DirectoryOnlyState
+				if err := client.ExecuteFunc(tt.ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+					var err error
+					state, err = asked.State(ctx, txn, tt.station)
+
+					return err
+				}); err != nil {
+					t.Fatalf("State() error = %v", err)
+				}
+				if diff := cmp.Diff(tt.want, state.Conditions); diff != "" {
+					t.Errorf("State() conditions mismatch (-want +got):\n%s", diff)
+				}
+				for _, condition := range tt.want {
+					if condition.Met {
+						continue
+					}
+					refusal := client.ExecuteFunc(tt.ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+						return asked.DirectoryOnly(ctx, txn, tt.station, true)
+					})
+					if want := condition.Sentence + " " + condition.ToDo; !httpio.HasConflict(refusal) || httpio.Message(refusal) != want {
+						t.Errorf("DirectoryOnly() error = %v, want the Conflict %q: the call refuses in the words the read says the condition in", refusal, want)
+					}
+
+					break
+				}
+			})
 		}
 	})
 

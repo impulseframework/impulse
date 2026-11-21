@@ -57,17 +57,17 @@ export const nameMaxLength = 200;
   imports: [EmailAddressComponent, FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="account">
+    <section class="impulse-account-page-content">
       <h1>Your account</h1>
 
       @if (account.name()) {
-        <section class="part name">
+        <section class="impulse-account-page-part impulse-account-page-name">
           <h2>Your name</h2>
           <p>
-            Shown for you in place of your username, <span class="username">{{ username() }}</span
-            >, which you still sign in with.
+            Shown for you in place of your username,
+            <span class="impulse-account-page-username">{{ username() }}</span>, which you still sign in with.
           </p>
-          <form class="change" (ngSubmit)="changeName()">
+          <form class="impulse-account-page-change" (ngSubmit)="changeName()">
             <mat-form-field appearance="outline">
               <mat-label>Name</mat-label>
               <input
@@ -78,33 +78,37 @@ export const nameMaxLength = 200;
                 autocomplete="name"
                 [attr.maxlength]="nameMaxLength" />
             </mat-form-field>
-            <button mat-flat-button type="submit" class="name-submit" [disabled]="busy()">Save name</button>
+            <button mat-flat-button type="submit" class="impulse-account-page-name-submit" [disabled]="busy()">
+              Save name
+            </button>
           </form>
           @if (nameMessage(); as message) {
-            <p class="message" role="status">{{ message }}</p>
+            <p class="impulse-account-page-message" role="status">{{ message }}</p>
           }
         </section>
       }
 
       @if (account.email()) {
-        <section class="part email">
+        <section class="impulse-account-page-part impulse-account-page-email">
           <h2>Your email address</h2>
           <impulse-email-address />
         </section>
       }
 
       @if (passwordRemoved()) {
-        <section class="part password">
+        <section class="impulse-account-page-part impulse-account-page-password">
           <h2>Your password</h2>
-          <p class="message" role="status">Your password is removed. {{ removalConsequence() }}</p>
+          <p class="impulse-account-page-message" role="status">Your password is removed. {{ removalConsequence() }}</p>
         </section>
       } @else if (passwordChosen()) {
-        <section class="part password">
+        <section class="impulse-account-page-part impulse-account-page-password">
           <h2>Your password</h2>
-          <p class="message" role="status">Your password is set. You can sign in with it from now on.</p>
+          <p class="impulse-account-page-message" role="status">
+            Your password is set. You can sign in with it from now on.
+          </p>
         </section>
       } @else if (account.firstPassword()) {
-        <section class="part first-password">
+        <section class="impulse-account-page-part impulse-account-page-first-password">
           <h2>Choose a password</h2>
           <p>
             You have no password here. To choose one, ask for a code first: we email it to the address on your account.
@@ -112,16 +116,18 @@ export const nameMaxLength = 200;
           <button
             mat-stroked-button
             type="button"
-            class="first-code"
+            class="impulse-account-page-first-code"
             [disabled]="busy()"
             (click)="mailFirstPasswordCode()">
             {{ codeSentTo() === undefined ? 'Email me a code' : 'Email me a new code' }}
           </button>
           @if (codeSentTo(); as address) {
-            <p class="message sent" role="status">We sent a code to {{ address }}. Enter it with your password.</p>
+            <p class="impulse-account-page-message impulse-account-page-sent" role="status">
+              We sent a code to {{ address }}. Enter it with your password.
+            </p>
           }
           @if (codeSentTo() !== undefined) {
-            <form class="change" (ngSubmit)="setFirstPassword()">
+            <form class="impulse-account-page-change" (ngSubmit)="setFirstPassword()">
               <mat-form-field appearance="outline">
                 <mat-label>Code</mat-label>
                 <input
@@ -152,17 +158,19 @@ export const nameMaxLength = 200;
                   autocomplete="new-password"
                   required />
               </mat-form-field>
-              <button mat-flat-button type="submit" class="first-submit" [disabled]="busy()">Set the password</button>
+              <button mat-flat-button type="submit" class="impulse-account-page-first-submit" [disabled]="busy()">
+                Set the password
+              </button>
             </form>
           }
           @if (firstPasswordMessage(); as message) {
-            <p class="message refusal" role="status">{{ message }}</p>
+            <p class="impulse-account-page-message impulse-account-page-refusal" role="status">{{ message }}</p>
           }
         </section>
       } @else if (account.password()) {
-        <section class="part password">
+        <section class="impulse-account-page-part impulse-account-page-password">
           <h2>Change your password</h2>
-          <form class="change" (ngSubmit)="changePassword()">
+          <form class="impulse-account-page-change" (ngSubmit)="changePassword()">
             <mat-form-field appearance="outline">
               <mat-label>Current password</mat-label>
               <input
@@ -193,24 +201,26 @@ export const nameMaxLength = 200;
                 autocomplete="new-password"
                 required />
             </mat-form-field>
-            <button mat-flat-button type="submit" class="change-submit" [disabled]="busy()">Change password</button>
+            <button mat-flat-button type="submit" class="impulse-account-page-change-submit" [disabled]="busy()">
+              Change password
+            </button>
           </form>
           @if (changeMessage(); as message) {
-            <p class="message" role="status">{{ message }}</p>
+            <p class="impulse-account-page-message" role="status">{{ message }}</p>
           }
         </section>
 
         @if (account.removePassword()) {
-          <section class="part remove-password">
+          <section class="impulse-account-page-part impulse-account-page-remove-password">
             <h2>Remove your password</h2>
             <p>If you also sign in another way, you can do without a password.</p>
             @if (confirmingRemoval()) {
-              <p class="question">Remove your password? {{ removalConsequence() }}</p>
-              <div class="answers">
+              <p class="impulse-account-page-question">Remove your password? {{ removalConsequence() }}</p>
+              <div class="impulse-account-page-answers">
                 <button
                   mat-flat-button
                   type="button"
-                  class="remove-confirm"
+                  class="impulse-account-page-remove-confirm"
                   [disabled]="busy()"
                   (click)="removePassword()">
                   Remove password
@@ -218,14 +228,14 @@ export const nameMaxLength = 200;
                 <button
                   mat-stroked-button
                   type="button"
-                  class="remove-keep"
+                  class="impulse-account-page-remove-keep"
                   [disabled]="busy()"
                   (click)="keepPassword()">
                   Keep password
                 </button>
               </div>
             } @else {
-              <form class="change" (ngSubmit)="askToRemovePassword()">
+              <form class="impulse-account-page-change" (ngSubmit)="askToRemovePassword()">
                 <mat-form-field appearance="outline">
                   <mat-label>Current password</mat-label>
                   <input
@@ -236,28 +246,33 @@ export const nameMaxLength = 200;
                     autocomplete="current-password"
                     required />
                 </mat-form-field>
-                <button mat-stroked-button type="submit" class="remove-submit" [disabled]="busy()">
+                <button mat-stroked-button type="submit" class="impulse-account-page-remove-submit" [disabled]="busy()">
                   Remove password
                 </button>
               </form>
             }
             @if (removeMessage(); as message) {
-              <p class="message" role="status">{{ message }}</p>
+              <p class="impulse-account-page-message" role="status">{{ message }}</p>
             }
           </section>
         }
       }
 
       @if (account.browser() || forgotten()) {
-        <section class="part browser">
+        <section class="impulse-account-page-part impulse-account-page-browser">
           <h2>This browser</h2>
           @if (forgotten()) {
-            <p class="message" role="status">
+            <p class="impulse-account-page-message" role="status">
               This browser will ask for the emailed code the next time you sign in here.
             </p>
           } @else {
             <p>This browser is remembered for you, so signing in here skips the emailed code.</p>
-            <button mat-stroked-button type="button" class="forget" [disabled]="busy()" (click)="forgetBrowser()">
+            <button
+              mat-stroked-button
+              type="button"
+              class="impulse-account-page-forget"
+              [disabled]="busy()"
+              (click)="forgetBrowser()">
               Forget this browser
             </button>
           }
@@ -265,12 +280,14 @@ export const nameMaxLength = 200;
       }
 
       @if (!account.any() && !forgotten() && !passwordRemoved() && !passwordChosen()) {
-        <p class="none">Your sign-in is managed by your organization, so there is nothing to change here.</p>
+        <p class="impulse-account-page-none">
+          Your sign-in is managed by your organization, so there is nothing to change here.
+        </p>
       }
     </section>
   `,
   styles: `
-    .account {
+    .impulse-account-page-content {
       display: flex;
       flex-direction: column;
       gap: 24px;
@@ -287,30 +304,30 @@ export const nameMaxLength = 200;
       font-size: 16px;
       font-weight: 500;
     }
-    .part p {
+    .impulse-account-page-part p {
       margin: 0 0 12px;
     }
-    .first-code {
+    .impulse-account-page-first-code {
       margin-bottom: 12px;
     }
-    .change {
+    .impulse-account-page-change {
       display: flex;
       flex-direction: column;
       align-items: flex-start;
       max-width: 360px;
     }
-    .change mat-form-field {
+    .impulse-account-page-change mat-form-field {
       width: 100%;
     }
-    .answers {
+    .impulse-account-page-answers {
       display: flex;
       gap: 12px;
     }
-    .username {
+    .impulse-account-page-username {
       font-weight: 500;
     }
-    .message,
-    .none {
+    .impulse-account-page-message,
+    .impulse-account-page-none {
       color: var(--mat-sys-on-surface-variant);
     }
   `,

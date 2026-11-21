@@ -18,7 +18,7 @@ func seededManager(t *testing.T) (*userManager, *fakeStore) {
 	ctx := context.Background()
 
 	store := newFakeStore()
-	m := newUserManager(newStoreManager(store), nil, testEngine(t, store, nil), nil)
+	m := newUserManager(newStoreManager(store), nil, testEngine(t, store, nil), nil, fixtureCollection)
 
 	for _, seed := range []struct {
 		scope accesstypes.PolicyScope

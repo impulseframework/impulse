@@ -42,16 +42,26 @@ whoever manages its people (`Administrator` for the whole application,
 nobody a power that giving the role directly would not: who is in a group, and what it
 holds, is changed by someone who may give or take those roles directly, and a tenant puts
 its own people in its groups, while an account from outside the tenant is put there from
-the whole application's accounts. The library draws them from the API description (`identityRoutes` in each application's
+the whole application's accounts. The list of groups says how many people each group has and the roles it
+holds, and offers Delete only on a group that holds nothing; a person's page lists their
+roles in one list that says "Their own" or names the group each comes through. On the
+Break glass page (`/staff-break-glass`) a person takes a role in a tenant for a set time
+and says why, when they hold the page's grant and could give themselves that role there:
+the role ends by itself, and the tenant's administrator reads the reason beside it and
+may end it early. The staff role file gives the page's lists and its method to the
+`Administrator` alone: a `TenantAdministrator`, who may give themselves a role in their
+own tenant, holds no grant of the page and takes none for a set time. The portal has the
+same page for the members auth (`/members-break-glass`), and the members role file gives
+its lists and its method to no role, as it gives nothing of the whole application's side. The library draws them from the API description (`identityRoutes` in each application's
 `app.routes.ts`, placed by `identityMenuPages` in its menu file), and a tenant's pages read
 the tenant from the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file
 (`app.menus.ts`) shows Tenants (All tenants) and System (the staff's accounts, the
-Invited tenants page and Feature flags…) in Configuration, and People and Tenant (Sign-in settings)
+Invited tenants page and Feature flags) in Configuration, and People and Tenant (Sign-in settings)
 inside a tenant; the portal's shows System (the members' accounts) and People. The
 person's own menu holds Your account (the console's: the email address, Change your
 password, Forget this browser), Your API keys on the console, Appearance and Sign out; a
 portal member signs in through their company's directory and has nothing of their sign-in
-to change there. Help ends with About, which carries the release.
+to change there. Help ends with About, a pop-up that carries the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production).
 
 How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
 directly: the record's create is refused, with a sentence that says so. An administrator
@@ -120,11 +130,13 @@ could give directly, picked from the list of the roles they may give
 `EndTenantDirectoryOnly` turn directory only (the `Tenants` record shows the flag and
 takes no write of it), which the server turns on only once the tenant has its directory
 and only for a person signed in through it who has a password of their own, their way
-back in if the directory has a problem. Opening the tenant and making it directory
+back in if the directory has a problem; the page says both before the person presses,
+in the server's own sentences, and offers the button only where the tenant has a
+directory. Opening the tenant and making it directory
 only each warn first: the dialog shows the server's sentence (who will enter and with
 what role; the count of the people it would keep out and, to a person who may list the
 tenant's people, their names as a list) and holds its button until the person has typed
-the method's word; the other two are plain confirmations. Every sentence names the
+the method's word; the other two, and removing the directory, are plain confirmations. Every sentence names the
 directory in words a person knows, never by its connection, which for a Microsoft Entra
 tenant is an id: the name the members auth's registration gives the tenant where it
 lists it with one (`azure.NamedTenant` in `pkg/auth/members`), and otherwise the label
@@ -241,25 +253,36 @@ generated router test proves the route sits behind the token check.
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   each auth's role policy check (`CheckRoles`), which prints what its store holds that
   this release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table
-  to the flags the release declares (section Feature flags). Between the two, `SeedAdministrators` gives each auth its first
-  administrator while its users table holds no rows, the foothold a deployed environment
-  starts from: the staff auth's `administrator`, with the password the stack generates
-  (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles; the members auth's user without a password under the
-  sign-in name the placement names (`APP_MEMBERS_ADMINISTRATOR`), holding the administrator
-  roles in every domain, which that person's first sign-in through the directory links to.
-  The tenants here have directories, where a name alone links no account that has never
-  signed in, so the seed creates this one for the `directory` registration
-  (`session.SeedUserIDThrough`): the id is the deployment's word on which registration
-  the name is believed from, and the sign-in rule links the account at the person's
-  first sign-in through it while it admits one organization alone (`azure.Tenant`).
-  The staff auth's generated password is for the first sign-in alone: sign in as
-  `administrator` with it, give an email address and confirm it with the sign-in code
-  mailed there (the account starts with no address), then choose a new password, which
-  the login page asks for before it opens anything else; the generated password signs
-  nobody in after that. A user that exists stops the seed; the auth's management
-  creates every user after the first, and the bootstrap creates the development logins
-  instead. `cmd/deployment/migrate` is the deploy step;
+  to the flags the release declares (section Feature flags). Between the two, `InviteAdministrators` invites each
+  auth's first administrator while nobody of the auth holds the Super Administrator
+  role, the foothold a deployed environment starts from: an invitation mailed to the address the placement names for
+  the environment (`APP_STAFF_ADMINISTRATOR`, `APP_MEMBERS_ADMINISTRATOR`), which gives
+  the Super Administrator role and the auth's administrator roles. The staff
+  administrator opens the link and chooses a password there, their address proven by the
+  link. The members administrator opens the link and signs in through the directory: the
+  tenants here have directories, where a stranger is admitted by an invitation or by a
+  tenant's directory alone, and the first administrator belongs to no tenant, so the
+  invitation is what ties the sign-in to the roles, and the address the directory gives
+  must be the invited one. As the session library stands, the Microsoft method asks the
+  directory for no address, so that sign-in is refused: the members auth has no first
+  administrator yet, and every release goes on asking for its address and the mailbox
+  (the session library's README, "The first administrator's invitation"). No account is
+  made ahead of either person and no password is generated. A release leaves an invitation that stands as it is, mails a new one once
+  it has run out (seven days), and withdraws one for an address the placement no longer
+  names; the migrate command's `-reinvite-administrator <auth>` (`staff` or `members`) withdraws the
+  standing one and mails a fresh one on demand, for mail that was lost, while nobody
+  holds the role. Both refuse while nobody holds it and the environment has no mailbox
+  (`APP_MAIL_MAILBOX` with `APP_MAIL_APP_PASSWORD`): an invitation's link is never
+  written to a log, so the mailbox comes before the first release. Once somebody holds
+  the Super Administrator role nobody is invited, and neither an address nor a mailbox
+  is asked for; an account that holds no such role (a person who signed up, a persona)
+  stops no invitation, and a holder whose account is disabled is a holder still. The
+  auth's management invites every person after the first. The bootstrap creates the
+  development logins instead: its `admin` login holds the role in the staff auth and the
+  development member holds none in the members auth, so a migrate run against a
+  bootstrapped database invites nobody for the staff auth and asks for the members
+  auth's address. An application that adds a cast of personas seeds it before
+  `InviteAdministrators`, so an environment whose cast holds the role invites nobody. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database, seeds the development
   tenants (tenancy is data), and adds the development logins and the development member
   from `cmd/bootstrap/users.json`, each with its
@@ -275,6 +298,10 @@ generated router test proves the route sits behind the token check.
   and `-force <n>` and `-force-data <n>` set a table to a version (-1 for no version), for
   the states the migration runner refuses to guess at; the pipeline passes them from the
   operations workflow (`bedrock migration`), and none of them applies a migration.
+  Every run but those opens the application's data and gives the database one minute to
+  answer: a database that has not answered by then, as one that does not exist never does,
+  stops the run with one sentence that names the database and its instance, and a non-zero
+  exit.
   `-retire-secret APP_SECRET_KEY_1` retires a version of the application secret: it writes
   every stored secret field that names the version again under the current one, confirms
   none is left and exits 0 only then, so the deployment disables the version only when no
@@ -318,7 +345,7 @@ flip is recorded in `FeatureFlagChanges`. The App reads the table when it is bui
 digest and features route answer from one copy. Every outlet serves `features` under its prefix (`/console/api`, `/portal/api`, `/devices`), and the two session outlets serve `feature-flags` and `set-feature`. Flipping is the generated
 `SetFeature` method, held by the `FeatureAdministrator` role in the staff role file
 (Execute on `SetFeature`, List and Read on `FeatureFlags`), which the development `admin`
-login holds, so a member of the portal sees the flags' effect and flips nothing; the library's `FeatureFlagsDialog` calls it, opened from Feature flags… in
+login holds, so a member of the portal sees the flags' effect and flips nothing; the library's Feature flags page runs it: the list of the flags, each in words with who last turned it on or off, a row's menu that turns the flag on or off after asking, and a History button that opens the flag's flips in a pop-up. The menu file places the page (`featureFlagsPage`) in
 the console's System menu, shown to anyone holding List on `FeatureFlags`. A flag's
 development state is its row in `schema/devseed/<n>_dev_feature_flags.up.sql`, which
 `impulse add feature` writes off (set it to TRUE to start development and the test
@@ -403,7 +430,10 @@ To sign in through a real directory, register the application there, fill in the
 
 The console and the portal are two projects in one Angular workspace under `web/` that
 installs the published `@impulseframework/resource`, `@impulseframework/resource-angular` and
-`@impulseframework/resource-firestore` (pinned in `package.json`). To develop
+`@impulseframework/resource-firestore` (pinned in `package.json`). Install them
+once with `bun install` in `web/`: it writes `bun.lock`, which the workflows install
+from (`bun ci`) and the repository keeps, and `impulse check` fails while the web root
+has none (`package-manager`). To develop
 against a local checkout of the framework, attach its web packages through yalc, a local
 state that is never committed (the script builds the three packages, publishes them to the
 local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts the pins back):

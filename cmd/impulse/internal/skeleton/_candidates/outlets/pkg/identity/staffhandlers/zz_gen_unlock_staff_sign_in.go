@@ -77,10 +77,16 @@ func (h *Handlers) UnlockStaffSignIn() http.HandlerFunc {
 				SetName(p.Name).
 				Read(ctx, txn)
 			if err != nil {
+				if httpio.HasNotFound(err) {
+					// No row has the key. Every row the method cannot reach is
+					// answered alike, so the words never say a row is there.
+					return resource.TargetNotFound("StaffSessionSignInAttempt", p.Name)
+				}
+
 				return errors.Wrap(err, "staffresources.StaffSessionSignInAttemptQuery.Read()")
 			}
 			if row == nil {
-				return httpio.NewNotFoundMessagef("StaffSessionSignInAttempt %s does not exist", p.Name)
+				return resource.TargetNotFound("StaffSessionSignInAttempt", p.Name)
 			}
 
 			// A row-referencing condition on the caller's Execute grant

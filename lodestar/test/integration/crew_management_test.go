@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"slices"
 	"testing"
@@ -196,4 +197,21 @@ func assertRolesHeld(t *testing.T, step string, body []byte, username accesstype
 	if !slices.Equal(got, want) {
 		t.Errorf("%s: %s holds %v, want %v: %s", step, username, got, want, body)
 	}
+}
+
+// mailingAnswer reads the answer of a method that mails a person: whether the message
+// went and, where it did not, why.
+func mailingAnswer(t *testing.T, status int, body []byte) (sent bool, reason string) {
+	t.Helper()
+
+	assertStatus(t, status, http.StatusOK, body)
+	var answer struct {
+		Sent   bool   `json:"sent"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(body, &answer); err != nil {
+		t.Fatalf("decoding the mailing's answer: %v: %s", err, body)
+	}
+
+	return answer.Sent, answer.Reason
 }

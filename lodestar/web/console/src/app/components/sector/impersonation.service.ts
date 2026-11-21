@@ -9,12 +9,29 @@ import { firstValueFrom } from 'rxjs';
 export interface ImpersonationRecord {
   actor: string;
   principalKind: 'User' | 'Role';
-  /** The role's name, or the id of the account of the person viewed as. */
+  /** The role's name, or the id of the account of the person the session acts as. */
   principal: string;
+  /** The permission kinds the session keeps; absent when it keeps every kind. */
   mask?: string[];
+  /** The classes of action the session is refused: access and credential for one that acts as a person. */
+  refusedClasses?: string[];
+  /**
+   * What the session keeps out of a class it refuses, each by the class, the permission
+   * and the record or action: writing hangar passes, for a session that acts as a person.
+   */
+  excepted?: { class: string; permission: string; resource: string }[];
+  /**
+   * The session's whole mask in the server's words: "reading only", or for a session that
+   * acts as a person "everything except access actions (still allowed: writing
+   * HangarPasses) and credential actions".
+   */
+  maskWords: string;
   reason?: string;
   expiresAt: string;
 }
+
+/** The kinds of impersonation the console offers, as the mint route names them. */
+type ImpersonationKind = 'view' | 'act' | 'role';
 
 /** The session endpoint's answer as the crew auth writes it: the library's SessionInfo plus the record. */
 type SessionResponse = SessionInfo & { impersonation?: ImpersonationRecord };
@@ -25,14 +42,17 @@ interface EndImpersonationResponse {
 }
 
 /**
- * ImpersonationService drives the two impersonation moments (design plan §3): "view
- * as" mints a session that operates as another user under a List, Read mask, and
- * "act as a role" mints one that operates as a role with subject still bound to the
- * actor. The mint route is hand-written and gated by the ViewAsUser and AssumeRole
- * Execute registrations; the session endpoint reports the record back, which the
- * frame draws above its bar as the persistent banner (ImpersonationBannerComponent).
+ * ImpersonationService drives the three kinds of impersonation the console offers.
+ * "View as" mints a session that reads what another person reads and writes nothing;
+ * "act as" mints one that does what the person may do, except change how they sign in
+ * or who may do what;
+ * "act as a role" mints one that holds what a role holds, with subject still bound to
+ * the actor. Each kind is a grant of its own (ViewAsUser, ActAsUser, AssumeRole), and
+ * the server gives each its mask: the session endpoint reports the record back with the
+ * mask in words, which the frame draws above its bar as the persistent banner
+ * (ImpersonationBannerComponent).
  *
- * Demonstrates: impersonation.view-as, impersonation.act-as-role, impersonation.end, impersonation.mask.
+ * Demonstrates: impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, impersonation.end, impersonation.mask.
  */
 @Injectable({ providedIn: 'root' })
 export class ImpersonationService {
@@ -68,13 +88,14 @@ export class ImpersonationService {
         remaining,
       };
     }
-    const mask = record.mask?.length ? `${record.mask.join(', ')} only` : 'unrestricted';
-    // The record names the person viewed as by the id of their account. The minted
-    // session is theirs, so the session's own username is the name a person reads.
-    const viewed = (this.auth.sessionInfo() as SessionResponse).username;
+    // The record names the person by the id of their account. The minted session is
+    // theirs, so the session's own username is the name a person reads. A session that
+    // keeps nothing beyond reading views as the person; any other acts as them.
+    const person = (this.auth.sessionInfo() as SessionResponse).username;
+    const views = !!record.mask?.length && record.mask.every((kind) => kind === 'List' || kind === 'Read');
     return {
       kind: 'User' as const,
-      text: `Viewing as ${viewed}, ${mask}. You are ${record.actor}.`,
+      text: `${views ? 'Viewing' : 'Acting'} as ${person}: ${record.maskWords}. You are ${record.actor}.`,
       remaining,
     };
   });
@@ -102,7 +123,16 @@ export class ImpersonationService {
 
   /** Mints a read-only session as another person, named by the id of their account, and reloads the console as them. */
   async viewAs(userId: string): Promise<void> {
-    await this.mint({ kind: 'user', principal: userId, reason: 'crew roster: view as' });
+    await this.mint({ kind: 'view', principal: userId, reason: 'crew roster: view as' });
+  }
+
+  /**
+   * Mints a session that acts as another person, named by the id of their account: what
+   * they may do, except change how they sign in or who may do what. The server's mask
+   * says so, and the banner repeats it.
+   */
+  async actAs(userId: string): Promise<void> {
+    await this.mint({ kind: 'act', principal: userId, reason: 'crew roster: act as' });
   }
 
   /** Mints a session that acts as a role and reloads the console under it. */
@@ -110,7 +140,7 @@ export class ImpersonationService {
     await this.mint({ kind: 'role', principal: role, reason: 'crew roster: assume role' });
   }
 
-  private async mint(body: { kind: 'user' | 'role'; principal: string; reason: string }): Promise<void> {
+  private async mint(body: { kind: ImpersonationKind; principal: string; reason: string }): Promise<void> {
     await firstValueFrom(this.http.post(`${this.apiUrl}/impersonate`, body));
     await this.rebind();
   }
@@ -134,11 +164,20 @@ export class ImpersonationService {
   /**
    * The cookie now names a different session: re-establish the client-side session and
    * its permission cache as the new principal, then start over at the dashboard.
+   *
+   * The cache is never emptied under a page that is drawn: a sector's page left open over
+   * an empty cache is the page of a person who holds nothing there, which nobody said.
+   * What the new session holds outside every sector, and its sectors, are read in the old
+   * answers' place, so the landing is decided for the new session. The navigation then
+   * leaves the page that was open; a sector it lands in reads its own digest on the way
+   * in. Only after it are the digests the old session left behind read again as the new
+   * one, and that read forgets a sector the new session is not in: nothing the old session
+   * held there is kept.
    */
   private async rebind(): Promise<void> {
-    this.auth.permissions.clear();
     await firstValueFrom(this.auth.checkUserSession());
-    await this.auth.permissions.refresh();
+    await Promise.all([this.auth.permissions.loadDigest(), this.auth.permissions.loadDomains()]);
     await this.router.navigateByUrl('/dashboard');
+    await firstValueFrom(this.auth.refreshPermissions());
   }
 }

@@ -8,7 +8,9 @@ import (
 )
 
 // evaluator answers permission checks on the request path; the snapshot
-// engine implements it. Implementations must be safe for concurrent use.
+// engine implements it. Implementations must be safe for concurrent use. The
+// context of a call is the request's, and is never what the policy store is
+// read under: a call may be made inside a database transaction.
 type evaluator interface {
 	// checkUser returns user's scope-wide (no resource attachment) decision
 	// within scope: granted on any unconditional cover, the covering
@@ -117,7 +119,7 @@ type policyStore interface {
 	addScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error
 	removeScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error
 	roleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
-	roleGrantConditions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error)
+	roleResourceGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.RoleGrant, error)
 
 	// Groups of people, their members and the roles each holds (groups.go).
 	addGroup(ctx context.Context, group *policy.GroupRow) (taken bool, err error)

@@ -1,6 +1,7 @@
 package mail
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -68,6 +69,52 @@ func TestLog(t *testing.T) {
 	if err := (Log{}).Send(t.Context(), Message{To: "a@example.com"}); err == nil {
 		t.Fatal("Send() of a message without a subject or body = nil, want the validation error")
 	}
+}
+
+func TestDelivers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		sender Sender
+		want   bool
+	}{
+		{name: "a sender that says it delivers", sender: &Recorder{}, want: true},
+		{name: "the log writes the message where the log's readers read it", sender: Log{}},
+		{name: "the log by its pointer", sender: &Log{}},
+		{name: "a sender that wraps the log says nothing, and does not deliver", sender: struct{ Log }{}},
+		{name: "a sender that says nothing of itself does not deliver", sender: silentSender{}},
+		{name: "a sender that says it does not deliver", sender: declaredSender(false)},
+		{name: "a sender of the application's own that says it delivers", sender: declaredSender(true), want: true},
+		{name: "no sender", sender: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := Delivers(tt.sender); got != tt.want {
+				t.Errorf("Delivers() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// silentSender is a Sender that declares nothing about where its messages go.
+type silentSender struct{}
+
+func (silentSender) Send(context.Context, Message) error {
+	return nil
+}
+
+// declaredSender is a Sender that declares whether it delivers.
+type declaredSender bool
+
+func (declaredSender) Send(context.Context, Message) error {
+	return nil
+}
+
+func (d declaredSender) Delivers() bool {
+	return bool(d)
 }
 
 func contains(s, sub string) bool {

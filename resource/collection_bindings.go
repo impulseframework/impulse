@@ -19,7 +19,7 @@ const StateAttribute = "state"
 // §04). Bindings travel in generated code — the Collection is the
 // authoritative attribute listing — never as store rows: the generator
 // compiles the field-level binding annotations and registers the result here,
-// where deployment tooling (MigrateRoles condition validation) and the SQL
+// where role validation (access.ValidateRoles) and the SQL
 // lowering read it back.
 
 // BindingHop is one resolved step of a join path: read Table, joined on
@@ -33,7 +33,7 @@ type BindingHop struct {
 }
 
 // AttributeType is the attribute comparison-type vocabulary, canonically
-// defined in accesstypes so deployment tooling (MigrateRoles) shares one
+// defined in accesstypes so role validation (access.ValidateRoles) shares one
 // definition with generation.
 type AttributeType = accesstypes.AttributeType
 
@@ -91,6 +91,17 @@ type DomainBindingData struct {
 // it is the tests below joined by OR, and UserColumn is the column of one of
 // them, the one the declaration sits on. Where says which of those rows count:
 // nil, every one does. A subject value writes neither.
+//
+// Domain is the set's own way to a row's tenant, for a set declared on a
+// resource that is no tenant's (a global one) whose rows still belong to
+// tenants: the column of the row that holds the tenant's key (an empty Path),
+// or, where a row belongs to a tenant through a parent, the foreign key the
+// path leaves through and the path to the column that holds it. In a request
+// with a tenant the set then holds that tenant's rows alone; a row that names
+// another tenant, or none, is left out. Nil, the declaring resource's own
+// tenancy binding is the filter, and a global resource's set reads every row.
+// A set of a tenant's resource carries none, and a subject value never does
+// (validateCollectionBindings).
 type SubjectBindingData struct {
 	Name       string
 	UserColumn string
@@ -99,6 +110,7 @@ type SubjectBindingData struct {
 	Path       []BindingHop
 	Who        []SubjectWhoData
 	Where      *SubjectWhereData
+	Domain     *DomainBindingData
 }
 
 // SubjectWhoData is one test of a subject set's who: part. Column is the
@@ -202,7 +214,7 @@ func (g *GeneratedCollection) Bindings(scope accesstypes.PermissionScope, res ac
 }
 
 // The flat vocabulary accessors below answer with basic types only, so
-// deployment tooling (access.MigrateRoles) can consume the Collection through
+// the access package (access.New, access.ValidateRoles) can consume the Collection through
 // a structural interface without importing this package.
 
 // AttributeComparisonType resolves an attribute's comparison type on one
@@ -275,7 +287,14 @@ func (g *GeneratedCollection) attributeData(scope accesstypes.PermissionScope, r
 // every attribute and subject entry carrying a comparison type from the
 // vocabulary, and subject names unique across the whole collection —
 // subject.<name> is one application-wide namespace, so two resources
-// anchoring the same name would make a condition ambiguous.
+// anchoring the same name would make a condition ambiguous. It also holds a
+// subject entry's own way to a row's tenant (SubjectBindingData.Domain) to
+// where the generator admits one: on a subject set of a resource that is no
+// tenant's. The lowering reads that binding in place of the resource's own, so
+// on a tenant's resource it would take the place of the filter every other
+// query of the resource is kept to its tenant by. The generator refuses the
+// same with the struct named; reaching it here means the collection was
+// written by hand.
 func validateCollectionBindings(resources []CollectionResource) error {
 	type subjectClaim struct {
 		resource accesstypes.Resource
@@ -306,7 +325,21 @@ func validateCollectionBindings(resources []CollectionResource) error {
 				return errors.Newf("resource %q attribute %q carries comparison type %q, which is not in the vocabulary — regenerate the collection", res.Name, attr.Name, attr.Type)
 			}
 		}
-		for _, subject := range slices.Concat(res.SubjectSets, res.SubjectValues) {
+		for i := range res.SubjectSets {
+			set := &res.SubjectSets[i]
+			if set.Domain != nil && (res.Scope == accesstypes.DomainPermissionScope || res.Domain != nil) {
+				return errors.Newf("resource %q subject set %q writes a domain:, which says where a row's tenant is found on a resource that is no tenant's; %q is a tenant's resource, and its own domain binding keeps the set to the request's tenant — remove the set's domain", res.Name, set.Name, res.Name)
+			}
+		}
+		for i := range res.SubjectValues {
+			value := &res.SubjectValues[i]
+			if value.Domain != nil {
+				return errors.Newf("resource %q subject value %q writes a domain:, which is a part of a subject set alone — remove the value's domain", res.Name, value.Name)
+			}
+		}
+		subjects := slices.Concat(res.SubjectSets, res.SubjectValues)
+		for i := range subjects {
+			subject := &subjects[i]
 			if err := claimLocal(subject.Name); err != nil {
 				return err
 			}
@@ -445,9 +478,11 @@ func (g *GeneratedCollection) subjectSetWhere(set *SubjectBindingData) (conditio
 
 // SubjectAnchor is a subject-vocabulary entry with everything its rendering
 // needs: the anchor table (the resource declaring it), the entry itself, and
-// the anchor table's own tenancy binding — the rendered subquery filters to
-// the request's partition exactly when both the request and the anchor table
-// are partitioned, derived here, never authored.
+// the tenancy binding its rows are filtered by — the anchor table's own, or
+// the set's own way to a tenant where the table is no tenant's and the set
+// declares one (SubjectBindingData.Domain). The rendered subquery filters to
+// the request's partition exactly when the request is partitioned and there
+// is such a binding, derived here, never authored.
 type SubjectAnchor struct {
 	Resource accesstypes.Resource
 	Scope    accesstypes.PermissionScope
@@ -470,9 +505,16 @@ func (g *GeneratedCollection) SubjectValue(name string) (SubjectAnchor, bool) {
 func (g *GeneratedCollection) subjectAnchor(name string, entries func(Bindings) []SubjectBindingData) (SubjectAnchor, bool) {
 	for scope, store := range g.bindings {
 		for res, bindings := range store {
-			for _, entry := range entries(bindings) {
+			declared := entries(bindings)
+			for i := range declared {
+				entry := &declared[i]
 				if entry.Name == name {
-					return SubjectAnchor{Resource: res, Scope: scope, Binding: entry, Domain: bindings.Domain}, true
+					domain := bindings.Domain
+					if entry.Domain != nil {
+						domain = entry.Domain
+					}
+
+					return SubjectAnchor{Resource: res, Scope: scope, Binding: *entry, Domain: domain}, true
 				}
 			}
 		}

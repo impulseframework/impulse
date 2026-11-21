@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/identity/staffidentity"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/router"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/pkg/auth/staff"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -96,6 +97,10 @@ type Configurer interface {
 	// release built it): what the generated router's session outlets check a browser
 	// application's X-Api-Version against.
 	AppVersion() string
+	// Environment is the name of the environment the application runs in
+	// (APP_ENVIRONMENT, unset in production): what every answer of the server names and
+	// the About pop-up shows.
+	Environment() string
 	Dist() string
 }
 
@@ -115,6 +120,11 @@ type App struct {
 	validate       *validator.Validate
 	logExporter    logger.Exporter
 	version        string
+	environment    string
+	// collection is the generated permission collection, built once: the session
+	// permissions read each action's classes off it, so the mask of an impersonated
+	// session can refuse a class of actions (resource.Masked).
+	collection *resource.GeneratedCollection
 	// site serves the site's built bundle at /: the resource package's served browser
 	// app holds the deep-link rewrite, the prefix strip, and the two cache classes a
 	// service worker needs (hashed files immutable, everything else revalidated).
@@ -140,6 +150,8 @@ func New(cfg Configurer) *App {
 		validate:       cfg.Validator(),
 		logExporter:    cfg.LogExporter(),
 		version:        cfg.AppVersion(),
+		environment:    cfg.Environment(),
+		collection:     router.Collection(),
 		site:           resource.NewBrowserApp(cfg.Dist(), "/"),
 		live:           cfg.Live(),
 		csp:            cspPolicy(cfg.LiveOrigins()),
@@ -172,6 +184,13 @@ func (a *App) LogExporter() logger.Exporter {
 // X-Api-Version against. A development build reports dev, which checks nothing.
 func (a *App) ServerVersion() string {
 	return a.version
+}
+
+// ServerEnvironment is the name of the environment this server runs in, the
+// configuration's APP_ENVIRONMENT: what the generated router names on every answer
+// (X-Environment) and the About pop-up shows. Production is told none and reports none.
+func (a *App) ServerEnvironment() string {
+	return a.environment
 }
 
 // SecurityHeaders is a middleware that sets security-related headers on the response.
@@ -227,8 +246,10 @@ func (a *App) Assets() http.HandlerFunc {
 // only, a sign-in through the tenant's own directory where it is), and a super
 // administrator reaches every tenant. A tenant that seats the person and is closed to
 // the session stays in its tenant list marked closed, with the reason.
+// The mask reads each action's classes off the generated collection, so a session whose
+// mask refuses a class of actions is refused every action that carries it.
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
-	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations)
+	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations, a.collection)
 }
 
 // TenantRoster returns the application's tenant roster, the generated contract's

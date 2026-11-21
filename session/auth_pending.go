@@ -102,7 +102,8 @@ func pendingTokenHash(ctx context.Context) ([]byte, bool) {
 
 // pending returns the browser's pending identity from ctx. It returns NotFound when
 // there is none, and a pending_expired refusal when its row is no longer live (expired,
-// completed, canceled or replaced).
+// completed, canceled or replaced). The identity it returns says an address is verified
+// only on the word the library keeps, whatever the row holds.
 func (a *Auth[S, U, Tx]) pending(ctx context.Context) (*pendingState, error) {
 	hash, ok := pendingTokenHash(ctx)
 	if !ok {
@@ -120,6 +121,9 @@ func (a *Auth[S, U, Tx]) pending(ctx context.Context) (*pendingState, error) {
 	if p.ConsumedAt != nil || !time.Now().Before(p.ExpiresAt) {
 		return nil, errPendingExpired()
 	}
+	// The row's identity is held to the answer a sign-in's is (onlyGoogleVouches): a
+	// row stored with another provider's word for the address is read without it.
+	p.Identity = *a.onlyGoogleVouches(p.Registration, &p.Identity)
 
 	return p, nil
 }
@@ -378,6 +382,15 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 // records the step-up events, links the identity if needed, starts the session, and
 // regenerates the session ID.
 //
+// stepUp names the application's own steps, each under a name of the application's
+// ("totp"). An event without a method, under a method that records a step the
+// library runs itself (sessioninfo.MethodEmailCode, sessioninfo.MethodTrustedDevice,
+// an attestation's), or under the name of a sign-in method the library runs (a
+// password, a directory's method the library ships, the method of a registration on
+// the Auth), is a BadRequest, and the pending identity stays as it was: the
+// mailed code is entered through Pending().VerifyCode() or VerifyEmailCode, which
+// record its event, and a sign-in is recorded by the method the person signs in through.
+//
 // The pending identity must wait for MFA (Conflict otherwise). It is consumed first, so
 // it completes once: a second completion finds it expired. The user is resolved again
 // and must be the one the identity waited on, and the sign-in policy is asked again
@@ -385,9 +398,10 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 // satisfy proceeds, a Deny refuses the completion (no session; the pending identity is
 // consumed), and a RequireMFA for a factor the person did not give holds the sign-in
 // again. The session records the sign-in's events followed by stepUp. If the sign-in
-// must wait again (the resolver now asks for a confirmation, or the policy for another
-// factor), the error is a *signin.PendingSignInError and the pending identity is
-// replaced.
+// must wait again (the resolver now asks for a confirmation, the policy for another
+// factor, or the person came through a directory that does not vouch for an address and
+// their account holds no confirmed one, which the mailed code alone answers), the error
+// is a *signin.PendingSignInError and the pending identity is replaced.
 //
 // A pending identity that a password started, or confirmed, completes only while the
 // user still holds that password: once it was changed, reset or removed, the
@@ -409,6 +423,9 @@ func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.Response
 		return impulse.NilUUID, err
 	}
 	if err := acceptedFactors(pending.Factors, stepUp); err != nil {
+		return impulse.NilUUID, err
+	}
+	if err := p.auth.reportsNoSignIn(stepUp); err != nil {
 		return impulse.NilUUID, err
 	}
 	if err := p.auth.consumePending(ctx, pending); err != nil {
@@ -478,7 +495,14 @@ func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWrit
 	if err := a.checkConfirmation(ctx, user, password, client); err != nil {
 		return nil, err
 	}
-	if user.Disabled {
+	// A disabled account is refused before the pending identity is spent and before
+	// anything is linked: one the store's answer holds disabled, or one the library's
+	// own row does where a store wraps the library's.
+	disabled, err := a.disabledByEitherStore(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	if disabled {
 		return nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
 	}
 	// The link and the session rest on the password just proved: both are made only

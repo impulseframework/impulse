@@ -19,11 +19,13 @@ import (
 
 func (a *App) ShipClasses() http.HandlerFunc {
 	type shipClass struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"    perm:"-"`
 		Designation string       `json:"designation" index:"true"`
 		RoleID      string       `json:"roleId"      index:"true"`
 		Tonnage     int64        `json:"tonnage"`
 		Hardened    bool         `json:"hardened"`
+		InService   bool         `json:"inService"`
+		RoleName    *string      `json:"roleName"    nameof:"RoleID"`
 	}
 
 	type response []map[string]any
@@ -61,7 +63,7 @@ func (a *App) ShipClasses() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*shipClass)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -84,6 +86,10 @@ func (a *App) ShipClasses() http.HandlerFunc {
 				case "Hardened":
 					if !row.Masked("hardened") {
 						rmap["hardened"] = rec.Hardened
+					}
+				case "InService":
+					if !row.Masked("inService") {
+						rmap["inService"] = rec.InService
 					}
 				}
 			}
@@ -108,11 +114,13 @@ func (a *App) ShipClasses() http.HandlerFunc {
 
 func (a *App) ShipClass() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"    perm:"-"`
 		Designation string       `json:"designation" index:"true"`
 		RoleID      string       `json:"roleId"`
 		Tonnage     int64        `json:"tonnage"`
 		Hardened    bool         `json:"hardened"`
+		InService   bool         `json:"inService"`
+		RoleName    *string      `json:"roleName"    nameof:"RoleID"`
 	}
 
 	decoder := NewQueryDecoder[resources.ShipClass, response](a, accesstypes.Read)
@@ -138,7 +146,7 @@ func (a *App) ShipClass() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -161,6 +169,10 @@ func (a *App) ShipClass() http.HandlerFunc {
 			case "Hardened":
 				if !row.Masked("hardened") {
 					rmap["hardened"] = rec.Hardened
+				}
+			case "InService":
+				if !row.Masked("inService") {
+					rmap["inService"] = rec.InService
 				}
 			}
 		}

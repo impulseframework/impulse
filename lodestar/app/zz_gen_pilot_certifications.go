@@ -18,8 +18,9 @@ import (
 
 func (a *App) PilotCertifications() http.HandlerFunc {
 	type pilotCertification struct {
-		UserID          string `json:"userId"          index:"true" perm:"-"`
-		CertificationID string `json:"certificationId" index:"true" perm:"-"`
+		UserID            string  `json:"userId"            index:"true"             perm:"-"`
+		CertificationID   string  `json:"certificationId"   index:"true"             perm:"-"`
+		CertificationName *string `json:"certificationName" nameof:"CertificationID"`
 	}
 
 	type response []map[string]any
@@ -57,7 +58,7 @@ func (a *App) PilotCertifications() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*pilotCertification)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -92,8 +93,9 @@ func (a *App) PilotCertifications() http.HandlerFunc {
 
 func (a *App) PilotCertification() http.HandlerFunc {
 	type response struct {
-		UserID          string `json:"userId"          index:"true" perm:"-"`
-		CertificationID string `json:"certificationId" index:"true" perm:"-"`
+		UserID            string  `json:"userId"            index:"true"             perm:"-"`
+		CertificationID   string  `json:"certificationId"   index:"true"             perm:"-"`
+		CertificationName *string `json:"certificationName" nameof:"CertificationID"`
 	}
 
 	decoder := NewQueryDecoder[resources.PilotCertification, response](a, accesstypes.Read)
@@ -120,7 +122,7 @@ func (a *App) PilotCertification() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {

@@ -82,7 +82,7 @@ func Test_snapshot_periods(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			snap, findings, err := newSnapshotAt(records, nil, nil, noon, tt.at)
+			snap, findings, err := newSnapshotAt(records, nil, declaringRecords(records), noon, tt.at)
 			if err != nil || len(findings) != 0 {
 				t.Fatalf("newSnapshotAt() = (%v, %v), want no finding", findings, err)
 			}
@@ -117,7 +117,7 @@ func Test_snapshot_periods(t *testing.T) {
 	// and it keeps no records.
 	untimed := groupFixture()
 	untimed.Memberships = []policy.Membership{{Scope: tenant1Policy, Member: userSubject("cy"), Role: "Editor"}}
-	snap, _, err := newSnapshot(untimed, nil, nil, noon)
+	snap, _, err := newSnapshot(untimed, nil, declaringRecords(untimed), noon)
 	if err != nil {
 		t.Fatalf("newSnapshot() error = %v", err)
 	}
@@ -156,7 +156,7 @@ func Test_snapshotEngine_periods(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	e, store, clock := periodEngine(t)
-	if err := store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor", between(1, 2)); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor", between(1, 2), ""); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	written := store.writes
@@ -217,7 +217,7 @@ func Test_snapshotEngine_periods(t *testing.T) {
 	if got := reads(accesstypes.EnvironmentAt(hoursOn(1.5))); !got {
 		t.Error("after a reload of unchanged records: the role does not count inside its period")
 	}
-	if err := store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor", between(5, 6)); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor", between(5, 6), ""); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	settle(e)
@@ -284,7 +284,7 @@ func Test_userManager_AssignUserRole(t *testing.T) {
 
 	// An assignment that has ended: the row stands and counts for nothing.
 	ended := accesstypes.Period{End: now.Add(-time.Hour)}
-	if err := manager.AssignUserRole(ctx, tenant1Policy, "ann", "Editor", ended); err != nil {
+	if err := manager.AssignUserRole(ctx, tenant1Policy, "ann", "Editor", ended, ""); err != nil {
 		t.Fatalf("AssignUserRole() error = %v", err)
 	}
 	if len(store.memberships) != 1 {
@@ -316,7 +316,7 @@ func Test_userManager_AssignUserRole(t *testing.T) {
 
 	// A new period replaces the old one: the role now begins in an hour.
 	upcoming := accesstypes.Period{Start: now.Add(time.Hour), End: now.Add(2 * time.Hour)}
-	if err := manager.AssignUserRole(ctx, tenant1Policy, "ann", "Editor", upcoming); err != nil {
+	if err := manager.AssignUserRole(ctx, tenant1Policy, "ann", "Editor", upcoming, ""); err != nil {
 		t.Fatalf("AssignUserRole() error = %v", err)
 	}
 	if len(store.memberships) != 1 {
@@ -331,7 +331,7 @@ func Test_userManager_AssignUserRole(t *testing.T) {
 
 	// A period that never counts is refused, and the assignment stays as it was.
 	backwards := accesstypes.Period{Start: now.Add(2 * time.Hour), End: now.Add(time.Hour)}
-	err := manager.AssignUserRole(ctx, tenant1Policy, "ann", "Editor", backwards)
+	err := manager.AssignUserRole(ctx, tenant1Policy, "ann", "Editor", backwards, "")
 	if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), "not after its start") {
 		t.Errorf("AssignUserRole() with an end before its start: error = %v, want a bad request saying so", err)
 	}
@@ -355,7 +355,7 @@ func Test_userManager_AssignUserRole_superAdministrator(t *testing.T) {
 		"a start":            {Start: in},
 		"a start and an end": {Start: in, End: in.Add(time.Hour)},
 	} {
-		err := manager.AssignUserRole(ctx, globalPolicy, "root", accesstypes.SuperAdministrator, period)
+		err := manager.AssignUserRole(ctx, globalPolicy, "root", accesstypes.SuperAdministrator, period, "")
 		if err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), "takes no end") {
 			t.Errorf("AssignUserRole() of the Super Administrator role with %s: error = %v, want a bad request saying the role takes no end", name, err)
 		}
@@ -369,7 +369,7 @@ func Test_userManager_AssignUserRole_superAdministrator(t *testing.T) {
 	if err := ValidatePeriod("Editor", accesstypes.Period{End: time.Now().Add(time.Hour)}); err != nil {
 		t.Errorf("ValidatePeriod() of another role with an end: error = %v", err)
 	}
-	if err := manager.AssignUserRole(ctx, globalPolicy, "root", accesstypes.SuperAdministrator, accesstypes.Period{}); err != nil {
+	if err := manager.AssignUserRole(ctx, globalPolicy, "root", accesstypes.SuperAdministrator, accesstypes.Period{}, ""); err != nil {
 		t.Errorf("AssignUserRole() of the Super Administrator role with no period: error = %v", err)
 	}
 }
@@ -488,13 +488,13 @@ func Test_userManager_DeleteRole_periods(t *testing.T) {
 	_, manager, store := periodClient(t)
 	now := time.Now()
 
-	if err := manager.AssignUserRole(ctx, tenant1Policy, "ann", "Editor", accesstypes.Period{Start: now.Add(time.Hour)}); err != nil {
+	if err := manager.AssignUserRole(ctx, tenant1Policy, "ann", "Editor", accesstypes.Period{Start: now.Add(time.Hour)}, ""); err != nil {
 		t.Fatalf("AssignUserRole() error = %v", err)
 	}
 	if _, err := manager.DeleteRole(ctx, tenant1Policy, "Editor"); err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), "has not begun") {
 		t.Errorf("DeleteRole() of a role assigned for a period that has not begun: error = %v, want a bad request saying so", err)
 	}
-	if err := manager.AssignUserRole(ctx, tenant1Policy, "ann", "Editor", accesstypes.Period{End: now.Add(-time.Hour)}); err != nil {
+	if err := manager.AssignUserRole(ctx, tenant1Policy, "ann", "Editor", accesstypes.Period{End: now.Add(-time.Hour)}, ""); err != nil {
 		t.Fatalf("AssignUserRole() error = %v", err)
 	}
 	if deleted, err := manager.DeleteRole(ctx, tenant1Policy, "Editor"); err != nil || !deleted {

@@ -19,11 +19,12 @@ import (
 
 func (a *App) TenantDirectories() http.HandlerFunc {
 	type tenantDirectory struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"      perm:"-"`
 		TenantID    impulse.UUID `json:"tenantId"    index:"true"`
 		Method      string       `json:"method"      index:"true"`
 		Connection  string       `json:"connection"`
 		DefaultSeat *string      `json:"defaultSeat"`
+		TenantName  *string      `json:"tenantName"  nameof:"TenantID"`
 	}
 
 	type response []map[string]any
@@ -62,7 +63,7 @@ func (a *App) TenantDirectories() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*tenantDirectory)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -109,11 +110,12 @@ func (a *App) TenantDirectories() http.HandlerFunc {
 
 func (a *App) TenantDirectory() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"      perm:"-"`
 		TenantID    impulse.UUID `json:"tenantId"    index:"true"`
 		Method      string       `json:"method"`
 		Connection  string       `json:"connection"`
 		DefaultSeat *string      `json:"defaultSeat"`
+		TenantName  *string      `json:"tenantName"  nameof:"TenantID"`
 	}
 
 	decoder := NewQueryDecoder[resources.TenantDirectory, response](a, accesstypes.Read)
@@ -140,7 +142,7 @@ func (a *App) TenantDirectory() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {

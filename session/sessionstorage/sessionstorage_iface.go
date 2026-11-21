@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/postgres"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/spanner"
@@ -45,14 +46,40 @@ type BaseStore interface {
 	// has not already ended, and is a no-op otherwise. It errors when no impersonation
 	// table is configured.
 	EndImpersonation(ctx context.Context, sessionID impulse.UUID, reason sessioninfo.ImpersonationEndReason) error
-	// CreateImpersonatedSession creates a new session for the request together with
-	// its impersonation record, atomically, and returns the session ID. Custom session
-	// data follows the session type's creation semantics inside the same transaction
-	// (per-call data, or the configured resolver receiving ReasonImpersonation). No user
-	// record is consulted or written: the request's Username is the
-	// session's effective identity as the session type resolved it. It errors when no
+	// ImpersonatedSessionWriter is the write of an impersonated session with its record,
+	// atomically: a new session for the request the session type made, with custom
+	// session data by the session type's creation semantics inside the same
+	// transaction, and no user record consulted or written. It errors when no
 	// impersonation table is configured.
-	CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error)
+	//
+	// Its one method has an unexported name declared inside the session library
+	// (session/internal/sealed), because the write takes whatever principal, mask and
+	// actor it is handed. No package outside the session library's directory can call
+	// it or declare it, so:
+	//   - the stores this package makes have it, and the library alone calls it, from a
+	//     request the application's declaration made (session.Impersonations and the
+	//     session type's StartImpersonatedSession);
+	//   - a store that embeds one of them has it by promotion, and cannot replace it: a
+	//     method of the same name declared in another package is a different method,
+	//     which the library never calls;
+	//   - a store written from nothing does not have it, and is not a BaseStore. A test
+	//     double embeds NoImpersonatedSessions, whose write refuses with
+	//     ErrImpersonationSealed.
+	sealed.ImpersonatedSessionWriter
+	// SessionReader is the read of a session as the library's own store holds it, by
+	// which the session library reads what decides an impersonated session: the actor's
+	// own session when one starts, and the session of every later request. Its methods
+	// have unexported names declared inside the session library too, so a store that
+	// embeds one of the library's has them by promotion and cannot replace them:
+	//   - the Session of a store that wraps the library's is never asked whether a
+	//     session is impersonated, what its mask keeps, who its actor is or whether it
+	//     has ended. It is asked for every session the library's own read does not find
+	//     impersonated, and an answer of its own that carries an impersonation record
+	//     is refused as an invalid session;
+	//   - a test double, which embeds NoImpersonatedSessions, holds no read of the
+	//     library's: its Session answers for an ordinary session, and never an
+	//     impersonated one.
+	sealed.SessionReader
 	// DestroyImpersonatedSessions expires every live impersonated session established
 	// by actor and ends their records with reason Revoked. It errors when no
 	// impersonation table is configured.
@@ -96,6 +123,13 @@ type InsertSessionUser = dbtype.InsertSessionUser
 
 // UserStore is the user management of a store that has users: the Auth storage.
 type UserStore interface {
+	// UserReader is the read of an account as the library's own store holds it, by
+	// which the session library reads the account an impersonated session acts as, and
+	// whether an actor's name is an account's. Its methods have unexported names
+	// declared inside the session library (session/internal/sealed), so the User and
+	// UserByUserName of a store that wraps the library's are never asked which account
+	// a session acts as. A test double embeds NoImpersonatedSessions.
+	sealed.UserReader
 	// User returns a session user for give user id
 	User(ctx context.Context, id impulse.UUID) (*SessionUser, error)
 	// UserByUsername returns a session user for give username
@@ -111,15 +145,21 @@ type UserStore interface {
 	// (ErrPasswordChanged), so an upgrade never puts an old password back. A write with
 	// no proven hash writes nothing, and one with no new hash is refused.
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
-	// ActivateUser activates a user
+	// ActivateUser activates a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (ActivateSessionUser).
 	ActivateUser(ctx context.Context, id impulse.UUID) error
 	// CreateUser creates a new user. customData is nil or *U for the configured custom
 	// user data struct type; when non-nil it is written atomically with the user insert
 	// and requires a custom user data configuration on the storage.
 	CreateUser(ctx context.Context, user *InsertSessionUser, customData any) (*SessionUser, error)
-	// DeactivateUser deactivates a user
+	// DeactivateUser deactivates a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (DeactivateSessionUser).
 	DeactivateUser(ctx context.Context, id impulse.UUID) error
-	// DeleteUser deletes a user
+	// DeleteUser deletes a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (DeleteSessionUser).
 	DeleteUser(ctx context.Context, id impulse.UUID) error
 	// CustomUserData returns the custom user data row for the given user ID as *U for
 	// the configured struct type. A user with no custom data row yields a zero-value *U.
@@ -264,6 +304,8 @@ type db interface {
 	// UserByEmail returns the user holding the address, verified or not, or NotFound.
 	UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error)
 	// SetUserEmail puts an address on the user by hand, unverified, or takes it off (nil).
+	// Taking it off consumes, in the same transaction, every live factor code of the
+	// user's pending sign-ins.
 	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
 	// VerifyUserEmail writes the address the person proved they read, verified at the database's time.
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
@@ -320,15 +362,21 @@ type db interface {
 	// SetFirstUserPassword writes hash and clears the password change mark while the row holds no password hash, and leaves
 	// the user's sessions as they are.
 	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
-	// ActivateUser activates a user
+	// ActivateUser activates a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (ActivateSessionUser).
 	ActivateUser(ctx context.Context, id impulse.UUID) error
 	// CreateUser creates a new user; non-nil customData (*U) is written atomically with the user insert.
 	CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error)
 	// Users lists every user, by username.
 	Users(ctx context.Context) ([]*dbtype.SessionUser, error)
-	// DeactivateUser deactivates a user
+	// DeactivateUser deactivates a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (DeactivateSessionUser).
 	DeactivateUser(ctx context.Context, id impulse.UUID) error
-	// DeleteUser deletes a user
+	// DeleteUser deletes a user. It is the bare write, and asks nothing of the session it is
+	// called in: the rule that a person who acts as someone else does not switch their
+	// own account is the session API's (DeleteSessionUser).
 	DeleteUser(ctx context.Context, id impulse.UUID) error
 	// DestroyAllUserSessions destroys all sessions for a given user
 	DestroyAllUserSessions(ctx context.Context, username string) error

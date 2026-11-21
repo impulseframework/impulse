@@ -75,7 +75,9 @@ type devIdentities struct {
 	Users []devUser `json:"users"`
 	// Groups are the crew's groups of people: a group holds roles the way a persona does,
 	// and a persona in it holds them wherever the group does. The deckhand holds no role
-	// in a sector of their own: what they may do in Anvil is the deck crew's.
+	// in a sector of their own: what they may do in Anvil is the deck crew's. A group
+	// can hold a hangar pass too: the sentry holds no pass and flies with no squadron,
+	// and runs the Quarantine Bay because the bay keepers hold a pass to it.
 	Groups []devGroup `json:"groups"`
 	// Members are the portal's people whom a row of the demo world names: the contact a
 	// client company's record belongs to, the client who filed a distress call. The
@@ -105,10 +107,14 @@ type devRoles struct {
 
 // devUser is one persona: a crew login and its roles. ID is the fixed id its account is
 // created under, which is how the permission store names the persona and what the demo
-// world's rows carry for them; User is its username, which is what people read and type.
+// world's rows carry for them; User is its username, which is what the persona types to
+// sign in; Name is the persona's name as people read it, the one the README's cast and
+// the login page's manifest give, which a page that lists people shows beside the
+// username.
 type devUser struct {
 	ID       impulse.UUID `json:"id"`
 	User     string       `json:"user"`
+	Name     string       `json:"name"`
 	Password string       `json:"password"`
 	Roles    devRoles     `json:"roles"`
 	// Tours are the roles the persona holds for a time: the relief officer is on a tour
@@ -116,29 +122,56 @@ type devUser struct {
 	Tours []devTour `json:"tours"`
 }
 
+// accountName answers the name the persona's account is created with: nil where the
+// file gives none, since an account may be without one.
+func (u *devUser) accountName() *string {
+	if u.Name == "" {
+		return nil
+	}
+
+	return &u.Name
+}
+
 // devTour is a tour of duty: the roles a persona holds in one sector, named by its name,
 // for a number of days from the bootstrap. Each is a role given for a period that ends
 // (accesstypes.Period): it counts until its end and for nothing after, whether or not
-// its row still stands, and the row goes when the persona next signs in.
+// its row still stands, and the row goes when the persona next signs in. Reason says why
+// the tour was given, one line kept with each role and shown wherever the persona's
+// roles are listed, so the sector's Marshal reads why someone holds a role with her for
+// a time.
 //
-// Demonstrates: auth.periods.
+// Demonstrates: auth.periods, auth.reasons.
 type devTour struct {
 	Domain string             `json:"domain"`
 	Roles  []accesstypes.Role `json:"roles"`
 	Days   int                `json:"days"`
+	Reason string             `json:"reason"`
 }
 
 // devGroup is one group of the crew: its name and description, the sector it is kept in
 // by the sector's name (none keeps it for the whole fleet), the roles it holds by where
-// each is held, and the personas in it by their usernames.
+// each is held, the personas in it by their usernames, and the hangar passes it holds.
 //
 // Demonstrates: auth.groups.
 type devGroup struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Domain      string   `json:"domain"`
-	Roles       devRoles `json:"roles"`
-	Members     []string `json:"members"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Domain      string         `json:"domain"`
+	Roles       devRoles       `json:"roles"`
+	Members     []string       `json:"members"`
+	Passes      []devGroupPass `json:"passes"`
+}
+
+// devGroupPass is one hangar pass a group holds: the fixed id of the pass, the hangar by
+// its name in the group's own sector, and the level (visit, or run). The pass is written
+// here and not in the seed's SQL because it names the group by its id, which the
+// permission store makes when the group is created.
+//
+// Demonstrates: @subjectSet.on-groups.
+type devGroupPass struct {
+	ID     impulse.UUID `json:"id"`
+	Hangar string       `json:"hangar"`
+	Level  string       `json:"level"`
 }
 
 // devMember is one of the portal's people the demo world names: ID is the fixed id of
@@ -339,7 +372,8 @@ func resetData(ctx context.Context, settings config.DatabaseSettings) error {
 // and assigns the roles each holds under that id: the crew logins with their passwords,
 // the members without one (their roles are the directory's, written at their sign-in),
 // and the service accounts without one. The account comes first: a role is held by an
-// account. The crew's groups follow its logins, each with its roles and its members.
+// account. The crew's groups follow its logins, each with its roles, its members and the
+// hangar passes it holds; the passes are written over a client of the bootstrap's own.
 func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 	raw, err := os.ReadFile(usersPath)
 	if err != nil {
@@ -354,7 +388,7 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 	accounts := make(map[string]accesstypes.User, len(identities.Users))
 	for i := range identities.Users {
 		user := &identities.Users[i]
-		id, err := createAccount(ctx, crewAPI, &session.CreateUserRequest{Username: user.User, Password: &user.Password}, user.ID)
+		id, err := createAccount(ctx, crewAPI, &session.CreateUserRequest{Username: user.User, Password: &user.Password, Name: user.accountName()}, user.ID)
 		if err != nil {
 			return err
 		}
@@ -369,8 +403,19 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 		}
 	}
 
+	client, err := spanner.NewClient(ctx, data.Database().DatabasePath())
+	if err != nil {
+		return errors.Wrap(err, "spanner.NewClient()")
+	}
+	defer client.Close()
+
 	for i := range identities.Groups {
-		if err := seedGroup(ctx, data.UserManager(), data.TenantRoster(), &identities.Groups[i], accounts); err != nil {
+		group := &identities.Groups[i]
+		id, err := seedGroup(ctx, data.UserManager(), data.TenantRoster(), group, accounts)
+		if err != nil {
+			return err
+		}
+		if err := seedGroupPasses(ctx, client, data.TenantRoster(), group, id); err != nil {
 			return err
 		}
 	}
@@ -414,7 +459,7 @@ func assignTours(ctx context.Context, manager access.UserManager, sectors *resou
 		}
 		ends := time.Now().UTC().AddDate(0, 0, tour.Days)
 		for _, role := range tour.Roles {
-			if err := manager.AssignUserRole(ctx, accesstypes.DomainPolicyScope(domain), user, role, accesstypes.Period{End: ends}); err != nil {
+			if err := manager.AssignUserRole(ctx, accesstypes.DomainPolicyScope(domain), user, role, accesstypes.Period{End: ends}, tour.Reason); err != nil {
 				return errors.Wrapf(err, "access.UserManager.AssignUserRole(): user %s in the sector %s (%s)", login, tour.Domain, domain)
 			}
 		}
@@ -426,42 +471,43 @@ func assignTours(ctx context.Context, manager access.UserManager, sectors *resou
 
 // seedGroup creates one group of the crew where the file keeps it, gives it its roles
 // where each is held, and puts its personas in it, each by the account the bootstrap
-// created for them. The group comes first: a role and a member each name a group.
-func seedGroup(ctx context.Context, manager access.UserManager, sectors *resource.TenantRoster, group *devGroup, accounts map[string]accesstypes.User) error {
+// created for them. The group comes first: a role and a member each name a group. It
+// answers the id the permission store made for the group, which a pass names it by.
+func seedGroup(ctx context.Context, manager access.UserManager, sectors *resource.TenantRoster, group *devGroup, accounts map[string]accesstypes.User) (accesstypes.Group, error) {
 	kept := accesstypes.GlobalPolicyScope()
 	if group.Domain != "" {
 		domain, err := sectors.Named(group.Domain)
 		if err != nil {
-			return errors.Wrapf(err, "resource.TenantRoster.Named(): group %s", group.Name)
+			return "", errors.Wrapf(err, "resource.TenantRoster.Named(): group %s", group.Name)
 		}
 		kept = accesstypes.DomainPolicyScope(domain)
 	}
 	id, err := manager.AddGroup(ctx, kept, group.Name, group.Description)
 	if err != nil {
-		return errors.Wrapf(err, "access.UserManager.AddGroup(): group %s", group.Name)
+		return "", errors.Wrapf(err, "access.UserManager.AddGroup(): group %s", group.Name)
 	}
 	fmt.Printf("Created group %s (%s)\n", group.Name, id)
 
 	if len(group.Roles.Global) > 0 {
 		if err := manager.AddGroupRoles(ctx, id, accesstypes.GlobalPolicyScope(), group.Roles.Global...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddGroupRoles(): group %s in the global scope", group.Name)
+			return "", errors.Wrapf(err, "access.UserManager.AddGroupRoles(): group %s in the global scope", group.Name)
 		}
 		fmt.Printf("Gave %v to the group %s in the global scope\n", group.Roles.Global, group.Name)
 	}
 	if len(group.Roles.EveryDomain) > 0 {
 		if err := manager.AddGroupRoles(ctx, id, accesstypes.EveryDomainPolicyScope(), group.Roles.EveryDomain...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddGroupRoles(): group %s in every domain", group.Name)
+			return "", errors.Wrapf(err, "access.UserManager.AddGroupRoles(): group %s in every domain", group.Name)
 		}
 		fmt.Printf("Gave %v to the group %s in every domain\n", group.Roles.EveryDomain, group.Name)
 	}
 	for _, name := range slices.Sorted(maps.Keys(group.Roles.Domains)) {
 		domain, err := sectors.Named(name)
 		if err != nil {
-			return errors.Wrapf(err, "resource.TenantRoster.Named(): group %s", group.Name)
+			return "", errors.Wrapf(err, "resource.TenantRoster.Named(): group %s", group.Name)
 		}
 		domainRoles := group.Roles.Domains[name]
 		if err := manager.AddGroupRoles(ctx, id, accesstypes.DomainPolicyScope(domain), domainRoles...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddGroupRoles(): group %s in the sector %s (%s)", group.Name, name, domain)
+			return "", errors.Wrapf(err, "access.UserManager.AddGroupRoles(): group %s in the sector %s (%s)", group.Name, name, domain)
 		}
 		fmt.Printf("Gave %v to the group %s in the sector %s (%s)\n", domainRoles, group.Name, name, domain)
 	}
@@ -470,15 +516,67 @@ func seedGroup(ctx context.Context, manager access.UserManager, sectors *resourc
 	for _, login := range group.Members {
 		account, ok := accounts[login]
 		if !ok {
-			return errors.Newf("%s: the group %s names the member %q, and the file carries no user of that name", usersPath, group.Name, login)
+			return "", errors.Newf("%s: the group %s names the member %q, and the file carries no user of that name", usersPath, group.Name, login)
 		}
 		people = append(people, account)
 	}
 	if len(people) > 0 {
 		if err := manager.AddGroupUsers(ctx, id, people...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddGroupUsers(): group %s", group.Name)
+			return "", errors.Wrapf(err, "access.UserManager.AddGroupUsers(): group %s", group.Name)
 		}
 		fmt.Printf("Put %v in the group %s\n", group.Members, group.Name)
+	}
+
+	return id, nil
+}
+
+// groupPassInsert writes one pass a group holds, to the hangar of the group's sector that
+// carries the name: no row is written when the sector has no hangar of that name.
+const groupPassInsert = `INSERT INTO HangarPasses (Id, SectorId, HangarId, GroupId, LevelId)
+SELECT @id, SectorId, Id, @group, @level FROM Hangars WHERE SectorId = @sector AND Name = @hangar`
+
+// seedGroupPasses writes the hangar passes the file gives a group, each to the hangar of
+// the group's own sector that carries the name, naming the group by the id it was created
+// under. A group kept for the whole fleet is refused a pass: a pass counts for the people
+// of a group kept in the hangar's own sector, and for no other group.
+func seedGroupPasses(ctx context.Context, client *spanner.Client, sectors *resource.TenantRoster, group *devGroup, id accesstypes.Group) error {
+	if len(group.Passes) == 0 {
+		return nil
+	}
+	if group.Domain == "" {
+		return errors.Newf("%s: the group %s is kept for the whole fleet and holds a hangar pass: a pass opens a hangar to a group kept in the hangar's own sector, so keep the group in that sector", usersPath, group.Name)
+	}
+	domain, err := sectors.Named(group.Domain)
+	if err != nil {
+		return errors.Wrapf(err, "resource.TenantRoster.Named(): group %s", group.Name)
+	}
+	for i := range group.Passes {
+		pass := &group.Passes[i]
+		if pass.ID.IsNil() {
+			return errors.Newf("%s: the pass of the group %s to the hangar %q carries no id: every row of the demo world is written under a fixed id", usersPath, group.Name, pass.Hangar)
+		}
+		var written int64
+		if _, err := client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+			var err error
+			written, err = txn.Update(ctx, spanner.Statement{SQL: groupPassInsert, Params: map[string]any{
+				"id":     pass.ID.String(),
+				"group":  string(id),
+				"level":  pass.Level,
+				"sector": string(domain),
+				"hangar": pass.Hangar,
+			}})
+			if err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+			}
+
+			return nil
+		}); err != nil {
+			return errors.Wrapf(err, "spanner.Client.ReadWriteTransaction(): the pass of the group %s to the hangar %s", group.Name, pass.Hangar)
+		}
+		if written != 1 {
+			return errors.Newf("%s: the group %s holds a pass to the hangar %q, and the sector %s has %d hangars of that name: name one hangar of the group's own sector", usersPath, group.Name, pass.Hangar, group.Domain, written)
+		}
+		fmt.Printf("Gave the group %s a pass to %s the hangar %s\n", group.Name, pass.Level, pass.Hangar)
 	}
 
 	return nil

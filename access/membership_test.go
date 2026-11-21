@@ -212,7 +212,7 @@ func TestClient_PolicyChanged(t *testing.T) {
 	ctx := context.Background()
 
 	store := newFakeStore()
-	client := newPolicyClient(t, store, WithDefaultRoles(grammarCollection{}, grammarRoleFile), WithHeartbeatInterval(time.Hour))
+	client := newPolicyClient(t, store, grammarCollection{}, WithDefaultRoles(grammarRoleFile), WithHeartbeatInterval(time.Hour))
 	if err := client.WaitReady(ctx); err != nil {
 		t.Fatalf("Client.WaitReady() error = %v", err)
 	}
@@ -235,7 +235,7 @@ func TestClient_PolicyChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Membership() error = %v", err)
 	}
-	if err := store.InsertUserRole(ctx, globalPolicy, key.User, key.Role, accesstypes.Period{}); err != nil {
+	if err := store.InsertUserRole(ctx, globalPolicy, key.User, key.Role, accesstypes.Period{}, ""); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	if granted() {

@@ -6,11 +6,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"slices"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
@@ -29,6 +31,22 @@ import (
 // elsewhere stays, in the crew and among the members alike. The sector is made the way
 // every sector is, by an invitation: its founder, the first marshal, holds roles there
 // alone and goes with it.
+//
+// The sector's directory goes with it in the same request, though the sector is
+// directory only by then: nothing is turned off or removed first, the directory's
+// removal leaves its change event, another sector's directory stands, and the directory
+// is free for another sector, which the schema refused while Ember had it. The marshal,
+// seated in Ember and in Anvil, signs in afterwards as before and reaches Anvil.
+// Ember's rows go with it too: one in each of the seven tables that carry a sector's
+// key (a wing, a hangar, a pass into it, a mission, a consignment, a droid's report and a
+// distress call), by the delete rule on each table's foreign key to Sectors, while the
+// rows of the sectors beside it stand. And one in each of the eight tables that reach
+// their sector through another row: a squadron in Ember's wing with a member, a ship in
+// Ember's hangar with a refit and its task, a sortie of Ember's mission with an expense,
+// and a document of that mission, each by the delete rule on every link of its way to
+// Sectors. The ship flew Ember's own sortie and the droid's report is of it: those two
+// references say nothing of a delete, and hold nothing here, since what names the ship
+// goes in the same transaction.
 //
 // No role the release ships deletes a sector, so the suite makes one that does: a custom
 // role of the whole application holding Delete on Sectors, given to the governor.
@@ -72,7 +90,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 
 	// Headquarters invites Ember's founder, whose first sign-in makes the sector and
 	// seats them as its marshal.
-	ember, _ := foundSector(ctx, t, s, hq, "Ember", "Near frontier", "2226-10-20", "ember-founder")
+	ember := foundSector(ctx, t, s, hq, "Ember", "Near frontier", "2226-10-20", "ember-founder")
 	founderID := crewAccountID(ctx, t, hq, "ember-founder")
 	founderUser := accesstypes.User(founderID)
 	emberScope := accesstypes.DomainPolicyScope(accesstypes.Domain(ember))
@@ -155,8 +173,137 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		t.Fatal("the members' invitation into Ember does not stand before the delete")
 	}
 
+	// Ember is directory only by now, with an organization's directory, written here as
+	// rows: what its marshal would have declared on the sector's Sign-in page. While
+	// Ember has the directory no other sector takes it, which the schema holds.
+	const entra = "6f2c1b7e-0000-4000-8000-0000000000e1"
+	directoryRow := func(sector string) []*spanner.Mutation {
+		return []*spanner.Mutation{spanner.Insert("SectorDirectories", []string{"Id", "SectorId", "Method", "Connection"}, []any{newID(t), sector, "azure", entra})}
+	}
+	if _, err := s.db.Apply(ctx, append(directoryRow(ember), spanner.Update("Sectors", []string{"Id", "DirectoryOnly"}, []any{ember, true}))); err != nil {
+		t.Fatalf("making Ember directory only with a directory: %v", err)
+	}
+	if _, err := s.db.Apply(ctx, directoryRow(anvil)); spanner.ErrCode(err) != codes.AlreadyExists {
+		t.Fatalf("giving Anvil the directory Ember has: err = %v, want the unique index to refuse it", err)
+	}
+	// Ember holds rows of its own by now, written here as rows: one in each table that
+	// carries a sector's key, and one in each table that reaches its sector through
+	// another row. The pass is into Ember's own hangar, in a person's name; the ship is
+	// in that hangar, flew the sortie of Ember's mission, and is the one the droid read.
+	emberWing, emberHangar, emberMission := newID(t), newID(t), newID(t)
+	emberSquadron, emberShip, emberRefit, emberSortie := newID(t), newID(t), newID(t), newID(t)
+	if _, err := s.db.Apply(ctx, []*spanner.Mutation{
+		spanner.Insert("Wings", []string{"Id", "SectorId", "Name"}, []any{emberWing, ember, "Ember Wing"}),
+		spanner.Insert("Hangars", []string{"Id", "SectorId", "Name", "Zone"}, []any{emberHangar, ember, "Ember Dock", "dock"}),
+		spanner.Insert("HangarPasses", []string{"Id", "SectorId", "HangarId", "UserId", "LevelId"}, []any{newID(t), ember, emberHangar, string(marshalUser), "visit"}),
+		spanner.InsertMap("Missions", map[string]any{
+			"Id": emberMission, "SectorId": ember, "ClientId": clientHalvardID, "KindId": "courier", "Title": "Ember's last run", "Hazard": 1,
+			"Fee": *big.NewRat(100, 1), "Deadline": time.Now().Add(24 * time.Hour), "BookedByUserId": string(governorUser), "BookedByName": "governor", "StatusId": "open",
+		}),
+		spanner.InsertMap("Consignments", map[string]any{
+			"Id": newID(t), "SectorId": ember, "ClientId": clientHalvardID, "BondCode": "EMBER-0001", "Description": "Ash samples", "Mass": 1.5, "ExpiresOn": civil.DateOf(time.Now().AddDate(0, 1, 0)),
+		}),
+		spanner.InsertMap("DistressCalls", map[string]any{
+			"Id": newID(t), "SectorId": ember, "Summary": "Lights out in Ember", "Severity": 1, "CaseNumber": "EMBER-CASE-0001", "FiledByUserId": string(governorUser), "FiledByName": "governor",
+		}),
+		spanner.Insert("Squadrons", []string{"Id", "WingId", "Name"}, []any{emberSquadron, emberWing, "Cinderfall"}),
+		spanner.Insert("SquadronMemberships", []string{"SquadronId", "UserId"}, []any{emberSquadron, string(marshalUser)}),
+		spanner.Insert("Ships", []string{"Id", "HangarId", "ClassId", "Registry", "Name"}, []any{emberShip, emberHangar, shipClassKestrelID, "EMB-001", "Last Light"}),
+		spanner.InsertMap("Refits", map[string]any{
+			"Id": emberRefit, "ShipId": emberShip, "StatusId": "docked", "OpenedByUserId": string(governorUser), "OpenedByName": "governor",
+		}),
+		spanner.Insert("RefitTasks", []string{"Id", "TaskNumber", "Instructions"}, []any{emberRefit, 1, "Check the running lights"}),
+		spanner.InsertMap("Sorties", map[string]any{
+			"Id": emberSortie, "MissionId": emberMission, "ShipId": emberShip, "PilotUserId": string(marshalUser), "LaunchedAt": time.Now(),
+		}),
+		spanner.InsertMap("SortieExpenses", map[string]any{
+			"Id": newID(t), "SortieId": emberSortie, "Category": "fuel", "Amount": *big.NewRat(50, 1),
+		}),
+		spanner.InsertMap("MissionDocuments", map[string]any{
+			"Id": newID(t), "MissionId": emberMission, "Title": "Ember's manifest", "FileName": "manifest.txt", "ContentType": "text/plain", "Size": 0,
+			"StoreKey": newID(t), "UploadedByUserId": string(governorUser), "UploadedByName": "governor", "UploadedAt": time.Now(), "Digest": make([]byte, sha256.Size),
+		}),
+		spanner.InsertMap("DroidReports", map[string]any{
+			"Id": newID(t), "SectorId": ember, "ShipId": emberShip, "Subsystem": "hull", "Reading": 0.5, "RecordedAt": time.Now(),
+		}),
+	}); err != nil {
+		t.Fatalf("writing Ember's rows: %v", err)
+	}
+	rowsBefore := map[string]int64{}
+	for _, table := range sectorKeyedTables {
+		if n := sectorRows(ctx, t, s, table, ember); n != 1 {
+			t.Fatalf("%s holds %d row(s) of Ember before the delete, want the one written", table, n)
+		}
+		rowsBefore[table] = sectorRows(ctx, t, s, table, "")
+	}
+	// Each row that reaches Ember through another row, by the table, the column and
+	// the value that finds it.
+	throughEmber := []struct{ table, column, value string }{
+		{"Squadrons", "Id", emberSquadron},
+		{"SquadronMemberships", "SquadronId", emberSquadron},
+		{"Ships", "Id", emberShip},
+		{"Refits", "Id", emberRefit},
+		{"RefitTasks", "Id", emberRefit},
+		{"Sorties", "Id", emberSortie},
+		{"SortieExpenses", "SortieId", emberSortie},
+		{"MissionDocuments", "MissionId", emberMission},
+	}
+	throughBefore := map[string]int64{}
+	for _, row := range throughEmber {
+		if n := rowsWhere(ctx, t, s, row.table, row.column, row.value); n != 1 {
+			t.Fatalf("%s holds %d row(s) of Ember before the delete, want the one written", row.table, n)
+		}
+		throughBefore[row.table] = rowsWhere(ctx, t, s, row.table, "", "")
+	}
+	directoriesBefore := sectorDirectoryRows(ctx, t, s, "")
+	eventsBefore := changeEvents(ctx, t, s, "SectorDirectories")["SectorDirectories"]
+
+	// One request, with nothing before it: directory only is not turned off and the
+	// directory is not removed first.
 	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/sectors/`+ember+`"}]`))
 	assertStatus(t, status, http.StatusOK, body)
+
+	// The directory went with the sector, its removal is in the audit, and every other
+	// sector's directory stands.
+	if n := sectorDirectoryRows(ctx, t, s, ember); n != 0 {
+		t.Errorf("Ember's directory after the delete: %d row(s), want none: the directory goes with its sector", n)
+	}
+	if n := sectorDirectoryRows(ctx, t, s, ""); n != directoriesBefore-1 {
+		t.Errorf("SectorDirectories holds %d row(s) after the delete, want %d: Ember's alone is gone", n, directoriesBefore-1)
+	}
+	if after := changeEvents(ctx, t, s, "SectorDirectories")["SectorDirectories"]; after != eventsBefore+1 {
+		t.Errorf("change events of SectorDirectories: %d before the delete and %d after, want one more: the directory's removal is in the audit", eventsBefore, after)
+	}
+	// Ember's rows went with it, in every table that carries a sector's key, and the rows
+	// of the sectors beside it stand.
+	for _, table := range sectorKeyedTables {
+		if n := sectorRows(ctx, t, s, table, ember); n != 0 {
+			t.Errorf("%s holds %d row(s) of Ember after the delete, want none: a sector's rows go with it", table, n)
+		}
+		if n := sectorRows(ctx, t, s, table, ""); n != rowsBefore[table]-1 {
+			t.Errorf("%s holds %d row(s) after the delete, want %d: Ember's alone is gone", table, n, rowsBefore[table]-1)
+		}
+	}
+	// So did the rows that reach Ember through another row, each by the rule on every
+	// link of its way, and the rows of the same tables that are other sectors' stand.
+	for _, row := range throughEmber {
+		if n := rowsWhere(ctx, t, s, row.table, row.column, row.value); n != 0 {
+			t.Errorf("%s holds %d row(s) of Ember after the delete, want none: a row that reaches its sector through another row goes with the sector", row.table, n)
+		}
+		if n := rowsWhere(ctx, t, s, row.table, "", ""); n != throughBefore[row.table]-1 {
+			t.Errorf("%s holds %d row(s) after the delete, want %d: Ember's alone is gone", row.table, n, throughBefore[row.table]-1)
+		}
+	}
+	// The directory is free for another sector.
+	if _, err := s.db.Apply(ctx, directoryRow(anvil)); err != nil {
+		t.Errorf("giving Anvil the directory Ember had: %v, want it free once Ember is deleted", err)
+	}
+	// The marshal signs in as before and reaches Anvil.
+	again := newBrowser(t, s, consoleAPI)
+	again.signIn(ctx, "marshal")
+	if got := again.domains(ctx); !slices.Equal(got, []string{anvil}) {
+		t.Errorf("the marshal's sectors at a sign-in after Ember is deleted = %v, want Anvil alone", got)
+	}
 
 	// Gone at once, for the governor and for the marshal alike.
 	for name, b := range map[string]*browser{"the governor": hq, "the marshal": marshal} {
@@ -220,6 +367,54 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	if !readColumn[spanner.NullTime](ctx, t, s.db, "MembersSessionMailLinks", spanner.Key{memberLink}, "ConsumedAt").Valid {
 		t.Error("the members' invitation into the deleted sector still stands, want it withdrawn")
 	}
+}
+
+// sectorKeyedTables are Lodestar's tables that carry a sector's key on the row itself,
+// the directories record apart: each references Sectors with the delete rule, so its
+// rows go with their sector.
+var sectorKeyedTables = []string{"Wings", "Hangars", "HangarPasses", "Missions", "Consignments", "DroidReports", "DistressCalls"}
+
+// sectorDirectoryRows counts the rows of the directories record, a sector's own or, for
+// an empty sector, every one, as committed.
+func sectorDirectoryRows(ctx context.Context, t *testing.T, s *served, sector string) int64 {
+	t.Helper()
+
+	return sectorRows(ctx, t, s, "SectorDirectories", sector)
+}
+
+// sectorRows counts the rows of a table that carries a sector's key, a sector's own or,
+// for an empty sector, every one, as committed.
+func sectorRows(ctx context.Context, t *testing.T, s *served, table, sector string) int64 {
+	t.Helper()
+
+	if sector == "" {
+		return rowsWhere(ctx, t, s, table, "", "")
+	}
+
+	return rowsWhere(ctx, t, s, table, "SectorId", sector)
+}
+
+// rowsWhere counts the rows of a table whose column holds the value or, for an empty
+// column, every one, as committed. The table and the column are the test's own words.
+func rowsWhere(ctx context.Context, t *testing.T, s *served, table, column, value string) int64 {
+	t.Helper()
+
+	statement := spanner.Statement{SQL: "SELECT COUNT(*) FROM " + table}
+	if column != "" {
+		statement = spanner.Statement{SQL: "SELECT COUNT(*) FROM " + table + " WHERE " + column + " = @value", Params: map[string]any{"value": value}}
+	}
+	iter := s.db.Single().Query(ctx, statement)
+	defer iter.Stop()
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("counting the rows of %s: %v", table, err)
+	}
+	var n int64
+	if err := row.Columns(&n); err != nil {
+		t.Fatalf("reading the count of %s: %v", table, err)
+	}
+
+	return n
 }
 
 // rolesHeldIn reads the roles the user holds in the one scope, as the auth's permission

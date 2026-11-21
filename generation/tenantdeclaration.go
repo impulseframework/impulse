@@ -32,7 +32,8 @@ import (
 // generator holds the shape at capture, so the generated constructors
 // (New<Record>Roster with the declaration's columns, New<Record>DeclarationReader for
 // the sign-in policy, New<Record>DirectoryReader for the directory admission,
-// New<Record>DirectoryRules and Set<Record>Directory for the writes) and the
+// New<Record>DirectoryRules and Set<Record>Directory for the writes,
+// Clear<Record>Directory for the removal the tenant's own delete makes) and the
 // write paths that keep every instance's copy current render against a declaration
 // that can serve as one.
 
@@ -337,9 +338,10 @@ func (r *resourceGenerator) hasUniqueIndexOn(table string, columns ...string) bo
 }
 
 // tenantDirectoryWrite is the directories record as the generated Set<Record>Directory
-// writes a tenant's directory: the setters of its tenant, method and connection
-// columns, the tenant column's Go type with the parameter that carries it, and the
-// expression that reads the parameter as the tenant's domain.
+// writes a tenant's directory and the generated Clear<Record>Directory removes it: the
+// setters of its tenant, method and connection columns, the tenant column's Go type
+// with the parameter that carries it, the expression that reads the parameter as the
+// tenant's domain, and the field of the record's key, which a removal names the row by.
 type tenantDirectoryWrite struct {
 	TenantField     string
 	TenantType      string
@@ -347,6 +349,7 @@ type tenantDirectoryWrite struct {
 	TenantDomain    string
 	MethodField     string
 	ConnectionField string
+	KeyField        string
 }
 
 // tenantDirectoryWriteData reads the directories record's write shape off the tenant
@@ -372,6 +375,33 @@ func tenantDirectoryWriteData(record *resourceInfo) *tenantDirectoryWrite {
 		TenantDomain:    domain,
 		MethodField:     directories.DirectoryMethodField.Name(),
 		ConnectionField: directories.DirectoryConnectionField.Name(),
+		KeyField:        directories.PrimaryKey().Name(),
+	}
+}
+
+// tenantDirectoryClear is what the tenant record's generated delete takes the tenant's
+// directory through: the generated function of the record's roster file
+// (Clear<Record>Directory), the expression of the deleted tenant's key as the
+// directories record's tenant column holds it, read off the id the delete names its
+// row by, and the word for one tenant in the comment the delete carries.
+type tenantDirectoryClear struct {
+	Func   string
+	Tenant string
+	Word   string
+}
+
+// tenantDirectoryClear names what the record's delete takes its directory through: nil
+// for every resource but the tenant record, and for a tenant record that declares no
+// directories, which has no row to take.
+func (r *resourceGenerator) tenantDirectoryClear(record *resourceInfo) *tenantDirectoryClear {
+	if !record.IsTenant || !record.HasDeclaration() {
+		return nil
+	}
+
+	return &tenantDirectoryClear{
+		Func:   "Clear" + record.Name() + "Directory",
+		Tenant: tenantValueFor(record.declaration.Directories.DomainBinding.Anchor),
+		Word:   r.directoryTenantWord(record),
 	}
 }
 
@@ -427,12 +457,13 @@ func (r *resourceGenerator) namedDirectoryRules(record *resourceInfo) string {
 }
 
 // switchDirectoryRules is the expression of the rules the frame of a tenant's
-// directory-only switch asks: the named rules (namedDirectoryRules), told what each of
-// the program's auths says of the caller's password
-// (resource.TenantDirectoryRules.PasswordsBy), the CallerPassword of the generated
-// identity client of every auth whose management the program generates, in declaration
-// order. The switch is turned on by a person who has a password, where their auth has
-// passwords; a program that generates no auth's management asks nothing.
+// directory-only switch asks, and the read of the switch as it stands with it, which
+// says the same things to the caller before they try: the named rules
+// (namedDirectoryRules), told what each of the program's auths says of the caller's
+// password (resource.TenantDirectoryRules.PasswordsBy), the CallerPassword of the
+// generated identity client of every auth whose management the program generates, in
+// declaration order. The switch is turned on by a person who has a password, where
+// their auth has passwords; a program that generates no auth's management asks nothing.
 func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
 	rules := r.namedDirectoryRules(record)
 	if len(r.identity) == 0 {

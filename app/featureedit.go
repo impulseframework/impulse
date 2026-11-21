@@ -16,13 +16,13 @@ import (
 const FeaturesFile = "features.go"
 
 // featureStub is the doc comment a declared flag starts with: the description the
-// flags dialog shows until the author replaces it.
-const featureStub = "// %[1]s is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the feature flags dialog shows beside its switch.\n"
+// Feature flags page shows until the author replaces it.
+const featureStub = "// %[1]s is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the Feature flags page shows beside the flag.\n"
 
 // featuresFileLead introduces a new features file.
 const featuresFileLead = `// The application's feature flags: one resource.Feature constant per flag, its value
 // the flag's name as the FeatureFlags table holds it and its doc comment the description
-// the flags dialog shows. @feature(<Constant>) on a resource, a method or a field puts it
+// the Feature flags page shows. @feature(<Constant>) on a resource, a method or a field puts it
 // behind the flag; the deploy's MigrateFeatures writes the table from these declarations.
 // impulse add feature declares one here and impulse remove feature takes it out.
 `

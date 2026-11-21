@@ -29,6 +29,8 @@ func (a *App) MissionBoards() http.HandlerFunc {
 		StatusID     string       `json:"statusId"     index:"true"`
 		Deadline     time.Time    `json:"deadline"     index:"true"`
 		DaysLeft     int64        `json:"daysLeft"     allow_filter:"true"`
+		KindName     *string      `json:"kindName"     nameof:"KindID"`
+		StatusName   *string      `json:"statusName"   nameof:"StatusID"`
 	}
 
 	type response []map[string]any
@@ -67,7 +69,7 @@ func (a *App) MissionBoards() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*missionBoard)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -139,6 +141,8 @@ func (a *App) MissionBoard() http.HandlerFunc {
 		StatusID     string       `json:"statusId"`
 		Deadline     time.Time    `json:"deadline"`
 		DaysLeft     int64        `json:"daysLeft"`
+		KindName     *string      `json:"kindName"     nameof:"KindID"`
+		StatusName   *string      `json:"statusName"   nameof:"StatusID"`
 	}
 
 	decoder := NewQueryDecoder[virtualresources.MissionBoard, response](a, accesstypes.Read)
@@ -165,7 +169,7 @@ func (a *App) MissionBoard() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {

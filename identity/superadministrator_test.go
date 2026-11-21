@@ -114,11 +114,20 @@ func TestManager_AssignRole_superAdministrator(t *testing.T) {
 		{
 			name: "a person who views as a super administrator is not one: the session's actor is judged, not the person viewed as",
 			ctx: func(ctx context.Context) context.Context {
-				return viewedBy(asCallerThrough(ctx, managedAuth, erin), userID)
+				return viewedBy(asCallerThrough(ctx, managedAuth, erin), frankID)
 			},
 			held:  []access.MembershipKey{erinSuper, danaSteward},
 			scope: globalScope, role: accesstypes.SuperAdministrator,
 			wantErr: httpio.HasForbidden, wantSays: "only a super administrator gives the Super Administrator role, and you do not hold the Super Administrator role",
+		},
+		{
+			name: "a person who views as a super administrator does not give the role to themselves: nobody is the subject of what they do while they act as someone else",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, managedAuth, erin), userID)
+			},
+			held:  []access.MembershipKey{erinSuper, danaSteward},
+			scope: globalScope, role: accesstypes.SuperAdministrator,
+			wantErr: httpio.HasForbidden, wantSays: "You are acting as someone else, so you cannot give yourself a role.",
 		},
 		{
 			name: "a super administrator who views as someone else is a super administrator still",
@@ -494,7 +503,7 @@ func TestManager_aSuperAdministratorsSignIn(t *testing.T) {
 		{
 			name: "a new address", says: "changes a super administrator's email address",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-				return m.SetEmail(ctx, txn, userID, &address)
+				return m.SetEmail(ctx, txn, userID, address, nil)
 			},
 		},
 		{
@@ -567,17 +576,23 @@ func TestManager_aSuperAdministratorsSignIn(t *testing.T) {
 				store := superStore(caller.held...)
 				store.passwords = map[impulse.UUID]bool{userID: true}
 				store.identities = map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID}
-				m, _ := newManager(t, store, superRoles)
+				// A new address is written by nobody but the person who confirms it: the act
+				// that goes through is the link the session library is asked to mail.
+				mail := &fakeMail{}
+				m, err := New(managedAuth, store, &fakeEngine{roles: superRoles}, fakeSessions{mail: mail})
+				if err != nil {
+					t.Fatalf("New() error = %v", err)
+				}
 
-				err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 					return act.act(caller.ctx(ctx), txn, m)
 				})
 				if !caller.refused {
 					if err != nil {
 						t.Fatalf("error = %v, want the act to go through", err)
 					}
-					if len(store.writes) == 0 {
-						t.Error("buffered writes: none, want the act's")
+					if len(store.writes) == 0 && len(mail.asked) == 0 {
+						t.Error("buffered writes and messages asked for: none, want the act's")
 					}
 
 					return
@@ -586,8 +601,8 @@ func TestManager_aSuperAdministratorsSignIn(t *testing.T) {
 				if !httpio.HasForbidden(err) || httpio.Message(err) != want {
 					t.Fatalf("error = %v, want the refusal reading %q", err, want)
 				}
-				if len(store.writes) != 0 {
-					t.Errorf("buffered writes = %v, want none", store.writes)
+				if len(store.writes) != 0 || len(mail.asked) != 0 {
+					t.Errorf("buffered writes = %v and messages asked for = %v, want none", store.writes, mail.asked)
 				}
 			})
 		}

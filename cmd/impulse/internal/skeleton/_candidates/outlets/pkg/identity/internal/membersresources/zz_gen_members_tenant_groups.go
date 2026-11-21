@@ -31,6 +31,8 @@ type membersTenantGroupRead struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description"`
 	UpdatedAt   time.Time    `json:"updatedAt"`
+	People      int64        `json:"people"`
+	Roles       []string     `json:"roles"`
 }
 
 var membersTenantGroupReadSets resource.SetCache[MembersTenantGroup, membersTenantGroupRead]
@@ -144,6 +146,8 @@ func (c *MembersTenantGroupColumns) All() *MembersTenantGroupColumns {
 		"Name",
 		"Description",
 		"UpdatedAt",
+		"People",
+		"Roles",
 	}
 
 	return c
@@ -175,6 +179,18 @@ func (c *MembersTenantGroupColumns) Description() *MembersTenantGroupColumns {
 
 func (c *MembersTenantGroupColumns) UpdatedAt() *MembersTenantGroupColumns {
 	c.fields = append(c.fields, "UpdatedAt")
+
+	return c
+}
+
+func (c *MembersTenantGroupColumns) People() *MembersTenantGroupColumns {
+	c.fields = append(c.fields, "People")
+
+	return c
+}
+
+func (c *MembersTenantGroupColumns) Roles() *MembersTenantGroupColumns {
+	c.fields = append(c.fields, "Roles")
 
 	return c
 }
@@ -287,6 +303,14 @@ func (c *membersTenantGroupSort) Description() *MembersTenantGroupSort {
 
 func (c *membersTenantGroupSort) UpdatedAt() *MembersTenantGroupSort {
 	return c.addField("UpdatedAt")
+}
+
+func (c *membersTenantGroupSort) People() *MembersTenantGroupSort {
+	return c.addField("People")
+}
+
+func (c *membersTenantGroupSort) Roles() *MembersTenantGroupSort {
+	return c.addField("Roles")
 }
 
 type MembersTenantGroupSort struct {

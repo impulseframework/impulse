@@ -24,6 +24,11 @@ import (
 // Changing a period is assigning again: the Assign methods give the assignment the
 // period handed, and the Add methods give it none, so a role given again with no end
 // stands until it is removed. Ending an assignment now is removing it.
+//
+// A person's role carries the reason it was given for beside its period (ValidateReason),
+// and assigning again replaces the two together: the reason kept is the one the role was
+// last given with, and a role given again with none carries none. Nothing edits a reason
+// by itself.
 
 // ValidatePeriod refuses a period an assignment of role cannot carry: one that ends at
 // or before its start, which would never count, and any period on the Super
@@ -43,14 +48,17 @@ func ValidatePeriod(role accesstypes.Role, period accesstypes.Period) error {
 	return nil
 }
 
-// AssignUserRole gives user the role in scope for the period, replacing the period of an
-// assignment that is there. Errors as AddUserRoles does, and if the period is one the
-// role cannot carry (ValidatePeriod).
-func (u *userManager) AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+// AssignUserRole gives user the role in scope for the period and with the reason,
+// replacing the period and the reason of an assignment that is there. Errors as
+// AddUserRoles does, if the period is one the role cannot carry (ValidatePeriod), and if
+// the reason is not one line of plain text (ValidateReason).
+func (u *userManager) AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
-	return u.assignUserRoles(ctx, scope, user, period, role)
+	return u.assignUserRoles(ctx, scope, user, period, reason, role)
 }
 
 // AssignGroupUser puts user in group for the period, replacing the period of a place
@@ -59,6 +67,8 @@ func (u *userManager) AssignUserRole(ctx context.Context, scope accesstypes.Poli
 func (u *userManager) AssignGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	return u.assignGroupUsers(ctx, group, period, user)
 }
@@ -69,6 +79,8 @@ func (u *userManager) AssignGroupUser(ctx context.Context, group accesstypes.Gro
 func (u *userManager) AssignGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	return u.assignGroupRoles(ctx, group, scope, period, role)
 }

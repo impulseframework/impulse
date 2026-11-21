@@ -26,15 +26,16 @@ import (
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
+	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
+	"github.com/impulseframework/impulse/session/internal/vouch"
 	"github.com/impulseframework/impulse/session/internal/workos"
 	"github.com/impulseframework/impulse/session/mock/mock_azure"
 	"github.com/impulseframework/impulse/session/mock/mock_google"
 	"github.com/impulseframework/impulse/session/mock/mock_signin"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
-	"github.com/impulseframework/impulse/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -45,16 +46,34 @@ type mockTx struct{}
 
 // newAuthStoreMock is an AuthStore mock with the constructor's probes answered: no
 // custom data.
-func newAuthStoreMock(ctrl *gomock.Controller) *mock_sessionstorage.MockAuthStore[mockTx] {
-	storage := mock_sessionstorage.NewMockAuthStore[mockTx](ctrl)
+func newAuthStoreMock(ctrl *gomock.Controller) *mockstore.AuthStore[mockTx] {
+	storage := mockstore.NewAuthStore[mockTx](ctrl)
 	storage.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 	storage.EXPECT().SetUsernameIsEmail(gomock.Any()).AnyTimes()
 	// The bookkeeping after a sign-in, and the hint the session read looks for, read
 	// an empty store unless a test says otherwise.
 	storage.EXPECT().ClaimVerifiedEmail(gomock.Any(), gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
-	storage.EXPECT().IdentitiesByUser(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	storage.EXPECT().IdentitiesByUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, userID impulse.UUID) ([]*sessionstorage.SessionIdentity, error) {
+		links, _ := linkedIdentities.Load(userID)
+		identities, _ := links.([]*sessionstorage.SessionIdentity)
+
+		return identities, nil
+	}).AnyTimes()
 
 	return storage
+}
+
+// linkedIdentities are the identities a test gave a user (linkIdentities), by the user's
+// id: what every mocked store answers IdentitiesByUser with, and none for a user no test
+// named. A test's users have ids of their own, so tests run at once share nothing.
+var linkedIdentities sync.Map
+
+// linkIdentities makes every mocked store answer userID's identities with links, until
+// the test ends or names others.
+func linkIdentities(t *testing.T, userID impulse.UUID, links ...*sessionstorage.SessionIdentity) {
+	t.Helper()
+	linkedIdentities.Store(userID, links)
+	t.Cleanup(func() { linkedIdentities.Delete(userID) })
 }
 
 // resolveAll is an account rule of a method's identity type I that provisions the user
@@ -73,7 +92,7 @@ type authFixture struct {
 	t        *testing.T
 	auth     *Auth[NoCustomData, NoCustomData, mockTx]
 	password *PasswordMethod
-	store    *mock_sessionstorage.MockAuthStore[mockTx]
+	store    *mockstore.AuthStore[mockTx]
 	// linked records the IdentityLinked hook's calls.
 	linked []impulse.UUID
 	// policyAsked counts the calls of the sign-in policy NewAuth was given.
@@ -121,8 +140,6 @@ type storeSignIn struct {
 	signUp signinflow.SignUpSeater[mockTx]
 	// proven is the password proof the sign-in was handed to the store with.
 	proven sessionstorage.PasswordProof
-	// oneOrganization is what the store was told of the registration's width.
-	oneOrganization bool
 }
 
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
@@ -440,7 +457,7 @@ func hashed(t *testing.T, password string) *securehash.Hash {
 
 // createSession expects one CreateSession call: a session the application or a user
 // operation starts, with no identity to resolve. prepare asserts on the request.
-func createSession(store *mock_sessionstorage.MockAuthStore[mockTx], id impulse.UUID, prepare func(req *sessioninfo.NewSessionRequest)) {
+func createSession(store *mockstore.AuthStore[mockTx], id impulse.UUID, prepare func(req *sessioninfo.NewSessionRequest)) {
 	store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest) (impulse.UUID, error) {
 		if prepare != nil {
 			prepare(req)
@@ -459,7 +476,7 @@ func (f *authFixture) expectSignIn(id impulse.UUID, prepare func(req *sessioninf
 	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, req *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
 			rule, method, policy, accept := rules.Account, rules.Method, rules.Policy, rules.Accept
-			f.signedIn = &storeSignIn{req: req, rule: rule, method: method, policy: policy, accept: accept, signUp: rules.SignUp, proven: rules.Proven, oneOrganization: rules.OneOrganization}
+			f.signedIn = &storeSignIn{req: req, rule: rule, method: method, policy: policy, accept: accept, signUp: rules.SignUp, proven: rules.Proven}
 			if external := !namesItsUser(req.Identity); (method != "") != external || (rule != nil && !external) {
 				f.t.Errorf("SignIn() given the account rule %v and the method %q; want a method's name only for an external identity, not a %s one", rule != nil, method, req.Identity.Method)
 			}
@@ -509,6 +526,12 @@ func TestNewAuth(t *testing.T) {
 			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
 			options:    []AuthOption{WithCookieName("same"), WithPendingCookieName("same")},
 			wantErrHas: "differ from the session cookie name",
+		},
+		{
+			name:       "a pending cookie named like the cookie that carries the tenant an accepted invitation leads to",
+			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
+			options:    []AuthOption{WithPendingCookieName(defaultInvitationCookieName + "-seated")},
+			wantErrHas: "give the other cookie another name",
 		},
 		{
 			name:       "a pending timeout that is not positive",
@@ -788,7 +811,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			name: "a method registered after the Auth hashed a password through its API",
 			before: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
 				pw := "a password"
-				store, ok := a.storage.(*mock_sessionstorage.MockAuthStore[mockTx])
+				store, ok := a.storage.(*mockstore.AuthStore[mockTx])
 				if !ok {
 					panic("the Auth's storage is not the mock")
 				}
@@ -1651,12 +1674,14 @@ func TestAuth_GoogleCallback(t *testing.T) {
 
 	sessionID := impulse.Must(impulse.NewUUID())
 
-	// expectIdentity expects the store's SignIn with an identity under connection and
-	// signs the request in.
-	expectIdentity := func(connection, hd string) func(f *authFixture) {
+	// expectIdentity expects the store's SignIn with the identity of email under
+	// connection, and signs the request in. vouched says Google's word for the address
+	// is the identity's: it is for a Workspace account's address (the token carries hd)
+	// and for a Gmail address, and for no other, whatever the token says.
+	expectIdentity := func(connection, hd, email string, vouched bool) func(f *authFixture) {
 		return func(f *authFixture) {
 			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-				want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: connection, Subject: "sub-1", Email: "pat@example.com", EmailVerified: true, SignInName: "pat@example.com", Organization: connection}
+				want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: connection, Subject: "sub-1", Email: email, EmailVerified: vouched, SignInName: email, Organization: connection}
 				if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" {
 					t.Errorf("SignIn() identity mismatch (-want +got):\n%s", diff)
 				}
@@ -1678,15 +1703,17 @@ func TestAuth_GoogleCallback(t *testing.T) {
 		workspaces func() google.WorkspaceSet
 		prepare    func(f *authFixture)
 		// wantIdentity is the identity the method's rule decodes from the claims, when
-		// the sign-in reached the store.
+		// the sign-in reached the store. Its EmailVouched says to the rule what the
+		// identity's EmailVerified says to the core: whether Google answers for the
+		// address.
 		wantIdentity *google.Identity
 		wantLocation string
 	}{
 		{
 			name:         "a Google identity is keyed by the registration's name for its Workspace and sub",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`,
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "example.com", Workspace: "lakeside"},
-			prepare:      expectIdentity("lakeside", "example.com"),
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", EmailVouched: true, HostedDomain: "example.com", Workspace: "lakeside"},
+			prepare:      expectIdentity("lakeside", "example.com", "pat@example.com", true),
 			wantLocation: "/home",
 		},
 		{
@@ -1695,8 +1722,8 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			workspaces: func() google.WorkspaceSet {
 				return google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org"))
 			},
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "Example.ORG", Workspace: "riverside"},
-			prepare:      expectIdentity("riverside", "Example.ORG"),
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", EmailVouched: true, HostedDomain: "Example.ORG", Workspace: "riverside"},
+			prepare:      expectIdentity("riverside", "Example.ORG", "pat@example.com", true),
 			wantLocation: "/home",
 		},
 		{
@@ -1708,16 +1735,48 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			name:         "any Workspace: the account's domain is the connection, lowercased",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"Elsewhere.Example"}`,
 			workspaces:   google.AnyWorkspace,
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "Elsewhere.Example", Workspace: "elsewhere.example"},
-			prepare:      expectIdentity("elsewhere.example", "Elsewhere.Example"),
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", EmailVouched: true, HostedDomain: "Elsewhere.Example", Workspace: "elsewhere.example"},
+			prepare:      expectIdentity("elsewhere.example", "Elsewhere.Example", "pat@example.com", true),
 			wantLocation: "/home",
 		},
 		{
-			name:         "any Google account: an account outside every Workspace carries the fixed connection",
+			name:         "any Google account: an account outside every Workspace carries the fixed connection, and Google's word for an address it is not the authority for is not the identity's",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true}`,
 			workspaces:   google.AnyGoogleAccount,
 			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", Workspace: google.AnyAccountConnection},
-			prepare:      expectIdentity(google.AnyAccountConnection, ""),
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "pat@example.com", false),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: Google vouches for a Gmail address, whose token carries no hd",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"Pat@Gmail.com","email_verified":true}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "Pat@Gmail.com", EmailVouched: true, Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "Pat@Gmail.com", true),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: Google vouches for an address of its own mail under its other domain, googlemail.com",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@googlemail.com","email_verified":true}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@googlemail.com", EmailVouched: true, Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "pat@googlemail.com", true),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: Google vouches for a Workspace account's address, whatever its domain",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@elsewhere.example","email_verified":true,"hd":"elsewhere.example"}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@elsewhere.example", EmailVouched: true, HostedDomain: "elsewhere.example", Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "elsewhere.example", "pat@elsewhere.example", true),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: an address that only looks like Gmail's is not one Google vouches for",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@gmail.com.example","email_verified":true}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@gmail.com.example", Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "pat@gmail.com.example", false),
 			wantLocation: "/home",
 		},
 		{
@@ -2479,11 +2538,8 @@ func TestAuthAPI_StartAuthenticatedSession(t *testing.T) {
 
 // TestAuth_AccountRulesGivenToTheStore proves a registration hands the store what decides
 // a person it has no account for: the name it is registered under, by which the store
-// reads what an administrator chose for it, the application's own rule only when
-// one was given, and how wide the registration is: whether it admits exactly one
-// organization and nobody else, which is the width at which the deployment's seeded
-// account is linked on its name. The width is counted as the registration lists its
-// organizations, so two tenants that read alike are two.
+// reads what an administrator chose for it, and the application's own rule only when
+// one was given.
 func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 	t.Parallel()
 
@@ -2495,20 +2551,9 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 		name     string
 		rule     azure.AccountRule[mockTx]
 		wantRule bool
-		// tenants is the registration's organization slot, one tenant where it is not
-		// set, and wantWide that the store is told it admits more than one organization.
-		tenants  *azure.TenantSet
-		wantWide bool
 	}{
 		{name: "no rule: the method's name alone, for the library's standard rule"},
 		{name: "a custom rule beside the method's name", rule: custom, wantRule: true},
-		{name: "a registration of two tenants is wider than one organization", tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantOther))), wantWide: true},
-		{name: "a registration of one tenant and any other is wider", tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.AnyTenant())), wantWide: true},
-		{name: "a registration of one tenant and personal accounts is wider", tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.PersonalAccounts())), wantWide: true},
-		{
-			name:    "two tenants that read alike, one named as the other is labeled, are two",
-			tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.NamedTenant(tenantOther, "the Microsoft Entra tenant "+tenantLake))), wantWide: true,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2525,11 +2570,7 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 
 					return "/next", "", nil
 				})
-			tenants := azure.Tenant(tenantLake)
-			if tt.tenants != nil {
-				tenants = *tt.tenants
-			}
-			entra := azure.SignIn(f.auth, "staff-directory", tt.rule, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: tenants, Authenticator: authn})
+			entra := azure.SignIn(f.auth, "staff-directory", tt.rule, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), Authenticator: authn})
 			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 				req.UserID, req.Username = impulse.Must(impulse.NewUUID()), "p.lee@lakeside.edu"
 			}, nil)
@@ -2541,9 +2582,6 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 			}
 			if f.signedIn.method != "staff-directory" || (f.signedIn.rule != nil) != tt.wantRule {
 				t.Errorf("SignIn() given the method %q and a custom rule = %v, want the registration's name and %v", f.signedIn.method, f.signedIn.rule != nil, tt.wantRule)
-			}
-			if f.signedIn.oneOrganization == tt.wantWide {
-				t.Errorf("SignIn() told the registration admits one organization alone = %v, want %v", f.signedIn.oneOrganization, !tt.wantWide)
 			}
 			if tt.wantRule {
 				res, err := f.signedIn.rule(context.Background(), mockTx{}, f.signedIn.req)
@@ -2587,81 +2625,6 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 	}
 }
 
-// TestAuth_SetDirectoryAdmission_seeded pins that the directory admission's word on a
-// seeded account reaches the sign-in: the store is handed the hook's Seeded as it was
-// given, which the rule on a first link made on a name alone asks of the deployment's
-// first administrator, and none where the hook names none.
-func TestAuth_SetDirectoryAdmission_seeded(t *testing.T) {
-	t.Parallel()
-
-	seedID := SeedUserIDThrough("members", "directory", "ada@lakeside.edu")
-	tests := []struct {
-		name   string
-		seeded func(userID impulse.UUID, username, registration string) bool
-	}{
-		{
-			name: "a hook that recognizes its seed is asked by the sign-in",
-			seeded: func(userID impulse.UUID, username, registration string) bool {
-				return userID == SeedUserIDThrough("members", registration, username)
-			},
-		},
-		{name: "a hook that names no seed hands the sign-in none"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctrl := gomock.NewController(t)
-			store := newAuthStoreMock(ctrl)
-			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
-			if err != nil {
-				t.Fatalf("NewAuth() error = %v", err)
-			}
-			a.SetDirectoryAdmission(
-				func(context.Context, mockTx, signin.Directory) ([]signin.DeclaredDirectory, error) { return nil, nil },
-				DirectorySeatedHook[mockTx]{
-					Seat: func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
-						return nil, nil
-					},
-					OnlyIn: func(context.Context, mockTx, impulse.UUID, accesstypes.Domain) (bool, error) { return false, nil },
-					Seeded: tt.seeded,
-				},
-			)
-			userID := impulse.Must(impulse.NewUUID())
-			sessionID := impulse.Must(impulse.NewUUID())
-			store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
-			store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-				func(_ context.Context, _ *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
-					if rules.Directories == nil || rules.OnlyIn == nil {
-						t.Error("SignIn() given no directory reader or no OnlyIn, want the admission's")
-					}
-					if rules.OneOrganization {
-						t.Error("SignIn() told a session that came through no registration that its registration admits one organization")
-					}
-					if (rules.Seeded != nil) != (tt.seeded != nil) {
-						t.Fatalf("SignIn() given a Seeded = %v, want %v", rules.Seeded != nil, tt.seeded != nil)
-					}
-					if rules.Seeded == nil {
-						return sessionID, nil
-					}
-					if !rules.Seeded(seedID, "Ada@Lakeside.edu", "directory") {
-						t.Error("the Seeded the sign-in was handed does not recognize the account seeded for the registration")
-					}
-					if rules.Seeded(seedID, "ada@lakeside.edu", "okta") || rules.Seeded(userID, "ada@lakeside.edu", "directory") {
-						t.Error("the Seeded the sign-in was handed recognizes an account seeded for another registration, or one under another id")
-					}
-
-					return sessionID, nil
-				})
-			store.EXPECT().TouchUserSignIn(gomock.Any(), userID).Return(nil)
-
-			if _, err := a.API().StartAuthenticatedSession(context.Background(), httptest.NewRecorder(), userID, []sessioninfo.AuthEvent{{Method: "api-key"}}); err != nil {
-				t.Fatalf("StartAuthenticatedSession() error = %v", err)
-			}
-		})
-	}
-}
-
 func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 	t.Parallel()
 
@@ -2671,7 +2634,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 	// bob is the impersonated user as a user principal names them: by the id of the
 	// account, which is what the permission store holds their roles under.
 	bob := accesstypes.UserPrincipal(accesstypes.User(bobID.String()))
-	loadsBob := func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+	loadsBob := func(store *mockstore.AuthStore[mockTx]) {
 		store.EXPECT().User(gomock.Any(), bobID).Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
 	}
 	sourceID := impulse.Must(impulse.NewUUID())
@@ -2684,8 +2647,8 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 	tests := []struct {
 		name            string
 		ctx             func() context.Context
-		request         *ImpersonationRequest
-		prepare         func(store *mock_sessionstorage.MockAuthStore[mockTx])
+		request         *sessioncore.ImpersonationRequest
+		prepare         func(store *mockstore.AuthStore[mockTx])
 		wantUserID      impulse.UUID
 		wantActorID     impulse.NullUUID
 		wantProviderSID string
@@ -2700,8 +2663,8 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:    "a user principal's session belongs to the impersonated user, loaded by the id the principal names",
 			ctx:     context.Background,
-			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: bob},
-			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: bob},
+			prepare: func(store *mockstore.AuthStore[mockTx]) {
 				store.EXPECT().User(gomock.Any(), bobID).Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
 			},
 			wantUserID: bobID,
@@ -2711,7 +2674,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:          "a user principal that gives the id in upper case is the same person, and the record names them by the id's canonical text",
 			ctx:           context.Background,
-			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User(strings.ToUpper(bobID.String())))},
+			request:       &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User(strings.ToUpper(bobID.String())))},
 			prepare:       loadsBob,
 			wantUserID:    bobID,
 			wantPrincipal: bob,
@@ -2719,7 +2682,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:          "a user principal that gives the id in braces is the same person, and the record names them by the id's canonical text",
 			ctx:           context.Background,
-			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User("{" + bobID.String() + "}"))},
+			request:       &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User("{" + bobID.String() + "}"))},
 			prepare:       loadsBob,
 			wantUserID:    bobID,
 			wantPrincipal: bob,
@@ -2727,7 +2690,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:          "a user principal that gives the id as a urn is the same person, and the record names them by the id's canonical text",
 			ctx:           context.Background,
-			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User("urn:uuid:" + bobID.String()))},
+			request:       &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User("urn:uuid:" + bobID.String()))},
 			prepare:       loadsBob,
 			wantUserID:    bobID,
 			wantPrincipal: bob,
@@ -2735,7 +2698,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:          "a user principal that gives the id without its dashes is the same person, and the record names them by the id's canonical text",
 			ctx:           context.Background,
-			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User(strings.ReplaceAll(bobID.String(), "-", "")))},
+			request:       &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User(strings.ReplaceAll(bobID.String(), "-", "")))},
 			prepare:       loadsBob,
 			wantUserID:    bobID,
 			wantPrincipal: bob,
@@ -2743,15 +2706,15 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:           "a user principal that names the person by username is refused, and no user is looked up",
 			ctx:            context.Background,
-			request:        &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob")},
-			prepare:        func(*mock_sessionstorage.MockAuthStore[mockTx]) {},
+			request:        &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob")},
+			prepare:        func(*mockstore.AuthStore[mockTx]) {},
 			wantBadRequest: true,
 		},
 		{
 			name:    "a role principal's session belongs to no user",
 			ctx:     context.Background,
-			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
-			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
+			prepare: func(store *mockstore.AuthStore[mockTx]) {
 				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
 			},
 		},
@@ -2761,8 +2724,8 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:    "a role principal for an actor from another application whose name is a user's username is refused, and no session is created",
 			ctx:     context.Background,
-			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
-			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
+			prepare: func(store *mockstore.AuthStore[mockTx]) {
 				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(&sessionstorage.SessionUser{ID: aliceID, Username: "alice"}, nil)
 			},
 			wantForbidden: true,
@@ -2770,8 +2733,8 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:    "a role principal for an actor from another application whose name cannot be looked up fails, and no session is created",
 			ctx:     context.Background,
-			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
-			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
+			prepare: func(store *mockstore.AuthStore[mockTx]) {
 				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, errors.New("the store is down"))
 			},
 			wantErr: true,
@@ -2783,8 +2746,8 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			ctx: func() context.Context {
 				return context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, source())
 			},
-			request: &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("Viewer")},
-			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("Viewer")},
+			prepare: func(store *mockstore.AuthStore[mockTx]) {
 				store.EXPECT().Session(gomock.Any(), sourceID).Return(source(), nil)
 			},
 			wantActorID:     impulse.NullUUIDFromUUID(aliceID),
@@ -2795,8 +2758,8 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			ctx: func() context.Context {
 				return context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, source())
 			},
-			request: &ImpersonationRequest{Actor: "alice", Principal: bob},
-			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", Principal: bob},
+			prepare: func(store *mockstore.AuthStore[mockTx]) {
 				store.EXPECT().Session(gomock.Any(), sourceID).Return(source(), nil)
 				store.EXPECT().User(gomock.Any(), bobID).Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
 			},
@@ -2814,7 +2777,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			tt.prepare(f.store)
 			if tt.wantBadRequest || tt.wantForbidden || tt.wantErr {
 				// No CreateImpersonatedSession is expected: the mock fails the test on one.
-				_, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), tt.request)
+				_, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), declaredRequest(tt.request))
 				switch {
 				case tt.wantBadRequest && !httpio.HasBadRequest(err):
 					t.Errorf("StartImpersonatedSession() error = %v, want a bad request", err)
@@ -2830,7 +2793,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			if tt.wantPrincipal != (accesstypes.Principal{}) {
 				wantPrincipal = tt.wantPrincipal
 			}
-			f.store.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			f.store.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 					wantIssuer := ""
 					if tt.wantProviderSID != "" {
@@ -2846,7 +2809,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 					return impulse.Must(impulse.NewUUID()), nil
 				})
 
-			if _, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), tt.request); err != nil {
+			if _, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), declaredRequest(tt.request)); err != nil {
 				t.Errorf("StartImpersonatedSession() error = %v", err)
 			}
 		})
@@ -2904,7 +2867,7 @@ func TestAuthAPI_StartImpersonatedSession_ActorNamedAsAccount(t *testing.T) {
 				ctrl := gomock.NewController(t)
 				f := newAuthFixture(t, ctrl)
 				f.store.EXPECT().ImpersonationEnabled().Return(true)
-				request := &ImpersonationRequest{Actor: tt.actor, ActorRealm: tt.realm, Principal: p.principal}
+				request := declaredRequest(&sessioncore.ImpersonationRequest{Actor: tt.actor, ActorRealm: tt.realm, Principal: p.principal})
 				if tt.wantBadRequest {
 					// Nobody is looked up and no session is created: the mock fails the
 					// test on either.
@@ -2931,7 +2894,7 @@ func TestAuthAPI_StartImpersonatedSession_ActorNamedAsAccount(t *testing.T) {
 					// The name of an actor from elsewhere must be no user's here.
 					f.store.EXPECT().UserByUserName(gomock.Any(), tt.actor).Return(nil, httpio.NewNotFoundMessage("no such user"))
 				}
-				f.store.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				f.store.Sealed.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 						if imp.Actor != tt.actor || imp.ActorRealm != tt.realm || imp.Principal != p.principal {
 							t.Errorf("CreateImpersonatedSession() record = actor %q of %q as %s; want %q of %q as %s", imp.Actor, imp.ActorRealm, imp.Principal, tt.actor, tt.realm, p.principal)
@@ -3465,6 +3428,161 @@ const (
 // entraIssuer is the issuer of tenant tid's tokens under testAuthority.
 func entraIssuer(tid string) string {
 	return testAuthority + "/" + tid + "/v2.0"
+}
+
+// TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress proves the core takes a method's
+// word that an address is verified from Google's method alone. Whatever any other
+// method fills in Identity.EmailVerified, a provider's own claim or an application's own
+// method, the identity reaches the store without it: nothing confirms the address but
+// the code mailed to it, which the person's first sign-in to an account with no
+// confirmed address waits for. Google's method is the one session/google builds, known
+// by the library's mark and not by its name: a method of the application's own that
+// names itself and its identities google keeps no flag either. The word is Google's
+// only for an identity that says it came through Google, and an identity that says it
+// came through another method than its registration's is not signed in at all
+// (ownMethod): another method's identity that says it is Google's, and the marked
+// method's identity that says it is another's, are each refused before the store.
+func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// registered is the method the registration is of, and asserted the method the
+		// identity says it came through.
+		registered, asserted sessioninfo.AuthMethod
+		// mark is the library's mark the method carries: Google's on the method Google's
+		// package builds, none on any other.
+		mark vouch.Mark
+		// refused says the sign-in is refused before the store is asked.
+		refused bool
+	}{
+		{name: "an application's own method", registered: "bare", asserted: "bare"},
+		{name: "the generic OpenID Connect method", registered: sessioninfo.MethodOIDC, asserted: sessioninfo.MethodOIDC},
+		{name: "Microsoft Entra ID", registered: sessioninfo.MethodAzure, asserted: sessioninfo.MethodAzure},
+		{name: "WorkOS", registered: sessioninfo.MethodWorkOS, asserted: sessioninfo.MethodWorkOS},
+		{name: "another method whose identity says it is Google's", registered: "bare", asserted: sessioninfo.MethodGoogle, refused: true},
+		{name: "a method of the application's own that takes Google's name", registered: sessioninfo.MethodGoogle, asserted: sessioninfo.MethodGoogle},
+		{
+			name:       "Google's method, for an identity that says it came through another",
+			registered: sessioninfo.MethodGoogle, asserted: sessioninfo.MethodOIDC, mark: vouch.Google(), refused: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newAuthFixture(t, gomock.NewController(t))
+			h := f.auth.RegisterExternal(&signin.Registration[mockTx]{
+				Name: "provider", Method: tt.registered,
+				Build: func(signin.StateCookies) (*signin.Method, error) {
+					return &signin.Method{
+						Name:             tt.registered,
+						LoginURL:         func() string { return "/login" },
+						AddressAuthority: tt.mark,
+						Complete: func(context.Context, http.ResponseWriter, *http.Request) (*signin.Verified, error) {
+							return &signin.Verified{
+								Identity:  &sessioninfo.Identity{Method: tt.asserted, Connection: "c", Subject: "s", Email: "pat@example.com", EmailVerified: true, SignInName: "pat"},
+								ReturnURL: "/next",
+							}, nil
+						},
+					}, nil
+				},
+			})
+			want := "/login?code=internal_error"
+			if !tt.refused {
+				want = "/next"
+				f.expectSignIn(impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
+					if req.Identity.EmailVerified || req.Identity.Email != "pat@example.com" {
+						t.Errorf("SignIn() identity = %+v, want the address the method asserts without its word that the address is verified", req.Identity)
+					}
+				}, func(req *sessioninfo.NewSessionRequest) error {
+					req.UserID, req.Username = impulse.Must(impulse.NewUUID()), "pat"
+
+					return nil
+				})
+			}
+
+			rr := f.serve(h.Callback, http.MethodGet, "/provider/callback?code=c&state=s", nil, nil)
+
+			if rr.Code != http.StatusFound || rr.Header().Get("Location") != want {
+				t.Errorf("response = %d %q, want 302 %s", rr.Code, rr.Header().Get("Location"), want)
+			}
+		})
+	}
+}
+
+// TestAuth_HeldSignInKeepsNoOtherMethodsWordForAnAddress proves the word a held sign-in
+// stored is kept as a callback's is: Google's method's alone. A pending sign-in stored
+// with another provider's word that the address is verified, as a release that kept
+// every provider's word stored one, is reported and finished without it, so its
+// completion confirms no address by it. One Google's method stored keeps Google's word.
+func TestAuth_HeldSignInKeepsNoOtherMethodsWordForAnAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// method is the method of the registration the sign-in came through and of its
+		// identity, and mark the library's mark the method carries.
+		method   sessioninfo.AuthMethod
+		mark     vouch.Mark
+		wantKept bool
+	}{
+		{name: "another provider's word is not kept", method: sessioninfo.MethodOIDC},
+		{name: "Google's word is kept", method: sessioninfo.MethodGoogle, mark: vouch.Google(), wantKept: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			userID, sessionID := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
+			f := newAuthFixture(t, gomock.NewController(t))
+			f.auth.RegisterExternal(&signin.Registration[mockTx]{
+				Name: "provider", Method: tt.method,
+				Build: func(signin.StateCookies) (*signin.Method, error) {
+					return &signin.Method{
+						Name:             tt.method,
+						LoginURL:         func() string { return "/login" },
+						AddressAuthority: tt.mark,
+						Complete: func(context.Context, http.ResponseWriter, *http.Request) (*signin.Verified, error) {
+							return nil, errors.New("no round trip in this test")
+						},
+					}, nil
+				},
+			})
+			// The row is stored with the provider's word on it: holdPending stores the
+			// identity it is given.
+			stored := &sessioninfo.Identity{Method: tt.method, Connection: "c", Subject: "s", Email: "pat@example.com", EmailVerified: true}
+			wait := &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat"}
+			cookies, pendingID := f.hold(t, &signInAttempt{identity: stored, reason: sessioninfo.ReasonLogin, registration: "provider"}, wait)
+			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
+				if req.Identity.EmailVerified != tt.wantKept || req.Identity.Email != "pat@example.com" {
+					t.Errorf("SignIn() identity = %+v, want the stored address with EmailVerified %v", req.Identity, tt.wantKept)
+				}
+				req.UserID, req.Username = userID, "pat"
+			}, nil)
+			f.expectConsume(pendingID)
+			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).AnyTimes()
+
+			var (
+				reported *sessioninfo.PendingIdentity
+				got      impulse.UUID
+				err      error
+			)
+			f.serve(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if reported, err = f.auth.API().PendingIdentity(r.Context()); err != nil {
+					return
+				}
+				got, err = f.auth.API().CompletePending(r.Context(), w, sessioninfo.AuthEvent{Method: "email-otp"})
+			}), http.MethodPost, "/mfa", nil, cookies)
+
+			if err != nil || got != sessionID {
+				t.Fatalf("CompletePending() = %s, %v; want %s", got, err, sessionID)
+			}
+			if reported.Identity.EmailVerified != tt.wantKept {
+				t.Errorf("PendingIdentity() identity = %+v, want EmailVerified %v", reported.Identity, tt.wantKept)
+			}
+		})
+	}
 }
 
 // TestAuth_CallbackFromUndeclaredIssuer proves the core refuses a round trip whose token

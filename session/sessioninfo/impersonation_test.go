@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 func ctxWithSession(username string, imp *Impersonation) context.Context {
@@ -102,14 +103,14 @@ func TestImpersonationAccessors(t *testing.T) {
 			wantActorUser: "alice@example.com",
 		},
 		{
-			name: "a resolver's choice wins over a user-principal impersonation",
+			name: "a session that acts as someone else acts as whom its record names, whatever principal the session carries",
 			ctx: context.WithValue(context.Background(), CtxSessionInfo, &SessionData{
 				SessionInfo:   &SessionInfo{ID: sessionID, Username: "bob@partner.org"},
 				Impersonation: userImp,
 				Principal:     accesstypes.RolePrincipal("Editor"),
 			}),
 			wantImp:       userImp,
-			wantPrincipal: accesstypes.RolePrincipal("Editor"),
+			wantPrincipal: accesstypes.UserPrincipal("bob@partner.org"),
 			wantActor:     "alice@example.com",
 			wantActorUser: "alice@example.com",
 			wantMask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
@@ -280,5 +281,43 @@ func TestImpersonationFromRequest(t *testing.T) {
 	got, ok := ImpersonationFromRequest(r)
 	if !ok || got != imp {
 		t.Errorf("ImpersonationFromRequest() = (%v, %v), want (%v, true)", got, ok, imp)
+	}
+}
+
+// TestImpersonatorRefusal pins the one sentence and the one log line of the rule that
+// nobody is the subject of what they do in a session that acts as someone else. The
+// sentence speaks to the person; the line speaks of them, in the third person
+// throughout, whatever words the act was said with.
+func TestImpersonatorRefusal(t *testing.T) {
+	t.Parallel()
+
+	actor := impulse.Must(impulse.UUIDFromString("a11ce000-0000-4000-8000-000000000001"))
+
+	tests := []struct {
+		act      string
+		wantLine string
+	}{
+		{act: "disable your own account", wantLine: "disable their own account"},
+		{act: "give yourself a role", wantLine: "give themselves a role"},
+		{act: "end a session of your own", wantLine: "end a session of their own"},
+		{act: "make another hangar pass record your own", wantLine: "make another hangar pass record their own"},
+		{act: "take what is yours, or send you a link", wantLine: "take what is theirs, or send them a link"},
+		{act: "rename the youth team", wantLine: "rename the youth team"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.act, func(t *testing.T) {
+			t.Parallel()
+
+			line, refusal := ImpersonatorRefusal(actor, tt.act)
+			wantLine := "impersonation: the person who started this impersonated session (a11ce000-0000-4000-8000-000000000001) asked to " + tt.wantLine +
+				": refused, since nobody is the subject of what they do while they act as someone else"
+			if line != wantLine {
+				t.Errorf("ImpersonatorRefusal() line = %q, want %q", line, wantLine)
+			}
+			wantSays := "You are acting as someone else, so you cannot " + tt.act + "."
+			if !httpio.HasForbidden(refusal) || httpio.Message(refusal) != wantSays {
+				t.Errorf("ImpersonatorRefusal() refusal = %v, want a 403 that says %q", refusal, wantSays)
+			}
+		})
 	}
 }

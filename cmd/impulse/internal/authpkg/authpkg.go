@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	// The templates render Go source files, never HTML, so text/template is the right package.
 	"text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template.import-text-template
@@ -83,13 +84,21 @@ type Spec struct {
 
 // TenantPolicy is the sign-in rule over the tenant record's declaration: who may enter
 // a tenant, as the record declares it (the directories it admits its people through,
-// and whether they are the only way in).
+// and whether they are the only way in). In an application whose tenants have no
+// directories the record declares nothing, the generated reader answers nothing for
+// every tenant, and the rule admits everyone a tenant seats.
 type TenantPolicy struct {
 	// Record is the tenant record's struct name (Tenant).
 	Record string
 	// Reader is the generated reader's constructor as the data level qualifies it
 	// (app.NewTenantDeclarationReader), which the package's comments name.
 	Reader string
+	// Directories reports that the application has tenant directories: its resource
+	// package declares a directories record (@tenantDirectory), so a tenant can take a
+	// directory and the generator emits the directory reader. False in an application
+	// whose tenants come by invitation alone, where no auth carries a directory reader
+	// or sets a directory admission.
+	Directories bool
 	// AdmitWithoutTenant admits a person who holds no tenant (signin.AdmitWithoutTenant):
 	// a person who signs up through a sign-in method an administrator opened signs in
 	// first and creates a tenant of their own, and keeps their account when the method
@@ -138,12 +147,13 @@ func (s *Spec) MakesTenants() bool {
 
 // DirectoryAdmission reports whether the auth sets the library's directory admission
 // (session.Auth.SetDirectoryAdmission) over the tenant record's directory rows: an auth
-// serving a tenanted site whose roles the application assigns. An auth with a
-// registration whose directory writes the roles is the directory's authority for
-// everyone it holds, and sets none: its strangers are provisioned with the roles the
-// directory names.
+// serving a tenanted site with tenant directories whose roles the application assigns.
+// An auth with a registration whose directory writes the roles is the directory's
+// authority for everyone it holds, and sets none: its strangers are provisioned with
+// the roles the directory names. An application whose tenants have no directories has
+// no rows to admit by, and none of its auths sets one.
 func (s *Spec) DirectoryAdmission() bool {
-	if s.TenantPolicy == nil {
+	if s.TenantPolicy == nil || !s.TenantPolicy.Directories {
 		return false
 	}
 	for i := range s.Methods {
@@ -153,6 +163,24 @@ func (s *Spec) DirectoryAdmission() bool {
 	}
 
 	return true
+}
+
+// FirstAuth describes the first auth of a new application, as the base skeleton carries
+// it and impulse new renders it under the name the author gave: the people who sign in
+// to the console with a password, whose administrators hold the Administrator role and
+// whose first administrator is invited to that role and the one that turns features on
+// and off, with the management of the auth's people generated into pkg/identity. A new
+// application that starts from a shape with no password sign-in renders the same auth
+// with the shape's methods in the password's place (Methods and Doc replaced).
+func FirstAuth(module, name string) Spec {
+	return Spec{
+		Module: module, AuthDir: "pkg/auth", Name: name,
+		Doc:                     "the people who sign in to the console with a password",
+		Methods:                 []Method{{Kind: app.MethodPassword}},
+		AdministratorRoles:      AdministratorRoles{Global: []string{"Administrator"}},
+		FirstAdministratorRoles: AdministratorRoles{Global: []string{"Administrator", "FeatureAdministrator"}},
+		IdentityDir:             "pkg/identity",
+	}
 }
 
 // AdministratorRoles are role names by where a membership is held: the global partition
@@ -191,6 +219,14 @@ type Method struct {
 	// the username, a verified change of address renames the user, and the roles held
 	// under the old name follow it. The password method alone takes it.
 	UsernameIsEmail bool
+	// Label is the words people read for an organization's identity provider
+	// (app.MethodOIDC): on the login page's button and in the generated lists of a
+	// person's ways to sign in. The declaration a generator program carries chains them
+	// (.Labeled), and that declaration is where they are changed. Empty leaves the generation package's
+	// default, the registration name with its words capitalized (DefaultWords). An
+	// organization's identity provider alone takes it: every other kind is shown by what
+	// it is (Password, Persona) or by its brand (Google, Microsoft).
+	Label string
 }
 
 // The organization slots.
@@ -225,17 +261,21 @@ func Slots(kind string) []string {
 // invitation is no part of it: every method is invite only until an administrator opens
 // it to sign-up in the running application.
 func (m *Method) Validate() error {
+	switch m.Kind {
+	case app.MethodOIDC:
+		return m.validateOIDC()
+	case app.MethodPassword, app.MethodPersona, app.MethodAzure, app.MethodGoogle:
+	default:
+		return errors.Newf("%q is not a sign-in method impulse composes: password, azure, google, oidc or persona", m.Kind)
+	}
+	if m.Label != "" {
+		return errors.Newf("a label names an organization's identity provider (the oidc method), whose words are otherwise made from its registration name; the %s method is shown by what it is. To show it under other words, chain .Labeled(%q) on its declaration in the generator program and run go generate", m.Kind, m.Label)
+	}
 	if m.Kind == app.MethodPassword {
 		return m.validatePassword()
 	}
 	if m.Kind == app.MethodPersona {
 		return m.validatePersona()
-	}
-	if m.Kind == app.MethodOIDC {
-		return m.validateOIDC()
-	}
-	if m.Kind != app.MethodAzure && m.Kind != app.MethodGoogle {
-		return errors.Newf("%q is not a sign-in method impulse composes: password, azure, google, oidc or persona", m.Kind)
 	}
 	if m.UsernameIsEmail {
 		return errors.New("username-is-email describes the password method's sign-in name; a directory method's people sign in as the directory names them")
@@ -329,8 +369,36 @@ func (m *Method) validateOIDC() error {
 	default:
 		return errors.Newf("authority %q: directory or application", m.Authority)
 	}
+	if m.Label != strings.TrimSpace(m.Label) || strings.ContainsFunc(m.Label, unicode.IsControl) {
+		return errors.Newf("label %q: the words the login page shows for the provider, on one line, with no space before or after them (Lakeside ID)", m.Label)
+	}
 
 	return nil
+}
+
+// DefaultWords is what people read for an organization's identity provider whose
+// declaration chains no label: the registration name as words, its hyphens spaces and
+// each word capitalized (company-sso is "Company Sso"), as the generation package's
+// OIDCMethod makes them.
+func (m *Method) DefaultWords() string {
+	words := strings.Split(m.Name, "-")
+	for i, word := range words {
+		if word != "" {
+			words[i] = strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+
+	return strings.Join(words, " ")
+}
+
+// Words is what people read for an organization's identity provider: the label given
+// for it, or the default made from its registration name.
+func (m *Method) Words() string {
+	if m.Label != "" {
+		return m.Label
+	}
+
+	return m.DefaultWords()
 }
 
 // The variable suffixes every redirect method's registration shares.
@@ -375,13 +443,15 @@ func (m *Method) SyncsRoles() bool {
 // management the generator emits shows the roles the method file's RoleSync writes as
 // the directory's and never writes them (a role removed by hand would come back at the
 // next sign-in), and .UsernameIsEmail() on a password method whose sign-in name is the
-// address. The declaration and the method file read the same rule for each. Whether the
+// address, and .Labeled(words) on an organization's identity provider given words of its
+// own. The declaration and the method file read the same rule for each. Whether the
 // method admits a person with no account and no invitation is declared nowhere: an
 // administrator opens it to sign-up in the running application.
 func (m *Method) Arg() app.AuthMethodArg {
 	return app.AuthMethodArg{
 		Kind:            m.Kind,
 		Name:            m.Name,
+		Label:           m.Label,
 		SyncsRoles:      m.SyncsRoles(),
 		UsernameIsEmail: m.UsernameIsEmail,
 	}
@@ -645,7 +715,7 @@ func Files(spec *Spec) (map[string][]byte, error) {
 		return nil, err
 	}
 	files[spec.Name+".go"] = main
-	if Foothold(spec) != "" {
+	if Foothold(spec) {
 		foothold, err := render(footholdFile, footholdTemplate, newView(spec))
 		if err != nil {
 			return nil, err
@@ -734,7 +804,7 @@ func CastFile(spec *Spec, m *Method) ([]byte, error) {
 func FileNames(spec *Spec) []string {
 	files := make([]string, 0, 2+len(spec.Methods))
 	files = append(files, spec.Name+".go")
-	if Foothold(spec) != "" {
+	if Foothold(spec) {
 		files = append(files, footholdFile)
 	}
 	for i := range spec.Methods {

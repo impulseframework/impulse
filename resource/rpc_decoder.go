@@ -6,7 +6,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
-	"github.com/impulseframework/impulse/httpio"
 )
 
 // RPCDecoder decodes an HTTP request for an RPC-style endpoint, validates the request body,
@@ -72,7 +71,9 @@ func (s *RPCDecoder[Request]) WithValidator(v ValidatorFunc) *RPCDecoder[Request
 // The check is eager (decode is the last library-controlled point before application
 // code executes), so it must resolve to Granted or Denied: a Conditional decision here
 // is a 500-class invariant breach — an RPC method has no rows for a condition to
-// evaluate against, and MigrateRoles rejects such grants at deploy.
+// evaluate against, and such a grant is refused in a role file (access.ValidateRoles, the
+// check access.New makes), refused as a write to a custom role, and left out of the policy
+// when the store holds one.
 func (s *RPCDecoder[Request]) Decode(request *http.Request, scope accesstypes.Scope) (*Request, error) {
 	req, _, err := s.DecodeCaller(request, scope)
 
@@ -95,7 +96,7 @@ func (s *RPCDecoder[Request]) DecodeCaller(request *http.Request, scope accessty
 		return nil, nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return nil, nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", userPermissions.User(), scope, s.requiredPermission, denied)
+		return nil, nil, methodRefused(errors.Newf("user %s, scope %s, does not have %s on %s", userPermissions.User(), scope, s.requiredPermission, denied))
 	}
 	if conditional := decisions.ConditionalResources(); len(conditional) > 0 {
 		// A condition that reads the method's own request
@@ -120,7 +121,7 @@ func (s *RPCDecoder[Request]) DecodeCaller(request *http.Request, scope accessty
 		if !truth.Value {
 			// The words a caller with no grant hears: the wire does not say a
 			// condition refused.
-			return nil, nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", userPermissions.User(), scope, s.requiredPermission, conditional)
+			return nil, nil, methodRefused(errors.Newf("user %s, scope %s, does not have %s on %s", userPermissions.User(), scope, s.requiredPermission, conditional))
 		}
 	}
 

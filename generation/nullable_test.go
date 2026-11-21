@@ -277,7 +277,8 @@ func Test_pointerToSliceRefusal(t *testing.T) {
 // Test_typescriptResourcesTemplate_nullableSlice pins the metadata a slice column
 // renders: required false where the column allows NULL and true where it does not, on a
 // byte slice and an array alike, with the display type and the element limit unchanged,
-// and the element limit on a named slice as on the unnamed one.
+// and the element limit on a named slice as on the unnamed one. Each says sortable:
+// false, since the server orders a list by no bytes and no array.
 func Test_typescriptResourcesTemplate_nullableSlice(t *testing.T) {
 	t.Parallel()
 
@@ -301,11 +302,11 @@ func Test_typescriptResourcesTemplate_nullableSlice(t *testing.T) {
 		name string
 		want string
 	}{
-		{name: "a byte slice on a nullable column is not required", want: "{ fieldName: 'seal', displayType: 'bytes', required: false, isIndex: false }"},
-		{name: "an integer array on a nullable column is not required", want: "{ fieldName: 'bays', displayType: 'number[]', required: false, isIndex: false }"},
-		{name: "a named string array on a nullable column is not required and carries the element limit", want: "{ fieldName: 'named', displayType: 'string[]', required: false, isIndex: false, maxLength: 16 }"},
-		{name: "a byte slice on a NOT NULL column is required", want: "{ fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false }"},
-		{name: "a string array on a NOT NULL column is required", want: "{ fieldName: 'tags', displayType: 'string[]', required: true, isIndex: false, maxLength: 8 }"},
+		{name: "a byte slice on a nullable column is not required", want: "{ fieldName: 'seal', displayType: 'bytes', required: false, isIndex: false, sortable: false }"},
+		{name: "an integer array on a nullable column is not required", want: "{ fieldName: 'bays', displayType: 'number[]', required: false, isIndex: false, sortable: false }"},
+		{name: "a named string array on a nullable column is not required and carries the element limit", want: "{ fieldName: 'named', displayType: 'string[]', required: false, isIndex: false, sortable: false, maxLength: 16 }"},
+		{name: "a byte slice on a NOT NULL column is required", want: "{ fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false, sortable: false }"},
+		{name: "a string array on a NOT NULL column is required", want: "{ fieldName: 'tags', displayType: 'string[]', required: true, isIndex: false, sortable: false, maxLength: 8 }"},
 	}
 
 	for _, tt := range tests {

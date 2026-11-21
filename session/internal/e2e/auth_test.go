@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -206,6 +207,55 @@ type authApp[Tx any] struct {
 	hooks  *hooks[Tx]
 	// mail keeps what the Auth sent, for the scenarios that read a code out of it.
 	mail *mail.Recorder
+	// verified writes an address as a person's confirmed one, the store's own write, on
+	// an app that sends mail.
+	verified func(ctx context.Context, userID impulse.UUID, email string) error
+	// setEmail writes a person's address as an administrator does, the store's own
+	// write; nil takes the address off the account.
+	setEmail func(ctx context.Context, userID impulse.UUID, email *string) error
+}
+
+// confirmedAddress writes email as the confirmed address of a seeded person. A person
+// who comes through a directory that does not vouch for an address is held for a mailed
+// code until their account holds a confirmed one, and the scenarios that are not about
+// that start from a person who has confirmed theirs.
+func (a *authApp[Tx]) confirmedAddress(ctx context.Context, t *testing.T, userID impulse.UUID, email string) {
+	t.Helper()
+
+	if err := a.verified(ctx, userID, email); err != nil {
+		t.Fatalf("VerifyUserEmail(%q) error = %v", email, err)
+	}
+}
+
+// confirmAddress answers the hold a person's first sign-in through a directory that
+// does not vouch for an address meets: held is where the callback sent the browser,
+// which must be the login page's step for the code, and the person answers the code
+// mailed to address. It returns the page the completed sign-in goes on to.
+func (a *authApp[Tx]) confirmAddress(ctx context.Context, b *browser, held *url.URL, address string) *url.URL {
+	b.t.Helper()
+
+	returnURL := held.Query().Get("returnUrl")
+	assertRedirect(b.t, held, "/login", url.Values{"pending": {"mfa"}, "returnUrl": {returnURL}})
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	a.answerAddressCode(ctx, b, address)
+
+	return &url.URL{Path: returnURL}
+}
+
+// answerAddressCode has the person held in b give address where their account holds
+// none, and answer the code mailed to it.
+func (a *authApp[Tx]) answerAddressCode(ctx context.Context, b *browser, address string) {
+	b.t.Helper()
+
+	if body := b.expect(ctx, http.StatusOK, http.MethodGet, "/pending", nil); !strings.Contains(string(body), `"factors":["email-code"]`) {
+		b.t.Fatalf("pending status = %s, want the email code as the one factor the address is confirmed by", body)
+	}
+	if status, _ := b.do(ctx, http.MethodPost, "/pending/code/send", nil); status != http.StatusOK {
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/email", map[string]string{"email": address})
+	}
+	if body := b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(b.t, address)}); !strings.Contains(string(body), `"mfaIsRequired":false`) {
+		b.t.Fatalf("code verification = %s, want the sign-in completed", body)
+	}
 }
 
 // withCustomData attaches the application's custom session and user data to store
@@ -231,6 +281,7 @@ func withCustomData[Tx any](t *testing.T, store *sessionstorage.Auth[Tx], h *hoo
 // /session-data that reports its custom data.
 func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserData, Tx], routes func(r chi.Router)) {
 	api := auth.API()
+	impersonations := declaredForAnyone()
 
 	r.Use(auth.StartSession, auth.SetXSRFToken)
 	r.Get("/authenticated", auth.Authenticated())
@@ -252,7 +303,14 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 		// The application's MFA step: here it accepts anything, which is what the
 		// scenarios need; a real one checks a code first.
 		r.Post("/mfa", func(w http.ResponseWriter, r *http.Request) {
-			if _, err := api.CompletePending(r.Context(), w, sessioninfo.AuthEvent{Method: "email-otp"}); err != nil {
+			_, err := api.CompletePending(r.Context(), w, sessioninfo.AuthEvent{Method: "email-otp"})
+			if waits := (*signin.PendingSignInError)(nil); errors.As(err, &waits) {
+				// The sign-in waits again, for a step the login page takes.
+				w.WriteHeader(http.StatusAccepted)
+
+				return
+			}
+			if err != nil {
 				_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
 
 				return
@@ -302,11 +360,15 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 
 					return
 				}
-				_, err = api.StartImpersonatedSession(r.Context(), w, &session.ImpersonationRequest{
-					Actor:           sessioninfo.FromCtx(r.Context()).Username,
-					SourceSessionID: impulse.NullUUIDFromUUID(sessioninfo.IDFromRequest(r)),
-					Principal:       accesstypes.UserPrincipal(accesstypes.User(user.ID.String())),
-				})
+				// The declaration makes the request: the actor is the validated session's
+				// user, acting from that session.
+				req, err := impersonations.Request(r.Context(), &session.ImpersonationAsk{Kind: kindFull, Principal: user.ID.String()}, anyoneMay)
+				if err != nil {
+					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+					return
+				}
+				_, err = api.StartImpersonatedSession(r.Context(), w, req)
 				if err != nil {
 					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
 
@@ -407,7 +469,7 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
-	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder}
+	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail, setEmail: store.SetUserEmail}
 }
 
 // browser is a user agent of an Auth app.
@@ -740,6 +802,10 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamEmailCodeEnrollment[Tx],
 		},
 		{
+			name: "a code mailed to an address an administrator then takes off the account is dead: nothing is written back, and the code for the address the person then gives at the step writes it",
+			run:  seamEmailCodeAddressTakenOff[Tx],
+		},
+		{
 			name: "five wrong codes kill the code sent, a new one is sent in its place, an address sent five codes it did not use is refused a sixth with too_many_emails, and a code is refused where the policy accepts another factor",
 			run:  seamEmailCodeLimits[Tx],
 		},
@@ -955,12 +1021,14 @@ func seamWorkOSProvisionThenLink[Tx any](ctx context.Context, t *testing.T, a *a
 
 	b := a.browser(t)
 	b.prime(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
+	assertRedirect(t, a.confirmAddress(ctx, b, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "sam@lakeside.edu"), "/dashboard", url.Values{})
 	first := b.view(ctx)
 	if first.Username != "sam@lakeside.edu" || first.UserID == "" {
 		t.Fatalf("session = %+v, want the provisioned user sam@lakeside.edu", first)
 	}
-	assertEventsSeen(t, first, "workos:"+lakesideConnection)
+	// The session records the sign-in's own event and the code that confirmed the
+	// address of a person the directory does not vouch for the address of.
+	assertEventsSeen(t, first, "workos:"+lakesideConnection, "email-code")
 
 	other := a.browser(t)
 	other.prime(ctx)
@@ -1004,7 +1072,7 @@ func seamWorkOSProvisionPolicyReadsRows[Tx any](ctx context.Context, t *testing.
 
 	b := a.browser(t)
 	b.prime(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
+	assertRedirect(t, a.confirmAddress(ctx, b, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "sam@lakeside.edu"), "/dashboard", url.Values{})
 	first := b.view(ctx)
 	if first.Username != "sam@lakeside.edu" || first.UserID == "" {
 		t.Fatalf("session = %+v, want the provisioned user sam@lakeside.edu", first)
@@ -1019,7 +1087,9 @@ func seamWorkOSProvisionPolicyReadsRows[Tx any](ctx context.Context, t *testing.
 
 	var seen []sessioninfo.UserSource
 	a.hooks.set(func(*hooks[Tx]) { seen = append(seen, sources...) })
-	if want := []sessioninfo.UserSource{sessioninfo.UserProvisioned, sessioninfo.UserExistingLink}; !slices.Equal(seen, want) {
+	// The first sign-in asks the policy twice: when the account is made, and again when
+	// the code that confirms the person's address completes it, through the link by then.
+	if want := []sessioninfo.UserSource{sessioninfo.UserProvisioned, sessioninfo.UserExistingLink, sessioninfo.UserExistingLink}; !slices.Equal(seen, want) {
 		t.Errorf("the policy saw users %v, want %v", seen, want)
 	}
 	if _, linked := a.hooks.counts(); len(linked) != 1 || linked[0].String() != first.UserID {
@@ -1080,12 +1150,17 @@ func seamWorkOSProvisionHeldForMFA[Tx any](ctx context.Context, t *testing.T, a 
 		t.Errorf("the pending user = %q, want sam@lakeside.edu committed, so the application can send its code", got)
 	}
 
-	b.expect(ctx, http.StatusNoContent, http.MethodPost, "/mfa", nil)
+	// The application's own factor passes, and the directory still vouches for no
+	// address: the sign-in waits once more, for the code mailed to the address the
+	// person gives, whatever the policy asked for.
+	b.expect(ctx, http.StatusAccepted, http.MethodPost, "/mfa", nil)
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	a.answerAddressCode(ctx, b, "sam@lakeside.edu")
 	v := b.view(ctx)
 	if v.UserID != pending.UserID.String() || v.SessionID == anonymous {
 		t.Errorf("session = %+v, want user %s under a session ID other than %s", v, pending.UserID.UUID, anonymous)
 	}
-	assertEventsSeen(t, v, "workos:"+lakesideConnection, "email-otp")
+	assertEventsSeen(t, v, "workos:"+lakesideConnection, "email-otp", "email-code")
 	if _, linked := a.hooks.counts(); len(linked) != 1 || linked[0] != pending.UserID.UUID {
 		t.Errorf("IdentityLinked reports = %v, want one for %s", linked, pending.UserID.UUID)
 	}
@@ -1095,6 +1170,7 @@ func seamWorkOSConfirmWithPassword[Tx any](ctx context.Context, t *testing.T, a 
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")
 	a.hooks.set(func(h *hooks[Tx]) {
 		h.resolve = func(*workos.Identity) *signin.Resolution {
 			return signin.Confirm(pat, signin.Tenant("lakeside"))
@@ -1187,6 +1263,7 @@ func seamConfirmThenMFA[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")
 	a.hooks.set(func(h *hooks[Tx]) {
 		h.resolve = func(*workos.Identity) *signin.Resolution {
 			return signin.Confirm(pat)
@@ -1284,8 +1361,87 @@ func seamDisabledAndImpersonation[Tx any](ctx context.Context, t *testing.T, a *
 		t.Errorf("impersonation = actor %q (%s) as %s, want pat@lakeside.edu (%s) as the user %s", imp.Actor, imp.ActorUser(), imp.Principal, pat, bob)
 	}
 
+	serverSideImpersonation(ctx, t, a, tab.sessionID(ctx), pat, bob)
+
 	a.db.disableUser(ctx, t, pat)
 	tab.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+}
+
+// serverSideImpersonation is the server-side caller's way to an impersonated session, on
+// an Auth over the real store: a call that arrives on no session of the application
+// names its actor (session.Impersonations.RequestFor) and answers for the kind's grant
+// with a check of its own. An actor another system signed in views as bob: the session
+// is bob's, under the kind's mask, and the record names the actor with the system that
+// signed them in. A person of this application is named with their own live session,
+// which the library verifies: pat's session vouches for pat, and for nobody else.
+func serverSideImpersonation[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], patsSession string, pat, bob impulse.UUID) {
+	t.Helper()
+
+	declared := declaredForAnyone()
+	// The calling system may start a session that views, and no other.
+	portalMay := func(_ context.Context, grant accesstypes.Resource) (bool, error) {
+		return grant == grantView, nil
+	}
+	recordOf := func(id impulse.UUID) *sessioninfo.Impersonation {
+		t.Helper()
+		imps, err := a.api.ActiveImpersonations(ctx, nil)
+		if err != nil {
+			t.Fatalf("ActiveImpersonations() error = %v", err)
+		}
+		for _, imp := range imps {
+			if imp.SessionID == id {
+				return imp
+			}
+		}
+		t.Fatalf("ActiveImpersonations() = %v, want the session %s among them", imps, id)
+
+		return nil
+	}
+
+	foreign := session.ImpersonationActor{Name: "ops@example.com", Realm: "admin-portal"}
+	if req, err := declared.RequestFor(ctx, foreign, &session.ImpersonationAsk{Kind: kindFull, Principal: bob.String()}, portalMay); req != nil || !httpio.HasForbidden(err) {
+		t.Errorf("RequestFor() for a kind the calling system may not start = %v, %v, want no request and 403", req, err)
+	}
+	req, err := declared.RequestFor(ctx, foreign, &session.ImpersonationAsk{Kind: kindView, Principal: bob.String(), Reason: "ticket 12"}, portalMay)
+	if err != nil {
+		t.Fatalf("RequestFor() error = %v", err)
+	}
+	id, err := a.api.StartImpersonatedSession(ctx, httptest.NewRecorder(), req)
+	if err != nil {
+		t.Fatalf("StartImpersonatedSession() from a server-side caller's request error = %v", err)
+	}
+	if imp := recordOf(id); imp.Actor != "ops@example.com" || imp.ActorRealm != "admin-portal" || imp.ActorID.Valid ||
+		imp.Principal != accesstypes.UserPrincipal(accesstypes.User(bob.String())) || imp.Mask.Text() != "List,Read" || imp.Reason != "ticket 12" {
+		t.Errorf("the record of a session a server-side caller started = %+v, want the actor ops@example.com of admin-portal, who holds no account here, as bob, reading only", imp)
+	}
+
+	// A person of this application, named with their own live session.
+	patsID, err := impulse.UUIDFromString(patsSession)
+	if err != nil {
+		t.Fatalf("impulse.UUIDFromString(%q) error = %v", patsSession, err)
+	}
+	own := session.ImpersonationActor{Name: "pat@lakeside.edu", SessionID: impulse.NullUUIDFromUUID(patsID)}
+	req, err = declared.RequestFor(ctx, own, &session.ImpersonationAsk{Kind: kindView, Principal: bob.String()}, portalMay)
+	if err != nil {
+		t.Fatalf("RequestFor() for a person of this application error = %v", err)
+	}
+	id, err = a.api.StartImpersonatedSession(ctx, httptest.NewRecorder(), req)
+	if err != nil {
+		t.Fatalf("StartImpersonatedSession() for a person named with their own session error = %v", err)
+	}
+	if imp := recordOf(id); imp.Actor != "pat@lakeside.edu" || imp.ActorRealm != "" || imp.ActorUser() != accesstypes.User(pat.String()) || imp.Mask.Text() != "List,Read" {
+		t.Errorf("the record of a session started for a person named with their own session = %+v, want pat, of this application, by the id of her account, reading only", imp)
+	}
+	// Pat's session vouches for pat alone: the same session named for someone else
+	// starts nothing.
+	other := session.ImpersonationActor{Name: "bob@lakeside.edu", SessionID: impulse.NullUUIDFromUUID(patsID)}
+	req, err = declared.RequestFor(ctx, other, &session.ImpersonationAsk{Kind: kindView, Principal: pat.String()}, portalMay)
+	if err != nil {
+		t.Fatalf("RequestFor() error = %v", err)
+	}
+	if _, err := a.api.StartImpersonatedSession(ctx, httptest.NewRecorder(), req); !httpio.HasForbidden(err) {
+		t.Errorf("StartImpersonatedSession() for bob named with pat's session error = %v, want 403: a session vouches for its own user", err)
+	}
 }
 
 // seamWorkOSCrossConnectionLink: sam signs in through Lakeside and is provisioned
@@ -1298,7 +1454,7 @@ func seamWorkOSCrossConnectionLink[Tx any](ctx context.Context, t *testing.T, a 
 	a.hooks.set(func(h *hooks[Tx]) { h.resolveTx = a.provisionMember })
 	first := a.browser(t)
 	first.prime(ctx)
-	assertRedirect(t, first.workOSSignIn(ctx, idp, "/home", "idp_sam", "sam@lakeside.edu"), "/home", url.Values{})
+	assertRedirect(t, a.confirmAddress(ctx, first, first.workOSSignIn(ctx, idp, "/home", "idp_sam", "sam@lakeside.edu"), "sam@lakeside.edu"), "/home", url.Values{})
 	sam, err := impulse.UUIDFromString(first.view(ctx).UserID)
 	if err != nil {
 		t.Fatalf("impulse.UUIDFromString() error = %v", err)
@@ -1353,7 +1509,7 @@ func seamCustomData[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], i
 	// in the same transaction, for the user the sign-in just provisioned.
 	b := a.browser(t)
 	b.prime(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
+	assertRedirect(t, a.confirmAddress(ctx, b, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "sam@lakeside.edu"), "/dashboard", url.Values{})
 	if got := b.sessionData(ctx); got.Partner != "lakeside" {
 		t.Errorf("custom session data after the provisioning sign-in = %+v, want the lakeside membership OnProvisioned wrote", got)
 	}
