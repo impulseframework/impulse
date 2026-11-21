@@ -191,6 +191,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		RoleID      string       `json:"roleId"      sqltype:"STRING(64)"`
 		Tonnage     int64        `json:"tonnage"`
 		Hardened    bool         `json:"hardened"`
+		InService   bool         `json:"inService"`
 	}
 	shipClassDecoder := NewDecoder[resources.ShipClass, shipClassRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
