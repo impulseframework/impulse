@@ -408,6 +408,12 @@ func handedUnderNameText(line int, text string) string {
 	return fmt.Sprintf("pkg/auth/staff: pkg/config/data.go:%d hands staff.Roles() to access.WithDefaultRoles under %s, and impulse check takes only the package's own Name there; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(staff.Roles(), staff.Name)", line, text)
 }
 
+// handedNoRolesCall is the finding for a role file handed to access.WithDefaultRoles at
+// line of pkg/config/data.go as anything but an auth package's own Roles() call.
+func handedNoRolesCall(line int) string {
+	return fmt.Sprintf("pkg/config/data.go:%d hands access.WithDefaultRoles a role file that is not an auth package's own Roles() call, so impulse check cannot tell whose roles it holds; a role file is held to the auth it is handed over for, so hand each auth's file over as its package gives it, under the package's own name: access.WithDefaultRoles(<name>.Roles(), <name>.Name)", line)
+}
+
 func TestAuthsWired(t *testing.T) {
 	t.Parallel()
 
@@ -518,6 +524,22 @@ func TestAuthsWired(t *testing.T) {
 					"func New(ctx context.Context) (*DataConfiguration, error) {\n", "func New(ctx context.Context) (*DataConfiguration, error) {\n\tname := staff.Name\n", 1)),
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
 			wantDetails: []string{handedUnderNameText(18, "name")},
+		},
+		{
+			name: "beside the auth package's own call, a role file handed over in a variable that holds the package's Roles()",
+			files: with(without(), "pkg/config/data.go",
+				strings.Replace(strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", "roles, staff.Name", 1),
+					"func New(ctx context.Context) (*DataConfiguration, error) {\n", "func New(ctx context.Context) (*DataConfiguration, error) {\n\troles := staff.Roles()\n", 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedNoRolesCall(18)},
+		},
+		{
+			name: "beside the auth package's own call, a wrapper that takes the role file and the name as parameters",
+			files: with(without(), "pkg/config/data.go",
+				strings.Replace(staffConfigHanding, "access.New(nil, router.Collection(), access.WithDefaultRoles(staff.Roles(), staff.Name))", "engine(router.Collection(), staff.Roles(), staff.Name)", 1)+
+					"\nfunc engine(collection access.PermissionCollection, roles access.RoleFile, name string) (*access.Client, error) {\n\treturn access.New(nil, collection, access.WithDefaultRoles(roles, name))\n}\n"),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedNoRolesCall(31)},
 		},
 		{
 			name: "the package exports no Roles()", files: with(without(), "pkg/auth/staff/staff.go", staffAuthNoRoles),

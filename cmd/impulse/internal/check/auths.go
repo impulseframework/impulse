@@ -62,6 +62,7 @@ func (c authsWired) Run(_ context.Context, env *Env) Result {
 		summaries = append(summaries, p.Name)
 	}
 	details = append(details, unknownAuthBindings(a, profile)...)
+	details = append(details, rolesOfNoAuthPackage(a)...)
 	details = append(details, cookieCollisions(a.Auths)...)
 	if len(details) > 0 {
 		return fail(c.Name(), fmt.Sprintf("%d auth wiring problem(s)", len(details)), append(details, warnings...)...)
@@ -189,6 +190,30 @@ func rolesUnderAnotherName(a *app.App, p *app.AuthPackage) []string {
 			details = append(details, fmt.Sprintf("%s: %s:%d hands %s.%s() to access.WithDefaultRoles under %s.%s; a role file is held to the auth it is handed over for, so hand the %s auth's file over under its own name: access.WithDefaultRoles(%s.%s(), %s.%s)",
 				p.Dir, d.File, d.Line, p.Name, authRoles, path.Base(d.NamePackage), authName, p.Name, p.Name, authRoles, p.Name, authName))
 		}
+	}
+
+	return details
+}
+
+// rolesOfNoAuthPackage lists the access.WithDefaultRoles calls outside tests that hand the
+// engine a role file other than an auth package's own Roles() call: a variable, a
+// parameter, a field, another call, or the Roles() of a package that is no auth package.
+// The engine holds a role file to the auth it is handed over for, and nothing at run time
+// can tell whose file such an argument holds, so nothing here can tell either: the auth
+// package's own Roles() is the one way to hand its file over, and rolesUnderAnotherName
+// judges the name such a call hands it over under.
+func rolesOfNoAuthPackage(a *app.App) []string {
+	auths := make(map[string]bool, len(a.AuthPackages))
+	for i := range a.AuthPackages {
+		auths[a.AuthPackages[i].Path] = true
+	}
+	var details []string
+	for _, d := range a.DefaultRoles {
+		if auths[d.RolesPackage] {
+			continue
+		}
+		details = append(details, fmt.Sprintf("%s:%d hands access.WithDefaultRoles a role file that is not an auth package's own %s() call, so impulse check cannot tell whose roles it holds; a role file is held to the auth it is handed over for, so hand each auth's file over as its package gives it, under the package's own name: access.WithDefaultRoles(<name>.%s(), <name>.%s)",
+			d.File, d.Line, authRoles, authRoles, authName))
 	}
 
 	return details
