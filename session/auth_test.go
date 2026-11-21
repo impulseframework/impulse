@@ -1667,12 +1667,14 @@ func TestAuth_GoogleCallback(t *testing.T) {
 
 	sessionID := impulse.Must(impulse.NewUUID())
 
-	// expectIdentity expects the store's SignIn with an identity under connection and
-	// signs the request in.
-	expectIdentity := func(connection, hd string) func(f *authFixture) {
+	// expectIdentity expects the store's SignIn with the identity of email under
+	// connection, and signs the request in. vouched says Google's word for the address
+	// is the identity's: it is for a Workspace account's address (the token carries hd)
+	// and for a Gmail address, and for no other, whatever the token says.
+	expectIdentity := func(connection, hd, email string, vouched bool) func(f *authFixture) {
 		return func(f *authFixture) {
 			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-				want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: connection, Subject: "sub-1", Email: "pat@example.com", EmailVerified: true, SignInName: "pat@example.com", Organization: connection}
+				want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: connection, Subject: "sub-1", Email: email, EmailVerified: vouched, SignInName: email, Organization: connection}
 				if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" {
 					t.Errorf("SignIn() identity mismatch (-want +got):\n%s", diff)
 				}
@@ -1702,7 +1704,7 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			name:         "a Google identity is keyed by the registration's name for its Workspace and sub",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`,
 			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "example.com", Workspace: "lakeside"},
-			prepare:      expectIdentity("lakeside", "example.com"),
+			prepare:      expectIdentity("lakeside", "example.com", "pat@example.com", true),
 			wantLocation: "/home",
 		},
 		{
@@ -1712,7 +1714,7 @@ func TestAuth_GoogleCallback(t *testing.T) {
 				return google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org"))
 			},
 			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "Example.ORG", Workspace: "riverside"},
-			prepare:      expectIdentity("riverside", "Example.ORG"),
+			prepare:      expectIdentity("riverside", "Example.ORG", "pat@example.com", true),
 			wantLocation: "/home",
 		},
 		{
@@ -1725,15 +1727,39 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"Elsewhere.Example"}`,
 			workspaces:   google.AnyWorkspace,
 			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "Elsewhere.Example", Workspace: "elsewhere.example"},
-			prepare:      expectIdentity("elsewhere.example", "Elsewhere.Example"),
+			prepare:      expectIdentity("elsewhere.example", "Elsewhere.Example", "pat@example.com", true),
 			wantLocation: "/home",
 		},
 		{
-			name:         "any Google account: an account outside every Workspace carries the fixed connection",
+			name:         "any Google account: an account outside every Workspace carries the fixed connection, and Google's word for an address it is not the authority for is not the identity's",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true}`,
 			workspaces:   google.AnyGoogleAccount,
 			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", Workspace: google.AnyAccountConnection},
-			prepare:      expectIdentity(google.AnyAccountConnection, ""),
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "pat@example.com", false),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: Google vouches for a Gmail address, whose token carries no hd",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"Pat@Gmail.com","email_verified":true}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "Pat@Gmail.com", Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "Pat@Gmail.com", true),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: Google vouches for a Workspace account's address, whatever its domain",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@elsewhere.example","email_verified":true,"hd":"elsewhere.example"}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@elsewhere.example", HostedDomain: "elsewhere.example", Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "elsewhere.example", "pat@elsewhere.example", true),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: an address that only looks like Gmail's is not one Google vouches for",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@gmail.com.example","email_verified":true}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@gmail.com.example", Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, "", "pat@gmail.com.example", false),
 			wantLocation: "/home",
 		},
 		{
@@ -3385,6 +3411,66 @@ const (
 // entraIssuer is the issuer of tenant tid's tokens under testAuthority.
 func entraIssuer(tid string) string {
 	return testAuthority + "/" + tid + "/v2.0"
+}
+
+// TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress proves the core takes a method's
+// word that an address is verified from Google's method alone. Whatever any other
+// method fills in Identity.EmailVerified, a provider's own claim or an application's own
+// method, the identity reaches the store without it: nothing confirms the address but
+// the code mailed to it, which the person's first sign-in to an account with no
+// confirmed address waits for.
+func TestAuth_CallbackTakesNoOtherMethodsWordForAnAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// registered is the method the registration is of, and asserted the method the
+		// identity says it came through.
+		registered, asserted sessioninfo.AuthMethod
+	}{
+		{name: "an application's own method", registered: "bare", asserted: "bare"},
+		{name: "the generic OpenID Connect method", registered: sessioninfo.MethodOIDC, asserted: sessioninfo.MethodOIDC},
+		{name: "Microsoft Entra ID", registered: sessioninfo.MethodAzure, asserted: sessioninfo.MethodAzure},
+		{name: "WorkOS", registered: sessioninfo.MethodWorkOS, asserted: sessioninfo.MethodWorkOS},
+		{name: "another method whose identity says it is Google's", registered: "bare", asserted: sessioninfo.MethodGoogle},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newAuthFixture(t, gomock.NewController(t))
+			h := f.auth.RegisterExternal(&signin.Registration[mockTx]{
+				Name: "provider", Method: tt.registered,
+				Build: func(signin.StateCookies) (*signin.Method, error) {
+					return &signin.Method{
+						Name:     tt.registered,
+						LoginURL: func() string { return "/login" },
+						Complete: func(context.Context, http.ResponseWriter, *http.Request) (*signin.Verified, error) {
+							return &signin.Verified{
+								Identity:  &sessioninfo.Identity{Method: tt.asserted, Connection: "c", Subject: "s", Email: "pat@example.com", EmailVerified: true, SignInName: "pat"},
+								ReturnURL: "/next",
+							}, nil
+						},
+					}, nil
+				},
+			})
+			f.expectSignIn(impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
+				if req.Identity.EmailVerified || req.Identity.Email != "pat@example.com" {
+					t.Errorf("SignIn() identity = %+v, want the address the method asserts without its word that the address is verified", req.Identity)
+				}
+			}, func(req *sessioninfo.NewSessionRequest) error {
+				req.UserID, req.Username = impulse.Must(impulse.NewUUID()), "pat"
+
+				return nil
+			})
+
+			rr := f.serve(h.Callback, http.MethodGet, "/provider/callback?code=c&state=s", nil, nil)
+
+			if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/next" {
+				t.Errorf("response = %d %q, want 302 /next", rr.Code, rr.Header().Get("Location"))
+			}
+		})
+	}
 }
 
 // TestAuth_CallbackFromUndeclaredIssuer proves the core refuses a round trip whose token

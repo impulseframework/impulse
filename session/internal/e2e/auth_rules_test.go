@@ -28,6 +28,7 @@ import (
 	"github.com/impulseframework/impulse/session/google"
 	"github.com/impulseframework/impulse/session/internal/oidctest"
 	"github.com/impulseframework/impulse/session/mail"
+	"github.com/impulseframework/impulse/session/oidc"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
@@ -57,7 +58,9 @@ const (
 // application's sign-up hook writes as the new user's membership row. password says the
 // password method is registered beside the directories: a person who holds a password
 // then confirms it before a directory identity is joined to their account, and with no
-// password method nobody is asked for one.
+// password method nobody is asked for one. provider says another identity provider is
+// registered beside them, behind the generic OpenID Connect method under the standard
+// rule, invite only.
 type rulesShape struct {
 	tenants        azure.TenantSet
 	entraAccounts  accounts
@@ -68,6 +71,7 @@ type rulesShape struct {
 	googleRule     bool
 	defaultRole    string
 	password       bool
+	provider       bool
 }
 
 // oneOrganization is the shape of today's staff application: one tenant and one
@@ -85,6 +89,9 @@ func oneOrganization(chosen accounts) *rulesShape {
 type rulesApp[Tx any] struct {
 	*authApp[Tx]
 	entra, google *oidctest.FakeIDP
+	// provider is the other identity provider's fake, at /provider, nil unless the
+	// shape registers one.
+	provider *oidctest.FakeIDP
 	// store is the Auth's store, where a scenario writes what an administrator chooses
 	// for a method while the application runs.
 	store *sessionstorage.Auth[Tx]
@@ -217,6 +224,16 @@ func rulesAppOver[Tx any](t *testing.T, be backend[Tx], shape *rulesShape, db ap
 		googleIssuerMu.Unlock()
 	}
 
+	var providerIDP *oidctest.FakeIDP
+	var provider *oidc.Method
+	if shape.provider {
+		providerIDP = oidctest.NewFakeIDP(t, "provider-client")
+		provider = oidc.SignIn[Tx](auth, "provider", nil, &oidc.Config{
+			Issuer: providerIDP.Server.URL, ClientID: "provider-client", RedirectURL: "https://app.example/provider/callback",
+			RoleSync: signin.DisableRoleSync(),
+		})
+	}
+
 	r := chi.NewRouter()
 	mountAuth(r, auth, func(r chi.Router) {
 		r.Get("/entra/login", entra.Login())
@@ -226,13 +243,17 @@ func rulesAppOver[Tx any](t *testing.T, be backend[Tx], shape *rulesShape, db ap
 			r.Get("/google/login", workspace.Login())
 			r.Get("/google/callback", workspace.Callback())
 		}
+		if provider != nil {
+			r.Get("/provider/login", provider.Login())
+			r.Get("/provider/callback", provider.Callback())
+		}
 	})
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
 	return &rulesApp[Tx]{
 		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail},
-		entra:   entraIDP, google: googleIDP, store: store,
+		entra:   entraIDP, google: googleIDP, provider: providerIDP, store: store,
 	}
 }
 
@@ -316,6 +337,14 @@ func (a *rulesApp[Tx]) googleSignIn(ctx context.Context, b *browser, claims map[
 	b.t.Helper()
 
 	return b.oidcSignIn(ctx, a.google, "/google", claims)
+}
+
+// providerSignIn runs a round trip through the other identity provider with claims in b
+// and returns where the callback sent the browser.
+func (a *rulesApp[Tx]) providerSignIn(ctx context.Context, b *browser, claims map[string]any) *url.URL {
+	b.t.Helper()
+
+	return b.oidcSignIn(ctx, a.provider, "/provider", claims)
 }
 
 // createUser creates a user without a password: pre-created for an external identity.
@@ -486,6 +515,18 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			name: "a Microsoft person's first sign-in is held for a mailed code whatever the token and the policy say: nothing is mailed before the person gives an address, no other factor answers the hold, the code confirms the address, and the next sign-in is not held; a Google person, whose address Google vouches for, is never held",
 			run:  seamRulesAddressConfirmedFirst[Tx],
 		},
+		{
+			name: "another identity provider that says it verified the address confirms nothing: the person's first sign-in to an account with no confirmed address waits for the mailed code, nothing is mailed before they ask, the code confirms the address, and the next sign-in is the provider's alone",
+			run:  seamRulesProviderConfirmsNothing[Tx],
+		},
+		{
+			name: "another identity provider's word for an address reaches nobody's account: a person it says holds an address another account holds confirmed is a stranger, refused without a row or a link",
+			run:  seamRulesProviderReachesNoAccount[Tx],
+		},
+		{
+			name: "Google vouches for an address only where it is the address's authority: a Gmail address and a Workspace account's are confirmed by the sign-in with nothing mailed, and the first sign-in of a Google account with an outside address and no hd waits for the mailed code",
+			run:  seamRulesGoogleVouchesForItsOwn[Tx],
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -536,6 +577,97 @@ func seamRulesAddressConfirmedFirst[Tx any](ctx context.Context, t *testing.T, b
 	assertRedirect(t, a.googleSignIn(ctx, g, googleClaims("g-sub-sam", "sam@lakeside.edu")), "/home", url.Values{})
 	if email, verified := g.authenticatedEmail(ctx); email != "sam@lakeside.edu" || !verified {
 		t.Errorf("the Google person's address = %q (confirmed %v), want sam@lakeside.edu confirmed at sign-up", email, verified)
+	}
+}
+
+// seamRulesProviderConfirmsNothing is the scenario "another identity provider that says
+// it verified the address confirms nothing".
+func seamRulesProviderConfirmsNothing[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	shape := oneOrganization(inviteOnly)
+	shape.provider = true
+	a := newRulesApp(ctx, t, be, shape)
+	cadet := a.createUser(ctx, t, "cadet")
+
+	// The token says the address is verified (email_verified), and the account holds
+	// no confirmed address: the sign-in waits for the code, and nothing was mailed.
+	b := a.browser(t)
+	b.prime(ctx)
+	claims := gatewayClaims("p-cadet", "cadet", "cadet@lakeside.edu")
+	held := a.providerSignIn(ctx, b, claims)
+	if sent := a.mail.Messages(); len(sent) != 0 {
+		t.Fatalf("mail after the provider's sign-in = %d messages, want none: the provider's word for an address is not a confirmation", len(sent))
+	}
+	assertRedirect(t, a.confirmAddress(ctx, b, held, "cadet@lakeside.edu"), "/home", url.Values{})
+	if v := signedInAs(ctx, t, b, "cadet"); v.UserID != cadet.String() {
+		t.Errorf("session user = %s, want the pre-created cadet %s", v.UserID, cadet)
+	}
+	if email, verified := b.authenticatedEmail(ctx); email != "cadet@lakeside.edu" || !verified {
+		t.Errorf("the person's address = %q (confirmed %v), want cadet@lakeside.edu confirmed by the code", email, verified)
+	}
+
+	// The account holds a confirmed address now: the next sign-in is the provider's
+	// alone.
+	next := a.browser(t)
+	assertRedirect(t, a.providerSignIn(ctx, next, claims), "/home", url.Values{})
+	signedInAs(ctx, t, next, "cadet")
+}
+
+// seamRulesProviderReachesNoAccount is the scenario "another identity provider's word
+// for an address reaches nobody's account".
+func seamRulesProviderReachesNoAccount[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	shape := oneOrganization(inviteOnly)
+	shape.provider = true
+	a := newRulesApp(ctx, t, be, shape)
+	pat := a.createUser(ctx, t, "pat")
+	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")
+
+	// The provider's administrators can mark any address verified. The person it names
+	// by pat's address, under a name no account has, is nobody the application knows:
+	// the invite-only method refuses them, and pat's account gains no link.
+	b := a.browser(t)
+	assertRedirect(t, a.providerSignIn(ctx, b, gatewayClaims("p-mallory", "mallory", "pat@lakeside.edu")), "/login", url.Values{"code": {"not_invited"}})
+	a.assertNoRow(ctx, t, b, "mallory")
+	if links := a.links(ctx, t, pat.String()); len(links) != 0 {
+		t.Errorf("identity links of the person who holds the address = %d, want none: the provider's word for the address joins nobody to the account", len(links))
+	}
+}
+
+// seamRulesGoogleVouchesForItsOwn is the scenario "Google vouches for an address only
+// where it is the address's authority".
+func seamRulesGoogleVouchesForItsOwn[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, &rulesShape{
+		tenants: azure.Tenant(azureTenant), entraAccounts: inviteOnly,
+		workspaces: google.AnyGoogleAccount(), googleAccounts: openSignUp,
+	})
+
+	// Google is the authority for a Gmail address and for a Workspace account's (the
+	// token carries hd), and its word confirms those at the sign-in: the account is
+	// made with the address confirmed and nothing is mailed.
+	gmail := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, gmail, map[string]any{"sub": "g-sub-sam", "email": "sam@gmail.com", "email_verified": true}), "/home", url.Values{})
+	if email, verified := gmail.authenticatedEmail(ctx); email != "sam@gmail.com" || !verified {
+		t.Errorf("the Gmail person's address = %q (confirmed %v), want sam@gmail.com confirmed by Google's word", email, verified)
+	}
+	workspace := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, workspace, googleClaimsAt("hilltop.edu", "g-sub-ann", "ann@hilltop.edu")), "/home", url.Values{})
+	if email, verified := workspace.authenticatedEmail(ctx); email != "ann@hilltop.edu" || !verified {
+		t.Errorf("the Workspace person's address = %q (confirmed %v), want ann@hilltop.edu confirmed by Google's word", email, verified)
+	}
+	if sent := a.mail.Messages(); len(sent) != 0 {
+		t.Errorf("mail after the Gmail and the Workspace sign-in = %d messages, want none", len(sent))
+	}
+
+	// Any other Google account's address is one somebody else answers for (a Google
+	// account made with an outside address: the token carries no hd). Google's word
+	// for it confirms nothing, so the first sign-in waits for the code, as through any
+	// other provider, and the code confirms the address.
+	outside := a.browser(t)
+	outside.prime(ctx)
+	held := a.googleSignIn(ctx, outside, map[string]any{"sub": "g-sub-lee", "email": "lee@outside.example", "email_verified": true})
+	assertRedirect(t, a.confirmAddress(ctx, outside, held, "lee@outside.example"), "/home", url.Values{})
+	signedInAs(ctx, t, outside, "lee@outside.example")
+	if email, verified := outside.authenticatedEmail(ctx); email != "lee@outside.example" || !verified {
+		t.Errorf("the outside Google person's address = %q (confirmed %v), want lee@outside.example confirmed by the code", email, verified)
 	}
 }
 
@@ -850,8 +982,11 @@ func seamRulesOpenSignUp[Tx any](ctx context.Context, t *testing.T, be backend[T
 	assertRedirect(t, a.entraSignIn(ctx, personal, azureClaims(azure.ConsumerTenantID, "oid-p", "pat@outlook.example")), "/login", url.Values{"code": {"personal_account"}})
 	a.assertNoRow(ctx, t, personal, "pat@outlook.example")
 
+	// Google is not the authority for the address of an account outside any Workspace
+	// that is no Gmail address, so that person's first sign-in waits for the mailed code.
 	g := a.browser(t)
-	assertRedirect(t, a.googleSignIn(ctx, g, map[string]any{"sub": "g-sub-pat", "email": "pat@gmail.example", "email_verified": true}), "/home", url.Values{})
+	g.prime(ctx)
+	assertRedirect(t, a.confirmAddress(ctx, g, a.googleSignIn(ctx, g, map[string]any{"sub": "g-sub-pat", "email": "pat@gmail.example", "email_verified": true}), "pat@gmail.example"), "/home", url.Values{})
 	gv := signedInAs(ctx, t, g, "pat@gmail.example")
 	assertOneLink(t, a.links(ctx, t, gv.UserID), google.AnyAccountConnection, google.AnyAccountConnection)
 

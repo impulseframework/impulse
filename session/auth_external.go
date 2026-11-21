@@ -45,6 +45,23 @@ func (a *Auth[S, U, Tx]) externalLogin(m *signin.Method) http.HandlerFunc {
 	})
 }
 
+// onlyGoogleVouches takes from identity the word of every method but Google's that the
+// address is verified (Identity.EmailVerified). The people who run an identity provider
+// can mark any address verified, so a provider's word confirms nothing: the address is
+// written on no account by it and finds no account by it, and the person's first
+// sign-in to an account with no confirmed address waits for the mailed code. It holds
+// for every method whatever it fills in, the library's own and one an application
+// registers. Google's method keeps its word, which it gives only for an address Google
+// is the authority for: a Gmail address and a Workspace account's.
+func onlyGoogleVouches(m *signin.Method, identity *sessioninfo.Identity) {
+	if identity == nil {
+		return
+	}
+	if m.Name != sessioninfo.MethodGoogle || identity.Method != sessioninfo.MethodGoogle {
+		identity.EmailVerified = false
+	}
+}
+
 // externalCallback completes the provider round trip of the registration named name.
 // See the README's "The redirect and response contract" for where it redirects.
 func (a *Auth[S, U, Tx]) externalCallback(name string, issuers signin.Issuers, m *signin.Method) http.HandlerFunc {
@@ -58,6 +75,7 @@ func (a *Auth[S, U, Tx]) externalCallback(name string, issuers signin.Issuers, m
 
 			return errors.Wrap(err, string(m.Name)+": complete the sign-in")
 		}
+		onlyGoogleVouches(m, v.Identity)
 
 		// The provider's session id is recorded under the issuer of the token that
 		// arrived, since it is unique only there. A registration that declares its

@@ -218,10 +218,11 @@ DML what a later rule must read.
     found by the username first and then by the address: the user under the identity's
     **sign-in name** (the user principal name on Entra, the verified email on Google),
     matched without regard to case, or else the user who holds the identity's address
-    verified, when the method verified the address (Google does, Entra does not), since
-    a person is one user whichever way they sign in. The link is made after a password
-    confirmation when the user has a password, and outright when the user has none and
-    has never signed in: it is the user's first identity. A user with no password who
+    verified, when the method vouches for the address (Google alone does, and only for
+    a Gmail address or a Workspace account's; see "Users and their email address"),
+    since a person is one user whichever way they sign in. The link is made after a
+    password confirmation when the user has a password, and outright when the user has
+    none and has never signed in: it is the user's first identity. A user with no password who
     already signs in through an identity is linked no second one on the name, on the
     same connection or another (see "Never a second identity on a name alone" below).
     An address a user holds unverified is a reservation, not a match.
@@ -1628,10 +1629,12 @@ How an address gets onto a user:
   (Conflict); a directory person who holds no confirmed address may still confirm
   their first, and so may one whose directory vouched for a value no message can be
   sent to, as the simulated build's directories do under a login name.
-- **A directory that does not vouch for an address leaves it to a code**: a sign-in
-  through an external method whose identity does not assert a verified address
-  (Entra, WorkOS, an OpenID Connect provider that says nothing) is held for the email
-  code while the account holds no confirmed address, whatever the token attests and
+- **Only Google vouches for an address, and every other sign-in leaves it to a
+  code**: a sign-in through an external method that does not vouch for the address
+  (Entra, WorkOS, an OpenID Connect provider whatever its `email_verified` says, a
+  method of the application's own, and a Google account whose address is neither
+  Gmail's nor a Workspace account's) is held for the email code while the account
+  holds no confirmed address, whatever the token attests and
   whatever the sign-in policy says about a second factor (`PendingMFA`, the email code
   its one factor). The person gives the address where the account has none
   (`Pending().EnrollEmail()`), and the code confirms it; their next sign-in is not held
@@ -1641,10 +1644,15 @@ How an address gets onto a user:
   either.
 - **Google writes its own**: a Google sign-in writes the address Google verified
   onto the user, verified at the time of the sign-in, when the user holds no verified
-  address yet and no other user holds it (any method that asserts
-  `Identity.EmailVerified` does the same; Entra does not, so an Entra user's address
-  stays a prefill until the person verifies it). The other way round, a first Google
-  sign-in by a person whose address a user already holds verified is that user's: the
+  address yet and no other user holds it. Google's word counts only where Google is
+  the address's authority: a Gmail address (`gmail.com`, `googlemail.com`) and the
+  address of a Workspace account (the token carries `hd`). A Google account made with
+  an address from anywhere else is treated as another provider's. No other method's
+  word is kept, whatever it puts in `Identity.EmailVerified`: the people who run a
+  provider can mark any address verified, so an Entra user's address, or one an
+  OpenID Connect provider calls verified, stays a prefill until the person verifies
+  it. The other way round, a first Google sign-in by a person whose address a user
+  already holds verified is that user's, where Google vouches for the address: the
   standard account rule matches the user by the address once no user is under the
   sign-in name (see "Storage and schema" above).
 - **An invitation or a sign-up proves it**: the account an invited person creates, or
@@ -2610,7 +2618,11 @@ Workspaces apart by connection and, within one, domains apart by the identity's
 
 The identity's sign-in name is the verified `email` claim (`email_verified` is
 enforced), so the standard account rule provisions and matches users
-under it. Google has no `end_session_endpoint` and issues no `sid` claim, so there is no
+under it. The claim confirms the address itself (`Identity.EmailVerified`) only where
+Google is the address's authority: a Gmail address, or a Workspace account's (a token
+with `hd`). A Google account made with an address from anywhere else signs in under
+that name all the same, and its first sign-in to an account with no confirmed address
+waits for the mailed code, as another provider's does. Google has no `end_session_endpoint` and issues no `sid` claim, so there is no
 Google-initiated logout: `Logout` destroys the local session only. The `RoleSync` slot
 is `google.RoleSync(manager, groupPrefix, lookup)` or `google.DisableRoleSync()` (see
 "The group naming convention").

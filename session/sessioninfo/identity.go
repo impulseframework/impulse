@@ -176,7 +176,10 @@ type Identity struct {
 	// account that holds no name yet, and never over a name the account holds. It is an
 	// attribute, never a key.
 	Name string
-	// EmailVerified reports whether the method asserts the email is verified.
+	// EmailVerified reports whether the method vouches for the email: Google's method
+	// alone does, and only for an address Google is the authority for (a Gmail address,
+	// a Workspace account's). No other method's word is kept, whatever it fills in
+	// here: an address nothing vouches for is confirmed by the code mailed to it.
 	EmailVerified bool
 	// Claims is the method's verified payload (ID-token claims or WorkOS profile). It
 	// is passed to resolvers and custom data hooks.

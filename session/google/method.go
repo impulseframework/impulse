@@ -213,12 +213,15 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 
 // method is the Google method over authn. The identity is (connection, sub), the
 // connection being what workspaces selects for the account's hd claim, and its sign-in
-// name the verified email. The authenticator checks the slot and the verified email;
-// the slot is checked here again, so an authenticator that did not cannot admit an
-// account outside it. When groups is set, the callback maps the person's directory
-// groups to role names using the access token, which is used once and never stored.
-// An address is admitted when the slot admits its domain, and a link's connection when
-// the slot would write that connection on a link today (admitsConnection).
+// name the verified email. Google's word for the address is the identity's
+// (Identity.EmailVerified) only where Google is the address's authority (vouchesFor): a
+// Workspace account's address and a Gmail address. The authenticator checks the slot
+// and the verified email; the slot is checked here again, so an authenticator that did
+// not cannot admit an account outside it. When groups is set, the callback maps the
+// person's directory groups to role names using the access token, which is used once
+// and never stored. An address is admitted when the slot admits its domain, and a
+// link's connection when the slot would write that connection on a link today
+// (admitsConnection).
 func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *signin.Method {
 	m := &signin.Method{
 		Name:     sessioninfo.MethodGoogle,
@@ -262,7 +265,8 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
-					Method: sessioninfo.MethodGoogle, Connection: connection, Subject: id.Subject, Email: id.Email, EmailVerified: emailVerified, Name: id.Name, Claims: rawClaims, IDPAMR: id.AMR,
+					Method: sessioninfo.MethodGoogle, Connection: connection, Subject: id.Subject, Email: id.Email,
+					EmailVerified: vouchesFor(emailVerified, id.Email, id.HostedDomain), Name: id.Name, Claims: rawClaims, IDPAMR: id.AMR,
 					Organization: connection, Attestation: sessioninfo.AttestationOf(id.AMR, attests),
 				},
 				ReturnURL: returnURL,
