@@ -70,7 +70,8 @@ type tsLeaf struct {
 }
 
 // DisplayType is the leaf's display type in generated metadata: an imported type and
-// unknown are one opaque object; every other leaf displays as its own type.
+// unknown are one opaque object, a decimal is a number, and every other leaf displays
+// as its own type.
 func (l tsLeaf) DisplayType() string {
 	return leafDisplayType(l.TS, l.Import)
 }
@@ -79,6 +80,9 @@ func (l tsLeaf) DisplayType() string {
 func leafDisplayType(ts string, imported *tsImport) string {
 	if ts == unknownTSType || (imported != nil && !imported.IsBuiltin()) {
 		return objectDisplayType
+	}
+	if ts == decimalTSType {
+		return numberTSType
 	}
 
 	return ts

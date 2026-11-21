@@ -22,12 +22,14 @@ import (
 // draws each workflow: a box per resource declaring an attribute or subject
 // binding, listing its bare bindings; the tables paths land on or foreign
 // keys point at; the requester where every subject binding starts; one edge
-// per hop however many paths share it; and a thin grey edge from a bare
+// per hop however many paths share it; and a thin gray edge from a bare
 // binding on a foreign key to its table, so the two names a condition pairs
 // (assignedSquadron IN subject.squadrons) visibly meet. A subject set that
 // writes a who: or a where: part lists each under the set, in the columns'
 // names, and a set that builds on another is an edge from the resource
-// declaring that other set. Facts only: no grant or condition is drawn.
+// declaring that other set. A set that writes a domain: part, the path to its
+// rows' tenant, has that path drawn as a resource's @domain path is, under the
+// set's name. Facts only: no grant or condition is drawn.
 
 // bindingsGraphKind is a binding kind, which sets its edge style.
 type bindingsGraphKind int
@@ -35,13 +37,14 @@ type bindingsGraphKind int
 const (
 	// bindingsGraphAttribute is an @attribute(via:) path, drawn solid.
 	bindingsGraphAttribute bindingsGraphKind = iota
-	// bindingsGraphDomain is an @domain(via:) path, drawn dotted.
+	// bindingsGraphDomain is an @domain(via:) path, and the path a subject
+	// set's domain: part names, drawn dotted.
 	bindingsGraphDomain
 	// bindingsGraphSubject is the requester entering an anchor, and a dotted
 	// @subjectSet / @subjectValue value continuing from it, drawn dashed.
 	bindingsGraphSubject
 	// bindingsGraphReference is a bare binding on a foreign key pointing at
-	// the table it references, drawn thin and grey.
+	// the table it references, drawn thin and gray.
 	bindingsGraphReference
 )
 
@@ -74,9 +77,10 @@ type bindingsGraphEdge struct {
 
 // bindingsGraphNode is a resource declaring a binding: its name and the bare
 // bindings it lists, one `name: column` line each, subject ones prefixed
-// `subject.`. A subject set that writes a who: or a where: part is one entry
-// of several lines, the parts under the set. A resource whose bindings are all
-// paths, none of them a set with parts, lists nothing.
+// `subject.`. A subject set that writes a who: or a where: part, or a domain:
+// naming a column of its own rows, is one entry of several lines, the parts
+// under the set. A resource whose bindings are all paths, none of them a set
+// with parts, lists nothing.
 type bindingsGraphNode struct {
 	Name     string
 	Bindings []string
@@ -85,14 +89,17 @@ type bindingsGraphNode struct {
 // bindingsGraph is one package's assembled graph: the resources declaring a
 // binding, the tables a path lands on or a foreign key points at, whether the
 // requester is drawn, whether a subject set writes a who: or a where: part,
-// and the deduplicated edges, every list sorted so the rendered file is
-// byte-stable across runs.
+// whether one writes a domain: part that is a path, whether one's domain:
+// names a column of its own rows, and the deduplicated edges, every list sorted
+// so the rendered file is byte-stable across runs.
 type bindingsGraph struct {
-	Declaring []bindingsGraphNode
-	Landed    []string
-	Subject   bool
-	Parts     bool
-	Edges     []bindingsGraphEdge
+	Declaring        []bindingsGraphNode
+	Landed           []string
+	Subject          bool
+	Parts            bool
+	SetDomains       bool
+	SetDomainColumns bool
+	Edges            []bindingsGraphEdge
 }
 
 // bindingsGraphBuilder accumulates one package's graph facts, resource by
@@ -109,9 +116,13 @@ type bindingsGraphBuilder struct {
 	subject   bool
 	// setOwners names the resource declaring each subject set, where a set
 	// that builds on it starts its edge; parts says some set writes a who: or
-	// a where: part.
-	setOwners map[string]string
-	parts     bool
+	// a where: part, setDomains that some set writes a domain: part that is a
+	// path, and setDomainColumns that some set's domain: names a column of its
+	// own rows.
+	setOwners        map[string]string
+	parts            bool
+	setDomains       bool
+	setDomainColumns bool
 }
 
 // newBindingsGraphBuilder prepares the table-to-struct resolution over the
@@ -208,7 +219,11 @@ func (b *bindingsGraphBuilder) addResource(res *resourceInfo) {
 // has one such column, the one its annotation sits on. A written who: enters
 // at each column it compares to the requester, and each column it tests
 // against another set is an edge from the resource declaring that set, labeled
-// with the test; the set's parts are listed under it in its box.
+// with the test; the set's parts are listed under it in its box. A set's
+// domain: part that is a path is drawn and not listed: hop by hop in the style
+// of an @domain path, each hop labeled `name domain`. One that names a column
+// of the set's own rows goes nowhere, so it is listed under the set as the
+// other parts are.
 func (b *bindingsGraphBuilder) addSubjects(res *resourceInfo) {
 	namesByAnchor := make(map[string][]string)
 	for _, subject := range slices.Concat(res.SubjectSets, res.SubjectValues) {
@@ -234,6 +249,15 @@ func (b *bindingsGraphBuilder) addSubjects(res *resourceInfo) {
 		parts := subjectPartLines(qualified, subject)
 		if len(parts) > 0 {
 			b.parts = true
+		}
+		switch {
+		case subject.Domain == nil:
+		case len(subject.Domain.Path) > 0:
+			b.setDomains = true
+			b.walk(res.Name(), fieldColumn(subject.Domain.Anchor), subject.Domain.Path, bindingsGraphDomain, subject.Name+" "+subjectDomainArgKey)
+		default:
+			b.setDomainColumns = true
+			parts = append(parts, qualified+" "+subjectDomainArgKey+": "+fieldColumn(subject.Domain.Anchor))
 		}
 		if len(subject.Path) > 0 {
 			b.walk(res.Name(), fieldColumn(subject.ValueField), subject.Path, bindingsGraphSubject, subject.Name)
@@ -287,7 +311,7 @@ func subjectPartLines(qualified string, subject *subjectBinding) []string {
 // name with their lines sorted, landed tables minus the declaring ones, and
 // edges by kind, source, target, label.
 func (b *bindingsGraphBuilder) graph() *bindingsGraph {
-	graph := &bindingsGraph{Subject: b.subject, Parts: b.parts}
+	graph := &bindingsGraph{Subject: b.subject, Parts: b.parts, SetDomains: b.setDomains, SetDomainColumns: b.setDomainColumns}
 	for name, lines := range b.declaring {
 		slices.Sort(lines)
 		graph.Declaring = append(graph.Declaring, bindingsGraphNode{Name: name, Bindings: lines})
@@ -344,30 +368,49 @@ func bindingsGraphLabel(node bindingsGraphNode) string {
 	return b.String()
 }
 
+// writeBindingsDOTHeader writes the comment that opens the file: how to read the
+// graph, with a paragraph for each part of a subject set that the package writes.
+func writeBindingsDOTHeader(b *strings.Builder, graph *bindingsGraph) {
+	fmt.Fprintf(b, "// Code generated by resourcegeneration. DO NOT EDIT.\n")
+	fmt.Fprintf(b, "// Bindings: every attribute and subject binding this package declares. A box per\n")
+	fmt.Fprintf(b, "// declaring resource lists its bare bindings as `name: column`; dashed boxes are\n")
+	fmt.Fprintf(b, "// the tables a path lands on or a foreign key points at; the subject ellipse is\n")
+	fmt.Fprintf(b, "// the requester, entering each anchor once with every name it yields there. One\n")
+	fmt.Fprintf(b, "// edge per hop, drawn once however many paths share it: solid for @attribute,\n")
+	fmt.Fprintf(b, "// dotted for @domain, dashed for a subject binding, labeled `name: column` on a\n")
+	fmt.Fprintf(b, "// continuing hop and `name: column ⇒ column` where the path terminates; a thin\n")
+	fmt.Fprintf(b, "// gray edge points a bare binding on a foreign key at its table. Facts only: no\n")
+	fmt.Fprintf(b, "// grant or condition is drawn.\n")
+	if graph.Parts {
+		// Said only where a set writes a part, so a package whose sets write none
+		// keeps the file it has always had.
+		fmt.Fprintf(b, "// A subject set that writes a who: or a where: part lists each under the set, in\n")
+		fmt.Fprintf(b, "// the columns' names: who: says which rows are the requester's, where: which of\n")
+		fmt.Fprintf(b, "// those rows count. A set that builds on another is a dashed edge from the\n")
+		fmt.Fprintf(b, "// resource declaring that other set, labeled `name: column IN subject.other`.\n")
+	}
+	if graph.SetDomains {
+		// Said only where a set writes one, for the same reason.
+		fmt.Fprintf(b, "// A subject set that writes a domain: part says where its rows' tenant is found,\n")
+		fmt.Fprintf(b, "// and in a request with a tenant the set holds that tenant's rows alone. The path\n")
+		fmt.Fprintf(b, "// is drawn dotted, as @domain's is, under the set's name: `name domain: column` on\n")
+		fmt.Fprintf(b, "// a continuing hop and `name domain: column ⇒ column` where it reads the tenant.\n")
+	}
+	if graph.SetDomainColumns {
+		// Said only where a set writes one, for the same reason.
+		fmt.Fprintf(b, "// A subject set whose domain: part names a column of its own rows lists it under\n")
+		fmt.Fprintf(b, "// the set, `subject.name domain: column`: in a request with a tenant the set\n")
+		fmt.Fprintf(b, "// holds the rows whose column is that tenant's key.\n")
+	}
+}
+
 // renderBindingsDOT draws the graph: a box per declaring resource listing its
 // bare bindings, dashed boxes for the tables landed on or pointed at, the
 // requester as an ellipse, one labeled edge per hop or reference in the
 // kind's style, and a legend. Layout stays Graphviz's.
 func renderBindingsDOT(graph *bindingsGraph) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "// Code generated by resourcegeneration. DO NOT EDIT.\n")
-	fmt.Fprintf(&b, "// Bindings: every attribute and subject binding this package declares. A box per\n")
-	fmt.Fprintf(&b, "// declaring resource lists its bare bindings as `name: column`; dashed boxes are\n")
-	fmt.Fprintf(&b, "// the tables a path lands on or a foreign key points at; the subject ellipse is\n")
-	fmt.Fprintf(&b, "// the requester, entering each anchor once with every name it yields there. One\n")
-	fmt.Fprintf(&b, "// edge per hop, drawn once however many paths share it: solid for @attribute,\n")
-	fmt.Fprintf(&b, "// dotted for @domain, dashed for a subject binding, labeled `name: column` on a\n")
-	fmt.Fprintf(&b, "// continuing hop and `name: column ⇒ column` where the path terminates; a thin\n")
-	fmt.Fprintf(&b, "// grey edge points a bare binding on a foreign key at its table. Facts only: no\n")
-	fmt.Fprintf(&b, "// grant or condition is drawn.\n")
-	if graph.Parts {
-		// Said only where a set writes a part, so a package whose sets write none
-		// keeps the file it has always had.
-		fmt.Fprintf(&b, "// A subject set that writes a who: or a where: part lists each under the set, in\n")
-		fmt.Fprintf(&b, "// the columns' names: who: says which rows are the requester's, where: which of\n")
-		fmt.Fprintf(&b, "// those rows count. A set that builds on another is a dashed edge from the\n")
-		fmt.Fprintf(&b, "// resource declaring that other set, labeled `name: column IN subject.other`.\n")
-	}
+	writeBindingsDOTHeader(&b, graph)
 	fmt.Fprintf(&b, "digraph Bindings {\n")
 	fmt.Fprintf(&b, "\trankdir=LR;\n")
 	fmt.Fprintf(&b, "\tnode [shape=box];\n")

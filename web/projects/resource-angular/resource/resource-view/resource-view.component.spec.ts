@@ -3,6 +3,7 @@ import { AbstractControl } from '@angular/forms';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { ApiDescriptor, createClient, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
+import { FormStateService } from '@impulseframework/resource-angular/resource-services';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   AlertType,
@@ -14,7 +15,13 @@ import {
   ResourceMeta,
   viewConfig,
 } from '@impulseframework/resource-angular/types';
+import { of } from 'rxjs';
 
+import {
+  DeleteConfirmation,
+  deleteQuestion,
+  DeleteResourceConfirmationModalComponent,
+} from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { resourceValidators } from '../gui-constants';
 import { ResourceStore } from '../resource-store.service';
 import { ResourceViewComponent } from './resource-view.component';
@@ -416,5 +423,317 @@ describe('ResourceViewComponent over a row with untouched fields this build cann
     expect(component.form().valid).toBe(false);
     expect(component.displayFormInvalidMessage()).toBe(true);
     expect(invalidMessage()).toBeNull();
+  });
+});
+
+// The leave-page question counts the unsaved forms, and a row's method buttons wait while
+// there is one. A row's edit form is one of them exactly while it holds a change that is
+// not saved: the count goes up once however the change was made, comes down once when the
+// change is saved or dropped, never goes below what it was, and goes up again for the
+// next change.
+describe('ResourceViewComponent as one of the unsaved forms the leave-page question counts', () => {
+  const beacons = 'Beacons' as Resource;
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [beacons]: {
+        resource: beacons,
+        property: 'beacons',
+        route: 'beacons',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read', 'patch'],
+        patchable: ['name', 'keeper'],
+      },
+    },
+  };
+  const fieldMeta = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
+    ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
+  const meta: ResourceMeta = {
+    route: 'beacons',
+    fields: [fieldMeta('id', { primaryKey: { ordinalPosition: 0 }, displayType: 'uuid' }), fieldMeta('name'), fieldMeta('keeper')],
+  };
+
+  let fixture: ComponentFixture<ResourceViewComponent>;
+  let component: ResourceViewComponent;
+  let transport: ScriptedTransport;
+  let unsaved: FormStateService;
+  /** The row as the server holds it: a save writes into it, and every read answers a copy. */
+  let row: RecordData;
+
+  const server = (request: TransportRequest): TransportResponse => {
+    const path = request.url.split('?')[0];
+    if (request.method === 'GET' && path === '/api/beacons/b-1') {
+      return { status: 200, body: { ...row } };
+    }
+    if (request.method === 'PATCH') {
+      row = { ...row, ...(request.body as { value: RecordData }[])[0].value };
+      return { status: 200, body: {} };
+    }
+    return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+  };
+
+  /** Runs change detection and lets pending microtasks land until `done` answers true, or a few rounds pass. */
+  const settle = async (done: () => boolean): Promise<void> => {
+    for (let i = 0; i < 30 && !done(); i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+  };
+
+  /** How many times the row was asked for and how many saves were sent. */
+  const sent = (method: string): number => transport.requests.filter((request) => request.method === method).length;
+
+  /** A typed input marks its control and then writes the value. */
+  const type = (name: string, value: string): void => {
+    const control = component.form().get(name) as AbstractControl<unknown>;
+    control.markAsDirty();
+    control.setValue(value);
+  };
+
+  /** A picker writes the value and marks its control afterwards. */
+  const pick = (name: string, value: string): void => {
+    const control = component.form().get(name) as AbstractControl<unknown>;
+    control.setValue(value);
+    control.markAsDirty();
+  };
+
+  /** Saves the form and waits until the row was read again and the form built from it. */
+  const save = async (): Promise<void> => {
+    const form = component.form();
+    const reads = sent('GET');
+    component.saveForm();
+    await settle(() => sent('GET') > reads && component.form() !== form);
+  };
+
+  beforeEach(async () => {
+    row = { id: 'b-1', name: 'Outer reef', keeper: 'p-1' };
+    transport = scriptedTransport(server);
+    await TestBed.configureTestingModule({
+      imports: [ResourceViewComponent],
+      providers: [
+        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideNoopAnimations(),
+        ResourceStore,
+        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta | undefined => (resource === beacons ? meta : undefined) },
+      ],
+    }).compileComponents();
+
+    unsaved = TestBed.inject(FormStateService);
+    fixture = TestBed.createComponent(ResourceViewComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput('uuid', 'b-1');
+    fixture.componentRef.setInput(
+      'config',
+      viewConfig({
+        primaryResource: beacons,
+        showBackButton: false,
+        elements: [field({ name: 'name' as FieldName, label: 'Name' }), field({ name: 'keeper' as FieldName, label: 'Keeper' })],
+      }),
+    );
+    fixture.detectChanges();
+    await settle(() => component.store.rowPresent());
+    component.setEditMode('edit');
+    fixture.detectChanges();
+  });
+
+  it('counts as none while nothing is changed, and as one once a field is, typed or picked', () => {
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    pick('keeper', 'p-2');
+    expect(unsaved.dirtyForms()).toBe(1);
+    expect(unsaved.isDirty()).toBe(true);
+
+    // More changes to the same form are the same one unsaved form.
+    type('name', 'Inner reef');
+    pick('keeper', 'p-3');
+    expect(unsaved.dirtyForms()).toBe(1);
+  });
+
+  it('counts as none once a picked change is saved, and never takes the count below what it was', async () => {
+    pick('keeper', 'p-2');
+    await save();
+    expect(sent('PATCH')).toBe(1);
+    expect(row['keeper']).toBe('p-2');
+    expect(unsaved.dirtyForms()).toBe(0);
+    expect(unsaved.isDirty()).toBe(false);
+  });
+
+  it('counts the change made after a save, on the form built from the row read again', async () => {
+    type('name', 'Inner reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+    await save();
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    component.setEditMode('edit');
+    fixture.detectChanges();
+    type('name', 'Far reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+    await save();
+    expect(sent('PATCH')).toBe(2);
+    expect(row['name']).toBe('Far reef');
+    expect(unsaved.dirtyForms()).toBe(0);
+  });
+
+  it('counts as none once the change is dropped by a reset, and counts the next change again', () => {
+    type('name', 'Inner reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+    component.resetForm();
+    expect(component.form().get('name')?.value).toBe('Outer reef');
+    expect(component.editMode()).toBe('view');
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    // A reset of a form with nothing changed takes nothing off the count.
+    component.resetForm();
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    type('name', 'Far reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+  });
+
+  it('counts as none once the row is read again under a change: the form is built again from the row', async () => {
+    type('name', 'Inner reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+
+    // Another person changed the row, and the page reads it again.
+    const form = component.form();
+    row = { ...row, name: 'Outer reef, north' };
+    component.store.reloadViewData();
+    await settle(() => component.form() !== form);
+    expect(component.form().get('name')?.value).toBe('Outer reef, north');
+    expect(component.form().dirty).toBe(false);
+    expect(unsaved.dirtyForms()).toBe(0);
+
+    type('name', 'Inner reef');
+    expect(unsaved.dirtyForms()).toBe(1);
+  });
+});
+
+describe('ResourceViewComponent asks before its row is deleted', () => {
+  const beacons = 'Beacons' as Resource;
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [beacons]: {
+        resource: beacons,
+        property: 'beacons',
+        route: 'beacons',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read', 'remove'],
+      },
+    },
+  };
+  const meta: ResourceMeta = {
+    route: 'beacons',
+    fields: [
+      {
+        fieldName: 'id',
+        displayType: 'uuid',
+        required: false,
+        isIndex: false,
+        primaryKey: { ordinalPosition: 0 },
+      } as FieldMeta,
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false } as FieldMeta,
+    ],
+  };
+  const server = (request: TransportRequest): TransportResponse => {
+    if (request.method === 'GET' && request.url.split('?')[0] === '/api/beacons/b-1') {
+      return { status: 200, body: { id: 'b-1', name: 'Outer reef' } };
+    }
+    return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+  };
+
+  let fixture: ComponentFixture<ResourceViewComponent>;
+
+  /** Draws the row's page under the config's own words and waits until the row is read. */
+  const drawn = async (words: { rowTitle?: (row: RecordData) => string }): Promise<ResourceViewComponent> => {
+    await TestBed.configureTestingModule({
+      imports: [ResourceViewComponent],
+      providers: [
+        provideResourceTesting({
+          transport: scriptedTransport(server),
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        provideNoopAnimations(),
+        ResourceStore,
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta | undefined => (resource === beacons ? meta : undefined),
+        },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(ResourceViewComponent);
+    fixture.componentRef.setInput('uuid', 'b-1');
+    fixture.componentRef.setInput(
+      'config',
+      viewConfig({
+        primaryResource: beacons,
+        title: 'Beacons',
+        showBackButton: false,
+        elements: [field({ name: 'name' as FieldName, label: 'Name' })],
+        ...words,
+      }),
+    );
+    fixture.detectChanges();
+    for (let i = 0; i < 30 && !fixture.componentInstance.store.rowPresent(); i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+
+    return fixture.componentInstance;
+  };
+
+  /** Opens the confirmation with the dialog answering as told, and says what was asked and how often the row was deleted. */
+  const ask = (
+    component: ResourceViewComponent,
+    answer: boolean | undefined,
+  ): { question: string; deleted: number } => {
+    const opened: { component: unknown; data: unknown }[] = [];
+    component.dialog.open = ((opening: unknown, config: { data: unknown }) => {
+      opened.push({ component: opening, data: config.data });
+
+      return { afterClosed: () => of(answer) };
+    }) as unknown as typeof component.dialog.open;
+    let deleted = 0;
+    component.deleteResource = (): void => {
+      deleted++;
+    };
+
+    component.confirmDeleteResource();
+
+    expect(opened.map((o) => o.component)).toEqual([DeleteResourceConfirmationModalComponent]);
+
+    return { question: deleteQuestion(opened[0].data as DeleteConfirmation | undefined), deleted };
+  };
+
+  it('by the list the row is in, and deletes it once the person says so', async () => {
+    const asked = ask(await drawn({}), true);
+
+    expect(asked.question).toBe('Delete this record from Beacons?');
+    expect(asked.deleted).toBe(1);
+  });
+
+  it("by the row's own name where the page reads one off the row", async () => {
+    const asked = ask(await drawn({ rowTitle: (row) => String(row['name']) }), true);
+
+    expect(asked.question).toBe('Delete Outer reef from Beacons?');
+  });
+
+  it('and deletes nothing when the person cancels or closes the dialog', async () => {
+    const component = await drawn({});
+
+    expect(ask(component, false).deleted).toBe(0);
+    expect(ask(component, undefined).deleted).toBe(0);
   });
 });

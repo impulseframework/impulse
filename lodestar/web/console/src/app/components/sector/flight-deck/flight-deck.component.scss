@@ -72,10 +72,12 @@
   }
 }
 
+// The open mission's edges, one to a line: its button, and beside it what the server said
+// of it. The sentence wraps under the button where the line is too narrow for both.
 .edges {
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  flex-wrap: wrap;
   margin: 8px 0;
 }
 
@@ -101,22 +103,25 @@ h3 {
   font-size: 0.85rem;
 }
 
-.probe {
-  color: var(--lodestar-green);
-  font-size: 0.85rem;
+.edge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
 }
 
-.edge {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.15rem;
-  margin: 0 0.5rem 0.5rem 0;
-}
+// The server's verdict on an edge: accepted, refused, or not checked ahead.
 .probe {
-  font-size: 0.78rem;
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-size: 0.85rem;
   color: var(--lodestar-green);
-}
-.probe.refused {
-  color: var(--lodestar-amber);
+
+  &.refused {
+    color: var(--lodestar-amber);
+  }
+
+  &.untried {
+    color: var(--mat-sys-on-surface-variant);
+  }
 }

@@ -36,6 +36,7 @@ export const distressCallsConfig = rootConfig({
     title: 'Call log',
     createTitle: 'Distress call',
     emptyMessage: 'No distress call has been filed in this sector.',
+    createButtonLabel: 'File a distress call',
     primaryResource: Resources.DistressCalls,
     listColumns: [
       { id: DistressCalls.fieldName.caseNumber, header: 'Case' },

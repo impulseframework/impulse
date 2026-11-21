@@ -71,7 +71,10 @@ import {
 } from '../concat-fns';
 import { applyFormatting, formatByDisplayType, formatDateString } from '../format-fns';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
-import { DeleteResourceConfirmationModalComponent } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
+import {
+  DeleteConfirmation,
+  DeleteResourceConfirmationModalComponent,
+} from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
 import { filledMethods, offeredAs, OfferedMethod, parentOffers, rowMethods } from '../row-methods/row-methods';
 import { ResourceStore } from '../resource-store.service';
@@ -128,7 +131,11 @@ export class ResourceListComponent implements OnInit {
   dialog = inject(MatDialog);
 
   hideCreateButton = input<boolean>(true);
-  createMode = output<boolean>();
+  /**
+   * The list's create button was pressed. The list draws no form of its own: the page
+   * that holds it opens the create in a dialog.
+   */
+  createRequested = output<void>();
   /**
    * A method ran from this list, against one of its rows or from above it. The list has
    * already asked for its rows again; a page that holds the list under a row reads the
@@ -138,7 +145,6 @@ export class ResourceListComponent implements OnInit {
   resourceConfig = input<ChildResourceConfig>();
   viewRoute = input<string>();
   filter = input<string>('');
-  linkCreateType = input<boolean>(false);
   isRootList = input<boolean>(true);
 
   showCreateButton = computed(() => {
@@ -826,9 +832,15 @@ export class ResourceListComponent implements OnInit {
     return columns;
   });
 
-  /** Asks before a row leaves the list, then deletes it through the write resource. */
+  /**
+   * Asks before a row leaves the list, then deletes it through the write resource. The
+   * question names the row by its own name where the config reads one off the row
+   * (`rowTitle`), and the list by its title.
+   */
   confirmDeleteRow(row: RecordData): void {
-    const dialogRef = this.dialog.open(DeleteResourceConfirmationModalComponent, { delayFocusTrap: false });
+    const config = this.config();
+    const data: DeleteConfirmation = { name: config.rowTitle?.(row), from: config.title, inList: true };
+    const dialogRef = this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
     dialogRef.afterClosed().subscribe((confirmed) => {
       if (confirmed === true) {
         this.deleteRow(row);
@@ -1077,7 +1089,7 @@ export class ResourceListComponent implements OnInit {
 
   createResource(event: MouseEvent): void {
     event.stopPropagation();
-    this.createMode.emit(true);
+    this.createRequested.emit();
   }
 
   parentKey = computed(() => {

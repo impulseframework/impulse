@@ -1,12 +1,27 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, effect, inject, Injector, input, signal, Type, untracked, viewChild } from '@angular/core';
+import {
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  Injector,
+  input,
+  Type,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { MatExpansionModule, MatExpansionPanel } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ListViewConfig, RecordData, RootConfig } from '@impulseframework/resource-angular/types';
-import { ResourceCreateComponent } from '../resource-create/resource-create.component';
+import {
+  openCreateDialog,
+  ResourceCreateDialogComponent,
+} from '../resource-create-dialog/resource-create-dialog.component';
 import { ResourceListComponent } from '../resource-list/resource-list.component';
 import { ResourceStore } from '../resource-store.service';
 
@@ -20,7 +35,6 @@ import { ResourceStore } from '../resource-store.service';
     MatIconModule,
     MatTooltipModule,
     MatButtonModule,
-    ResourceCreateComponent,
     ResourceListComponent,
     NgTemplateOutlet,
   ],
@@ -43,7 +57,9 @@ export class ResourceListCreateComponent {
 
   route = inject(ActivatedRoute);
   router = inject(Router);
-  create = signal<boolean>(false);
+  private dialog = inject(MatDialog);
+  /** The open dialog of this list's create; none while the create is not being filled. */
+  private createDialog?: MatDialogRef<ResourceCreateDialogComponent, boolean>;
   parentId = input<string>();
   /**
    * The parent row a child list is related to by `parentRelation`. No default: a child
@@ -111,10 +127,6 @@ export class ResourceListCreateComponent {
     return this.route.snapshot.data['config'] as RootConfig;
   });
 
-  createLinkType = computed(() => {
-    return this.config().loadCreatedResource && this.create();
-  });
-
   createConfig = computed(() => {
     const config = this.config();
     if (Object.keys(config.createConfig).length !== 0) {
@@ -123,20 +135,46 @@ export class ResourceListCreateComponent {
     return config;
   });
 
+  /**
+   * A collapsed list's add button was pressed: the create opens as the button above an
+   * open list opens it, and the panel stays as it is.
+   */
   createResource(event: MouseEvent): void {
     event.stopPropagation();
-    this.create.set(true);
-
-    if (this.expPanel() && this.expPanel()?.closed) {
-      this.expPanel()?.open();
-    }
+    this.openCreate();
   }
 
-  makeCreatePatches(): void {
-    if (this.create()) {
-      this.listChild()?.reloadListData();
-      this.create.set(false);
+  /**
+   * Opens the list's create in a dialog, titled with the create button's label. The
+   * list draws no form on its page: adding a row is a button that opens a dialog, on
+   * every list. Once a row is created the list reads its rows again, and a collapsed
+   * panel opens so the new row is on the screen. A press while the dialog is open opens
+   * no second one.
+   */
+  openCreate(): void {
+    if (this.createDialog) {
+      return;
     }
+    const config = this.config();
+    const opened = openCreateDialog(
+      this.dialog,
+      {
+        label: config.createButtonLabel || 'Create',
+        config: this.createConfig(),
+        parentData: this.parentData() ?? {},
+        loadCreatedResource: config.loadCreatedResource,
+      },
+      this.injector,
+    );
+    this.createDialog = opened;
+    opened.afterClosed().subscribe((created) => {
+      this.createDialog = undefined;
+      if (!created) {
+        return;
+      }
+      this.listChild()?.reloadListData();
+      this.expPanel()?.open();
+    });
   }
 
   /**
@@ -161,6 +199,8 @@ export class ResourceListCreateComponent {
   }
 
   constructor() {
+    // The dialog is made under this list's injector: it closes with the list.
+    inject(DestroyRef).onDestroy(() => this.createDialog?.close(false));
     // A method that ran against the page's row, or from another of its lists, reads this
     // list again. The first run only notes the count the list opened on.
     let seen = this.pageStore?.rowChanges() ?? 0;

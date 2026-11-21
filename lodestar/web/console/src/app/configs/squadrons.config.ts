@@ -48,6 +48,7 @@ export const squadronsConfig = rootConfig({
   parentConfig: listViewConfig({
     title: 'Squadrons',
     createTitle: 'Squadron',
+    createButtonLabel: 'Add a squadron',
     primaryResource: Resources.Squadrons,
     listColumns: [
       { id: Squadrons.fieldName.name },
@@ -85,6 +86,7 @@ export const squadronsConfig = rootConfig({
     listViewConfig({
       title: 'Roster',
       createTitle: 'Pilot',
+      createButtonLabel: 'Add a pilot',
       primaryResource: Resources.SquadronRosters,
       parentRelation: { parentKey: Squadrons.fieldName.id, childKey: SquadronRosters.fieldName.squadronId },
       rowRoute: SquadronRosters.fieldName.pilotId,

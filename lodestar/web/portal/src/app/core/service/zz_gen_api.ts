@@ -114,12 +114,12 @@ export interface MissionsCreate {
   brief?: string | null;
   briefingTemplateId?: string | null;
   hazard: number;
-  fee: number;
+  fee: string;
   deadline: Date;
   requiredCertId?: string | null;
   assignedSquadronId?: string | null;
   notes?: string | null;
-  settlement?: number | null;
+  settlement?: string | null;
 }
 /** The fields a client may change on Missions. Keys, server-owned, and immutable fields are absent. */
 export interface MissionsPatch {
@@ -129,12 +129,12 @@ export interface MissionsPatch {
   brief?: string | null;
   briefingTemplateId?: string | null;
   hazard?: number;
-  fee?: number;
+  fee?: string;
   deadline?: Date;
   requiredCertId?: string | null;
   assignedSquadronId?: string | null;
   notes?: string | null;
-  settlement?: number | null;
+  settlement?: string | null;
 }
 /** The primary key of Missions, in route order. */
 export type MissionsKey = [id: string];

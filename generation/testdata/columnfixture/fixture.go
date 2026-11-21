@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/generation/testdata/columnfixture/shapes"
 	"github.com/impulseframework/impulse/generation/testdata/columnfixture/shared"
+	"github.com/shopspring/decimal"
 )
 
 // Kind is an enumeration-style named string.
@@ -279,4 +280,36 @@ type Request struct {
 	Payload Payload
 	Sheet   Sheet
 	Stamp   Stamp
+}
+
+// Priced carries one column per decimal type of the built-in table, a pointer to one
+// and a list of one, beside an integer: each decimal is NUMERIC in the schema and a
+// quoted string in JSON, so the interface says string where the integer's says number.
+type Priced struct {
+	ID      impulse.UUID        `spanner:"Id"`
+	Fee     decimal.Decimal     `spanner:"Fee"`
+	Rebate  decimal.NullDecimal `spanner:"Rebate"`
+	Reserve *decimal.Decimal    `spanner:"Reserve"`
+	Levy    spanner.NullNumeric `spanner:"Levy"`
+	Fees    []decimal.Decimal   `spanner:"Fees"`
+	Count   int64               `spanner:"Count"`
+}
+
+// Settlement is a method-result-shaped struct carrying the same decimal types, and a
+// nested struct that carries one, so the walker types a decimal on the wire path as the
+// column path does.
+type Settlement struct {
+	Fee     decimal.Decimal
+	Rebate  decimal.NullDecimal
+	Reserve *decimal.Decimal
+	Levy    spanner.NullNumeric
+	Fees    []decimal.Decimal
+	Lines   []SettlementLine
+	Count   int64
+}
+
+// SettlementLine is the nested struct of Settlement.
+type SettlementLine struct {
+	Label  string          `json:"label"`
+	Amount decimal.Decimal `json:"amount"`
 }

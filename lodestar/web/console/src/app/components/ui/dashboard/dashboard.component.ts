@@ -64,7 +64,7 @@ export class DashboardComponent {
   seesLedger = computed(() => this.sectors.can(Permissions.List, Resources.ServiceLedgers));
 
   // The card's rows: every resource the descriptor knows, sector-scoped ones asked in
-  // the open sector. Absent everywhere means the row still renders, greyed — the
+  // the open sector. Absent everywhere means the row still renders, grayed — the
   // badge shows what you do NOT hold as plainly as what you do.
   rows = computed<PermissionsCardResource[]>(() => {
     const resources = Object.values(Resources) as Resource[];

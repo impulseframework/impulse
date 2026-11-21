@@ -18,6 +18,7 @@ import { commendationsConfig } from './configs/commendations.config';
 import { consignmentsConfig } from './configs/consignments.config';
 import { crewSessionImpersonationsConfig } from './configs/crewSessionImpersonations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
+import { hangarsConfig } from './configs/hangars.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
 import { missionsEverySectorConfig } from './configs/missionsEverySector.config';
@@ -163,6 +164,9 @@ export const routes: Routes = [
         resourceRoutes(sectorPilotsConfig, resourceMeta),
         resourceRoutes(missionsConfig, resourceMeta),
         resourceRoutes(shipsConfig, resourceMeta),
+        // The hangars and, on a hangar's page, its passes: who the hangar is open to, a
+        // person, a squadron or one of the sector's groups.
+        resourceRoutes(hangarsConfig, resourceMeta),
         resourceRoutes(squadronsConfig, resourceMeta),
         resourceRoutes(missionDocumentsConfig, resourceMeta),
         resourceRoutes(consignmentsConfig, resourceMeta),

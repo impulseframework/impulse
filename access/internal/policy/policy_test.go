@@ -256,6 +256,81 @@ func Test_ScopeFromColumns_refuses(t *testing.T) {
 	}
 }
 
+// Test_GroupColumns_roundTrip pins where a group can be kept and how the stores
+// spell it: for the whole application or in one tenant, on the default axis.
+func Test_GroupColumns_roundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		scope      accesstypes.PolicyScope
+		wantKind   string
+		wantDomain string
+	}{
+		{name: "the whole application", scope: accesstypes.GlobalPolicyScope(), wantKind: KindGlobal},
+		{name: "one tenant", scope: accesstypes.DomainPolicyScope("tenant1"), wantKind: KindDomain, wantDomain: "tenant1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			kind, axis, domain, err := GroupColumns(tt.scope)
+			if err != nil {
+				t.Fatalf("GroupColumns() error = %v", err)
+			}
+			if kind != tt.wantKind || axis != "" || domain != tt.wantDomain {
+				t.Errorf("GroupColumns() = (%q, %q, %q), want (%q, %q, %q)", kind, axis, domain, tt.wantKind, "", tt.wantDomain)
+			}
+			got, err := GroupFromColumns(kind, axis, domain)
+			if err != nil {
+				t.Fatalf("GroupFromColumns() error = %v", err)
+			}
+			if got != tt.scope {
+				t.Errorf("GroupFromColumns() = %v, want %v", got, tt.scope)
+			}
+		})
+	}
+
+	if _, _, _, err := GroupColumns(accesstypes.EveryDomainPolicyScope()); err == nil {
+		t.Errorf("GroupColumns() of every tenant: want an error, a group is never kept in every tenant")
+	}
+}
+
+// Test_GroupFromColumns_refuses pins that a group row no store writes is refused
+// when it is read: one kept in every tenant, and one kept under an axis this
+// build cannot name. Whatever tells a tenant's groups apart by the tenant's key
+// alone (the generated set of a person's groups does) rests on the second: a key
+// says which tenant only on one axis.
+func Test_GroupFromColumns_refuses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		kind     string
+		axis     string
+		domain   string
+		wantText string
+	}{
+		{name: "a group kept in every tenant", kind: KindEvery, wantText: `kind "every"`},
+		{name: "a tenant's group under a named axis", kind: KindDomain, axis: "region", domain: "tenant1", wantText: "region"},
+		{name: "a group for the whole application under a named axis", kind: KindGlobal, axis: "region", wantText: "region"},
+		{name: "an unknown kind", kind: "all", wantText: `kind "all"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := GroupFromColumns(tt.kind, tt.axis, tt.domain)
+			if err == nil {
+				t.Fatalf("GroupFromColumns(%q, %q, %q) = %v, want an error", tt.kind, tt.axis, tt.domain, got)
+			}
+			if !strings.Contains(err.Error(), tt.wantText) {
+				t.Errorf("GroupFromColumns() error = %q, want it to contain %q", err, tt.wantText)
+			}
+		})
+	}
+}
+
 // Test_CompareScopes pins the order a store lists rows in: by kind, then
 // axis, then domain, with the kinds in their name order.
 func Test_CompareScopes(t *testing.T) {

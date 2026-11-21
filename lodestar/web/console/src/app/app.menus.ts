@@ -10,6 +10,7 @@ import { commendationsConfig } from './configs/commendations.config';
 import { consignmentsConfig } from './configs/consignments.config';
 import { crewSessionImpersonationsConfig } from './configs/crewSessionImpersonations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
+import { hangarsConfig } from './configs/hangars.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
 import { missionsEverySectorConfig } from './configs/missionsEverySector.config';
@@ -64,6 +65,8 @@ export function appMenus(): Menu[] {
           entries: [
             resourcePage(missionsConfig, resourceMeta),
             resourcePage(shipsConfig, resourceMeta),
+            // The hangars a person may list, each with the passes that open it.
+            resourcePage(hangarsConfig, resourceMeta),
             resourcePage(squadronsConfig, resourceMeta),
             resourcePage(missionDocumentsConfig, resourceMeta),
             resourcePage(sectorPilotsConfig, resourceMeta),

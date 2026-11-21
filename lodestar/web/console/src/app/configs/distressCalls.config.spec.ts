@@ -20,7 +20,8 @@ import { distressCallsConfig } from './distressCalls.config';
 // contact among them: their log draws it. The Cadet's covers the summary, the severity
 // and the case number of the calls they filed: their log draws those three columns and
 // asks the server for no other, so the caller's contact neither shows nor travels; and
-// the Cadet, who may file a call, is offered Create where the Dispatcher is not.
+// the Cadet, who may file a call, is offered the log's File a distress call button where
+// the Dispatcher is not.
 
 const anvil = 'a1111111-1111-4111-8111-111111111111';
 
@@ -147,7 +148,7 @@ describe('the call log', () => {
     expect(element().querySelector('.create-button')).toBeNull();
   });
 
-  it('draws the Cadet the three columns their grant covers, asks for no other, and offers them Create', async () => {
+  it('draws the Cadet the three columns their grant covers, asks for no other, and offers to file a call', async () => {
     await create(cadet, [
       { id: 'd-1', caseNumber: 'DC-0042', summary: 'Hull breach off the Anvil relay', severity: 4 },
     ]);
@@ -157,7 +158,8 @@ describe('the call log', () => {
     // The caller's contact is no column, and the request names it nowhere.
     expect(columnsAsked()).toEqual(['caseNumber', 'id', 'severity', 'summary']);
     expect(transport.requests.some((request) => request.url.includes('callerContact'))).toBe(false);
-    expect(element().querySelector('.create-button')?.textContent?.trim()).toContain('Create');
+    // The button says what it does in the log's own words, after its icon's name.
+    expect(element().querySelector('.create-button')?.textContent?.trim()).toBe('create File a distress call');
   });
 
   it('says so when no call has been filed in the sector', async () => {
