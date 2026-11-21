@@ -213,7 +213,13 @@ func (d *memDriver) UserByUsernameIn(_ context.Context, _ *memTx, username strin
 	return &dbtype.User{ID: id, Username: user.username}, nil
 }
 
-func (d *memDriver) UserByVerifiedEmailIn(context.Context, *memTx, string) (*dbtype.User, error) {
+func (d *memDriver) UserByVerifiedEmailIn(_ context.Context, _ *memTx, email string) (*dbtype.User, error) {
+	for id, user := range d.store.users {
+		if user.confirmed && user.email != "" && strings.EqualFold(user.email, email) {
+			return &dbtype.User{ID: id, Username: user.username, EmailConfirmed: true, EmailHeld: true}, nil
+		}
+	}
+
 	return nil, nil
 }
 

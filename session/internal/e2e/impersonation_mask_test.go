@@ -69,11 +69,15 @@ func maskCredentialActions() []accesstypes.Resource {
 // generator would write it: the grants, the credential actions and the sign-in settings
 // carrying the library's two classes, the action of the create-your-tenant route, which
 // carries access too, an action carrying a class of the application's own, and two that
-// carry none.
+// carry none. Two records carry the class access on their writes, as the generator
+// classes a record that decides what a person may do: every write of Seats, and the
+// change alone of Teams. The writes of Ledgers carry none.
 func maskCollection(t *testing.T) *resource.GeneratedCollection {
 	t.Helper()
 
 	execute := []accesstypes.Permission{accesstypes.Execute}
+	record := []accesstypes.Permission{accesstypes.List, accesstypes.Read, accesstypes.Create, accesstypes.Update, accesstypes.Delete}
+	decidesAccess := []accesstypes.ActionClass{accesstypes.ClassAccess}
 	resources := []resource.CollectionResource{
 		{Name: grantView, Scope: accesstypes.GlobalPermissionScope, Permissions: execute},
 		{Name: grantAct, Scope: accesstypes.GlobalPermissionScope, Permissions: execute},
@@ -82,6 +86,14 @@ func maskCollection(t *testing.T) *resource.GeneratedCollection {
 		{Name: createTenant, Scope: accesstypes.GlobalPermissionScope, Permissions: execute, Classes: []accesstypes.ActionClass{accesstypes.ClassAccess}},
 		{Name: "EndStaffUserSessions", Scope: accesstypes.GlobalPermissionScope, Permissions: execute},
 		{Name: "Ledgers", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read, accesstypes.Update}},
+		{Name: "Seats", Scope: accesstypes.GlobalPermissionScope, Permissions: record, WriteClasses: []resource.WriteClassData{
+			{Permission: accesstypes.Create, Classes: decidesAccess},
+			{Permission: accesstypes.Update, Classes: decidesAccess},
+			{Permission: accesstypes.Delete, Classes: decidesAccess},
+		}},
+		{Name: "Teams", Scope: accesstypes.GlobalPermissionScope, Permissions: record, WriteClasses: []resource.WriteClassData{
+			{Permission: accesstypes.Update, Classes: decidesAccess},
+		}},
 	}
 	for _, action := range maskCredentialActions() {
 		scope := accesstypes.GlobalPermissionScope
@@ -229,7 +241,9 @@ func (c *capturedLog) take() string {
 // the mask's, and a request for more than the grant gives starts nothing. A mask that
 // refuses the class access refuses the tenant's two sign-in settings and the making of a
 // tenant, which no grant admits and the mask alone decides, with nothing made; a session
-// that acts with no mask does each. A server-side caller, which names an actor another
+// that acts with no mask does each. It refuses the writes of a record that carry the
+// class too, and leaves the record's reads and the writes that carry none; a mask that
+// does not refuse the class, and a session that acts with no mask, keep them all. A server-side caller, which names an actor another
 // system signed in, goes through the same declaration with a check of its own, and its
 // session is held to the kind's mask. A request starts one session: a second start from
 // the request, or from a copy of it, is refused with nothing written.
@@ -331,6 +345,26 @@ func newMaskApp[Tx any](t *testing.T, store *sessionstorage.Preauth[Tx]) *httpte
 		}
 		if !decisions[action].IsGranted() {
 			_ = httpio.NewEncoder(w).ClientMessage(r.Context(), httpio.NewForbiddenMessagef("Execute on %s is denied", action))
+
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+
+	// held answers 204 when the session's permissions grant the permission on the
+	// record, and 403 when they deny it: the check a generated read or write makes
+	// before it builds a statement.
+	held := func(w http.ResponseWriter, r *http.Request) {
+		permission := accesstypes.Permission(chi.URLParam(r, "permission"))
+		record := accesstypes.Resource(chi.URLParam(r, "record"))
+		decisions, err := permissions(r).Check(r.Context(), resource.RequestEnvironment(), accesstypes.GlobalScope(), permission, record)
+		if err != nil {
+			_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+			return
+		}
+		if !decisions[record].IsGranted() {
+			_ = httpio.NewEncoder(w).ClientMessage(r.Context(), httpio.NewForbiddenMessagef("%s on %s is denied", permission, record))
 
 			return
 		}
@@ -484,6 +518,8 @@ func newMaskApp[Tx any](t *testing.T, store *sessionstorage.Preauth[Tx]) *httpte
 		// The masked check on its own, behind a safe method: the read-only guard lets a
 		// GET through, so a read-only session's denial here is the check's.
 		r.Get("/check/{action}", run)
+		// The check of a record's read or write, behind a safe method too.
+		r.Get("/check/{permission}/{record}", held)
 		// The create-your-tenant route's two answers, as the generator writes them. No
 		// grant admits the route, so no permission is checked for a mask to deny: the
 		// route asks the mask about its action itself, before anything else. Whether
@@ -633,6 +669,10 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 		t.Errorf("the live impersonations after the refused requests = %v, want none: a refused request starts nothing", entries)
 	}
 
+	// The writes of the scenario's records that carry the class access, and reads and
+	// writes of its records that carry none, each as its check's path names it.
+	classedWrites := []string{"Create/Seats", "Update/Seats", "Delete/Seats", "Update/Teams"}
+	unclassedOnRecords := []string{"List/Seats", "Read/Seats", "Create/Teams", "Delete/Teams", "Read/Teams", "Update/Ledgers"}
 	sessions := []struct {
 		name  string
 		actor string
@@ -646,6 +686,11 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 		// kept are actions it leaves to policy.
 		refused map[accesstypes.Resource]string
 		kept    []accesstypes.Resource
+		// refusedOnRecords are the reads and writes of records the mask refuses, each
+		// named as its check's path names it (Create/Seats) with what the log says of
+		// it; keptOnRecords are the ones it leaves to policy.
+		refusedOnRecords map[string]string
+		keptOnRecords    []string
 		// creation is what the log says when the session is refused the making of a
 		// tenant, which no grant admits and the mask alone decides; empty for a session
 		// whose mask leaves it, which then makes one for the person it acts as.
@@ -678,6 +723,8 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 			wantWords:  "everything except credential actions",
 			refused:    refusedBy(credential, "Execute denied by mask (*;-class:credential) for alice on %s: the mask refuses the class credential"),
 			kept:       slices.Concat(access, []accesstypes.Resource{wireFunds, "EndStaffUserSessions"}),
+			// A mask that does not refuse the class access keeps the writes that carry it.
+			keptOnRecords: slices.Concat(classedWrites, unclassedOnRecords),
 		},
 		{
 			name:       "a class of the application's own and one named action, joined to what the grant refuses",
@@ -709,6 +756,16 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 			refused:    refusedBy(access, "Execute denied by mask (*;-class:access) for alice on %s: the mask refuses the class access"),
 			kept:       slices.Concat(credential, []accesstypes.Resource{wireFunds, "EndStaffUserSessions"}),
 			creation:   "Execute denied by mask (*;-class:access) for alice on CreateTenant: the mask refuses the class access",
+			// The writes of a record that carry the class are refused with it, and no
+			// other: the record's reads, the writes of Teams that are not its change,
+			// and the change of a record whose writes carry no class are kept.
+			refusedOnRecords: map[string]string{
+				"Create/Seats": "Create denied by mask (*;-class:access) for alice on Seats: the mask refuses the class access",
+				"Update/Seats": "Update denied by mask (*;-class:access) for alice on Seats: the mask refuses the class access",
+				"Delete/Seats": "Delete denied by mask (*;-class:access) for alice on Seats: the mask refuses the class access",
+				"Update/Teams": "Update denied by mask (*;-class:access) for alice on Teams: the mask refuses the class access",
+			},
+			keptOnRecords: unclassedOnRecords,
 		},
 		{
 			name:       "the making of a tenant alone, refused by its action's name",
@@ -760,6 +817,18 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 		}
 		if got := logged.take(); strings.Contains(got, "denied by mask") {
 			t.Errorf("%s: an action the mask keeps logged a mask denial:\n%s", tt.name, got)
+		}
+		for onRecord, wantLogged := range tt.refusedOnRecords {
+			b.expect(ctx, http.StatusForbidden, http.MethodGet, "/check/"+onRecord, nil)
+			if got := logged.take(); !strings.Contains(got, wantLogged) {
+				t.Errorf("%s: the check of %s logged %q, want it to carry %q: the denial is the mask's", tt.name, onRecord, got, wantLogged)
+			}
+		}
+		for _, onRecord := range tt.keptOnRecords {
+			b.expect(ctx, http.StatusNoContent, http.MethodGet, "/check/"+onRecord, nil)
+		}
+		if got := logged.take(); strings.Contains(got, "denied by mask") {
+			t.Errorf("%s: a read or write of a record the mask keeps logged a mask denial:\n%s", tt.name, got)
 		}
 
 		// The making of a tenant, which no grant admits: the mask alone decides it. A
@@ -893,6 +962,9 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 	}
 	for _, action := range slices.Concat(credential, access) {
 		owner.expect(ctx, http.StatusNoContent, http.MethodPost, "/run/"+string(action), nil)
+	}
+	for _, onRecord := range slices.Concat(classedWrites, unclassedOnRecords) {
+		owner.expect(ctx, http.StatusNoContent, http.MethodGet, "/check/"+onRecord, nil)
 	}
 	// To let someone act as a person with no mask is to give them what the person
 	// holds: the making of a tenant too, made for the person acted as.

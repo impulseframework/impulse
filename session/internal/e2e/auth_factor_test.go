@@ -427,6 +427,46 @@ func seamEmailCodeEnrollment[Tx any](ctx context.Context, t *testing.T, a *authA
 	}
 }
 
+// seamEmailCodeAddressTakenOff: the sign-in is the account's own (the person proved its
+// password) and waits for the code mailed to the address the account holds. An
+// administrator takes the address off before the code is entered. The code was mailed
+// before the change, so it is dead and writes nothing back; the person gives the
+// address at the step, as a person whose account holds none does, and that code writes
+// it.
+func seamEmailCodeAddressTakenOff[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	pat := a.seedWithEmail(ctx, t, "pat", "pat@lakeside.edu")
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": "pat", "password": seedPassword})
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	mailedBefore := a.lastCode(t, "pat@lakeside.edu")
+	if err := a.setEmail(ctx, pat, nil); err != nil {
+		t.Fatalf("SetUserEmail(nil) error = %v", err)
+	}
+
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": mailedBefore}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"code_expired"`) {
+		t.Fatalf("verify of the code mailed before the address was taken off = %d %s, want 401 code_expired", status, body)
+	}
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if user, err := a.api.User(ctx, pat); err != nil || user.Email != nil {
+		t.Fatalf("the account after the dead code = %+v, %v, want it holding no address: the administrator's change stands", user, err)
+	}
+	if status := b.pendingStatus(ctx); status.EmailCode == nil || !status.EmailCode.EnrollEmail || status.EmailCode.CodeSent {
+		t.Errorf("pending status after the address was taken off = %+v, want the step asking for an address and no code standing", status.EmailCode)
+	}
+
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/email", map[string]string{"email": "pat@lakeside.edu"})
+	given := a.lastCode(t, "pat@lakeside.edu")
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": given})
+	if email, verified := b.authenticatedEmail(ctx); email != "pat@lakeside.edu" || !verified {
+		t.Errorf("the session read = email %q verified %v, want pat@lakeside.edu verified by the code for the address the person gave", email, verified)
+	}
+}
+
 // seamEmailCodeUsedResetsLimit: a person who signs in with each code they are sent
 // never meets the address's mail limit. Seven sign-ins in a row, more than the limit
 // allows unused, each finished with its code, are each mailed one.

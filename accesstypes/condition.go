@@ -25,7 +25,9 @@ type Condition struct {
 // NewCondition compiles source into a Condition, enforcing the language's
 // grammar and fixed limits (4 KB, nesting depth 32). Schema validation —
 // binding names against the Collection, literal types against attribute
-// types, image validity per permission — is MigrateRoles' job, downstream.
+// types, image validity per permission — is access.ValidateRoles' job,
+// downstream: the check access.New makes of the role file, and the one a write
+// of a custom role's grant is held to.
 func NewCondition(source string) (Condition, error) {
 	expr, err := condition.Parse(source)
 	if err != nil {

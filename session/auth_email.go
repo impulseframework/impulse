@@ -344,7 +344,7 @@ func (p *AuthAPI[S, U, Tx]) RequestAddressChange(ctx context.Context, userID imp
 	if err := a.refuseDirectoryAddress(ctx, user.ID, holdsAddress(user.Email, confirmed)); err != nil {
 		return err
 	}
-	if confirmed && strings.EqualFold(*user.Email, bare) {
+	if confirmed && sameAddress(*user.Email, bare) {
 		return nil
 	}
 	if err := a.limitMail(ctx, bare); err != nil {
@@ -453,7 +453,7 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 	a.noticeAddressChanged(ctx, user.Email, confirmed, link.Email)
 	// Where the username is the address, the confirmation renamed the user: the
 	// application moves what it keys by the old name.
-	if a.registered().usernameIsEmail() && !strings.EqualFold(user.Username, link.Email) && a.userRenamed != nil {
+	if a.registered().usernameIsEmail() && !sameAddress(user.Username, link.Email) && a.userRenamed != nil {
 		if err := a.userRenamed(ctx, user.ID, user.Username, link.Email); err != nil {
 			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by confirming the address, and the rename hook failed; run the hook's work by hand: %v", user.ID, user.Username, link.Email, err)
 

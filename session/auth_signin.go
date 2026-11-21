@@ -96,6 +96,13 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	// A sign-in whose identity is under another method's name than its own is refused
+	// here, the one a callback verified and the one a pending row held, before the
+	// identity is read, stored or turned into the sign-in's auth event.
+	if err := a.ownMethod(at); err != nil {
+		return nil, err
+	}
+
 	// Every sign-in's identity is held to what the library keeps of it here, the one a
 	// callback verified and the one a pending row held, before anything reads the
 	// identity or stores it.
@@ -1134,6 +1141,29 @@ func namesItsUser(identity *sessioninfo.Identity) bool {
 	return identity.Method == sessioninfo.MethodPassword || identity.Method == sessioninfo.MethodApplication
 }
 
+// ownMethod refuses a sign-in whose identity is not under the method the sign-in came
+// through. The identity's method becomes the sign-in's first auth event (identityEvent),
+// which says how the person signed in, and the library's rules read some events as its
+// own proof. So an identity never carries the name of a step the library runs itself
+// (recordsTheLibrarysStep), whatever brought it, and an identity that came through a
+// registration carries that registration's method and no other: a method that
+// registers under one name verifies no identity under another. The refusal is the
+// server's error, since it is the method's code that is wrong, and nothing is resolved,
+// linked or held.
+func (a *Auth[S, U, Tx]) ownMethod(at *signInAttempt) error {
+	if recordsTheLibrarysStep(at.identity.Method) {
+		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedInternalError, httpio.NewInternalServerErrorMessagef(
+			"the sign-in's identity is under the method %q, the name of a step the library runs and records itself: a sign-in method gives its identities the method's own name", at.identity.Method))
+	}
+	if m, ok := a.registered().external[at.registration]; ok && at.identity.Method != m.Name {
+		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedInternalError, httpio.NewInternalServerErrorMessagef(
+			"the sign-in through the registration %q, a registration of the method %q, verified an identity under the method %q: a sign-in method gives its identities the name it is registered as",
+			at.registration, m.Name, at.identity.Method))
+	}
+
+	return nil
+}
+
 // identityEvent returns the auth event of a sign-in with identity. Its time is the
 // database's when the event is stored.
 func identityEvent(identity *sessioninfo.Identity) sessioninfo.AuthEvent {
@@ -1178,6 +1208,40 @@ func validateEvents(events []sessioninfo.AuthEvent) error {
 // a sign-in policy's second factor. Only the library records them.
 func recordsTheLibrarysStep(method sessioninfo.AuthMethod) bool {
 	return method == sessioninfo.MethodEmailCode || method == sessioninfo.MethodTrustedDevice || method.Attests()
+}
+
+// reportsNoSignIn refuses an auth event an application reports under the name of a
+// sign-in method the library runs (namesASignIn). A session's first auth event says how the
+// person signed in (sessioninfo.SessionData.EstablishedBy): a tenant's declaration, an
+// invitation's acceptance and the status answer read it as a sign-in through that
+// directory, which only a sign-in the library ran proves. An application reports its
+// own step under a name of its own.
+func (a *Auth[S, U, Tx]) reportsNoSignIn(events []sessioninfo.AuthEvent) error {
+	for _, e := range events {
+		if a.namesASignIn(e.Method) {
+			return httpio.NewBadRequestMessagef("an auth event under %q reports a sign-in the library runs and records itself: "+
+				"report the application's own step under a name of its own, and have the person sign in through the method to record its sign-in", e.Method)
+		}
+	}
+
+	return nil
+}
+
+// namesASignIn reports whether method names a sign-in the library runs: a password, a
+// directory's method the library ships (Microsoft Entra ID, Google, WorkOS, a generic
+// OpenID Connect provider), registered on this Auth or not, and the method of every
+// registration on this Auth, an application's own among them.
+func (a *Auth[S, U, Tx]) namesASignIn(method sessioninfo.AuthMethod) bool {
+	if method == sessioninfo.MethodPassword || method.ThroughDirectory() {
+		return true
+	}
+	for _, m := range a.registered().external {
+		if m.Name == method {
+			return true
+		}
+	}
+
+	return false
 }
 
 // shared returns the API methods every session type shares, over this session's fields.

@@ -293,6 +293,13 @@ func (a *Auth[S, U, Tx]) refuseRegistration(name string, method sessioninfo.Auth
 	if name == "" {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered without a name: name each registration (two Entra tenants are two registrations)", method))
 	}
+	// A sign-in's first auth event carries its method's name. A method named after a
+	// step the library runs would record that step with every sign-in, and the
+	// library's rules read those events as its own proof (recordsTheLibrarysStep).
+	if recordsTheLibrarysStep(method) {
+		panic(fmt.Sprintf("session: a sign-in method is registered as the method %q, the name of a step the library runs and records itself "+
+			"(the mailed code, a remembered browser, a connection's attestation): give the method a name of its own, such as \"partner\"", method))
+	}
 	// The registration's state cookie is named for it; a name no cookie can carry is
 	// refused here rather than at the first login.
 	probe := &http.Cookie{Name: internalcookie.StateCookieName(a.cookies.CookieName, name), Value: "x", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}
@@ -381,6 +388,13 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 	m, err := reg.Build(a.cookies.ForRegistration(reg.Name))
 	if err != nil {
 		panic(fmt.Errorf("session: the %s sign-in method: %w", reg.Method, err))
+	}
+	// A registration has one method name: the one it is registered as is the one the
+	// method it builds carries, which every identity of its sign-ins is held to
+	// (ownMethod).
+	if m.Name != reg.Method {
+		panic(fmt.Sprintf("session: the sign-in method registered under the name %q is registered as the method %q and builds a method named %q: "+
+			"a registration has one method name, so set Registration.Method and Method.Name to the same one", reg.Name, reg.Method, m.Name))
 	}
 	a.refuseBeside(reg.Name, reg.Method, m.SyncRoles != nil)
 	if m.SyncRoles != nil {

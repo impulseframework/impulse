@@ -410,6 +410,18 @@ var (
 	// is sessioninfo.RefusedIdentityRejected.
 	ErrLinkNeedsAddress = errors.New(
 		"signin: an identity can't be linked on a sign-in name its method does not vouch for to a user who holds no email address")
+	// ErrAddressHeldByAnother is the cause when a sign-in whose method vouches for its
+	// address (Google, for a Gmail address or a Workspace account's) reaches a user who
+	// holds no confirmed address while another user holds that address, confirmed. The
+	// address would be written on nobody, and the person would be signed in to an
+	// account with no confirmed address: a user created ahead under the address as its
+	// sign-in name, beside the user who holds the address, is reached so. Which of the
+	// two is the person's account is an administrator's to settle, by removing the
+	// duplicate account or its sign-in name, so the sign-in is refused and nothing is
+	// linked. An address another user holds unconfirmed refuses nobody. The code is
+	// sessioninfo.RefusedIdentityRejected.
+	ErrAddressHeldByAnother = errors.New(
+		"signin: the address the method vouches for is held, confirmed, by another user than the one the sign-in reached, who holds no confirmed address")
 	// ErrEmailHeld is the cause when an account rule provisioned a new user for an
 	// identity whose verified address another user already holds verified: that user
 	// is the person, and the standard rule matches the person by the address before

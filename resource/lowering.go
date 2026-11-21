@@ -747,8 +747,8 @@ func sqlCompareOp(op condition.CompareOp) (string, error) {
 // INT64, a decimal as NUMERIC (*big.Rat), the exact value the text spells.
 // The database widens each to the attribute's storage type — exact against
 // INT64 and NUMERIC, the nearest double against FLOAT64 (design plan §05) —
-// so a NUMERIC column is never compared through a double. MigrateRoles
-// validates literals against attribute types at deploy.
+// so a NUMERIC column is never compared through a double. access.ValidateRoles
+// validates literals against attribute types.
 func numberValue(text string) any {
 	if !strings.Contains(text, ".") {
 		if i, err := strconv.ParseInt(text, 10, 64); err == nil {
@@ -770,8 +770,8 @@ func numberValue(text string) any {
 // the date, so the parameter carries the column's own type: the database
 // coerces a STRING parameter beside a column, but not beside another
 // parameter — the proposed value in an insert or update check — where the
-// comparison would be refused. MigrateRoles validates the literal's form at
-// deploy; a malformed one here is the runtime backstop.
+// comparison would be refused. access.ValidateRoles validates the literal's
+// form; a malformed one here is the runtime backstop.
 func literalValue(literal condition.Literal, typ AttributeType) (any, error) {
 	switch l := literal.(type) {
 	case condition.StringLiteral:

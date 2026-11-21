@@ -27,7 +27,7 @@ import (
 var dayNames = [7]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
 
 // ValidDayName reports whether s is one of dayOfWeek's seven values —
-// deploy-time validation (MigrateRoles) shares the vocabulary through this.
+// role validation (access.ValidateRoles) shares the vocabulary through this.
 func ValidDayName(s string) bool {
 	for _, name := range dayNames {
 		if s == name {
@@ -39,7 +39,7 @@ func ValidDayName(s string) bool {
 }
 
 // ParseTimeOfDay parses timeOfDay's literal form — 24-hour 'HH:MM' — to
-// minutes since midnight. Deploy-time validation (MigrateRoles) shares the
+// minutes since midnight. Role validation (access.ValidateRoles) shares the
 // format through this.
 func ParseTimeOfDay(s string) (int, error) {
 	parsed, err := time.Parse("15:04", s)
@@ -51,7 +51,7 @@ func ParseTimeOfDay(s string) (int, error) {
 }
 
 // LoadZone resolves a temporal function's zone name against the embedded
-// timezone database — deploy-time validation (MigrateRoles) shares the
+// timezone database — role validation (access.ValidateRoles) shares the
 // resolution through this. Results are cached: the standard library reloads
 // zone data on every lookup, and folding runs per check.
 func LoadZone(name string) (*time.Location, error) {

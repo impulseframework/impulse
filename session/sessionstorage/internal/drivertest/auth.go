@@ -643,6 +643,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a factor code counts the guesses made at it and is consumed once; a dead code is neither read, counted nor consumed", run: testFactorCodeAttemptsAndConsume},
 		{name: "attempts counted against a factor code at once are each counted and answered their own count", run: testFactorCodeAttemptsAtOnce},
 		{name: "of factor codes inserted at once for one pending sign-in, one stands and every other is consumed", run: testFactorCodesInsertedAtOnce},
+		{name: "taking a user's address off ends the live factor codes of the user's pending sign-ins and no other user's", run: testAddressTakenOffEndsCodes},
 		{name: "a trusted device is read back by its token hash while it is live, touched at the database's time, revoked once by its token and all at once by its user", run: testTrustedDeviceLifecycle},
 		{name: "a factor code goes with its pending sign-in and a trusted device with its user", run: testFactorsCascade},
 	}

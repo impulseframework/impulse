@@ -475,6 +475,14 @@ The address is then confirmed. It gets confirmed in one of these ways:
 - The person followed a link mailed to it: their own change on the Your account page, or
   a change an administrator asked for.
 
+An address is confirmed on one account only. When Google vouches for an address that
+another account already holds confirmed, and the account the sign-in reaches holds no
+confirmed address of its own, the sign-in is refused: nobody is signed in to an account
+that cannot hold its address. This happens when an account was made ahead with the
+address as its sign-in name while another account holds the address. The person reads
+that the account could not be matched to a user of the application, and an administrator
+fixes it by removing the duplicate account or its sign-in name.
+
 An administrator does not write an address onto an account. They ask for the change. The
 new address is mailed a link, nothing changes until somebody follows it, and the address
 the account held before is then told that it was replaced. The address of a person who

@@ -273,6 +273,17 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 			wantDead: []int{0},
 		},
 		{
+			name: "somebody holds the role and the invitation stands for an address that reads as the one named only once Unicode folds the Kelvin sign: it is another address, and its link no longer opens",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.holder("someone")
+
+				return []*sessionstorage.MailLink{f.standing("ada@la\u212Aeside.edu", week, firstAdministratorRoles...)}
+			},
+			request:  FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			want:     FirstAdministrator{Outcome: FirstAdministratorRoleHeld, Withdrawn: []string{"ada@la\u212Aeside.edu"}},
+			wantDead: []int{0},
+		},
+		{
 			name: "somebody holds the role and the address changed with the roles: the link mailed to the address taken back no longer opens, whatever else it gave beside the Super Administrator role",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
 				f.holder("someone")
@@ -337,6 +348,16 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 			},
 			request:    FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
 			want:       FirstAdministrator{Outcome: FirstAdministratorInvited, Email: ada, Withdrawn: []string{grace}},
+			wantMailed: []string{ada},
+			wantDead:   []int{0},
+		},
+		{
+			name: "the invitation stands for an address that reads as the one named only once Unicode folds the Kelvin sign: it is withdrawn and the address named is mailed",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				return []*sessionstorage.MailLink{f.standing("ada@la\u212Aeside.edu", week, firstAdministratorRoles...)}
+			},
+			request:    FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			want:       FirstAdministrator{Outcome: FirstAdministratorInvited, Email: ada, Withdrawn: []string{"ada@la\u212Aeside.edu"}},
 			wantMailed: []string{ada},
 			wantDead:   []int{0},
 		},

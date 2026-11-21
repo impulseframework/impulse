@@ -837,10 +837,10 @@ func (mr *MockUserManagerMockRecorder) ResolveRole(ctx, scope, name any) *gomock
 }
 
 // RoleGrants mocks base method.
-func (m *MockUserManager) RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
+func (m *MockUserManager) RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]access.RoleGrant, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleGrants", ctx, scope, role)
-	ret0, _ := ret[0].(map[accesstypes.Permission]map[accesstypes.Resource][]string)
+	ret0, _ := ret[0].(map[accesstypes.Permission]map[accesstypes.Resource][]access.RoleGrant)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

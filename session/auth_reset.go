@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -193,7 +192,7 @@ func (a *Auth[S, U, Tx]) mailOwnReset(ctx context.Context, email string) error {
 // a link is mailed and again when it is followed, so a link mailed to an address the
 // account has replaced since, or for a password the account no longer holds, is dead.
 func resettable(user *sessionstorage.SessionUser, email string) bool {
-	return user != nil && user.PasswordHash != nil && user.EmailVerified() && strings.EqualFold(*user.Email, email)
+	return user != nil && user.PasswordHash != nil && user.EmailVerified() && sameAddress(*user.Email, email)
 }
 
 // mailReset stores a reset link for user and mails it to the address the account holds

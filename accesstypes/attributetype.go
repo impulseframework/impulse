@@ -3,10 +3,11 @@ package accesstypes
 // AttributeType is the closed comparison-type vocabulary of attribute
 // bindings: what a condition literal must look like to compare against the
 // attribute. Generation derives each attribute's type from its bound column
-// and carries it in the application's Collection; MigrateRoles validates a
-// grant condition's literals against it at deploy time. The renderer never
-// compares values itself — the database is the one comparison engine — so the
-// vocabulary stays coarse.
+// and carries it in the application's Collection; access.ValidateRoles, the
+// check access.New makes of the role file before the release starts, validates
+// a grant condition's literals against it. The renderer never compares values
+// itself — the database is the one comparison engine — so the vocabulary stays
+// coarse.
 type AttributeType string
 
 const (
