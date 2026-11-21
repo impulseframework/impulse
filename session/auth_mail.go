@@ -298,7 +298,8 @@ func (m *mailSettings) addressInvitedMessage(to string) mail.Message {
 	return mail.Message{
 		To:      to,
 		Subject: fmt.Sprintf("Your email address and %s", app),
-		Text: fmt.Sprintf(`Someone just tried to add this address to a %s account. Nothing was changed: an invitation to %s is waiting for this address, and the address is added to an account when that invitation is accepted.
+		Text: fmt.Sprintf("Someone just tried to add this address to a %s account. "+
+			`Nothing was changed: an invitation to %s is waiting for this address, and the address is added to an account when that invitation is accepted.
 
 If that was you, open the link in your invitation and sign in to your account there. A code is then mailed to this address, and entering it accepts the invitation and adds the address to your account.
 
