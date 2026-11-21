@@ -353,7 +353,7 @@ func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feat
 		return errFeaturesUnsupportedDatabase
 	}
 	if !ValidFeatureName(string(name)) {
-		return httpio.NewNotFoundMessagef("feature flag %q does not exist", name)
+		return flagNotFound(name)
 	}
 	var held []struct {
 		Name string `spanner:"Name"`
@@ -366,7 +366,7 @@ func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feat
 		return errors.Wrap(err, "spxscan.Select()")
 	}
 	if len(held) == 0 {
-		return httpio.NewNotFoundMessagef("feature flag %q does not exist", name)
+		return flagNotFound(name)
 	}
 
 	if err := bufferFeatureFlag(txn, UpdatePatchType, name, map[string]any{
@@ -392,6 +392,13 @@ func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feat
 	}
 
 	return nil
+}
+
+// flagNotFound is the answer for a flag that is not there: 404 with the sentence a read
+// of the flag answers too, "This feature flag does not exist.". The name asked for stays
+// the cause in the chain, for the server's log, and is never sent.
+func flagNotFound(name Feature) error {
+	return httpio.NewNotFoundMessageWithError(errors.Newf("feature flag %q does not exist", name), doesNotExist(labelOf[FeatureFlag]()))
 }
 
 // FeatureSet is one instance's copy of the FeatureFlags table: what the gated routes,
@@ -1074,7 +1081,7 @@ func SetFeatureHandler(a FeatureApp, collection *GeneratedCollection, signals Si
 		}
 		flag, ok := features.Flag(name)
 		if !ok {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("feature flag %q does not exist", name))
+			return httpio.NewEncoder(w).ClientMessage(ctx, flagNotFound(name))
 		}
 
 		return httpio.NewEncoder(w).Ok(SetFeatureResult{Name: flag.Name, Enabled: flag.Enabled, UpdatedAt: flag.UpdatedAt})

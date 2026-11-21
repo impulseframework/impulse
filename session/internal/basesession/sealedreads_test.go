@@ -435,6 +435,10 @@ func TestBaseSession_StartImpersonatedSession_theActorIsTheStoredOne(t *testing.
 				t.Errorf("the wrapper's Session was asked (-want +got):\n%s", diff)
 			}
 			if tt.wantForbidden {
+				if want := "This request did not arrive as your own session, so it cannot start a session that acts as someone else. Sign in again."; httpio.Message(err) != want {
+					t.Errorf("the refusal said %q, want %q, with no session's id in it", httpio.Message(err), want)
+				}
+
 				return
 			}
 			if want := impulse.NullUUIDFromUUID(aliceID); imp.ActorID != want {
@@ -475,8 +479,9 @@ func TestBaseSession_StartImpersonatedSession_theSourceIsTheCookiesSession(t *te
 		} {
 			imp := &sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")}
 			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
-			if _, err := s.StartImpersonatedSession(ctx, httptest.NewRecorder(), req, imp); !httpio.HasForbidden(err) {
-				t.Errorf("StartImpersonatedSession() %s error = %v, want it refused (403)", name, err)
+			want := "This request did not arrive as your own session, so it cannot start a session that acts as someone else. Sign in again."
+			if _, err := s.StartImpersonatedSession(ctx, httptest.NewRecorder(), req, imp); !httpio.HasForbidden(err) || httpio.Message(err) != want {
+				t.Errorf("StartImpersonatedSession() %s error = %v, want it refused (403) saying %q", name, err, want)
 			}
 		}
 	})

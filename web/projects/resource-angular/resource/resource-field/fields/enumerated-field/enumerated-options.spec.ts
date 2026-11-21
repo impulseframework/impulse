@@ -75,6 +75,28 @@ describe('optionDisplay', () => {
 
   it('shows the key where the page configured no display field', () => {
     expect(optionDisplay({ name: 'Pilot', description: 'Flies' }, 'Pilot', [], concat)).toBe('Pilot');
+    // A key that is no role's name is shown as it is stored, whatever its letters.
+    expect(optionDisplay({ name: 'SectorMarshal' }, 'SectorMarshal', [], concat)).toBe('SectorMarshal');
+  });
+
+  it("shows a role's key in words where the page configured no display field, as the server's sentences name it", () => {
+    expect(optionDisplay({ name: 'SectorMarshal' }, 'SectorMarshal', [], concat, true)).toBe('Sector marshal');
+    expect(optionDisplay({ name: 'SuperAdministrator' }, 'SuperAdministrator', [], concat, true)).toBe(
+      'Super administrator',
+    );
+    expect(optionDisplay({ name: 'Reader' }, 'Reader', [], concat, true)).toBe('Reader');
+  });
+
+  it("shows the configured display fields of a role's row as they are", () => {
+    expect(
+      optionDisplay(
+        { name: 'SectorMarshal', description: 'Runs a sector' },
+        'SectorMarshal',
+        ['name', 'description'],
+        concat,
+        true,
+      ),
+    ).toBe('SectorMarshal - Runs a sector');
   });
 });
 

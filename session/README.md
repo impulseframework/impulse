@@ -4129,7 +4129,10 @@ Everything an impersonated session touches names the actor and the principal:
 - **Identity operations.** A person's own account is theirs alone: every handler of the
   library's that writes to the signed-in person's account refuses a session that views
   as them, whatever its mask, with 403 and an `IdentityOperationBlocked` event, before it
-  reads its body. They are `ChangeUserPassword` and `RemoveUserPassword` (the password
+  reads its body. The person reads "You are acting as someone else, and this session
+  cannot change their account." (in a session that acts as a role, "cannot do this."):
+  the handler's name is the event's and the server's log's, never the sentence's. They are
+  `ChangeUserPassword` and `RemoveUserPassword` (the password
   method's), `ChangeName`, `ChangeLook`, `ForgetBrowser`, `Email().Add()` and
   `Email().Verify()` (the address the code of their second factor is mailed to),
   `ApplicationTokens().Create()` and `ApplicationTokens().Revoke()`, `Device().Approve()`
@@ -4188,7 +4191,8 @@ Everything an impersonated session touches names the actor and the principal:
   `ValidateSession`) refuses non-safe requests — anything but GET, HEAD, OPTIONS and
   TRACE — from a session whose mask is *read-only*: it names the kinds it keeps, and
   keeps nothing beyond `List` and `Read` (`PermissionMask.ReadOnly()`; a mask that keeps
-  every kind is not read-only, whatever it refuses inside them). The refusal is 403 with a `WriteBlocked` event naming the
+  every kind is not read-only, whatever it refuses inside them). The refusal is 403, "You are acting as someone else, and
+  this session cannot change anything.", with a `WriteBlocked` event naming the
   method and path. It is a backstop that keeps a read-only session away from
   every mutating handler whether or not that handler consults the mask; it does not
   replace honoring the mask in permission checks (`Execute` reaches handlers by POST, and

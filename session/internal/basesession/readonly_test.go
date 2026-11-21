@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,8 +93,8 @@ func TestBaseSession_EnforceReadOnlyMask(t *testing.T) {
 
 				return
 			}
-			if rr.Code != http.StatusForbidden {
-				t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+			if want := "You are acting as someone else, and this session cannot change anything."; rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), want) {
+				t.Errorf("answer = %d %s, want %d saying %q", rr.Code, rr.Body.String(), http.StatusForbidden, want)
 			}
 			if len(events) != 1 || events[0].Kind != sessioninfo.ImpersonationWriteBlocked || events[0].Operation != tt.method+" /api/partners/1" {
 				t.Errorf("events = %+v, want one WriteBlocked for %s /api/partners/1", events, tt.method)

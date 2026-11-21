@@ -497,7 +497,14 @@ func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 	})
 }
 
-// ValidateXSRFToken validates the XSRF Token
+// stalePageWords is what a person whose page sends a write without the session's XSRF
+// token is told: the page was loaded for another session than the one the browser holds
+// now, and loading it again is the person's own next step.
+const stalePageWords = "This page is out of date. Reload it and try again."
+
+// ValidateXSRFToken validates the XSRF Token. A write without the session's token is
+// refused with 403 and one sentence; that the token was the fault is the refusal's
+// cause, which the server's log prints.
 func (s *BaseSession) ValidateXSRFToken(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		// Validate XSRFToken for non-safe
@@ -509,7 +516,7 @@ func (s *BaseSession) ValidateXSRFToken(next http.Handler) http.Handler {
 
 			if !hasValidXSRFToken {
 				// Token validation failed
-				return httpio.NewEncoder(w).ClientMessage(r.Context(), httpio.NewForbiddenMessage("invalid XSRF token"))
+				return httpio.NewEncoder(w).ClientMessage(r.Context(), httpio.NewForbiddenMessageWithError(errors.New("invalid XSRF token"), stalePageWords))
 			}
 		}
 
