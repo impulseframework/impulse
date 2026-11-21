@@ -30,7 +30,6 @@ import {
   rootConfig,
 } from '@impulseframework/resource-angular/types';
 
-import { of } from 'rxjs';
 import { CompoundResourceComponent } from '../compound-resource/compound-resource.component';
 import {
   DeleteConfirmation,
@@ -1221,25 +1220,35 @@ describe('ResourceListComponent', () => {
   });
 
   describe('asks before a row leaves the list', () => {
-    /** Opens the confirmation for a row with the dialog answering as told, and says what was asked and what was deleted. */
+    /**
+     * Opens the confirmation for a row with the dialog answering as told, and says what
+     * was asked and what was deleted. The dialog is handed the delete and runs it from
+     * its Delete button alone, so the stand-in runs it when the answer is true.
+     */
     const ask = (row: RecordData, answer: boolean | undefined): { question: string; deleted: unknown[] } => {
       const component = fixture.componentInstance;
-      const opened: { component: unknown; data: unknown }[] = [];
-      component.dialog.open = ((opening: unknown, config: { data: unknown }) => {
+      const opened: { component: unknown; data: DeleteConfirmation }[] = [];
+      component.dialog.open = ((opening: unknown, config: { data: DeleteConfirmation }) => {
         opened.push({ component: opening, data: config.data });
+        if (answer === true) {
+          void config.data.delete?.();
+        }
 
-        return { afterClosed: () => of(answer) };
+        return {};
       }) as unknown as typeof component.dialog.open;
       const deleted: unknown[] = [];
-      component.deleteRow = (gone): void => {
+      component.deleteRow = (gone): Promise<void> => {
         deleted.push(gone);
+
+        return Promise.resolve();
       };
 
       component.confirmDeleteRow(row);
 
       expect(opened.map((o) => o.component)).toEqual([DeleteResourceConfirmationModalComponent]);
+      expect(opened[0].data.delete, 'the dialog is not handed the delete').toBeTypeOf('function');
 
-      return { question: deleteQuestion(opened[0].data as DeleteConfirmation | undefined), deleted };
+      return { question: deleteQuestion(opened[0].data), deleted };
     };
     const kestrel = { id: 's-1', name: 'Kestrel' };
 

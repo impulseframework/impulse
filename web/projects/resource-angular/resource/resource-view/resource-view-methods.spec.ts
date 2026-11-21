@@ -5,7 +5,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialogRef } from '@angular/material/dialog';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, ROUTES } from '@angular/router';
-import { ApiDescriptor, createClient, Method, MethodMeta, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
+import { ApiDescriptor, ApiError, createClient, Method, MethodMeta, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
@@ -87,6 +87,8 @@ describe('ResourceViewComponent row methods', () => {
   let wentBack: number;
   /** While set, the row's own Delete is answered only once this resolves; otherwise at once. */
   let deleteHeld: Promise<void> | undefined;
+  /** While set, the row's own Delete is refused in these words, and the row stays. */
+  let deleteRefused: string | undefined;
 
   const server = (request: TransportRequest): TransportResponse | Promise<TransportResponse> => {
     const url = new URL(request.url, 'http://rows.test');
@@ -95,6 +97,9 @@ describe('ResourceViewComponent row methods', () => {
     }
     // The row's own Delete: the row is gone from then on.
     if (request.method === 'PATCH' && url.pathname === '/api/accounts') {
+      if (deleteRefused !== undefined) {
+        return { status: 409, body: { message: deleteRefused } };
+      }
       row = undefined;
       return deleteHeld ? deleteHeld.then(() => ({ status: 200, body: {} })) : { status: 200, body: {} };
     }
@@ -195,6 +200,7 @@ describe('ResourceViewComponent row methods', () => {
   beforeEach(() => {
     row = { id: 'a-1', username: 'ada', disabled: false, zzCapabilities: { Execute: ['DisableAccount', 'EnableAccount', 'RenameAccount'] } };
     deleteHeld = undefined;
+    deleteRefused = undefined;
   });
 
   it("asks for the row's Execute answer beside Update and Delete, and offers in one menu the methods the answer lists", async () => {
@@ -400,7 +406,7 @@ describe('ResourceViewComponent row methods', () => {
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
 
-    component.deleteResource();
+    void component.deleteResource();
     await settle(() => router.url === '/accounts');
 
     expect(transport.requests.filter((r) => r.method === 'PATCH').map((r) => r.body)).toEqual([[{ op: 'remove', path: '/a-1' }]]);
@@ -425,7 +431,7 @@ describe('ResourceViewComponent row methods', () => {
       answer = resolve;
     });
 
-    component.deleteResource();
+    void component.deleteResource();
     await settle(() => transport.requests.some((r) => r.method === 'PATCH'));
     // The live session's read of the row, made as soon as the write is answered to it.
     component.store.reloadViewData();
@@ -448,7 +454,7 @@ describe('ResourceViewComponent row methods', () => {
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
 
-    component.deleteResource();
+    void component.deleteResource();
     await settle(() => router.url === '/accounts');
     component.store.reloadViewData();
     await settle(() => component.store.viewStatus() === 'error');
@@ -467,12 +473,36 @@ describe('ResourceViewComponent row methods', () => {
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
 
-    component.deleteResource();
+    void component.deleteResource();
     await settle(() => wentBack > 0);
 
     expect(wentBack).toBe(1);
     expect(gone).toEqual([true]);
     expect(notices).toEqual(['Accounts updated successfully', 'ada is no longer here.']);
+  });
+
+  it("stays on the row's page when the server refuses the delete, and hands the refusal to whoever asked", async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+    deleteRefused = 'This account has 2 sessions. Delete them first.';
+
+    const refused: unknown = await component.deleteResource().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await settle(() => false);
+
+    expect(refused).toBeInstanceOf(ApiError);
+    expect((refused as ApiError).message).toBe('This account has 2 sessions. Delete them first.');
+    expect(router.url).toBe('/accounts/a-1');
+    expect(wentBack).toBe(0);
+    expect(gone).toEqual([]);
+    expect(notices).toEqual([]);
   });
 
   it("stays after the row's own Delete where the page is told not to leave, and offers its create form in the row's place", async () => {
@@ -484,7 +514,7 @@ describe('ResourceViewComponent row methods', () => {
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
 
-    component.deleteResource();
+    void component.deleteResource();
     await settle(() => component.showCreateForm());
 
     expect(component.showCreateForm()).toBe(true);

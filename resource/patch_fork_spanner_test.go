@@ -366,6 +366,16 @@ func TestSpannerClient_fork_changeRecords(t *testing.T) {
 	if err := lowLevel.Apply(ctx, client, "test"); err == nil || !httpio.HasBadRequest(err) {
 		t.Errorf("a low-level insert-or-update that changes nothing: Apply() error = %v, want its 400", err)
 	}
+	// One whose row is not there creates it, and one that changes it then changes it: one
+	// record each.
+	for i, title := range []string{"made", "changed"} {
+		if err := tracked(CreateOrUpdatePatchType, "row-3", title).Apply(ctx, client, "test"); err != nil {
+			t.Fatalf("a low-level insert-or-update: Apply() %d error = %v", i, err)
+		}
+		if got, want := records("row-3"), int64(i+1); got != want {
+			t.Errorf("after a low-level insert-or-update's Apply() %d the row has %d change record(s), want %d", i, got, want)
+		}
+	}
 
 	// A row this transaction created: a plain update of it is not found, and so is an
 	// update-or-create; a create-unless-there skips.

@@ -62,6 +62,29 @@ func ({{ .Resource.Name }}) FileKeys() []resource.FileKey {
 	}
 }
 {{- end }}
+{{- if .Resource.HasDeleteTree }}
+{{ if .Resource.IsTenant }}
+// DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it, as the library
+// declares for the tenant record: every kind of the application's rows under the tenant
+// goes with it, and nothing refuses it. The kinds are in the order their rows are
+// deleted, deepest first, each with its ways up to the {{ .Resource.Name }} and what the delete
+// of one of its rows costs.
+{{- else if .Resource.DeclaresDeleteCascade }}
+// DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the {{ .Resource.Name }} and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a {{ .Resource.Name }}
+// that the database does not remove with it.
+{{- else }}
+// DeleteTree describes what keeps a {{ .Resource.Name }} from being deleted: the kinds with a
+// row directly under a {{ .Resource.Name }} that the database does not remove with it, each
+// with the columns that name the {{ .Resource.Name }}. A delete of a {{ .Resource.Name }} with
+// such a row is refused in a sentence that says what is in the way.
+{{- end }}
+func ({{ .Resource.Name }}) DeleteTree() *resource.DeleteTree {
+	return {{ .Resource.DeleteTreeLiteral }}
+}
+{{- end }}
 {{- if .Resource.SearchBranches }}
 
 // SearchBranches names the child text the resource's search box also searches
@@ -754,7 +777,14 @@ patchSet *resource.PatchSet[{{ .Resource.Name }}]) *{{ .Resource.Name }}DeletePa
 	{{ end }}
 		SetPatchType(resource.DeletePatchType)
 
+{{ if .Resource.HasValidateDeleteType }}
+	patch := &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
+
+	return patch
+{{- else }}
 	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+{{- end }}
 }
 
 func New{{ .Resource.Name }}DeletePatch(
@@ -770,9 +800,27 @@ func New{{ .Resource.Name }}DeletePatch(
 {{- end }}
 		SetPatchType(resource.DeletePatchType)
 
-	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
-}
+{{ if .Resource.HasValidateDeleteType }}
+	patch := &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+	patch.registerValidateFunc()
 
+	return patch
+{{- else }}
+	return &{{ .Resource.Name }}DeletePatch{patchSet: patchSet}
+{{- end }}
+}
+{{ if .Resource.HasValidateDeleteType }}
+// registerValidateFunc hands the patch set the resource's delete rule
+// (@validateDeleteType): {{ .Resource.ValidateDeleteType }}.Validate is asked about the
+// row before it is deleted, by the delete of the one row and by a delete that takes the
+// row with a record it is under. An error it returns refuses the delete, and nothing
+// is deleted.
+func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
+	p.patchSet.RegisterValidateDeleteFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return new({{ .Resource.ValidateDeleteType }}).Validate(ctx, txn, p)
+	})
+}
+{{ end }}
 func (p *{{ .Resource.Name }}DeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }

@@ -353,6 +353,31 @@ type indexSchemaResult struct {
 	ColumnOrdering  *string `spanner:"COLUMN_ORDERING"`
 }
 
+// foreignKeySchemaResult is one column of one foreign key, as the foreign key query
+// reads it: the constraint's columns arrive in constraint order, each beside the column
+// it references.
+type foreignKeySchemaResult struct {
+	TableName        string  `spanner:"TABLE_NAME"`
+	ConstraintName   string  `spanner:"CONSTRAINT_NAME"`
+	ColumnName       string  `spanner:"COLUMN_NAME"`
+	ReferencedTable  *string `spanner:"REFERENCED_TABLE"`
+	ReferencedColumn *string `spanner:"REFERENCED_COLUMN"`
+	DeleteRule       *string `spanner:"DELETE_RULE"`
+}
+
+// foreignKeyMeta is one foreign key of a table: its columns in constraint order, the
+// table it references and the referenced columns in the same order. A foreign key to
+// columns that are not the referenced table's key reads with no referenced table, and
+// nothing follows it (the per-column facts have the same limit).
+type foreignKeyMeta struct {
+	Name              string
+	Columns           []string
+	ReferencedTable   string
+	ReferencedColumns []string
+	// DeleteRule is the constraint's ON DELETE action: CASCADE or NO ACTION.
+	DeleteRule string
+}
+
 type tableMetadata struct {
 	Columns       map[string]columnMeta
 	PkCount       int
@@ -368,6 +393,10 @@ type tableMetadata struct {
 	// manages for foreign keys. The per-column index flags derive from it
 	// (deriveIndexFlags), and the generation-time index warning reads it.
 	Indexes []indexMeta
+	// ForeignKeys is the table's foreign keys, each whole: the per-column facts name one
+	// referenced table for a column and cannot tell a key of two columns from two keys
+	// of one. What is under a record is read from these (deletecascade.go).
+	ForeignKeys []foreignKeyMeta
 }
 
 // indexMeta is one index of a table: its key in order, with each column's
@@ -1333,6 +1362,13 @@ type resourceInfo struct {
 	DefaultsUpdateType string
 	ValidateCreateType string
 	ValidateUpdateType string
+	ValidateDeleteType string
+	// deleteCascade is the resource's @deleteCascade as written, nil where it declares
+	// none, and DeleteTree the description resolved from it once every resource is
+	// extracted (resolveDeleteTrees), which the tenant record has with no declaration,
+	// and so has any record with a kind of row under it that refuses its plain delete.
+	deleteCascade *deleteCascadeDecl
+	DeleteTree    *deleteTree
 	// EnumerationType names the @enumerate type whose table this struct backs. Such a
 	// resource is read-only by derivation: the table's rows are the program's
 	// constants, so no mutation handler is generated and its permissions stop at
@@ -1649,6 +1685,11 @@ func (r *resourceInfo) HasValidateCreateType() bool {
 // HasValidateUpdateType indicates if a validate update type has been registered
 func (r *resourceInfo) HasValidateUpdateType() bool {
 	return r.ValidateUpdateType != ""
+}
+
+// HasValidateDeleteType indicates if a validate delete type has been registered
+func (r *resourceInfo) HasValidateDeleteType() bool {
+	return r.ValidateDeleteType != ""
 }
 
 func (r *resourceInfo) PrimaryKeys() iter.Seq2[int, *resourceField] {
@@ -2434,6 +2475,7 @@ const (
 	defaultsUpdateTypeKeyword   string = "defaultsUpdateType"   // Specifies a type to call "Defaults()" on for setting defaults on resource update
 	validateCreateTypeKeyword   string = "validateCreateType"   // Specifies a type to call "Validate()" on for validating a resource on creation
 	validateUpdateTypeKeyword   string = "validateUpdateType"   // Specifies a type to call "Validate()" on for validating a resource on update
+	validateDeleteTypeKeyword   string = "validateDeleteType"   // Specifies a type to call "Validate()" on before a row of the resource is deleted: a delete rule no grant gets around
 	primarykeyKeyword           string = "primarykey"           // Designates a field as (part of) the primary key in a Computed or Virtual Resource
 	manualAddResourceKeyword    string = "manualAddResource"    // Declares a manual permission registration on an accesstypes.Resource constant
 	manualAddResourceSetKeyword string = "manualAddResourceSet" // Declares that hand-written handlers register this resource's permission Sets for the given handler types
@@ -2483,6 +2525,8 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		defaultsUpdateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		validateCreateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		validateUpdateTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		validateDeleteTypeKeyword:   {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		deleteCascadeKeyword:        {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		primarykeyKeyword:           {genlang.ScanField: genlang.NoArgs},
 		manualAddResourceKeyword:    {genlang.ScanConstant: genlang.ArgsRequired},
 		manualAddResourceSetKeyword: {genlang.ScanStruct: genlang.ArgsRequired},

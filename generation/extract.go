@@ -137,6 +137,12 @@ func (c *client) resolveAcrossResources(resources []*resourceInfo) error {
 		return err
 	}
 
+	// What is under a record crosses resources: a @deleteCascade is held to the schema,
+	// and the tenant record's description written, once every resource is extracted.
+	if err := c.resolveDeleteTrees(resources); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -304,6 +310,16 @@ func resolveResourceAnnotations(res *resourceInfo, annotations genlang.StructAnn
 	if annotations.Struct.Has(validateUpdateTypeKeyword) {
 		res.ValidateUpdateType = string(annotations.Struct.Get(validateUpdateTypeKeyword))
 	}
+	if annotations.Struct.Has(validateDeleteTypeKeyword) {
+		res.ValidateDeleteType = string(annotations.Struct.Get(validateDeleteTypeKeyword))
+	}
+	if annotations.Struct.Has(deleteCascadeKeyword) {
+		decl, err := parseDeleteCascade(res.Name(), annotations.Struct.Get(deleteCascadeKeyword))
+		if err != nil {
+			return err
+		}
+		res.deleteCascade = decl
+	}
 
 	// The list across tenants reads the scope and the suppressions resolved above.
 	return resolveListAcrossTenants(res, annotations)
@@ -341,10 +357,14 @@ func deriveEnumerationResource(res *resourceInfo, typeName string) error {
 		{defaultsUpdateTypeKeyword, res.DefaultsUpdateType},
 		{validateCreateTypeKeyword, res.ValidateCreateType},
 		{validateUpdateTypeKeyword, res.ValidateUpdateType},
+		{validateDeleteTypeKeyword, res.ValidateDeleteType},
 	} {
 		if c.value != "" {
 			conflicts = append(conflicts, "@"+c.keyword)
 		}
+	}
+	if res.deleteCascade != nil {
+		conflicts = append(conflicts, "@"+deleteCascadeKeyword)
 	}
 	if slices.Contains(res.ManualAddResourceSets, PatchHandler) {
 		conflicts = append(conflicts, fmt.Sprintf("@%s(%s)", manualAddResourceSetKeyword, PatchHandler))
@@ -1274,7 +1294,7 @@ func checkOpaqueInner(path string, shape *wireShape, seen map[*wireShape]bool) e
 // generatedSetMethods are the methods the generated set may declare on a resource's
 // struct (resourceFileTemplate), which no field of it may be named.
 func generatedSetMethods() []string {
-	return []string{"Resource", "DefaultConfig", "FileKeys", "SearchBranches", "SecretContext"}
+	return []string{"Resource", "DefaultConfig", "FileKeys", "DeleteTree", "SearchBranches", "SecretContext"}
 }
 
 // reservedRowName reports whether a column or field name collides with one of
