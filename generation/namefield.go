@@ -76,30 +76,47 @@ func (n *nameField) StructTag() string {
 // table-backed or virtual struct. The tenant record declares its name with @tenantName,
 // which names its rows everywhere @name would, and an enumeration table's rows are
 // known by its Description column without a declaration; @name is refused on both, on a
-// field that is not text, and on a second field.
+// field the resource never returns (a secret, a write-only field, a file's store key),
+// on a field that is not text, and on a second field.
 func (c *client) declareRowName(res *resourceInfo, pStruct *parser.Struct, annotations genlang.StructAnnotations) error {
 	for i, field := range pStruct.Fields() {
 		if !annotations.Fields[i].Has(nameKeyword) {
 			continue
 		}
 		_, enumeration := c.enumerationOf(c.pluralize(pStruct.Name()))
+		served := res.fieldNamed(field.Name())
 		switch {
 		case res.IsTenant:
 			return errors.Newf("struct %s field %s: @%s on the tenant record; a tenant's name is declared with @%s, which names the record's rows wherever @%s would, so write @%s here in its place", res.Name(), field.Name(), nameKeyword, tenantNameKeyword, nameKeyword, tenantNameKeyword)
 		case enumeration:
 			return errors.Newf("struct %s field %s: @%s on an enumeration table; its rows are known by their %s column already, so remove the annotation", res.Name(), field.Name(), nameKeyword, enumerationNameColumn)
+		case served == nil:
+			return errors.Newf("struct %s field %s: @%s on a field the resource does not serve, so no list could read a row's name from it; mark a field the resource serves or remove the annotation", res.Name(), field.Name(), nameKeyword)
+		case served.IsSecret():
+			return unreturnedRowNameRefusal(res, field, "a secret", fmt.Sprintf("%s:%q", conditionsTagKey, secretCondition))
+		case served.IsInputOnly():
+			return unreturnedRowNameRefusal(res, field, "a write-only field", fmt.Sprintf("%s:%q", conditionsTagKey, inputOnlyCondition))
+		case annotations.Fields[i].Has(fileKeyword):
+			// The field is marked the store key once the struct's files resolve, which
+			// is after its name: the annotation says as much here.
+			return unreturnedRowNameRefusal(res, field, "a file's store key", "@"+fileKeyword)
 		case !isStringOrNullableString(field.GoType()):
-			return errors.Newf("struct %s field %s: @%s on a %s field; the name a row is known by is a string or a nullable string (*string)", res.Name(), field.Name(), nameKeyword, field.Type())
+			return errors.Newf("struct %s field %s: @%s on %s field; the name a row is known by is a string or a nullable string (*string)", res.Name(), field.Name(), nameKeyword, withArticle(field.Type()))
 		case res.RowNameField != nil:
 			return errors.Newf("struct %s field %s: @%s on a second field; field %s carries it already, and a row is known by one name", res.Name(), field.Name(), nameKeyword, res.RowNameField.Name())
 		}
-		res.RowNameField = res.fieldNamed(field.Name())
-		if res.RowNameField == nil {
-			return errors.Newf("struct %s field %s: @%s on a field the resource does not serve", res.Name(), field.Name(), nameKeyword)
-		}
+		res.RowNameField = served
 	}
 
 	return nil
+}
+
+// unreturnedRowNameRefusal refuses @name on a field the resource never returns: kind is
+// what the field is, and declared the tag or annotation that makes it so. Every list
+// pointing to the resource reads its rows' names, for every person granted them, so the
+// name cannot be a value the release keeps to itself.
+func unreturnedRowNameRefusal(res *resourceInfo, field *parser.Field, kind, declared string) error {
+	return errors.Newf("struct %s field %s: @%s on %s (%s); a row's name is shown to everyone who may read the resource's names, and %s is never returned, so mark a field the resource returns or remove the annotation", res.Name(), field.Name(), nameKeyword, kind, declared, kind)
 }
 
 // rejectRowName refuses @name on a kind whose rows no name field can point to: a

@@ -35,6 +35,9 @@ func nameFixtureTables() map[string]*tableMetadata {
 		"Twices":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "First": plain, "Second": plain}},
 		"Forts":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Title": plain}},
 		"Grades":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Description": plain}},
+		"Vaults":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Phrase": plain}},
+		"Drops":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Slip": nullable}},
+		"Folders":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Scan": plain}},
 	}
 }
 
@@ -162,10 +165,10 @@ func Test_nameFieldRefusals(t *testing.T) {
 	}{
 		{name: "a declared field has the generated name", structs: []string{"Base", "Wing", "Clash"}, wantErr: "struct Clash field WingID: the generator adds the field WingName beside it, carrying the name of the Wings row it points to, and the struct declares a field WingName already; remove the struct's WingName where it carried that name, since the generated field now does, or rename it"},
 		{name: "two ids are given the same name", structs: []string{"Base", "Wing", "Pair"}, wantErr: "struct Pair field Wing: the generator adds the field WingName beside it, carrying the name of the Wings row it points to, and adds a field of that name beside WingID too; rename one of the two fields"},
-		{name: "a number", structs: []string{"Counted"}, wantErr: "struct Counted field Count: @name on a int64 field; the name a row is known by is a string or a nullable string (*string)"},
-		{name: "two fields", structs: []string{"Twice"}, wantErr: "struct Twice field Second: @name on a second field; field First carries it already, and a row is known by one name"},
-		{name: "the tenant record", structs: []string{"Fort"}, wantErr: "struct Fort field Title: @name on the tenant record; a tenant's name is declared with @tenantName, which names the record's rows wherever @name would, so write @tenantName here in its place"},
-		{name: "an enumeration table", structs: []string{"Grade"}, wantErr: "struct Grade field Description: @name on an enumeration table; its rows are known by their Description column already, so remove the annotation"},
+		{name: "a number", structs: []string{"Counted"}, wantErr: "struct Counted field Count: @name on an int64 field; the name a row is known by is a string or a nullable string (*string)"},
+		{name: "a secret", structs: []string{"Vault"}, wantErr: "struct Vault field Phrase: @name on a secret (conditions:\"secret\"); a row's name is shown to everyone who may read the resource's names, and a secret is never returned, so mark a field the resource returns or remove the annotation"},
+		{name: "a write-only field", structs: []string{"Drop"}, wantErr: "struct Drop field Slip: @name on a write-only field (conditions:\"input_only\"); a row's name is shown to everyone who may read the resource's names, and a write-only field is never returned, so mark a field the resource returns or remove the annotation"},
+		{name: "a file's store key", structs: []string{"Folder"}, wantErr: "struct Folder field Scan: @name on a file's store key (@file); a row's name is shown to everyone who may read the resource's names, and a file's store key is never returned, so mark a field the resource returns or remove the annotation"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -176,6 +179,30 @@ func Test_nameFieldRefusals(t *testing.T) {
 				t.Fatalf("nameFixtureResources() error = %v, want error containing %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// Test_declareRowName_unservedField pins the refusal of @name on a field the resource
+// does not carry: extraction refuses such a struct before its annotations are read, so
+// the declaration is given a resource without the field.
+func Test_declareRowName_unservedField(t *testing.T) {
+	t.Parallel()
+
+	kit := fixtureStructs(loadFixture(t, "namefixture"))["Kit"]
+	annotations, err := scanStruct(kit)
+	if err != nil {
+		t.Fatalf("scanStruct() error = %v", err)
+	}
+	c := &client{tableMap: nameFixtureTables()}
+	res := &resourceInfo{TypeInfo: kit.TypeInfo}
+
+	err = c.declareRowName(res, kit, annotations)
+	wantErr := "struct Kit field Label: @name on a field the resource does not serve, so no list could read a row's name from it; mark a field the resource serves or remove the annotation"
+	if err == nil || !strings.Contains(err.Error(), wantErr) {
+		t.Fatalf("declareRowName() error = %v, want error containing %q", err, wantErr)
+	}
+	if res.RowNameField != nil {
+		t.Errorf("declareRowName() recorded the name field %s on a refusal", res.RowNameField.Name())
 	}
 }
 

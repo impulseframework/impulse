@@ -77,6 +77,9 @@ func TestRequestLogWords(t *testing.T) {
 		wantStatus int
 		// wantEntry says whether the request's own entry is written.
 		wantEntry bool
+		// wantSays is the one sentence a refused request answers with, where the step
+		// reads it: it carries no id.
+		wantSays string
 	}{
 		{
 			name:       "a pulse for a charted sector writes no entry: the prefix is declared on event",
@@ -90,6 +93,7 @@ func TestRequestLogWords(t *testing.T) {
 			path:       "/beacons/" + unknownSector,
 			wantStatus: http.StatusNotFound,
 			wantEntry:  true,
+			wantSays:   "This sector does not exist.",
 		},
 		{
 			name:       "a reading that lands writes no entry: the method is declared on event",
@@ -122,6 +126,9 @@ func TestRequestLogWords(t *testing.T) {
 		status, body := droid(ctx, t, s, step.key, step.method, step.path, []byte(step.body))
 		if status != step.wantStatus {
 			t.Fatalf("%s: %s %s: status %d, want %d: %s", step.name, step.method, step.path, status, step.wantStatus, body)
+		}
+		if step.wantSays != "" && (!strings.Contains(string(body), step.wantSays) || strings.Contains(string(body), unknownSector)) {
+			t.Errorf("%s: the answer is %s, want it to say %q and to carry no id", step.name, body, step.wantSays)
 		}
 		entry := step.method + " " + step.path + " " + strconv.Itoa(status)
 		written := strings.Contains(output.String(), entry)

@@ -8,6 +8,7 @@ package namefixture
 
 import (
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // Struct-level annotations only parse from a TypeSpec doc comment, so the structs sit
@@ -186,5 +187,33 @@ type (
 		ID string `spanner:"Id"`
 		// @name
 		Description string `spanner:"Description"`
+	}
+
+	// Vault marks a secret as its name.
+	//
+	// @resource
+	Vault struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Phrase resource.Secret `spanner:"Phrase" conditions:"secret"`
+	}
+
+	// Drop marks a write-only field as its name.
+	//
+	// @resource
+	Drop struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Slip *string `spanner:"Slip" conditions:"input_only"`
+	}
+
+	// Folder marks the store key of its file as its name.
+	//
+	// @resource
+	Folder struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		// @file
+		Scan string `spanner:"Scan"`
 	}
 )
