@@ -441,7 +441,9 @@ var (
 	ErrConnectionNotInTenant = errors.New("signin: every tenant of the person admits its people through its own directory only, and the sign-in came through another directory")
 	// ErrDirectoryOnly is the cause when the tenant policy refused a sign-in that is not
 	// through a directory because every tenant of the person admits its people through
-	// its own directory only. The code is sessioninfo.RefusedDirectoryOnly.
+	// its own directory only. The code is sessioninfo.RefusedDirectoryOnly for a
+	// password or a session the application starts itself, and
+	// sessioninfo.RefusedDirectoryOnlyPersonalAccount for a personal account.
 	ErrDirectoryOnly = errors.New("signin: every tenant of the person admits its people through its own directory only")
 	// ErrUserDisabled is the cause when the sign-in resolved to a disabled user.
 	// The code is sessioninfo.RefusedUserDisabled.

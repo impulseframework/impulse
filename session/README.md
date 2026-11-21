@@ -642,9 +642,12 @@ The rules, in order, once the user is known:
 6. Otherwise every tenant of the person is directory only and none has the way they
    signed in as its directory: nothing would be reachable, and the sign-in is refused.
    A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect provider)
-   is refused with `connection_not_in_tenant`, and any other, a password, a personal
-   account (which is no tenant's directory) or a session the application started
-   itself, with `directory_only`.
+   is refused with `connection_not_in_tenant`. A sign-in with a personal account
+   (through Google or Microsoft, with an account that is in no organization's
+   directory, so no tenant's) is refused with `directory_only_personal_account`. Any
+   other, a password or a session the application started itself, is refused with
+   `directory_only`. The codes are apart so that a login page says what is true of how
+   the person signed in: a person who used no password is not told to stop using one.
 
 Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
 rule after the tenant policy, for what the tenant policy cannot know:
@@ -2811,7 +2814,8 @@ table is the wire contract:
 | `password_change_required` | `RefusedPasswordChangeRequired` | Auth: the signed-in user must change a password an operator set; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), every tenant that seats the person is directory only, and none of them has that directory as its own. |
-| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a personal account, a session the application started itself) by a person whose every tenant is directory only. A password sign-in by a person who administers one of those tenants is not refused: it is held for the second factor (see "The tenant policy", rule 2). |
+| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password, or a session the application started itself, by a person whose every tenant is directory only. A password sign-in by a person who administers one of those tenants is not refused: it is held for the second factor (see "The tenant policy", rule 2). |
+| `directory_only_personal_account` | `RefusedDirectoryOnlyPersonalAccount` | Auth, the tenant policy: a sign-in with a personal account (through Google or Microsoft, with an account that is in no organization's directory) by a person whose every tenant is directory only. The person used no password, so a login page asks them for their organization's account. |
 | `other_tenant` | `RefusedOtherTenant` | Never answered by the session library itself: the generated user management answers it from its hooks where the application declared that a person belongs to one tenant (`identity.WithOneTenantPerPerson()`). The invitation the sign-in carried, or the default role of the directory it came through, would give the person a role in a second tenant; the hook fails the sign-in's transaction, so nothing is consumed and no account is made. |
 | `organization_has_tenant` | `RefusedOrganizationHasTenant` | Never answered by the session library itself: the generated user management answers it from its invitation hook. The invitation the sign-in carried makes a tenant, and the organization's directory the person signed in through is already another tenant's; the hook fails the sign-in's transaction, so no tenant and no account is made and the invitation stands. |
 | `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
