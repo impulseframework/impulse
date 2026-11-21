@@ -7,6 +7,7 @@ export interface Announcements {
   tenantId?: string;
   title?: string;
   body?: string;
+  tenantName?: string;
 }
 
 export interface MembersGroups {
@@ -410,6 +411,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'title', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'body', displayType: 'string', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'tenantName', of: 'tenantId' }],
   },
   [Resources.MembersGroups]: {
     route: 'members-groups',

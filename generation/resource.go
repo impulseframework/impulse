@@ -450,6 +450,10 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 	if err := r.resolveTenantRecord(); err != nil {
 		return err
 	}
+	// A name field reads the enumerations and the tenant record's name resolved above.
+	if err := r.resolveNameFields(r.resources); err != nil {
+		return err
+	}
 
 	if err := r.holdIdentityTenantDirectory(); err != nil {
 		return err

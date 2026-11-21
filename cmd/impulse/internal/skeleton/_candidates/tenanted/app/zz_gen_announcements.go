@@ -19,10 +19,11 @@ import (
 
 func (a *App) Announcements() http.HandlerFunc {
 	type announcement struct {
-		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		TenantID impulse.UUID `json:"tenantId" index:"true"`
-		Title    string       `json:"title"    index:"true"`
-		Body     string       `json:"body"`
+		ID         impulse.UUID `json:"id"         index:"true"      perm:"-"`
+		TenantID   impulse.UUID `json:"tenantId"   index:"true"`
+		Title      string       `json:"title"      index:"true"`
+		Body       string       `json:"body"`
+		TenantName *string      `json:"tenantName" nameof:"TenantID"`
 	}
 
 	type response []map[string]any
@@ -61,7 +62,7 @@ func (a *App) Announcements() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*announcement)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -104,10 +105,11 @@ func (a *App) Announcements() http.HandlerFunc {
 
 func (a *App) Announcement() http.HandlerFunc {
 	type response struct {
-		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		TenantID impulse.UUID `json:"tenantId"`
-		Title    string       `json:"title"`
-		Body     string       `json:"body"`
+		ID         impulse.UUID `json:"id"         index:"true"      perm:"-"`
+		TenantID   impulse.UUID `json:"tenantId"`
+		Title      string       `json:"title"`
+		Body       string       `json:"body"`
+		TenantName *string      `json:"tenantName" nameof:"TenantID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Announcement, response](a, accesstypes.Read)
@@ -134,7 +136,7 @@ func (a *App) Announcement() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {

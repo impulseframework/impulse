@@ -33,6 +33,7 @@ export namespace Announcements {
     kindId: 'kindId' as FieldName,
     tenantId: 'tenantId' as FieldName,
     title: 'title' as FieldName,
+    tenantName: 'tenantName' as FieldName,
   };
   export const resourceName = {
     body: 'Announcements.body' as Resource,

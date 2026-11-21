@@ -96,8 +96,10 @@
   padding: 8px;
 }
 
-// The filter form is wider than Material's 280px menu cap. The panel renders in the
-// document-level overlay container, so this component style must cross encapsulation.
+// The filter form is wider than Material's 280px menu cap, and no wider than the window
+// less a margin: on a window narrower than the form the form's controls go onto more
+// lines (.filter-menu-content). The panel renders in the document-level overlay container,
+// so this component style must cross encapsulation.
 ::ng-deep .mat-mdc-menu-panel.impulse-grid-filter-menu {
   width: max-content;
   max-width: calc(100vw - 32px);
@@ -294,10 +296,16 @@ $held-header-layer: 6;
   }
 }
 
+// The filter form: the operator, the value's control, then Apply and Clear, on one line
+// where the window has the room. On a narrower window a control that does not fit goes
+// onto the next line at its own width: none is squeezed and none runs past the menu's
+// edge. The padding counts inside the width, so the form is never wider than its menu.
 .filter-menu-content {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  box-sizing: border-box;
   padding: 8px 12px;
   width: max-content;
   max-width: 100%;
@@ -318,18 +326,29 @@ $held-header-layer: 6;
     width: 118px;
   }
 
+  // A date and its time of day stay side by side, and go one under the other only on a
+  // window too narrow for the two.
+  .filter-date-time {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
   .filter-operator,
   .filter-choice {
     font: inherit;
     font-size: 13px;
     padding: 4px;
+    max-width: 100%;
     border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
     border-radius: 4px;
     background: var(--mat-sys-surface, #fff);
   }
 
   // The names of a field's fixed values, each with its tick, one under another: a long
-  // set scrolls inside the menu, so Apply and Clear stay where they are.
+  // set scrolls inside the menu, so Apply and Clear stay where they are. The list is as
+  // wide as its longest name; a name longer than the menu goes onto a second line.
   .filter-choices {
     display: flex;
     flex-direction: column;
@@ -343,7 +362,16 @@ $held-header-layer: 6;
     display: flex;
     align-items: center;
     gap: 6px;
-    white-space: nowrap;
+
+    input {
+      flex: none;
+    }
+  }
+
+  // Apply and Clear go onto the next line together, never one without the other.
+  .filter-actions {
+    display: flex;
+    gap: 6px;
   }
 }
 

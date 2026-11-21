@@ -341,11 +341,33 @@ export interface ResourceMeta {
    */
   searchBranches?: SearchBranchMeta[];
   /**
+   * The resource's name fields: beside an id field that points to a row with a name, the
+   * name of that row. A name is no column of the resource: it is looked up by the id in
+   * the pointed-to table, stored nowhere and never written. Absent on a resource none of
+   * whose id fields points to a row with a name.
+   */
+  nameFields?: NameFieldMeta[];
+  /**
    * The feature flag that gates the resource, by name; absent on an ungated resource.
    * The generated routes read it to skip the page while the flag is off. See
    * ResourceDescriptor.feature.
    */
   feature?: string;
+}
+
+/**
+ * One name field of a resource: the name of the row an id field points to, where the
+ * pointed-to resource says what its rows are known by (`@name`, the tenant record's
+ * `@tenantName`, or an enumeration table's description). It is spelled as the id field
+ * with a trailing `Id` dropped, then `Name`: `squadronId` gives `squadronName`.
+ */
+export interface NameFieldMeta {
+  /** The name field's JSON name, as the row type carries it. */
+  fieldName: string;
+  /** The id field the name stands beside, by JSON name. */
+  of: string;
+  /** Set when the pointed-to name is declared `pii`: a filter by it travels in the body. */
+  pii?: true;
 }
 
 export type Meta = MethodMeta | ResourceMeta;
