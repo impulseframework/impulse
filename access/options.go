@@ -119,8 +119,9 @@ func WithReloadErrorHandler(f func(error)) Option {
 // ids, so it says nothing about the people who hold the role. The engine
 // holds a grant written to a custom role, and one found in the store, to the
 // same rule under the same name. A set that names no auth is any auth's to
-// read. An empty auth refuses no grant for whose people its set describes, and
-// looks at every set.
+// read. An empty auth is refused where the collection knows several auths.
+// Where it knows one or none, it refuses no grant for whose people its set
+// describes, and looks at every set.
 func WithDefaultRoles(file RoleFile, auth string) Option {
 	return func(o *clientOptions) {
 		o.roleFile = file

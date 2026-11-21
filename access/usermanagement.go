@@ -546,7 +546,7 @@ func requireResources(rows []GrantRow) error {
 // resource declares and the subject vocabulary the application declares, a
 // field's condition being held to its resource's attributes; and, in an engine
 // whose role file was handed over under an auth's name, the condition reads no
-// set of another auth's people (validateGrantSetAuth), since the custom role is
+// set of another auth's people (anotherAuthsSet), since the custom role is
 // a role of that auth.
 //
 // A load of the policy holds a role's stored grant to the same rule

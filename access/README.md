@@ -949,30 +949,33 @@ warnings, err := access.ValidateRoles(collection, membersRoles, members.Name)
 The check of an auth looks at that auth's sets and at the sets that name no
 auth, and never at another auth's, so a set is never flagged as unread in the
 role file of an auth whose roles could not read it. The name is the one
-generation knows the auth by, the name of its package, and a file handed over
-under a name the collection's generation did not know is refused with the name
-given and the names known (`PermissionCollection.Auths`; the generated
-collection lists the application's auths as its run read them, and a union every
-site's). Two sites that say one set name describes two different auths' people
-are refused where the union is built (`UnionCollection`), naming the set and
-both auths: a role file reads a set by its name alone, so one of the two sets
-takes another name, or both name the same auth. Where the collections of a union
-together know several auths, a set that does not say whose people it describes
-is refused there too, naming the set: the union is where an application's sites
-meet, and it holds the rule for the auths one site's generation could not see. A
-grant whose condition reads a set that describes another auth's people is
-refused, naming the grant, the set and both auths: in the role file when it is
-loaded (`New`, `ValidateRoles`), and on a custom role when the grant is written.
-One found in the store is left out when the policy is loaded, and reported. The
-set is looked up by the other auth's ids, so it says nothing about the people
-who hold the role, whichever way the condition tests it. A set follows a person
-through sets of its own auth alone: generation refuses a `who:` that tests a set
-labeled for another auth, the set of a person's groups that the generator
-declares for another auth included. That set is named after its auth
-(`subject.staffGroups` for the auth `staff`) and names its auth without being
-told. An application with one auth need not write `auth:`: every set is that
-auth's. An engine handed an empty name, or opened with no role file, holds no
-grant to an auth's sets, and a check handed an empty name looks at every set.
+generation knows the auth by, the name of its package, and, where the
+collection's generation knew any auth, a file handed over under a name it did
+not know is refused with the name given and the names known
+(`PermissionCollection.Auths`; the generated collection lists the application's
+auths as its run read them, and a union every site's). Two sites that say one
+set name describes two different auths' people are refused where the union is
+built (`UnionCollection`), naming the set and both auths: a role file reads a
+set by its name alone, so one of the two sets takes another name, or both name
+the same auth. Where the collections of a union together know several auths, a
+set that does not say whose people it describes is refused there too, naming the
+set: the union is where an application's sites meet, and it holds the rule for
+the auths one site's generation could not see. A grant whose condition reads a
+set that describes another auth's people is refused, naming the grant, the set
+and both auths: in the role file when it is loaded (`New`, `ValidateRoles`), and
+on a custom role when the grant is written. One found in the store is left out
+when the policy is loaded, and reported. The set is looked up by the other
+auth's ids, so it says nothing about the people who hold the role, whichever way
+the condition tests it. A set follows a person through sets of its own auth
+alone: generation refuses a `who:` that tests a set labeled for another auth,
+the set of a person's groups that the generator declares for another auth
+included. That set is named after its auth (`subject.staffGroups` for the auth
+`staff`) and names its auth without being told. An application with one auth
+need not write `auth:`: every set is that auth's. Where the collection knows
+several auths, an engine is told whose roles it holds: `New` refuses an empty
+name and refuses to open with no role file, and `ValidateRoles` refuses an empty
+name. Where it knows one auth or none, an empty name holds no grant to an auth's
+sets, and its check looks at every set.
 
 ### Behavior
 

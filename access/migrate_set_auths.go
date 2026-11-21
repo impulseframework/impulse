@@ -13,12 +13,14 @@ import (
 // Whose people a set describes, held on a role's grants. A subject set gathers rows by
 // the ids of one auth's people (auth: in its @subjectSet), and a role is given to the
 // people of the auth whose role file declares it. A grant of one auth's role that reads
-// another auth's set is looked up by ids its holders do not have: it gives them nothing,
-// or, where an id of theirs is also an id of the other auth's, another person's rows. So
-// the grant is refused where the role file is loaded with its auth's name, and so is a
-// custom role's grant in the engine the file is handed to, which is a role of the same
-// auth (grantRule). A set that names no auth is any auth's to read, and a file handed
-// over with no name is held to no auth's sets.
+// another auth's set is looked up by ids its holders do not have, so the set says
+// nothing about them: a test of it gives them nothing, a negated test every row, and,
+// where an id of theirs is also an id of the other auth's, what the set says of another
+// person. So the grant is refused where the role file is loaded with its auth's name,
+// and so is a custom role's grant in the engine the file is handed to, which is a role
+// of the same auth (grantRule). A set that names no auth is any auth's to read. A file
+// handed over with no name is held to no auth's sets where the collection knows one
+// auth or none, and is refused where it knows several (validateAuthName).
 
 // validateAuthName refuses a role file handed over under a name that is no auth the
 // collection's generation knew (PermissionCollection.Auths). The name is what ties the
@@ -100,13 +102,13 @@ func validateGrantSetAuth(store PermissionCollection, auth string, role accessty
 	return nil
 }
 
-// anotherAuthsSet says why a condition of a role of auth may not read the first set it
-// reads, in the order it reads them, that describes another auth's people, or nil when
-// it reads none. It is the one place the rule is written: the role file
-// (validateGrantSetAuth), a write to a custom role and a load of the policy
-// (grantRule.refusal) each ask it with the auth's name as its package names it, and
-// add the role, the permission and the resource themselves. An empty auth is held to
-// no auth's sets, and a set that names no auth is any auth's to read.
+// anotherAuthsSet says why a condition of a role of auth may not read a set that
+// describes another auth's people, naming the first such set in name order
+// (condition.SubjectSets), or nil when it reads none. It is the one place the rule is
+// written: the role file (validateGrantSetAuth), a write to a custom role and a load
+// of the policy (grantRule.refusal) each ask it with the auth's name as its package
+// names it, and add the role, the permission and the resource themselves. An empty
+// auth is held to no auth's sets, and a set that names no auth is any auth's to read.
 func anotherAuthsSet(store PermissionCollection, auth string, expr condition.Expr) error {
 	if auth == "" {
 		return nil
