@@ -125,7 +125,7 @@ describe('the hazard board', () => {
   it('draws each ship and subsystem with its worst reading in words, when it was recorded and the readings behind it', async () => {
     await create(board);
 
-    expect(element().querySelector('h1.title')?.textContent?.trim()).toBe('Hazard board (3)');
+    expect(element().querySelector('h1.impulse-resource-list-title')?.textContent?.trim()).toBe('Hazard board (3)');
     expect(Array.from(element().querySelectorAll('th .col-header')).map((h) => h.textContent?.trim())).toEqual([
       'Ship',
       'Subsystem',
@@ -162,7 +162,7 @@ describe('the hazard board', () => {
 
     // A row is one ship's one subsystem: no View column, no menu, no button of any kind.
     expect(element().querySelectorAll('td.action-col')).toHaveLength(0);
-    expect(element().querySelector('.create-button')).toBeNull();
+    expect(element().querySelector('.impulse-resource-list-create-button')).toBeNull();
     const pressable = Array.from(element().querySelectorAll('th button.header-label .col-header')).map((h) =>
       h.textContent?.trim(),
     );

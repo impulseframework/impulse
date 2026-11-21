@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -652,6 +653,25 @@ type tsConstantsData struct {
 	// generated methods.
 	ManualMethods []accesstypes.Resource
 	PIIMap        map[accesstypes.Resource]map[accesstypes.Tag]bool
+	// NameFields are each resource's name fields, which the field-name constants are
+	// written for beside its registered tags.
+	NameFields tsNameFields
+}
+
+// tsNameFields are each resource's name fields by JSON name, in field order. A name
+// field registers no tag, since a name takes no grant of its own, so the field-name
+// constants read them from here.
+type tsNameFields map[accesstypes.Resource][]accesstypes.Tag
+
+// FieldNameTags are the names a resource's field-name constants are written for: its
+// registered tags, then its name fields.
+func (n tsNameFields) FieldNameTags(res accesstypes.Resource, tags []accesstypes.Tag) []accesstypes.Tag {
+	names := n[res]
+	if len(names) == 0 {
+		return tags
+	}
+
+	return append(slices.Clone(tags), names...)
 }
 
 type tsResourcesData struct {

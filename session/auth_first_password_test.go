@@ -468,6 +468,14 @@ func firstPasswordCase11(t *testing.T) {
 			wantEnded: true,
 		},
 		{
+			name: "the confirmed address was replaced by one that reads as it only once Unicode folds the Kelvin sign: the code is ended",
+			change: func(user *sessionstorage.SessionUser) {
+				user.Email = strPtr(strings.Replace(*user.Email, "k", "\u212A", 1))
+			},
+			wantSays:  "Ask for a new one",
+			wantEnded: true,
+		},
+		{
 			name: "the address is no longer confirmed: the account is told to confirm one",
 			change: func(user *sessionstorage.SessionUser) {
 				user.EmailVerifiedAt = nil

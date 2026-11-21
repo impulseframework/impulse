@@ -19,7 +19,7 @@ const StateAttribute = "state"
 // §04). Bindings travel in generated code — the Collection is the
 // authoritative attribute listing — never as store rows: the generator
 // compiles the field-level binding annotations and registers the result here,
-// where deployment tooling (MigrateRoles condition validation) and the SQL
+// where role validation (access.ValidateRoles) and the SQL
 // lowering read it back.
 
 // BindingHop is one resolved step of a join path: read Table, joined on
@@ -33,7 +33,7 @@ type BindingHop struct {
 }
 
 // AttributeType is the attribute comparison-type vocabulary, canonically
-// defined in accesstypes so deployment tooling (MigrateRoles) shares one
+// defined in accesstypes so role validation (access.ValidateRoles) shares one
 // definition with generation.
 type AttributeType = accesstypes.AttributeType
 
@@ -231,7 +231,7 @@ func (g *GeneratedCollection) Bindings(scope accesstypes.PermissionScope, res ac
 }
 
 // The flat vocabulary accessors below answer with basic types only, so
-// deployment tooling (access.MigrateRoles) can consume the Collection through
+// the access package (access.New, access.ValidateRoles) can consume the Collection through
 // a structural interface without importing this package.
 
 // AttributeComparisonType resolves an attribute's comparison type on one

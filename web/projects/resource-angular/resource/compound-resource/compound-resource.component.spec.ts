@@ -434,8 +434,8 @@ describe('CompoundResourceComponent row page, a method above a child list that n
     ],
   });
   const buttons = (fixture: ComponentFixture<unknown>): (string | undefined)[] =>
-    Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button.list-method')).map((button) =>
-      button.textContent?.replace(/\s+/g, ' ').trim(),
+    Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button.impulse-resource-list-method')).map(
+      (button) => button.textContent?.replace(/\s+/g, ' ').trim(),
     );
 
   for (const tt of [
@@ -769,7 +769,9 @@ describe("CompoundResourceComponent: the page's title", () => {
     const title = headingRow(fixture).querySelector('h1') as HTMLElement;
     expect(title.classList.contains('impulse-section')).toBe(true);
     expect(
-      element(fixture).querySelector('impulse-resource-list h1.title')?.classList.contains('impulse-section'),
+      element(fixture)
+        .querySelector('impulse-resource-list h1.impulse-resource-list-title')
+        ?.classList.contains('impulse-resource-list-section'),
     ).toBe(true);
     // No rule of the view's own (its sections' space above) is laid on it: it sits in the
     // row as the page's title does, as high as the buttons beside it.
@@ -795,7 +797,9 @@ describe("CompoundResourceComponent: the page's title", () => {
     expect(title?.textContent).toBe('Squadron');
     expect(title?.classList.contains('impulse-section')).toBe(false);
     expect(
-      element(fixture).querySelector('impulse-resource-list h1.title')?.classList.contains('impulse-section'),
+      element(fixture)
+        .querySelector('impulse-resource-list h1.impulse-resource-list-title')
+        ?.classList.contains('impulse-resource-list-section'),
     ).toBe(true);
   });
 
@@ -859,9 +863,11 @@ describe("CompoundResourceComponent: the page's title", () => {
   };
   /** The title row of the list under the row, and the background the list's stylesheet gives it. */
   const listTitleRow = (fixture: ComponentFixture<unknown>): { row: HTMLElement; background: string } => {
-    const row = element(fixture).querySelector('impulse-resource-list .header-container') as HTMLElement;
-    expect(row.classList.contains('show-background')).toBe(true);
-    return { row, background: background(declared(row, ['.show-background'])) };
+    const row = element(fixture).querySelector(
+      'impulse-resource-list .impulse-resource-list-header-container',
+    ) as HTMLElement;
+    expect(row.classList.contains('impulse-resource-list-show-background')).toBe(true);
+    return { row, background: background(declared(row, ['.impulse-resource-list-show-background'])) };
   };
 
   it('draws its own title row on the surface the title row of a list is drawn on, so what scrolls under a row that stays at the top does not show through it', async () => {

@@ -769,22 +769,24 @@ func Test_userManager_defaults_RolePermissions(t *testing.T) {
 	}
 }
 
-// Test_userManager_defaults_RoleGrants pins the as-held listing with
-// conditions: a default role's grants come from the file, unconditional rows
-// under the empty condition; a custom role's come from the store where it is
-// held, reachable through one domain when held in every domain; a role that
-// does not exist in the scope is not found.
+// Test_userManager_defaults_RoleGrants pins the listing with conditions: a
+// default role's grants come from the file, unconditional rows under the empty
+// condition; a custom role's come from the store where it is held, reachable
+// through one domain when held in every domain; a role that does not exist in
+// the scope is not found. Each grant here is one its role holds, so none is
+// marked skipped (TestClient_storedGrantIsHeldToTheWritesRule lists the rows a
+// load leaves out).
 func Test_userManager_defaults_RoleGrants(t *testing.T) {
 	t.Parallel()
 
-	fileGrants := map[accesstypes.Permission]map[accesstypes.Resource][]string{
-		"Read": {"Widgets": {""}, "Widgets.name": {""}},
+	fileGrants := map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{
+		"Read": {"Widgets": {{Condition: ""}}, "Widgets.name": {{Condition: ""}}},
 	}
 	tests := []struct {
 		name    string
 		scope   accesstypes.PolicyScope
 		role    accesstypes.Role
-		want    map[accesstypes.Permission]map[accesstypes.Resource][]string
+		want    map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant
 		wantErr func(error) bool
 	}{
 		{name: "a domain default's grants are the file's in one domain", scope: tenant1Policy, role: domainDefault, want: fileGrants},
@@ -793,25 +795,25 @@ func Test_userManager_defaults_RoleGrants(t *testing.T) {
 			name:  "a global default's grants are the file's in the global partition",
 			scope: globalPolicy,
 			role:  globalDefault,
-			want:  map[accesstypes.Permission]map[accesstypes.Resource][]string{"Execute": {"DoThing": {""}}},
+			want:  map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{"Execute": {"DoThing": {{Condition: ""}}}},
 		},
 		{
 			name:  "a custom role answers its own rows with their conditions",
 			scope: tenant1Policy,
 			role:  "Zed",
-			want:  map[accesstypes.Permission]map[accesstypes.Resource][]string{"Read": {"Widgets": {""}}},
+			want:  map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{"Read": {"Widgets": {{Condition: ""}}}},
 		},
 		{
 			name:  "a custom role held in every domain answers through one domain",
 			scope: tenant1Policy,
 			role:  "Everywhere",
-			want:  map[accesstypes.Permission]map[accesstypes.Resource][]string{"Read": {"Widgets": {"price < 10"}}},
+			want:  map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{"Read": {"Widgets": {{Condition: "price < 10"}}}},
 		},
 		{
 			name:  "a custom role held in every domain answers there",
 			scope: everyDomainPolicy,
 			role:  "Everywhere",
-			want:  map[accesstypes.Permission]map[accesstypes.Resource][]string{"Read": {"Widgets": {"price < 10"}}},
+			want:  map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{"Read": {"Widgets": {{Condition: "price < 10"}}}},
 		},
 		{name: "a role nothing defines is not found", scope: tenant1Policy, role: "Ghost", wantErr: httpio.HasNotFound},
 		{name: "a domain default in the global partition is not found", scope: globalPolicy, role: domainDefault, wantErr: httpio.HasNotFound},

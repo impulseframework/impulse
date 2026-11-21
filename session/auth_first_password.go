@@ -275,7 +275,7 @@ func (a *Auth[S, U, Tx]) sendFirstPasswordCode(ctx context.Context, userID impul
 	}
 	email := *user.Email
 	// An address no message can be sent to is no address for the code: the simulated
-	// build's directories vouch for a person under their login name. The account is
+	// build's Google directory vouches for a person under their login name. The account is
 	// told what one with no confirmed address is, which says how to add one.
 	if _, err := address(email); err != nil {
 		return nil, errNoConfirmedAddress()
@@ -386,7 +386,7 @@ func (a *Auth[S, U, Tx]) proveFirstPasswordCode(ctx context.Context, userID impu
 	}
 	// The newest is the one the person was sent last.
 	standing := codes[len(codes)-1]
-	if !strings.EqualFold(standing.Email, confirmed) {
+	if !sameAddress(standing.Email, confirmed) {
 		if err := a.endFirstPasswordCodes(ctx, codes); err != nil {
 			return nil, err
 		}

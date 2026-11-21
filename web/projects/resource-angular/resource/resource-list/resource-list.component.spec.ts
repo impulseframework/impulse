@@ -32,6 +32,7 @@ import {
   rootConfig,
 } from '@impulseframework/resource-angular/types';
 
+import { notNamedFor } from '../../auth-frame/frame-testing';
 import { CompoundResourceComponent } from '../compound-resource/compound-resource.component';
 import {
   DeleteConfirmation,
@@ -425,9 +426,9 @@ describe('ResourceListComponent', () => {
       headers: { 'total-count': '2' },
     };
     const container = (): HTMLElement =>
-      (fixture.nativeElement as HTMLElement).querySelector('.page-container') as HTMLElement;
+      (fixture.nativeElement as HTMLElement).querySelector('.impulse-resource-list-page-container') as HTMLElement;
     const title = (): string | undefined =>
-      (fixture.nativeElement as HTMLElement).querySelector('h1.title')?.textContent?.trim();
+      (fixture.nativeElement as HTMLElement).querySelector('h1.impulse-resource-list-title')?.textContent?.trim();
     /** What the list's stylesheet declares in the rules whose selector names every one of `names`. */
     const declares = (names: string[]): string => {
       const sheet = Array.from(document.querySelectorAll('style'))
@@ -455,33 +456,37 @@ describe('ResourceListComponent', () => {
       await open({ showRowCount: true });
 
       // Nothing has been answered: the heading is not drawn, and it keeps its room.
-      expect(container().classList.contains('heading-held')).toBe(true);
-      expect(declares(['.heading-held', '.header-container'])).toMatch(/visibility:\s*hidden/);
-      expect(declares(['.heading-held', '.search-container'])).toMatch(/visibility:\s*hidden/);
+      expect(container().classList.contains('impulse-resource-list-heading-held')).toBe(true);
+      expect(declares(['.impulse-resource-list-heading-held', '.impulse-resource-list-header-container'])).toMatch(
+        /visibility:\s*hidden/,
+      );
+      expect(declares(['.impulse-resource-list-heading-held', '.impulse-resource-list-search-container'])).toMatch(
+        /visibility:\s*hidden/,
+      );
 
       answer(twoShips);
       await settle();
 
-      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(container().classList.contains('impulse-resource-list-heading-held')).toBe(false);
       expect(title()).toBe('Ships (2)');
     });
 
     it('draws it without a count once the list is refused: a refusal is an answer too', async () => {
       await open({ showRowCount: true });
-      expect(container().classList.contains('heading-held')).toBe(true);
+      expect(container().classList.contains('impulse-resource-list-heading-held')).toBe(true);
 
       answer({ status: 403, body: { message: 'the caller may not list ships' } });
       await settle();
 
       expect(fixture.componentInstance.store.pageStatus()).toBe('error');
-      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(container().classList.contains('impulse-resource-list-heading-held')).toBe(false);
       expect(title()).toBe('Ships');
     });
 
     it('draws a title that carries no count from the start: nothing of it waits for the rows', async () => {
       await open({ showRowCount: false });
 
-      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(container().classList.contains('impulse-resource-list-heading-held')).toBe(false);
       expect(title()).toBe('Ships');
 
       answer(twoShips);
@@ -503,7 +508,7 @@ describe('ResourceListComponent', () => {
 
       expect(transport.requests.length).toBe(2);
       expect(fixture.componentInstance.store.pageStatus()).toBe('loading');
-      expect(container().classList.contains('heading-held')).toBe(false);
+      expect(container().classList.contains('impulse-resource-list-heading-held')).toBe(false);
       expect(title()).toBe('Ships (2)');
     });
   });
@@ -676,9 +681,9 @@ describe('ResourceListComponent', () => {
       );
 
     const noticesOf = (element: HTMLElement): (string | undefined)[] =>
-      Array.from(element.querySelectorAll('.notice[role="status"] .notice-words')).map((words) =>
-        words.textContent?.trim(),
-      );
+      Array.from(
+        element.querySelectorAll('.impulse-resource-list-notice[role="status"] .impulse-resource-list-notice-words'),
+      ).map((words) => words.textContent?.trim());
 
     // What the server says of a read it refuses, as it says it: the scope, the person's id,
     // the permission and the resource. None of it is for the screen.
@@ -838,7 +843,7 @@ describe('ResourceListComponent', () => {
       fixture.detectChanges();
       await turns();
       expect(noticesOf(element)).toEqual([sentence]);
-      const line = element.querySelector('.notice[role="status"]');
+      const line = element.querySelector('.impulse-resource-list-notice[role="status"]');
 
       // Another order brings another row, so another client to read: the read is on its
       // way again, and the line it left stands where it was, the same line. The row the
@@ -848,7 +853,7 @@ describe('ResourceListComponent', () => {
       expect(cellsOf(element)).toEqual([['Kestrel', 'Client c-1']]);
       expect([clientsAsked, answer.length, read()]).toEqual([2, 1, 'loading']);
       expect(noticesOf(element)).toEqual([sentence]);
-      expect(element.querySelector('.notice[role="status"]')).toBe(line);
+      expect(element.querySelector('.impulse-resource-list-notice[role="status"]')).toBe(line);
 
       // Refused too: still the one line, never taken away in between, and the new row is
       // drawn with what the page gives for a row whose record is not read.
@@ -857,7 +862,7 @@ describe('ResourceListComponent', () => {
       expect(read()).toBe('error');
       expect(cellsOf(element)).toEqual([['Vega', 'Client c-2']]);
       expect(noticesOf(element)).toEqual([sentence]);
-      expect(element.querySelector('.notice[role="status"]')).toBe(line);
+      expect(element.querySelector('.impulse-resource-list-notice[role="status"]')).toBe(line);
 
       // A third client is asked for, and that read answers: the line is there while it is asked, and gone once it has answered.
       fixture.componentInstance.onSortChange([{ field: 'name', direction: 'asc' }]);
@@ -913,7 +918,7 @@ describe('ResourceListComponent', () => {
       const sentence = 'You do not have permission to see the records named in the Client column.';
       expect(clientReads()).toEqual(['c-1,c-2']);
       expect(noticesOf(element)).toEqual([sentence]);
-      const line = element.querySelector('.notice[role="status"]');
+      const line = element.querySelector('.impulse-resource-list-notice[role="status"]');
 
       // Sorted the other way, the list reads its rows again and they name the same two
       // clients, the other one first. The server has said it will not answer for them.
@@ -935,7 +940,7 @@ describe('ResourceListComponent', () => {
       expect(clientReads()).toEqual(['c-1,c-2']);
       expect(fixture.componentInstance.resourceRefMap().get('Clients::id')?.status()).toBe('error');
       expect(noticesOf(element)).toEqual([sentence]);
-      expect(element.querySelector('.notice[role="status"]')).toBe(line);
+      expect(element.querySelector('.impulse-resource-list-notice[role="status"]')).toBe(line);
       expect(written(consoleError)).toEqual([
         `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
       ]);
@@ -1986,17 +1991,21 @@ describe('ResourceListComponent', () => {
       // mission there, so the list says what happened, above its rows.
       const element = fixture.nativeElement as HTMLElement;
       expect(rowLinks()).toEqual([null, null]);
-      expect(element.querySelector('.links-unread .notice-words')?.textContent?.trim()).toBe(
-        'The links to open some rows could not be loaded.',
-      );
+      expect(
+        element
+          .querySelector('.impulse-resource-list-links-unread .impulse-resource-list-notice-words')
+          ?.textContent?.trim(),
+      ).toBe('The links to open some rows could not be loaded.');
 
       digestFails = undefined;
-      element.querySelector<HTMLButtonElement>('.links-unread button.try-again')!.click();
+      element
+        .querySelector<HTMLButtonElement>('.impulse-resource-list-links-unread button.impulse-resource-list-try-again')!
+        .click();
       fixture.detectChanges();
       await settle();
       await settle();
 
-      expect(element.querySelector('.links-unread')).toBeNull();
+      expect(element.querySelector('.impulse-resource-list-links-unread')).toBeNull();
       expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
       // The tenant that answered is not asked again.
       expect(digestRequests()).toEqual([
@@ -2004,6 +2013,24 @@ describe('ResourceListComponent', () => {
         `/api/permission-digest?domain=${bastion}`,
         `/api/permission-digest?domain=${anvil}`,
       ]);
+    });
+
+    it("names the state for the list: a page's rule for its own .links-unread or .try-again lands on nothing of it", async () => {
+      await page(missions);
+      digestFails = anvil;
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      const element = fixture.nativeElement as HTMLElement;
+      // The state is drawn under the list's own names, the button inside the notice.
+      expect(
+        element.querySelector('.impulse-resource-list-links-unread button.impulse-resource-list-try-again'),
+      ).not.toBeNull();
+      // And nothing of the list answers to either bare name.
+      expect([...element.querySelectorAll('.links-unread, .try-again')].map((named) => named.className)).toEqual([]);
+      // Nor is any other class of the list, drawn here or named by its stylesheet, a plain one.
+      expect(notNamedFor('impulse-resource-list-', element)).toEqual([]);
     });
 
     it('says nothing where every digest answers, and nothing for a tenant the server refuses', async () => {
@@ -2015,7 +2042,7 @@ describe('ResourceListComponent', () => {
 
       // Bastion is not there for this session: its row has no link, and that is an answer.
       expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
-      expect((fixture.nativeElement as HTMLElement).querySelector('.links-unread')).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).querySelector('.impulse-resource-list-links-unread')).toBeNull();
     });
 
     it('draws no row before the digest of every tenant on the page has answered: no link arrives on a row already drawn', async () => {

@@ -139,7 +139,7 @@ describe('ResourceListCreateComponent, where its create opens', () => {
     fixture.detectChanges();
 
     expect((open.mock.calls[0][1] as { data: { loadCreatedResource: boolean } }).data.loadCreatedResource).toBe(true);
-    const list = page().querySelector('impulse-resource-list .page-container');
+    const list = page().querySelector('impulse-resource-list .impulse-resource-list-page-container');
     expect(list).not.toBeNull();
     expect(list?.classList.contains('hide')).toBe(false);
     expect(page().querySelector('impulse-resource-create')).toBeNull();
@@ -256,9 +256,9 @@ describe("ResourceListCreateComponent, the lists below a page's list", () => {
     return { fixture, urls: () => transport.requests.map((request) => decodeURIComponent(request.url)) };
   }
   const titles = (fixture: ComponentFixture<unknown>): (string | undefined)[] =>
-    Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('impulse-resource-list h1.title')).map((title) =>
-      title.textContent?.trim(),
-    );
+    Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('impulse-resource-list h1.impulse-resource-list-title'),
+    ).map((title) => title.textContent?.trim());
 
   it('draws the list the page is built on, then each list named below it, in order', async () => {
     const { fixture } = await draw(true);
@@ -382,9 +382,11 @@ describe('ResourceListCreateComponent, the page a router that binds inputs opens
   }
 
   const titles = (): (string | undefined)[] =>
-    Array.from((harness.routeNativeElement as HTMLElement).querySelectorAll('impulse-resource-list h1.title')).map(
-      (title) => title.textContent?.trim(),
-    );
+    Array.from(
+      (harness.routeNativeElement as HTMLElement).querySelectorAll(
+        'impulse-resource-list h1.impulse-resource-list-title',
+      ),
+    ).map((title) => title.textContent?.trim());
   /** How many times each of the page's two lists has asked for its rows. */
   const asked = (): { heldNow: number; ended: number } => {
     const urls = transport.requests.map((request) => decodeURIComponent(request.url));

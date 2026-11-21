@@ -297,6 +297,50 @@ func testFactorCodesInsertedAtOnce(ctx context.Context, t *testing.T, h *AuthHar
 	}
 }
 
+// testAddressTakenOffEndsCodes holds an administrator's taking of an address off a user
+// to the sign-in codes mailed before it: every live code of the user's pending sign-ins
+// is consumed in the transaction that takes the address off, so none of them can write
+// the address back, and another user's codes stand.
+func testAddressTakenOffEndsCodes(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	pat, lee := createUser(ctx, t, in.Driver, "pat"), createUser(ctx, t, in.Driver, "lee")
+	if err := in.Driver.SetUserEmail(ctx, pat.ID, strPtr(codeAddress)); err != nil {
+		t.Fatalf("SetUserEmail() error = %v", err)
+	}
+	waits := []*dbtype.PendingSignIn{
+		insertPending(ctx, t, in.Driver, pat.ID, tokenHash(1)),
+		insertPending(ctx, t, in.Driver, pat.ID, tokenHash(2)),
+		insertPending(ctx, t, in.Driver, lee.ID, tokenHash(3)),
+	}
+	codes := make([]*dbtype.FactorCode, len(waits))
+	for i, wait := range waits {
+		codes[i] = newFactorCode(wait.ID, tokenHash(byte(10+i)))
+		if err := in.Driver.InsertFactorCode(ctx, codes[i], time.Now()); err != nil {
+			t.Fatalf("InsertFactorCode() error = %v", err)
+		}
+	}
+
+	if err := in.Driver.SetUserEmail(ctx, pat.ID, nil); err != nil {
+		t.Fatalf("SetUserEmail(nil) error = %v", err)
+	}
+	assertEmail(t, "User() after the address was taken off", mustUser(ctx, t, in.Driver, pat.ID), nil, false)
+	for i, whose := range []string{"the user's first pending sign-in", "the user's second pending sign-in"} {
+		if _, err := in.Driver.FactorCodeByPending(ctx, waits[i].ID, time.Now()); !httpio.HasNotFound(err) {
+			t.Errorf("FactorCodeByPending() of %s after the address was taken off error = %v, want NotFound: the code is ended", whose, err)
+		}
+		if state := factorCodeState(ctx, t, in.Driver, codes[i].ID); state.ConsumedAt == nil {
+			t.Errorf("the code of %s is not consumed after the address was taken off", whose)
+		}
+	}
+	if got, err := in.Driver.FactorCodeByPending(ctx, waits[2].ID, time.Now()); err != nil || got.ID != codes[2].ID {
+		t.Errorf("FactorCodeByPending() of another user's pending sign-in = %v, %v, want its code standing", got, err)
+	}
+
+	if err := in.Driver.SetUserEmail(ctx, impulse.Must(impulse.NewUUID()), nil); !httpio.HasNotFound(err) {
+		t.Errorf("SetUserEmail(nil) of a user that does not exist error = %v, want NotFound", err)
+	}
+}
+
 func testTrustedDeviceLifecycle(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	user := createUser(ctx, t, in.Driver, "pat@lakeside.edu")

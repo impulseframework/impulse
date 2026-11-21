@@ -77,6 +77,10 @@ func tagToFieldMap(v any) (*RequestFieldMapper, error) {
 		fields:          make([]accesstypes.Field, 0, vType.NumField()),
 	}
 	for _, field := range reflect.VisibleFields(vType) {
+		// A name field is no column: no request names it and no statement reads it here.
+		if isNameField(field.Tag) {
+			continue
+		}
 		tag := field.Tag.Get(jsonTagKey)
 		if tag == "" {
 			if _, ok := mapper.jsonTagToFields[field.Name]; ok {

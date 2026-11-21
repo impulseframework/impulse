@@ -304,6 +304,43 @@ func Test_UnionCollection(t *testing.T) {
 	}
 }
 
+// Test_UnionCollection_refusesANilMember pins that a collection handed over as nil is
+// refused with a sentence saying which one and what to pass, wherever it stands among
+// the arguments: the nil interface, and a nil pointer of a collection's type, which a
+// variable nothing was assigned to hands over. The first question the union asked such
+// a member used to panic.
+func Test_UnionCollection_refusesANilMember(t *testing.T) {
+	t.Parallel()
+
+	const says = " (in argument order) is nil: pass each site's permission collection, its generated router's Collection()"
+	console := &stubCollection{list: registry("Read", "Widgets")}
+	var unassigned *stubCollection
+	tests := []struct {
+		name        string
+		collections []PermissionCollection
+		want        string
+	}{
+		{name: "nil alone", collections: []PermissionCollection{nil}, want: "UnionCollection: collection 1" + says},
+		{name: "nil before a collection", collections: []PermissionCollection{nil, console}, want: "UnionCollection: collection 1" + says},
+		{name: "nil after a collection", collections: []PermissionCollection{console, nil}, want: "UnionCollection: collection 2" + says},
+		{name: "a nil pointer of a collection's type", collections: []PermissionCollection{console, unassigned}, want: "UnionCollection: collection 2" + says},
+		{name: "a nil pointer of a collection's type alone", collections: []PermissionCollection{unassigned}, want: "UnionCollection: collection 1" + says},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			union, err := UnionCollection(tt.collections...)
+			if err == nil || !strings.HasSuffix(err.Error(), tt.want) {
+				t.Fatalf("UnionCollection() error = %v, want one ending %q", err, tt.want)
+			}
+			if union != nil {
+				t.Errorf("UnionCollection() = %v beside an error, want nil", union)
+			}
+		})
+	}
+}
+
 func Test_unionCollection_answers(t *testing.T) {
 	t.Parallel()
 

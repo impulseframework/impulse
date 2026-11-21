@@ -7,7 +7,7 @@
 // The generator is parameterized by a Vocabulary: the attribute names with
 // their comparison types, the subject-set and subject-value names with
 // theirs, and whether the post-image (new.) is legal. It emits condition.Expr
-// values the parser accepts and that deploy validation (access.MigrateRoles)
+// values the parser accepts and that role validation (access.ValidateRoles)
 // admits for that vocabulary — literals typed to their attribute, subject
 // against string attributes, now against timestamps, a subject value or set
 // only beside an attribute of its own type, now only against a

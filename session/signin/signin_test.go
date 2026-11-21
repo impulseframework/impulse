@@ -14,6 +14,12 @@ func TestAddressDomain(t *testing.T) {
 		{email: `"pat@home"@lakeside.edu`, want: "lakeside.edu"},
 		{email: "pat", want: ""},
 		{email: "", want: ""},
+		// Only ASCII letters are lowercased. Unicode lowercases the dotted capital I
+		// (U+0130) to i and the Kelvin sign (U+212A) to k: a domain written with one is
+		// not the ASCII domain it would then read as.
+		{email: "pat@gma\u0130l.com", want: "gma\u0130l.com"},
+		{email: "pat@\u212Airkwood.edu", want: "\u212Airkwood.edu"},
+		{email: "pat@\u212AIRKWOOD.EDU", want: "\u212Airkwood.edu"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.email, func(t *testing.T) {

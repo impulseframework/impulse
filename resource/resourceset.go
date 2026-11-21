@@ -276,6 +276,11 @@ func permissionsFromTags(t reflect.Type, perms []accesstypes.Permission, secret 
 
 	fields := make([]FieldTags, 0, t.NumField())
 	for field := range t.Fields() {
+		// A name field takes no grant of its own: the id beside it and the pointed-to
+		// resource's name field carry the grants a name is read under.
+		if isNameField(field.Tag) {
+			continue
+		}
 		fields = append(fields, FieldTagsFromStructTag(accesstypes.Field(field.Name), field.Tag))
 	}
 

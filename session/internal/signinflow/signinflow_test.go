@@ -194,7 +194,7 @@ func (d *memDriver) UserIn(_ context.Context, _ *memTx, userID impulse.UUID) (*d
 		return nil, httpio.NewNotFoundMessagef("user %s not found", userID)
 	}
 
-	return &dbtype.User{ID: userID, Username: user.username, EmailConfirmed: user.confirmed}, nil
+	return &dbtype.User{ID: userID, Username: user.username, EmailConfirmed: user.confirmed, EmailHeld: user.email != ""}, nil
 }
 
 func (d *memDriver) LockUserIn(ctx context.Context, tx *memTx, userID impulse.UUID) (*dbtype.User, error) {
@@ -210,7 +210,13 @@ func (d *memDriver) UserByUsernameIn(_ context.Context, _ *memTx, username strin
 	return &dbtype.User{ID: id, Username: user.username}, nil
 }
 
-func (d *memDriver) UserByVerifiedEmailIn(context.Context, *memTx, string) (*dbtype.User, error) {
+func (d *memDriver) UserByVerifiedEmailIn(_ context.Context, _ *memTx, email string) (*dbtype.User, error) {
+	for id, user := range d.store.users {
+		if user.confirmed && user.email != "" && strings.EqualFold(user.email, email) {
+			return &dbtype.User{ID: id, Username: user.username, EmailConfirmed: true, EmailHeld: true}, nil
+		}
+	}
+
 	return nil, nil
 }
 

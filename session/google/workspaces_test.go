@@ -22,6 +22,7 @@ func TestWorkspaceSet_validate(t *testing.T) {
 		{name: "a Workspace without a name is refused", workspaces: Workspace(" ", "example.com"), wantErrHas: "needs a name"},
 		{name: "a Workspace without a domain is refused", workspaces: Workspace("lakeside"), wantErrHas: `Workspace "lakeside" needs at least one domain`},
 		{name: "a value that is not a domain name is refused", workspaces: Workspace("lakeside", "https://lakeside.edu"), wantErrHas: `"https://lakeside.edu" is not a domain name`},
+		{name: "a domain written with the Kelvin sign is another domain than the ASCII one Unicode lowercases it to", workspaces: Workspaces(Workspace("lakeside", "lakeside.edu"), Workspace("other", "la\u212Aeside.edu"))},
 		{name: "the any-account hint is not a domain name", workspaces: Workspace("lakeside", "*"), wantErrHas: `"*" is not a domain name`},
 		{name: "a blank domain is refused", workspaces: Workspace("lakeside", ""), wantErrHas: `"" is not a domain name`},
 		{name: "a name used twice is refused", workspaces: Workspaces(Workspace("lakeside", "lakeside.edu"), Workspace("Lakeside", "lakeside.org")), wantErrHas: `the name "Lakeside" is used twice`},
@@ -60,6 +61,8 @@ func TestWorkspaceSet_connectionFor(t *testing.T) {
 		{name: "a named Workspace's domain selects its name", workspaces: listed, hd: "riverside.edu", wantConnection: "riverside", wantAdmitted: true},
 		{name: "a Workspace's second domain selects the same name", workspaces: listed, hd: "lakeside.org", wantConnection: "lakeside", wantAdmitted: true},
 		{name: "domains are matched without regard to case", workspaces: listed, hd: "Lakeside.EDU", wantConnection: "lakeside", wantAdmitted: true},
+		{name: "a domain written with the Kelvin sign, which Unicode lowercases to k, is not the named Workspace's", workspaces: listed, hd: "la\u212Aeside.edu"},
+		{name: "any Workspace takes a domain written with the Kelvin sign as it was written, its ASCII letters lowercased", workspaces: AnyWorkspace(), hd: "La\u212Aeside.EDU", wantConnection: "la\u212Aeside.edu", wantAdmitted: true},
 		{name: "an unlisted domain is refused", workspaces: listed, hd: "elsewhere.example"},
 		{name: "no hd claim is refused by named Workspaces", workspaces: listed, hd: ""},
 		{name: "any Workspace keys an unnamed domain by the domain, lowercased", workspaces: Workspaces(listed, AnyWorkspace()), hd: "Elsewhere.Example", wantConnection: "elsewhere.example", wantAdmitted: true},
@@ -102,6 +105,7 @@ func TestWorkspaceSet_admitsConnection(t *testing.T) {
 		{name: "a named Workspace's name", workspaces: named, connection: "fleet", want: true},
 		{name: "a Workspace the set does not name", workspaces: named, connection: "other"},
 		{name: "a named Workspace's domain is no connection of a set that admits it by name", workspaces: named, connection: "fleet.example"},
+		{name: "a domain written with the Kelvin sign is another domain than the named Workspace's, and any Workspace's connection", workspaces: Workspaces(Workspace("lakeside", "lakeside.edu"), AnyWorkspace()), connection: "la\u212Aeside.edu", want: true},
 		{name: "an account outside a Workspace is not admitted by named Workspaces", workspaces: named, connection: AnyAccountConnection},
 		{name: "no connection", workspaces: Workspaces(named, AnyWorkspace(), AnyGoogleAccount()), connection: ""},
 		{name: "a domain under any Workspace", workspaces: AnyWorkspace(), connection: "lakeside.edu", want: true},
@@ -252,6 +256,7 @@ func TestWorkspaceSet_admitsAddress(t *testing.T) {
 		{name: "a named Workspace's domain is admitted", workspaces: listed, domain: "riverside.edu", want: true},
 		{name: "a Workspace's second domain is admitted", workspaces: listed, domain: "lakeside.org", want: true},
 		{name: "domains are matched without regard to case", workspaces: listed, domain: "Lakeside.EDU", want: true},
+		{name: "a domain written with the Kelvin sign, which Unicode lowercases to k, is not the named Workspace's", workspaces: listed, domain: "la\u212Aeside.edu"},
 		{name: "a domain outside the named Workspaces is refused", workspaces: listed, domain: "elsewhere.example"},
 		{name: "a personal account's domain is refused by named Workspaces", workspaces: listed, domain: "gmail.com"},
 		{name: "any Workspace admits a domain outside the named ones", workspaces: Workspaces(listed, AnyWorkspace()), domain: "elsewhere.example", want: true},
@@ -301,6 +306,68 @@ func TestWorkspaceSet_nameOf(t *testing.T) {
 
 			if got := tt.workspaces.nameOf(tt.connection); got != tt.want {
 				t.Errorf("nameOf(%q) = %q, want %q", tt.connection, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestVouchesFor pins where Google's word for an address is kept: for a Workspace
+// account's address and for an address of Google's own mail, which is told by an ASCII
+// domain alone. A domain written with a letter from outside ASCII that Unicode
+// lowercases to an ASCII one (the dotted capital I, U+0130, to i) is not Gmail's, and
+// Google's word for an address there confirms nothing.
+func TestVouchesFor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		emailVerified bool
+		email         string
+		hostedDomain  string
+		want          bool
+	}{
+		{name: "a Gmail address Google verified", emailVerified: true, email: "pat@gmail.com", want: true},
+		{name: "a Gmail address whatever its case", emailVerified: true, email: "Pat@GMail.COM", want: true},
+		{name: "the other domain of Google's own mail", emailVerified: true, email: "pat@googlemail.com", want: true},
+		{name: "a Workspace account's address", emailVerified: true, email: "pat@lakeside.edu", hostedDomain: "lakeside.edu", want: true},
+		{name: "an address Google did not verify", email: "pat@gmail.com"},
+		{name: "an address from anywhere else", emailVerified: true, email: "pat@elsewhere.example"},
+		{name: "a domain written with the dotted capital I is not Gmail's", emailVerified: true, email: "pat@gma\u0130l.com"},
+		{name: "a domain written with the dotted capital I is not the other domain of Google's mail", emailVerified: true, email: "pat@googlema\u0130l.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := vouchesFor(tt.emailVerified, tt.email, tt.hostedDomain); got != tt.want {
+				t.Errorf("vouchesFor(%v, %q, %q) = %v, want %v", tt.emailVerified, tt.email, tt.hostedDomain, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestWorkspaceSet_audience_keepsADomainAsWritten holds the identity a named domain's
+// accounts are known by to the domain as it was written, its ASCII letters lowercased:
+// a domain written with the Kelvin sign (U+212A), which Unicode lowercases to k, is
+// another domain than the ASCII one and never shares its identity.
+func TestWorkspaceSet_audience_keepsADomainAsWritten(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		domain string
+		want   string
+	}{
+		{name: "an ASCII domain in capitals", domain: "Lakeside.EDU", want: identityWorkspaceDomain + "lakeside.edu"},
+		{name: "a domain written with the Kelvin sign", domain: "La\u212Aeside.EDU", want: identityWorkspaceDomain + "la\u212Aeside.edu"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := Workspace("lakeside", tt.domain).audience().Identities
+			if len(got) != 1 || got[0] != tt.want {
+				t.Errorf("audience().Identities = %q, want [%q]", got, tt.want)
 			}
 		})
 	}

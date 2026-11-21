@@ -210,6 +210,9 @@ type authApp[Tx any] struct {
 	// verified writes an address as a person's confirmed one, the store's own write, on
 	// an app that sends mail.
 	verified func(ctx context.Context, userID impulse.UUID, email string) error
+	// setEmail writes a person's address as an administrator does, the store's own
+	// write; nil takes the address off the account.
+	setEmail func(ctx context.Context, userID impulse.UUID, email *string) error
 }
 
 // confirmedAddress writes email as the confirmed address of a seeded person. A person
@@ -466,7 +469,7 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
-	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail}
+	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail, setEmail: store.SetUserEmail}
 }
 
 // browser is a user agent of an Auth app.
@@ -797,6 +800,10 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "a user without an address gives one at the step: the code goes there, and the address is written on the user verified once the code is entered",
 			run:  seamEmailCodeEnrollment[Tx],
+		},
+		{
+			name: "a code mailed to an address an administrator then takes off the account is dead: nothing is written back, and the code for the address the person then gives at the step writes it",
+			run:  seamEmailCodeAddressTakenOff[Tx],
 		},
 		{
 			name: "five wrong codes kill the code sent, a new one is sent in its place, an address sent five codes it did not use is refused a sixth with too_many_emails, and a code is refused where the policy accepts another factor",

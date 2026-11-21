@@ -45,6 +45,7 @@ import { NotificationService } from '@impulseframework/resource-angular/ui-notif
 import { tap } from 'rxjs';
 import { camelCase } from '../concat-fns';
 import { flattenElements } from '../gui-constants';
+import { refusedSentence } from '../refused-fields';
 import { ResourceLayoutComponent } from '../resource-layout/resource-layout.component';
 import { ResourceStore } from '../resource-store.service';
 import { rendererFor } from '../resource-field/renderer';
@@ -53,28 +54,6 @@ import { rowMessage, rowWordsOf } from '../row-words';
 
 /** The display types the create form presents and never takes: their control starts null and a null control leaves the add operation. */
 const READ_ONLY_SHAPES = new Set(['bytes', 'array', 'object']);
-
-/** What a create form says about fields it refuses that are drawn, each marked where it stands. */
-const FIX_FIELDS = 'Please complete or fix required fields.';
-
-/** The labels as a person lists them: "Name", "Name and Call sign", "Name, Call sign and Notes". */
-function listed(labels: string[]): string {
-  if (labels.length < 3) {
-    return labels.join(' and ');
-  }
-  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
-}
-
-/**
- * What a create form says about fields it refuses that are not on it: nothing on the screen
- * can be marked for them, so each is named by its label.
- */
-function notOnThisForm(labels: string[]): string {
-  if (labels.length === 1) {
-    return `${labels[0]} is missing or wrong, and it is not on this form.`;
-  }
-  return `${listed(labels)} are missing or wrong, and they are not on this form.`;
-}
 
 /**
  * Where a create form starts a yes or no field. What the page's config gives it comes
@@ -336,33 +315,16 @@ export class ResourceCreateComponent implements OnInit {
   }
 
   /**
-   * What the form says about a create it does not send. A refused field that is drawn is
-   * marked where it stands, and the sentence asks for those to be completed or fixed. A
-   * refused field that is not on the form (one not shown, whose value the page gives or
-   * another field decides) has nothing on the screen to mark: the sentence names it by its
-   * label and says it is not on this form, and where no refused field is drawn that is all
-   * it says. A field is on the form when the element the library draws it in (marked with
-   * the field's name) is not inside one the stylesheet takes off the screen.
+   * What the form says about a create it does not send: the sentence every form of the
+   * library says about the fields it refuses (see `refusedSentence`), over the fields that
+   * do not hold. One that is not on the form is named by its label.
    */
   private refusedSentence(): string {
-    const drawn = new Set(
-      Array.from(this.host.nativeElement.querySelectorAll<HTMLElement>('form [data-field]'))
-        .filter((element) => element.closest('.hidden-field') === null)
-        .map((element) => element.dataset['field']),
+    return refusedSentence(
+      this.host.nativeElement,
+      this.config().elements,
+      (name) => this.form().get(name)?.invalid === true,
     );
-    const refused = flattenElements(this.config().elements).filter(
-      (element): element is FieldElement => element.type === 'field' && this.form().get(element.name)?.invalid === true,
-    );
-    const notOnForm = [
-      ...new Set(refused.filter((element) => !drawn.has(element.name)).map((element) => element.label)),
-    ];
-    if (notOnForm.length === 0) {
-      return FIX_FIELDS;
-    }
-    if (refused.some((element) => drawn.has(element.name))) {
-      return `${FIX_FIELDS} ${notOnThisForm(notOnForm)}`;
-    }
-    return notOnThisForm(notOnForm);
   }
 
   saveForm(): void {

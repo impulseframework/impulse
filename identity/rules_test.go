@@ -129,9 +129,9 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 				return m.DisableUser(ctx, txn, userID)
 			},
-			wantOwn:    "you cannot disable your own account",
-			wantActing: actingAsSomeoneElse + "disable your own account:",
-			wantViewed: "you cannot disable the account you are viewing as",
+			wantOwn:    "You cannot disable your own account.",
+			wantActing: actingAsSomeoneElse + "disable your own account.",
+			wantViewed: "You cannot disable the account you are viewing as.",
 			wantWrites: []string{"update user " + userID.String() + " disabled=true"},
 		},
 		{
@@ -139,9 +139,9 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 				return m.DeleteUser(ctx, txn, userID)
 			},
-			wantOwn:    "you cannot delete your own account",
-			wantActing: actingAsSomeoneElse + "delete your own account:",
-			wantViewed: "you cannot delete the account you are viewing as",
+			wantOwn:    "You cannot delete your own account.",
+			wantActing: actingAsSomeoneElse + "delete your own account.",
+			wantViewed: "You cannot delete the account you are viewing as.",
 			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&reader)},
 		},
 	}
@@ -219,7 +219,7 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 				})
 				if session.want != through {
 					wantSays := map[int]string{own: act.wantOwn, acting: act.wantActing, viewed: act.wantViewed}[session.want]
-					if err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), wantSays) {
+					if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != wantSays {
 						t.Fatalf("error = %v, want the refusal %q", err, wantSays)
 					}
 					if len(store.writes) != 0 {
@@ -314,8 +314,7 @@ func TestManager_accountSwitches_refuseTheImpersonatorAlike(t *testing.T) {
 		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			return tt.act(viewedBy(asErin(ctx, managedAuth, false), sal), txn, m)
 		})
-		wantSays := "you are acting as someone else, so you cannot " + tt.name + " your own account: " +
-			"while you act as another person, nothing you do is done to your own account. Stop acting as them first"
+		wantSays := "You are acting as someone else, so you cannot " + tt.name + " your own account."
 		if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != wantSays {
 			t.Errorf("%s her own account while she acts as erin: error = %v, want the refusal %q", tt.name, err, wantSays)
 		}

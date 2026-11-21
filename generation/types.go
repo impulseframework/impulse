@@ -1163,11 +1163,6 @@ func (c *computedResource) KeyParamList() string {
 	return keyParamList(c.HasCompoundPrimaryKey(), names)
 }
 
-// KeyFormat renders one %v per key part, slash-joined, for a refusal naming the row.
-func (c *computedResource) KeyFormat() string {
-	return keyFormat(len(c.PrimaryKeys()))
-}
-
 // Converters renders the closures a handler needs to build the named root mirror
 // from a computed row; empty for a flat resource, which converts whole.
 func (c *computedResource) Converters(rootMirror string) string {
@@ -1466,6 +1461,12 @@ type resourceInfo struct {
 	// people know it; nil where the record marks none, and the tenant list names each
 	// tenant by its key.
 	TenantNameField *resourceField
+	// RowNameField is the field the resource's rows are known by (@name); nil where it
+	// declares none, and a field pointing to one of its rows shows the stored value.
+	RowNameField *resourceField
+	// NameFields are the name fields the generator adds beside the resource's id fields
+	// that point to a row with a name (resolveNameFields), in field order.
+	NameFields []*nameField
 	// DirectoryOnlyField is the tenant record's @directoryOnly column, the BOOL saying
 	// the tenant's people enter through its directories only; nil when the record
 	// declares none, and every tenant admits a password.
@@ -1695,11 +1696,6 @@ func (r *resourceInfo) KeyParamList() string {
 			}
 		}
 	}))
-}
-
-// KeyFormat renders one %v per key part, slash-joined, for a refusal naming the row.
-func (r *resourceInfo) KeyFormat() string {
-	return keyFormat(r.keyCount())
 }
 
 func (r *resourceInfo) UpdateHandlerDisabled() bool {
@@ -2553,6 +2549,7 @@ const (
 	validateDeleteTypeKeyword   string = "validateDeleteType"   // Specifies a type to call "Validate()" on before a row of the resource is deleted: a delete rule no grant gets around
 	primarykeyKeyword           string = "primarykey"           // Designates a field as (part of) the primary key in a Computed or Virtual Resource
 	manualAddResourceKeyword    string = "manualAddResource"    // Declares a manual permission registration on an accesstypes.Resource constant
+	manualAddPermissionKeyword  string = "manualAddPermission"  // Declares a permission with no resource on an accesstypes.Permission constant: one checked for the whole of a scope
 	manualAddResourceSetKeyword string = "manualAddResourceSet" // Declares that hand-written handlers register this resource's permission Sets for the given handler types
 	permissionScopeKeyword      string = "permissionScope"      // Declares the permission scope (global or domain) all of a resource's registrations use
 	outletKeyword               string = "outlet"               // Declares the router outlets a resource's routes — or a manual registration's hand-written route — are registered under
@@ -2577,6 +2574,7 @@ const (
 	tenantKeyword               string = "tenant"               // Declares the tenant record: the global, table-backed @resource whose rows are the tenants and whose key is the domain in every tenant-scoped URL
 	directoryOnlyKeyword        string = "directoryOnly"        // Marks the tenant record's BOOL column saying the tenant's people enter through its directories only, so a password does not reach it
 	tenantNameKeyword           string = "tenantName"           // Marks the tenant record's string column holding a tenant's name, which the session's tenant list carries for the tenant's own people to see
+	nameKeyword                 string = "name"                 // Marks the string field a resource's rows are known by: a field pointing to one of its rows gains a name field beside it, read-only and stored nowhere
 	tenantDirectoryKeyword      string = "tenantDirectory"      // Declares the directories record: the tenant-scoped @resource whose rows are the directories a tenant admits its people through, one per declaration
 	directoryMethodKeyword      string = "directoryMethod"      // Marks the directories record's string column holding the sign-in method a directory is reached through (google, azure, workos)
 	directoryConnectionKeyword  string = "directoryConnection"  // Marks the directories record's string column holding the connection a directory's identities carry (a Google Workspace by its domain, a Microsoft Entra tenant by its tenant id)
@@ -2605,6 +2603,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		deleteCascadeKeyword:        {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		primarykeyKeyword:           {genlang.ScanField: genlang.NoArgs},
 		manualAddResourceKeyword:    {genlang.ScanConstant: genlang.ArgsRequired},
+		manualAddPermissionKeyword:  {genlang.ScanConstant: genlang.NoArgs | genlang.Exclusive},
 		manualAddResourceSetKeyword: {genlang.ScanStruct: genlang.ArgsRequired},
 		permissionScopeKeyword:      {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		outletKeyword:               {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
@@ -2629,6 +2628,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		tenantKeyword:               {genlang.ScanStruct: genlang.Exclusive},
 		directoryOnlyKeyword:        {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantNameKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		nameKeyword:                 {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantDirectoryKeyword:      {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
 		directoryMethodKeyword:      {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		directoryConnectionKeyword:  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},

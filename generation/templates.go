@@ -3188,6 +3188,9 @@ import (
 		{{- range $field := .Resource.Fields }}
 		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTag }} {{ $field.IndexTag }} {{ $field.AllowFilterTag }} {{ $field.PermTag }} {{ $field.PIITag }} {{ $field.MaskingTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTag }} {{ $field.SearchTag }}`" + `
 		{{- end }}
+		{{- range $name := .Resource.NameFields }}
+		{{ $name.Name }} *string ` + "`{{ $name.StructTag }}`" + `
+		{{- end }}
 	}
 
 	type response []map[string]any
@@ -3227,7 +3230,7 @@ import (
 			if !page.Add(row) {
 				break
 			}
-			rec := (*{{ GoCamel .Resource.Name }})(&row.Data)
+			rec := {{ if .Resource.NameFields }}&row.Data{{ else }}(*{{ GoCamel .Resource.Name }})(&row.Data){{ end }}
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -3281,6 +3284,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		{{- range $field := .Resource.Fields }}
 		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTag }} {{ $field.IndexTag }} {{ $field.AllowFilterTag }} {{ $field.PermTag }} {{ $field.PIITag }} {{ $field.MaskingTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTag }} {{ $field.SearchTag }}`" + `
 		{{- end }}
+		{{- range $name := .Resource.NameFields }}
+		{{ $name.Name }} *string ` + "`{{ $name.StructTag }}`" + `
+		{{- end }}
 	}
 
 	type response []map[string]any
@@ -3320,7 +3326,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 			if !page.Add(row) {
 				break
 			}
-			rec := (*{{ GoCamel .Resource.Name }})(&row.Data)
+			rec := {{ if .Resource.NameFields }}&row.Data{{ else }}(*{{ GoCamel .Resource.Name }})(&row.Data){{ end }}
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -3360,6 +3366,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		{{- range $field := .Resource.Fields }}
 		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTag }} {{ $field.UniqueIndexTag }} {{ $field.PermTag }} {{ $field.PIITag }} {{ $field.MaskingTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTag }} {{ $field.SearchTag }}`" + `
 		{{- end }}
+		{{- range $name := .Resource.NameFields }}
+		{{ $name.Name }} *string ` + "`{{ $name.StructTag }}`" + `
+		{{- end }}
 	}
 
 	decoder := NewQueryDecoder[{{ if .Resource.IsVirtual }}{{ .VirtualResourcesPackage }}{{ else }}{{ .ResourcePackage }}{{ end }}.{{ .Resource.Name }}, response]({{ .ReceiverName }}, accesstypes.Read)
@@ -3397,7 +3406,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := {{ if .Resource.NameFields }}&row.Data{{ else }}(*response)(&row.Data){{ end }}
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -4051,10 +4060,10 @@ export const Methods = {
 {{ range $resource, $tags := $resourcetags }}
 export namespace {{ $resource }} {
   {{- $hasFieldName := false }}
-  {{- range $_, $tag := $tags }}{{ if not (index $.PIIMap $resource $tag) }}{{ $hasFieldName = true }}{{ end }}{{ end }}
+  {{- range $_, $tag := $.NameFields.FieldNameTags $resource $tags }}{{ if not (index $.PIIMap $resource $tag) }}{{ $hasFieldName = true }}{{ end }}{{ end }}
   {{- if $hasFieldName }}
   export const fieldName = {
-  {{- range $_, $tag := $tags }}
+  {{- range $_, $tag := $.NameFields.FieldNameTags $resource $tags }}
   {{- if not (index $.PIIMap $resource $tag) }}
     {{ $tag }}: '{{ $tag }}' as FieldName,
   {{- end }}
@@ -4065,7 +4074,7 @@ export namespace {{ $resource }} {
   {{- end }}
   {{- if index $.PIIMap $resource }}
   export const piiFieldName = {
-  {{- range $_, $tag := $tags }}
+  {{- range $_, $tag := $.NameFields.FieldNameTags $resource $tags }}
   {{- if index $.PIIMap $resource $tag }}
     {{ $tag }}: '{{ $tag }}' as FieldName,
   {{- end }}
@@ -4106,6 +4115,9 @@ export interface {{ Pluralize $resource.Name }} {
 {{- if not $field.IsInputOnly }}
   {{ Camel $field.Name }}{{ if not $field.IsPrimaryKey }}?{{ end }}: {{ $field.TypescriptDataType }};
 {{- end }}
+{{- end }}
+{{- range $name := $resource.NameFields }}
+  {{ $name.WireName }}?: string;
 {{- end }}
 }
 {{ TypescriptNamespaceOf (Pluralize $resource.Name) $resource.ColumnShapes }}{{ end }}
@@ -4196,6 +4208,9 @@ const resourceMap = defineResourceMap({
     {{- end }}
     {{- if $resource.SearchBranches }}
     searchBranches: [{{ range $i, $branch := $resource.SearchBranches }}{{ if $i }}, {{ end }}{ field: '{{ $branch.Name }}', resource: Resources.{{ Pluralize $branch.ChildName }}, fieldName: '{{ $branch.ChildWireName }}'{{ if $branch.PII }}, pii: true{{ end }} }{{ end }}],
+    {{- end }}
+    {{- if $resource.NameFields }}
+    nameFields: [{{ range $i, $name := $resource.NameFields }}{{ if $i }}, {{ end }}{ fieldName: '{{ $name.WireName }}', of: '{{ $name.KeyWireName }}'{{ if $name.IsPII }}, pii: true{{ end }} }{{ end }}],
     {{- end }}
   },
 
@@ -4945,6 +4960,9 @@ func Collection() *resource.GeneratedCollection {
 			},
 			{{- end }}
 		},
+		{{- with .Data.Permissions }}
+		Permissions: []accesstypes.Permission{ {{- range $i, $p := . }}{{ if $i }}, {{ end }}{{ PermissionConstant $p }}{{ end -}} },
+		{{- end }}
 	})
 }
 `
@@ -6754,7 +6772,7 @@ func ({{ $.ReceiverName }} *{{ $.ApplicationName }}) {{ $.Resource.Name }}{{ $fi
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 			if !shown {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("{{ $.Resource.Name }} {{ $.Resource.KeyFormat }} does not exist", {{ $.Resource.KeyParamList }}))
+				return httpio.NewEncoder(w).ClientMessage(ctx, resource.TargetNotFound("{{ $.Resource.Name }}", {{ $.Resource.KeyParamList }}))
 			}
 		}
 
@@ -6783,7 +6801,7 @@ func ({{ $.ReceiverName }} *{{ $.ApplicationName }}) {{ $.Resource.Name }}{{ $fi
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if !shown {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("{{ $.Resource.Name }} {{ $.Resource.KeyFormat }} does not exist", {{ $.Resource.KeyParamList }}))
+			return httpio.NewEncoder(w).ClientMessage(ctx, resource.TargetNotFound("{{ $.Resource.Name }}", {{ $.Resource.KeyParamList }}))
 		}
 		{{- template "storedFileOfRow" $file }}
 

@@ -230,8 +230,10 @@ export const COMPANION_FILTER_HINT =
  *
  * A column is never squeezed under the narrowest it is drawn (`narrowestFor`): what its
  * heading and the values it has shown need, measured off what is drawn, and never more
- * than MIN_TEXT_COLUMN_WIDTH. The table fills its frame while every column fits, the
- * columns sharing it equally but for one that needs more than its share; where they do not
+ * than MIN_TEXT_COLUMN_WIDTH. The table fills its frame while every column fits, and the
+ * room the columns leave goes first to those that cut a value at their narrowest, as far
+ * as each needs to show its values whole; with every value whole, the columns share the
+ * frame equally but for one that needs more than its share. Where the columns do not
  * fit, each is as narrow as it goes, the table stays as wide as that and the frame scrolls
  * sideways, the page never. The first column is then held at the left edge, with the
  * select and expand columns, while the others scroll under it, as long as the widest of
@@ -336,6 +338,22 @@ export class AppGridComponent {
    * letters drawn in a font's place, until the wait for it has run its length (FONT_WAIT).
    */
   private readonly needs = signal<ReadonlyMap<string, number>>(new Map());
+  /**
+   * What each column's heading and the values it has shown need to be drawn whole, in
+   * pixels, by column id: its need without MIN_TEXT_COLUMN_WIDTH over it. A column whose
+   * entry is more than its need is one the list cuts at its narrowest, and the room the
+   * list has left over goes to it before any other (`givenWidths`). It is read with
+   * `needs` and grows as that does; no entry is more than the frame was wide when it was
+   * read, which is as much as a column is ever given (`readAsFarAs`).
+   */
+  private readonly wholes = signal<ReadonlyMap<string, number>>(new Map());
+  /**
+   * How wide the frame was when a column was last read no further than that, in pixels: a
+   * column with a value that needs the whole frame or more. A frame that grows wider than
+   * this has more to give that column than the list knows it needs, and the list is read
+   * again. It is undefined while every column was read to the end of what it needs.
+   */
+  private readAsFarAs: number | undefined;
   /** The columns `needs` was measured for, by id and heading, in order: other columns start again. */
   private measuredColumns = '';
   /**
@@ -439,36 +457,63 @@ export class AppGridComponent {
   });
 
   /**
-   * The columns drawn at the narrowest they go, by id, of those that have no width of
-   * their own. The table gives its columns of no width an equal share of what the others
-   * leave, which is what a list that fits has always done; a column that needs more than
-   * that share is given what it needs, and the rest share what is left. So in a frame
-   * with room to spare none is here and the list is drawn as it always was, in a frame too
-   * narrow for the columns every one is, and in between only those that would otherwise
-   * cut a value the list can show whole. None is here where the frame is not measured.
+   * The width the list gives each column that has none of its own, by id; a column that
+   * is not here shares equally what the others leave, which is what a list that fits has
+   * always done. In a frame too narrow for the columns every one is here at the narrowest
+   * it goes, and the frame scrolls. In a frame with room left over, that room goes first
+   * to the columns that cut a value at their narrowest (`wholes`), each as far as showing
+   * its values whole: while it does not reach for all of them they share it, the least cut
+   * made whole first, and every other column stays at what it needs. Once every value is
+   * whole, a column that needs more than an equal share of the frame is given what it
+   * needs and the rest share what is left, so in a frame with room to spare none is here
+   * and the list is drawn as it always was. None is here where the frame is not measured.
+   *
+   * In a frame the columns fit, one column that shares is never here: the table is as wide
+   * as its frame only while a column is left to take what the others do not. A table whose
+   * every column carries a width is drawn as wide as they and its border add up to, which
+   * is past a frame the columns fill to the pixel, and that frame would scroll sideways.
    */
-  private readonly atNarrowest = computed<ReadonlyMap<string, number>>(() => {
-    const narrowest = new Map<string, number>();
+  private readonly givenWidths = computed<ReadonlyMap<string, number>>(() => {
+    const given = new Map<string, number>();
     const frame = this.frameWidth();
     if (frame === undefined) {
-      return narrowest;
+      return given;
     }
     const sharing = this.columnDefs()
       .filter((col) => this.widthFor(col) === null)
-      .map((col) => ({ id: col.id, narrowest: this.narrowestFor(col) }))
-      .sort((a, b) => b.narrowest - a.narrowest);
-    let room = frame - this.tableMinWidth() + sharing.reduce((sum, col) => sum + col.narrowest, 0);
+      .map((col) => ({ id: col.id, narrowest: this.narrowestFor(col), whole: this.wholeFor(col) }));
+    const atNarrowest = sharing.reduce((sum, col) => sum + col.narrowest, 0);
+    let room = frame - this.tableMinWidth() + atNarrowest;
+    if (sharing.reduce((sum, col) => sum + col.whole, 0) > room) {
+      // Not every value can be whole. What the frame has over the columns at their
+      // narrowest, if anything, is shared by the columns that cut a value: equally, but
+      // that none takes more than makes it whole, so the least cut are whole first.
+      let over = Math.max(0, room - atNarrowest);
+      let cut = sharing.filter((col) => col.whole > col.narrowest).length;
+      for (const col of sharing.sort((a, b) => a.whole - a.narrowest - (b.whole - b.narrowest))) {
+        const more = col.whole > col.narrowest ? Math.min(col.whole - col.narrowest, Math.floor(over / cut--)) : 0;
+        given.set(col.id, col.narrowest + more);
+        over -= more;
+      }
+      const mostCut = sharing.at(-1);
+      if (mostCut !== undefined && !this.scrollsSideways()) {
+        // The columns fit. The most cut is the last to take, and takes all that is left:
+        // it is given no width, and the table gives it that to the pixel.
+        given.delete(mostCut.id);
+      }
+      return given;
+    }
     let left = sharing.length;
-    for (const col of sharing) {
+    for (const col of sharing.sort((a, b) => b.whole - a.whole)) {
       // An equal share is enough for this column, and so for every narrower one after it.
-      if (col.narrowest * left <= room) {
+      if (col.whole * left <= room) {
         break;
       }
-      narrowest.set(col.id, col.narrowest);
-      room -= col.narrowest;
+      given.set(col.id, col.whole);
+      room -= col.whole;
       left--;
     }
-    return narrowest;
+    return given;
   });
 
   /** How much of the frame's left edge the held columns take: the select and expand columns and the first column. */
@@ -603,8 +648,9 @@ export class AppGridComponent {
         this.readGround(container);
         // A list drawn inside something hidden had nothing to measure until now. One that was
         // laid out when it was drawn was read then, and a frame that only changes width
-        // changes nothing a column needs.
-        if (this.unlaid && width > 0) {
+        // changes nothing a column needs. It changes how much of a need the list knows,
+        // where a value needed all of a narrower frame and was read no further.
+        if ((this.unlaid && width > 0) || (this.readAsFarAs !== undefined && width > this.readAsFarAs)) {
           this.measureColumns();
         }
       });
@@ -659,6 +705,7 @@ export class AppGridComponent {
       this.visibleRows();
       this.columnDefs();
       this.needs();
+      this.wholes();
       this.frameWidth();
       this.columnWidths();
       untracked(() => this.cutShort()?.redrawn());
@@ -799,14 +846,21 @@ export class AppGridComponent {
     }
     const known = readBefore ? this.needs() : new Map<string, number>();
     const next = new Map(known);
+    const wholes = new Map(readBefore ? this.wholes() : []);
     // The select and expand columns come before the first of `columns`.
     const before =
       (this.selectionType() !== 'none' ? 1 : 0) + (this.enableRowExpansion() && this.detailTemplate() ? 1 : 0);
     const headings = table.tHead?.rows[0]?.cells;
     const rows = Array.from(table.tBodies[0]?.rows ?? []).filter((row) => row.classList.contains('impulse-row'));
+    // A column is read on, past the most its narrowest can be, until one value needs the
+    // whole frame: the room left over goes to a column by how much it is cut, and no
+    // column is given more than the frame. A frame narrower than the most a narrowest can
+    // be is read as far as that, since the narrowest a column goes is not the frame's to cut.
+    const farthest = Math.max(width, MIN_TEXT_COLUMN_WIDTH);
     columns.forEach((col, index) => {
-      let need = next.get(col.id) ?? 0;
-      if (this.widthFor(col) !== null || need >= MIN_TEXT_COLUMN_WIDTH) {
+      // What the column needs to show every value whole.
+      let need = wholes.get(col.id) ?? 0;
+      if (this.widthFor(col) !== null || need >= farthest) {
         return;
       }
       const heading = headings?.[before + index];
@@ -818,7 +872,7 @@ export class AppGridComponent {
       for (const row of rows) {
         const cell = row.cells[before + index] as HTMLTableCellElement | undefined;
         const words = cell?.textContent ?? '';
-        if (need >= MIN_TEXT_COLUMN_WIDTH) {
+        if (need >= farthest) {
           break;
         }
         if (!cell || read.has(words)) {
@@ -828,7 +882,9 @@ export class AppGridComponent {
         around ??= aroundContent(cell, view);
         need = Math.max(need, Math.ceil(cellContentWidth(cell, range, scale) + around) + SPARE_WIDTH);
       }
-      next.set(col.id, Math.min(MIN_TEXT_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, need)));
+      need = Math.min(farthest, Math.max(MIN_COLUMN_WIDTH, need));
+      wholes.set(col.id, need);
+      next.set(col.id, Math.min(MIN_TEXT_COLUMN_WIDTH, need));
     });
     // The reads laid the list out, and that started the load of a font it had not asked
     // for before: what was read is in the letters drawn in the font's place.
@@ -839,9 +895,15 @@ export class AppGridComponent {
     }
     const same =
       next.size === this.needs().size && Array.from(next).every(([id, need]) => this.needs().get(id) === need);
+    const sameWholes =
+      wholes.size === this.wholes().size && Array.from(wholes).every(([id, whole]) => this.wholes().get(id) === whole);
     this.measuredColumns = these;
+    this.readAsFarAs = Array.from(wholes.values()).some((whole) => whole >= farthest) ? farthest : undefined;
     if (!same) {
       this.needs.set(next);
+    }
+    if (!sameWholes) {
+      this.wholes.set(wholes);
     }
     clearTimeout(this.fontWait);
     this.fontWait = undefined;
@@ -1269,13 +1331,21 @@ export class AppGridComponent {
   }
 
   /**
+   * What the column needs to show its heading and every value it has shown whole: its
+   * own width where it has one, else what was read off them (`wholes`), which is its
+   * narrowest for a column that cuts nothing there and until the column has been read.
+   */
+  private wholeFor(col: ColumnConfig): number {
+    return this.widthFor(col) ?? Math.max(this.narrowestFor(col), this.wholes().get(col.id) ?? 0);
+  }
+
+  /**
    * The width the column's heading cell carries, which is the column's in a table of
-   * fixed layout: its own (dragged, declared, a button column's), else the narrowest it
-   * goes where the frame leaves it no more (`atNarrowest`), else none, and it shares
-   * what is left over.
+   * fixed layout: its own (dragged, declared, a button column's), else what the list
+   * gives it of the frame (`givenWidths`), else none, and it shares what is left over.
    */
   drawnWidthFor(col: ColumnConfig): number | null {
-    return this.widthFor(col) ?? this.atNarrowest().get(col.id) ?? null;
+    return this.widthFor(col) ?? this.givenWidths().get(col.id) ?? null;
   }
 
   startResize(event: MouseEvent, col: ColumnConfig): void {

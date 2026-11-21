@@ -71,7 +71,9 @@ func (s *RPCDecoder[Request]) WithValidator(v ValidatorFunc) *RPCDecoder[Request
 // The check is eager (decode is the last library-controlled point before application
 // code executes), so it must resolve to Granted or Denied: a Conditional decision here
 // is a 500-class invariant breach — an RPC method has no rows for a condition to
-// evaluate against, and MigrateRoles rejects such grants at deploy.
+// evaluate against, and such a grant is refused in a role file (access.ValidateRoles, the
+// check access.New makes), refused as a write to a custom role, and left out of the policy
+// when the store holds one.
 func (s *RPCDecoder[Request]) Decode(request *http.Request, scope accesstypes.Scope) (*Request, error) {
 	req, _, err := s.DecodeCaller(request, scope)
 

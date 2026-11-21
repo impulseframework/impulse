@@ -81,16 +81,17 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	// The name a directory gave is kept as a user's is, or not at all: one a row would
-	// not keep is dropped here, before anything of the sign-in is written, the pending
-	// identity among it, so it never fails the sign-in it came with. The identity is the
-	// caller's, who may hand one to several sign-ins at once, so it is never written:
-	// the attempt takes a copy that carries the name as kept.
-	if kept := sessioninfo.KeptName(at.identity.Name); kept != at.identity.Name {
-		identity := *at.identity
-		identity.Name = kept
-		at.identity = &identity
+	// A sign-in whose identity is under another method's name than its own is refused
+	// here, the one a callback verified and the one a pending row held, before the
+	// identity is read, stored or turned into the sign-in's auth event.
+	if err := a.ownMethod(at); err != nil {
+		return nil, err
 	}
+
+	// Every sign-in's identity is held to what the library keeps of it here, the one a
+	// callback verified and the one a pending row held, before anything reads the
+	// identity or stores it.
+	at.identity = a.keptIdentity(at)
 
 	// An identity whose connection attests to a second factor records the
 	// attestation after the sign-in's own event, so the policy and the session see it.
@@ -144,7 +145,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 			// The rule asks what the Auth registers: with no password method no sign-in
 			// can prove a password, so one an account holds holds no sign-in for it.
 			NoPassword:    !a.registered().passwordRegistered(),
-			TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
+			TrustedDevice: a.trustedDeviceOf, Proven: at.proof, WaitedOn: at.expectUserID,
 			// A person who comes through a directory that does not vouch for their address
 			// confirms one by the mailed code before their first session, where the Auth
 			// can mail it; the accounts a deployment seeds for its own provider are given
@@ -1018,10 +1019,94 @@ func retryAfterSeconds(wait time.Duration) int {
 	return max(int(math.Ceil(wait.Seconds())), 1)
 }
 
+// keptIdentity returns the attempt's identity as the sign-in keeps it: without a word
+// for the address the library does not keep (onlyGoogleVouches), and with the name a
+// directory gave kept as a user's is, or not at all. A name a row would not keep is
+// dropped here, before anything of the sign-in is written, the pending identity among
+// it, so it never fails the sign-in it came with. The identity is the caller's, who may
+// hand one to several sign-ins at once, so it is never written: an identity that
+// changes is a copy.
+func (a *Auth[S, U, Tx]) keptIdentity(at *signInAttempt) *sessioninfo.Identity {
+	identity := a.onlyGoogleVouches(at.registration, at.identity)
+	if kept := sessioninfo.KeptName(identity.Name); kept != identity.Name {
+		named := *identity
+		named.Name = kept
+		identity = &named
+	}
+
+	return identity
+}
+
+// onlyGoogleVouches returns identity without the word of every method but Google's that
+// the address is verified (Identity.EmailVerified). The people who run an identity
+// provider can mark any address verified, so a provider's word confirms nothing: the
+// address is written on no account by it and finds no account by it, and the person's
+// first sign-in to an account with no confirmed address waits for the mailed code. It
+// holds for every method whatever it fills in, the library's own and one an application
+// registers. Google's method keeps its word, which it gives only for an address Google
+// is the authority for: a Gmail address and a Workspace account's (keepsWord).
+//
+// Every sign-in passes it where the sign-in starts (signIn, by keptIdentity), and a
+// pending sign-in where its row is read (pending). So the identity a callback verified
+// and the one a row held are held to the same answer, and a pending sign-in stored with
+// another provider's word, as a release that kept every provider's word stored one, is
+// reported and finished without it. The identity is the caller's, so it is never
+// written: one that loses the word is a copy.
+func (a *Auth[S, U, Tx]) onlyGoogleVouches(registration string, identity *sessioninfo.Identity) *sessioninfo.Identity {
+	if !identity.EmailVerified || a.keepsWord(registration, identity) {
+		return identity
+	}
+	kept := *identity
+	kept.EmailVerified = false
+
+	return &kept
+}
+
+// keepsWord reports whether the library keeps the word identity carries that its
+// address is verified, for a sign-in that came through the registration named
+// registration. It keeps the word of Google's method: the registration's method
+// carries the library's mark (signin.Method.AddressAuthority), which only
+// session/google sets and no application's method can carry, and the identity says it
+// came through Google. A method that takes Google's name is not Google's, and its word
+// is not kept. A sign-in through no registration is the library's own, a password's or
+// a session the application starts: its identity names its user, and its word is what
+// the user's own row says of the address.
+func (a *Auth[S, U, Tx]) keepsWord(registration string, identity *sessioninfo.Identity) bool {
+	if registration == "" {
+		return namesItsUser(identity)
+	}
+	m, ok := a.registered().external[registration]
+
+	return ok && m.AddressAuthority.IsGoogle() && identity.Method == sessioninfo.MethodGoogle
+}
+
 // namesItsUser reports whether identity names its user instead of being resolved to
 // one: a password identity, or the application's own (StartAuthenticatedSession).
 func namesItsUser(identity *sessioninfo.Identity) bool {
 	return identity.Method == sessioninfo.MethodPassword || identity.Method == sessioninfo.MethodApplication
+}
+
+// ownMethod refuses a sign-in whose identity is not under the method the sign-in came
+// through. The identity's method becomes the sign-in's first auth event (identityEvent),
+// which says how the person signed in, and the library's rules read some events as its
+// own proof. So an identity never carries the name of a step the library runs itself
+// (recordsTheLibrarysStep), whatever brought it, and an identity that came through a
+// registration carries that registration's method and no other: a method that
+// registers under one name verifies no identity under another. The refusal is the
+// server's error, since it is the method's code that is wrong, and nothing is resolved,
+// linked or held.
+func (a *Auth[S, U, Tx]) ownMethod(at *signInAttempt) error {
+	if recordsTheLibrarysStep(at.identity.Method) {
+		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedInternalError, httpio.NewInternalServerErrorMessagef(
+			"the sign-in's identity is under the method %q, the name of a step the library runs and records itself: a sign-in method gives its identities the method's own name", at.identity.Method))
+	}
+	if m, ok := a.registered().external[at.registration]; ok && at.identity.Method != m.Name {
+		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedInternalError, httpio.NewInternalServerErrorMessagef(
+			"the sign-in through the registration %q, a registration of the method %q, verified an identity under the method %q: a sign-in method gives its identities the name it is registered as",
+			at.registration, m.Name, at.identity.Method))
+	}
+
+	return nil
 }
 
 // identityEvent returns the auth event of a sign-in with identity. Its time is the
@@ -1042,15 +1127,66 @@ func identityEvents(identity *sessioninfo.Identity) []sessioninfo.AuthEvent {
 	return events
 }
 
-// validateEvents refuses an auth event without a method.
+// validateEvents refuses an auth event an application may not report: one without a
+// method, and one under a method that records a step the library runs itself
+// (recordsTheLibrarysStep). An application reports its own step under a name of its
+// own.
 func validateEvents(events []sessioninfo.AuthEvent) error {
 	for _, e := range events {
 		if e.Method == "" {
 			return httpio.NewBadRequestMessage("an auth event needs a method")
 		}
+		if recordsTheLibrarysStep(e.Method) {
+			return httpio.NewBadRequestMessagef("an auth event under %q reports a step the library runs and records itself: "+
+				"report the application's own step under a name of its own, and have the mailed code entered through Pending().VerifyCode() or AuthAPI.VerifyEmailCode()", e.Method)
+		}
 	}
 
 	return nil
+}
+
+// recordsTheLibrarysStep reports whether an event under method records a step the
+// library runs itself: the mailed code, a remembered browser standing in for it, or the
+// attestation of the sign-in's connection. The library's rules read those events as
+// its own proof: the mailed code's event is what links a first sign-in made on a name
+// alone and what answers the hold for an unconfirmed address, and each of them answers
+// a sign-in policy's second factor. Only the library records them.
+func recordsTheLibrarysStep(method sessioninfo.AuthMethod) bool {
+	return method == sessioninfo.MethodEmailCode || method == sessioninfo.MethodTrustedDevice || method.Attests()
+}
+
+// reportsNoSignIn refuses an auth event an application reports under the name of a
+// sign-in method the library runs (namesASignIn). A session's first auth event says how the
+// person signed in (sessioninfo.SessionData.EstablishedBy): a tenant's declaration, an
+// invitation's acceptance and the status answer read it as a sign-in through that
+// directory, which only a sign-in the library ran proves. An application reports its
+// own step under a name of its own.
+func (a *Auth[S, U, Tx]) reportsNoSignIn(events []sessioninfo.AuthEvent) error {
+	for _, e := range events {
+		if a.namesASignIn(e.Method) {
+			return httpio.NewBadRequestMessagef("an auth event under %q reports a sign-in the library runs and records itself: "+
+				"report the application's own step under a name of its own, and have the person sign in through the method to record its sign-in", e.Method)
+		}
+	}
+
+	return nil
+}
+
+// namesASignIn reports whether method names a sign-in the library runs: a password, a
+// directory's method the library ships (Microsoft Entra ID, Google, WorkOS, a generic
+// OpenID Connect provider), registered on this Auth or not, and the method of every
+// registration on this Auth, an application's own among them.
+func (a *Auth[S, U, Tx]) namesASignIn(method sessioninfo.AuthMethod) bool {
+	if method == sessioninfo.MethodPassword || method.ThroughDirectory() {
+		return true
+	}
+	for _, m := range a.registered().external {
+		if m.Name == method {
+			return true
+		}
+	}
+
+	return false
 }
 
 // shared returns the API methods every session type shares, over this session's fields.

@@ -237,7 +237,7 @@ describe('DashboardComponent, for a person who may list the service ledger', () 
   it("draws the ledger with the library's list: one row per sector, under plain headings, and no table of its own", () => {
     const element: HTMLElement = fixture.nativeElement;
     const list = element.querySelector('impulse-resource-list');
-    expect(list?.querySelector('h1.title')?.textContent?.trim()).toBe('Service ledger (2)');
+    expect(list?.querySelector('h1.impulse-resource-list-title')?.textContent?.trim()).toBe('Service ledger (2)');
     expect(Array.from(list?.querySelectorAll('th .col-header') ?? []).map((h) => h.textContent?.trim())).toEqual([
       'Sector',
       'Open missions',

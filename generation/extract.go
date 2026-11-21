@@ -341,6 +341,10 @@ func (c *client) resolveStructAnnotations(res *resourceInfo, pStruct *parser.Str
 	if err := resolveTenantDeclaration(res, pStruct, annotations); err != nil {
 		return err
 	}
+	// The row's name reads the tenant record too: the record's own name is @tenantName.
+	if err := c.declareRowName(res, pStruct, annotations); err != nil {
+		return err
+	}
 	if typeName, ok := c.enumerationOf(c.pluralize(pStruct.Name())); ok {
 		return deriveEnumerationResource(res, typeName)
 	}
@@ -470,6 +474,10 @@ func applyComputedSuppressDirectives(res *computedResource, suppressArgs iter.Se
 // (its key) is known only once the annotations are.
 func (c *client) resolveVirtualResource(resource *resourceInfo, pStruct *parser.Struct, annotations genlang.StructAnnotations) error {
 	if err := resolveVirtualAnnotations(resource, pStruct, annotations); err != nil {
+		return err
+	}
+
+	if err := c.declareRowName(resource, pStruct, annotations); err != nil {
 		return err
 	}
 
@@ -1081,7 +1089,7 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 			continue
 		}
 
-		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectClassAnnotation(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectClassAnnotation(s, annotations, "computed resource"), rejectRowName(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue

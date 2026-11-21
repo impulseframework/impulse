@@ -64,6 +64,9 @@ type resourceGenerator struct {
 	mountedRoutes       []mountedRoutes
 	typescriptTargets   []typescriptTarget
 	manualRegistrations []ManualRegistration
+	// manualPermissions are the permissions declared with no resource
+	// (@manualAddPermission), in the constants' order.
+	manualPermissions []accesstypes.Permission
 	// warnings are the schema findings the last Generate raised (Warnings).
 	warnings []Warning
 	// findings are the advisory findings the last Generate raised (Audit).
@@ -341,11 +344,9 @@ func (r *resourceGenerator) Generate() error {
 		return err
 	}
 
-	annotatedRegistrations, err := manualRegistrationsFromConstants(resourcesPkg.Constants)
-	if err != nil {
+	if err := r.readManualDeclarations(resourcesPkg.Constants); err != nil {
 		return err
 	}
-	r.manualRegistrations = append(r.manualRegistrations, annotatedRegistrations...)
 
 	if err := r.extractResourcesBesideTheApplications(packageMap, pkg); err != nil {
 		return err
@@ -472,6 +473,10 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 		return err
 	}
 	if err := r.resolveTenantRecord(); err != nil {
+		return err
+	}
+	// A name field reads the enumerations and the tenant record's name resolved above.
+	if err := r.resolveNameFields(r.resources); err != nil {
 		return err
 	}
 

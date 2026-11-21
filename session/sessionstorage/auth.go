@@ -355,7 +355,9 @@ type AuthStore[Tx any] interface {
 	// SetUserEmail puts an address on a user by hand, unverified, or takes it off
 	// (nil): an administrator's entry, which reserves the address. An address another
 	// user holds is a Conflict; on a store whose usernames are the addresses the
-	// entry is refused.
+	// entry is refused. Taking the address off ends, in the same transaction, the
+	// sign-in codes mailed for the user's pending sign-ins, so a code mailed before
+	// the change and entered after it is dead and writes nothing back.
 	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
 	// VerifyUserEmail writes the address the person has just proven they read,
 	// verified at the database's time, replacing whatever the user held; on a store
@@ -627,6 +629,11 @@ type SignInRules[Tx any] struct {
 	// holds no confirmed address. The Auth sets it where it sends mail, for a
 	// registration that is not the deployment's own provider of seeded accounts.
 	ConfirmAddress bool
+	// WaitedOn is the user a pending sign-in waited on, given by the sign-in that
+	// completes the wait and by no other. An identity still linked to nobody is linked
+	// to that user or to none: the name it asserts may have moved to another account
+	// during the wait.
+	WaitedOn impulse.NullUUID
 }
 
 // SignIn implements AuthStore.
@@ -643,7 +650,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 	flowRules := signinflow.Rules[Tx]{
 		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
 		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, NoPassword: rules.NoPassword,
-		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven, ConfirmAddress: rules.ConfirmAddress,
+		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven, ConfirmAddress: rules.ConfirmAddress, WaitedOn: rules.WaitedOn,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")

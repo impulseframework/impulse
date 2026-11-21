@@ -8,6 +8,7 @@ export interface Announcements {
   kindId?: string;
   title?: string;
   body?: string;
+  tenantName?: string;
 }
 
 /**
@@ -48,6 +49,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'title', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'body', displayType: 'string', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'tenantName', of: 'tenantId' }],
   },
   [Resources.FeatureFlags]: {
     route: 'feature-flags',

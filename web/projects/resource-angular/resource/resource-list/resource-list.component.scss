@@ -1,15 +1,23 @@
 @use '../../styles/headings';
 
-.page-container {
+// Every class of the list starts with its element's name. An application's stylesheet is
+// global, so a rule it writes for a class of its own under a plain name (.title, .notice,
+// .indent, .header-container) lands on every element that carries that name, and under
+// these names it lands on nothing of the list.
+
+.impulse-resource-list-page-container {
   position: relative;
   margin: 10px 0 0 0;
 }
 
 // The list's title and, at the far end of its line or under it, what the list offers.
 // The row is as wide as the list under it: the indent of its title is inside that width,
-// not added to it, so the row never reaches past the list's far edge.
-.header-container {
+// not added to it, so the row never reaches past the list's far edge. Where the application
+// turns sticky headers on (--sticky-headers, which the styles sheet declares) the row stays
+// at the top of what scrolls.
+.impulse-resource-list-header-container {
   @include headings.row;
+  position: var(--sticky-headers);
   margin-top: 10px;
   top: 0;
   z-index: 10;
@@ -21,22 +29,22 @@
 // rows, before the list's first answer) is not drawn, and neither is what stands between it
 // and the rows, whose place the heading's height decides. Each keeps its room, as the rows'
 // frame does while it is held back, and all of the list is drawn at once.
-.page-container.heading-held {
-  > .header-container,
-  > .notice,
-  > .search-container {
+.impulse-resource-list-page-container.impulse-resource-list-heading-held {
+  > .impulse-resource-list-header-container,
+  > .impulse-resource-list-notice,
+  > .impulse-resource-list-search-container {
     visibility: hidden;
   }
 }
 
 // The page's own title where the list is the page, a section's where the list is one of
 // the things under a row.
-.title {
+.impulse-resource-list-title {
   @include headings.page-title;
   display: flex;
   align-items: center;
 
-  &.impulse-section {
+  &.impulse-resource-list-section {
     @include headings.section-title;
   }
 }
@@ -44,7 +52,7 @@
 // A page's standing notice: what must not be overlooked while it holds, in the
 // library's warning colors (the notice tokens an application's theme sets), under a
 // warning icon, above the table.
-.notice {
+.impulse-resource-list-notice {
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -55,38 +63,38 @@
   background-color: var(--impulse-alert-warn-bg);
 }
 
-.notice-icon {
+.impulse-resource-list-notice-icon {
   flex: none;
   color: var(--impulse-alert-warn-border);
 }
 
-.notice-words {
+.impulse-resource-list-notice-words {
   margin: 0;
   white-space: pre-line;
 }
 
 // The links of a list across tenants that could not be worked out: the same notice, with
 // the way to try again at its end.
-.links-unread {
+.impulse-resource-list-links-unread {
   align-items: center;
 
-  .notice-words {
+  .impulse-resource-list-notice-words {
     flex: 1;
   }
 
-  .try-again {
+  .impulse-resource-list-try-again {
     flex: none;
   }
 }
 
-.create-button {
+.impulse-resource-list-create-button {
   margin-top: auto;
   margin-bottom: auto;
   padding-left: 10px;
 }
 
 // The buttons wrap among themselves where one line does not hold them, each whole.
-.list-methods {
+.impulse-resource-list-methods {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
@@ -98,53 +106,48 @@
   padding-left: 10px;
 }
 
-.edit-text {
+.impulse-resource-list-edit-text {
   display: flex;
   flex-direction: row;
   align-items: center;
-
-  .edit {
-    color: var(--impulse-accent);
-  }
 
   .mat-icon {
     margin-right: 8px;
   }
 }
 
-.edit-button-text {
+.impulse-resource-list-edit-button-text {
   margin-top: auto;
   margin-bottom: auto;
 }
 
-.exp-panel-add-element-btn {
-  margin-right: 10px;
-  transform: scale(1.2);
-}
-
 // The title row of a list that is not folded into a panel covers what scrolls under it.
-.show-background {
+.impulse-resource-list-show-background {
   @include headings.covers;
   padding-bottom: 20px;
 }
 
-.indent {
+.impulse-resource-list-indent {
   padding-left: 20px;
 }
 
 // A notice is a box with a border, so its indent moves the box in and leaves the room the
 // box keeps around its icon and its words as it is on every side.
-.notice.indent {
+.impulse-resource-list-notice.impulse-resource-list-indent {
   margin-left: 20px;
   padding-left: 12px;
 }
 
-.search {
-  width: 100%;
-}
-
 // The search box over the table: the page's width, a little air before the grid.
-.search-container {
+.impulse-resource-list-search-container {
   margin: 8px 0;
   padding-right: 20px;
+}
+
+// What holds the rows keeps the room the styles sheet gives the container of a resource's
+// page, a little air above it and a border's width around it, so the rows stand where they
+// did under a name of the list's own.
+.impulse-resource-list-resource-container {
+  margin-top: 8px;
+  border: 2px solid transparent;
 }

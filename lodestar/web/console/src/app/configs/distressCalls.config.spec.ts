@@ -121,7 +121,7 @@ describe('the call log', () => {
       { id: 'd-2', caseNumber: 'DC-0043', summary: 'Lost beacon', severity: 1, filedByName: 'Marshal Greer' },
     ]);
 
-    expect(element().querySelector('h1.title')?.textContent?.trim()).toBe('Call log (2)');
+    expect(element().querySelector('h1.impulse-resource-list-title')?.textContent?.trim()).toBe('Call log (2)');
     expect(headers()).toEqual(['Case', 'Summary', 'Severity', 'Caller contact', 'Filed by', 'Position']);
     expect(cells()).toEqual([
       [
@@ -145,7 +145,7 @@ describe('the call log', () => {
       'summary',
     ]);
     // The Dispatcher reads the log and files nothing.
-    expect(element().querySelector('.create-button')).toBeNull();
+    expect(element().querySelector('.impulse-resource-list-create-button')).toBeNull();
   });
 
   it('draws the Cadet the three columns their grant covers, asks for no other, and offers to file a call', async () => {
@@ -159,7 +159,9 @@ describe('the call log', () => {
     expect(columnsAsked()).toEqual(['caseNumber', 'id', 'severity', 'summary']);
     expect(transport.requests.some((request) => request.url.includes('callerContact'))).toBe(false);
     // The button says what it does in the log's own words, after its icon's name.
-    expect(element().querySelector('.create-button')?.textContent?.trim()).toBe('create File a distress call');
+    expect(element().querySelector('.impulse-resource-list-create-button')?.textContent?.trim()).toBe(
+      'create File a distress call',
+    );
   });
 
   it('says so when no call has been filed in the sector', async () => {

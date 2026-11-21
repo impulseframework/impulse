@@ -129,7 +129,7 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 	}
 	// The marshal's own role is refused, on the call and on its warning, in a sentence
 	// that says why, and the row keeps what it held.
-	const mayNotGive = "You may not give this role in this sector, so you cannot make it the role everyone from its directory gets."
+	const mayNotGive = "You may not give the role Sector marshal in this sector, so you cannot make it the role everyone from its directory gets."
 	if status, body := open(marshal, "SectorMarshal"); status != http.StatusForbidden || !strings.Contains(string(body), mayNotGive) {
 		t.Errorf("opening Cinder with SectorMarshal as a marshal: status %d, want 403 saying %q: %s", status, mayNotGive, body)
 	}

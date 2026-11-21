@@ -172,7 +172,7 @@ describe('the salvage hold', () => {
       RowAction[] | undefined) ?? [];
 
   it('draws the hold with each owner by name, the number of consignments in its title, and "In bond" where nothing was released', () => {
-    expect(element().querySelector('h1.title')?.textContent?.trim()).toBe('Salvage hold (4)');
+    expect(element().querySelector('h1.impulse-resource-list-title')?.textContent?.trim()).toBe('Salvage hold (4)');
     expect(Array.from(element().querySelectorAll('th .col-header')).map((h) => h.textContent?.trim())).toEqual([
       'Bond',
       'Description',
@@ -205,8 +205,8 @@ describe('the salvage hold', () => {
         format(new Date('2026-09-28T10:30:00Z'), dayAndMinuteFormat),
       ],
     ]);
-    // The Supercargo may book a consignment in: the page offers Create.
-    expect(element().querySelector('.create-button')?.textContent).toContain('Create');
+    // The Supercargo may book a consignment in: the page offers Add a consignment.
+    expect(element().querySelector('.impulse-resource-list-create-button')?.textContent).toContain('Add a consignment');
   });
 
   it("offers Release in the row's menu on cargo in bond the server says may be released, and nothing on a released one whatever the server answers", () => {

@@ -22,6 +22,14 @@ func entra(subject, signInName string) *sessioninfo.Identity {
 	}
 }
 
+// codeEntered are the events of a sign-in that finishes the wait for the mailed code:
+// the code's own. A first link to an account created ahead of its person, which
+// nothing but the sign-in name ties to them, is made by the sign-in that carries it.
+// The wait before it is the sign-in flow's own to test, and the scenarios'.
+func codeEntered() []sessioninfo.AuthEvent {
+	return []sessioninfo.AuthEvent{{Method: sessioninfo.MethodEmailCode}}
+}
+
 // google is an external identity of the Google Workspace the registration names
 // lakeside that signs in under email, as the Google method reports a member: the
 // sign-in name is the address Google verified, and the Workspace is the organization.
@@ -163,7 +171,9 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 		identity *sessioninfo.Identity
 		// roleNames are the role names the method asserted; nil for no role sync.
 		roleNames []string
-		check     func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser)
+		// events are the events the sign-in carries; nil for a first sign-in's none.
+		events []sessioninfo.AuthEvent
+		check  func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser)
 	}{
 		{
 			name:     "open: a stranger is provisioned under the sign-in name, with the connection as the tenant key",
@@ -191,8 +201,9 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "open: a pre-created user without a password and no identity is linked outright",
+			name:     "open: a pre-created user without a password and no identity is linked by the sign-in that carries the mailed code's event",
 			accounts: Open,
+			events:   codeEntered(),
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				return createUser(ctx, t, d, name)
 			},
@@ -203,6 +214,7 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 		{
 			name:     "open: the pre-created user is matched without regard to case, and keeps its spelling",
 			accounts: Open,
+			events:   codeEntered(),
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				return createUser(ctx, t, d, "Pat.Lee@Lakeside.edu")
 			},
@@ -270,8 +282,9 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "invite only: a pre-created user is linked",
+			name:     "invite only: a pre-created user is linked by the sign-in that carries the mailed code's event",
 			accounts: InviteOnly,
+			events:   codeEntered(),
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				return createUser(ctx, t, d, name)
 			},
@@ -352,7 +365,9 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			if identity == nil {
 				identity = entra("oid-pat", name)
 			}
-			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: identity.SignInName, Identity: identity, RoleNames: tt.roleNames}
+			req := &sessioninfo.NewSessionRequest{
+				Reason: sessioninfo.ReasonLogin, Username: identity.SignInName, Identity: identity, RoleNames: tt.roleNames, AuthEvents: tt.events,
+			}
 
 			err := signInRequest(ctx, in, req)
 
@@ -625,7 +640,7 @@ func testStandardRuleRunsOnce(ctx context.Context, t *testing.T, h *AuthHarness)
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: InviteOnly})
 	user := createUser(ctx, t, in.Driver, name)
 
-	first := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name)}
+	first := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name), AuthEvents: codeEntered()}
 	if err := signInRequest(ctx, in, first); err != nil {
 		t.Fatalf("first sign-in error = %v", err)
 	}

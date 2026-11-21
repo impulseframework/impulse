@@ -113,7 +113,7 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 			name:  "a person is not put in a group that holds a role the caller may not give",
 			roles: map[access.GroupRoleKey]accesstypes.Period{warden: {}, reader: {}}, act: add,
 			wantSays:  "putting a person in the group Night shift gives them the role Warden, which you may not give them",
-			wantTold:  "Putting a person in the group Night shift gives them a role you may not give them.",
+			wantTold:  "Putting a person in the group Night shift gives them the role Warden, which you may not give them.",
 			wantAsked: []string{"give domain/alpha " + frank + " Reader", "give domain/alpha " + frank + " Warden"},
 		},
 		{
@@ -131,14 +131,14 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 			name:  "a role of the group that has not begun is one the person will hold, and is judged",
 			roles: map[access.GroupRoleKey]accesstypes.Period{warden: upcoming}, act: add,
 			wantSays:  "the role Warden, which you may not give them",
-			wantTold:  "Putting a person in the group Night shift gives them a role you may not give them.",
+			wantTold:  "Putting a person in the group Night shift gives them the role Warden, which you may not give them.",
 			wantAsked: []string{"give domain/alpha " + frank + " Warden"},
 		},
 		{
 			name:  "a person is not taken out of a group that holds a role the caller may not take",
 			roles: map[access.GroupRoleKey]accesstypes.Period{warden: {}}, members: map[impulse.UUID]accesstypes.Period{userID: {}}, act: remove,
 			wantSays:  "taking a person out of the group Night shift takes away the role Warden, which you may not take from them",
-			wantTold:  "Taking a person out of the group Night shift takes away a role you may not take from them.",
+			wantTold:  "Taking a person out of the group Night shift takes away the role Warden, which you may not take from them.",
 			wantAsked: []string{"take domain/alpha " + danaID + " Warden"},
 		},
 		{
@@ -156,7 +156,7 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 			name:    "a group is not given a role the caller may not give to a person in it",
 			members: map[impulse.UUID]accesstypes.Period{userID: {}}, act: give,
 			wantSays:  "giving the group Night shift a role gives everyone in it the role Warden, which you may not give them",
-			wantTold:  "Giving the group Night shift a role gives everyone in it a role you may not give them.",
+			wantTold:  "Giving the group Night shift a role gives everyone in it the role Warden, which you may not give them.",
 			wantAsked: []string{"give domain/alpha " + danaID + " Warden"},
 		},
 		{
@@ -173,7 +173,7 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 			name:  "a group does not lose a role the caller may not take from a person in it",
 			roles: map[access.GroupRoleKey]accesstypes.Period{warden: {}}, members: map[impulse.UUID]accesstypes.Period{userID: {}}, act: take,
 			wantSays:  "taking a role from the group Night shift takes away from everyone in it the role Warden, which you may not take from them",
-			wantTold:  "Taking a role from the group Night shift takes away from everyone in it a role you may not take from them.",
+			wantTold:  "Taking a role from the group Night shift takes away from everyone in it the role Warden, which you may not take from them.",
 			wantAsked: []string{"take domain/alpha " + danaID + " Warden"},
 		},
 		{
@@ -221,7 +221,7 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 				t.Fatalf("error = %v, want Forbidden saying %q", err, tt.wantSays)
 			}
 			if tt.wantTold != "" {
-				toldPlainly(t, err, tt.wantTold, "Warden")
+				toldPlainly(t, err, tt.wantTold, "someone who may")
 			}
 			if diff := cmp.Diff(tt.wantAsked, grants.asked); diff != "" {
 				t.Errorf("what the grants were asked (-want +got):\n%s", diff)
@@ -351,20 +351,20 @@ func TestManager_nobodyLengthensTheirOwnHolding(t *testing.T) {
 		// wantWrite is the one write of a change that goes through.
 		wantWrite string
 	}{
-		{name: "their own role, with no end", had: current, ctx: asDana, act: role(none), wantSays: "you cannot make your own role last longer"},
-		{name: "their own role, with a later end", had: current, ctx: asDana, act: role(longer), wantSays: "you cannot make your own role last longer"},
-		{name: "their own role that has not begun, from now", had: upcoming, ctx: asDana, act: role(none), wantSays: "you cannot make your own role last longer"},
-		{name: "their own role that has ended, again", had: ended, ctx: asDana, act: role(current), wantSays: "you cannot make your own role last longer"},
+		{name: "their own role, with no end", had: current, ctx: asDana, act: role(none), wantSays: "You cannot make your own role last longer than it was given for."},
+		{name: "their own role, with a later end", had: current, ctx: asDana, act: role(longer), wantSays: "You cannot make your own role last longer than it was given for."},
+		{name: "their own role that has not begun, from now", had: upcoming, ctx: asDana, act: role(none), wantSays: "You cannot make your own role last longer than it was given for."},
+		{name: "their own role that has ended, again", had: ended, ctx: asDana, act: role(current), wantSays: "You cannot make your own role last longer than it was given for."},
 		{name: "their own role, with an earlier end", had: current, ctx: asDana, act: role(shorter), wantWrite: "period of membership " + membershipText(&own) + ": " + periodText(shorter)},
 		{name: "somebody else gives the role a new period", had: current, ctx: asErin, act: role(none), wantWrite: "period of membership " + membershipText(&own) + ": none"},
 		{name: "the application's own act gives the role a new period", had: current, ctx: outside, act: role(none), wantWrite: "period of membership " + membershipText(&own) + ": none"},
 		{name: "a caller of another auth is nobody of this one", had: current, ctx: fromAnotherAuth, act: role(none), wantWrite: "period of membership " + membershipText(&own) + ": none"},
 
-		{name: "their own place in a group, with no end", had: current, ctx: asDana, act: inGroup(none), wantSays: "you cannot make your own place in a group last longer"},
+		{name: "their own place in a group, with no end", had: current, ctx: asDana, act: inGroup(none), wantSays: "You cannot make your own place in a group last longer than it was given for."},
 		{name: "their own place in a group, with an earlier end", had: current, ctx: asDana, act: inGroup(shorter), wantWrite: "period of group member " + string(place.Group) + " " + string(place.User) + ": " + periodText(shorter)},
 		{name: "somebody else gives the place a new period", had: current, ctx: asErin, act: inGroup(none), wantWrite: "period of group member " + string(place.Group) + " " + string(place.User) + ": none"},
 
-		{name: "a role of a group they are in, with no end", had: current, placed: &none, ctx: asDana, act: ofGroup(none), wantSays: "you cannot make a role of a group you are in last longer"},
+		{name: "a role of a group they are in, with no end", had: current, placed: &none, ctx: asDana, act: ofGroup(none), wantSays: "You cannot make a role of a group you are in last longer than it was given for."},
 		{name: "a role of a group they are in, with an earlier end", had: current, placed: &none, ctx: asDana, act: ofGroup(shorter), wantWrite: "period of group role " + groupRoleText(&groupRole) + ": " + periodText(shorter)},
 		{name: "somebody who is not in the group gives its role a new period", had: current, placed: &none, ctx: asErin, act: ofGroup(none), wantWrite: "period of group role " + groupRoleText(&groupRole) + ": none"},
 		{name: "a person whose place in the group has ended holds nothing through it", had: current, placed: &ended, ctx: asDana, act: ofGroup(none), wantWrite: "period of group role " + groupRoleText(&groupRole) + ": none"},
@@ -388,9 +388,7 @@ func TestManager_nobodyLengthensTheirOwnHolding(t *testing.T) {
 				return tt.act(tt.ctx(ctx), txn, m)
 			})
 			if tt.wantSays != "" {
-				if err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), tt.wantSays) || !strings.Contains(err.Error(), "someone else who may give it") {
-					t.Fatalf("error = %v, want Forbidden saying %q and who does it instead", err, tt.wantSays)
-				}
+				toldPlainly(t, err, tt.wantSays, "someone else who may give it")
 				if len(store.writes) != 0 {
 					t.Errorf("buffered writes = %v, want none", store.writes)
 				}

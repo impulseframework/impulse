@@ -218,13 +218,34 @@ type Grant struct {
 	Resource accesstypes.Resource `json:"resource"`
 
 	// Fields is the field set the grant covers, spelled as the fields' wire
-	// tags; each expands to a Resource.field grant row.
+	// tags; each expands to a Resource.field grant row. "*" is all of the
+	// resource's fields, the ones a later release adds among them, and
+	// expands to the Resource.* row, which a write to a custom role spells
+	// the same way. Update on all the fields is not Update on a field the
+	// release marks immutable.
 	Fields []accesstypes.Tag `json:"fields,omitempty"`
 
 	// Condition is the grant's limiting condition in the condition expression
 	// language; empty is unconditional. One condition scopes exactly this
 	// grant's field set.
 	Condition string `json:"condition,omitempty"`
+}
+
+// allFields is a field set's spelling of all of a resource's fields: the tag of
+// a Resource.* grant.
+const allFields accesstypes.Tag = "*"
+
+// declaredName is the name the collection declares a role file's grant under:
+// the resource's own for a grant of all its fields (Resource.*), which names
+// no field, and the name as written for every other. A write to a custom role
+// is held to the same name (grantResourceName), so the file and a write give
+// the same grants of all a resource's fields and refuse the same ones.
+func declaredName(res accesstypes.Resource) accesstypes.Resource {
+	if base, tag := res.ResourceAndTag(); tag == allFields {
+		return base
+	}
+
+	return res
 }
 
 // expand returns the grant's stored resource rows: the base resource plus one
@@ -611,13 +632,18 @@ func (s grantSet) reads(res accesstypes.Resource) bool {
 }
 
 // listed renders the set in the shape UserManager.RoleGrants speaks: each
-// resource's conditions, sorted.
-func (s grantSet) listed() map[accesstypes.Permission]map[accesstypes.Resource][]string {
-	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]string, len(s))
+// resource's grants, sorted by condition. The set is a role's of the release, held to
+// the whole rule when the role file was read, so the role holds each.
+func (s grantSet) listed() map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant {
+	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant, len(s))
 	for perm, resources := range s {
-		out[perm] = make(map[accesstypes.Resource][]string, len(resources))
+		out[perm] = make(map[accesstypes.Resource][]RoleGrant, len(resources))
 		for res, conditions := range resources {
-			out[perm][res] = sortedConditions(conditions)
+			grants := make([]RoleGrant, 0, len(conditions))
+			for _, text := range sortedConditions(conditions) {
+				grants = append(grants, RoleGrant{Condition: text})
+			}
+			out[perm][res] = grants
 		}
 	}
 
@@ -670,21 +696,19 @@ func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.
 			}
 
 			for _, res := range grant.expand() {
-				if isNoRoleAction(store, res) {
-					return nil, errors.Newf("role %s grants %s on %s, which is an action no role is given: nothing asks for a grant of it, so the grant would do nothing, and the action is registered only so that a permission mask can refuse it to a session that acts as someone; remove the grant from the role", r.Name, perm, res)
+				name := declaredName(res)
+				if isNoRoleAction(store, name) {
+					return nil, errors.Newf("role %s grants %s on %s, which is an action no role is given: nothing asks for a grant of it, so the grant would do nothing, and the action is registered only so that a permission mask can refuse it to a session that acts as someone; remove the grant from the role", r.Name, perm, name)
 				}
-				scope := store.Scope(res)
+				scope := store.Scope(name)
 				if scope == "" {
-					return nil, errors.Newf("resource %s does not require a permission or does not exist", res)
+					return nil, errors.Newf("resource %s does not require a permission or does not exist", name)
 				}
-				if !slices.Contains(storePermissions[perm], res) {
-					return nil, errors.Newf("resource %s does not require permission %s", res, perm)
+				if !slices.Contains(storePermissions[perm], name) {
+					return nil, errors.Newf("resource %s does not require permission %s", name, perm)
 				}
-				if perm == accesstypes.Update && store.IsResourceImmutable(scope, res) {
-					return nil, errors.Newf("role %s cannot have update permission on immutable resource %s", r.Name, res)
-				}
-				if scope != declared {
-					return nil, errors.Newf("role %s is a %s role but grants %s on %s, a %s-scoped resource — a role's grants live at its declared scope; move the grant to a %s role", r.Name, declared, perm, res, scope, scope)
+				if err := misplacedGrant(store, r.Name, declared, perm, name, scope); err != nil {
+					return nil, err
 				}
 
 				desired.add(perm, res, grant.Condition)
@@ -693,6 +717,27 @@ func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.
 	}
 
 	return desired, nil
+}
+
+// misplacedGrant says why a role declared at a scope cannot hold a permission
+// on a resource of the collection's, held there in scope, or nil when it can:
+// Update is not given on a resource the release marks immutable (a grant of
+// all a resource's fields names none and reaches no immutable one:
+// snapshot.allFieldsLeaveOut), and a role's
+// grants are of its own scope, since one on a resource of another scope would
+// be provisioned into a partition the role's holders never look in. It is the
+// part of the role file's rule a listed name can still break, and a write to a
+// custom role and a load of a role's stored grant are held to it in the same
+// sentences (grantRule.refusal).
+func misplacedGrant(store PermissionCollection, role accesstypes.Role, declared accesstypes.PermissionScope, perm accesstypes.Permission, res accesstypes.Resource, scope accesstypes.PermissionScope) error {
+	if perm == accesstypes.Update && store.IsResourceImmutable(scope, res) {
+		return errors.Newf("role %s cannot have update permission on immutable resource %s", role, res)
+	}
+	if scope != declared {
+		return errors.Newf("role %s is a %s role but grants %s on %s, a %s-scoped resource — a role's grants live at its declared scope; move the grant to a %s role", role, declared, perm, res, scope, scope)
+	}
+
+	return nil
 }
 
 // authoredGrants tracks the (permission, resource, condition) triples a role's
