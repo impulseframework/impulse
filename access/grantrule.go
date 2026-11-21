@@ -21,12 +21,16 @@ import (
 //   - The condition. The text parses, reads only the attributes the resource declares
 //     and the subject vocabulary the application declares, and is one the grant's
 //     permission can be judged by (validateConditionReads). A field's condition is held
-//     to its resource's attributes.
+//     to its resource's attributes. Then it reads no set that describes the people of
+//     another auth than the engine's (anotherAuthsSet): a custom role is a role of the
+//     auth whose role file the engine was handed, and is held to that auth's sets as
+//     the file's roles are.
 //
-// A rule is made for one collection and asked about many grants: it reads the
-// collection's List once and remembers what the condition's part answered.
+// A rule is made for one collection and one auth and asked about many grants: it reads
+// the collection's List once and remembers what the condition's part answered.
 type grantRule struct {
 	collection PermissionCollection
+	auth       string
 	listed     map[accesstypes.Permission][]accesstypes.Resource
 	reads      map[conditionUse]error
 }
@@ -64,10 +68,12 @@ type brokenRule struct {
 	reason error
 }
 
-// newGrantRule is the rule as collection declares it.
-func newGrantRule(collection PermissionCollection) *grantRule {
+// newGrantRule is the rule as collection declares it, for the roles of auth: the name
+// the engine's role file was handed over under (defaultRoles.authName), "" for none.
+func newGrantRule(collection PermissionCollection, auth string) *grantRule {
 	return &grantRule{
 		collection: collection,
+		auth:       auth,
 		listed:     collection.List(),
 		reads:      make(map[conditionUse]error),
 	}
@@ -110,6 +116,9 @@ func (r *grantRule) refusal(g *policy.Grant, parse func(text string) (condition.
 	err, asked := r.reads[use]
 	if !asked {
 		err = validateConditionReads(r.collection, g.Perm, accesstypes.Resource(g.Resource), expr)
+		if err == nil {
+			err = anotherAuthsSet(r.collection, r.auth, expr)
+		}
 		r.reads[use] = err
 	}
 	if err != nil {

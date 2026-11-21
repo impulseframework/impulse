@@ -235,14 +235,14 @@ func TestValidateRoles_grantThroughAnotherAuthsSet(t *testing.T) {
 			authSets: labeled,
 			auth:     "members",
 			roles:    ScopedRoles{Domain: []*Role{readsNoSet(), readsCrews()}},
-			wantErr:  "role Quartermaster: Read grant on Widgets: the condition reads subject.crews, which describes the people of crew (auth: crew in the set's @subjectSet), and this role file is handed over as the roles of members; the set is looked up by the ids of crew's people, so the role's holders get nothing of their own through it: read a set that describes the people of members, or move the grant to a role of crew",
+			wantErr:  "role Quartermaster: Read grant on Widgets: the condition reads subject.crews, which describes the people of crew (auth: crew in the set's @subjectSet), and this is a role of members. The set is looked up by the ids of crew's people, so it says nothing about the people who hold this role: read a set that describes the people of members, or give the grant to a role of crew",
 		},
 		{
 			name:     "the other auth's file is refused the first's set the same way",
 			authSets: labeled,
 			auth:     "crew",
 			roles:    ScopedRoles{Domain: []*Role{readsBands()}},
-			wantErr:  "role Inspector: Read grant on Widgets: the condition reads subject.hazardBands, which describes the people of members (auth: members in the set's @subjectSet), and this role file is handed over as the roles of crew",
+			wantErr:  "role Inspector: Read grant on Widgets: the condition reads subject.hazardBands, which describes the people of members (auth: members in the set's @subjectSet), and this is a role of crew",
 		},
 		{
 			name:     "a grant through a set of the file's own auth",
@@ -310,7 +310,7 @@ func TestNew_grantThroughAnotherAuthsSet(t *testing.T) {
 			auth: "members",
 			wantErr: []string{
 				"access.WithDefaultRoles(): the role file does not validate",
-				"role Quartermaster: Read grant on Widgets: the condition reads subject.crews, which describes the people of crew (auth: crew in the set's @subjectSet), and this role file is handed over as the roles of members",
+				"role Quartermaster: Read grant on Widgets: the condition reads subject.crews, which describes the people of crew (auth: crew in the set's @subjectSet), and this is a role of members. The set is looked up by the ids of crew's people, so it says nothing about the people who hold this role: read a set that describes the people of members, or give the grant to a role of crew",
 			},
 		},
 	}

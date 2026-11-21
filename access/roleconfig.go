@@ -299,6 +299,10 @@ type defaultRoles struct {
 	domain   map[accesstypes.Role]defaultRole
 	warnings []Warning
 	grants   []policy.Grant
+	// auth is the name of the auth whose roles these are, as the role file was handed
+	// over (WithDefaultRoles): a custom role of the engine is a role of the same auth,
+	// and its grants are held to that auth's sets (grantRule). Empty is no auth.
+	auth string
 }
 
 // defaultRole is one default role compiled: the description the file gave it
@@ -334,6 +338,7 @@ func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, met
 	d := &defaultRoles{
 		global: make(map[accesstypes.Role]defaultRole, len(roleConfig.Roles.Global)+1),
 		domain: make(map[accesstypes.Role]defaultRole, len(roleConfig.Roles.Domain)),
+		auth:   auth,
 	}
 	super, err := superAdministratorRole(store, methods)
 	if err != nil {
@@ -434,6 +439,16 @@ func (d *defaultRoles) allGrants() []policy.Grant {
 	}
 
 	return d.grants
+}
+
+// authName returns the name of the auth whose roles these are, or "" for defaults
+// compiled with no name. Nil-safe.
+func (d *defaultRoles) authName() string {
+	if d == nil {
+		return ""
+	}
+
+	return d.auth
 }
 
 // kind returns the default roles of scope's kind. Nil-safe.
