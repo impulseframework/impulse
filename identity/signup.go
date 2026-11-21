@@ -382,10 +382,13 @@ func (m *Manager) choosable(name string) (*session.RegisteredMethod, error) {
 }
 
 // signUpRoleNotGiven is what a person is told who opens a method with a default role
-// they may not give. It names no role, so it reads the same of a role the application
-// holds and of one it does not; the role is named in the refusal's cause, kept for the
-// server's log.
-const signUpRoleNotGiven = "Opening the method gives every person who signs up a role you may not give."
+// they may not give, with the role in words (roleInWords). It is the role the request
+// named, so it reads the same of a role the application holds and of one it does not;
+// the role's code name and the advice are the refusal's cause, kept for the server's
+// log.
+func signUpRoleNotGiven(role accesstypes.Role) string {
+	return "Opening the method gives every person who signs up the role " + roleInWords(role) + ", which you may not give."
+}
 
 // requireSignUpRole holds a default role to its rule: never the Super Administrator
 // role, one the request's caller may give a person directly (mayGiveBySignUp), refused
@@ -408,7 +411,7 @@ func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteT
 			errors.Newf(
 				"opening the method gives every person who signs up the role %s, which you may not give: choose a role you may give, or have someone who may give %s open the method",
 				string(role), string(role)),
-			signUpRoleNotGiven,
+			signUpRoleNotGiven(role),
 		)
 	}
 	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{accesstypes.GlobalPolicyScope()})

@@ -4322,7 +4322,9 @@ holding some of them is refused at generation.
   grants a sector's marshal `AssignCrewSectorRole` with `new.role != 'SectorMarshal'`,
   the marshal puts nobody in a group that holds SectorMarshal, whatever the grant on
   `AddCrewSectorGroupMember` says. A change the caller could not make directly is
-  refused (403), naming the role. A place or a group's role whose period has ended
+  refused (403), naming the role as a role picker shows it, in words ("Putting a person
+  in the group Night shift gives them the role Sector marshal, which you may not give
+  them."). A place or a group's role whose period has ended
   gives nobody anything and is not judged; one that has not begun is. A method the
   application runs in a transaction of its own, outside any request, is the
   application's act and is not judged.
@@ -4684,8 +4686,9 @@ role given to a group to what its giver may give, `identity.RoleGrants`, written
 client's `grants.go`), so a role file that conditions the assign method's grant on the
 role (`"when": "new.role in [...]"`) holds the default role to the same list. Opening a
 method with a role the caller may not give is refused with 403, in one sentence that
-names no role, at the warning as at the save, and `CrewSignUpRoles` lists only the roles
-the caller may give.
+names the role as a role picker shows it, in words ("Opening the method gives every
+person who signs up the role Sector marshal, which you may not give."), at the warning
+as at the save, and `CrewSignUpRoles` lists only the roles the caller may give.
 The grant answers before the role is looked for, so the refusal is the same for a role
 the application holds and one it does not, and tells nobody of a role the grant keeps
 from them.
@@ -4887,8 +4890,8 @@ own, outside any request, has no caller and is the application's act):
   generated route goes through. The session store's own `DeactivateUser`,
   `ActivateUser` and `DeleteUser` are the bare writes and are not held to it, so a
   route an application wrote calls the Manager or the session API, never the store.
-  They are refused the account they view as too ("you
-  cannot disable the account you are viewing as"): a session that views as a person
+  They are refused the account they view as too ("You
+  cannot disable the account you are viewing as."): a session that views as a person
   does no more than that person may, and nobody disables or deletes themselves.
 - In a session that acts as someone else, nobody is the subject of what they do. It is
   the rule above, widened for the person who impersonates to every change of their

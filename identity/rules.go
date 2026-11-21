@@ -109,10 +109,10 @@ func (m *Manager) refuseOwnAccount(ctx context.Context, userID impulse.UUID, act
 		return err
 	}
 	if m.actorIs(ctx, userID) {
-		return httpio.NewForbiddenMessagef("you cannot %s your own account", act)
+		return httpio.NewForbiddenMessagef("You cannot %s your own account.", act)
 	}
 	if m.callerIs(ctx, userID) {
-		return httpio.NewForbiddenMessagef("you cannot %s the account you are viewing as", act)
+		return httpio.NewForbiddenMessagef("You cannot %s the account you are viewing as.", act)
 	}
 
 	return nil

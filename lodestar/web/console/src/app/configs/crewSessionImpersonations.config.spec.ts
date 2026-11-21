@@ -209,7 +209,7 @@ describe('the watch desk', () => {
   it('draws who holds each session, as whom, what it may do, why, since when, until when, and when and how it ended', async () => {
     await create(sessions);
 
-    expect(element().querySelector('h1.title')?.textContent?.trim()).toBe('Watch desk (4)');
+    expect(element().querySelector('h1.impulse-resource-list-title')?.textContent?.trim()).toBe('Watch desk (4)');
     expect(Array.from(element().querySelectorAll('th .col-header')).map((h) => h.textContent?.trim())).toEqual([
       'Established by',
       'As',
@@ -284,7 +284,7 @@ describe('the watch desk', () => {
     expect(rows.map((row) => row.querySelectorAll('button.row-actions').length)).toEqual([1, 1, 0, 0]);
     // A record has no page of its own: the only thing a row offers is its menu.
     expect(rows.map((row) => row.querySelectorAll('a').length)).toEqual([0, 0, 0, 0]);
-    expect(element().querySelector('.create-button')).toBeNull();
+    expect(element().querySelector('.impulse-resource-list-create-button')).toBeNull();
   });
 
   it('asks before it ends a session, naming who holds it, then says so and reads the desk again', async () => {

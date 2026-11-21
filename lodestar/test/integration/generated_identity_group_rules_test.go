@@ -206,8 +206,8 @@ func TestGeneratedIdentityGroupChangesAreJudgedAsRoleChanges(t *testing.T) {
 	} {
 		status, body = post(tt.actor, "add-crew-sector-group-member", member(bridge, tt.person))
 		assertStatus(t, status, http.StatusForbidden, body)
-		if said := refusalMessage(t, body); !strings.HasSuffix(said, " gives them a role you may not give them.") || strings.Contains(said, "SectorMarshal") {
-			t.Errorf("the refusal of a place in the bridge watch, asked by %s = %s, want one sentence of a role a Marshal may not give, naming none", tt.actor, body)
+		if said := refusalMessage(t, body); !strings.HasSuffix(said, " gives them the role Sector marshal, which you may not give them.") || strings.Contains(said, "SectorMarshal") {
+			t.Errorf("the refusal of a place in the bridge watch, asked by %s = %s, want one sentence of the role a Marshal may not give, named in words", tt.actor, body)
 		}
 	}
 	// Under the sector's address headquarters' governor is one more Marshal, of every
@@ -230,8 +230,8 @@ func TestGeneratedIdentityGroupChangesAreJudgedAsRoleChanges(t *testing.T) {
 	// fellow Marshal. Headquarters does.
 	status, body = post("marshal", "remove-crew-sector-group-member", member(bridge, ada))
 	assertStatus(t, status, http.StatusForbidden, body)
-	if said := refusalMessage(t, body); !strings.HasSuffix(said, " takes away a role you may not take from them.") || strings.Contains(said, "SectorMarshal") {
-		t.Errorf("the refusal to take ada out of the bridge watch = %s, want one sentence of a role the Marshal may not take away, naming none", body)
+	if said := refusalMessage(t, body); !strings.HasSuffix(said, " takes away the role Sector marshal, which you may not take from them.") || strings.Contains(said, "SectorMarshal") {
+		t.Errorf("the refusal to take ada out of the bridge watch = %s, want one sentence of the role the Marshal may not take away, named in words", body)
 	}
 	if !marshalHolds("ada") {
 		t.Fatal("ada lost the Marshal's role through the bridge watch to a request that was refused")
@@ -321,8 +321,8 @@ func TestGeneratedIdentityGroupChangesReadThePersonsRow(t *testing.T) {
 		assertStatus(t, status, tt.want, body)
 		status, body = post("ada", "add-crew-sector-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, hangar, w.ids[tt.person]))
 		assertStatus(t, status, tt.want, body)
-		if tt.want == http.StatusForbidden && !strings.HasSuffix(refusalMessage(t, body), " gives them a role you may not give them.") {
-			t.Errorf("the refusal to put %s in the hangar hands = %s, want the sentence of a role ada may not give them", tt.person, body)
+		if tt.want == http.StatusForbidden && !strings.HasSuffix(refusalMessage(t, body), " gives them the role Engineer, which you may not give them.") {
+			t.Errorf("the refusal to put %s in the hangar hands = %s, want the sentence of the role ada may not give them", tt.person, body)
 		}
 		if _, through := sectorRolesThroughGroups(t, w)[tt.person+" Engineer"]; through != (tt.want == http.StatusNoContent) {
 			t.Errorf("%s holds the Engineer's role through the hangar hands: %v, and the request was answered %d", tt.person, through, tt.want)
@@ -379,7 +379,7 @@ func TestGeneratedIdentityNobodyLengthensTheirOwnHolding(t *testing.T) {
 	for name, endsAt := range map[string]time.Time{"with no end": {}, "until a later day": week.Add(24 * time.Hour)} {
 		status, body = assign("eve", eve, "Engineer", endsAt)
 		assertStatus(t, status, http.StatusForbidden, body)
-		if !strings.Contains(string(body), "you cannot make your own role last longer than it was given for") {
+		if !strings.Contains(string(body), "You cannot make your own role last longer than it was given for.") || strings.Contains(string(body), "someone else who may") {
 			t.Errorf("the refusal of eve's own role %s = %s, want it to say nobody lengthens their own", name, body)
 		}
 	}
