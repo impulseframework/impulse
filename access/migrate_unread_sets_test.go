@@ -208,3 +208,46 @@ func TestUnreadSetWarning_String(t *testing.T) {
 		t.Errorf("UnreadSetWarning.String() =\n  %s\nwant\n  %s", got, want)
 	}
 }
+
+// TestClient_CheckPolicy_unreadSetsOfARoleFile pins that the sets no role reads are a
+// role file's warning, raised for the auth the file was handed over with. A Client opened
+// without a role file has no file to write the grant in, so it is told of no set, where
+// one handed a role file is told of each set of its own auth that the file does not read,
+// and of no other auth's.
+func TestClient_CheckPolicy_unreadSetsOfARoleFile(t *testing.T) {
+	t.Parallel()
+
+	collection := setsCollection{authSets: map[string]map[string][]string{"crew": {"crews": nil}, "members": {"hazardBands": nil}}}
+	tests := []struct {
+		name string
+		opts []Option
+		want []Warning
+	}{
+		{name: "a Client opened without a role file is told of no set"},
+		{
+			name: "a Client handed a role file is told of its own auth's unread set",
+			opts: []Option{WithDefaultRoles(grammarRoleFile, "crew")},
+			want: []Warning{UnreadSetWarning{Set: "crews"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newPolicyClient(t, newFakeStore(), collection, tt.opts...)
+			warnings, err := client.CheckPolicy(t.Context())
+			if err != nil {
+				t.Fatalf("CheckPolicy() error = %v", err)
+			}
+			var got []Warning
+			for _, w := range warnings {
+				if _, unread := w.(UnreadSetWarning); unread {
+					got = append(got, w)
+				}
+			}
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("CheckPolicy() unread sets mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

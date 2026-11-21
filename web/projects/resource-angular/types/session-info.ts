@@ -57,6 +57,13 @@ export interface SessionInfo {
    */
   directory?: SessionDirectory;
   /**
+   * The tenant an invitation the person has just accepted seated them in: where the
+   * application opens for them, whatever else they hold. The server names it on the first
+   * session read after the acceptance and on no later one, and never on an impersonated
+   * session; the AuthService keeps it until the person has landed (`invitedTenant`).
+   */
+  invitedTenant?: string;
+  /**
    * The session acts for someone else: the record the server reports of an impersonated
    * session, absent on a person's own. What is the person's alone to change (their name)
    * is not offered in such a session, which the server refuses.

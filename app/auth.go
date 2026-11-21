@@ -678,8 +678,8 @@ func readSuperAdministrators(arg ast.Expr, fset *token.FileSet, f *ast.File, pkg
 	}
 	read.EngineLine = fset.Position(r.engine.Pos()).Line
 	for _, option := range r.engine.Args {
-		if roles, ok := option.(*ast.CallExpr); ok && isQualified(roles.Fun, r.access, defaultRolesFunc) && len(roles.Args) >= defaultRolesMinArgs {
-			read.RolesPackage = rolesCallPackage(roles.Args[1], r.imports, ownPkg)
+		if roles, ok := option.(*ast.CallExpr); ok && isQualified(roles.Fun, r.access, defaultRolesFunc) && len(roles.Args) > 0 {
+			read.RolesPackage = rolesCallPackage(roles.Args[0], r.imports, ownPkg)
 		}
 	}
 

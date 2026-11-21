@@ -30,7 +30,7 @@ func userSubject(name string) policy.Subject {
 // compileSnapshot compiles fixture records through the shared compiler.
 func compileSnapshot(t *testing.T, records *policy.Records) *snapshot {
 	t.Helper()
-	snap, _, err := newSnapshot(records, nil, nil, time.Now())
+	snap, _, err := newSnapshot(records, nil, declaringRecords(records), time.Now())
 	if err != nil {
 		t.Fatalf("newSnapshot() error = %v", err)
 	}
@@ -536,8 +536,7 @@ func assertMatchesRBACOracle(t *testing.T, snap *snapshot, subject string, grant
 // grants hold and the load completes. Three things make a grant unusable: a
 // condition text that does not parse, a row-referencing condition on a
 // scope-wide grant (a grant attached to no resource has no row for it to see),
-// and, when the collection is known, a permission, resource or field the
-// release does not declare. A scope-wide grant's permission is not checked
+// and a permission, resource or field the release does not declare. A scope-wide grant's permission is not checked
 // against the collection, which lists only the permissions resources require.
 // Schema validation of conditions (binding names against the collection) is not
 // the snapshot's job: the role file's validation does it for the release's grants.
@@ -548,7 +547,6 @@ func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 	tests := []struct {
 		name       string
 		grant      policy.Grant
-		collection PermissionCollection
 		wantSkip   *SkippedGrant // nil: the grant is kept
 		wantReason string
 		// check is the resource whose decision proves the grant kept or
@@ -582,57 +580,45 @@ func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 		{
 			name:       "a permission the release does not declare",
 			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Fly", Resource: "Widgets"},
-			collection: grammarCollection{},
 			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Fly", Resource: "Widgets"},
 			wantReason: "this release has no permission Fly",
 		},
 		{
 			name:       "a resource the release does not declare",
 			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Gadgets"},
-			collection: grammarCollection{},
 			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Read", Resource: "Gadgets"},
 			wantReason: "this release declares no Read on Gadgets",
 		},
 		{
 			name:       "a field the release does not declare",
 			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "weight"},
-			collection: grammarCollection{},
 			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Read", Resource: "Widgets.weight"},
 			wantReason: "this release declares no Read on Widgets.weight",
 		},
 		{
 			name:       "a field the release declares for another permission only",
 			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Update", Resource: "Widgets", Field: "name"},
-			collection: grammarCollection{},
 			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Update", Resource: "Widgets.name"},
 			wantReason: "this release declares no Update on Widgets.name",
 		},
 		{
-			name:       "all fields of a declared resource are kept",
-			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Update", Resource: "Widgets", Field: "*"},
-			collection: grammarCollection{},
-			check:      "Widgets.price",
+			name:  "all fields of a declared resource are kept",
+			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Update", Resource: "Widgets", Field: "*"},
+			check: "Widgets.price",
 		},
 		{
 			name:       "all fields of an undeclared resource",
 			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Gadgets", Field: "*"},
-			collection: grammarCollection{},
 			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Read", Resource: "Gadgets"},
 			wantReason: "this release declares no Read on Gadgets",
 		},
 		{
-			name:       "a scope-wide grant is not checked against the collection",
-			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Fly", Resource: ""},
-			collection: grammarCollection{},
-		},
-		{
-			name:  "names are not checked without a collection",
-			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Gadgets"},
+			name:  "a scope-wide grant is not checked against the collection",
+			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Fly", Resource: ""},
 		},
 		{
 			name:       "an undeclared name and a bad condition: one report, the name first",
 			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Gadgets", Condition: "state = "},
-			collection: grammarCollection{},
 			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Read", Resource: "Gadgets", Condition: "state = "},
 			wantReason: "this release declares no Read on Gadgets",
 		},
@@ -657,7 +643,7 @@ func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 				},
 				Memberships: []policy.Membership{{Scope: tenant1Policy, Member: userSubject("cleo"), Role: "Chief"}},
 			}
-			snap, skipped, err := newSnapshot(records, nil, tt.collection, time.Now())
+			snap, skipped, err := newSnapshot(records, nil, grammarCollection{}, time.Now())
 			if err != nil {
 				t.Fatalf("newSnapshot() error = %v, want the load to complete", err)
 			}
@@ -919,7 +905,7 @@ func Test_snapshot_scopeWideChecks(t *testing.T) {
 			{Scope: tenant1Policy, Member: userSubject("carol"), Role: "Chief"},
 		},
 	}
-	snap, _, err := newSnapshot(records, nil, nil, time.Now())
+	snap, _, err := newSnapshot(records, nil, declaringRecords(records), time.Now())
 	if err != nil {
 		t.Fatalf("newSnapshot() error = %v", err)
 	}
@@ -1163,6 +1149,9 @@ func testEngine(t *testing.T, store Store, opts *clientOptions) *snapshotEngine 
 	t.Helper()
 	if opts == nil {
 		opts = defaultClientOptions()
+	}
+	if opts.collection == nil {
+		opts.collection = fixtureCollection
 	}
 	opts.heartbeatInterval = time.Hour
 	e := newSnapshotEngine(store, nil, opts)

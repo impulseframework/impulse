@@ -653,9 +653,12 @@ The rules, in order, once the user is known:
 6. Otherwise every tenant of the person is directory only and none has the way they
    signed in as its directory: nothing would be reachable, and the sign-in is refused.
    A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect provider)
-   is refused with `connection_not_in_tenant`, and any other, a password, a personal
-   account (which is no tenant's directory) or a session the application started
-   itself, with `directory_only`.
+   is refused with `connection_not_in_tenant`. A sign-in with a personal account
+   (through Google or Microsoft, with an account that is in no organization's
+   directory, so no tenant's) is refused with `directory_only_personal_account`. Any
+   other, a password or a session the application started itself, is refused with
+   `directory_only`. The codes are apart so that a login page says what is true of how
+   the person signed in: a person who used no password is not told to stop using one.
 
 Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
 rule after the tenant policy, for what the tenant policy cannot know:
@@ -1854,6 +1857,27 @@ read the mailbox, and the account takes the address.
   `SignInMethod` and `SignInConnection`, the method and connection of the sign-in that
   carries the invitation, and of the session's first auth event for an acceptance by
   hand (empty for a session that records no events).
+- **Where the application opens afterwards**: a person who accepts an invitation into a
+  tenant came for that tenant, so the application opens in it, whatever other tenants
+  the person holds a seat in and wherever they last worked. A person whose invitation
+  makes a tenant came for the tenant it made, and the application opens there. The
+  library says which tenant, once: the first session read (`Authenticated`) after the
+  acceptance answers `invitedTenant`, the invitation's tenant or the one its acceptance
+  made, and no later read does. The acceptance (a
+  sign-in that accepts the invitation, one that waits for a step first, or
+  `Invitation().Accept()`) sets an encrypted, HttpOnly cookie named after the
+  invitation cookie with `-seated` after it (`auth-invitation-seated`), holding the
+  tenant and the user; it stands for `WithPendingTimeout`. The first session read of
+  that user's own session answers the tenant and deletes the cookie. A read of another
+  user's session deletes it and is told nothing, and an impersonated session reads
+  none. The browser library lands the person there (`PlaceService`); an application
+  with pages of its own reads the field. An invitation that makes a tenant names none,
+  since the tenant does not exist until the acceptance: the acceptance hook tells the
+  library the key of the tenant it made (`Invitation.MadeTenantID`, which the generated
+  user management sets), and a hook of the application's own that leaves it empty
+  lands the person as any sign-in does. An invitation into the application names no
+  tenant, and lands the same way. `NewAuth` refuses another cookie of the Auth
+  configured under the name.
 - **An invitation that makes a tenant**: staff bring an organization into a tenanted
   application by inviting one person, and that person's first sign-in makes the tenant.
   The request carries `NewTenant` (`sessioninfo.NewTenant{Name, DirectoryOnly,
@@ -2815,7 +2839,8 @@ table is the wire contract:
 | `password_change_required` | `RefusedPasswordChangeRequired` | Auth: the signed-in user must change a password an operator set; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), every tenant that seats the person is directory only, and none of them has that directory as its own. |
-| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a personal account, a session the application started itself) by a person whose every tenant is directory only. A password sign-in by a person who administers one of those tenants is not refused: it is held for the second factor (see "The tenant policy", rule 2). |
+| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password, or a session the application started itself, by a person whose every tenant is directory only. A password sign-in by a person who administers one of those tenants is not refused: it is held for the second factor (see "The tenant policy", rule 2). |
+| `directory_only_personal_account` | `RefusedDirectoryOnlyPersonalAccount` | Auth, the tenant policy: a sign-in with a personal account (through Google or Microsoft, with an account that is in no organization's directory) by a person whose every tenant is directory only. The person used no password, so a login page asks them for their organization's account. |
 | `other_tenant` | `RefusedOtherTenant` | Never answered by the session library itself: the generated user management answers it from its hooks where the application declared that a person belongs to one tenant (`identity.WithOneTenantPerPerson()`). The invitation the sign-in carried, or the default role of the directory it came through, would give the person a role in a second tenant; the hook fails the sign-in's transaction, so nothing is consumed and no account is made. |
 | `organization_has_tenant` | `RefusedOrganizationHasTenant` | Never answered by the session library itself: the generated user management answers it from its invitation hook. The invitation the sign-in carried makes a tenant, and the organization's directory the person signed in through is already another tenant's; the hook fails the sign-in's transaction, so no tenant and no account is made and the invitation stands. |
 | `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |

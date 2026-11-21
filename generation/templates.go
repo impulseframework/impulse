@@ -2480,9 +2480,12 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 // <prefix>/{{ .DomainRoute }}/{{ .StateRoute }}: what the {{ .Word }}'s Sign-in page shows the person
 // who may turn it, who does not read the global {{ .Name }} record. It is asked under the
 // grant of either method that turns it, Execute on {{ .Make.Name }} or on {{ .End.Name }} in the
-// {{ .Word }}, and writes nothing (resource.DirectoryOnlyStateHandler).
+// {{ .Word }}, and writes nothing (resource.DirectoryOnlyStateHandler). It is given the
+// rules the two methods are given, each auth's answer about the caller's password
+// with them, so it says what turning the switch on takes of the caller in the words
+// the method refuses in.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .StateFunc }}() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler({{ .ReceiverName }}.ResourceClient(), {{ .Rules }}, {{ .ReceiverName }}.UserPermissions, {{ .RouterPackage }}.Domain, {{ printf "%q" .Make.Name }}, {{ printf "%q" .End.Name }})
+	return resource.DirectoryOnlyStateHandler({{ .ReceiverName }}.ResourceClient(), {{ .SwitchRules }}, {{ .ReceiverName }}.UserPermissions, {{ .RouterPackage }}.Domain, {{ printf "%q" .Make.Name }}, {{ printf "%q" .End.Name }})
 }
 `
 

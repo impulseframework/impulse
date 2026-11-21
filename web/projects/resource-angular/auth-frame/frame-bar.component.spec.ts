@@ -8,7 +8,7 @@ import { firstValueFrom } from 'rxjs';
 import { FrameConfig } from './frame';
 import { FrameBarComponent } from './frame-bar.component';
 import { frameRoutes } from './frame-routes';
-import { provideFrameTesting, specTransport } from './frame-testing';
+import { notNamedFor, provideFrameTesting, specTransport } from './frame-testing';
 import { ShownMenu } from './menu';
 import { MenuService } from './menu.service';
 
@@ -69,7 +69,7 @@ describe('FrameBarComponent', () => {
 
   it('draws the name, the place, the menus, and the person', async () => {
     await signIn(nobody);
-    expect(element().querySelector('a.brand')?.textContent).toContain('Lodestar');
+    expect(element().querySelector('a.impulse-frame-bar-brand')?.textContent).toContain('Lodestar');
     expect(element().querySelector('impulse-place-switcher')).not.toBeNull();
     expect(element().querySelector('impulse-menu-bar')).not.toBeNull();
     expect(element().querySelector('impulse-person-menu')?.textContent).toContain('gale');
@@ -77,7 +77,7 @@ describe('FrameBarComponent', () => {
 
   it('draws no name when the application gives none', async () => {
     await signIn(nobody, { name: undefined });
-    expect(element().querySelector('a.brand')).toBeNull();
+    expect(element().querySelector('a.impulse-frame-bar-brand')).toBeNull();
     expect(
       menu('Help')
         ?.groups.at(-1)
@@ -140,5 +140,12 @@ describe('FrameBarComponent', () => {
     const dialog = document.querySelector('mat-dialog-container');
     expect(dialog?.querySelector('[mat-dialog-title]')?.textContent?.trim()).toBe('About Lodestar');
     expect(router.url).toBe(before);
+  });
+
+  it("names every element for the bar: an application's rule for its own .bar, .brand or .menus lands on none", async () => {
+    await signIn(nobody);
+
+    expect(notNamedFor('impulse-frame-bar-', element())).toEqual([]);
+    expect(element().querySelector('header.impulse-frame-bar-header')).not.toBeNull();
   });
 });

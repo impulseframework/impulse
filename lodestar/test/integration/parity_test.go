@@ -23,8 +23,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -231,11 +233,11 @@ func openEngineWith(db *initiator.SpannerDB, prefix string, roles access.RoleFil
 		return nil, fmt.Errorf("spannerstore.New(): %w", err)
 	}
 	built := []access.Option{
-		access.WithDefaultRoles(router.Collection(), roles, authName(prefix)),
+		access.WithDefaultRoles(roles, authName(prefix)),
 		access.WithSuperAdministratorMethods(superAdministratorMethods(prefix)...),
 		access.WithTenantAdministratorRoles(sectorAdministratorRoles(prefix)...),
 	}
-	client, err := access.New(store, append(built, opts...)...)
+	client, err := access.New(store, router.Collection(), append(built, opts...)...)
 	if err != nil {
 		return nil, fmt.Errorf("access.New(): %w", err)
 	}
@@ -564,20 +566,40 @@ func newAccessClient(t *testing.T, db *initiator.SpannerDB, roles access.RoleFil
 	return client
 }
 
-// engineThatChecksNoName opens an engine over the crew's store that was told nothing of
-// what the release declares: no role file and no permission collection, so its user
-// manager checks no name and writes a role any grant the store can hold. The release's
-// own engine refuses to write a role a grant the release does not declare, so a test
-// that needs one in the store writes it through this engine, as a release that declared
-// the name would have left it there. The engine is closed when the test ends.
-func engineThatChecksNoName(t *testing.T, db *initiator.SpannerDB) *access.Client {
+// alsoDeclared is the permission collection of a release that declared what this one
+// does and more: the generated collection, with the names in also listed beside its own.
+// Every other answer is the generated collection's.
+type alsoDeclared struct {
+	access.PermissionCollection
+	also map[accesstypes.Permission][]accesstypes.Resource
+}
+
+// List is what the generated collection lists, and the names in also under their
+// permissions.
+func (d alsoDeclared) List() map[accesstypes.Permission][]accesstypes.Resource {
+	listed := maps.Clone(d.PermissionCollection.List())
+	for permission, resources := range d.also {
+		listed[permission] = append(slices.Clone(listed[permission]), resources...)
+	}
+
+	return listed
+}
+
+// engineOfAReleaseThatDeclared opens an engine over the crew's store for a release that
+// declared what this one does and the names in also beside it. An engine cannot be built
+// without what its release declares, and the release's own engine refuses to write a
+// role a grant the release does not declare, so a test that needs one in the store
+// writes it through this engine, as the release that declared the name would have left
+// it there. The engine is handed no role file: it writes a custom role's rows and
+// answers nothing. It is closed when the test ends.
+func engineOfAReleaseThatDeclared(t *testing.T, db *initiator.SpannerDB, also map[accesstypes.Permission][]accesstypes.Resource) *access.Client {
 	t.Helper()
 
 	store, err := spannerstore.New(db.Client, spannerstore.WithPrefix(crew.TablePrefix))
 	if err != nil {
 		t.Fatalf("spannerstore.New() error = %v", err)
 	}
-	client, err := access.New(store)
+	client, err := access.New(store, alsoDeclared{PermissionCollection: router.Collection(), also: also})
 	if err != nil {
 		t.Fatalf("access.New() error = %v", err)
 	}

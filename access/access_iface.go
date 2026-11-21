@@ -353,16 +353,14 @@ type UserManager interface {
 	// condition ("" is unconditional). Errors if role is not a custom role
 	// held in scope.
 	//
-	// A Client that knows what the running release declares (WithDefaultRoles,
-	// WithPermissionCollection) writes a role no grant the release cannot
-	// use: a permission the release does not have, a permission it does not
-	// declare on the resource or the field, and an action no role is given are
-	// each refused as a bad request that says which and why, and nothing of
-	// the call is written. Such a grant would be left out when the policy
-	// loads (SkippedGrant) and give nothing, and a name nobody declared is one
-	// nobody can say the meaning of. All of a resource's fields ("Resource.*")
-	// is the resource's own name. A Client handed no collection checks no
-	// name, as its load of the policy checks none.
+	// A Client writes a role no grant the running release, whose collection
+	// New is given, cannot use: a permission the release does not have, a
+	// permission it does not declare on the resource or the field, and an
+	// action no role is given are each refused as a bad request that says
+	// which and why, and nothing of the call is written. Such a grant would
+	// be left out when the policy loads (SkippedGrant) and give nothing, and
+	// a name nobody declared is one nobody can say the meaning of. All of a
+	// resource's fields ("Resource.*") is the resource's own name.
 	AddRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
 
 	// AddRoleGrants writes the grants to role as one store write rather than

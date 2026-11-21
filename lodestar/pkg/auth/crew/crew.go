@@ -674,7 +674,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// anyone, but for the Super Administrator role she also holds.
 	//
 	// Demonstrates: auth.super-administrator, tenancy.directory-only.
-	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles(), Name), access.WithChangeSignal(settings.ChangeSignal),
+	accessClient, err := access.New(store, settings.Collection, access.WithDefaultRoles(Roles(), Name), access.WithChangeSignal(settings.ChangeSignal),
 		access.WithSuperAdministratorMethods(crewidentity.SuperAdministratorMethods()...),
 		access.WithTenantAdministratorRoles(sectorAdministratorRoles()...))
 	if err != nil {

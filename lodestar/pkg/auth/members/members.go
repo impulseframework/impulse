@@ -278,8 +278,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// a client's roles, that one among them. The directory decides who is a super
 	// administrator of the members, the sync gives the role to a client it names for it
 	// and takes it from one it no longer names, and the bootstrap seeds none.
-	accessClient, err := access.New(store,
-		access.WithDefaultRoles(settings.Collection, Roles(), Name),
+	accessClient, err := access.New(store, settings.Collection,
+		access.WithDefaultRoles(Roles(), Name),
 		access.WithChangeSignal(settings.ChangeSignal),
 		access.WithSuperAdministratorMethods(membersidentity.SuperAdministratorMethods()...),
 	)

@@ -81,6 +81,20 @@ export type ListPageStatus = 'idle' | 'loading' | 'resolved' | 'error';
 
 const emptyListPage: ListPage = { rows: [], offset: 0, hasPrev: false, hasNext: false };
 
+/** The answers in the 400s that say nothing of the request: the server had no time for it. */
+const NO_TIME_FOR_IT: ReadonlySet<number> = new Set([408, 429]);
+
+/**
+ * Whether the server would answer the same request the same way again. An answer in the
+ * 400s says what is wrong with the request or with who asks (it may not be asked, what it
+ * names is not there, it cannot be asked that way), so asking again gets it again. A 408,
+ * the request timed out, and a 429, too many requests, are the two that do not: the next
+ * request may be answered.
+ */
+function answersTheSameAgain(status: number): boolean {
+  return status >= 400 && status < 500 && !NO_TIME_FOR_IT.has(status);
+}
+
 @Injectable()
 export class ResourceStore {
   private static readonly BATCH_REQUEST_CONCURRENCY = 5;
@@ -863,7 +877,8 @@ export class ResourceStore {
    * same reader, in whatever order the page holds them: a sort or a filter that brings rows
    * naming the same records ends in the refusal the server gave, the same error, and no
    * request is made. A read that failed (no answer, or one in the 500s) is asked again, as
-   * the next answer may be another.
+   * the next answer may be another; so is a read the server had no time for (a 408, the
+   * request timed out, and a 429, too many requests), which says nothing of the read itself.
    */
   resourceListByKeys(
     route: Signal<string>,
@@ -938,7 +953,7 @@ export class ResourceStore {
             map((results) => results.flat()),
             tap({
               error: (error: unknown) => {
-                if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+                if (error instanceof ApiError && answersTheSameAgain(error.status)) {
                   refused.set(asked, error);
                 }
               },

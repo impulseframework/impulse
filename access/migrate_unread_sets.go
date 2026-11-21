@@ -39,6 +39,7 @@ func (w UnreadSetWarning) String() string {
 // unreadSetWarnings flags each subject set the collection declares for the auth's people
 // that no grant of the auth's role configuration reads, in name order. A set is read when
 // a condition names it, and so is every set a read set builds on, however long the chain.
+// config is nil for a Client opened without a role file, and nothing is flagged then.
 func unreadSetWarnings(store PermissionCollection, auth string, config *RoleConfig) ([]Warning, error) {
 	if store == nil || config == nil {
 		return nil, nil

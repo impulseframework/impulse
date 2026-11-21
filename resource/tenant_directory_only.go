@@ -33,9 +33,30 @@ const DirectoryOnlyRoute = "directory-only"
 // directory's name is not, so the word is the same for every tenant.
 const DirectoryOnlyWord = "close"
 
-// DirectoryOnlyState is a tenant's directory-only switch as it stands.
+// DirectoryOnlyState is a tenant's directory-only switch as it stands, and what turning
+// it on takes of the caller.
 type DirectoryOnlyState struct {
 	DirectoryOnly bool `json:"directoryOnly"`
+	// Conditions are what turning the switch on takes of the person who turns it, said
+	// for the caller in the order the call checks them: whether the caller meets each,
+	// and what they do where they do not. A page shows them before the person tries.
+	// There are none while the switch is on, and none for a tenant with no directory,
+	// which is refused before anything is asked of the person.
+	Conditions []DirectoryOnlyCondition `json:"conditions,omitempty"`
+}
+
+// DirectoryOnlyCondition is one thing turning a tenant directory only takes of the
+// person who turns it, said for one caller. The call's refusal of a caller who does
+// not meet it is Sentence, a space, and ToDo, so the page that shows a condition and
+// the call that refuses on it say the same words.
+type DirectoryOnlyCondition struct {
+	// Sentence says the condition and why it is asked.
+	Sentence string `json:"sentence"`
+	// Met says whether the caller meets it.
+	Met bool `json:"met"`
+	// The field ToDo says what the caller does to meet it. It is empty where they
+	// meet it.
+	ToDo string `json:"toDo,omitempty"`
 }
 
 // DirectoryOutsider is a person who holds a seat in a tenant, has never signed in
@@ -98,6 +119,10 @@ type DirectoryPeople struct {
 //     directory would have none. The refusal says to choose a password first. Where
 //     the caller's auth has no password method the rule stands down, and nothing is
 //     said of it.
+//
+// The read of the switch (State) says the last two for the caller before they try, in
+// the words these refusals use: one place holds the sentences, and a page shows the
+// read's and holds none of its own.
 //
 // The rules read what is committed, and a transaction's reads do not see what it has
 // buffered, so the transaction notes each write the rules pass (directoryWrites): a
@@ -341,7 +366,10 @@ func directoryOnlySentence(directory, word string, administratorsEnter, counted 
 
 // turnOn holds turning tenant's switch on to its rules and answers the tenant's
 // directory: the tenant has one, the caller is signed in through it, and the caller
-// has a password where their auth has a password method.
+// has a password where their auth has a password method. A caller who does not meet
+// one of the two things asked of them is refused in the words the read of the switch
+// says it in (DirectoryOnlyCondition), so a page that shows them and this refusal
+// never differ.
 func (r *TenantDirectoryRules) turnOn(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (signin.Directory, error) {
 	directory, has, err := r.directoryOf(ctx, txn, tenant)
 	if err != nil {
@@ -350,37 +378,77 @@ func (r *TenantDirectoryRules) turnOn(ctx context.Context, txn ReadWriteTransact
 	if !has {
 		return signin.Directory{}, httpio.NewConflictMessagef("This %[1]s has no directory, so it cannot be directory only: nobody could enter it. Set its directory first: sign in through your organization's directory, make it this %[1]s's directory, then turn directory only on.", r.word)
 	}
-	session := sessioninfo.DataFromCtx(ctx)
-	established, ok := session.EstablishedBy()
-	if !ok || (signin.Directory{Method: established.Method, Connection: established.Connection}) != directory {
-		return signin.Directory{}, httpio.NewConflictMessagef("Directory only is turned on by a person who is signed in through this %[1]s's directory, %[2]s: that shows the directory works, and that you will not shut yourself out. %[3]s Sign in through %[2]s and try again.",
-			r.word, r.directoryName(directory), establishedSentence(session, r.namers))
+	if through := r.throughDirectory(ctx, directory); !through.Met {
+		return signin.Directory{}, through.refusal()
 	}
-	if err := r.requirePassword(ctx, txn); err != nil {
+	password, applies, err := r.hasPassword(ctx, txn)
+	if err != nil {
 		return signin.Directory{}, err
+	}
+	if applies && !password.Met {
+		return signin.Directory{}, password.refusal()
 	}
 
 	return directory, nil
 }
 
-// requirePassword refuses a caller whose own account has no password, where an auth
-// says the question applies to them (PasswordsBy): the caller's auth has a password
-// method, and the caller is its person. Where none applies the rule stands down.
-func (r *TenantDirectoryRules) requirePassword(ctx context.Context, txn ReadWriteTransaction) error {
+// refusal is the Conflict a caller who does not meet the condition is refused with: its
+// sentence, then what the caller does.
+func (c DirectoryOnlyCondition) refusal() error {
+	return httpio.NewConflictMessage(c.Sentence + " " + c.ToDo)
+}
+
+// throughDirectory is the first thing turning a tenant directory only takes of the
+// caller, said for them: that they are signed in through directory, the tenant's own.
+// The session proves the directory works, and the person who closes the tenant to
+// every other sign-in is not shut out by it. A caller who is not is told how they did
+// sign in, and to sign in through the directory.
+func (r *TenantDirectoryRules) throughDirectory(ctx context.Context, directory signin.Directory) DirectoryOnlyCondition {
+	name := r.directoryName(directory)
+	condition := DirectoryOnlyCondition{
+		Sentence: fmt.Sprintf("Directory only is turned on by a person who is signed in through this %s's directory, %s: that shows the directory works, and that you will not shut yourself out.", r.word, name),
+	}
+	session := sessioninfo.DataFromCtx(ctx)
+	established, ok := session.EstablishedBy()
+	if ok && (signin.Directory{Method: established.Method, Connection: established.Connection}) == directory {
+		condition.Met = true
+
+		return condition
+	}
+	condition.ToDo = fmt.Sprintf("%s Sign in through %s and try again.", establishedSentence(session, r.namers), name)
+
+	return condition
+}
+
+// hasPassword is the second thing turning a tenant directory only takes of the caller,
+// said for them: that their own account has a password. applies is false where no auth
+// says the question is theirs to answer (PasswordsBy): the caller's auth has a password
+// method, and the caller is its person. Where none applies the rule stands down, and
+// nothing is said of it.
+func (r *TenantDirectoryRules) hasPassword(ctx context.Context, txn ReadWriteTransaction) (condition DirectoryOnlyCondition, applies bool, err error) {
+	condition = DirectoryOnlyCondition{
+		Sentence: fmt.Sprintf("Directory only is turned on by a person who has a password: an administrator of this %s enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem.", r.word),
+		Met:      true,
+	}
 	for _, read := range r.passwords {
 		if read == nil {
 			continue
 		}
-		has, applies, err := read(ctx, txn)
+		has, asked, err := read(ctx, txn)
 		if err != nil {
-			return errors.Wrap(err, "resource.CallerPassword()")
+			return DirectoryOnlyCondition{}, false, errors.Wrap(err, "resource.CallerPassword()")
 		}
-		if applies && !has {
-			return httpio.NewConflictMessagef("Directory only is turned on by a person who has a password: an administrator of this %[1]s enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem. Choose a password on Your account first, then try again.", r.word)
+		if !asked {
+			continue
+		}
+		applies = true
+		if !has {
+			condition.Met = false
+			condition.ToDo = "Choose a password on Your account first, then try again."
 		}
 	}
 
-	return nil
+	return condition, applies, nil
 }
 
 // switchState reads tenant's directory-only flag as committed; found is false for a
@@ -456,7 +524,11 @@ func turnsOn(value any) bool {
 }
 
 // State answers tenant's directory-only switch as it stands, in the caller's
-// transaction; a tenant the record does not hold is NotFound.
+// transaction, and, while it is off, what turning it on takes of the caller
+// (DirectoryOnlyState.Conditions): each condition the call would hold them to, whether
+// they meet it, and what they do where they do not, in the words the call refuses in.
+// A tenant with no directory is refused before anything is asked of the person, so no
+// condition is said for it. A tenant the record does not hold is NotFound.
 func (r *TenantDirectoryRules) State(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*DirectoryOnlyState, error) {
 	on, found, err := r.switchState(ctx, txn, tenant)
 	if err != nil {
@@ -465,20 +537,45 @@ func (r *TenantDirectoryRules) State(ctx context.Context, txn ReadWriteTransacti
 	if !found {
 		return nil, httpio.NewNotFoundMessagef("This %s does not exist.", r.word)
 	}
+	state := &DirectoryOnlyState{DirectoryOnly: on}
+	if on {
+		return state, nil
+	}
+	directory, has, err := r.directoryOf(ctx, txn, tenant)
+	if err != nil {
+		return nil, err
+	}
+	if !has {
+		return state, nil
+	}
+	state.Conditions = append(state.Conditions, r.throughDirectory(ctx, directory))
+	password, applies, err := r.hasPassword(ctx, txn)
+	if err != nil {
+		return nil, err
+	}
+	if applies {
+		state.Conditions = append(state.Conditions, password)
+	}
 
-	return &DirectoryOnlyState{DirectoryOnly: on}, nil
+	return state, nil
 }
 
 // DirectoryOnlyStateHandler serves a tenant's directory-only switch as it stands
 // (DirectoryOnlyState, DirectoryOnlyRoute): what a tenant's Sign-in page shows the
-// person who may turn it. The read is the tenant's own: it is served under the tenant's
+// person who may turn it, with what turning it on takes of them while it is off (State).
+// The read is the tenant's own: it is served under the tenant's
 // route and asked under the grants of the methods that turn the switch, Execute in the
 // tenant's scope on one of methods (the one that turns it on, or the one that turns it
 // off), where a caller with neither is Forbidden and learns nothing of the tenant. A
 // grant that holds on a condition is refused the same way: a read has no request for
 // the condition to judge. It writes nothing. client runs it in one transaction, rules
 // are the tenant record's, and tenantParam is the route parameter that names the
-// tenant. The generated handler of a tenant record that declares the switch builds it.
+// tenant. rules are the ones the methods that turn the switch are given, each auth's
+// answer about the caller's password with them (PasswordsBy), and the read stamps the
+// caller it checked before it asks them (WithCaller): rules that ask no auth, or a
+// read that named no caller, would leave the password out of what the read says while
+// the method still refused for it. The generated handler of a tenant record that
+// declares the switch builds it.
 func DirectoryOnlyStateHandler(
 	client Client, rules *TenantDirectoryRules, userPermissions func(r *http.Request) UserPermissions,
 	tenantParam httpio.ParamType, methods ...accesstypes.Resource,
@@ -488,9 +585,14 @@ func DirectoryOnlyStateHandler(
 		defer span.End()
 
 		tenant := httpio.Param[accesstypes.Domain](r, tenantParam)
-		if err := holdsOneOf(ctx, userPermissions(r), tenant, methods); err != nil {
+		caller := &Caller{Permissions: userPermissions(r), Scope: accesstypes.DomainScope(tenant), Env: RequestEnvironment()}
+		if err := holdsOneOf(ctx, caller, methods); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		// The rules ask each auth whether the caller has a password, and an auth answers
+		// for the caller the request stamped: the read stamps the one it checked, as the
+		// frame of the method that turns the switch does.
+		ctx = WithCaller(ctx, caller)
 		var state *DirectoryOnlyState
 		if err := client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 			var err error
@@ -508,9 +610,8 @@ func DirectoryOnlyStateHandler(
 // holdsOneOf holds the caller to the grant a tenant's read is asked under: Execute on
 // one of methods, in the tenant's scope, on no condition. An answer that does not hold
 // a method that was asked is no grant of it.
-func holdsOneOf(ctx context.Context, perms UserPermissions, tenant accesstypes.Domain, methods []accesstypes.Resource) error {
-	scope := accesstypes.DomainScope(tenant)
-	decisions, err := perms.Check(ctx, RequestEnvironment(), scope, accesstypes.Execute, methods...)
+func holdsOneOf(ctx context.Context, caller *Caller, methods []accesstypes.Resource) error {
+	decisions, err := caller.Permissions.Check(ctx, caller.Env, caller.Scope, accesstypes.Execute, methods...)
 	if err != nil {
 		return errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
@@ -520,7 +621,7 @@ func holdsOneOf(ctx context.Context, perms UserPermissions, tenant accesstypes.D
 		}
 	}
 
-	return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", scope, perms.User(), accesstypes.Execute, methods)
+	return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", caller.Scope, caller.Permissions.User(), accesstypes.Execute, methods)
 }
 
 // listsPeople reports whether the caller may list the people of one auth in tenant, as

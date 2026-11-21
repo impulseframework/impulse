@@ -632,6 +632,109 @@ describe('a text cut short', () => {
     expect(tooltip()).toBeNull();
   });
 
+  describe('under the keyboard', () => {
+    /** The rows drawn again, as after a read. */
+    const drawnAgain = async (): Promise<void> => {
+      fixture.componentRef.setInput('rowData', [...(fixture.componentInstance.rowData() as RecordData[])]);
+      await settle();
+    };
+    /** A key pressed with the focus somewhere on the page, outside the list. */
+    const press = async (key: string): Promise<void> => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      await settle();
+    };
+    /** A text measured as `measured` says, that counts how often its width is asked for. */
+    const watched = (text: HTMLElement, textWidth: number, boxWidth: number): { looks: number } => {
+      const seen = { looks: 0 };
+      Object.defineProperty(text, 'scrollWidth', {
+        configurable: true,
+        get: (): number => {
+          seen.looks++;
+          return textWidth;
+        },
+      });
+      Object.defineProperty(text, 'clientWidth', { configurable: true, value: boxWidth });
+      return seen;
+    };
+
+    it('a cell is a stop of the Tab key where its text is cut, and no stop where it fits or draws its value, once the key is pressed', async () => {
+      measured(cell(0, 1), 620, 180);
+      measured(cell(1, 1), 40, 180);
+      // A yes-or-no cell draws a mark: it has no text to cut, however narrow it is.
+      measured(cell(0, 2), 620, 20);
+      await drawnAgain();
+      // Drawn, and the Tab key not pressed: no cell is a stop, and another key makes none.
+      expect(cell(0, 1).hasAttribute('tabindex')).toBe(false);
+      await press('ArrowDown');
+      expect(cell(0, 1).hasAttribute('tabindex')).toBe(false);
+
+      await press('Tab');
+      expect(cell(0, 1).getAttribute('tabindex')).toBe('0');
+      expect(cell(1, 1).hasAttribute('tabindex')).toBe(false);
+      expect(cell(0, 0).hasAttribute('tabindex')).toBe(false);
+      expect(cell(0, 2).hasAttribute('tabindex')).toBe(false);
+    });
+
+    it('looks at no cell when the list is drawn, at each once when the Tab key is pressed, and not again until what the list draws has changed', async () => {
+      const seen = watched(cell(0, 1), 620, 180);
+      await drawnAgain();
+      expect(seen.looks).toBe(0);
+
+      await press('Tab');
+      expect(seen.looks).toBe(1);
+      await press('Tab');
+      await press('Tab');
+      expect(seen.looks).toBe(1);
+
+      await drawnAgain();
+      expect(seen.looks).toBe(1);
+      await press('Tab');
+      expect(seen.looks).toBe(2);
+    });
+
+    it('looks again once a column has been dragged to another width', async () => {
+      const seen = watched(cell(0, 1), 620, 180);
+      await press('Tab');
+      expect(seen.looks).toBe(1);
+
+      const handle = element.querySelectorAll<HTMLElement>('thead th.data-col')[1].querySelector('.resize-handle');
+      handle?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 400 }));
+      document.dispatchEvent(new MouseEvent('mousemove', { clientX: 900 }));
+      document.dispatchEvent(new MouseEvent('mouseup'));
+      await settle();
+      expect(seen.looks).toBe(1);
+
+      await press('Tab');
+      expect(seen.looks).toBe(2);
+    });
+
+    it('a cut cell takes the focus and shows its text whole there, as under the pointer', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      await press('Tab');
+
+      cut.focus();
+      expect(document.activeElement).toBe(cut);
+      cut.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      await nextFrame();
+      expect(tooltip()).toBe(notes);
+
+      cut.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      await settle();
+      expect(tooltip()).toBeNull();
+    });
+
+    it('a cell is no stop any more once its text fits', async () => {
+      const text = measured(cell(0, 1), 620, 180);
+      await press('Tab');
+      expect(text.getAttribute('tabindex')).toBe('0');
+
+      measured(text, 620, 700);
+      await drawnAgain();
+      await press('Tab');
+      expect(text.hasAttribute('tabindex')).toBe(false);
+    });
+  });
+
   describe('the anchor the tooltip is hung on', () => {
     const box = (left: number, top: number, width: number, height: number): DOMRect => {
       return { left, top, width, height, right: left + width, bottom: top + height } as DOMRect;
@@ -2790,6 +2893,31 @@ describe('a list and the width of its frame', () => {
         expect(fonts.listening).toBe(false);
       });
 
+      it('looks again for the cells the Tab key stops on once a font has arrived, since a text is cut or whole by its letters', async () => {
+        await plain();
+        frameIs(phone);
+        const text = element.querySelector('tr.impulse-row td.data-col') as HTMLElement;
+        let looks = 0;
+        Object.defineProperty(text, 'scrollWidth', {
+          configurable: true,
+          get: (): number => {
+            looks++;
+            return 620;
+          },
+        });
+        Object.defineProperty(text, 'clientWidth', { configurable: true, value: 180 });
+        const tab = (): boolean =>
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+        tab();
+        tab();
+        expect(looks).toBe(1);
+        expect(text.getAttribute('tabindex')).toBe('0');
+
+        fonts.arrived();
+        tab();
+        expect(looks).toBe(2);
+      });
+
       it('grows a column whose text needs more in the letters of a font that arrives, and narrows none: the width a column grew to on a page a person has left stays', async () => {
         await plain();
         frameIs(phone);
@@ -3160,5 +3288,59 @@ describe("the list's pager", () => {
     expect(declares('.pager-buttons')).toContain('justify-content: flex-end');
     // What is past the list's edge is not drawn, so the pager must not reach past it.
     expect(declares('.impulse-grid-host')).toContain('overflow: clip');
+  });
+});
+
+describe('a list on paper', () => {
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ name: 'Commendations' }]);
+    fixture.componentRef.setInput('columnDefs', [{ id: 'name' }]);
+    fixture.componentRef.setInput('page', { offset: 0, total: 34, hasPrev: false, hasNext: true });
+    fixture.detectChanges();
+  });
+
+  /**
+   * What the list's stylesheet declares for print in the rules whose selector, with what
+   * the framework adds to it taken away, is `selector`. jsdom draws no page for paper, so
+   * the rules are read as the page is given them.
+   */
+  const onPaper = (selector: string): string => {
+    const sheet = Array.from(document.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .filter((text) => text.includes('.impulse-grid-host'))
+      .join('\n');
+    return Array.from(sheet.matchAll(/@media print\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g))
+      .flatMap(([, held]) => Array.from(held.matchAll(/([^{}]+)\{([^{}]*)\}/g)))
+      .filter(([, named]) => {
+        const plain = named
+          .replace(/\[_nghost[^\]]*\]/g, ':host')
+          .replace(/\[_ngcontent[^\]]*\]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        return plain === selector;
+      })
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+  };
+
+  it('is as long as its rows, laid out as blocks one under the other: the pager comes after the last row of the last page', () => {
+    expect(onPaper(':host')).toMatch(/(^|[;\s])height:\s*auto/);
+    expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])display:\s*block/);
+    expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])height:\s*auto/);
+    expect(onPaper('.impulse-grid-view')).toMatch(/(^|[;\s])display:\s*block/);
+  });
+
+  it('scrolls nothing and cuts nothing off', () => {
+    expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])overflow:\s*visible/);
+    expect(onPaper('.impulse-grid-scroll')).toMatch(/(^|[;\s])overflow:\s*visible/);
+  });
+
+  it("draws a heading's button as its words alone, which a browser repeats whole on every page", () => {
+    expect(onPaper('.header-cell .header-label')).toMatch(/(^|[;\s])display:\s*contents/);
   });
 });

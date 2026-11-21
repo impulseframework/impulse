@@ -347,8 +347,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
 	_, tenantAdministrators := AdministratorRoles()
-	accessClient, err := access.New(store,
-		access.WithDefaultRoles(settings.Collection, Roles(), Name),
+	accessClient, err := access.New(store, settings.Collection,
+		access.WithDefaultRoles(Roles(), Name),
 		access.WithChangeSignal(access.ChangeSignalFunc(announcePolicy(settings.Signals), watchPolicy(settings.Signals))),
 		// What no role file takes from a super administrator: the methods that give and
 		// take the auth's roles, as the generated management names them.
