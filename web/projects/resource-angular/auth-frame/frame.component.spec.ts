@@ -133,6 +133,75 @@ describe('FrameComponent', () => {
       expect(declares('.shell', 'print')).toMatch(/(^|[;\s])height:\s*auto/);
       expect(declares('.page-scroll', 'print')).toMatch(/overflow:\s*visible/);
     });
+
+    describe('takes the keys that scroll a page while nothing has the focus', () => {
+      /** A key pressed on `on`, as the browser sends it: the document hears it on its way up. */
+      const press = (key: string, on: Element = document.body): KeyboardEvent => {
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+        on.dispatchEvent(event);
+        return event;
+      };
+      const scrollerOf = async (): Promise<HTMLElement> => {
+        const element = await render({});
+        (document.activeElement as HTMLElement | null)?.blur();
+        expect(document.activeElement).toBe(document.body);
+        return element.querySelector('.page-scroll') as HTMLElement;
+      };
+
+      for (const key of ['PageDown', 'PageUp', ' ', 'ArrowDown', 'ArrowUp', 'Home', 'End']) {
+        it(`gives itself the focus at ${JSON.stringify(key)}, and leaves the key to the browser, which scrolls what has the focus`, async () => {
+          const scrolls = await scrollerOf();
+
+          const event = press(key);
+
+          expect(document.activeElement).toBe(scrolls);
+          expect(event.defaultPrevented).toBe(false);
+        });
+      }
+
+      it('is no stop of the Tab key, and shows no line around the page while it has the focus', async () => {
+        const scrolls = await scrollerOf();
+
+        expect(scrolls.getAttribute('tabindex')).toBe('-1');
+        expect(declares('.page-scroll:focus')).toMatch(/outline:\s*none/);
+      });
+
+      it('leaves every other key where it is', async () => {
+        await scrollerOf();
+
+        press('Tab');
+        press('a');
+        press('Enter');
+        press('Escape');
+
+        expect(document.activeElement).toBe(document.body);
+      });
+
+      it('leaves a key to what has the focus', async () => {
+        const scrolls = await scrollerOf();
+        const field = document.createElement('input');
+        scrolls.querySelector('main')?.append(field);
+        field.focus();
+        expect(document.activeElement).toBe(field);
+
+        press(' ', field);
+        press('Home', field);
+        press('ArrowDown', field);
+
+        expect(document.activeElement).toBe(field);
+      });
+
+      it('leaves a key that something on the page has answered', async () => {
+        await scrollerOf();
+        const answer = (event: Event): void => event.preventDefault();
+        document.body.addEventListener('keydown', answer);
+
+        press('PageDown');
+        document.body.removeEventListener('keydown', answer);
+
+        expect(document.activeElement).toBe(document.body);
+      });
+    });
   });
 
   it('has the place its page is in remembered as where the person works, and no longer once it is gone', async () => {

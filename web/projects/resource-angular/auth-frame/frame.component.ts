@@ -1,6 +1,6 @@
 import { CdkScrollable } from '@angular/cdk/scrolling';
-import { NgComponentOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, viewChild } from '@angular/core';
+import { DOCUMENT, NgComponentOutlet } from '@angular/common';
+import { ChangeDetectionStrategy, Component, DestroyRef, effect, ElementRef, inject, viewChild } from '@angular/core';
 import { MatSidenav, MatSidenavModule } from '@angular/material/sidenav';
 import { RouterOutlet } from '@angular/router';
 import { Frame } from './frame';
@@ -9,6 +9,19 @@ import { Layout } from './layout';
 import { MenuDrawerComponent } from './menu-drawer.component';
 import { MenuService } from './menu.service';
 import { PlaceService } from './place.service';
+
+/** The keys a browser scrolls a page by. */
+const SCROLL_KEYS: ReadonlySet<string> = new Set([
+  'PageDown',
+  'PageUp',
+  ' ',
+  'ArrowDown',
+  'ArrowUp',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+]);
 
 /**
  * The frame every signed-in page sits in: the bar across the top, the page, and the side
@@ -26,11 +39,17 @@ import { PlaceService } from './place.service';
  * the window however long the page is. What scrolls is known to the overlays
  * (`cdkScrollable`), so a pop-up opened from the page follows it. On paper nothing scrolls:
  * the frame is as long as the page.
+ *
+ * A browser sends the keys that scroll (Page Down and Page Up, Space, the arrows, Home and
+ * End) to what has the focus, and to the document while nothing has it, which here never
+ * scrolls. So while nothing has the focus, the first of those keys gives it to what
+ * scrolls, and the key scrolls the page as it does on any page.
  */
 @Component({
   selector: 'impulse-frame',
   imports: [CdkScrollable, FrameBarComponent, MatSidenavModule, MenuDrawerComponent, NgComponentOutlet, RouterOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(document:keydown)': 'keyToThePage($event)' },
   template: `
     <mat-sidenav-container class="shell">
       <mat-sidenav #panel class="panel" mode="over" [autoFocus]="'first-tabbable'" (closed)="drawer.reset()">
@@ -46,7 +65,7 @@ import { PlaceService } from './place.service';
           <ng-container *ngComponentOutlet="banner" />
         }
         <impulse-frame-bar (menuOpened)="panel.open()" />
-        <div class="page-scroll" cdkScrollable>
+        <div #scroller class="page-scroll" tabindex="-1" cdkScrollable>
           <main class="page-content">
             <router-outlet />
           </main>
@@ -82,6 +101,12 @@ import { PlaceService } from './place.service';
       overflow: auto;
     }
 
+    /* It takes the focus only to take the keys that scroll, and is no control: it shows no
+       line around the page while it has it. */
+    .page-scroll:focus {
+      outline: none;
+    }
+
     /* The page is at least as high as what scrolls, and as high as what it holds. */
     .page-scroll > .page-content {
       flex: 1 0 auto;
@@ -106,11 +131,31 @@ export class FrameComponent {
   readonly frame = inject(Frame);
   private layout = inject(Layout);
   private panel = viewChild.required<MatSidenav>('panel');
+  private scroller = viewChild.required<ElementRef<HTMLElement>>('scroller');
+  private document = inject(DOCUMENT);
 
   constructor() {
     inject(PlaceService).drawn(inject(DestroyRef));
     effect(() => {
       if (!this.layout.phone()) void this.panel().close();
     });
+  }
+
+  /**
+   * A key was pressed somewhere in the document. A key that scrolls, pressed while
+   * nothing has the focus, would go to the document, which does not scroll: what scrolls
+   * takes the focus first, and the browser then scrolls it by that key as it would have
+   * scrolled the document. Any other key, and any key pressed while something has the
+   * focus, is left as it is.
+   */
+  protected keyToThePage(event: KeyboardEvent): void {
+    if (event.defaultPrevented || !SCROLL_KEYS.has(event.key)) {
+      return;
+    }
+    const focused = this.document.activeElement;
+    if (focused !== null && focused !== this.document.body) {
+      return;
+    }
+    this.scroller().nativeElement.focus({ preventScroll: true });
   }
 }
