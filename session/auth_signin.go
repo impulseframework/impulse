@@ -325,7 +325,8 @@ func (a *Auth[S, U, Tx]) validate(ctx context.Context) (context.Context, error) 
 // which account a session that acts as someone else answers for is what the library's
 // own rows say. An ordinary session's user is the store's User, as the session is the
 // store's Session, held to the account the session names and to whether the library's
-// own row holds that account disabled (heldToTheAccountAsked).
+// own row holds that account disabled (heldToTheAccountAsked), as the account of an
+// application token is (validateToken).
 func (a *Auth[S, U, Tx]) sessionUser(ctx context.Context, sessData *sessioninfo.SessionData) (*sessioninfo.UserInfo, error) {
 	if imp := sessData.Impersonation; imp != nil {
 		return a.impersonatedSessionUser(ctx, sessData, imp)
@@ -342,46 +343,61 @@ func (a *Auth[S, U, Tx]) sessionUser(ctx context.Context, sessData *sessioninfo.
 
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	if err := a.heldToTheAccountAsked(ctx, sessData.UserID.UUID, user); err != nil {
+	if err := a.heldToTheAccountAsked(ctx, accountOfSession, sessData.UserID.UUID, user); err != nil {
 		return nil, err
 	}
 
 	return enabledUser(user)
 }
 
+// accountOf names what a store's User was asked the account of: an ordinary session or
+// an application token. An answer that is not that account is refused as an invalid
+// one of these.
+type accountOf string
+
+const (
+	accountOfSession accountOf = "session"
+	accountOfToken   accountOf = "token"
+)
+
 // heldToTheAccountAsked refuses a store's answer for the account of an ordinary session
-// that is not the account the session names. The answer carries the id that was asked
-// for. And where the library's own store holds the account, the answer carries the
-// username that row does: the library's own read is asked (sealed.User), which a store
-// that wraps the library's cannot replace. An account that row holds disabled is
-// refused whatever the answer says of it, as an account the answer holds disabled is
-// refused next (enabledUser): the account is disabled if either says so, so a store
-// that keeps the accounts it has read cannot keep a disabled one signed in. A store the library made, handed over as it
-// is, answered from that very read and is not asked twice, and a store that holds no
+// or of an application token that is not the account the session or the token names.
+// The answer carries the id that was asked for. And where the library's own store holds
+// the account, the answer carries the username that row does: the library's own read is
+// asked (sealed.User), which a store that wraps the library's cannot replace. An account
+// that row holds disabled is refused whatever the answer says of it, as an account the
+// answer holds disabled is refused next (enabledUser): the account is disabled if
+// either says so, so a store that keeps the accounts it has read cannot keep a disabled
+// one signed in, or keep its tokens working. A store the library made, handed over as
+// it is, answered from that very read and is not asked twice, and a store that holds no
 // read of the library's making (a mock, a store of an application's own) is held to the
 // id alone, as is an account the library's own store does not hold.
 //
 // Without this a store that wraps the library's, a read cache keyed by something other
-// than the account's id for one, could answer one person's session with another
-// person's account. The routes for a person's own account would then act on that
-// account (a token made for it, a device signed in as it, its password set), each
-// written to the library's store, so each would last after the cache was put right.
+// than the account's id for one, could answer one person's session or token with
+// another person's account. The routes for a person's own account would then act on
+// that account (a token made for it, a device signed in as it, its password set), each
+// written to the library's store, so each would last after the cache was put right, and
+// a program's request under a token would run as the other person.
 //
-// The refusal is an invalid session, as a session with no account is, and for an
-// account the row holds disabled the one a disabled account is given. A failure of the
-// library's own read that is not one of those is the request's failure.
-func (a *Auth[S, U, Tx]) heldToTheAccountAsked(ctx context.Context, id impulse.UUID, answered *sessionstorage.SessionUser) error {
+// The refusal is an invalid session or an invalid token, as one with no account is, and
+// for an account the row holds disabled the one a disabled account is given. A failure
+// of the library's own read that is not one of those is the request's failure.
+func (a *Auth[S, U, Tx]) heldToTheAccountAsked(
+	ctx context.Context, holder accountOf, id impulse.UUID, answered *sessionstorage.SessionUser,
+) error {
+	invalid := "invalid " + string(holder)
 	if answered == nil {
 		return httpio.NewUnauthorizedMessageWithError(
-			errors.Newf("the store's User answered the account %s with no account and no error", id), "invalid session",
+			errors.Newf("the store's User answered the account %s with no account and no error", id), invalid,
 		)
 	}
 	if answered.ID != id {
 		return httpio.NewUnauthorizedMessageWithError(errors.Newf(
-			"the store's User answered the account %s with the account %s: the account of a session is the one its row names, "+
+			"the store's User answered the account %s with the account %s: the account of a %s is the one its row names, "+
 				"so a store that wraps the library's answers an account with that account",
-			id, answered.ID,
-		), "invalid session")
+			id, answered.ID, holder,
+		), invalid)
 	}
 	if sealed.SessionIsOwn(a.storage) {
 		return nil
@@ -400,17 +416,50 @@ func (a *Auth[S, U, Tx]) heldToTheAccountAsked(ctx context.Context, id impulse.U
 			"the store's User answered the account %s under another username than the session library's own store holds it under: "+
 				"a store that wraps the library's adds to an account and does not change whose it is",
 			id,
-		), "invalid session")
+		), invalid)
 	}
 	if own.Disabled {
 		return httpio.NewUnauthorizedMessageWithError(errors.Newf(
 			"the session library's own store holds the account %s disabled, whatever the store's User answered: "+
-				"a store that wraps the library's cannot keep a disabled account signed in",
-			id,
+				"a store that wraps the library's cannot keep a disabled account's %s working",
+			id, holder,
 		), "Session Expired")
 	}
 
 	return nil
+}
+
+// disabledAtSignIn reports whether the account a store answered a sign-in with is
+// disabled: the answer says so, or the library's own row does, where the library's own
+// store holds the account (sealed.User, which a store that wraps the library's cannot
+// replace). The account is disabled if either says so, as it is for a request under a
+// session (heldToTheAccountAsked): a store that keeps the accounts it has read cannot
+// have a disabled account's password accepted. A store the library made, handed over as
+// it is, answered from that very read and is not asked twice, and an account the
+// library's own store does not hold is the answer's whole. A failure of the library's
+// own read that is not one of those is the sign-in's failure.
+//
+// The store's sign-in decides the same from the row it reads in its own transaction, so
+// no session was ever inserted for such an account. This check is what refuses before
+// that: the check of the credentials alone, which starts no session, and the password
+// confirmation of a pending identity, which links the identity before the session.
+func (a *Auth[S, U, Tx]) disabledAtSignIn(ctx context.Context, answered *sessionstorage.SessionUser) (bool, error) {
+	if answered.Disabled {
+		return true, nil
+	}
+	if sealed.SessionIsOwn(a.storage) {
+		return false, nil
+	}
+
+	own, err := sealed.User(ctx, a.storage, answered.ID)
+	switch {
+	case err == nil:
+		return own.Disabled, nil
+	case httpio.HasNotFound(err), errors.Is(err, sealed.ErrSealed):
+		return false, nil
+	default:
+		return false, errors.Wrap(err, "sealed.User()")
+	}
 }
 
 // impersonatedSessionUser is sessionUser for a session that acts as someone else: the
@@ -527,7 +576,8 @@ func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWrit
 // names the hash this sign-in compared against: a password changed, reset or removed
 // since the user was read is left as it is, and the password entered is then no longer
 // the user's, so the check fails as a wrong password does, counted the same. A disabled
-// user is refused after the match.
+// user is refused after the match: one the store's answer holds disabled, or one the
+// library's own row does where a store wraps the library's (disabledAtSignIn).
 //
 // The proof returned names the password that matched, by the hash the user's row holds
 // for it now (the upgraded one when the upgrade wrote): what the caller inserts on the
@@ -578,7 +628,11 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 		}
 	}
 	a.attemptSucceeded(ctx, taken)
-	if user.Disabled {
+	disabled, err := a.disabledAtSignIn(ctx, user)
+	if err != nil {
+		return nil, nil, err
+	}
+	if disabled {
 		return nil, nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
 	}
 	proof, err = sessionstorage.ProofOfPassword(held)

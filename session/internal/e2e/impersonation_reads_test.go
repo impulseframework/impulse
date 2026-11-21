@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // The kind of the read scenarios that acts as a role, and its grant.
@@ -42,7 +44,7 @@ type overridingStore[Tx any] struct {
 	// nameInstead the same for UserByUserName.
 	userInstead map[impulse.UUID]impulse.UUID
 	nameInstead map[string]impulse.UUID
-	// account changes what User hands on, on every call.
+	// account changes what User and UserByUserName hand on, on every call.
 	account func(u *sessionstorage.SessionUser) *sessionstorage.SessionUser
 	// cache, when made, stands in front of Session: an answer once given is given again.
 	cache map[impulse.UUID]*sessioninfo.SessionData
@@ -109,6 +111,7 @@ func (s *overridingStore[Tx]) UserByUserName(ctx context.Context, username strin
 	s.mu.Lock()
 	s.namesAsked = append(s.namesAsked, username)
 	instead, replaced := s.nameInstead[username]
+	account := s.account
 	s.mu.Unlock()
 
 	if replaced {
@@ -118,6 +121,9 @@ func (s *overridingStore[Tx]) UserByUserName(ctx context.Context, username strin
 	u, err := s.AuthStore.UserByUserName(ctx, username)
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.UserByUserName()")
+	}
+	if account != nil {
+		u = account(u)
 	}
 
 	return u, nil
@@ -216,6 +222,7 @@ func newReadsApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *rea
 	}
 	api := auth.API()
 	password := session.PasswordSignIn(auth)
+	droids := session.RegisterMachineOutlet(auth, "droids")
 	impersonations := session.MustNewImpersonations(session.NamedActions(grantView, grantFull, grantRole),
 		session.ImpersonatesUser(kindView, grantView, viewMask()),
 		session.ImpersonatesUser(kindFull, grantFull, accesstypes.AllowAll()),
@@ -248,6 +255,7 @@ func newReadsApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *rea
 				}
 				_ = httpio.NewEncoder(w).Ok(view)
 			})
+			r.Post("/tokens", auth.ApplicationTokens().Create())
 			// A write of the application's, behind the backstop that refuses one in a
 			// session that reads only.
 			r.With(auth.EnforceReadOnlyMask).Post("/resource", func(w http.ResponseWriter, _ *http.Request) {
@@ -292,7 +300,15 @@ func newReadsApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *rea
 		})
 	})
 
-	server := httptest.NewTLSServer(r)
+	// The machine outlet sits outside StartSession: no cookie is read or written there.
+	root := chi.NewRouter()
+	root.Route("/droids", func(r chi.Router) {
+		r.Use(droids.ValidateToken)
+		r.Get("/whoami", outletWhoami)
+	})
+	root.Mount("/", r)
+
+	server := httptest.NewTLSServer(root)
 	t.Cleanup(server.Close)
 
 	return &readsApp[Tx]{store: store, server: server, api: api}
@@ -320,6 +336,37 @@ func (a *readsApp[Tx]) signedIn(ctx context.Context, t *testing.T, username stri
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": username, "password": seedPassword})
 
 	return b
+}
+
+// asProgram asks the droids outlet whose request a bearer token's is, as a program
+// does: no cookie jar, the token alone. It answers the status, and the account the
+// request ran as when it was let through.
+func (a *readsApp[Tx]) asProgram(ctx context.Context, t *testing.T, bearer string) (status int, user string) {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.server.URL+"/droids/whoami", http.NoBody)
+	if err != nil {
+		t.Fatalf("http.NewRequestWithContext() error = %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := a.server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("GET /droids/whoami error = %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("io.ReadAll() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return resp.StatusCode, ""
+	}
+	view := &outletView{}
+	if err := json.Unmarshal(body, view); err != nil {
+		t.Fatalf("json.Unmarshal(%s) error = %v", body, err)
+	}
+
+	return resp.StatusCode, view.User
 }
 
 // startAs has the person signed in in b start a session of kind as principal, and
@@ -408,6 +455,14 @@ func runSealedReads[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "a wrapper that keeps the accounts it has read does not keep a disabled account's session working, and still disables one itself",
 			run:  readsDisabledAccountKept[Tx],
+		},
+		{
+			name: "a wrapper that keeps the accounts it has read does not keep a disabled account's application token working, and does not run a token as another account",
+			run:  readsTokenAccountKept[Tx],
+		},
+		{
+			name: "a wrapper that keeps the accounts it has read does not have a disabled account's password accepted: the sign-in is refused, and so is the check of the credentials alone",
+			run:  readsDisabledAccountSignIn[Tx],
 		},
 		{
 			name: "a wrapper whose Session sets a principal on an ordinary session does not decide whom its checks are made for",
@@ -848,18 +903,8 @@ func readsDisabledAccountKept[Tx any](ctx context.Context, t *testing.T, a *read
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
 	own := a.signedIn(ctx, t, "pat@lakeside.edu")
-	answeredAs := func(disabled bool) func(*overridingStore[Tx]) {
-		return func(s *overridingStore[Tx]) {
-			s.account = func(u *sessionstorage.SessionUser) *sessionstorage.SessionUser {
-				kept := *u
-				kept.Disabled = disabled
 
-				return &kept
-			}
-		}
-	}
-
-	a.store.set(answeredAs(false))
+	a.store.set(keptAs[Tx](false))
 	if v := own.readsSession(ctx); v.User != pat.String() || v.Impersonated {
 		t.Fatalf("the session = %+v, want pat@lakeside.edu's own (%s)", v, pat)
 	}
@@ -879,7 +924,7 @@ func readsDisabledAccountKept[Tx any](ctx context.Context, t *testing.T, a *read
 		t.Errorf("the session once the library's store holds the account enabled again = %+v, want pat@lakeside.edu's own (%s)", v, pat)
 	}
 
-	a.store.set(answeredAs(true))
+	a.store.set(keptAs[Tx](true))
 	own.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
 
 	a.store.set(func(s *overridingStore[Tx]) {
@@ -888,6 +933,140 @@ func readsDisabledAccountKept[Tx any](ctx context.Context, t *testing.T, a *read
 	if v := own.readsSession(ctx); v.User != pat.String() || v.Username != "pat@lakeside.edu" {
 		t.Errorf("the session once the wrapper answers as the library's store does = %+v, want pat@lakeside.edu's own (%s)", v, pat)
 	}
+}
+
+// keptAs is a wrapper that keeps the accounts it has read: its User and its
+// UserByUserName answer every account as disabled, or as not disabled, whatever the
+// library's own row says since.
+func keptAs[Tx any](disabled bool) func(*overridingStore[Tx]) {
+	return func(s *overridingStore[Tx]) {
+		s.account = func(u *sessionstorage.SessionUser) *sessionstorage.SessionUser {
+			kept := *u
+			kept.Disabled = disabled
+
+			return &kept
+		}
+	}
+}
+
+// readsTokenAccountKept is a wrapper that answers the account of an application token
+// wrongly, as it does a session's. A token's request is run as the account its row
+// names, and the store's User is asked for that account: the answer is held to the
+// library's own row as a session's is. The account is disabled in the library's store
+// while the wrapper still answers it enabled, and the token's next request is refused;
+// enabled again there, the token works as before, so it was the row that refused it. A
+// wrapper that says the account is disabled refuses the token too: either says so. And
+// a wrapper that answers the token's account with another person's, or under another
+// username, has the request refused: a token is never run as another account.
+func readsTokenAccountKept[Tx any](ctx context.Context, t *testing.T, a *readsApp[Tx]) {
+	t.Helper()
+
+	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	sam := a.seed(ctx, t, "sam@lakeside.edu")
+	token := a.signedIn(ctx, t, "pat@lakeside.edu").createToken(ctx, "laptop", "droids").Token
+	runsAs := func(when string, wantStatus int) {
+		t.Helper()
+
+		status, user := a.asProgram(ctx, t, token)
+		if status != wantStatus || (status == http.StatusOK && user != pat.String()) {
+			t.Errorf("the token's request %s = %d as %q, want %d (as pat@lakeside.edu, %s, when let through)", when, status, user, wantStatus, pat)
+		}
+	}
+
+	a.store.set(keptAs[Tx](false))
+	runsAs("while the account is enabled", http.StatusOK)
+
+	if err := a.store.DeactivateUser(ctx, pat); err != nil {
+		t.Fatalf("DeactivateUser(%s) on the library's store error = %v", pat, err)
+	}
+	runsAs("once the library's store holds the account disabled and the wrapper still answers it enabled", http.StatusUnauthorized)
+	if !slices.Contains(a.store.asked().users, pat) {
+		t.Errorf("the wrapper's User was never asked for %s: the account of a token is the store's to answer", pat)
+	}
+
+	if err := a.store.ActivateUser(ctx, pat); err != nil {
+		t.Fatalf("ActivateUser(%s) on the library's store error = %v", pat, err)
+	}
+	runsAs("once the library's store holds the account enabled again", http.StatusOK)
+
+	a.store.set(keptAs[Tx](true))
+	runsAs("while the wrapper answers the account as disabled", http.StatusUnauthorized)
+
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.account = nil
+		s.userInstead = map[impulse.UUID]impulse.UUID{pat: sam}
+	})
+	runsAs("while the wrapper answers the token's account with another person's", http.StatusUnauthorized)
+
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.userInstead = nil
+		s.account = func(u *sessionstorage.SessionUser) *sessionstorage.SessionUser {
+			renamed := *u
+			renamed.Username = "sam@lakeside.edu"
+
+			return &renamed
+		}
+	})
+	runsAs("while the wrapper answers the token's account under another username", http.StatusUnauthorized)
+
+	a.store.set(func(s *overridingStore[Tx]) {
+		s.account = nil
+	})
+	runsAs("once the wrapper answers as the library's store does", http.StatusOK)
+}
+
+// readsDisabledAccountSignIn is a wrapper that keeps the accounts it has read, at the
+// sign-in: the account is disabled in the library's store and the wrapper's
+// UserByUserName still answers it enabled. The password sign-in is refused there and
+// then, with the words a disabled account's sign-in gets, and no session is made; the
+// check of a username and a password that starts no session (ValidateCredentials) is
+// refused the same way, where nothing after it reads the library's row. Enabled again
+// in the library's store, the same password signs the person in. A wrapper that says
+// the account is disabled refuses both too: either says so.
+func readsDisabledAccountSignIn[Tx any](ctx context.Context, t *testing.T, a *readsApp[Tx]) {
+	t.Helper()
+
+	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	refused := func(when string) {
+		t.Helper()
+
+		b := newBrowser(t, a.server)
+		b.prime(ctx)
+		status, _, body := b.postLogin(ctx, "pat@lakeside.edu", seedPassword)
+		var answer struct {
+			Code sessioninfo.LoginRefusalCode `json:"code"`
+		}
+		_ = json.Unmarshal(body, &answer)
+		if status != http.StatusUnauthorized || answer.Code != sessioninfo.RefusedUserDisabled {
+			t.Errorf("the password sign-in %s = %d %s, want 401 with the code %s", when, status, body, sessioninfo.RefusedUserDisabled)
+		}
+		b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
+		if id, err := a.api.ValidateCredentials(ctx, "pat@lakeside.edu", seedPassword); !errors.Is(err, signin.ErrUserDisabled) {
+			t.Errorf("ValidateCredentials() %s = %s, %v; want the refusal of a disabled account's sign-in", when, id, err)
+		}
+	}
+
+	a.store.set(keptAs[Tx](false))
+	if err := a.store.DeactivateUser(ctx, pat); err != nil {
+		t.Fatalf("DeactivateUser(%s) on the library's store error = %v", pat, err)
+	}
+	refused("once the library's store holds the account disabled and the wrapper still answers it enabled")
+	if !slices.Contains(a.store.asked().names, "pat@lakeside.edu") {
+		t.Error("the wrapper's UserByUserName was never asked for pat@lakeside.edu: the account of a password sign-in is the store's to answer")
+	}
+
+	if err := a.store.ActivateUser(ctx, pat); err != nil {
+		t.Fatalf("ActivateUser(%s) on the library's store error = %v", pat, err)
+	}
+	if id, err := a.api.ValidateCredentials(ctx, "pat@lakeside.edu", seedPassword); err != nil || id != pat {
+		t.Errorf("ValidateCredentials() once the library's store holds the account enabled again = %s, %v; want %s", id, err, pat)
+	}
+	if v := a.signedIn(ctx, t, "pat@lakeside.edu").readsSession(ctx); v.User != pat.String() {
+		t.Errorf("the session of the sign-in once the library's store holds the account enabled again = %+v, want pat@lakeside.edu's own (%s)", v, pat)
+	}
+
+	a.store.set(keptAs[Tx](true))
+	refused("while the wrapper answers the account as disabled")
 }
 
 // readsOrdinaryPrincipalSet is a wrapper whose Session hands every ordinary session on

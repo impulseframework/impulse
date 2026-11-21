@@ -3279,20 +3279,28 @@ and the session and its user on every later request. So:
   row, or the request is refused as an invalid session, so the routes for a person's
   own account never act on another person's. An account that row holds disabled is
   disabled whatever the wrapper answers, as one the wrapper answers disabled is, so a
-  store that keeps the accounts it has read keeps no disabled account signed in. A `Principal` its `Session` answer
-  carries is not taken: an ordinary session's checks are made for whom the principal
-  resolver chose, or for the session's own user. And where the library's own store
-  holds the session, the session is expired when that row is and was last used when
-  that row says, so a cache keeps no signed-out or idle session working (a wrapper may
-  still end a session early, by answering it expired or with an error). The rest of an
-  ordinary session is the wrapper's: its custom data, the account's other columns,
-  and every read of an application token (the account a token is for, and whether it
-  is disabled, among them), which
-  starts no session that acts as someone else. A session that acts as someone else starts from the session the
-  request's cookie names, which must be held under the same account in the library's
-  store as the session the request was validated as, or nothing is started. Over a
-  wrapper the library reads an ordinary session twice on each request, once itself and
-  once through the wrapper.
+  store that keeps the accounts it has read keeps no disabled account signed in. The
+  account of an application token is held the same way: the wrapper's `User` answer
+  carries the id the token names and, where the library's own store holds the account,
+  the username of that row, or the request is refused as an invalid token, and the token
+  of an account that row holds disabled is refused whatever the wrapper answers. So no
+  program's request runs as another person, and no disabled account's token keeps
+  working. A password is not accepted for an account either one holds disabled: the
+  sign-in is refused as a disabled account's is (`user_disabled`), and so are the check
+  of the credentials alone (`ValidateCredentials`) and the password confirmation of a
+  pending identity, before anything is linked to the account. A `Principal` its
+  `Session` answer carries is not taken: an ordinary session's checks are made for whom
+  the principal resolver chose, or for the session's own user. And where the library's
+  own store holds the session, the session is expired when that row is and was last used
+  when that row says, so a cache keeps no signed-out or idle session working (a wrapper
+  may still end a session early, by answering it expired or with an error). The rest of
+  an ordinary session is the wrapper's: its custom data and the account's other columns.
+  So is the row of an application token (which token it is, the account it names and the
+  outlet it is for), and a token starts no session that acts as someone else. A session
+  that acts as someone else starts from the session the request's cookie names, which
+  must be held under the same account in the library's store as the session the request
+  was validated as, or nothing is started. Over a wrapper the library reads an ordinary
+  session twice on each request, once itself and once through the wrapper.
 - **A store written from nothing is no session store.** It cannot declare the methods,
   so a program that hands one to `NewAuth` or `NewPreauth` does not compile. A test
   double written by hand embeds `sessionstorage.NoImpersonatedSessions`, which gives it

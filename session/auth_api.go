@@ -27,8 +27,10 @@ func (p *AuthAPI[S, U, Tx]) ValidateSession(ctx context.Context) (context.Contex
 }
 
 // ValidateCredentials checks a username and password and returns the user ID. A
-// password-less user always fails validation. It starts no session and asks no
-// sign-in policy. It is limited as the login is: a failure counts against the name,
+// password-less user always fails validation, and a disabled user is refused as at the
+// login (signin.ErrUserDisabled): where a store wraps the library's, the user is
+// disabled if either the store's answer or the library's own row says so. It starts no
+// session and asks no sign-in policy. It is limited as the login is: a failure counts against the name,
 // and a name whose attempts reached the limit is refused with a
 // *sessioninfo.LoginRefusal carrying RefusedTooManyAttempts and the wait
 // (sessioninfo.RetryAfterOf), before the user is looked up or the password hashed.

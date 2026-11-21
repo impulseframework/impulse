@@ -479,7 +479,14 @@ func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWrit
 	if err := a.checkConfirmation(ctx, user, password, client); err != nil {
 		return nil, err
 	}
-	if user.Disabled {
+	// A disabled account is refused before the pending identity is spent and before
+	// anything is linked: one the store's answer holds disabled, or one the library's
+	// own row does where a store wraps the library's.
+	disabled, err := a.disabledAtSignIn(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	if disabled {
 		return nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
 	}
 	// The link and the session rest on the password just proved: both are made only
