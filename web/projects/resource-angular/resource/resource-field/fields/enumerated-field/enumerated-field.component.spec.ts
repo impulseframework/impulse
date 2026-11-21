@@ -193,11 +193,17 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   /** Whether the list of wings fails, for a reason that is no permission's. */
   let listFails: boolean;
   let consoleError: ReturnType<typeof vi.spyOn>;
-  /** What was written to the console: each line's words, and the server's own message of the error written with it. */
+  /**
+   * What was written to the console, each line as a console prints it: the resource's name
+   * where the words keep its place (%s), and the server's own message of the error written
+   * after them.
+   */
   const written = (): string[] =>
-    consoleError.mock.calls.map(
-      ([words, error]: unknown[]) => `${String(words)} ${error instanceof Error ? error.message : ''}`,
-    );
+    consoleError.mock.calls.map(([words, ...values]: unknown[]) => {
+      const error = values.pop();
+      const line = values.reduce<string>((text, value) => text.replace('%s', () => String(value)), String(words));
+      return `${line} ${error instanceof Error ? error.message : ''}`;
+    });
 
   const server = (request: TransportRequest): TransportResponse => {
     const path = request.url.split('?')[0];
@@ -572,6 +578,19 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     expect(text()).not.toMatch(serverWords);
   });
 
+  it("writes each line's words as they stand, with the resource's name after them: a name is never itself read as words to print", async () => {
+    listFails = true;
+    fixture.componentRef.setInput('form', formOver(brokenWing));
+    await settle();
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+
+    expect(consoleError.mock.calls.map(([words, resource]: unknown[]) => [words, resource])).toEqual([
+      ['%s: the record a picker shows could not be loaded:', 'Wings'],
+      ['%s: the list a picker offers could not be loaded:', 'Wings'],
+    ]);
+  });
+
   it('says a list of options that failed in words of its own, as a picker with nothing to choose from, and writes what the server said to the console', async () => {
     listFails = true;
     fixture.componentRef.setInput('editMode', 'edit');
@@ -663,11 +682,17 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
   let digest: PermissionDigest;
   let listStatus: number;
   let consoleError: ReturnType<typeof vi.spyOn>;
-  /** What was written to the console: each line's words, and the server's own message of the error written with it. */
+  /**
+   * What was written to the console, each line as a console prints it: the resource's name
+   * where the words keep its place (%s), and the server's own message of the error written
+   * after them.
+   */
   const written = (): string[] =>
-    consoleError.mock.calls.map(
-      ([words, error]: unknown[]) => `${String(words)} ${error instanceof Error ? error.message : ''}`,
-    );
+    consoleError.mock.calls.map(([words, ...values]: unknown[]) => {
+      const error = values.pop();
+      const line = values.reduce<string>((text, value) => text.replace('%s', () => String(value)), String(words));
+      return `${line} ${error instanceof Error ? error.message : ''}`;
+    });
 
   const server = (request: TransportRequest): TransportResponse => {
     const path = request.url.split('?')[0];

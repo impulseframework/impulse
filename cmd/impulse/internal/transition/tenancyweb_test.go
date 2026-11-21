@@ -439,6 +439,9 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		// The directory's own word stays: a Microsoft Entra tenant is not the record's.
 		"azure: 'Microsoft Entra tenant',",
 		"await this.own().serviceAreaDirectories.create({});",
+		// A sentence the component says from its code is in the record's word too: what
+		// the remove dialog asks, a template literal.
+		"words: `${this.nameOf(directory)} will no longer be this service area's directory. The roles it gave stay in place, and it is free for another service area.`,",
 	}, []string{"tenantID", ".tenants.", "Resources.Tenants", "TenantDirectoryOnly", "TenantToDirectory", "TenantInviteOnly"})
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.html", []string{
 		"<h1>Who may enter {{ tenantName() || 'this service area' }}</h1>",
@@ -520,5 +523,64 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 	}
 	if !strings.Contains(did, "the service area's sign-in page") || !strings.Contains(did, "with every name and word of the reference's Tenant record the ServiceArea record's") {
 		t.Errorf("Did does not speak of service areas:\n%s", did)
+	}
+}
+
+// TestRecordWordsInCode pins what the rename does to a TypeScript file that is not a
+// spec: the record's word is renamed in the text of its string literals, quoted or
+// template, since that is where a component holds a sentence it says from its code, and
+// nowhere else: not in its code, not in a template literal's expressions, not in its
+// comments, and not where a literal holds a name in code or the directory's own word.
+func TestRecordWordsInCode(t *testing.T) {
+	t.Parallel()
+
+	tn := Tenancy{Table: "ServiceAreas"}
+	for _, tt := range []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "a template literal's sentence, around its expression",
+			in:   "words: `${this.nameOf(directory)} will no longer be this tenant's directory, and it is free for another tenant.`,",
+			want: "words: `${this.nameOf(directory)} will no longer be this service area's directory, and it is free for another service area.`,",
+		},
+		{
+			name: "a quoted sentence, single and double, one and many",
+			in:   "title = 'Remove this tenant?';\nhint = \"The tenant's people keep their roles in other tenants.\";\nheading = 'Tenant and directory';",
+			want: "title = 'Remove this service area?';\nhint = \"The service area's people keep their roles in other service areas.\";\nheading = 'Service area and directory';",
+		},
+		{
+			name: "an expression is code, and a literal inside it is a literal",
+			in:   "return `${this.tenant.value()?.name ?? 'this tenant'} has no directory. Ask the tenant's administrator.`;",
+			want: "return `${this.tenant.value()?.name ?? 'this service area'} has no directory. Ask the service area's administrator.`;",
+		},
+		{
+			name: "an expression that holds braces and a template literal of its own",
+			in:   "return `Open to ${names.map((n) => { return `the tenant ${n}`; }).join(', ')} and to no other tenant.`;",
+			want: "return `Open to ${names.map((n) => { return `the service area ${n}`; }).join(', ')} and to no other service area.`;",
+		},
+		{
+			name: "the code and its comments are left, and an apostrophe in a comment opens no literal",
+			in:   "/** The tenant's row: a tenant has one. */\ntenant = resource({ params: () => ({ tenant: this.tenantID() }) });\n// the tenant's name, or 'this tenant'\nlabel = 'Every tenant';",
+			want: "/** The tenant's row: a tenant has one. */\ntenant = resource({ params: () => ({ tenant: this.serviceAreaID() }) });\n// the tenant's name, or 'this tenant'\nlabel = 'Every service area';",
+		},
+		{
+			name: "a name in code that a literal holds is left, and so is the directory's own word",
+			in:   "selector: 'app-tenant-sign-in',\ntemplateUrl: './tenant-sign-in.component.html',\nazure: 'Microsoft Entra tenant',\nhint: 'Its tenant id, as Microsoft shows it.',",
+			want: "selector: 'app-tenant-sign-in',\ntemplateUrl: './tenant-sign-in.component.html',\nazure: 'Microsoft Entra tenant',\nhint: 'Its tenant id, as Microsoft shows it.',",
+		},
+		{
+			name: "an escaped quote does not end a literal",
+			in:   "a = 'the tenant\\'s own';\nb = `a \\` in a tenant ${x} \\${tenant}`;",
+			want: "a = 'the service area\\'s own';\nb = `a \\` in a service area ${x} \\${service area}`;",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tn.inRecordWords("app/components/ui/sign-in/tenant-sign-in.component.ts", tt.in); got != tt.want {
+				t.Errorf("inRecordWords() =\n%s\nwant\n%s", got, tt.want)
+			}
+		})
 	}
 }
