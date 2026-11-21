@@ -66,7 +66,11 @@ const again: NavigationBehaviorOptions = { onSameUrlNavigation: 'reload' };
  * A tenant whose digest could not be read is not entered: the guard sends the navigation
  * to the refusal page with the address that was asked for (`unreadRedirect`), and `unread`
  * holds that address while the page stands in for it, so the page can say the read failed
- * and offer to try again. Like the tenant, it is settled by the navigation that lands. A
+ * and offer to try again. A navigation sent there writes it once every guard has passed,
+ * and it is cleared only when another navigation has landed, its page drawn: a page asked
+ * for again may still be on its way once its guards have passed (an application loads its
+ * pages when they are first asked for), and until it is in, the refusal page is what the
+ * person sees and says what it said, never 404 Not Found for a tenant they are in. A
  * digest the server refuses to read (its 403 or 404) is the plain refusal: the page says
  * 404 Not Found, as for a tenant the session cannot reach. A tenant that has left the
  * person's list is refused the same way: the client reads the list again where a tenant's
@@ -107,7 +111,8 @@ export class TenantService {
   readonly current = this.routed.asReadonly();
 
   // The address the landed navigation was asked for and could not open, because the
-  // tenant's digest could not be read: written by the landing navigation, nothing else.
+  // tenant's digest could not be read: written by the navigation sent to the refusal page
+  // for it, cleared by the next navigation that lands, nothing else.
   private unreadUrl = signal('');
 
   /**
@@ -146,18 +151,25 @@ export class TenantService {
         } else if (!tenant && this.routed()) {
           this.leave();
         }
-        this.settleUnread();
+        // A navigation on its way to the refusal page for an unread tenant brings what the
+        // page says before the page is drawn. Nothing is cleared here: the page a
+        // navigation is going to may not be in yet.
+        this.settleUnread(false);
       });
 
-    // A navigation that lands where the router already is (the refusal page, reached again
-    // while it is on the screen) activates nothing and reports no ResolveEnd: what the
-    // page says is settled when the navigation ends.
+    // What the refusal page says is settled when a navigation ends, its page drawn. A
+    // navigation that has passed its guards may still wait for its page (one loaded when
+    // it is first asked for), and the refusal page is on the screen until that page is
+    // in: cleared any sooner, it would say 404 Not Found of a tenant that is opening. A
+    // navigation that lands where the router already is (the refusal page, reached again
+    // while it is on the screen) activates nothing and reports no ResolveEnd, and is
+    // settled here too.
     this.router.events
       .pipe(
         filter((event) => event instanceof NavigationEnd),
         takeUntilDestroyed(),
       )
-      .subscribe(() => this.settleUnread());
+      .subscribe(() => this.settleUnread(true));
 
     // A read of the open tenant's digest that fails, whoever asked for it, is not a tenant
     // the person holds nothing in: the page that is open is turned away. A read for a
@@ -255,14 +267,21 @@ export class TenantService {
   }
 
   /**
-   * settleUnread takes what the refusal page says from the navigation that is landing. Only
-   * a navigation sent there for an unread tenant carries the address that was asked for;
-   * any other landing, the page opening on a second try or the server's refusal among them,
-   * clears it.
+   * settleUnread takes what the refusal page says from the navigation under way. Only a
+   * navigation sent there for an unread tenant carries the address that was asked for, and
+   * the page has it as soon as that navigation has passed its guards. Any other
+   * navigation, the page opening on a second try or the server's refusal among them,
+   * clears it, and only once it has landed: until its page is drawn the refusal page is
+   * still on the screen, saying what it said. A navigation that never lands (its page
+   * could not be fetched, or another navigation took its place) clears nothing.
    */
-  private settleUnread(): void {
+  private settleUnread(landed: boolean): void {
     const info = this.router.currentNavigation()?.extras.info;
-    this.unreadUrl.set(info instanceof UnreadTenant ? info.url : '');
+    if (info instanceof UnreadTenant) {
+      this.unreadUrl.set(info.url);
+    } else if (landed) {
+      this.unreadUrl.set('');
+    }
   }
 
   /** The refusal page's address under a tenant. */

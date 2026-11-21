@@ -344,19 +344,46 @@ describe('tenantGuard', () => {
       body: { message: 'the digest is not to be had' },
     });
 
+    /**
+     * The spec's routes with the tenant's page loaded when it is first asked for, as an
+     * application loads its own pages, and arriving only when the spec lets it: every
+     * guard has passed by then, and the page that was on the screen still is.
+     */
+    const heldPage = (): { routes: Routes; arrive: () => void } => {
+      let arrive = (): void => undefined;
+      const loaded = new Promise<void>((resolve) => {
+        arrive = resolve;
+      });
+      return {
+        routes: [
+          { path: `${tenantPath}/${refusedSegment}`, component: TenantRefusedComponent },
+          {
+            path: tenantPath,
+            canActivate: [tenantGuard],
+            children: [{ path: 'page', loadComponent: () => loaded.then(() => PageComponent) }],
+          },
+        ],
+        arrive: () => arrive(),
+      };
+    };
+
     describe('where the tenant list cannot be read', () => {
       /**
        * Configures the app over the server, whose list of tenants fails while `now.down`;
        * with `preload`, the session's tenant list has landed before it went down.
        */
-      const appListing = async (now: { down: boolean }, preload: boolean): Promise<void> => {
+      const appListing = async (
+        now: { down: boolean },
+        preload: boolean,
+        routes: Routes = testRoutes,
+      ): Promise<void> => {
         const played = specTransport(server);
         transport = scriptedTransport((request) =>
           now.down && request.url.endsWith('/user-domains')
             ? { status: 500, body: { message: 'the list is not to be had' } }
             : played(request),
         );
-        TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, {}, testRoutes)] });
+        TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, {}, routes)] });
         if (preload) {
           const down = now.down;
           now.down = false;
@@ -392,6 +419,31 @@ describe('tenantGuard', () => {
 
         now.down = false;
         await tryAgain(harness);
+        expect(shown(harness)).toBe('the page');
+        expect(tenants.current()).toBe('acme');
+        expect(tenants.unread()).toBe('');
+      });
+
+      it("keeps the sentence, never 404 Not Found, until the tenant's page Try again asked for is drawn", async () => {
+        const held = heldPage();
+        const now = { down: true };
+        await appListing(now, false, held.routes);
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+        await harness.navigateByUrl('/tenants/acme/page');
+        harness.detectChanges();
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+
+        // The list answers, the digest is read and the guard lets the navigation through.
+        // The page itself is still on its way, and the refusal page is what the person
+        // sees until it is in: a tenant they are in is never said not to be there.
+        now.down = false;
+        await tryAgain(harness);
+        expect(digestReads('acme')).toBe(1);
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+
+        held.arrive();
+        await settle(harness);
         expect(shown(harness)).toBe('the page');
         expect(tenants.current()).toBe('acme');
         expect(tenants.unread()).toBe('');
@@ -462,6 +514,31 @@ describe('tenantGuard', () => {
         down = false;
         await tryAgain(harness);
         expect(digestReads('acme')).toBe(3);
+        expect(shown(harness)).toBe('the page');
+        expect((harness.routeDebugElement?.componentInstance as PageComponent).knewAtFirst).toBe('granted');
+        expect(tenants.current()).toBe('acme');
+        expect(tenants.unread()).toBe('');
+      });
+
+      it('keeps the sentence, never 404 Not Found, until the page Try again asked for is drawn', async () => {
+        const held = heldPage();
+        let down = true;
+        await appHolding('acme', () => (down ? refusing(500) : undefined), held.routes);
+        const tenants = TestBed.inject(TenantService);
+        const harness = await RouterTestingHarness.create();
+        await harness.navigateByUrl('/tenants/acme/page');
+        harness.detectChanges();
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+
+        // The read answers and the guard lets the navigation through. The page itself is
+        // still on its way, and the refusal page is what the person sees until it is in.
+        down = false;
+        await tryAgain(harness);
+        expect(digestReads('acme')).toBe(2);
+        expect(shown(harness)).toBe('This page could not be loaded Try again');
+
+        held.arrive();
+        await settle(harness);
         expect(shown(harness)).toBe('the page');
         expect((harness.routeDebugElement?.componentInstance as PageComponent).knewAtFirst).toBe('granted');
         expect(tenants.current()).toBe('acme');

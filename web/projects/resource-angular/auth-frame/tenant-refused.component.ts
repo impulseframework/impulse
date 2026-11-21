@@ -43,7 +43,8 @@ export class TenantRefusedComponent {
 
   /**
    * tryAgain asks for the page again, through the tenant guard. A read that works opens
-   * the page; one that fails again leaves this page as it is.
+   * the page, and this page says what it said until that page is drawn; one that fails
+   * again leaves this page as it is.
    */
   protected async tryAgain(): Promise<void> {
     this.trying.set(true);
