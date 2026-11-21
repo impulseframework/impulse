@@ -1137,8 +1137,8 @@ accounts; `@enumerate(CrewSectorUsers)` on a squadron member, the sector's peopl
 whoever may add the record may list. The marshal views the console as the cadet with
 `POST /console/api/impersonate` and
 `{"kind":"view","principal":"f0000000-0000-4000-8000-000000000003"}`, the id of the
-cadet's account (a username there is refused, 400); the session route and the governor's
-watch desk then name the cadet by username; and
+cadet's account (a username there is refused, 400); the session route and the watch
+desk then name the cadet by username; and
 `{"kind":"role","principal":"Dispatcher"}` operates the session as a role.
 
 Impersonation is granted with a mask: to let someone impersonate a person with no mask
@@ -1219,9 +1219,9 @@ takes no grant, so in a session that acts as a person it would make the person a
 as a new sector's marshal, with no permission checked for a mask to deny. The route
 carries an action's name for that, `CreateSector`, classed `access`, and asks the
 session's mask before anything else: the stand-in who acts as the pioneer is refused
-("you are acting as someone else, and this session cannot create a sector: the mask
-refuses the class access. ...") with nothing written and the denial logged as the
-mask's, and the route's `GET` answers that none is offered. The `role` kind is refused
+("You are acting as someone else, and this session cannot create a sector.") with
+nothing written and the denial logged as the mask's, with the class it refuses, and the
+route's `GET` answers that none is offered. The `role` kind is refused
 the same route by the rule and not by a mask, since it has none: the marshal behind a
 session that acts as a role would become the sector's marshal herself ("you are acting
 as someone else, so you cannot create a sector of your own"). An application that
@@ -1258,8 +1258,8 @@ An application whose rows restrict refuses the parent's delete in the kind's mas
 
 | Login | Who | What their view proves |
 | --- | --- | --- |
-| `governor` | Governor Greer, headquarters | The fleet's super administrator (`SuperAdministrator`, the role the framework defines in every auth): the one person no sector's sign-in settings shut out, who gives any role of the crew to anyone and whose role and account stay while he is the last who can sign in. Beside it, every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Runs the watch desk over every live impersonated session, which says what each may do, and can revoke one. Holds each grant to impersonate on purpose: `CommandStaff` (view as a person, reading only; act as a role) and `StandIn` (act as a person: everything they may do, except change how anyone signs in or who may do what). On the console's Break glass page he takes a role in a sector for a set time (1 hour, 4 hours, 8 hours or 1 day) and says why (`take-crew-role`): the role is his from then until the time is over, the sector's Marshal reads the reason beside it, and whoever may take the role away ends it early; "Held right now" and "Ended" list the roles held that way. Headquarters holds the grants, and taking needs what giving himself the role would. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, impersonation.act-as-user, impersonation.grant-mask, computed.pushdown, auth.reasons. |
-| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant); views the console as another crew member, reading only (`CommandStaff`), and is refused acting as one, which is a grant of its own. Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
+| `governor` | Governor Greer, headquarters | The fleet's super administrator (`SuperAdministrator`, the role the framework defines in every auth): the one person no sector's sign-in settings shut out, who gives any role of the crew to anyone and whose role and account stay while he is the last who can sign in. Beside it, every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Keeps the watch desk over every session held as someone else, which says what each may do, and can revoke one, as the marshal does (the command staff's grants). Holds each grant to impersonate on purpose: `CommandStaff` (view as a person, reading only; act as a role) and `StandIn` (act as a person: everything they may do, except change how anyone signs in or who may do what). On the console's Break glass page he takes a role in a sector for a set time (1 hour, 4 hours, 8 hours or 1 day) and says why (`take-crew-role`): the role is his from then until the time is over, the sector's Marshal reads the reason beside it, and whoever may take the role away ends it early; "Held right now" and "Ended" list the roles held that way. Headquarters holds the grants, and taking needs what giving himself the role would. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, impersonation.act-as-user, impersonation.grant-mask, computed.pushdown, auth.reasons. |
+| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); keeps the watch desk with the governor, on the command staff's grants: lists every session held as someone else, reads who each is held as from the crew's accounts by username alone, and revokes one; releases cargo on a grant that carries no condition, so the method's own rule is what refuses her a second release (409, with the day the cargo left bond); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant); views the console as another crew member, reading only (`CommandStaff`), and is refused acting as one, which is a grant of its own. Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
 | `cadet` | Cadet Cass | `hazard IN (1, 2)`; the flight deck with only Claim lit; the two-input distress-call form (create-form narrowing). Demonstrates: execute-condition, create-form-narrowing, capability-envelope. |
 | `pilot` | Pilot Pax, clearance 3 | `hazard <= subject.clearance AND (requiredCert IS NULL OR requiredCert IN subject.certifications)`; `hangarZone != 'quarantine'` on ships and on HailShip, the touch that answers No Content. Demonstrates: @subjectValue, @subjectSet.global, @attribute.nullable-fk, @attribute.join-path, touch, @answers.no-content. |
 | `veteran` | Veteran Vela | `NOT (hazard IN (1, 2) OR fee < 5000)`. Demonstrates: condition.prefix-not. |
@@ -1270,7 +1270,7 @@ An application whose rows restrict refuses the parent's delete in the kind's mas
 | `wingco` | Wing Commander Wilde, Forge Wing | `wing IN subject.wings`, a subject set with a dotted value path; `hazard >= 4`; rates the pilots who fly for Anvil alone: the clearance field of the sector's pilots, a view, and `SetSectorPilotClearance`, a method whose target is a row of that view, each under `fliesElsewhere = false`, a fact the view's query computes (over the API; the console draws no page for it). Demonstrates: @subjectSet.dotted-value, @attribute.view, @target.view. |
 | `engineer` | Engineer Ezra | The refit workflow with its failed-test loop on a join-path root; `inspectedAt IS NOT NULL`; interleaved compound-key tasks; the Hail touch. Demonstrates: @transition.join-path-root, @transition.loop, interleaved-table, compound-key, client-supplied-key, transition-owned-timestamp, @defaultsUpdateType, @validateUpdateType. |
 | `quartermaster` | Quartermaster Quill | `state = 'underway'` evaluated two hops deep on SortieExpenses. Demonstrates: @stateRoot.two-hop. |
-| `supercargo` | Supercargo Sol | `releasedAt IS NULL` on Update and on ReleaseConsignment (shared with the droid, which reads the manifest armed and answers a receipt); `expiresOn < '2026-09-01'`; `allow_filter` on Mass; the hold walked by release date across the NULL boundary. Demonstrates: @attribute.date, allow_filter, paging.nullable-sort, rpc.armed-read, rpc.typed-result, outlet.shared. |
+| `supercargo` | Supercargo Sol | `releasedAt IS NULL` on Update and on ReleaseConsignment (shared with the droid, which reads the manifest armed and answers a receipt), so a second release is the frame's Forbidden and a released row answers no Execute; cargo is released once for every role, since the method refuses a consignment that carries its release; `expiresOn < '2026-09-01'`; `allow_filter` on Mass; the hold walked by release date across the NULL boundary. Demonstrates: @attribute.date, allow_filter, paging.nullable-sort, rpc.armed-read, rpc.typed-result, outlet.shared. |
 | `salvor` | Salvor Sable | `insured IS NULL OR insured = true` on Clients, the salvage desk's one grant: the seed leaves Halvard covered, Meridian and Bastion Relay undecided, and Vellum refused, so she lists the first three and never Vellum, disagreeing with the trusted view in both directions; `= true` alone, or `!= false`, would drop the undecided outfits (the semantic differential proves that half on the same shape). Demonstrates: @attribute.nullable-bool. |
 | `yeoman` | Yeoman Yael | The standing orders, a `@computed` struct with no `@primarykey`: a whole read-only list, served in the book's own order on a bare GET, sorted by section on request, never paged (a `limit` or a `cursor` is refused with a 400 naming the key as the way to page), with no read route and no row identity. Her first screen is the console's Standing Orders page, the library's list over that resource: the whole book as one page with virtual scroll, every line identified by its position, Previous and Next disabled with the count, no View column, no create, and no row route; a `pageSize` or `enableRowExpansion` on its config fails at startup naming the resource. Demonstrates: computed.keyless, list.keyless. |
 | `purser` | Purser Priya | The expense manifests, a keyed `@computed` struct whose struct-scope `@file` renders each mission's booked expenses as a `text/csv` sheet on request: `GET .../expense-manifests/{missionId}/content` under her Read grant on `content`, with the sheet's digest as its validator, so a kept copy asks again and hears 304 until an expense is booked; the marshal reads no manifest and the cadet none of it. Demonstrates: @file.rendered. |
@@ -1311,7 +1311,7 @@ An application whose rows restrict refuses the parent's delete in the kind's mas
   into it and the beacon pulse mounted outside every outlet under the prefix the
   generator program declares quiet ([`generation.request-log`](cmd/generate/generator.go));
   `app/`: wiring, middleware, the ship's log, the client statement, the
-  impersonation mint route, the watch desk, the accessors of each auth's generated
+  impersonation mint route, the accessors of each auth's generated
   identity client (`users.go`) and the beacon pulse. The mission document download is
   generated from `MissionDocument.StoreKey`'s `@file`
   ([`@file.stored`](pkg/resources/mission_documents.go)), and the purser's expense
@@ -1399,12 +1399,23 @@ An application whose rows restrict refuses the parent's delete in the kind's mas
   list over a key-less resource ([`list.keyless`](web/console/src/app/configs/standingOrders.config.ts)):
   the whole book as one page, rows identified by position, no row route, and a config
   asking for a page size or a row expansion refused when the page is built. Four pages
+  that once drew tables of their own are that list with nothing of Lodestar's drawn: the
+  [salvage hold](web/console/src/app/configs/consignments.config.ts), whose rows offer
+  Release on cargo still in bond, where the server's Execute answer for the row lists it,
+  and say the typed receipt in the notice that follows; the
+  [call log](web/console/src/app/configs/distressCalls.config.ts); the
+  [hazard board](web/console/src/app/configs/sectorHazardBoards.config.ts), whose rows
+  have a compound key and so no row page; and Headquarters'
+  [watch desk](web/console/src/app/configs/crewSessionImpersonations.config.ts), the
+  crew auth's generated impersonation records with Revoke, the generated method that
+  ends one, on each session still open. Four pages
   carry the field shapes a form never types and the write-only field: the
   [Documents page](web/console/src/app/configs/missionDocuments.config.ts) shows a
   document's digest as a size in its cell and as a download on its row page
   ([`field.bytes`](web/console/src/app/configs/missionDocuments.config.ts)) and its
-  provenance as JSON, the [Calls page](web/console/src/app/configs/distressCalls.config.ts)
-  shows a call's position as JSON ([`field.object`](web/console/src/app/configs/distressCalls.config.ts))
+  provenance as JSON, the [call log](web/console/src/app/configs/distressCalls.config.ts)
+  shows a call's position in words, its latitude and its longitude
+  ([`field.object`](web/console/src/app/configs/distressCalls.config.ts))
   and draws nothing for its write-only transcript in view mode and a blank input in its
   create form and in its edit form, whose value travels only when typed; the edit form has
   the input because the row's Update envelope names every field the caller may write,

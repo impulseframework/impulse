@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/ettle/strcase"
@@ -75,6 +76,37 @@ func methodRefused(cause error) error {
 	return httpio.NewForbiddenMessageWithError(cause, refusedPlainly)
 }
 
+// TargetRefused is the answer to a caller whose method may not run against the row it
+// names: Forbidden, with one sentence a person can read. The sentence says the row by
+// its record's name in words and nothing else ("You may not do this to this mission."):
+// no method's name and no key, and the same words whether the row's state or the
+// grant's condition refused, so the caller is never told which. A record with no name
+// names nothing ("You may not do this here."). The cause says the method by its name,
+// the record by its struct's name and the row by its key's values in order, or "this"
+// record where the row is one the method proposes and has no key; it is kept for the
+// server's log and no word of it reaches the caller. A generated method's frame answers
+// its state check with TargetRefused and its gate (ExecuteGate) answers the grant's
+// condition with it, so both read the same. It answers the type httpio's own refusals
+// do, and is returned as one of those is.
+func TargetRefused(method accesstypes.Resource, label string, key ...any) errors.Chain {
+	return httpio.NewForbiddenMessageWithError(targetRefusedCause(method, label, key), mayNotDoThisTo(label))
+}
+
+// targetRefusedCause is what the server's log keeps of a method refused on a row: the
+// method, the record's struct name and the row's key, in the words the refusal itself
+// said before it was put in a person's.
+func targetRefusedCause(method accesstypes.Resource, label string, key []any) error {
+	if len(key) == 0 {
+		return errors.Newf("%s may not run against this %s", method, label)
+	}
+	values := make([]string, 0, len(key))
+	for _, value := range key {
+		values = append(values, fmt.Sprint(value))
+	}
+
+	return errors.Newf("%s may not run against %s %s", method, label, strings.Join(values, ", "))
+}
+
 // conditionRefused is the answer to a write whose grant holds for some rows and not for
 // the one written: the sentence says the person may do it to others.
 func (q *QuerySet[Resource]) conditionRefused(resources []accesstypes.Resource) error {
@@ -121,6 +153,34 @@ func mayNotThisOne(perm accesstypes.Permission, resources []accesstypes.Resource
 	}
 
 	return "You may " + verb + " " + things + " " + refusedHere + ", " + last
+}
+
+// mayNotDoThisTo is the sentence for a method refused on the row it names: "You may not
+// do this to this mission." The record is said by its struct's name in words.
+func mayNotDoThisTo(label string) string {
+	thing := inWords(label)
+	if thing == "" {
+		return refusedPlainly
+	}
+
+	return "You may not do this to this " + thing + "."
+}
+
+// flagHistoryWords is what a caller who may see none of the facts a flag's history tells
+// is told.
+const flagHistoryWords = "You may not see this flag's history here."
+
+// actingAsRoleWords is what the person behind a session that acts as a role the
+// application runs no sessions as is told when the session is refused an answer. What
+// was asked for is not known where it is refused, so the sentence says no act.
+const actingAsRoleWords = "You are acting as a role, and this session cannot do this."
+
+// actingAsSomeoneCannot is the sentence for an act the mask of a session that acts as
+// someone refuses: "You are acting as someone else, and this session cannot create a
+// tenant." act is the handler's own words for what it does, the end of "this session
+// cannot".
+func actingAsSomeoneCannot(act string) string {
+	return "You are acting as someone else, and this session cannot " + act + "."
 }
 
 // thingsInWords says the resources a refusal is about. A resource is its name in words,

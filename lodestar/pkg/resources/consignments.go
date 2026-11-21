@@ -11,9 +11,10 @@ type (
 	// Consignment is salvaged cargo held in bond until its owner claims it. Mass is
 	// filterable via allow_filter (the column is unindexed), ExpiresOn is a date-typed
 	// attribute the Supercargo's delete grant conditions on, and ReleasedAt doubles as the
-	// lifecycle marker: NULL means still in bond, and both the Supercargo's and the
-	// droid's ReleaseConsignment grants carry releasedAt IS NULL, so a second release is
-	// policy, not code. BondCode is immutable.
+	// lifecycle marker: NULL means still in bond. Cargo is released once: ReleaseConsignment
+	// refuses a consignment that carries its release, whoever asks, and both the
+	// Supercargo's and the droid's grants on it carry releasedAt IS NULL, so the frame
+	// refuses their second release before the method runs. BondCode is immutable.
 	//
 	// The hold is listed by release date, a NULLABLE sort column, in Spanner's own NULL
 	// placement: unreleased cargo (NULL) is placed first ascending and last descending, the

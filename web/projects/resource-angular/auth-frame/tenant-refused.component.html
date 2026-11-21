@@ -1,3 +1,12 @@
-<div class="refused">
-  <h1>404 Not Found</h1>
-</div>
+@if (unread()) {
+  <div class="refused">
+    <h1>This page could not be loaded</h1>
+    <button mat-stroked-button type="button" class="try-again" [disabled]="trying()" (click)="tryAgain()">
+      Try again
+    </button>
+  </div>
+} @else {
+  <div class="refused">
+    <h1>404 Not Found</h1>
+  </div>
+}

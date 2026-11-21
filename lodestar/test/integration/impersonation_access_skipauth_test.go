@@ -343,8 +343,8 @@ func TestImpersonationMask_creatingASector(t *testing.T) {
 	}
 	output.reset()
 	status, answer = standIn.do(ctx, http.MethodPost, createSectorRoute, []byte(chartEmber))
-	if want := "you are acting as someone else, and this session cannot create a sector: the mask refuses the class access"; status != http.StatusForbidden || !strings.Contains(string(answer), want) {
-		t.Errorf("acting as the pioneer, creating a sector: status %d, want 403 saying %q: %s", status, want, answer)
+	if got, want := refusalMessage(t, answer), "You are acting as someone else, and this session cannot create a sector."; status != http.StatusForbidden || got != want {
+		t.Errorf("acting as the pioneer, creating a sector: status %d saying %q, want 403 saying %q", status, got, want)
 	}
 	if want, logged := "impersonation: Execute denied by mask ("+actMaskText+") for "+string(pioneerID)+" on CreateSector: the mask refuses the class access", output.String(); !strings.Contains(logged, want) {
 		t.Errorf("acting as the pioneer, creating a sector: the log does not carry %q, the denial as the mask's:\n%s", want, logged)

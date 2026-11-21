@@ -133,8 +133,9 @@ func TestQuerySet_Caller(t *testing.T) {
 // TestExecuteGate_EnforceProposed pins the judgment of a row the body proposes, one the
 // database does not hold: the grant's condition is read against the values handed, with
 // the caller the check folded with. A row the condition admits passes, one it does not is
-// the frame's refusal, and a condition that reads an attribute the row does not carry is
-// an error, never a pass.
+// the frame's refusal, which tells the caller the record in words and keeps the method's
+// name for the log, and a condition that reads an attribute the row does not carry is an
+// error, never a pass.
 func TestExecuteGate_EnforceProposed(t *testing.T) {
 	t.Parallel()
 
@@ -175,9 +176,7 @@ func TestExecuteGate_EnforceProposed(t *testing.T) {
 					t.Errorf("ExecuteGate.EnforceProposed() error = %v, want an error containing %q that is no refusal", err, tt.wantErr)
 				}
 			case tt.wantForbidden:
-				if err == nil || !httpio.HasForbidden(err) {
-					t.Errorf("ExecuteGate.EnforceProposed() error = %v, want Forbidden", err)
-				}
+				plainAnswer(t, err, httpio.HasForbidden, "You may not do this to this held role.", "TakeRole", "HeldRole", "TakeRole may not run against this HeldRole")
 			case err != nil:
 				t.Errorf("ExecuteGate.EnforceProposed() error = %v, want the row admitted", err)
 			}

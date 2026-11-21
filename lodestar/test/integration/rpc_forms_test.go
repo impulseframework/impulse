@@ -185,6 +185,47 @@ func TestReleaseConsignment_armedManifest(t *testing.T) {
 	})
 }
 
+// TestReleaseConsignment_onceForEveryRole holds the once-only rule where every role meets
+// it. The Sector Marshal's Execute grant carries no condition, and the governor holds the
+// marshal's role in every sector, so the frame lets both through to the body on cargo
+// already released: the method itself refuses it, with a sentence that names the bond and
+// when it left, and the release keeps the time it was first stamped with.
+//
+// Demonstrates: execute-condition, rpc.armed-read.
+func TestReleaseConsignment_onceForEveryRole(t *testing.T) {
+	t.Parallel()
+
+	ctx, db, h := demoWorld(t)
+	released := readColumn[spanner.NullTime](ctx, t, db, "Consignments", spanner.Key{consignmentBullionID}, "ReleasedAt")
+	if !released.Valid {
+		t.Fatal("the seed's bullion is not released: this suite needs cargo that already left bond")
+	}
+
+	tests := []struct {
+		name string
+		user accesstypes.User
+	}{
+		{name: "the marshal, whose grant carries no condition", user: "marshal"},
+		{name: "the governor, who holds the marshal's role in every sector", user: "governor"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			status, body := doRequestAs(t, h, tt.user, http.MethodPost, sectorPath(anvil, "release-consignment"), fmt.Sprintf(`{"consignmentId":%q}`, consignmentBullionID))
+			assertStatus(t, status, http.StatusConflict, body)
+			for _, want := range []string{"BND-ANV-", "was already released, on ", "Cargo is released once."} {
+				if !strings.Contains(string(body), want) {
+					t.Errorf("refusal = %s, want it to say %q", body, want)
+				}
+			}
+			if after := readColumn[spanner.NullTime](ctx, t, db, "Consignments", spanner.Key{consignmentBullionID}, "ReleasedAt"); !after.Valid || !after.Time.Equal(released.Time) {
+				t.Errorf("ReleasedAt = %v, want the first release's %v kept", after, released)
+			}
+		})
+	}
+}
+
 // TestCompleteMission_asPaymaster pins the role a body borrows: the Flight Lead holds no
 // Update on Missions.settlement, so the settlement is posted through caller.As over the
 // Paymaster role, and the change event names the lead as that role, the same actor-aware

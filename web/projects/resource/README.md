@@ -122,15 +122,25 @@ picker pages it with Previous and Next by the server's cursors, sorted by its `@
 or else by the picker's display column, and reads the chosen row by key (a source with a
 maximum serves a read; the generator refuses one that does not); a lookup that resolves
 display values for a page of keys asks for one `filter=id:in:(…)` page over them, served
-by the key's index. There is no operation that reads every row of a bounded resource:
-the maximum was declared to keep the whole set out of memory, and nothing in the client
-walks past it. `readMode(descriptor)` answers `'whole'` or `'paged'`, and
-`wholeListQuery`, `pickerSort`, `keyBatches`, and `keyLookupQuery` are the requests
-each side makes, shared by every reader.
+by the key's index. None of these readers walks past a page.
+`readMode(descriptor)` answers `'whole'` or `'paged'`, and `wholeListQuery`,
+`pickerSort`, `keyBatches`, and `keyLookupQuery` are the requests each side makes,
+shared by every reader.
+
+`every` is the one reader of every row, for a page whose answer is wrong with a part
+of them: a board that counts what is open, a picker that must offer each choice. It
+takes the list query without `limit`, `cursor` and `count` (naming one does not
+compile) and hands the rows back together. With no maximum it makes the one
+`limit=all` request; with a maximum it asks for a page of the maximum at a time, by the
+server's `next` relations, to the end, and a page that fails rejects the whole read.
+The whole set is then in memory, which the maximum otherwise keeps from happening, so
+call it where the set is known to be small for the reader (one station's open
+missions), and turn a long list with `page`.
 
 ```ts
 const hulls = await api.shipClasses.list({ limit: 'all' }); // no maximum: the whole catalog
 const hangars = await sector.hangars.page({ count: true }); // a maximum: one page, Previous and Next
+const open = await station.missions.every({ sort: { field: 'deadline' } }); // every row, a page of the maximum at a time
 ```
 
 A resource whose descriptor lists `keys: []` (a `@computed` or `@virtual` struct with no
@@ -161,10 +171,12 @@ are scarce and one is enough to narrow the rows — and absent on a field a filt
 name. A table draws a filter control from it, so what it offers is what the server answers.
 
 A sort may name only a field the server orders: text, numbers, yes or no, moments, dates,
-decimals and UUIDs. A list, a map and a nested object have no order, and a request that
-sorts by one is refused (400). The generated field metadata says which: `FieldMeta.sortable`
-is `false` on a field the server does not order and absent on every other. A table draws
-such a column's heading as words, so it offers no sort the server refuses.
+decimals and UUIDs. A list, a map and a nested object have no order, and neither has a
+value the server writes in other words than its column holds (a mask read as words): a
+request that sorts by one is refused (400). The generated field metadata says which:
+`FieldMeta.sortable` is `false` on a field the server does not order and absent on every
+other. A table draws such a column's heading as words, so it offers no sort the server
+refuses.
 
 A text field answers `startswith`, `endswith` and `contains` where the schema states a
 fact for it, and `FieldMeta.search` lists the matches it answers: a stored `LOWER(col)`
@@ -257,10 +269,45 @@ or one per domain), loaded on demand and cached for the session.
   the digest carries no field-level entries for the permission — no field information
   (denied outright, or a keys-only resource) — so narrow only on a defined answer.
   Key fields never appear: they are structural, not grant-bearing.
-- `api.permissions.loadDigest(domain?)` loads a scope; `loadDomains()` fetches the
+- `api.permissions.loadDigest(domain?)` loads a scope. A read that fails rejects and
+  leaves the cache as it was: a scope never read stays unloaded, a scope read before
+  keeps its last answer, and no failure is cached as an empty digest, which would say the
+  person holds nothing. `digestFailure(error)` says which failure it was: `refused` for
+  the server's 403 or 404 (the scope is not there for this session), `failed` for anything
+  else (a 500, a request that never arrived), which can be tried again. A domain whose
+  read is refused is the one failure that does not leave the cache as it was: what it held
+  of the domain is forgotten (`hasDigest(domain)` is false again), since the person is in
+  the domain no more, and nothing one session held there is kept for a session that takes
+  its place.
+  `onUnread(listener)` calls the listener with the domain and the failure each time a read
+  fails, whoever asked for it, so a page drawn from the scope can say it could not be read.
+  A domain's digest that reads empty is checked against the person's list of domains,
+  read again for it, before it is kept: the server gives the same empty digest for a
+  domain the session no longer reaches (a seat taken away) as for one where the person
+  holds nothing. A domain the list names no more is a refusal (the read rejects with
+  `DomainUnlistedError`, `refused`, and what the cache held of the domain is forgotten,
+  as for the server's own refusal); one the list still names is kept as empty; and where
+  the list cannot be read the read of the digest fails with it, and the scope keeps its
+  last answer.
+  A request under a domain that the server answers 404 is held to the same check. The
+  server answers every request under a domain the session does not reach with 404, as it
+  does for a record that is not there, so where the cache holds the domain's digest the
+  client reads it again before the request's caller is answered. A domain the person has
+  left is refused by that read: forgotten, and heard of by every `onUnread` listener, so
+  a page open in the domain can be taken down before anything draws the server's words. A
+  domain the person is still in keeps its digest, and the 404 is the record's. The caller
+  is answered as the server answered either way, and a domain the cache holds no digest
+  of is not read.
+- `loadDomains()` fetches the
   domains where the user holds any grant, each with its name (`user-domains` answers
   `[{ "domain", "name" }]`), and `domainName(domain)` answers a listed domain's name for a
   picker to show, the domain itself where none is held; `subscribe` notifies a UI framework.
+  A read that fails rejects and leaves the list as it was: a list never read stays unread,
+  a list read before keeps its last answer, and no failure is kept as an empty list, which
+  would say the person is in no domain. `hasDomains()` says whether the list has been
+  read, and `domainsUnread()` is true while its last read failed and no list is held from
+  before (`domainsKnown(snapshot)` and `domainsUnread(snapshot)` answer the same of a
+  snapshot).
   A tenant the person holds a seat in and this session cannot enter (a tenant that admits
   only people who sign in through its own directory, when the person signed in another
   way) is listed with `closed`, the reason in a sentence the server writes. `domains()`

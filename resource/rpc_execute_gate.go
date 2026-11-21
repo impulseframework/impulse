@@ -162,9 +162,11 @@ type ExecuteTarget struct {
 	// Resource is the target row resource: its table, or the view's resource.
 	Resource accesstypes.Resource
 
-	// Label is the target's struct name, for the refusal message — the same
-	// words the frame's own state check refuses with, so the wire never
-	// distinguishes a wrong-state refusal from a condition refusal.
+	// Label is the target's struct name. A refusal says the row by it in words
+	// ("You may not do this to this mission.", TargetRefused), the same sentence
+	// the frame's own state check refuses with, so the wire never distinguishes a
+	// wrong-state refusal from a condition refusal. The NotFound answer and the
+	// server's log say the name as it is.
 	Label string
 
 	// PKColumns are the primary-key columns the check-SELECT locates the row by,
@@ -368,7 +370,7 @@ func (g *ExecuteGate) EnforceProposed(ctx context.Context, facts SubjectFactSour
 		return errors.Wrapf(err, "method %s: condition.Evaluate()", g.method)
 	}
 	if !truth.Permits() {
-		return httpio.NewForbiddenMessagef("%s may not run against this %s", g.method, target.Label)
+		return TargetRefused(g.method, target.Label)
 	}
 
 	return nil
@@ -401,7 +403,7 @@ func (g *ExecuteGate) enforce(ctx context.Context, txn ReadWriteTransaction, tar
 		return httpio.NewNotFoundMessagef("%s %s does not exist", target.Label, key)
 	}
 	if !passed.Valid || !passed.Bool {
-		return httpio.NewForbiddenMessagef("%s may not run against %s %s", g.method, target.Label, key)
+		return TargetRefused(g.method, target.Label, pkValues...)
 	}
 
 	return nil

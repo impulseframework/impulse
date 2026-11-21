@@ -11,7 +11,6 @@ package integration
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -80,14 +79,14 @@ func TestMissionWorkflow(t *testing.T) {
 	}
 
 	// Illegal edge: an open mission cannot launch. The declared transition answers
-	// one uniform Forbidden naming the method and the row.
+	// one uniform Forbidden that says the record in a person's words.
 	status, body = doRequest(t, h, http.MethodPost, sectorPath(anvil, "launch-mission"),
 		fmt.Sprintf(`{"missionId":%q,"shipId":%q,"pilotUserId":"lead"}`, missionID, shipKingfisherID))
 	if status != http.StatusForbidden {
 		t.Fatalf("launch an open mission: status = %d, want 403: %s", status, body)
 	}
-	if !strings.Contains(string(body), "LaunchMission may not run against Mission") {
-		t.Fatalf("launch an open mission: refusal must name the method and the row, nothing more: %s", body)
+	if got, want := refusalMessage(t, body), "You may not do this to this mission."; got != want {
+		t.Fatalf("launch an open mission: refusal = %q, want %q: the record, and neither the method nor the row", got, want)
 	}
 
 	// Legal walk: claim -> launch -> hold -> resume -> complete.

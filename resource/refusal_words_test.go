@@ -133,6 +133,34 @@ func TestRefusedMethod_plainWords(t *testing.T) {
 
 // A write whose grant holds for some rows and not for the one written says that the
 // person may do it to others, in the same words as any refusal.
+// TestTargetRefused_plainWords holds the answer to a method refused on the row it names:
+// the sentence says the record in words and nothing else, and the method, the record's
+// struct name and the row's key stay in the words the server's log prints.
+func TestTargetRefused_plainWords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		label     string
+		key       []any
+		wantSaid  string
+		wantCause string
+	}{
+		{name: "a row named by one key value", label: "HangarPass", key: []any{"pass-7"}, wantSaid: "You may not do this to this hangar pass.", wantCause: "CountersignPass may not run against HangarPass pass-7"},
+		{name: "a row named by a compound key", label: "HeldRole", key: []any{"ann", "Armorer", 3}, wantSaid: "You may not do this to this held role.", wantCause: "CountersignPass may not run against HeldRole ann, Armorer, 3"},
+		{name: "a row the method proposes, which has no key", label: "HeldRole", wantSaid: "You may not do this to this held role.", wantCause: "CountersignPass may not run against this HeldRole"},
+		{name: "a record with no name names nothing", label: "", key: []any{"pass-7"}, wantSaid: "You may not do this here.", wantCause: "CountersignPass may not run against  pass-7"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := TargetRefused("CountersignPass", tt.label, tt.key...)
+			plainAnswer(t, err, httpio.HasForbidden, tt.wantSaid, "CountersignPass", "may not run against", tt.wantCause)
+		})
+	}
+}
+
 func TestRefusedCondition_plainWords(t *testing.T) {
 	t.Parallel()
 

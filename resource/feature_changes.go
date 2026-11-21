@@ -189,9 +189,7 @@ func FeatureFlagChangesHandler(a FeatureApp, collection *GeneratedCollection) ht
 		// A caller who may see none of the three facts would learn from the answer only
 		// how often the flag was flipped, which the list never tells them: it is refused.
 		if !shown(flagUpdatedAtColumn, "updatedAt") && !shown(flagEnabledColumn, "enabled") && !shown(flagUpdatedByColumn, "updatedBy") {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessagef(
-				"a flag's history says when the flag was turned on or off, what to, and by whom, and user (%s) may list none of those of %s for this flag (the fields updatedAt, enabled and updatedBy): a grant of List on any of them shows that much of the history",
-				a.UserPermissions(r).User(), FeatureFlagsResource))
+			return httpio.NewEncoder(w).ClientMessage(ctx, flagHistoryRefused(a.UserPermissions(r).User()))
 		}
 
 		client := a.ResourceClient()
@@ -209,4 +207,18 @@ func FeatureFlagChangesHandler(a FeatureApp, collection *GeneratedCollection) ht
 
 		return httpio.NewEncoder(w).Ok(answer)
 	})
+}
+
+// flagHistoryRefused is the answer to a caller who may list none of the three facts a
+// flag's history tells: Forbidden, with one sentence a person can read. Who was refused,
+// the table and the fields a grant of List would show are the cause's, kept for the
+// server's log; no word of it reaches the caller.
+func flagHistoryRefused(user accesstypes.User) errors.Chain {
+	return httpio.NewForbiddenMessageWithError(
+		errors.Newf(
+			"a flag's history says when the flag was turned on or off, what to, and by whom, and user (%s) may list none of those of %s for this flag (the fields updatedAt, enabled and updatedBy): a grant of List on any of them shows that much of the history",
+			user, FeatureFlagsResource,
+		),
+		flagHistoryWords,
+	)
 }
