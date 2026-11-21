@@ -1206,13 +1206,19 @@ describe('FlightDeckComponent', () => {
       grants: marshal,
       board: {
         status: 200,
-        body: [mission('m-1', '950.50'), mission('m-2', '12345678901234567.25'), mission('m-3', '900')],
+        body: [
+          mission('m-1', '950.50'),
+          mission('m-2', '12345678901234567.25'),
+          mission('m-3', '900'),
+          mission('m-4', '950.5'),
+        ],
       },
     });
 
     // No rounding to whole credits, and no number in between: a number holds neither the
-    // closing zero nor the seventeenth digit.
-    expect(texts('.sheet .fee')).toEqual(['950.50 cr', '12,345,678,901,234,567.25 cr', '900 cr']);
+    // closing zero nor the seventeenth digit. The server hands 950.50 as "950.5", and a
+    // fraction is written to two places at least.
+    expect(texts('.sheet .fee')).toEqual(['950.50 cr', '12,345,678,901,234,567.25 cr', '900 cr', '950.50 cr']);
   });
 
   it('says an expense in the words the Add expense form offers it under, and its amount as a fee is written', async () => {
@@ -1232,7 +1238,7 @@ describe('FlightDeckComponent', () => {
     expect(texts('.detail-card .expenses li')).toEqual([
       'tow gear — 1,500 cr (spare line)',
       'medical supplies — 20,000 cr',
-      'dock fees — 12.4 cr',
+      'dock fees — 12.40 cr',
     ]);
 
     await press('Add expense');

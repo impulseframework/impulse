@@ -409,10 +409,13 @@ describe('TrackerComponent for a signed-in client', () => {
       missions: [
         { ...kestrel, fee: '950.50' },
         { ...heron, fee: '12345678901234567.25' },
+        // The server hands 950.50 without its closing zero; a fraction is written to two places at least.
+        { ...osprey, fee: '950.5' },
+        { ...kestrel, id: 'm-4', title: 'Tow the Merlin', fee: '12' },
       ],
     });
 
-    expect(texts('.sheet .fee')).toEqual(['950.50 cr', '12,345,678,901,234,567.25 cr']);
+    expect(texts('.sheet .fee')).toEqual(['950.50 cr', '12,345,678,901,234,567.25 cr', '950.50 cr', '12 cr']);
   });
 
   it('counts the missions in plain words: how many are drawn, of how many', async () => {
