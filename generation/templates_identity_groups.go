@@ -73,7 +73,9 @@ type (
 	// subject.{{ .GroupSet }} is the ids of the groups the caller is in. A grant's
 	// condition tests a row's group against it, and a table of the application's own
 	// whose rows name a group follows a person through it in its own set's definition
-	// (who: GroupID IN subject.{{ .GroupSet }}).
+	// (who: GroupID IN subject.{{ .GroupSet }}). The people are the {{ .Auth }} auth's, and the
+	// set says so (auth: {{ .AuthName }}): generation refuses a set that describes another
+	// auth's people and follows a person through this one.
 	//
 	// The table is no tenant's, and a group is kept in one tenant or for the whole
 	// application, so the set says where a row's tenant is found (domain:
@@ -100,7 +102,7 @@ type (
 	{{ .GroupMember }} struct {
 		// @attribute(group)
 		GroupID impulse.UUID ` + "`spanner:\"GroupId\"`" + `
-		// @subjectSet({{ .GroupSet }}, value: GroupID, domain: GroupID.DomainID, where: {{ .GroupSetWhere }})
+		// @subjectSet({{ .GroupSet }}, value: GroupID, domain: GroupID.DomainID, auth: {{ .AuthName }}, where: {{ .GroupSetWhere }})
 		UserID    string     ` + "`spanner:\"UserId\"`" + `
 		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
 		StartsAt  *time.Time ` + "`spanner:\"StartsAt\"`" + `

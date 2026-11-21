@@ -131,7 +131,8 @@ type subjectBinding struct {
 
 	// Offered marks the set of a person's groups that the generator declares for
 	// an auth (the generated group members resource): nobody wrote it, so the
-	// role-file check does not flag it when no role reads it.
+	// role-file check does not flag it when no role reads it. Its annotation
+	// names the auth it was generated for (Auth).
 	Offered bool
 
 	// Auth is a @subjectSet's auth: part: the name of the auth whose people the
@@ -139,7 +140,8 @@ type subjectBinding struct {
 	// people, so only its roles give anybody anything through the set, and only
 	// its role-file check looks at it. Empty when the annotation writes none,
 	// which an application with one auth may leave so and one with several may
-	// not (resolveSubjectSetAuths).
+	// not (resolveSubjectSetAuths). A who: test names a set of the same auth's
+	// people (resolveSubjectSetReferences).
 	Auth string
 
 	// Who is a @subjectSet's who: part: the tests that make a row the
@@ -990,7 +992,8 @@ func (c *client) resolveRunSubjectSets(resources []*resourceInfo) error {
 // alone. With one auth every set is its, and the part may be left out. A name
 // that is no auth of the application is refused wherever the run knows its
 // auths. The set of a person's groups, which the generator declares for an auth
-// (Offered), is asked nothing: no check looks at it.
+// (Offered), is asked nothing here: its declaration names the auth it was
+// generated for.
 func resolveSubjectSetAuths(resources []*resourceInfo, auths []string) error {
 	var errs []error
 	for _, res := range resources {
@@ -1018,7 +1021,12 @@ func resolveSubjectSetAuths(resources []*resourceInfo, auths []string) error {
 // resolveSubjectSetReferences checks what a who: part says of other sets, once
 // every resource is extracted and every set is known: a test names a declared
 // @subjectSet, one that yields values of the tested column's own type, and sets
-// never build on each other in a loop, which no statement could render.
+// never build on each other in a loop, which no statement could render. A set
+// describes the people of one auth, so a test names a set of the same auth's
+// people wherever both sets say whose they are (auth:): through a test against
+// another auth's set the set would hold rows for that auth's people, whom it does
+// not describe. The set of a person's groups an auth's generated management
+// declares says whose it is, so it is held to the rule as a set a person wrote is.
 func resolveSubjectSetReferences(resources []*resourceInfo) error {
 	type declared struct {
 		res *resourceInfo
@@ -1052,6 +1060,9 @@ func resolveSubjectSetReferences(resources []*resourceInfo) error {
 				errs = append(errs, errors.Newf("%s tests %s against subject.%s, which no @%s declares; the sets declared are: %s", where, test.Field.Name(), test.Set, subjectSetKeyword, strings.Join(names, ", ")))
 			case target.set.Type != test.Type:
 				errs = append(errs, errors.Newf("%s %s is a %s column and subject.%s (declared on %s) is a set of %s values; a column is tested against a set of its own type", where, test.Field.Name(), test.Type, test.Set, target.res.Name(), target.set.Type))
+			case owner.set.Auth != "" && target.set.Auth != "" && owner.set.Auth != target.set.Auth:
+				errs = append(errs, errors.Newf("%s tests %s against subject.%s, which describes the people of %s (declared on %s, %s: %s), and %s describes the people of %s (%s: %s); a set describes the people of one auth, and through this test %s would hold rows for the people of %s: test a set that describes the people of %s, or take the test out",
+					where, test.Field.Name(), test.Set, target.set.Auth, target.res.Name(), subjectAuthArgKey, target.set.Auth, name, owner.set.Auth, subjectAuthArgKey, owner.set.Auth, name, target.set.Auth, owner.set.Auth))
 			}
 		}
 	}

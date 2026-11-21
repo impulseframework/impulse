@@ -14,7 +14,9 @@ import (
 // that auth's. An application with several says it on every set it writes, since nothing
 // else tells the generator which auth's people a user column holds, and a name that is
 // no auth of the application is refused. The set of a person's groups, which the
-// generator declares for an auth, is asked nothing.
+// generator declares for an auth, names that auth as the generated declaration writes
+// it, so a set of another auth's people that follows a person through it is refused as
+// one that follows a person through any other set of that auth's.
 func TestResolveSubjectSetAuths(t *testing.T) {
 	t.Parallel()
 
@@ -22,12 +24,13 @@ func TestResolveSubjectSetAuths(t *testing.T) {
 	staff := []*identityInstance{{auth: "Staff", policy: access.Tables{Groups: "StaffGroups"}, groupSet: "staffGroups"}}
 
 	tests := []struct {
-		name     string
-		structs  []string
-		identity []*identityInstance
-		auths    []string
-		want     map[string]string
-		wantErr  []string
+		name       string
+		structs    []string
+		identity   []*identityInstance
+		auths      []string
+		want       map[string]string
+		wantRunErr []string
+		wantErr    []string
 	}{
 		{
 			name:    "one auth and nothing written: the set names no auth",
@@ -74,11 +77,20 @@ func TestResolveSubjectSetAuths(t *testing.T) {
 			want:    map[string]string{"bays": "staff", "teams": ""},
 		},
 		{
-			name:     "several auths, and the set of a person's groups an auth declares says nothing",
-			structs:  []string{"StaffGroup", "StaffGroupMember", "BayKeeper"},
+			name:     "several auths, and the set of a person's groups an auth declares names that auth",
+			structs:  []string{"StaffGroup", "StaffGroupMember", "BayKeeper", "BayGroup"},
 			identity: staff,
 			auths:    []string{"patrons", "staff"},
-			want:     map[string]string{"bays": "staff", "staffGroups": ""},
+			want:     map[string]string{"bays": "staff", "baysOpen": "staff", "staffGroups": "staff"},
+		},
+		{
+			name:     "several auths, and a set of one's people that follows a person through the groups of another's",
+			structs:  []string{"StaffGroup", "StaffGroupMember", "WhoOtherAuthGroups"},
+			identity: staff,
+			auths:    []string{"patrons", "staff"},
+			wantRunErr: []string{
+				"struct WhoOtherAuthGroups field UserID: @subjectSet(viaStaffGroups): who: tests GroupID against subject.staffGroups, which describes the people of staff (declared on StaffGroupMember, auth: staff), and viaStaffGroups describes the people of patrons (auth: patrons)",
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -91,7 +103,20 @@ func TestResolveSubjectSetAuths(t *testing.T) {
 			if err != nil {
 				t.Fatalf("structsToResources() error = %v", err)
 			}
-			if err := c.resolveRunSubjectSets(resources); err != nil {
+			err = c.resolveRunSubjectSets(resources)
+			if len(tt.wantRunErr) > 0 {
+				if err == nil {
+					t.Fatal("resolveRunSubjectSets() error = nil, want a refusal")
+				}
+				for _, want := range tt.wantRunErr {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("resolveRunSubjectSets() error = %q, want it to contain %q", err.Error(), want)
+					}
+				}
+
+				return
+			}
+			if err != nil {
 				t.Fatalf("resolveRunSubjectSets() error = %v", err)
 			}
 

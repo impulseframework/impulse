@@ -538,7 +538,8 @@ func TestResolveSubjectSetParts_refusals(t *testing.T) {
 // TestResolveSubjectSetReferences pins what generation holds a who: to once
 // every resource is extracted, driven through structsToResources as a
 // generation run drives it: the set a test names is declared, is a set and not a
-// subject value, and yields values of the tested column's own type; and sets
+// subject value, yields values of the tested column's own type, and describes
+// the people of the auth the testing set describes, where both say whose; and sets
 // never build on each other in a loop, a set on itself included. Sets two
 // levels deep that end at a set which names the requester are accepted. It also
 // drives the one where: refusal that reads a fact the run gathers before the
@@ -582,6 +583,26 @@ func TestResolveSubjectSetReferences(t *testing.T) {
 			name:    "a who: testing a column against a set of another type",
 			structs: []string{"TeamMember", "WhoOtherType"},
 			want:    []string{"struct WhoOtherType field Rank: @subjectSet(viaNumber): who: Rank is a number column and subject.teams (declared on TeamMember) is a set of string values", "a column is tested against a set of its own type"},
+		},
+		{
+			name:    "a who: naming sets of the set's own auth, the set of a person's groups the auth declares among them",
+			structs: []string{"StaffGroup", "StaffGroupMember", "BayKeeper", "BayGroup"},
+		},
+		{
+			name:    "a who: naming a set that describes another auth's people",
+			structs: []string{"BayKeeper", "WhoOtherAuth"},
+			want: []string{
+				"struct WhoOtherAuth field UserID: @subjectSet(viaStaff): who: tests BayID against subject.bays, which describes the people of staff (declared on BayKeeper, auth: staff), and viaStaff describes the people of patrons (auth: patrons)",
+				"a set describes the people of one auth, and through this test viaStaff would hold rows for the people of staff: test a set that describes the people of patrons, or take the test out",
+			},
+		},
+		{
+			name:    "a who: naming the set of a person's groups another auth declares",
+			structs: []string{"StaffGroup", "StaffGroupMember", "WhoOtherAuthGroups"},
+			want: []string{
+				"struct WhoOtherAuthGroups field UserID: @subjectSet(viaStaffGroups): who: tests GroupID against subject.staffGroups, which describes the people of staff (declared on StaffGroupMember, auth: staff), and viaStaffGroups describes the people of patrons (auth: patrons)",
+				"through this test viaStaffGroups would hold rows for the people of staff: test a set that describes the people of patrons, or take the test out",
+			},
 		},
 		{
 			name:    "two sets that build on each other",

@@ -862,7 +862,10 @@ warnings, err := access.ValidateRoles(collection, membersRoles, members.Name)
 
 The check of an auth looks at that auth's sets and at the sets that name no
 auth, and never at another auth's, so no role file is handed from one auth to
-another. An application with one auth writes no `auth:`, and every set is that
+another. A set follows a person through sets of its own auth alone: generation
+refuses a `who:` that tests a set labeled for another auth, the set of a
+person's groups that the generator declares for another auth included, which
+names its auth without being told. An application with one auth writes no `auth:`, and every set is that
 auth's. An empty name looks at every set.
 
 ### Behavior

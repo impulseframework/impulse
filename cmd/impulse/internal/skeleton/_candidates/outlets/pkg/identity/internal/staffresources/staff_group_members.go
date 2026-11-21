@@ -19,7 +19,9 @@ type (
 	// subject.staffGroups is the ids of the groups the caller is in. A grant's
 	// condition tests a row's group against it, and a table of the application's own
 	// whose rows name a group follows a person through it in its own set's definition
-	// (who: GroupID IN subject.staffGroups).
+	// (who: GroupID IN subject.staffGroups). The people are the Staff auth's, and the
+	// set says so (auth: staff): generation refuses a set that describes another
+	// auth's people and follows a person through this one.
 	//
 	// The table is no tenant's, and a group is kept in one tenant or for the whole
 	// application, so the set says where a row's tenant is found (domain:
@@ -46,7 +48,7 @@ type (
 	StaffGroupMember struct {
 		// @attribute(group)
 		GroupID impulse.UUID `spanner:"GroupId"`
-		// @subjectSet(staffGroups, value: GroupID, domain: GroupID.DomainID, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))
+		// @subjectSet(staffGroups, value: GroupID, domain: GroupID.DomainID, auth: staff, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))
 		UserID    string     `spanner:"UserId"`
 		CreatedAt time.Time  `spanner:"CreatedAt"`
 		StartsAt  *time.Time `spanner:"StartsAt"`

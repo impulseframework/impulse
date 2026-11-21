@@ -772,12 +772,13 @@ type (
 	}
 
 	// StaffGroupMember ends its domain: at the column the store keeps a group's
-	// tenant in, as the generated declaration of a group's members does.
+	// tenant in, as the generated declaration of a group's members does, and names
+	// the auth whose groups they are, as that declaration does.
 	//
 	// @resource
 	StaffGroupMember struct {
 		GroupID impulse.UUID `spanner:"GroupId"`
-		// @subjectSet(staffGroups, value: GroupID, domain: GroupID.DomainID)
+		// @subjectSet(staffGroups, value: GroupID, domain: GroupID.DomainID, auth: staff)
 		UserID string `spanner:"UserId"`
 	}
 
@@ -848,7 +849,8 @@ type (
 )
 
 // The sets that say whose people they describe (auth:), each on a table that holds the
-// people of one auth, and a subject value that writes the part, which takes none.
+// people of one auth; the sets that follow a person through another set, of their own
+// auth and of another's; and a subject value that writes the part, which takes none.
 type (
 	// BayKeeper names the staff who keep a bay.
 	//
@@ -865,6 +867,43 @@ type (
 	LoungeGuest struct {
 		LoungeID impulse.UUID `spanner:"LoungeId"`
 		// @subjectSet(lounges, value: LoungeID, auth: patrons)
+		UserID string `spanner:"UserId"`
+	}
+
+	// BayGroup names the staff groups a bay is open to: a set of the staff's people
+	// that follows a person through two sets of the staff's own, one a person wrote
+	// and the set of a person's groups the staff auth declares.
+	//
+	// @resource
+	BayGroup struct {
+		ID      impulse.UUID `spanner:"Id"`
+		BayID   impulse.UUID `spanner:"BayId"`
+		GroupID impulse.UUID `spanner:"GroupId"`
+		// @subjectSet(baysOpen, value: BayID, who: UserID = subject OR BayID IN subject.bays OR GroupID IN subject.staffGroups, auth: staff)
+		UserID string `spanner:"UserId"`
+	}
+
+	// WhoOtherAuth describes the patrons and follows a person through a set of the
+	// staff's people.
+	//
+	// @resource
+	WhoOtherAuth struct {
+		ID       impulse.UUID `spanner:"Id"`
+		LoungeID impulse.UUID `spanner:"LoungeId"`
+		BayID    impulse.UUID `spanner:"BayId"`
+		// @subjectSet(viaStaff, value: LoungeID, who: UserID = subject OR BayID IN subject.bays, auth: patrons)
+		UserID string `spanner:"UserId"`
+	}
+
+	// WhoOtherAuthGroups describes the patrons and follows a person through the set
+	// of a person's groups the staff auth declares.
+	//
+	// @resource
+	WhoOtherAuthGroups struct {
+		ID       impulse.UUID `spanner:"Id"`
+		LoungeID impulse.UUID `spanner:"LoungeId"`
+		GroupID  impulse.UUID `spanner:"GroupId"`
+		// @subjectSet(viaStaffGroups, value: LoungeID, who: UserID = subject OR GroupID IN subject.staffGroups, auth: patrons)
 		UserID string `spanner:"UserId"`
 	}
 

@@ -105,14 +105,17 @@ type DomainBindingData struct {
 //
 // Offered marks a set the generator declares for an auth, the set of a
 // person's groups: nobody wrote it, so the role-file check does not flag it
-// when no role reads it (GeneratedCollection.SubjectSets).
+// when no role reads it (GeneratedCollection.SubjectSets). Its declaration
+// names the auth it was generated for (Auth).
 //
 // Auth names the auth whose people the set describes, as the auth's package
 // names it (auth: in the @subjectSet): the user column holds that auth's
 // people, so only that auth's roles can give anybody anything through the
 // set, and only that auth's role-file check looks at it
-// (GeneratedCollection.SubjectSets). It is empty in an application with one
-// auth, where every set is that auth's, and on a subject value.
+// (GeneratedCollection.SubjectSets). It is empty on a set that says none,
+// which an application with one auth may leave so, every set being that
+// auth's, and on a subject value. Generation refuses a set that follows a
+// person through a set of another auth's people (a who: test against it).
 type SubjectBindingData struct {
 	Name       string
 	UserColumn string

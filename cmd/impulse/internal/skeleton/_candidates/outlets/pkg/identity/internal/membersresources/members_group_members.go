@@ -19,7 +19,9 @@ type (
 	// subject.membersGroups is the ids of the groups the caller is in. A grant's
 	// condition tests a row's group against it, and a table of the application's own
 	// whose rows name a group follows a person through it in its own set's definition
-	// (who: GroupID IN subject.membersGroups).
+	// (who: GroupID IN subject.membersGroups). The people are the Members auth's, and the
+	// set says so (auth: members): generation refuses a set that describes another
+	// auth's people and follows a person through this one.
 	//
 	// The table is no tenant's, and a group is kept in one tenant or for the whole
 	// application, so the set says where a row's tenant is found (domain:
@@ -46,7 +48,7 @@ type (
 	MembersGroupMember struct {
 		// @attribute(group)
 		GroupID impulse.UUID `spanner:"GroupId"`
-		// @subjectSet(membersGroups, value: GroupID, domain: GroupID.DomainID, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))
+		// @subjectSet(membersGroups, value: GroupID, domain: GroupID.DomainID, auth: members, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))
 		UserID    string     `spanner:"UserId"`
 		CreatedAt time.Time  `spanner:"CreatedAt"`
 		StartsAt  *time.Time `spanner:"StartsAt"`

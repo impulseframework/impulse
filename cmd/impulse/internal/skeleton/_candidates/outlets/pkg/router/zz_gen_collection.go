@@ -1157,7 +1157,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "group", Column: "GroupId", Type: "string"},
 				},
 				SubjectSets: []resource.SubjectBindingData{
-					{Name: "membersGroups", UserColumn: "UserId", Column: "GroupId", Type: "string", Where: &resource.SubjectWhereData{Condition: "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)", Columns: []resource.SubjectColumnData{{Name: "EndsAt", Column: "EndsAt", Type: "timestamp"}, {Name: "StartsAt", Column: "StartsAt", Type: "timestamp"}}}, Domain: &resource.DomainBindingData{Column: "GroupId", Path: []resource.BindingHop{{Table: "MembersGroups", JoinColumn: "Id", Column: "DomainId"}}}, Offered: true},
+					{Name: "membersGroups", UserColumn: "UserId", Column: "GroupId", Type: "string", Where: &resource.SubjectWhereData{Condition: "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)", Columns: []resource.SubjectColumnData{{Name: "EndsAt", Column: "EndsAt", Type: "timestamp"}, {Name: "StartsAt", Column: "StartsAt", Type: "timestamp"}}}, Domain: &resource.DomainBindingData{Column: "GroupId", Path: []resource.BindingHop{{Table: "MembersGroups", JoinColumn: "Id", Column: "DomainId"}}}, Offered: true, Auth: "members"},
 				},
 				Order: []accesstypes.Tag{"userId"},
 			},
@@ -1685,7 +1685,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "group", Column: "GroupId", Type: "string"},
 				},
 				SubjectSets: []resource.SubjectBindingData{
-					{Name: "staffGroups", UserColumn: "UserId", Column: "GroupId", Type: "string", Where: &resource.SubjectWhereData{Condition: "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)", Columns: []resource.SubjectColumnData{{Name: "EndsAt", Column: "EndsAt", Type: "timestamp"}, {Name: "StartsAt", Column: "StartsAt", Type: "timestamp"}}}, Domain: &resource.DomainBindingData{Column: "GroupId", Path: []resource.BindingHop{{Table: "StaffGroups", JoinColumn: "Id", Column: "DomainId"}}}, Offered: true},
+					{Name: "staffGroups", UserColumn: "UserId", Column: "GroupId", Type: "string", Where: &resource.SubjectWhereData{Condition: "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)", Columns: []resource.SubjectColumnData{{Name: "EndsAt", Column: "EndsAt", Type: "timestamp"}, {Name: "StartsAt", Column: "StartsAt", Type: "timestamp"}}}, Domain: &resource.DomainBindingData{Column: "GroupId", Path: []resource.BindingHop{{Table: "StaffGroups", JoinColumn: "Id", Column: "DomainId"}}}, Offered: true, Auth: "staff"},
 				},
 				Order: []accesstypes.Tag{"userId"},
 			},
