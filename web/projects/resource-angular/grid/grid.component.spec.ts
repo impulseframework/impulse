@@ -3290,3 +3290,57 @@ describe("the list's pager", () => {
     expect(declares('.impulse-grid-host')).toContain('overflow: clip');
   });
 });
+
+describe('a list on paper', () => {
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ name: 'Commendations' }]);
+    fixture.componentRef.setInput('columnDefs', [{ id: 'name' }]);
+    fixture.componentRef.setInput('page', { offset: 0, total: 34, hasPrev: false, hasNext: true });
+    fixture.detectChanges();
+  });
+
+  /**
+   * What the list's stylesheet declares for print in the rules whose selector, with what
+   * the framework adds to it taken away, is `selector`. jsdom draws no page for paper, so
+   * the rules are read as the page is given them.
+   */
+  const onPaper = (selector: string): string => {
+    const sheet = Array.from(document.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .filter((text) => text.includes('.impulse-grid-host'))
+      .join('\n');
+    return Array.from(sheet.matchAll(/@media print\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g))
+      .flatMap(([, held]) => Array.from(held.matchAll(/([^{}]+)\{([^{}]*)\}/g)))
+      .filter(([, named]) => {
+        const plain = named
+          .replace(/\[_nghost[^\]]*\]/g, ':host')
+          .replace(/\[_ngcontent[^\]]*\]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        return plain === selector;
+      })
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+  };
+
+  it('is as long as its rows, laid out as blocks one under the other: the pager comes after the last row of the last page', () => {
+    expect(onPaper(':host')).toMatch(/(^|[;\s])height:\s*auto/);
+    expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])display:\s*block/);
+    expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])height:\s*auto/);
+    expect(onPaper('.impulse-grid-view')).toMatch(/(^|[;\s])display:\s*block/);
+  });
+
+  it('scrolls nothing and cuts nothing off', () => {
+    expect(onPaper('.impulse-grid-host')).toMatch(/(^|[;\s])overflow:\s*visible/);
+    expect(onPaper('.impulse-grid-scroll')).toMatch(/(^|[;\s])overflow:\s*visible/);
+  });
+
+  it("draws a heading's button as its words alone, which a browser repeats whole on every page", () => {
+    expect(onPaper('.header-cell .header-label')).toMatch(/(^|[;\s])display:\s*contents/);
+  });
+});

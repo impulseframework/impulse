@@ -1,6 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
+import { notNamedFor } from './frame-testing';
 import { ShownMenu } from './menu';
 import { MenuBarComponent } from './menu-bar.component';
 
@@ -25,17 +26,19 @@ class HostComponent {
 describe('MenuBarComponent', () => {
   let fixture: ComponentFixture<HostComponent>;
   const top = (label: string): HTMLButtonElement =>
-    Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button.top')).find(
-      (button) => button.textContent?.trim() === label,
-    ) as HTMLButtonElement;
+    Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button.impulse-menu-bar-top'),
+    ).find((button) => button.textContent?.trim() === label) as HTMLButtonElement;
   const entries = (): string[] =>
-    Array.from(document.querySelectorAll('.cdk-overlay-container impulse-menu-list .item .label')).map(
-      (label) => label.textContent?.trim() ?? '',
-    );
+    Array.from(
+      document.querySelectorAll(
+        '.cdk-overlay-container impulse-menu-list .impulse-menu-list-item .impulse-menu-list-label',
+      ),
+    ).map((label) => label.textContent?.trim() ?? '');
   const entry = (label: string): HTMLButtonElement =>
-    Array.from(document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button.item')).find((button) =>
-      button.textContent?.includes(label),
-    ) as HTMLButtonElement;
+    Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button.impulse-menu-list-item'),
+    ).find((button) => button.textContent?.includes(label)) as HTMLButtonElement;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -84,5 +87,12 @@ describe('MenuBarComponent', () => {
     ]);
     fixture.detectChanges();
     expect(entries()).toEqual(['Guide', 'Handbook']);
+  });
+
+  it("names every element for the menus: an application's rule for its own .bar or .top lands on none", () => {
+    const host = (fixture.nativeElement as HTMLElement).querySelector('impulse-menu-bar') as HTMLElement;
+
+    expect(notNamedFor('impulse-menu-bar-', host)).toEqual([]);
+    expect(host.querySelector('button.impulse-menu-bar-top')).not.toBeNull();
   });
 });
