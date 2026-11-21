@@ -790,6 +790,7 @@ export interface ShipClasses {
   roleId?: string;
   tonnage?: number;
   hardened?: boolean;
+  inService?: boolean;
 }
 
 export interface Sorties {
@@ -2094,6 +2095,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'roleId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "cutter", display: "Cutter" }, { id: "medevac", display: "Medevac" }, { id: "tender", display: "Tender" }, { id: "tug", display: "Tug" }] },
       { fieldName: 'tonnage', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'hardened', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'inService', displayType: 'boolean', required: false, schemaDefault: true, isIndex: false },
     ],
   },
   [Resources.Sorties]: {
