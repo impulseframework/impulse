@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -30,6 +31,11 @@ import (
 // create-your-tenant route) is no role's in the union: it is in no List, a role's grant
 // that names it is refused, and a collection that registers the same name for roles is
 // refused here.
+//
+// The subject namespace is one for the whole application: collections that say one set
+// describes two auths' people are refused (refuseSetOfTwoAuths), and so, where the
+// collections together know several auths, is a set a collection lists without saying
+// whose people it describes (refuseUnsaidSet).
 //
 // A collection handed over as nil (the nil interface, or a nil pointer of a collection's
 // type, which a variable nothing was assigned to hands over) is refused with a sentence
@@ -96,15 +102,45 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 	if err := refuseSetOfTwoAuths(collections); err != nil {
 		return nil, err
 	}
+	if err := refuseUnsaidSet(collections, u.Auths()); err != nil {
+		return nil, err
+	}
 
 	return u, nil
+}
+
+// refuseUnsaidSet refuses, where the collections together know several auths, a
+// subject set a collection lists without saying whose people it describes. A set that
+// names no auth is any auth's to read, so a role of every auth could read it, and
+// nothing holds the role to a set its holders' ids find nothing in. The set is refused
+// in each collection that leaves it unsaid, though another labels it, and the first
+// such collection in argument order is named, its sets in name order. Where the
+// collections know one auth or none an unsaid set is taken: every role is that auth's,
+// or is held to no auth's sets.
+func refuseUnsaidSet(collections []PermissionCollection, auths []string) error {
+	if len(auths) < 2 {
+		return nil
+	}
+	for i, c := range collections {
+		for _, name := range slices.Sorted(maps.Keys(c.SubjectSets(""))) {
+			if c.SubjectSetAuth(name) != "" {
+				continue
+			}
+
+			return errors.Newf("UnionCollection: collection %d (in argument order) declares subject set %q and does not say whose people it describes, and the collections together know several auths (%s). A role of any of them could read the set, so say whose people it holds: add auth: and that auth's name to the set's @subjectSet",
+				i+1, name, strings.Join(auths, ", "))
+		}
+	}
+
+	return nil
 }
 
 // refuseSetOfTwoAuths refuses collections that say one subject set describes two
 // different auths' people. subject.<name> is one name to a role file, and a grant is
 // held to the sets of its own auth by that name (SubjectSetAuth), so a name is one
-// auth's in every site. A set one collection labels and another leaves unsaid is taken,
-// the label standing for both. The sets asked about are the ones some collection lists
+// auth's in every site. A set one collection labels and another leaves unsaid is taken
+// where the collections know one auth, the label standing for both (where they know
+// several, refuseUnsaidSet refuses it). The sets asked about are the ones some collection lists
 // (SubjectSets). The set of a person's groups that generation declares is not listed and
 // is not compared here: it is named after its auth, so two auths' sets never share a
 // name.

@@ -1,6 +1,7 @@
 package access
 
 import (
+	"fmt"
 	"maps"
 	"reflect"
 	"slices"
@@ -671,6 +672,83 @@ func TestUnionCollection_groupSetsOfTwoAuths(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("New() error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestUnionCollection_unsaidSetAmongSeveralAuths pins that a union of collections that
+// together know several auths refuses a subject set a collection lists without saying
+// whose people it describes: a role of any of the auths could read it, and nothing
+// holds the role to the set. The first such collection in argument order is named,
+// with the set and the auths. A set another collection labels is still refused where
+// this one leaves it unsaid. With one auth known, or none, an unsaid set is taken.
+func TestUnionCollection_unsaidSetAmongSeveralAuths(t *testing.T) {
+	t.Parallel()
+
+	staffTeams := func() *stubCollection {
+		return &stubCollection{auths: []string{"staff"}, authSets: map[string]map[string][]string{"staff": {"teams": nil}}}
+	}
+	unsaid := func(set string, auths ...string) *stubCollection {
+		return &stubCollection{auths: auths, declaredSets: map[string][]string{set: nil}}
+	}
+	refused := func(collection int, set string) string {
+		return fmt.Sprintf("UnionCollection: collection %d (in argument order) declares subject set %q and does not say whose people it describes, and the collections together know several auths (members, staff). A role of any of them could read the set, so say whose people it holds: add auth: and that auth's name to the set's @subjectSet", collection, set)
+	}
+
+	tests := []struct {
+		name        string
+		collections []PermissionCollection
+		wantErr     string
+	}{
+		{
+			name:        "no auth known, and a set that says none",
+			collections: []PermissionCollection{unsaid("docks"), unsaid("watches")},
+		},
+		{
+			name:        "one auth known, and a set that says none",
+			collections: []PermissionCollection{staffTeams(), unsaid("docks", "staff")},
+		},
+		{
+			name: "several auths known, and every set labeled",
+			collections: []PermissionCollection{
+				staffTeams(),
+				&stubCollection{auths: []string{"members"}, authSets: map[string]map[string][]string{"members": {"accounts": nil}}},
+			},
+		},
+		{
+			name:        "several auths known, and a set that says none",
+			collections: []PermissionCollection{staffTeams(), unsaid("docks", "members")},
+			wantErr:     refused(2, "docks"),
+		},
+		{
+			name:        "the second of three collections leaves a set unsaid",
+			collections: []PermissionCollection{staffTeams(), unsaid("docks"), unsaid("watches", "members")},
+			wantErr:     refused(2, "docks"),
+		},
+		{
+			name:        "a set another collection labels, left unsaid by this one",
+			collections: []PermissionCollection{staffTeams(), unsaid("teams", "members")},
+			wantErr:     refused(2, "teams"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := UnionCollection(tt.collections...)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("UnionCollection() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil {
+				t.Fatalf("UnionCollection() error = nil, want %q", tt.wantErr)
+			}
+			if got := plainText(err); got != tt.wantErr {
+				t.Errorf("UnionCollection() error = %q, want %q", got, tt.wantErr)
 			}
 		})
 	}
