@@ -13,7 +13,8 @@ import (
 // TestTakenReader_refusing reads, over the emulator, the rows that refuse a record's
 // delete from under the rows a walk found: the kind's rows whose columns hold what the
 // link references of one of the rows above, each named by its key, a key of two columns
-// in one name, and a row the transaction itself deleted left out.
+// in one name, a row the transaction itself deleted left out, and a row it changed read
+// as it is stored.
 func TestTakenReader_refusing(t *testing.T) {
 	t.Parallel()
 
@@ -40,6 +41,8 @@ func TestTakenReader_refusing(t *testing.T) {
 		link DeleteLink
 		// deleted is the key of a row of the kind the transaction deleted before the read.
 		deleted map[string]any
+		// changed is the key of a row of the kind the transaction updated before the read.
+		changed map[string]any
 		want    []string
 	}{
 		{
@@ -54,6 +57,13 @@ func TestTakenReader_refusing(t *testing.T) {
 			link:    DeleteLink{Columns: []string{"Title"}, Table: "Shelves", References: []string{"Name"}},
 			deleted: map[string]any{"Id": "row-4"},
 			want:    []string{"row-1", "row-2"},
+		},
+		{
+			name:    "a row the transaction changed is read as it is stored",
+			kind:    &DeleteKind{Resource: "TrackedForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"}},
+			link:    DeleteLink{Columns: []string{"Title"}, Table: "Shelves", References: []string{"Name"}},
+			changed: map[string]any{"Id": "row-4"},
+			want:    []string{"row-1", "row-2", "row-4"},
 		},
 		{
 			name:    "a key of two columns names its row in one text",
@@ -76,6 +86,9 @@ func TestTakenReader_refusing(t *testing.T) {
 				}
 				if tt.deleted != nil {
 					spannerTxn.recordWritten(tt.kind.Resource, tt.deleted, true)
+				}
+				if tt.changed != nil {
+					spannerTxn.recordWritten(tt.kind.Resource, tt.changed, false)
 				}
 				reader := &takenReader{tree: tree, txn: spannerTxn}
 				var err error

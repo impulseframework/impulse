@@ -74,7 +74,7 @@ func (c *SpannerClient) SpannerReadOnlyTransaction() spxapi.Querier {
 // Before the commit, a delete of a record with rows under it is refused as a 409 that
 // says what is in the way ("This ship has 3 sorties. Delete them first."), from one
 // count per kind inside the transaction (delete_refusal.go); the rows the transaction
-// itself deleted or updated are left out, so the rows and the record go together in one
+// itself deleted are left out, so the rows and the record go together in one
 // call, in either order. Then a transaction whose patches release a file object of a store the
 // client holds no store for is refused naming the store: the rows would go and the
 // object would stay with nothing to delete it. Once the commit lands, the file objects
@@ -461,8 +461,8 @@ type SpannerReadWriteTransaction struct {
 	// directory-only switches, which its own reads do not see (TenantDirectoryRules).
 	directories *directoryWrites
 	// deleted notes the deletes to count over before the commit, and the rows the
-	// transaction's patches deleted or updated, which those counts leave out
-	// (delete_refusal.go).
+	// transaction's patches deleted, which those counts leave out, with the rows they
+	// changed, which refuse a delete that would take them (delete_refusal.go).
 	deleted *transactionDeletes
 }
 

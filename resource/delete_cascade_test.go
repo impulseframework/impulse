@@ -154,8 +154,9 @@ func ids(rows []map[string]any) []string {
 // that puts them there, a row under a row of its own kind among them and a row that
 // names the record by a column outside its key. A row is found once, whatever ways lead
 // to it, and never before a row it was found under; rows under each other end the walk;
-// a row the transaction itself wrote is left out with what is under it; and the walk
-// stops once the rows found cost more than the delete may.
+// a row the transaction itself deleted is left out with what is under it, and a row it
+// changed ends the walk, an update of a task before its project's delete in one request
+// among them; and the walk stops once the rows found cost more than the delete may.
 func TestTakenWalk_find(t *testing.T) {
 	t.Parallel()
 
@@ -185,11 +186,15 @@ func TestTakenWalk_find(t *testing.T) {
 	record := map[string]any{"Id": "p1", "Code": "ALPHA"}
 
 	tests := []struct {
-		name        string
-		limit       int
-		wrote       []string
+		name  string
+		limit int
+		// deleted and changed are the tasks the transaction deleted, and the ones it
+		// updated, before the walk.
+		deleted     []string
+		changed     []string
 		want        map[accesstypes.Resource][]string
 		wantTooMany bool
+		wantChanged bool
 	}{
 		{
 			name:  "every row under the record, level by level",
@@ -201,9 +206,38 @@ func TestTakenWalk_find(t *testing.T) {
 			},
 		},
 		{
-			name:  "a row the transaction wrote is left out with what is under it",
-			limit: DeleteMutationLimit,
-			wrote: []string{"t3"},
+			name:    "a row the transaction deleted is left out with what is under it",
+			limit:   DeleteMutationLimit,
+			deleted: []string{"t3"},
+			want: map[accesstypes.Resource][]string{
+				"CascadeTasks":    {"t1", "t2", "t5", "t6", "t7"},
+				"CascadeComments": {"c1"},
+				"CascadeLabels":   {"l1"},
+			},
+		},
+		{
+			name:    "a row the transaction updated and then deleted is one it deleted",
+			limit:   DeleteMutationLimit,
+			changed: []string{"t3"},
+			deleted: []string{"t3"},
+			want: map[accesstypes.Resource][]string{
+				"CascadeTasks":    {"t1", "t2", "t5", "t6", "t7"},
+				"CascadeComments": {"c1"},
+				"CascadeLabels":   {"l1"},
+			},
+		},
+		{
+			// The request updates a task and then deletes the task's project.
+			name:        "a row the transaction changed ends the walk",
+			limit:       DeleteMutationLimit,
+			changed:     []string{"t3"},
+			wantChanged: true,
+		},
+		{
+			name:    "a row the transaction changed under a row it deleted is left out with it",
+			limit:   DeleteMutationLimit,
+			deleted: []string{"t3"},
+			changed: []string{"t4"},
 			want: map[accesstypes.Resource][]string{
 				"CascadeTasks":    {"t1", "t2", "t5", "t6", "t7"},
 				"CascadeComments": {"c1"},
@@ -223,6 +257,13 @@ func TestTakenWalk_find(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			txn := newTransactionDeletes()
+			for _, id := range tt.changed {
+				txn.recordWritten("CascadeTasks", map[string]any{"Id": id}, false)
+			}
+			for _, id := range tt.deleted {
+				txn.recordWritten("CascadeTasks", map[string]any{"Id": id}, true)
+			}
 			walk := &takenWalk{
 				tree:  projectTree(nil),
 				limit: tt.limit,
@@ -236,13 +277,19 @@ func TestTakenWalk_find(t *testing.T) {
 
 					return tables.under(ctx, kind, link, above, most)
 				},
-				wrote: func(res accesstypes.Resource, key map[string]any) bool {
-					return res == "CascadeTasks" && slices.Contains(tt.wrote, fmt.Sprint(key["Id"]))
-				},
+				deleted: txn.deletedRow,
+				changed: txn.changedRow,
 			}
 			found, err := walk.find(t.Context(), record)
 			if err != nil {
 				t.Fatalf("takenWalk.find() error = %v", err)
+			}
+			if found.changed != tt.wantChanged {
+				t.Fatalf("takenWalk.find() changed = %v, want %v", found.changed, tt.wantChanged)
+			}
+			if tt.wantChanged {
+				// The delete is refused, and nothing the walk found is used.
+				return
 			}
 			got := make(map[accesstypes.Resource][]string, len(found.rows))
 			for kind, rows := range found.rows {
@@ -495,7 +542,8 @@ func walked(t *testing.T, tree *DeleteTree, tables cascadeTables) *takenFound {
 		limit:   1000,
 		tracked: func(accesstypes.Resource) bool { return false },
 		under:   tables.under,
-		wrote:   func(accesstypes.Resource, map[string]any) bool { return false },
+		deleted: func(accesstypes.Resource, map[string]any) bool { return false },
+		changed: func(accesstypes.Resource, map[string]any) bool { return false },
 	}
 	found, err := walk.find(t.Context(), map[string]any{"Id": "p1", "Code": "ALPHA"})
 	if err != nil {
@@ -829,6 +877,9 @@ func TestRecordedDelete_question(t *testing.T) {
 
 	if got, want := deleteTooManySentence(projectTree(nil)), "This project has too many records under it to delete at once. Delete some of them first."; got != want {
 		t.Errorf("deleteTooManySentence() = %q, want %q", got, want)
+	}
+	if got, want := deleteWithChangeSentence(projectTree(nil)), "This request also changes a record under this project. Send the change and the delete separately."; got != want {
+		t.Errorf("deleteWithChangeSentence() = %q, want %q", got, want)
 	}
 }
 

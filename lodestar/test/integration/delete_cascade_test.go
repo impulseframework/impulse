@@ -303,6 +303,31 @@ func TestDeleteCascade_takesWhatIsUnder(t *testing.T) {
 		allStand(t, m)
 	})
 
+	t.Run("a request that changes a row under the record and deletes the record is refused, and nothing is gone", func(t *testing.T) {
+		m := writeCascadeMission(t, db, stores, 8, "penalty")
+		// This person may update a sortie and may not delete one, nor an expense.
+		updatesSorties := grants{
+			accesstypes.Delete: {missionsResource, "MissionDocuments"},
+			accesstypes.Update: withFields("Sorties", "debrief"),
+			accesstypes.List:   under,
+		}
+		debrief := func(sortie string) string {
+			return fmt.Sprintf(`{"op":"patch","path":%q,"value":{"debrief":"Back in one piece"}}`, opPath(anvil, "sorties/"+sortie))
+		}
+		// A read inside the transaction shows each sortie as it was before the request,
+		// so the delete cannot tell what it would take: it is refused before any row is
+		// checked, and neither the sorties nor the penalty on one of them go with the
+		// mission unchecked.
+		ops := fmt.Sprintf(`[%s,%s,{"op":"remove","path":%q,"value":{"everythingUnder":true}}]`, debrief(m.sortieA), debrief(m.sortieB), opPath(anvil, "missions/"+m.mission))
+
+		status, body := doRequest(t, as(updatesSorties), http.MethodPatch, batch, ops)
+		assertStatus(t, status, http.StatusConflict, body)
+		if got, want := refusalMessage(t, body), "This request also changes a record under this mission. Send the change and the delete separately."; got != want {
+			t.Errorf("message = %q, want %q", got, want)
+		}
+		allStand(t, m)
+	})
+
 	t.Run("a record with nothing under it is deleted without a question", func(t *testing.T) {
 		const bare = "8c000000-0000-4000-8000-0000000c0501"
 		if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("Missions", map[string]any{

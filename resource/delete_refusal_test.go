@@ -374,10 +374,10 @@ func TestTransactionDeletes_refuse(t *testing.T) {
 // Test_newRowsUnderStatement pins the count of a kind's rows under a record as each
 // database takes it: the kind's own columns against the record's key, by any of its
 // ways; a way of more than one step through the rows between; and the rows the
-// transaction itself deleted or updated left out, of the kind and of every table on
-// the way. A transaction that wrote more rows of a table than a statement leaves out is
-// not counted over that table, and a way that ends on a column the record's key does
-// not hold is an error.
+// transaction itself deleted left out, of the kind and of every table on the way. A
+// transaction that deleted more rows of a table than a statement leaves out is not
+// counted over that table, and a way that ends on a column the record's key does not
+// hold is an error.
 func Test_newRowsUnderStatement(t *testing.T) {
 	t.Parallel()
 
@@ -533,9 +533,10 @@ type countingTxn struct {
 // TestPatchSet_recordsDeletes pins what a patch notes on its transaction for the check
 // before the commit: a delete of a record whose description names kinds under it is
 // noted with the record's key by column and who it is for, and its row as one the
-// transaction deleted; an update's row as one the transaction wrote; a create nothing;
-// and the delete of a record with no description its row alone. The person is the one
-// the patch is armed against, else the caller the request stamped, else nobody.
+// transaction deleted; an update's row as one the transaction changed, which no count
+// leaves out; a create nothing; and the delete of a record with no description its row
+// alone. The person is the one the patch is armed against, else the caller the request
+// stamped, else nobody.
 func TestPatchSet_recordsDeletes(t *testing.T) {
 	t.Parallel()
 
@@ -548,6 +549,8 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 		ctx         func(ctx context.Context) context.Context
 		wantWritten map[accesstypes.Resource][]map[string]any
 		wantDeleted map[accesstypes.Resource]int
+		// wantChanged are the rows noted as changed and not deleted.
+		wantChanged map[accesstypes.Resource][]map[string]any
 		wantCounted bool
 		// wantLists is whether the person the delete is noted for may list missions: the
 		// armed person may, the stamped caller may not.
@@ -613,7 +616,7 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 			wantDeleted: map[accesstypes.Resource]int{"RefusalSquadrons": 1},
 		},
 		{
-			name: "an update's row is one the transaction wrote",
+			name: "an update's row is one the transaction changed",
 			patch: func() bufferer {
 				p := NewPatchSet(NewMetadata[refusalSquadron]()).SetPatchType(UpdatePatchType)
 				p.SetKey("ID", "s1")
@@ -621,8 +624,9 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 
 				return p
 			},
-			wantWritten: map[accesstypes.Resource][]map[string]any{"RefusalSquadrons": {{"Id": "s1"}}},
+			wantWritten: map[accesstypes.Resource][]map[string]any{},
 			wantDeleted: map[accesstypes.Resource]int{},
+			wantChanged: map[accesstypes.Resource][]map[string]any{"RefusalSquadrons": {{"Id": "s1"}}},
 		},
 		{
 			name: "a create notes nothing",
@@ -662,20 +666,28 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 				t.Fatalf("PatchSet.Buffer() error = %v", err)
 			}
 
-			if diff := cmp.Diff(tt.wantWritten, txn.written); diff != "" {
-				t.Errorf("the rows noted as written mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.wantWritten, txn.gone); diff != "" {
+				t.Errorf("the rows noted as deleted, which a count leaves out, mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.wantDeleted, txn.deleted); diff != "" {
 				t.Errorf("the deletes noted by table mismatch (-want +got):\n%s", diff)
 			}
 			for table, keys := range tt.wantWritten {
 				for _, key := range keys {
-					if !txn.wrote(table, key) {
-						t.Errorf("the transaction does not answer that it wrote the row %v of %s", key, table)
+					if !txn.deletedRow(table, key) || txn.changedRow(table, key) {
+						t.Errorf("the transaction does not answer that it deleted the row %v of %s", key, table)
 					}
 				}
 			}
-			if txn.wrote("RefusalSquadrons", map[string]any{"Id": "another"}) {
+			for table, keys := range tt.wantChanged {
+				for _, key := range keys {
+					if !txn.changedRow(table, key) || txn.deletedRow(table, key) {
+						t.Errorf("the transaction does not answer that it changed the row %v of %s without deleting it", key, table)
+					}
+				}
+			}
+			another := map[string]any{"Id": "another"}
+			if txn.deletedRow("RefusalSquadrons", another) || txn.changedRow("RefusalSquadrons", another) {
 				t.Error("the transaction answers that it wrote a row it did not")
 			}
 			if !tt.wantCounted {

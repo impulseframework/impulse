@@ -130,8 +130,12 @@ type takenWalk struct {
 	// row by column, with at least the kind's key and the columns the taken kinds' rows
 	// under it are found by (DeleteTree.reads). It reads no more than most rows.
 	under func(ctx context.Context, kind *DeleteKind, link DeleteLink, above []map[string]any, most int) ([]map[string]any, error)
-	// wrote reports whether the transaction itself deleted or updated the row.
-	wrote func(res accesstypes.Resource, key map[string]any) bool
+	// deleted reports whether the transaction itself deleted the row: the walk leaves
+	// it out with what is under it, which the row's own delete answered for.
+	deleted func(res accesstypes.Resource, key map[string]any) bool
+	// changed reports whether the transaction itself updated the row, or inserted or
+	// updated it: the walk ends at such a row.
+	changed func(res accesstypes.Resource, key map[string]any) bool
 }
 
 // takenFound is what a walk found: each taken kind's rows under the record, by column,
@@ -141,6 +145,10 @@ type takenFound struct {
 	// tooMany says the walk stopped because the rows found so far already cost more
 	// than one commit takes.
 	tooMany bool
+	// changed says the walk stopped at a row under the record that the transaction
+	// itself changed. The read shows the row as it was before the transaction, so what
+	// the delete would take cannot be told, and the delete is refused.
+	changed bool
 }
 
 // count is the number of rows found of each kind.
@@ -165,10 +173,10 @@ func keyOf(key []string, row map[string]any) map[string]any {
 
 // find walks down from the record's row: at each level every taken kind's rows under
 // the rows the level before found, by each link that puts them there, until a level
-// finds no row it had not found. A row the transaction itself deleted or updated is
-// left out with what is under it, since the read shows it as it was before: the commit
-// answers for it if it is still under the record. The walk stops as soon as the rows
-// found cost more than one commit takes (tooMany).
+// finds no row it had not found. A row the transaction itself deleted is left out with
+// what is under it: its own delete answered for those. The walk ends at a row the
+// transaction itself changed (changed), since the read shows the row as it was before
+// the change, and as soon as the rows found cost more than one commit takes (tooMany).
 func (w *takenWalk) find(ctx context.Context, recordRow map[string]any) (*takenFound, error) {
 	found := &takenFound{rows: make(map[accesstypes.Resource][]map[string]any)}
 	seen := map[string]struct{}{rowOfTable(w.tree.Record, keyOf(w.tree.Key, recordRow)): {}}
@@ -193,8 +201,13 @@ func (w *takenWalk) find(ctx context.Context, recordRow map[string]any) (*takenF
 						continue
 					}
 					seen[identity] = struct{}{}
-					if w.wrote(kind.Resource, key) {
+					if w.deleted(kind.Resource, key) {
 						continue
+					}
+					if w.changed(kind.Resource, key) {
+						found.changed = true
+
+						return found, nil
 					}
 					found.rows[kind.Resource] = append(found.rows[kind.Resource], row)
 					next[string(kind.Resource)] = append(next[string(kind.Resource)], row)
@@ -340,9 +353,9 @@ func (c *refusingCount) rows(ctx context.Context, found *takenFound) ([]kindRows
 
 // refusingStatements are the reads of the key of the refusing kind's rows that one link
 // puts under any of the rows above, leaving out the rows of the kind the transaction
-// itself deleted or updated. The rows above are read for in parts, so no read names
+// itself deleted (written). The rows above are read for in parts, so no read names
 // more values than a query takes (takenParameterLimit). There is none where the
-// transaction wrote more rows of the kind than a statement leaves out by key
+// transaction deleted more rows of the kind than a statement leaves out by key
 // (deleteExclusionLimit), or so many that no room is left for a row above: the kind is
 // then not counted here, and the commit answers for it. The reads are spelled for
 // Spanner, the one database a delete takes rows on (deleteTaken).
@@ -436,9 +449,9 @@ func (r *takenReader) under(ctx context.Context, kind *DeleteKind, link DeleteLi
 
 // refusing names the refusing kind's rows that one link puts under any of the rows
 // above, each by its key in one text, leaving out the rows the transaction itself
-// deleted or updated.
+// deleted.
 func (r *takenReader) refusing(ctx context.Context, kind *DeleteKind, link DeleteLink, above []map[string]any) ([]string, error) {
-	statements, err := refusingStatements(kind, link, above, r.txn.deleted.written[kind.Resource])
+	statements, err := refusingStatements(kind, link, above, r.txn.deleted.gone[kind.Resource])
 	if err != nil {
 		return nil, err
 	}
@@ -573,6 +586,13 @@ func takenDeletes(tree *DeleteTree, dbType DBType, found *takenFound, caller *Ca
 // rows under it than one commit takes is refused for that first: the walk stopped
 // short, so a count under what it found would be short too.
 //
+// A row under the record that the same transaction changed (an update, or an insert or
+// update) refuses the delete before anything else is looked at, whatever the delete
+// says: the reads here show the row as it was before the transaction, so neither what
+// the row is under after it nor what is under the row can be told. The request sends
+// the change and the delete separately. A row the transaction deleted is left out with
+// what is under it, since its own delete answered for those.
+//
 // A row is checked as the person the record's own delete is armed against, in that
 // delete's scope, and runs trusted where the record's delete does. The sentences are
 // written for whoever asked (deleteCaller).
@@ -606,8 +626,9 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 		tracked: func(res accesstypes.Resource) bool {
 			return tracked[res]
 		},
-		under: reader.under,
-		wrote: spannerTxn.deleted.wrote,
+		under:   reader.under,
+		deleted: spannerTxn.deleted.deletedRow,
+		changed: spannerTxn.deleted.changedRow,
 	}
 	recordRow, err := reader.recordRow(ctx, key)
 	if err != nil {
@@ -616,6 +637,9 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 	found, err := walk.find(ctx, recordRow)
 	if err != nil {
 		return false, err
+	}
+	if found.changed {
+		return false, httpio.NewConflictMessage(deleteWithChangeSentence(tree))
 	}
 	if len(found.rows) == 0 {
 		return true, nil
@@ -684,7 +708,7 @@ func (p *PatchSet[Resource]) takenReaderOf(tree *DeleteTree, txn *SpannerReadWri
 // lists under refusedBy, in the sentence that names them. The rows are the ones under
 // the record as the delete is buffered.
 func (d *recordedDelete) refusedNow(ctx context.Context, txn *SpannerReadWriteTransaction) error {
-	refusing, err := d.rowsOf(ctx, txn.DBType(), d.tree.RefusedBy, txn.deleted.written, txn.countRows)
+	refusing, err := d.rowsOf(ctx, txn.DBType(), d.tree.RefusedBy, txn.deleted.gone, txn.countRows)
 	if err != nil {
 		return err
 	}
@@ -787,6 +811,12 @@ func deleteNotAllowedSentence(tree *DeleteTree, kind *DeleteKind, seen bool) str
 	}
 
 	return tree.RowName() + " has " + kind.Words.Many + " that you can't delete, so it can't be deleted."
+}
+
+// deleteWithChangeSentence is the sentence a person reads when a delete would take a row
+// that the same request changes.
+func deleteWithChangeSentence(tree *DeleteTree) string {
+	return "This request also changes a record under " + tree.rowNameInside() + ". Send the change and the delete separately."
 }
 
 // deleteTooManySentence is the sentence that refuses a delete whose rows cost more than

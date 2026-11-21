@@ -1676,10 +1676,13 @@ transaction, and answers the first delete that has one with a 409:
   against, else the caller the request carries. A kind they may not list is never named
   or counted for them, and a grant to list it that carries a condition is not enough,
   since the count is of every row. A trusted call is told every kind.
-- A row the transaction's own patches deleted or updated is left out of the count, by
-  its key: a read inside the transaction does not see its buffered writes. So the rows
-  and the record go together in one transaction, in either order. A transaction that
-  wrote more than 200 rows of a kind is not counted over that kind.
+- A row the transaction's own patches deleted is left out of the count, by its key: a
+  read inside the transaction does not see its buffered writes. So the rows and the
+  record go together in one transaction, in either order. A row the transaction's
+  patches changed is counted as it was before the transaction, so a request that moves
+  a row from under a record and deletes the record is refused: the move and the delete
+  are sent one after the other. A transaction that deleted more than 200 rows of a kind
+  is not counted over that kind.
 - The count never refuses a delete the database would take. A kind whose rows the
   database removes with a row of another table (`DeleteKind.RemovedWith`: a sortie goes
   with its mission) is not counted once the transaction deleted a row of that table, and
@@ -1688,7 +1691,7 @@ transaction, and answers the first delete that has one with a 409:
 What the count does not reach is still the commit's to refuse, in the sentences of the
 table above: a row under a row the database removes with the record (a hangar's ships
 go with it, and a sortie names a ship), and a row an update of the same transaction
-leaves under the record. The count knows the rows the transaction's patches wrote and no others: code that
+leaves under the record. The count knows the rows the transaction's patches deleted and no others: code that
 removes the rows under a record with raw mutations and deletes the record with a patch in
 one transaction is refused over rows that are about to go, so those rows are deleted
 through their patches. The mock client holds no rows and refuses nothing here, and
@@ -1733,6 +1736,7 @@ with nothing gone where it cannot be made whole:
 | What stops it | Status | Message |
 | --- | --- | --- |
 | A row of a kind the record lists under `refusedBy` | 409 | `This client has 10 missions and 5 consignments, so it can't be deleted.` |
+| A row under the record that the same request changes | 409 | `This request also changes a record under this mission. Send the change and the delete separately.` |
 | More rows than one commit takes | 409 | `This mission has too many records under it to delete at once. Delete some of them first.` |
 | A row the person may not delete, of a kind they may list | 403 | `This mission has sortie expenses that you can't delete, so it can't be deleted.` |
 | A row the person may not delete, of a kind they may not list | 403 | `This mission has records under it that you can't delete, so it can't be deleted.` |
@@ -1763,6 +1767,11 @@ with nothing gone where it cannot be made whole:
   every kind; it is asked the question all the same, and takes the rows once it says so.
 - A row the same transaction already deleted is not found again, so a request that deletes
   a row under the record beside the record deletes it once.
+- A row under the record that the same transaction changed (an update, or an insert or
+  update) refuses the delete, whatever the delete says and before any row is checked.
+  The reads show the row as it was before the request, so neither where the row is
+  after it nor what is under the row can be told, and a row is never taken on a guess.
+  The change and the delete are sent one after the other.
 
 The delete in code is Spanner's write path. The mock client holds no rows and takes none,
 and PostgreSQL has no write path.

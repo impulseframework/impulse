@@ -24,16 +24,18 @@ import (
 // transaction's function has returned, over every delete it buffered, so a request that
 // deletes the rows and the record together, in either order, is not refused: a read
 // inside the transaction does not see its own buffered writes, and each count leaves
-// out the rows the transaction itself deleted or updated. The count never refuses a
-// delete the database would take: a kind whose rows the database may remove with
-// another row the transaction deleted is not counted (DeleteKind.RemovedWith). What the
-// count does not reach (a row two steps down that the database comes to by a cascade,
-// a row under a foreign key the generator does not follow, a row written in the same
-// transaction and still under the record) is left to the commit, which answers in its
-// own sentence (referentialMessage).
+// out the rows the transaction itself deleted. A row the transaction changed is counted
+// as the read shows it, as it was before the transaction: a request that moves a row
+// from under a record and deletes the record is refused, and the two are sent one after
+// the other. The count never refuses a delete the database would take: a kind whose
+// rows the database may remove with another row the transaction deleted is not counted
+// (DeleteKind.RemovedWith). What the count does not reach (a row two steps down that
+// the database comes to by a cascade, a row under a foreign key the generator does not
+// follow, a row written in the same transaction and still under the record) is left to
+// the commit, which answers in its own sentence (referentialMessage).
 
 // deleteExclusionLimit is the most rows of one table a count leaves out by key. A
-// transaction that wrote more rows of a table than this is not counted over that
+// transaction that deleted more rows of a table than this is not counted over that
 // table, and the commit answers for it: the statement would outgrow what a query takes
 // in parameters.
 const deleteExclusionLimit = 200
@@ -58,25 +60,29 @@ type recordedDelete struct {
 }
 
 // transactionDeletes is the record a write transaction keeps of the deletes to count
-// over, in buffered order, of the key of every row its patches deleted or updated, by
-// table, and of how many rows of each table they deleted. Like the released-keys record
-// it belongs to one attempt: a retried transaction runs its function again over a
-// fresh record.
+// over, in buffered order, of the key of every row its patches deleted, by table, of
+// how many rows of each table they deleted, and of every row they deleted or changed.
+// Like the released-keys record it belongs to one attempt: a retried transaction runs
+// its function again over a fresh record.
 type transactionDeletes struct {
 	deletes []recordedDelete
-	written map[accesstypes.Resource][]map[string]any
+	// gone are the keys of the rows the transaction's patches deleted, by table, in the
+	// order they were deleted: the rows a count leaves out.
+	gone    map[accesstypes.Resource][]map[string]any
 	deleted map[accesstypes.Resource]int
-	// rows holds each written row once more, by table and key (rowOfTable), for the
-	// walk that asks about one row at a time (wrote).
-	rows map[string]struct{}
+	// rows holds each row a patch deleted or changed, by table and key (rowOfTable),
+	// for the walk that asks about one row at a time: true where a patch deleted it
+	// (deletedRow), false where patches only updated it, or inserted or updated it
+	// (changedRow).
+	rows map[string]bool
 }
 
 // newTransactionDeletes returns an empty record.
 func newTransactionDeletes() *transactionDeletes {
 	return &transactionDeletes{
-		written: make(map[accesstypes.Resource][]map[string]any),
+		gone:    make(map[accesstypes.Resource][]map[string]any),
 		deleted: make(map[accesstypes.Resource]int),
-		rows:    make(map[string]struct{}),
+		rows:    make(map[string]bool),
 	}
 }
 
@@ -98,11 +104,17 @@ func rowOfTable(res accesstypes.Resource, key map[string]any) string {
 	return b.String()
 }
 
-// wrote reports whether a patch of the transaction deleted or updated the row.
-func (t *transactionDeletes) wrote(res accesstypes.Resource, key map[string]any) bool {
-	_, ok := t.rows[rowOfTable(res, key)]
+// deletedRow reports whether a patch of the transaction deleted the row.
+func (t *transactionDeletes) deletedRow(res accesstypes.Resource, key map[string]any) bool {
+	return t.rows[rowOfTable(res, key)]
+}
 
-	return ok
+// changedRow reports whether a patch of the transaction updated the row, or inserted or
+// updated it, and none deleted it.
+func (t *transactionDeletes) changedRow(res accesstypes.Resource, key map[string]any) bool {
+	deleted, ok := t.rows[rowOfTable(res, key)]
+
+	return ok && !deleted
 }
 
 // recordDelete notes a delete to count over.
@@ -110,11 +122,14 @@ func (t *transactionDeletes) recordDelete(d recordedDelete) {
 	t.deletes = append(t.deletes, d)
 }
 
-// recordWritten notes the key of a row a patch deleted or updated.
+// recordWritten notes the key of a row a patch deleted, or changed without deleting it.
+// A row a patch deleted stays deleted, whatever else the transaction's patches did to
+// it.
 func (t *transactionDeletes) recordWritten(res accesstypes.Resource, key map[string]any, deleted bool) {
-	t.written[res] = append(t.written[res], key)
-	t.rows[rowOfTable(res, key)] = struct{}{}
+	row := rowOfTable(res, key)
+	t.rows[row] = t.rows[row] || deleted
 	if deleted {
+		t.gone[res] = append(t.gone[res], key)
 		t.deleted[res]++
 	}
 }
@@ -155,10 +170,10 @@ func (p *PatchSet[Resource]) keyByColumn(dbType DBType) (key map[string]any, ok 
 	return key, len(key) > 0
 }
 
-// recordWrittenRow notes on the transaction that the patch deleted or updated its row,
-// so a count over a record deleted in the same transaction leaves the row out: the
-// count reads the row as it was before the transaction, and the row may be gone or
-// moved from under the record by the commit.
+// recordWrittenRow notes on the transaction that the patch changed its row, so a delete
+// in the same transaction that would take the row is refused: the delete's reads show
+// the row as it was before the transaction, and the row may be moved under the record
+// or from under it by the commit.
 func (p *PatchSet[Resource]) recordWrittenRow(txn ReadWriteTransaction) {
 	recorder, ok := txn.(deleteRecorder)
 	if !ok {
@@ -250,8 +265,8 @@ func (w *rowsUnderWriter) value(v any) string {
 }
 
 // notWritten is the conditions that leave out the rows of a table the transaction
-// itself deleted or updated, for the table read under alias: " AND NOT (...)" for each
-// such row, in the order the transaction wrote them.
+// itself deleted, for the table read under alias: " AND NOT (...)" for each such row,
+// in the order the transaction deleted them.
 func (w *rowsUnderWriter) notWritten(alias string, table accesstypes.Resource) string {
 	var b strings.Builder
 	for _, key := range w.written[table] {
@@ -273,7 +288,7 @@ func (w *rowsUnderWriter) notWritten(alias string, table accesstypes.Resource) s
 // way is the condition that a row of the kind, read as t0, is under the record by one
 // path. A path of one step compares the row's own columns with the record's key. A
 // longer one asks for the rows between, each joined to the one before it, the last
-// holding the record's key, and none of them a row the transaction wrote. A last step
+// holding the record's key, and none of them a row the transaction deleted. A last step
 // that references a column outside the record's key (a foreign key to other columns of
 // the record's table) asks for the record's own row too, found by its key, and compares
 // with the column there.
@@ -323,9 +338,9 @@ func (w *rowsUnderWriter) way(index int, path DeletePath, recordKey map[string]a
 
 // newRowsUnderStatement renders the count of a kind's rows under the record with the
 // given key, by any of the kind's ways up to it, leaving out the rows the transaction
-// itself deleted or updated. ok is false when the transaction wrote more rows of one of
-// the tables read than a statement leaves out by key (deleteExclusionLimit): the kind
-// is then not counted.
+// itself deleted (written). ok is false when the transaction deleted more rows of one
+// of the tables read than a statement leaves out by key (deleteExclusionLimit): the
+// kind is then not counted.
 func newRowsUnderStatement(dbType DBType, kind *DeleteKind, recordKey map[string]any, written map[accesstypes.Resource][]map[string]any) (statement rowsUnderStatement, ok bool) {
 	if len(written[kind.Resource]) > deleteExclusionLimit {
 		return rowsUnderStatement{}, false
@@ -389,7 +404,7 @@ func (t *transactionDeletes) refuse(ctx context.Context, dbType DBType, count ro
 // the transaction deleted is not among them (databaseRemoves): the count never refuses
 // a delete the database would take.
 func (d *recordedDelete) refusal(ctx context.Context, dbType DBType, t *transactionDeletes, count rowCounter) (string, error) {
-	refusing, err := d.rowsOf(ctx, dbType, d.tree.RefusedBy, t.written, count)
+	refusing, err := d.rowsOf(ctx, dbType, d.tree.RefusedBy, t.gone, count)
 	if err != nil {
 		return "", err
 	}
@@ -414,7 +429,7 @@ func (d *recordedDelete) refusal(ctx context.Context, dbType DBType, t *transact
 		}
 		plain = append(plain, *under)
 	}
-	under, err := d.rowsOf(ctx, dbType, plain, t.written, count)
+	under, err := d.rowsOf(ctx, dbType, plain, t.gone, count)
 	if err != nil {
 		return "", err
 	}
@@ -555,7 +570,8 @@ func (c *SpannerReadWriteTransaction) recordDelete(d recordedDelete) {
 	c.deleted.recordDelete(d)
 }
 
-// recordWritten notes the key of a row a patch of the transaction deleted or updated.
+// recordWritten notes the key of a row a patch of the transaction deleted, or changed
+// without deleting it.
 func (c *SpannerReadWriteTransaction) recordWritten(res accesstypes.Resource, key map[string]any, deleted bool) {
 	c.deleted.recordWritten(res, key, deleted)
 }
