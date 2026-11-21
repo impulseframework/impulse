@@ -108,11 +108,15 @@ func (d *identitySourceData) GroupGiving() string {
 	return name
 }
 
+// givableMethodFilter is the field every request filters the list of the roles to give
+// by: the method that gives the role.
+const givableMethodFilter = "method"
+
 // GivableFilters names the fields a request filters the list of the roles to give by,
 // as a comment reads them: the method, the group where the instance gives a group a
 // role, and the two of a place where the application has tenants.
 func (d *identitySourceData) GivableFilters() string {
-	filters := []string{"method"}
+	filters := []string{givableMethodFilter}
 	if d.GroupGiving() != "" {
 		filters = append(filters, "group")
 	}

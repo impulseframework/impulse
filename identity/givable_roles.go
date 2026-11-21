@@ -203,7 +203,9 @@ func GivingMethod(list accesstypes.Resource, methods []accesstypes.Resource, nam
 func GivingGroup(list, groupMethod, method accesstypes.Resource, named []resource.Condition) (group *impulse.UUID, ok bool, err error) {
 	if method != groupMethod {
 		if len(named) != 0 {
-			return nil, false, httpio.NewBadRequestMessagef("%s takes a group beside the method that gives a group a role alone: name the two together (method:eq:%s,group:eq:<id>), or take the filter on group away", list, groupMethod)
+			return nil, false, httpio.NewBadRequestMessagef(
+				"%s takes a group beside the method that gives a group a role alone: name the two together (method:eq:%s,group:eq:<id>), or take the filter on group away",
+				list, groupMethod)
 		}
 
 		return nil, true, nil
