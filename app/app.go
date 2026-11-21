@@ -430,6 +430,9 @@ type DefaultRoles struct {
 	// Name unqualified, the imported package when it is <auth>.Name, or empty when the
 	// argument reads some other way (a literal, a variable) or is not there.
 	NamePackage string
+	// NameText is the call's second argument as the source writes it, for a finding that
+	// has to quote it.
+	NameText string
 }
 
 // PolicyCheck is one call to CheckPolicy outside tests: the deploy step printing what

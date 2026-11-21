@@ -829,7 +829,8 @@ const (
 // the package whose Roles() it hands over. ownPkg is the file's package import path, which
 // an unqualified Roles() names. The role file is the call's first argument, and the one
 // after it is the auth's name: each call carries the package whose Name it is too, so a
-// file handed over under another package's name can be told.
+// file handed over under another package's name can be told, and the argument as the
+// source writes it, so a finding can quote a name that is no package's Name.
 func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
@@ -854,6 +855,7 @@ func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, e
 		}
 		if len(call.Args) > 1 {
 			d.NamePackage = authNamePackage(call.Args[1], imports, ownPkg)
+			d.NameText = string(src[fset.Position(call.Args[1].Pos()).Offset:fset.Position(call.Args[1].End()).Offset])
 		}
 		calls = append(calls, d)
 

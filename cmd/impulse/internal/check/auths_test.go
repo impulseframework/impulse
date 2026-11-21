@@ -402,6 +402,12 @@ func TestRoles(t *testing.T) {
 `
 )
 
+// handedUnderNameText is the finding for the staff auth's role file handed over by the
+// data level, at line of pkg/config/data.go, under text: anything but a package's Name.
+func handedUnderNameText(line int, text string) string {
+	return fmt.Sprintf("pkg/auth/staff: pkg/config/data.go:%d hands staff.Roles() to access.WithDefaultRoles under %s, and impulse check takes only the package's own Name there; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(staff.Roles(), staff.Name)", line, text)
+}
+
 func TestAuthsWired(t *testing.T) {
 	t.Parallel()
 
@@ -490,6 +496,28 @@ func TestAuthsWired(t *testing.T) {
 					"\t\"example.com/harbor/pkg/auth/staff\"\n", "\t\"example.com/harbor/pkg/auth/members\"\n\t\"example.com/harbor/pkg/auth/staff\"\n", 1)),
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
 			wantDetails: []string{"pkg/auth/staff: pkg/config/data.go:18 hands staff.Roles() to access.WithDefaultRoles under members.Name; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(staff.Roles(), staff.Name)"},
+		},
+		{
+			name: "the role file handed over under the auth's name written out",
+			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
+				strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", `staff.Roles(), "staff"`, 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(17, `"staff"`)},
+		},
+		{
+			name: "the role file handed over under no name",
+			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
+				strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", `staff.Roles(), ""`, 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(17, `""`)},
+		},
+		{
+			name: "the role file handed over under a variable that holds the package's Name",
+			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
+				strings.Replace(strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", "staff.Roles(), name", 1),
+					"func New(ctx context.Context) (*DataConfiguration, error) {\n", "func New(ctx context.Context) (*DataConfiguration, error) {\n\tname := staff.Name\n", 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(18, "name")},
 		},
 		{
 			name: "the package exports no Roles()", files: with(without(), "pkg/auth/staff/staff.go", staffAuthNoRoles),

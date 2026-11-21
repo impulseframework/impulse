@@ -168,19 +168,27 @@ func defaultRolesOf(a *app.App, p *app.AuthPackage) []app.DefaultRoles {
 }
 
 // rolesUnderAnotherName lists the access.WithDefaultRoles calls that hand the auth
-// package's Roles() over under another package's Name. The engine holds a role file to
-// the auth it is handed over for (a grant may read that auth's subject sets alone), and
-// another auth's name is one it knows, so nothing at run time can tell the file was
-// handed over under the wrong one. A name written some other way (a literal, a variable)
-// is tied to no package and is not judged here.
+// package's Roles() over under anything but the package's own Name. The engine holds a
+// role file to the auth it is handed over for (a grant may read that auth's subject sets
+// alone), and another auth's name is one it knows, so nothing at run time can tell the
+// file was handed over under the wrong one. A name written some other way (a literal, a
+// variable, a call) is tied to no package, so nothing here can tell whose it is, and the
+// own Name is the one way to hand the file over: a call under it passes, one under
+// another package's Name fails with that package named, and one under anything else
+// fails with the argument quoted as the source writes it.
 func rolesUnderAnotherName(a *app.App, p *app.AuthPackage) []string {
 	var details []string
 	for _, d := range defaultRolesOf(a, p) {
-		if d.NamePackage == "" || d.NamePackage == p.Path {
+		switch d.NamePackage {
+		case p.Path:
 			continue
+		case "":
+			details = append(details, fmt.Sprintf("%s: %s:%d hands %s.%s() to access.WithDefaultRoles under %s, and impulse check takes only the package's own %s there; a role file is held to the auth it is handed over for, so hand the %s auth's file over under its own name: access.WithDefaultRoles(%s.%s(), %s.%s)",
+				p.Dir, d.File, d.Line, p.Name, authRoles, d.NameText, authName, p.Name, p.Name, authRoles, p.Name, authName))
+		default:
+			details = append(details, fmt.Sprintf("%s: %s:%d hands %s.%s() to access.WithDefaultRoles under %s.%s; a role file is held to the auth it is handed over for, so hand the %s auth's file over under its own name: access.WithDefaultRoles(%s.%s(), %s.%s)",
+				p.Dir, d.File, d.Line, p.Name, authRoles, path.Base(d.NamePackage), authName, p.Name, p.Name, authRoles, p.Name, authName))
 		}
-		details = append(details, fmt.Sprintf("%s: %s:%d hands %s.%s() to access.WithDefaultRoles under %s.%s; a role file is held to the auth it is handed over for, so hand the %s auth's file over under its own name: access.WithDefaultRoles(%s.%s(), %s.%s)",
-			p.Dir, d.File, d.Line, p.Name, authRoles, path.Base(d.NamePackage), authName, p.Name, p.Name, authRoles, p.Name, authName))
 	}
 
 	return details
