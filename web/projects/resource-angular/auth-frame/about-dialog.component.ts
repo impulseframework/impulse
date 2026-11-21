@@ -68,17 +68,17 @@ export function openAboutDialog(dialog: MatDialog, config: MatDialogConfig = {})
   template: `
     <h2 mat-dialog-title>{{ title }}</h2>
     <mat-dialog-content>
-      <dl class="about">
+      <dl class="impulse-about-dialog-facts">
         <dt>Release</dt>
-        <dd class="about-release"><impulse-release /></dd>
+        <dd class="impulse-about-dialog-release"><impulse-release /></dd>
         @if (environment(); as name) {
           <dt>Environment</dt>
-          <dd class="about-environment">{{ name }}</dd>
+          <dd class="impulse-about-dialog-environment">{{ name }}</dd>
         }
       </dl>
-      <p class="about-note">When you report a problem, include the release.</p>
+      <p class="impulse-about-dialog-note">When you report a problem, include the release.</p>
       @if (byHand()) {
-        <label class="about-by-hand">
+        <label class="impulse-about-dialog-by-hand">
           <span>Copy this line into your report:</span>
           <input #byHandField type="text" readonly [value]="line()" />
         </label>
@@ -86,14 +86,14 @@ export function openAboutDialog(dialog: MatDialog, config: MatDialogConfig = {})
     </mat-dialog-content>
     <mat-dialog-actions align="end">
       @if (copied()) {
-        <span class="about-copied" role="status">Copied.</span>
+        <span class="impulse-about-dialog-copied" role="status">Copied.</span>
       }
-      <button mat-button type="button" class="about-copy" (click)="copy()">Copy</button>
+      <button mat-button type="button" class="impulse-about-dialog-copy" (click)="copy()">Copy</button>
       <button mat-button type="button" mat-dialog-close>Close</button>
     </mat-dialog-actions>
   `,
   styles: `
-    .about {
+    .impulse-about-dialog-facts {
       display: grid;
       grid-template-columns: max-content 1fr;
       gap: 6px 24px;
@@ -107,19 +107,19 @@ export function openAboutDialog(dialog: MatDialog, config: MatDialogConfig = {})
       min-width: 0;
       overflow-wrap: anywhere;
     }
-    .about-release impulse-release {
+    .impulse-about-dialog-release impulse-release {
       white-space: normal;
     }
-    .about-note {
+    .impulse-about-dialog-note {
       margin: 0;
       color: var(--mat-sys-on-surface-variant);
     }
-    .about-by-hand {
+    .impulse-about-dialog-by-hand {
       display: grid;
       gap: 4px;
       margin-top: 16px;
     }
-    .about-by-hand input {
+    .impulse-about-dialog-by-hand input {
       font: inherit;
       padding: 6px 8px;
       border: 1px solid var(--mat-sys-outline);
@@ -127,7 +127,7 @@ export function openAboutDialog(dialog: MatDialog, config: MatDialogConfig = {})
       background: transparent;
       color: inherit;
     }
-    .about-copied {
+    .impulse-about-dialog-copied {
       margin-right: auto;
       padding-left: 16px;
       color: var(--mat-sys-on-surface-variant);

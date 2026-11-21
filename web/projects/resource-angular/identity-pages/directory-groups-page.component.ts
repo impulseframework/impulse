@@ -14,7 +14,7 @@ import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-
   selector: 'impulse-directory-groups-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="directory-groups">
+    <section class="impulse-directory-groups-page-content">
       <h1>{{ says.title }}</h1>
       @for (paragraph of says.paragraphs; track $index) {
         <p>{{ paragraph }}</p>
@@ -22,7 +22,7 @@ import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-
     </section>
   `,
   styles: `
-    .directory-groups {
+    .impulse-directory-groups-page-content {
       max-width: 640px;
       padding: 24px 8px;
     }

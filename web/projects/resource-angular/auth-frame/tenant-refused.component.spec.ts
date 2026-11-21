@@ -2,7 +2,7 @@ import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { ScriptedTransport } from '@impulseframework/resource/testing';
-import { provideFrameTesting, specTransport } from './frame-testing';
+import { notNamedFor, provideFrameTesting, specTransport } from './frame-testing';
 import { TenantRefusedComponent } from './tenant-refused.component';
 
 // The refusal page says 404 Not Found and nothing more: the tenant guard has already asked
@@ -33,6 +33,11 @@ describe('TenantRefusedComponent', () => {
   it('says 404 Not Found and nothing more', () => {
     expect(element.textContent?.replace(/\s+/g, ' ').trim()).toBe('404 Not Found');
     expect(element.querySelector('h1')?.textContent?.trim()).toBe('404 Not Found');
+  });
+
+  it("names its one element for the page: an application's rule for its own .refused lands on none", () => {
+    expect(notNamedFor('impulse-tenant-refused-', element)).toEqual([]);
+    expect(element.querySelector('div.impulse-tenant-refused-content')).not.toBeNull();
   });
 
   it("shows no tenant's id and asks the server nothing of the tenant", () => {
