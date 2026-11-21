@@ -1697,9 +1697,10 @@ transaction, and answers the first delete that has one with a 409:
 - A row of another tenant is never counted. Where the kind's rows are a tenant's
   (`@domain`) and the record is a tenant's, or is the tenant record, the count is of the
   rows of the record's own tenant (`DeleteKind.Tenant` and `DeleteTree.Tenant`, which the
-  generator writes). A row of another tenant that names the record is not under it; where
-  a foreign key holds it there, the commit refuses the delete in its own sentence (the
-  table that opens this section).
+  generator writes). A row of another tenant that names the record is not under it, and
+  what becomes of it is its foreign key's: one with no delete rule refuses the commit in
+  the commit's own sentence (the table that opens this section), and one declared
+  `ON DELETE CASCADE` has the database remove the row with the record, uncounted.
 - A row the transaction's own patches deleted is left out of the count, by its key: a
   read inside the transaction does not see its buffered writes. So the rows and the
   record go together in one transaction, in either order. A row the transaction's
@@ -1779,10 +1780,12 @@ with nothing gone where it cannot be made whole:
   the tenant each row of the kind resolves to (`DeleteKind.Tenant`), through other rows
   where its `@domain` goes through them. A row of another tenant that names the record,
   or a row under it, is not found, counted, named or taken, whoever asks, a trusted delete
-  included. Where a foreign key holds such a row to a row that goes, the commit refuses
-  the delete in its own sentence and nothing is deleted. A foreign key between two tables
-  of a tenant that holds the tenant's key beside the rest (a relay's `(SectorId,
-  CaseNumber)` to its call's) keeps such a row from being written. A record that is no
+  included. What becomes of such a row is its foreign key's. One with no delete rule
+  refuses the commit, in the commit's own sentence, and nothing is deleted. One declared
+  `ON DELETE CASCADE` has the database remove the row with the row it names, uncounted
+  and with no change record. Only a foreign key that holds the tenant's key beside the
+  rest (a relay's `(SectorId, CaseNumber)` to its call's) keeps such a row from being
+  written; a foreign key on the other row's key alone does not. A record that is no
   tenant's has under it whatever its links put there, and so does a kind whose rows are
   no tenant's.
 - A foreign key of two or more columns is written with its columns in the order of the
@@ -3656,7 +3659,8 @@ one of those rows and goes with the rest, whether the tenant is directory only o
 and is free for another tenant afterwards; the rule that keeps the directory of a
 directory-only tenant is for a tenant that stays and is not asked. No grant is asked on a
 row: the grant to delete a tenant answers for everything under it, and a person who may
-delete a tenant need hold no role in it.
+delete a tenant need hold no role in it. A row of another tenant that names one of the
+tenant's rows is not under the tenant and is not taken (section 10, the same part).
 
 A tenant that has such rows is not deleted by a request that does not say so. The remove
 is answered 428 with the question a person is asked first (`Delete this tenant and
