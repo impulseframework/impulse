@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"maps"
 	"math/big"
 	"net/http"
 	"slices"
@@ -37,16 +38,20 @@ import (
 // removal leaves its change event, another sector's directory stands, and the directory
 // is free for another sector, which the schema refused while Ember had it. The marshal,
 // seated in Ember and in Anvil, signs in afterwards as before and reaches Anvil.
-// Ember's rows go with it too: one in each of the seven tables that carry a sector's
-// key (a wing, a hangar, a pass into it, a mission, a consignment, a droid's report and a
-// distress call), by the delete rule on each table's foreign key to Sectors, while the
-// rows of the sectors beside it stand. And one in each of the eight tables that reach
-// their sector through another row: a squadron in Ember's wing with a member, a ship in
-// Ember's hangar with a refit and its task, a sortie of Ember's mission with an expense,
-// and a document of that mission, each by the delete rule on every link of its way to
-// Sectors. The ship flew Ember's own sortie and the droid's report is of it: those two
-// references say nothing of a delete, and hold nothing here, since what names the ship
-// goes in the same transaction.
+// Ember's rows go with it too: one in each of the tables that carry a sector's key (a
+// wing, a hangar, a pass into it, a mission, a consignment, a droid's report, a distress
+// call and a relay of it), while the rows of the sectors beside it stand. And one in
+// each of the eight tables that reach their sector through another row: a squadron in
+// Ember's wing with a member, a ship in Ember's hangar with a refit and its task, a
+// sortie of Ember's mission with an expense, and a document of that mission. The
+// sector's delete takes each of them in code, through its kind's own delete, so a kind
+// that keeps a change record keeps one of the row that went. The ship flew Ember's own
+// sortie and the droid's report is of it: those two references say nothing of a delete,
+// and hold nothing here, since what names the ship goes in the same transaction.
+//
+// A sector with rows under it is not deleted by a request that does not say so: the
+// plain remove is answered with the question a person is asked first, and nothing is
+// gone. The request that goes ahead says it takes everything under the sector.
 //
 // No role the release ships deletes a sector, so the suite makes one that does: a custom
 // role of the whole application holding Delete on Sectors, given to the governor.
@@ -261,23 +266,60 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		throughBefore[row.table] = rowsWhere(ctx, t, s, row.table, "", "")
 	}
 	directoriesBefore := sectorDirectoryRows(ctx, t, s, "")
-	eventsBefore := changeEvents(ctx, t, s, "SectorDirectories")["SectorDirectories"]
+	// The kinds of Ember's rows that keep a change record, each with one row of Ember's.
+	tracked := []string{"SectorDirectories", "Missions", "Ships", "Refits"}
+	eventsBefore := changeEvents(ctx, t, s, tracked...)
 
-	// One request, with nothing before it: directory only is not turned off and the
-	// directory is not removed first.
+	// A request that does not say it takes what is under the sector is asked the
+	// question, and nothing is gone: not the sector, not its directory, not a row. The
+	// question counts the kinds the person may list in the scope the delete is asked
+	// in, and a sector's delete is asked for the whole fleet, where the governor's
+	// roles list none of a sector's kinds: it says "everything under it" and no count.
 	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/sectors/`+ember+`"}]`))
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	const question = "Delete this sector and everything under it? This can't be undone."
+	if got := refusalMessage(t, body); got != question {
+		t.Errorf("the question = %q, want %q", got, question)
+	}
+	if n := rowsWhere(ctx, t, s, "Sectors", "Id", ember); n != 1 {
+		t.Fatalf("Sectors holds %d row(s) of Ember after the question, want the one: a delete that is asked the question deletes nothing", n)
+	}
+	if n := sectorDirectoryRows(ctx, t, s, ember); n != 1 {
+		t.Errorf("Ember's directory after the question: %d row(s), want the one", n)
+	}
+	for _, table := range sectorKeyedTables {
+		if n := sectorRows(ctx, t, s, table, ember); n != 1 {
+			t.Errorf("%s holds %d row(s) of Ember after the question, want the one written", table, n)
+		}
+	}
+	for _, row := range throughEmber {
+		if n := rowsWhere(ctx, t, s, row.table, row.column, row.value); n != 1 {
+			t.Errorf("%s holds %d row(s) of Ember after the question, want the one written", row.table, n)
+		}
+	}
+	if after := changeEvents(ctx, t, s, tracked...); !maps.Equal(after, eventsBefore) {
+		t.Errorf("change events after the question: %v, want %v: nothing was deleted", after, eventsBefore)
+	}
+
+	// One request that says so, with nothing before it: directory only is not turned
+	// off and the directory is not removed first.
+	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/sectors/`+ember+`","value":{"everythingUnder":true}}]`))
 	assertStatus(t, status, http.StatusOK, body)
 
-	// The directory went with the sector, its removal is in the audit, and every other
-	// sector's directory stands.
+	// The directory went with the sector and every other sector's directory stands.
 	if n := sectorDirectoryRows(ctx, t, s, ember); n != 0 {
 		t.Errorf("Ember's directory after the delete: %d row(s), want none: the directory goes with its sector", n)
 	}
 	if n := sectorDirectoryRows(ctx, t, s, ""); n != directoriesBefore-1 {
 		t.Errorf("SectorDirectories holds %d row(s) after the delete, want %d: Ember's alone is gone", n, directoriesBefore-1)
 	}
-	if after := changeEvents(ctx, t, s, "SectorDirectories")["SectorDirectories"]; after != eventsBefore+1 {
-		t.Errorf("change events of SectorDirectories: %d before the delete and %d after, want one more: the directory's removal is in the audit", eventsBefore, after)
+	// Each row of a kind that keeps a change record left one, the directory's among
+	// them: the sector's delete took the row through its kind's own delete.
+	eventsAfter := changeEvents(ctx, t, s, tracked...)
+	for _, table := range tracked {
+		if eventsAfter[table] != eventsBefore[table]+1 {
+			t.Errorf("change events of %s: %d before the delete and %d after, want one more: the removal of Ember's row is in the audit", table, eventsBefore[table], eventsAfter[table])
+		}
 	}
 	// Ember's rows went with it, in every table that carries a sector's key, and the rows
 	// of the sectors beside it stand.
@@ -375,8 +417,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 }
 
 // sectorKeyedTables are Lodestar's tables that carry a sector's key on the row itself,
-// the directories record apart: each references Sectors with the delete rule, so its
-// rows go with their sector.
+// the directories record apart: a sector's delete takes each one's rows of the sector.
 var sectorKeyedTables = []string{"Wings", "Hangars", "HangarPasses", "Missions", "Consignments", "DroidReports", "DistressCalls", "DistressRelays"}
 
 // sectorDirectoryRows counts the rows of the directories record, a sector's own or, for

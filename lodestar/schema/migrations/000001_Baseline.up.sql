@@ -141,11 +141,12 @@ CREATE UNIQUE INDEX SectorDirectoriesBySectorId ON SectorDirectories(SectorId);
 CREATE UNIQUE INDEX SectorDirectoriesByMethodConnection ON SectorDirectories(Method, Connection);
 
 -- The rows of a table that carries a sector's key are the sector's own, so they go with
--- it: the delete rule on the foreign key to Sectors (ON DELETE CASCADE) removes them in
--- the transaction that deletes the sector, and impulse check holds every such table to
--- it (tenant-delete-rule). Wings, Hangars, HangarPasses, Missions, Consignments,
--- DroidReports and DistressCalls carry it. A sector's directory carries none: the
--- generated delete of a sector removes that row itself, so its change event is written.
+-- it: the delete of a sector takes each one in code, through its resource's own delete,
+-- in the transaction that deletes the sector, so its change event is written. The delete
+-- rule on the foreign key to Sectors (ON DELETE CASCADE) stands under that, and impulse
+-- check holds every such table to it (tenant-delete-rule). Wings, Hangars, HangarPasses,
+-- Missions, Consignments, DroidReports and DistressCalls carry it. A sector's directory
+-- carries none, and goes the same way as the rest.
 -- A table that reaches its sector through another row carries the rule on every link of
 -- that way, and the check holds it to that too: a squadron goes with its wing and a
 -- membership with its squadron, a ship with its hangar and a refit with its ship (its

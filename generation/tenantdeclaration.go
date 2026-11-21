@@ -32,10 +32,11 @@ import (
 // generator holds the shape at capture, so the generated constructors
 // (New<Record>Roster with the declaration's columns, New<Record>DeclarationReader for
 // the sign-in policy, New<Record>DirectoryReader for the directory admission,
-// New<Record>DirectoryRules and Set<Record>Directory for the writes,
-// Clear<Record>Directory for the removal the tenant's own delete makes) and the
-// write paths that keep every instance's copy current render against a declaration
-// that can serve as one.
+// New<Record>DirectoryRules and Set<Record>Directory for the writes) and the write
+// paths that keep every instance's copy current render against a declaration that can
+// serve as one. The removal the tenant's own delete makes is no code of the roster's:
+// the directory is a row under the tenant, and goes through the record's description
+// (tenantDeleteTree).
 
 // resolveTenantDeclaration reads a table-backed struct's declaration annotations:
 // @tenantDirectory on the struct, @directoryOnly, @directoryMethod, @directoryConnection
@@ -338,10 +339,9 @@ func (r *resourceGenerator) hasUniqueIndexOn(table string, columns ...string) bo
 }
 
 // tenantDirectoryWrite is the directories record as the generated Set<Record>Directory
-// writes a tenant's directory and the generated Clear<Record>Directory removes it: the
-// setters of its tenant, method and connection columns, the tenant column's Go type
-// with the parameter that carries it, the expression that reads the parameter as the
-// tenant's domain, and the field of the record's key, which a removal names the row by.
+// writes a tenant's directory: the setters of its tenant, method and connection
+// columns, the tenant column's Go type with the parameter that carries it, and the
+// expression that reads the parameter as the tenant's domain.
 type tenantDirectoryWrite struct {
 	TenantField     string
 	TenantType      string
@@ -349,7 +349,6 @@ type tenantDirectoryWrite struct {
 	TenantDomain    string
 	MethodField     string
 	ConnectionField string
-	KeyField        string
 }
 
 // tenantDirectoryWriteData reads the directories record's write shape off the tenant
@@ -375,33 +374,6 @@ func tenantDirectoryWriteData(record *resourceInfo) *tenantDirectoryWrite {
 		TenantDomain:    domain,
 		MethodField:     directories.DirectoryMethodField.Name(),
 		ConnectionField: directories.DirectoryConnectionField.Name(),
-		KeyField:        directories.PrimaryKey().Name(),
-	}
-}
-
-// tenantDirectoryClear is what the tenant record's generated delete takes the tenant's
-// directory through: the generated function of the record's roster file
-// (Clear<Record>Directory), the expression of the deleted tenant's key as the
-// directories record's tenant column holds it, read off the id the delete names its
-// row by, and the word for one tenant in the comment the delete carries.
-type tenantDirectoryClear struct {
-	Func   string
-	Tenant string
-	Word   string
-}
-
-// tenantDirectoryClear names what the record's delete takes its directory through: nil
-// for every resource but the tenant record, and for a tenant record that declares no
-// directories, which has no row to take.
-func (r *resourceGenerator) tenantDirectoryClear(record *resourceInfo) *tenantDirectoryClear {
-	if !record.IsTenant || !record.HasDeclaration() {
-		return nil
-	}
-
-	return &tenantDirectoryClear{
-		Func:   "Clear" + record.Name() + "Directory",
-		Tenant: tenantValueFor(record.declaration.Directories.DomainBinding.Anchor),
-		Word:   r.directoryTenantWord(record),
 	}
 }
 

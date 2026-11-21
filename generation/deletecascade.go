@@ -114,10 +114,16 @@ type deleteKind struct {
 	Within []deleteLink
 	// Deletes marks a kind the description is written with the delete of one of its
 	// rows for (resource.DeleteKind.Rows): each taken kind of a record that declares
-	// its cascade. Rule marks one that declares a delete rule (@validateDeleteType),
-	// which that delete registers.
+	// its cascade, and of the tenant record. Rule marks one that declares a delete rule
+	// (@validateDeleteType), which that delete registers.
 	Deletes bool
 	Rule    bool
+	// Trusted marks a kind whose row's delete is not armed against the caller of the
+	// record's delete: each kind the tenant record's delete takes. The grant to delete
+	// a tenant answers for every row under it, which is what a tenant's delete means,
+	// and a person who may delete a tenant need hold no role in it. The kind's delete
+	// rule is asked all the same.
+	Trusted bool
 }
 
 // depth is the kind's longest way up to the record, in steps. A kind is always deeper
@@ -446,7 +452,7 @@ func (c *client) resolveDeleteTrees(resources []*resourceInfo) error {
 			return errors.Newf("@%s on %s: %s is the tenant record, and the library declares what a tenant's delete takes: every row under the tenant, with nothing listed to refuse it. Remove @%s from %s.",
 				deleteCascadeKeyword, res.Name(), res.Name(), deleteCascadeKeyword, res.Name())
 		case res.IsTenant:
-			tree, err := c.tenantDeleteTree(res, resources, byTable, links)
+			tree, err := c.tenantDeleteTree(res, resources, byTable, links, self)
 			if err != nil {
 				return err
 			}
@@ -624,7 +630,13 @@ func unlistedDeleteKind(res *resourceInfo, byTable map[string]*resourceInfo, rea
 // key or lead to a row that does, and nothing refuses it. A row carries the tenant's key
 // by a foreign key to the tenant record or as the column a tenant-scoped resource is
 // read by.
-func (c *client) tenantDeleteTree(tenant *resourceInfo, resources []*resourceInfo, byTable map[string]*resourceInfo, links map[string][]deleteLink) (*deleteTree, error) {
+//
+// Each kind is written with the delete of one of its rows (Deletes), so the tenant's
+// delete takes the rows in code, each through its kind's own delete: its delete rule
+// (Rule), its change record, its files. That delete is not armed against the caller
+// (Trusted). A kind with a link to itself carries the link (Within), so a row under a
+// row of its kind is found however deep.
+func (c *client) tenantDeleteTree(tenant *resourceInfo, resources []*resourceInfo, byTable map[string]*resourceInfo, links, self map[string][]deleteLink) (*deleteTree, error) {
 	record := c.pluralize(tenant.Name())
 	tenantTable, err := c.tableMetadataFor(tenant.Name())
 	if err != nil {
@@ -664,7 +676,10 @@ func (c *client) tenantDeleteTree(tenant *resourceInfo, resources []*resourceInf
 			// application's row to delete in code.
 			continue
 		}
-		tree.Taken = append(tree.Taken, c.deleteKindOf(kind, paths))
+		taken := c.deleteKindOf(kind, paths)
+		taken.Deletes, taken.Rule, taken.Trusted = true, kind.HasValidateDeleteType(), true
+		taken.Within = self[table]
+		tree.Taken = append(tree.Taken, taken)
 	}
 	sortDeepestFirst(tree.Taken)
 
@@ -711,10 +726,11 @@ func (r *resourceInfo) DeclaresDeleteCascade() bool {
 }
 
 // TakesRowsUnder reports whether a delete of the record takes rows under it when it is
-// told to: the record declares its cascade, which always lists a kind as taken. Its
+// told to: the record declares its cascade, which always lists a kind as taken, or it
+// is the tenant record and the application has a kind of row under a tenant. Its
 // delete patch then carries WithEverythingUnder.
 func (r *resourceInfo) TakesRowsUnder() bool {
-	return r.deleteCascade != nil && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
+	return (r.deleteCascade != nil || r.IsTenant) && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
 }
 
 // DeleteTreeLiteral is the record's description as the Go value its file returns
@@ -786,8 +802,23 @@ func linkLiteral(link deleteLink) string {
 // writeTakenRows writes how a delete of the record deletes a row of a taken kind with
 // it (resource.NewTakenRows): the kind's generated delete patch around the row's patch
 // set, with the kind's delete rule registered where it declares one, armed against the
-// caller of the record's delete unless that call is trusted.
+// caller of the record's delete unless that call is trusted. A kind the tenant record's
+// delete takes (Trusted) is never armed: the closure takes no caller, and only the
+// kind's delete rule is asked of the row.
 func writeTakenRows(b *strings.Builder, kind *deleteKind) {
+	if kind.Trusted {
+		if !kind.Rule {
+			fmt.Fprintf(b, "Rows: resource.NewTakenRows(func(*resource.PatchSet[%s], *resource.Caller) {}),\n", kind.Name)
+
+			return
+		}
+		fmt.Fprintf(b, "Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[%s], _ *resource.Caller) {\n", kind.Name)
+		fmt.Fprintf(b, "patch := &%sDeletePatch{patchSet: patchSet}\n", kind.Name)
+		b.WriteString("patch.registerValidateFunc()\n")
+		b.WriteString("}),\n")
+
+		return
+	}
 	fmt.Fprintf(b, "Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[%s], caller *resource.Caller) {\n", kind.Name)
 	fmt.Fprintf(b, "patch := &%sDeletePatch{patchSet: patchSet}\n", kind.Name)
 	if kind.Rule {

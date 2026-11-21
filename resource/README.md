@@ -1729,8 +1729,8 @@ The same delete, saying it takes them, deletes the rows and the record:
   and `missions.ops.remove([id], { everythingUnder: true })`. The library's delete dialog
   asks the server's question in the place of its own and sends the second delete when the
   person presses Delete again.
-- In Go the generated delete patch of a record that declares its cascade carries
-  `WithEverythingUnder()` (`PatchSet.DeleteEverythingUnder`).
+- In Go the generated delete patch of a record that declares its cascade, and of the
+  tenant record, carries `WithEverythingUnder()` (`PatchSet.DeleteEverythingUnder`).
 
 A record with nothing to take under it is deleted without a question, whatever the delete
 says. Before the question is asked, and whatever the delete says, the delete is refused
@@ -1770,6 +1770,14 @@ with nothing gone where it cannot be made whole:
   and the grant's condition against the row, the kind's delete rule, its change record
   where the kind is tracked, and the release of its stored files. One row that may not
   go stops the whole delete.
+- The tenant record declares nothing, and `@deleteCascade` on it is refused: the library
+  declares what a tenant's delete takes, which is every kind of the application's whose
+  rows carry the tenant's key or lead to a row that does. Its rows are found, asked about
+  and deleted as any record's are, with one difference: no grant is asked on a row. The
+  grant to delete a tenant answers for every row under it, and a person who may delete a
+  tenant need hold no role in it. Each kind's delete rule is asked on every row all the
+  same, with its change record and the release of its files (section 16, "Deleting a
+  tenant").
 - The rows are counted against what one commit takes before any is deleted
   (`DeleteTree.Mutations` against `resource.DeleteMutationLimit`, 80,000 mutations): the
   delete of each row, an entry in each index of its table, its change record and its files.
@@ -3602,18 +3610,34 @@ withdrawn. A person who held roles in the tenant alone then holds none anywhere 
 deleted with their identity links and sessions, by the rule on an account nothing admits
 (section 21, "The rules"); a person who holds a role anywhere else stays, and so does a
 role held in every tenant, which is no one tenant's. The permission engine is told once
-the delete has committed. The tenant's directory goes with it in the same transaction,
-whether the tenant is directory only or not: the generated delete removes the directories
-record's row through the record's own delete patch (the generated
-`Clear<Record>Directory` of the roster file), so its change event is written and the
-directory is free for another tenant. The rule that keeps the directory of a
-directory-only tenant is for a tenant that stays and is not asked. The rows the tenant
-owns are the application's, and go by the application's schema: a foreign key on a
-tenancy column declared `ON DELETE CASCADE` takes them in the same transaction, which is
-how the skeletons' sample tenant table is declared, and one without the rule refuses the
-delete while its rows remain. An application that deletes a tenant in a transaction of
-its own calls `ClearTenant` and `Clear<Record>Directory` there, and a program that
-generates no auth's management removes the memberships itself.
+the delete has committed.
+
+The rows under the tenant go with it in the same transaction, and the library deletes
+them in code (section 10, "A delete that takes what is under the record"): every row of a
+resource of the application's that carries the tenant's key or leads to a row that does,
+each through its kind's own delete, so its delete rule (`@validateDeleteType`) is asked,
+its change event is written and its stored files are released. The tenant's directory is
+one of those rows and goes with the rest, whether the tenant is directory only or not,
+and is free for another tenant afterwards; the rule that keeps the directory of a
+directory-only tenant is for a tenant that stays and is not asked. No grant is asked on a
+row: the grant to delete a tenant answers for everything under it, and a person who may
+delete a tenant need hold no role in it.
+
+A tenant that has such rows is not deleted by a request that does not say so. The remove
+is answered 428 with the question a person is asked first (`Delete this tenant and
+everything under it? This can't be undone.`), and nothing is gone; the request that goes
+ahead carries `"value": {"everythingUnder": true}` on the remove operation, and the
+library's delete dialog sends it when the person presses Delete at the question. The
+question counts the rows of the kinds the person may list in the scope the delete is
+asked in, and a tenant's delete is asked for the whole application: a person whose roles
+list a tenant's kinds in the tenants alone reads no count. A tenant with nothing
+under it is deleted by the plain remove. A table of the application's that no resource
+describes is not a row the library can delete: it goes by the application's schema, a
+foreign key declared `ON DELETE CASCADE` in the same transaction, and one without the
+rule refuses the delete while its rows remain. An application that deletes a tenant in a
+transaction of its own buffers the record's generated delete patch with
+`WithEverythingUnder()` and calls `ClearTenant` there, and a program that generates no
+auth's management removes the memberships itself.
 
 Each thing the delete takes is an action of the class `access` when it is done alone (a
 role removed, a group deleted, an invitation withdrawn), so the generator gives the

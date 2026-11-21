@@ -60,6 +60,10 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[SortieExpense], _ *resource.Caller) {
+					patch := &SortieExpenseDeletePatch{patchSet: patchSet}
+					patch.registerValidateFunc()
+				}),
 			},
 			{
 				Resource: "MissionDocuments",
@@ -78,6 +82,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[MissionDocument], *resource.Caller) {}),
 			},
 			{
 				Resource: "RefitTasks",
@@ -92,6 +97,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[RefitTask], *resource.Caller) {}),
 			},
 			{
 				Resource: "Sorties",
@@ -115,6 +121,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[Sortie], *resource.Caller) {}),
 			},
 			{
 				Resource: "DroidReports",
@@ -131,6 +138,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[DroidReport], *resource.Caller) {}),
 			},
 			{
 				Resource: "HangarPasses",
@@ -151,6 +159,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[HangarPass], *resource.Caller) {}),
 			},
 			{
 				Resource: "Missions",
@@ -167,6 +176,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[Mission], *resource.Caller) {}),
 			},
 			{
 				Resource: "Refits",
@@ -180,6 +190,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[Refit], *resource.Caller) {}),
 			},
 			{
 				Resource: "SquadronMemberships",
@@ -193,6 +204,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[SquadronMembership], *resource.Caller) {}),
 			},
 			{
 				Resource: "DistressRelays",
@@ -208,6 +220,10 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Within: []resource.DeleteLink{
+					{Columns: []string{"AnswersRelayId"}, Table: "DistressRelays", References: []string{"Id"}, MayBeEmpty: true},
+				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[DistressRelay], *resource.Caller) {}),
 			},
 			{
 				Resource: "Ships",
@@ -220,6 +236,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[Ship], *resource.Caller) {}),
 			},
 			{
 				Resource: "Squadrons",
@@ -232,6 +249,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[Squadron], *resource.Caller) {}),
 			},
 			{
 				Resource: "Consignments",
@@ -243,6 +261,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[Consignment], *resource.Caller) {}),
 			},
 			{
 				Resource: "DistressCalls",
@@ -254,6 +273,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[DistressCall], *resource.Caller) {}),
 			},
 			{
 				Resource: "Hangars",
@@ -265,6 +285,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[Hangar], *resource.Caller) {}),
 			},
 			{
 				Resource: "SectorDirectories",
@@ -276,6 +297,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[SectorDirectory], *resource.Caller) {}),
 			},
 			{
 				Resource: "Wings",
@@ -287,6 +309,7 @@ func (Sector) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}},
 					},
 				},
+				Rows: resource.NewTakenRows(func(*resource.PatchSet[Wing], *resource.Caller) {}),
 			},
 		},
 		Under: []resource.DeleteKind{
@@ -923,6 +946,19 @@ func NewSectorDeletePatch(id impulse.UUID) *SectorDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &SectorDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the Sector with it:
+// every row of the application's that is the Sector's own or leads to one that
+// is, each deleted through its kind's delete, with its delete rule asked, its change
+// record written and its files released. The grant to delete the Sector answers
+// for them all. Without it, a delete of a Sector that has such rows deletes
+// nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+func (p *SectorDeletePatch) WithEverythingUnder() *SectorDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
 }
 
 func (p *SectorDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

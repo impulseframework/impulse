@@ -822,11 +822,21 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 }
 {{ end }}
 {{- if .Resource.TakesRowsUnder }}
+{{- if .Resource.IsTenant }}
+// WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
+// every row of the application's that is the {{ .Resource.Name }}'s own or leads to one that
+// is, each deleted through its kind's delete, with its delete rule asked, its change
+// record written and its files released. The grant to delete the {{ .Resource.Name }} answers
+// for them all. Without it, a delete of a {{ .Resource.Name }} that has such rows deletes
+// nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired).
+{{- else }}
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // every row of the kinds its @deleteCascade lists as taken, each deleted as its own
 // delete would delete it. Without it, a delete of a {{ .Resource.Name }} that has such rows
 // deletes nothing and is answered with the question a person is asked first
 // (httpio.HasPreconditionRequired).
+{{- end }}
 func (p *{{ .Resource.Name }}DeletePatch) WithEverythingUnder() *{{ .Resource.Name }}DeletePatch {
 	p.patchSet.DeleteEverythingUnder()
 
@@ -906,7 +916,8 @@ const (
 	// is buffered under its id (id, which the splice's place sets): what each auth holds
 	// for the tenant goes in the same transaction, through the generated identity client
 	// of every auth whose management the program generates (identity.Manager.ClearTenant).
-	// The id's text is the tenant's domain.
+	// The id's text is the tenant's domain. The application's rows under the tenant, its
+	// directory among them, went with the row's removal (the record's DeleteTree).
 	tenantCleared = `// A tenant that goes takes what each auth holds for it, in this transaction:
 					// the roles people hold in it, the custom roles made in it and the
 					// invitations into it that still stand.
@@ -915,20 +926,6 @@ const (
 						return errors.Wrap(err, "{{ $clear }}().ClearTenant()")
 					}
 					{{- end }}`
-
-	// tenantDirectoryCleared is spliced into the tenant record's delete, after the row's
-	// removal is buffered under its id (id, which the splice's place sets) and before the
-	// auths are cleared: the tenant's directory goes with the tenant, in the same
-	// transaction, through the generated Clear<Record>Directory of the record's roster
-	// file, whether the tenant is directory only or not. The row's removal is buffered
-	// first, so the caller's Delete grant on the tenant record has answered by then; the
-	// directories record's own grants and the rule on its removal are for a tenant that
-	// stays, and are not asked. The splice reads what it clears through as its dot.
-	tenantDirectoryCleared = `// A {{ .Word }} that goes takes its directory with it, directory only or
-					// not, in this transaction.
-					if err := {{ .Func }}(ctx, txn, {{ .Tenant }}, eventSource); err != nil {
-						return errors.Wrap(err, "{{ .Func }}()")
-					}`
 
 	// directoryStamped is spliced into the directories record's create, once the create
 	// patch is built and before it is buffered (patchSet, patch and domain, which the
@@ -1768,7 +1765,9 @@ func New{{ .Name }}DirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTr
 // {{ .Directories }} write paths ask them: the create stamps the directory the caller is signed in
 // through, which no request types, and the delete asks before it removes. The one
 // removal they are not asked is the delete of the {{ .Word }} itself, which takes its
-// directory with it (Clear{{ .Name }}Directory).
+// directory with it like every other row under the {{ .Word }} ({{ .Name }}.DeleteTree): the
+// rule keeps a {{ .Word }} that stays from being left with no way in, and that {{ .Word }}
+// does not stay.
 func New{{ .Name }}DirectoryRules() *resource.TenantDirectoryRules {
 	return resource.NewTenantDirectoryRules({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, &{{ GoCamel .Name }}Declaration, {{ printf "%q" .Word }})
 }
@@ -1800,36 +1799,6 @@ func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransact
 	return nil
 }
 
-// Clear{{ .Name }}Directory buffers the removal of the {{ .Word }}'s directory, in the transaction
-// that deletes the {{ .Word }}'s row: a {{ .Word }} that goes takes its directory with it, as it
-// takes the roles people hold in it. The rule that keeps the directory of a {{ .Word }} that is
-// directory only (New{{ .Name }}DirectoryRules, Remove) is not asked here: it keeps a {{ .Word }}
-// that stays from being left with no way in, and this {{ .Word }} does not stay. The row is
-// removed through the record's delete patch, so its change event is written with it, and
-// the directory is free for another {{ .Word }} once the transaction has committed. The
-// generated delete of the {{ .Name }} record calls it once the caller's grant on that record
-// has answered; code that deletes a {{ .Word }}'s row any other way calls it in the same
-// transaction. A {{ .Word }} that has no directory is no error.
-func Clear{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransaction, {{ .Directory.TenantParam }} {{ .Directory.TenantType }}, eventSource ...string) error {
-	query := {{ .ResourcePackage }}.New{{ .Directories }}Query().
-		AddColumns({{ .ResourcePackage }}.New{{ .Directories }}Columns().{{ .Directory.KeyField }}()).
-		Where({{ .ResourcePackage }}.New{{ .Directories }}QueryClause().{{ .Directory.TenantField }}().Equal({{ .Directory.TenantParam }}))
-	// The rows are read before any removal is buffered. The schema keeps a {{ .Word }} to one.
-	var removals []*{{ .ResourcePackage }}.{{ .Directories }}DeletePatch
-	for row, err := range query.List(ctx, txn) {
-		if err != nil {
-			return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}Query.List()")
-		}
-		removals = append(removals, {{ .ResourcePackage }}.New{{ .Directories }}DeletePatch(row.Data.{{ .Directory.KeyField }}))
-	}
-	for _, removal := range removals {
-		if err := removal.Buffer(ctx, txn, eventSource...); err != nil {
-			return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}DeletePatch.Buffer()")
-		}
-	}
-
-	return nil
-}
 {{- end }}
 {{- with .Maker }}
 
@@ -3608,9 +3577,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
-					{{- with .DirectoryClear }}
-					` + tenantDirectoryCleared + `
-					{{- end }}
 					{{- if .Clears }}
 					` + tenantCleared + `
 					{{- end }}
@@ -3909,9 +3875,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
-							{{- with .DirectoryClear }}
-							` + tenantDirectoryCleared + `
-							{{- end }}
 							{{- if .Clears }}
 							` + tenantCleared + `
 							{{- end }}

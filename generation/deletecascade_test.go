@@ -731,6 +731,12 @@ func Test_parseDeleteCascade(t *testing.T) {
 // declares: every kind of the application's rows that carry the tenant's key, by a
 // foreign key or as the column a tenant-scoped resource is read by, or lead to a row
 // that does, deepest first, and no kind that refuses.
+//
+// The tenant's delete takes those rows in code: each kind is written with the delete of
+// one of its rows, which asks the kind's delete rule where it declares one and is never
+// armed against the caller, since the grant to delete a tenant answers for every row
+// under it. A kind with a row under a row of its own kind carries that link, and the
+// tenant's delete patch can be told to take everything under.
 func Test_tenantDeleteTree(t *testing.T) {
 	t.Parallel()
 
@@ -738,6 +744,7 @@ func Test_tenantDeleteTree(t *testing.T) {
 	client, ledger := byName["Client"], byName["Ledger"]
 	client.deleteCascade, client.DeleteTree, client.IsTenant = nil, nil, true
 	ledger.DomainBinding = &domainBinding{Anchor: ledger.fieldNamed("ClientID")}
+	underItsOwnKind(c, "Tasks", "ParentTaskId")
 
 	if err := c.resolveDeleteTrees(resourceList(byName)); err != nil {
 		t.Fatalf("resolveDeleteTrees() error = %v", err)
@@ -767,6 +774,49 @@ func Test_tenantDeleteTree(t *testing.T) {
 	}
 	if len(client.DeleteTree.RefusedBy) != 0 {
 		t.Errorf("the tenant's description lists %d kinds that refuse its delete, want none", len(client.DeleteTree.RefusedBy))
+	}
+
+	type kindDelete struct {
+		Table                  string
+		Deletes, Rule, Trusted bool
+		Within                 []deleteLink
+	}
+	var gotDeletes []kindDelete
+	for _, kind := range client.DeleteTree.Taken {
+		gotDeletes = append(gotDeletes, kindDelete{Table: kind.Table, Deletes: kind.Deletes, Rule: kind.Rule, Trusted: kind.Trusted, Within: kind.Within})
+	}
+	wantDeletes := []kindDelete{
+		{Table: "TaskComments", Deletes: true, Trusted: true},
+		{Table: "ProjectNotes", Deletes: true, Trusted: true},
+		{
+			Table: "Tasks", Deletes: true, Trusted: true,
+			Within: []deleteLink{{Columns: []string{"ParentTaskId"}, Table: "Tasks", References: []string{"Id"}, MayBeEmpty: true}},
+		},
+		{Table: "Invoices", Deletes: true, Rule: true, Trusted: true},
+		{Table: "Ledgers", Deletes: true, Trusted: true},
+		{Table: "Projects", Deletes: true, Trusted: true},
+	}
+	if diff := cmp.Diff(wantDeletes, gotDeletes); diff != "" {
+		t.Errorf("how the tenant's delete takes each kind mismatch (-want +got):\n%s", diff)
+	}
+	if !client.TakesRowsUnder() {
+		t.Error("TakesRowsUnder() = false for the tenant record, want true: its delete patch is told to take what is under the tenant")
+	}
+
+	literal := client.DeleteTreeLiteral()
+	for _, want := range []string{
+		// A kind with a delete rule registers it, and takes no caller.
+		"Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Invoice], _ *resource.Caller) {\npatch := &InvoiceDeletePatch{patchSet: patchSet}\npatch.registerValidateFunc()\n}),",
+		// A kind without one has nothing to arm.
+		"Rows: resource.NewTakenRows(func(*resource.PatchSet[Project], *resource.Caller) {}),",
+		"Within: []resource.DeleteLink{\n{Columns: []string{\"ParentTaskId\"}, Table: \"Tasks\", References: []string{\"Id\"}, MayBeEmpty: true},\n},",
+	} {
+		if !strings.Contains(literal, want) {
+			t.Errorf("the tenant's description as written lacks %q:\n%s", want, literal)
+		}
+	}
+	if strings.Contains(literal, "Enforce(") {
+		t.Errorf("the tenant's description arms a taken row's delete against the caller, want none armed:\n%s", literal)
 	}
 }
 

@@ -554,7 +554,12 @@ No role Lodestar ships holds Delete on `Sectors`; the suite gives the governor o
 prove it (`test/integration/tenant_delete_skipauth_test.go`). The delete carries the
 class `access`, so a person who acts as the governor under the `act` kind is refused it
 (`TestImpersonation_sectorDeletedActingAsAPerson`). The sector's rows go with
-it by the schema: each of the eight tables that carry a sector's key (Wings, Hangars,
+it, and the delete takes them in code: every row under the sector, in the same
+transaction, each through its resource's own delete, so a kind that keeps a change
+record keeps one of the row that went. A sector with rows under it is asked first
+("Delete this sector and everything under it? This can't be undone."), and the request
+that goes ahead says it takes them. The schema carries the same rule under that: each of
+the eight tables that carry a sector's key (Wings, Hangars,
 HangarPasses, Missions, Consignments, DroidReports, DistressCalls, DistressRelays)
 references `Sectors` with `ON DELETE CASCADE`, as the skeletons' sample tenant table does, and `impulse check`
 holds every such table to the rule (`tenant-delete-rule`). A table that reaches its

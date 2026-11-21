@@ -568,11 +568,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 							if err := resources.NewSectorDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorDeletePatch.Buffer()")
 							}
-							// A sector that goes takes its directory with it, directory only or
-							// not, in this transaction.
-							if err := ClearSectorDirectory(ctx, txn, id, eventSource); err != nil {
-								return errors.Wrap(err, "ClearSectorDirectory()")
-							}
 							// A tenant that goes takes what each auth holds for it, in this transaction:
 							// the roles people hold in it, the custom roles made in it and the
 							// invitations into it that still stand.
