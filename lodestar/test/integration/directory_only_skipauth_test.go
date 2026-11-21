@@ -57,13 +57,15 @@ import (
 // on the method, on its dry run and on the warning a page asks first; a dry run writes
 // nothing; and a caller without the method's grant is refused by the grants, before any
 // rule answers. The warden, signed in through the persona provider, has never had a
-// password: he is refused, chooses one on a code mailed to his confirmed address (no
-// password without the code, and none for an account that has one), changes it and
-// goes on in a session that is still the one his directory opened, is then told what
-// it would do by the method's warning, the sentence, the people it names and the words
-// for the button, and turns it on; once it is on the warning has nothing to say. The
-// persona sign-in sets a process variable, so it holds the lock the other simulated
-// sign-ins hold.
+// password, and his account holds no confirmed address, since the provider's sign-in
+// confirms none: he is refused, confirms his address from the link mailed to it,
+// chooses a password on a code mailed there (no code and no password before the
+// address is confirmed, no password without the code, and none for an account that
+// has one), changes it and goes on in a session that is still the one his directory
+// opened, is then told what it would do by the method's warning, the sentence, the
+// people it names and the words for the button, and turns it on; once it is on the
+// warning has nothing to say. The persona sign-in sets a process variable, so it holds
+// the lock the other simulated sign-ins hold.
 //
 // Demonstrates: tenancy.directory-only, tenancy.declaration, auth.persona.
 func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
@@ -382,27 +384,28 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	}
 
 	// He chooses one on Your account. A person who has no password chooses their first
-	// only on a code mailed to their confirmed address, which the persona provider
-	// attested at his sign-in: a password posted before any code was asked for is
-	// refused, and so is one posted with a code that is not the one mailed. An account
-	// that has a password is refused the code, since its person changes the password
-	// with the one they have. The right code sets the password, ends no session, and
-	// the account takes no second first password.
+	// only on a code mailed to their confirmed address, and the warden holds none: the
+	// persona provider's sign-in confirmed no address, since no provider's word but
+	// Google's confirms one, and the address the cast gave his account is one nobody
+	// has confirmed. An account that has a password is refused the code, since its
+	// person changes the password with the one they have. The right code sets the
+	// password, ends no session, and the account takes no second first password.
 	chosen := func(code string) []byte {
 		return jsonBody(t, map[string]string{"code": code, "password": personaPassword})
 	}
 	firstPassword := consoleAPI + "/user/first-password"
-	if status, body := warden.do(ctx, http.MethodPost, firstPassword, chosen("000000")); status != http.StatusConflict || !strings.Contains(string(body), "That code has expired or was already used. Ask for a new one") {
-		t.Errorf("choosing a first password before any code was mailed: status %d, want 409 saying to ask for a code: %s", status, body)
-	}
 	if status, body := rigger.do(ctx, http.MethodPost, firstPassword+"/code", nil); status != http.StatusConflict || !strings.Contains(string(body), "Your account already has a password. To change it, enter the one you have and the new one") {
 		t.Errorf("asking for the code of a first password as the rigger, who has a password: status %d, want 409 saying the account has one: %s", status, body)
 	}
-	// The simulated persona provider vouches for the warden under her login name, which
-	// no message can be sent to: her account is told it has no confirmed address, and
-	// she adds one and confirms it from the link mailed to it. The code goes there.
-	if status, body := warden.do(ctx, http.MethodPost, firstPassword+"/code", nil); status != http.StatusConflict || !strings.Contains(string(body), "Your account has no confirmed email address") {
-		t.Errorf("asking for the code of a first password with an address no message can be sent to: status %d, want 409 saying the account has no confirmed address: %s", status, body)
+	// The warden's account is told it has no confirmed address, when he asks for the
+	// code and when he posts a password, and what to do about it: he adds his address
+	// and confirms it from the link mailed to it. The code goes there.
+	noAddress := "Your account has no confirmed email address"
+	if status, body := warden.do(ctx, http.MethodPost, firstPassword+"/code", nil); status != http.StatusConflict || !strings.Contains(string(body), noAddress) {
+		t.Errorf("asking for the code of a first password before the warden has a confirmed address: status %d, want 409 saying the account has no confirmed address: %s", status, body)
+	}
+	if status, body := warden.do(ctx, http.MethodPost, firstPassword, chosen("000000")); status != http.StatusConflict || !strings.Contains(string(body), noAddress) {
+		t.Errorf("choosing a first password before the warden has a confirmed address: status %d, want 409 saying the account has no confirmed address: %s", status, body)
 	}
 	const wardensAddress = "warden@fleet.example"
 	if status, body := warden.do(ctx, http.MethodPost, consoleAPI+"/user/email", jsonBody(t, map[string]string{"email": wardensAddress})); status != http.StatusOK {
@@ -411,6 +414,12 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	_, token := lastMailTo(t, s, wardensAddress, "verify")
 	if status, body := warden.do(ctx, http.MethodPost, consoleAPI+"/user/email/verify", jsonBody(t, map[string]string{"token": token})); status != http.StatusOK {
 		t.Fatalf("confirming the warden's address from the mailed link: status %d: %s", status, body)
+	}
+	// His address is confirmed and no code has been asked for: a password posted now is
+	// refused, saying to ask for a code, and so is one posted with a code that is not
+	// the one mailed.
+	if status, body := warden.do(ctx, http.MethodPost, firstPassword, chosen("000000")); status != http.StatusConflict || !strings.Contains(string(body), "That code has expired or was already used. Ask for a new one") {
+		t.Errorf("choosing a first password before any code was mailed: status %d, want 409 saying to ask for a code: %s", status, body)
 	}
 	code := firstPasswordCode(ctx, t, warden)
 	wrong := "000000"
@@ -637,8 +646,11 @@ func firstPasswordCode(ctx context.Context, t *testing.T, b *browser) string {
 
 // signInAsPersona signs the browser in on the console as a persona of the cast through
 // the simulated persona provider: the login route sends the browser to the callback,
-// which signs in whoever APP_PERSONA_USERNAME names. The provider attests for the
-// person, so no code follows.
+// which signs in whoever APP_PERSONA_USERNAME names. The provider attests to the
+// person's second factor, so no sign-in code follows, and its accounts are the ones
+// the cast seeded, so the sign-in does not wait for a code that confirms an address
+// either: the provider's word confirms none, and the persona signs in holding the
+// cast's address unconfirmed.
 func (b *browser) signInAsPersona(ctx context.Context, login string) {
 	b.t.Helper()
 
