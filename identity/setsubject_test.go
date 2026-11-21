@@ -163,9 +163,9 @@ func TestRefuseImpersonatorAsSetSubject(t *testing.T) {
 					t.Fatalf("refuseImpersonatorAsSetSubject() error = %v, want nil", err)
 				}
 			} else {
-				want := "you are acting as someone else, so you cannot " + tt.wantAct
-				if err == nil || !httpio.HasForbidden(err) || !strings.HasPrefix(httpio.Message(err), want) {
-					t.Fatalf("refuseImpersonatorAsSetSubject() error = %v, want Forbidden starting %q", err, want)
+				want := "You are acting as someone else, so you cannot " + tt.wantAct + "."
+				if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != want {
+					t.Fatalf("refuseImpersonatorAsSetSubject() error = %v, want Forbidden saying %q", err, want)
 				}
 			}
 			if len(write.askedAbout) != len(tt.wantAsked) {
@@ -239,9 +239,9 @@ func TestRefuseImpersonatorAsReadThroughSubject(t *testing.T) {
 					t.Fatalf("refuseImpersonatorAsReadThroughSubject() error = %v, want nil", err)
 				}
 			} else {
-				want := "you are acting as someone else, so you cannot " + tt.wantAct
-				if err == nil || !httpio.HasForbidden(err) || !strings.HasPrefix(httpio.Message(err), want) {
-					t.Fatalf("refuseImpersonatorAsReadThroughSubject() error = %v, want Forbidden starting %q", err, want)
+				want := "You are acting as someone else, so you cannot " + tt.wantAct + "."
+				if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != want {
+					t.Fatalf("refuseImpersonatorAsReadThroughSubject() error = %v, want Forbidden saying %q", err, want)
 				}
 			}
 			if asked := len(write.askedFacts) == 1; asked != tt.wantAsked {
