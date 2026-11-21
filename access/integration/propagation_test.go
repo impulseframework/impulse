@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/access/internal/signaltest"
+	"github.com/impulseframework/impulse/access/internal/storetest"
 	"github.com/impulseframework/impulse/access/postgresstore"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/db"
@@ -54,8 +55,9 @@ func waitFor(t *testing.T, msg string, check func() bool) {
 	}
 }
 
-// newTestClient builds a Client instance over the shared typed-store tables;
-// a nil signal configures none.
+// newTestClient builds a Client instance over the shared typed-store tables,
+// of a release that declares the one grant the test writes; a nil signal
+// configures none.
 func newTestClient(t *testing.T, database *db.PostgresDatabase, name string, signal access.ChangeSignal, heartbeat time.Duration) *access.Client {
 	t.Helper()
 
@@ -70,7 +72,7 @@ func newTestClient(t *testing.T, database *db.PostgresDatabase, name string, sig
 	if err != nil {
 		t.Fatalf("postgresstore.New() error = %v", err)
 	}
-	client, err := access.New(store, opts...)
+	client, err := access.New(store, storetest.Declaring(map[accesstypes.Permission][]accesstypes.Resource{"Read": {"employees"}}), opts...)
 	if err != nil {
 		t.Fatalf("access.New() error = %v", err)
 	}
