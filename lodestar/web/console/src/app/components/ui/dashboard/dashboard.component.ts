@@ -59,7 +59,7 @@ export class DashboardComponent {
   ledgerColumns = ['name', 'openMissions', 'feesOutstanding', 'settlements'];
 
   // The card's rows: every resource the descriptor knows, sector-scoped ones asked in
-  // the open sector. Absent everywhere means the row still renders, greyed — the
+  // the open sector. Absent everywhere means the row still renders, grayed — the
   // badge shows what you do NOT hold as plainly as what you do.
   rows = computed<CardRow[]>(() => {
     const resources = Object.values(Resources) as Resource[];

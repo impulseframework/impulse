@@ -50,3 +50,8 @@
   font-size: 0.85rem;
   opacity: 0.8;
 }
+
+// What the server refused of a list, said in the list's place.
+.refusal {
+  color: var(--mat-sys-error);
+}

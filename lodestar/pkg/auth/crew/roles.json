@@ -1227,6 +1227,7 @@
                 "hangarId",
                 "userId",
                 "squadronId",
+                "groupId",
                 "levelId",
                 "expiresAt"
               ]
@@ -1614,6 +1615,7 @@
                 "hangarId",
                 "userId",
                 "squadronId",
+                "groupId",
                 "levelId",
                 "expiresAt"
               ]
@@ -1855,6 +1857,7 @@
                 "hangarId",
                 "userId",
                 "squadronId",
+                "groupId",
                 "levelId",
                 "expiresAt"
               ]
@@ -4195,7 +4198,7 @@
       },
       {
         "name": "Armorer",
-        "description": "Serves a squadron's ships where its hangar passes reach: sees the hangars a pass opens to them or to a squadron they fly with, and re-zones the ones a pass lets them run.",
+        "description": "Serves a squadron's ships where its hangar passes reach: sees the hangars a pass opens to them, to a squadron they fly with or to a group they are in, and re-zones the ones a pass lets them run.",
         "permissions": {
           "List": [
             {
