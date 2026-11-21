@@ -594,6 +594,20 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if status, body := turn(governor, bastion, true); status != http.StatusOK {
 		t.Errorf("turning directory only on for a sector that is directory only already, signed in with a password: status %d, want 200: %s", status, body)
 	}
+
+	// A decision, pinned as it is built. The warden holds the marshal's role in every
+	// sector and in no sector of its own, and his session is one Bastion's directory
+	// opened: in Bastion he does what the role file says of a marshal, turning directory
+	// only off included, which no rule holds. He turns it on again, as he did before.
+	if status, body := turn(warden, bastion, false); status != http.StatusOK {
+		t.Fatalf("turning Bastion's directory only off as a marshal in every sector, signed in through its directory: status %d, want 200: %s", status, body)
+	}
+	if status, got := state(warden, bastion); status != http.StatusOK || got != off {
+		t.Errorf("Bastion's switch once the warden turned it off: status %d %s, want 200 %s", status, got, off)
+	}
+	if status, body := turn(warden, bastion, true); status != http.StatusOK {
+		t.Errorf("turning Bastion's directory only on again as the warden: status %d, want 200: %s", status, body)
+	}
 }
 
 // cannotEnter reads Bastion's list of its people as the browser's user: each person's
