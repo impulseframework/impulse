@@ -548,8 +548,8 @@ func tenantCreationRefusal(record string) string {
 // tenantCreationOwnCreation is what the route does, said to the person who asks and as
 // the end of "you cannot": the words the route hands the rule that nobody is the subject
 // of what they do while they act as someone else (identity.RefuseImpersonatorAsSubject),
-// so the real person behind such a session reads "you are acting as someone else, so
-// you cannot create a tenant of your own".
+// so the real person behind such a session reads "You are acting as someone else, so
+// you cannot create a tenant of your own."
 func tenantCreationOwnCreation(record string) string {
 	lower := strings.ToLower(strcase.ToCase(record, strcase.LowerCase, ' '))
 

@@ -314,8 +314,7 @@ func TestImpersonatorRefusal(t *testing.T) {
 			if line != wantLine {
 				t.Errorf("ImpersonatorRefusal() line = %q, want %q", line, wantLine)
 			}
-			wantSays := "you are acting as someone else, so you cannot " + tt.act +
-				": while you act as another person, nothing you do is done to your own account. Stop acting as them first"
+			wantSays := "You are acting as someone else, so you cannot " + tt.act + "."
 			if !httpio.HasForbidden(refusal) || httpio.Message(refusal) != wantSays {
 				t.Errorf("ImpersonatorRefusal() refusal = %v, want a 403 that says %q", refusal, wantSays)
 			}

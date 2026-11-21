@@ -136,8 +136,7 @@ func TestAuthAPI_accountSwitches_refuseTheImpersonatorsOwnAccount(t *testing.T) 
 		f := newAuthFixture(t, ctrl)
 
 		err := tt.act(startedBy(&pat), f, pat)
-		wantSays := "you are acting as someone else, so you cannot " + tt.name + " your own account: " +
-			"while you act as another person, nothing you do is done to your own account. Stop acting as them first"
+		wantSays := "You are acting as someone else, so you cannot " + tt.name + " your own account."
 		if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != wantSays {
 			t.Errorf("%s the account of the person who started the session: error = %v, want the refusal %q, and the store asked nothing", tt.name, err, wantSays)
 		}
