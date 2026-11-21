@@ -109,11 +109,12 @@ func TestAuth_claimCodeAddress_tellsARenameByTheKelvinSign(t *testing.T) {
 // address to the case of ASCII letters alone. An address written with the Kelvin sign
 // (U+212A) is another address than the ASCII one the account holds confirmed: the change
 // is mailed its link, not dropped as no change, and on a store whose usernames are the
-// addresses the link's confirmation renames the user and tells the application.
+// addresses the link's confirmation renames the user and tells the application, and the
+// address it replaced is told.
 func TestAuth_addressChange_foldsOnlyASCIICase(t *testing.T) {
 	t.Parallel()
 
-	const holds, asked = "kim@kirkwood.edu", "\u212Aim@kirkwood.edu"
+	const holds, asked = "kim@lakeside.edu", "\u212Aim@lakeside.edu"
 	userID, _ := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
 	confirmed := time.Now().Add(-time.Hour)
@@ -141,5 +142,8 @@ func TestAuth_addressChange_foldsOnlyASCIICase(t *testing.T) {
 	}
 	if len(renamed) != 1 || renamed[0] != holds+" -> "+asked {
 		t.Errorf("rename hook calls = %q, want the one rename", renamed)
+	}
+	if msgs := recorder.Messages(); len(msgs) != 2 || msgs[1].To != holds {
+		t.Errorf("messages after the confirmation = %d, want the link and then the notice of the change at the address the account held", len(msgs))
 	}
 }

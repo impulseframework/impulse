@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/impulseframework/impulse/session/internal/simulated"
+	"github.com/impulseframework/impulse/session/internal/util"
 )
 
 // skipAuthGroupDomain is the domain the simulated lookup spells its groups under: a
@@ -41,7 +42,7 @@ func simulatedRoleGroups(registration string) []string {
 	roles := simulated.Roles(registration)
 	groups := make([]string, 0, len(roles))
 	for _, role := range roles {
-		groups = append(groups, strings.ToLower(role)+"@"+skipAuthGroupDomain)
+		groups = append(groups, util.LowerASCII(role)+"@"+skipAuthGroupDomain)
 	}
 
 	return groups
