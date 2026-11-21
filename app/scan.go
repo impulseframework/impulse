@@ -53,7 +53,7 @@ func passedOverByGo(name string, isDir bool) bool {
 // place the scan, the checks and impulse brand decide a Go file by its name, so that a
 // scratch file kept beside a package's real ones (_scratch.go, .draft.go), which no build
 // compiles, is read by none of them. It is asked by the scan of every file it walks
-// (scanFile, scanPackageDir) and of a generator program's directory (generate.go); by
+// (scanFile, scanPackageDir, StructColumns) and of a generator program's directory (generate.go); by
 // each check that reads one directory's Go files for itself (the check package); and by
 // impulse brand of the file it writes an auth's mail name into and of the files it looks
 // for a main in (the brand package). The commands that change an application (impulse
@@ -644,7 +644,7 @@ func (a *App) scanAnnotations(rel string, data []byte) error {
 // domainResource reads a struct annotated @permissionScope(domain): the resource, whether
 // its rows are a table's (@resource), and how they are bound to their tenant, by the
 // field annotated @domain: the column that holds the tenant's key on the row itself, or
-// the join path through another row.
+// the join path through another row with the column the row leaves by.
 func domainResource(rel string, d *structDoc) DomainResource {
 	r := DomainResource{File: rel, Line: d.Line, Name: d.Name, Table: resourceRE.MatchString(d.Doc)}
 	for i := range d.Fields {
@@ -656,6 +656,7 @@ func domainResource(rel string, d *structDoc) DomainResource {
 		}
 		if via := domainViaRE.FindStringSubmatch(f.Doc); via != nil {
 			r.DomainVia = via[1]
+			r.ViaColumn, _, _ = strings.Cut(reflect.StructTag(f.Tag).Get(spannerTag), ",")
 
 			break
 		}
@@ -1207,6 +1208,57 @@ func parseStructDocs(rel string, src []byte) ([]structDoc, error) {
 	}
 
 	return docs, nil
+}
+
+// StructColumns reads the structs of the Go package in a root-relative directory, test
+// files apart: for each struct type, the column each of its named fields maps to by its
+// spanner tag. A join path (@domain(via: ...)) names a Go field on each row it passes,
+// and this is how a reader of the schema finds that field's column.
+func (a *App) StructColumns(dir string) (map[string]map[string]string, error) {
+	entries, err := os.ReadDir(a.Abs(dir))
+	if err != nil {
+		return nil, errors.Wrap(err, "os.ReadDir()")
+	}
+	columns := map[string]map[string]string{}
+	for _, e := range entries {
+		if e.IsDir() || !GoToolReads(e.Name()) || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		rel := path.Join(dir, e.Name())
+		src, err := os.ReadFile(a.Abs(rel))
+		if err != nil {
+			return nil, errors.Wrap(err, "os.ReadFile()")
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), rel, src, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, errors.Wrap(err, "parser.ParseFile()")
+		}
+		for _, decl := range f.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				st, isStruct := ts.Type.(*ast.StructType)
+				if !isStruct {
+					continue
+				}
+				fields := map[string]string{}
+				for _, field := range fieldDocs(st) {
+					if column, _, _ := strings.Cut(reflect.StructTag(field.Tag).Get(spannerTag), ","); column != "" {
+						fields[field.Name] = column
+					}
+				}
+				columns[ts.Name.Name] = fields
+			}
+		}
+	}
+
+	return columns, nil
 }
 
 // fieldDocs reads a struct's named fields with their comments: the doc comment above a

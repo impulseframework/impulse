@@ -393,6 +393,7 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		"Left to wire, in this order:\n\n1. The bootstrap and the deployment.",
 		"How a tenant comes to exist. Nobody creates one directly: the record's create answers 400 with a sentence saying so.",
 		"`tenant-delete-rule`",
+		"A table that reaches its tenant through another row (`// @domain(via: ...)` on the column that names that row) carries `ON DELETE CASCADE` on that column's foreign key too, as every link of its way to the tenant table does",
 	}
 	for _, noDirectories := range []bool{false, true} {
 		meaning := Tenancy{Table: "Tenants", NoDirectories: noDirectories}.Meaning()

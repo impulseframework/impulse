@@ -625,7 +625,7 @@ func Test_servedRouterData(t *testing.T) {
 				if o.AuthPackage != "" || o.Getter != "" || o.Receiver != "h" || o.HookField != "Default" || o.SessionInterface != "DefaultSession" || o.StubType != "routerDefaultSessionStub" {
 					t.Errorf("default outlet = %+v", o)
 				}
-				if o.AuthLabel != "sessions (azure)" || o.MethodsPath != "/api/user/methods" || o.Pending != (servedPending{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel", SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email"}) {
+				if o.AuthLabel != "sessions (azure)" || o.MethodsPath != "/api/user/methods" || o.Pending != (servedPending{Status: "/api/user/pending", Cancel: "/api/user/pending/cancel", SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email"}) {
 					t.Errorf("default outlet's session = %+v", o)
 				}
 				if len(o.Methods) != 1 || o.Methods[0].Name != "azure" || o.Methods[0].Kind != "azure" || o.Methods[0].Label != "Microsoft" || o.Methods[0].Accessor != "Azure" || o.Methods[0].LoginPath != "/api/user/azure/login" || strings.Join(o.Methods[0].Handlers, ",") != "AzureLogin,AzureCallback,AzureFrontChannelLogout" {
@@ -647,15 +647,15 @@ func Test_servedRouterData(t *testing.T) {
 				}
 				want := "GET /api/user/methods Methods,GET /api/user/session Authenticated,DELETE /api/user/session Logout,GET /api/user/pending PendingStatus,GET /api/user/sign-in-means SignInMeans," +
 					"GET /api/user/azure/login AzureLogin,GET /api/user/azure/callback AzureCallback,GET /api/user/azure/logout AzureFrontChannelLogout," +
-					"POST /api/user/pending/confirm PendingConfirmWithPassword (xsrf),POST /api/user/pending/cancel PendingCancel (xsrf)," +
+					"POST /api/user/pending/cancel PendingCancel (xsrf)," +
 					"POST /api/user/pending/code PendingSendCode (xsrf),POST /api/user/pending/code/verify PendingVerifyCode (xsrf),POST /api/user/pending/email PendingEnrollEmail (xsrf),POST /api/user/browser/forget ForgetBrowser (xsrf),POST /api/user/name ChangeName (xsrf),POST /api/user/look ChangeLook (xsrf)," +
 					"POST /api/user/invitation InvitationOpen (xsrf),POST /api/user/email/confirm EmailConfirm (xsrf)," +
 					"POST /api/user/invitation/accept InvitationAccept (xsrf),POST /api/user/email EmailAdd (xsrf),POST /api/user/email/verify EmailVerify (xsrf)"
 				if got := strings.Join(paths, ","); got != want {
 					t.Errorf("routes = %s, want %s", got, want)
 				}
-				if len(o.OpenRoutes) != 8 || len(o.GuardedRoutes) != 10 || len(o.ValidatedRoutes) != 3 {
-					t.Errorf("open, guarded, validated = %d, %d, %d; want 8, 10, 3", len(o.OpenRoutes), len(o.GuardedRoutes), len(o.ValidatedRoutes))
+				if len(o.OpenRoutes) != 8 || len(o.GuardedRoutes) != 9 || len(o.ValidatedRoutes) != 3 {
+					t.Errorf("open, guarded, validated = %d, %d, %d; want 8, 9, 3", len(o.OpenRoutes), len(o.GuardedRoutes), len(o.ValidatedRoutes))
 				}
 				if o.Invitation != (servedInvitation{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept"}) || o.Email != (servedEmail{Add: "/api/user/email", Verify: "/api/user/email/verify", Confirm: "/api/user/email/confirm"}) || o.SignUp != nil || o.PasswordReset != nil {
 					t.Errorf("invitation, email, sign-up = %+v, %+v, %+v; want the invitation without sign-up, the email routes, no sign-up", o.Invitation, o.Email, o.SignUp)
@@ -1062,12 +1062,12 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"//\tevery request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams, NameEnvironment\n",
 				"//\tdefault (/api), sessions (azure):",
 				"//\t  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/azure/login, GET /api/user/azure/callback, GET /api/user/azure/logout",
-				"//\t  + ValidateXSRFToken: POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look",
+				"//\t  + ValidateXSRFToken: POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look",
 				"//\t  + ValidateSession, ValidateXSRFToken, CheckAPIVersion: hooks.Default\n//\t  + ValidateSession, ValidateXSRFToken, CheckAPIVersion, hooks.Default, EnforceReadOnlyMask: generatedRoutes",
 				"\t// The default outlet's session surface.\n\tDefaultSession\n",
 				"type DefaultSession interface {\n\tStartSession(next http.Handler) http.Handler\n",
 				"\tMethods(list *session.MethodList) http.HandlerFunc\n",
-				"\tPendingStatus() http.HandlerFunc\n\tPendingConfirmWithPassword() http.HandlerFunc\n\tPendingCancel() http.HandlerFunc\n\tPendingSendCode() http.HandlerFunc\n\tPendingVerifyCode() http.HandlerFunc\n\tPendingEnrollEmail() http.HandlerFunc\n\t// ForgetBrowser forgets the browser the second factor remembered for the signed-in\n\t// person, from their account page (session.Auth.ForgetBrowser); it validates the\n\t// session itself.\n\tForgetBrowser() http.HandlerFunc\n" +
+				"\tPendingStatus() http.HandlerFunc\n\tPendingCancel() http.HandlerFunc\n\tPendingSendCode() http.HandlerFunc\n\tPendingVerifyCode() http.HandlerFunc\n\tPendingEnrollEmail() http.HandlerFunc\n\t// ForgetBrowser forgets the browser the second factor remembered for the signed-in\n\t// person, from their account page (session.Auth.ForgetBrowser); it validates the\n\t// session itself.\n\tForgetBrowser() http.HandlerFunc\n" +
 					"\t// ChangeName writes the signed-in person's own name, from their account page\n\t// (session.Auth.ChangeName); it validates the session itself.\n\tChangeName() http.HandlerFunc\n" +
 					"\t// SignInMeans answers what the signed-in person signs in with, a password or none\n\t// and the directory sign-ins linked to them, to their account page\n\t// (session.Auth.SignInMeans); it validates the session itself.\n\tSignInMeans() http.HandlerFunc\n" +
 					"\t// ChangeLook keeps the look the signed-in person chose, so it follows them to\n\t// every browser (session.Auth.ChangeLook); it validates the session itself.\n\tChangeLook() http.HandlerFunc\n" +
@@ -1077,14 +1077,14 @@ func Test_servedRouterTemplates(t *testing.T) {
 					"\t// The address verified from the mailed link (session.EmailHandlers.Verify).\n\tEmailVerify() http.HandlerFunc\n" +
 					"\t// An address an administrator set for a person, confirmed from the link mailed to it (session.EmailHandlers.Confirm).\n\tEmailConfirm() http.HandlerFunc\n" +
 					"\t// The azure registration's login, callback and front-channel logout (azure.Method).\n\tAzureLogin() http.HandlerFunc\n\tAzureCallback() http.HandlerFunc\n\tAzureFrontChannelLogout() http.HandlerFunc\n}",
-				"\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n\t\tguarded := bounded.With(h.ValidateXSRFToken)\n\t\tbounded.Get(\"/api/user/methods\", h.Methods(&session.MethodList{\n\t\t\tMethods: []session.AdvertisedMethod{\n\t\t\t\t{Name: \"azure\", Label: \"Microsoft\", Path: \"/api/user/azure/login\"},\n\t\t\t},\n\t\t\tPending: session.PendingRoutes{\n\t\t\t\tStatus: \"/api/user/pending\", Confirm: \"/api/user/pending/confirm\", Cancel: \"/api/user/pending/cancel\",\n\t\t\t\tSendCode: \"/api/user/pending/code\", VerifyCode: \"/api/user/pending/code/verify\", EnrollEmail: \"/api/user/pending/email\",\n\t\t\t},\n" +
+				"\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n\t\tguarded := bounded.With(h.ValidateXSRFToken)\n\t\tbounded.Get(\"/api/user/methods\", h.Methods(&session.MethodList{\n\t\t\tMethods: []session.AdvertisedMethod{\n\t\t\t\t{Name: \"azure\", Label: \"Microsoft\", Path: \"/api/user/azure/login\"},\n\t\t\t},\n\t\t\tPending: session.PendingRoutes{\n\t\t\t\tStatus: \"/api/user/pending\", Cancel: \"/api/user/pending/cancel\",\n\t\t\t\tSendCode: \"/api/user/pending/code\", VerifyCode: \"/api/user/pending/code/verify\", EnrollEmail: \"/api/user/pending/email\",\n\t\t\t},\n" +
 					"\t\t\tForgetBrowser: \"/api/user/browser/forget\",\n" +
 					"\t\t\tChangeName:    \"/api/user/name\",\n" +
 					"\t\t\tSignInMeans:   \"/api/user/sign-in-means\",\n" +
 					"\t\t\tChangeLook:    \"/api/user/look\",\n" +
 					"\t\t\tInvitation:    session.InvitationRoutes{Open: \"/api/user/invitation\", Accept: \"/api/user/invitation/accept\"},\n\t\t\tEmail:         session.EmailRoutes{Add: \"/api/user/email\", Verify: \"/api/user/email/verify\", Confirm: \"/api/user/email/confirm\"},\n\t\t}))\n",
 				"\t\tguarded.Post(\"/api/user/invitation\", h.InvitationOpen())\n",
-				"\t\tguarded.Post(\"/api/user/pending/confirm\", h.PendingConfirmWithPassword())\n\t\tguarded.Post(\"/api/user/pending/cancel\", h.PendingCancel())\n",
+				"\t\tguarded.Post(\"/api/user/pending/cancel\", h.PendingCancel())\n\t\tguarded.Post(\"/api/user/pending/code\", h.PendingSendCode())\n",
 				"\tServerVersion() string\n\t// ServerEnvironment is the name of the environment this server runs in, the\n\t// configuration's APP_ENVIRONMENT: what every answer names (resource.NameEnvironment)\n\t// and the About pop-up of a browser application shows. Production is told no name\n\t// and reports none, so its answers name no environment.\n\tServerEnvironment() string\n",
 				"func New(h Handlers, hooks Hooks) *chi.Mux {",
 				"\tr := chi.NewRouter()\n\t// The release this server was built from: every outlet names it on each answer\n\t// (X-Api-Version), and each session outlet's version check compares a browser\n\t// application's against it.\n\tserverVersion := h.ServerVersion()\n",
@@ -1112,7 +1112,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"func (s *routerDefaultSessionStub) AzureFrontChannelLogout() http.HandlerFunc {",
 				"func (s *routerDefaultSessionStub) Methods(*session.MethodList) http.HandlerFunc {\n\treturn s.rec.RecordHandlerCall(s.prefix + \"Methods\")\n}",
 				"\t\t{url: \"/api/user/azure/logout\", suffix: \"/user/azure/logout\", method: http.MethodGet, handler: \"AzureFrontChannelLogout\"},",
-				"\t\t{url: \"/api/user/pending/confirm\", suffix: \"/user/pending/confirm\", method: http.MethodPost, handler: \"PendingConfirmWithPassword\", xsrf: true},",
+				"\t\t{url: \"/api/user/pending/cancel\", suffix: \"/user/pending/cancel\", method: http.MethodPost, handler: \"PendingCancel\", xsrf: true},",
 				"\t\t{url: \"/api/user/email/verify\", suffix: \"/user/email/verify\", method: http.MethodPost, handler: \"EmailVerify\", xsrf: true, validated: true},",
 				"\t\t\tswitch {\n\t\t\tcase tt.validated:\n\t\t\t\twant = slices.Concat(want, chain.guards, chain.mask)\n\t\t\tcase tt.xsrf:\n\t\t\t\twant = append(want, chain.guards[1])\n\t\t\t}",
 				"\t\tguards: []string{\"ValidateSession\", \"ValidateXSRFToken\"},\n\t\tmask:   []string{\"EnforceReadOnlyMask\"},",
@@ -1410,6 +1410,93 @@ func Test_servedRouterTemplates(t *testing.T) {
 			for _, notWant := range tt.wantNotRouterTest {
 				if strings.Contains(routerTest, notWant) {
 					t.Errorf("router test must not contain %q:\n%s", notWant, routerTest)
+				}
+			}
+		})
+	}
+}
+
+// Test_servedRouter_passwordConfirmation pins that the password confirmation of a
+// pending sign-in is served exactly where the outlet's auth registers a password method.
+// With none, nobody holds a password to confirm with: the router mounts no confirm
+// route, the outlet's session surface names no handler for one, the login page is told
+// of none, and the generated test neither stubs nor walks one. The rest of the pending
+// sign-in (its status, its cancel and the mailed code) is served either way.
+func Test_servedRouter_passwordConfirmation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		methods []AuthMethod
+		want    bool
+	}{
+		{name: "one directory method", methods: []AuthMethod{AzureMethod("azure")}},
+		{name: "a directory method and the personas", methods: []AuthMethod{GoogleMethod("google"), PersonaMethod("persona")}},
+		{name: "the password method", methods: []AuthMethod{PasswordMethod()}, want: true},
+		{name: "the password method beside a directory method", methods: []AuthMethod{GoogleMethod("google"), PasswordMethod()}, want: true},
+	}
+	r := &resourceGenerator{client: &client{}}
+	r.router = packageDir("pkg/router")
+	r.resource = packageDir("pkg/resources")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			auth := &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: tt.methods}
+			outlets := []*routerOutlet{{name: "default", prefix: "api", servesSessions: true, auth: auth, webApp: "/"}}
+			data := r.servedRouterData(outlets, nil, nil, nil)
+			o := data.Outlets[0]
+
+			wantConfirm := ""
+			if tt.want {
+				wantConfirm = "/api/user/pending/confirm"
+			}
+			if want := (servedPending{Status: "/api/user/pending", Confirm: wantConfirm, Cancel: "/api/user/pending/cancel", SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email"}); o.Pending != want {
+				t.Errorf("pending routes = %+v, want %+v", o.Pending, want)
+			}
+			mounted := slices.ContainsFunc(o.Routes, func(route servedRoute) bool { return route.Handler == pendingConfirmHandler })
+			guarded := slices.ContainsFunc(o.GuardedRoutes, func(route servedRoute) bool { return route.Handler == pendingConfirmHandler && route.XSRF })
+			if mounted != tt.want || guarded != tt.want {
+				t.Errorf("the confirm route is mounted = %v, behind the XSRF guard = %v; want %v for both", mounted, guarded, tt.want)
+			}
+
+			router := render(t, r, "servedRouterTemplate", servedRouterTemplate, data)
+			routerTest := render(t, r, "servedRouterTestTemplate", servedRouterTestTemplate, data)
+			confirmation := []struct {
+				in, source, text string
+			}{
+				{in: "the router's session surface", source: router, text: "\tPendingConfirmWithPassword() http.HandlerFunc\n"},
+				{in: "the router's routes", source: router, text: "guarded.Post(\"/api/user/pending/confirm\", h.PendingConfirmWithPassword())"},
+				{in: "the routes the login page is told", source: router, text: "Confirm: \"/api/user/pending/confirm\", Cancel: \"/api/user/pending/cancel\","},
+				{in: "the router's chain comment", source: router, text: "POST /api/user/pending/confirm"},
+				{in: "the generated test's stub", source: routerTest, text: "func (s *routerDefaultSessionStub) PendingConfirmWithPassword() http.HandlerFunc {"},
+				{in: "the generated test's routes", source: routerTest, text: "{url: \"/api/user/pending/confirm\", suffix: \"/user/pending/confirm\", method: http.MethodPost, handler: \"PendingConfirmWithPassword\", xsrf: true},"},
+			}
+			for _, c := range confirmation {
+				if got := strings.Contains(c.source, c.text); got != tt.want {
+					t.Errorf("%s: %q is there = %v, want %v", c.in, c.text, got, tt.want)
+				}
+			}
+			if !tt.want {
+				for name, source := range map[string]string{"the router": router, "the generated test": routerTest} {
+					for _, text := range []string{"PendingConfirmWithPassword", "/user/pending/confirm", "password confirmation"} {
+						if strings.Contains(source, text) {
+							t.Errorf("%s of an auth with no password method must not say %q", name, text)
+						}
+					}
+				}
+			}
+			// What does not need a password is served either way.
+			for _, text := range []string{
+				"\tPendingStatus() http.HandlerFunc\n",
+				"\tPendingCancel() http.HandlerFunc\n",
+				"guarded.Post(\"/api/user/pending/cancel\", h.PendingCancel())",
+				"guarded.Post(\"/api/user/pending/code/verify\", h.PendingVerifyCode())",
+				"Pending: session.PendingRoutes{\n\t\t\t\tStatus: \"/api/user/pending\", ",
+				"SendCode: \"/api/user/pending/code\", VerifyCode: \"/api/user/pending/code/verify\", EnrollEmail: \"/api/user/pending/email\",",
+			} {
+				if !strings.Contains(router, text) {
+					t.Errorf("router missing %q", text)
 				}
 			}
 		})

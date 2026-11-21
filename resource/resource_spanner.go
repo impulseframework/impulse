@@ -10,7 +10,6 @@ import (
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/spxscan"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 	"google.golang.org/api/iterator"
@@ -195,7 +194,9 @@ func (q *optionsQuerier) Query(ctx context.Context, statement spanner.Statement)
 	return q.Querier.Query(ctx, statement)
 }
 
-// Read reads a single resource from the database.
+// Read reads a single resource from the database. A row that is not there answers 404 in
+// plain words (recordNotFound): the statement's WHERE clause is kept for the server's
+// log and is never sent to the caller.
 func (c *spannerReader[Resource]) Read(ctx context.Context, stmt *Statement) (*Row[Resource], error) {
 	var res Resource
 	if envelopeScan(stmt) {
@@ -204,7 +205,7 @@ func (c *spannerReader[Resource]) Read(ctx context.Context, stmt *Statement) (*R
 			return nil, err
 		}
 		if row == nil {
-			return nil, httpio.NewNotFoundMessagef("%s (%s) not found", res.Resource(), stmt.resolvedWhereClause)
+			return nil, recordNotFound(res.Resource(), stmt.resolvedWhereClause)
 		}
 
 		return row, nil
@@ -213,7 +214,7 @@ func (c *spannerReader[Resource]) Read(ctx context.Context, stmt *Statement) (*R
 	row := new(Row[Resource])
 	if err := spxscan.Get(ctx, c.querier(stmt), &row.Data, stmt.SpannerStatement()); err != nil {
 		if errors.Is(err, spxapi.ErrNotFound) {
-			return nil, httpio.NewNotFoundMessagef("%s (%s) not found", res.Resource(), stmt.resolvedWhereClause)
+			return nil, recordNotFound(res.Resource(), stmt.resolvedWhereClause)
 		}
 
 		return nil, errors.Wrap(err, "spxscan.Get()")

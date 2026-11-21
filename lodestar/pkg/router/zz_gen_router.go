@@ -18,7 +18,7 @@
 //	  POST /droids/sectors/{sectorID}/ingest-droid-reports: request log on event
 //	portal (/portal/api), sessions of the members auth (directory):
 //	  BindAuth(members.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /portal/api/user/methods, GET /portal/api/user/session, DELETE /portal/api/user/session, GET /portal/api/user/pending, GET /portal/api/user/sign-in-means, GET /portal/api/user/directory/login, GET /portal/api/user/directory/callback
-//	  + ValidateXSRFToken: POST /portal/api/user/pending/confirm, POST /portal/api/user/pending/cancel, POST /portal/api/user/pending/code, POST /portal/api/user/pending/code/verify, POST /portal/api/user/pending/email, POST /portal/api/user/browser/forget, POST /portal/api/user/name, POST /portal/api/user/look, POST /portal/api/user/invitation, POST /portal/api/user/email/confirm
+//	  + ValidateXSRFToken: POST /portal/api/user/pending/cancel, POST /portal/api/user/pending/code, POST /portal/api/user/pending/code/verify, POST /portal/api/user/pending/email, POST /portal/api/user/browser/forget, POST /portal/api/user/name, POST /portal/api/user/look, POST /portal/api/user/invitation, POST /portal/api/user/email/confirm
 //	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /portal/api/user/invitation/accept, POST /portal/api/user/email, POST /portal/api/user/email/verify
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion: hooks.Portal
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion, hooks.Portal, EnforceReadOnlyMask: generatedPortalRoutes
@@ -235,12 +235,12 @@ type PortalSession interface {
 	// Methods tells the login page what the outlet offers (session.Auth.Methods): the
 	// router hands it the methods below at the paths it mounts them.
 	Methods(list *session.MethodList) http.HandlerFunc
-	// The pending sign-in (session.PendingHandlers): a sign-in that waits for a
-	// password confirmation or for the second factor, and the second factor's step:
-	// the sign-in code the Auth mails, verified from the login page, and the address a
-	// person who holds none gives for it.
+	// The pending sign-in (session.PendingHandlers): a sign-in that waits for the
+	// second factor, and the second factor's step: the sign-in code the Auth mails,
+	// verified from the login page, and the address a person who holds none gives for
+	// it. The Auth has no password method, so no pending sign-in is confirmed with a
+	// password and the router mounts no route for one.
 	PendingStatus() http.HandlerFunc
-	PendingConfirmWithPassword() http.HandlerFunc
 	PendingCancel() http.HandlerFunc
 	PendingSendCode() http.HandlerFunc
 	PendingVerifyCode() http.HandlerFunc
@@ -564,7 +564,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				{Name: "directory", Label: "Company directory", Path: "/portal/api/user/directory/login"},
 			},
 			Pending: session.PendingRoutes{
-				Status: "/portal/api/user/pending", Confirm: "/portal/api/user/pending/confirm", Cancel: "/portal/api/user/pending/cancel",
+				Status: "/portal/api/user/pending", Cancel: "/portal/api/user/pending/cancel",
 				SendCode: "/portal/api/user/pending/code", VerifyCode: "/portal/api/user/pending/code/verify", EnrollEmail: "/portal/api/user/pending/email",
 			},
 			ForgetBrowser: "/portal/api/user/browser/forget",
@@ -580,7 +580,6 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		bounded.Get("/portal/api/user/sign-in-means", portalSession.SignInMeans())
 		bounded.Get("/portal/api/user/directory/login", portalSession.DirectoryLogin())
 		bounded.Get("/portal/api/user/directory/callback", portalSession.DirectoryCallback())
-		guarded.Post("/portal/api/user/pending/confirm", portalSession.PendingConfirmWithPassword())
 		guarded.Post("/portal/api/user/pending/cancel", portalSession.PendingCancel())
 		guarded.Post("/portal/api/user/pending/code", portalSession.PendingSendCode())
 		guarded.Post("/portal/api/user/pending/code/verify", portalSession.PendingVerifyCode())

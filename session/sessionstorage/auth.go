@@ -602,6 +602,10 @@ type SignInRules[Tx any] struct {
 	// application's own (signin.Registration.SeededUsers): a user created ahead is
 	// then linked on the name alone.
 	SeededUsers bool
+	// NoPassword says the Auth registers no password method: a password an account
+	// holds then holds no sign-in for a confirmation, which no sign-in could give, and
+	// the account is decided as one with no password.
+	NoPassword  bool
 	Policy      signin.Policy[Tx]
 	Accept      signinflow.InvitationAcceptor[Tx]
 	SignUp      signinflow.SignUpSeater[Tx]
@@ -638,7 +642,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 
 	flowRules := signinflow.Rules[Tx]{
 		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
-		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn,
+		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, NoPassword: rules.NoPassword,
 		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven, ConfirmAddress: rules.ConfirmAddress,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {

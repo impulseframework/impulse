@@ -359,10 +359,16 @@ describe('the words of the Feature flags page', () => {
 
 describe("a row's History button", () => {
   it("opens the flag's history in a pop-up, named as the server names the flag and titled in its words", async () => {
-    const opened: { data: unknown }[] = [];
+    // The pop-up's package is loaded when a person first asks for a history, so the pop-up
+    // opens some time after the click. The test waits for the pop-up itself, however long
+    // the load takes, and never for a number of turns of the event loop.
+    let open: (data: unknown) => void = () => undefined;
+    const opened = new Promise<unknown>((resolve) => {
+      open = resolve;
+    });
     const dialog = {
       open: (_: unknown, config: { data: unknown }) => {
-        opened.push({ data: config.data });
+        open(config.data);
         return { close: () => undefined } as unknown as MatDialogRef<unknown>;
       },
     } as unknown as MatDialog;
@@ -371,11 +377,7 @@ describe("a row's History button", () => {
 
     expect([button?.label, button?.icon]).toEqual(['History', 'history']);
     button?.run({ name: 'cargo_manifest', enabled: true }, injector);
-    // The pop-up's package is loaded when a person first asks for a history.
-    for (let i = 0; i < 50 && opened.length === 0; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
 
-    expect(opened).toEqual([{ data: { name: 'cargo_manifest', words: 'Cargo manifest' } }]);
+    expect(await opened).toEqual({ name: 'cargo_manifest', words: 'Cargo manifest' });
   });
 });

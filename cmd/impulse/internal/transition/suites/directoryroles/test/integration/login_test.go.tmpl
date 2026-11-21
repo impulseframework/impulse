@@ -1,0 +1,75 @@
+package integration
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/session/sessioninfo"
+)
+
+// TestLogin drives the served stack the way the console does: sign in through the
+// directory, read the session, read the permission digest. The directory gives every
+// role, so who a person is in the application is what it asserts at their sign-in: a
+// person it gives a role the role file defines becomes a user and holds that role, and a
+// person it gives none is refused, with no account made for them.
+func TestLogin(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+
+	tests := []struct {
+		name string
+		user string
+		// roles are the roles the directory asserts for the person at this sign-in.
+		roles []accesstypes.Role
+		// wantRefused is the reason the login page is told, where the sign-in is refused.
+		wantRefused sessioninfo.LoginRefusalCode
+		wantDigest  int
+	}{
+		{name: "a person the directory gives a role signs in and reads their digest", user: adminUser, roles: []accesstypes.Role{"Administrator"}, wantDigest: http.StatusOK},
+		{name: "a person the directory gives no role is refused and the digest stays closed", user: "visitor@" + organization, wantRefused: sessioninfo.RefusedNoRoles, wantDigest: http.StatusUnauthorized},
+		{name: "a role the role file does not define is no role", user: "stranger@" + organization, roles: []accesstypes.Role{"Gardener"}, wantRefused: sessioninfo.RefusedNoRoles, wantDigest: http.StatusUnauthorized},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBrowser(t, s)
+
+			// The first request primes the XSRF cookie the session middleware issues.
+			if status, body := b.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK {
+				t.Fatalf("GET /api/user/session before login: status %d: %s", status, body)
+			}
+
+			if tt.wantRefused == "" {
+				// The directory admits the person, and the session opens once the second
+				// factor every session carries is entered: the sign-in code the auth mailed.
+				b.signIn(ctx, tt.user, tt.roles...)
+			} else if status, location := b.directoryRoundTrip(ctx, tt.user, tt.roles); status != http.StatusFound || location != "/login?code="+string(tt.wantRefused) {
+				t.Fatalf("the sign-in through the directory: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, tt.wantRefused)
+			}
+
+			sess := b.session(ctx)
+			if sess.Authenticated != (tt.wantRefused == "") {
+				t.Errorf("authenticated = %v, want %v", sess.Authenticated, tt.wantRefused == "")
+			}
+			if sess.Authenticated && sess.Username != tt.user {
+				t.Errorf("the session is %s's, want %s's", sess.Username, tt.user)
+			}
+
+			status, body := b.do(ctx, http.MethodGet, "/api/permission-digest", nil)
+			if status != tt.wantDigest {
+				t.Fatalf("GET /api/permission-digest: status %d, want %d: %s", status, tt.wantDigest, body)
+			}
+			if status == http.StatusOK {
+				var digest accesstypes.PermissionDigest
+				if err := json.Unmarshal(body, &digest); err != nil {
+					t.Fatalf("digest is not a PermissionDigest: %v: %s", err, body)
+				}
+			}
+		})
+	}
+}

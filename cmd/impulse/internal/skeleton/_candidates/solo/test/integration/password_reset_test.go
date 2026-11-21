@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
 	"github.com/impulseframework/impulse/session/mail"
 )
 
@@ -192,7 +193,7 @@ func TestPasswordReset_theWayBackIn(t *testing.T) {
 		t.Fatalf("the administrator's link: status %d: %s, want 200 saying it was sent", status, body)
 	}
 	sent := s.mail.Messages()[before:]
-	if len(sent) != 1 || !strings.Contains(sent[0].To, address) || !strings.Contains(sent[0].Text, "An administrator of Solo asked us to send you a link to reset the password") {
+	if len(sent) != 1 || !strings.Contains(sent[0].To, address) || !strings.Contains(sent[0].Text, "An administrator of "+staff.Application+" asked us to send you a link to reset the password") {
 		// A message's text holds its link, so a failure counts the messages and never
 		// prints one.
 		t.Fatalf("the administrator's link mailed %d message(s), want one to %s saying an administrator asked", len(sent), address)
