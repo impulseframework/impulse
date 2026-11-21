@@ -262,8 +262,8 @@ func TestMissionDocument_portalListing(t *testing.T) {
 
 	status, content := doRequestAs(t, h, "client", http.MethodGet, portalPath(anvil, "mission-documents/"+id+"/content"), "")
 	assertStatus(t, status, http.StatusForbidden, content)
-	if !strings.Contains(string(content), "MissionDocuments.content") {
-		t.Errorf("refusal = %s, want it to name the content field", content)
+	if got, want := refusalMessage(t, content), "You may not see the content of mission documents here."; got != want {
+		t.Errorf("refusal = %q, want %q: the field in a person's words", got, want)
 	}
 }
 
