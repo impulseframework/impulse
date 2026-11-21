@@ -21,11 +21,11 @@ type FactorCode struct {
 	PendingID impulse.UUID
 	// Email is the address the code was mailed to.
 	Email string
-	// InvitationID is the invitation the code was mailed for, null for an account's own
-	// sign-in code. A code mailed to an invited address accepts that invitation and
-	// nothing else: it is judged only in a browser that carries that invitation, the
-	// guesses made at it are counted against that invitation, and it is no account's
-	// second factor.
+	// InvitationID is the invitation the code was mailed for, null for every other code:
+	// an account's own sign-in code, and a code mailed to an address a person gave. A code
+	// mailed for an invitation accepts that invitation and nothing else: it is judged only
+	// in a browser that carries that invitation, the codes entered for it are counted
+	// against that invitation, and it is no account's second factor.
 	InvitationID impulse.NullUUID
 	CodeHash     []byte
 	Attempts     int

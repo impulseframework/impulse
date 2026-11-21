@@ -1297,7 +1297,8 @@ sends it for an application that resets the factor in rows of its own).
 
 **What the tables hold.** A code is a row of `SessionFactorCodes`: the pending sign-in
 it was sent for, the address, the invitation it was mailed for where it accepts one
-(`InvitationId`, null for an account's own sign-in code), the code's hash salted by the
+(`InvitationId`, null for every other code: an account's own sign-in code, and a code
+mailed to an address a person gave), the code's hash salted by the
 pending sign-in, the wrong
 attempts, and when it was created, expires and was consumed; one code stands for a
 pending sign-in at a time, however many are recorded at once (the PostgreSQL driver
