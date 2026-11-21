@@ -219,6 +219,28 @@ func TestAcceptance_theLinkAloneAcceptsNothing(t *testing.T) {
 			t.Errorf("Accepted = %t, granted = %v, sessions = %d; want nothing given and one session", inv.Accepted, store.granted, store.sessions)
 		}
 	})
+
+	t.Run("an invitation that died ends the sign-in that entered its code: the code is no second factor of the account", func(t *testing.T) {
+		t.Parallel()
+
+		store, id, inv := seed(&account{username: "sam"}, true)
+		store.invitations[inv.ID] = false
+		hooks := &roleHooks{store: store}
+		req := &sessioninfo.NewSessionRequest{
+			Reason: sessioninfo.ReasonLogin, Username: "sam", UserID: id,
+			Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: id.String()}, Invitation: inv,
+		}
+
+		err := signInWith(t, &memDriver{store: store}, req, Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept})
+
+		if got := sessioninfo.LoginRefusalCodeOf(err); got != sessioninfo.RefusedInvitationExpired || !errors.Is(err, signin.ErrInvitationExpired) {
+			t.Fatalf("SignIn() error = %v (code %q), want the refusal of an invitation that ended: the code was mailed to accept it and proves nothing else", err, got)
+		}
+		if user := store.users[id]; inv.Accepted || len(store.granted) != 0 || store.sessions != 0 || user.email != "" {
+			t.Errorf("Accepted = %t, granted = %v, sessions = %d, the account's address = %q; want nothing given, nobody signed in and no address written",
+				inv.Accepted, store.granted, store.sessions, user.email)
+		}
+	})
 }
 
 // TestInvitedCodeMessage holds the sentence a person signed in is shown when their

@@ -1,0 +1,3 @@
+BEGIN;
+ALTER TABLE "SessionFactorCodes" DROP COLUMN IF EXISTS "InvitationId";
+COMMIT;

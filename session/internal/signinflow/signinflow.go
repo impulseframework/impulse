@@ -333,14 +333,20 @@ func SignIn[Tx any](
 			// The address was held to the invited one above, and the acceptance is held
 			// to the code mailed to it unless the account holds it confirmed: the sign-in
 			// waits for the code, naming its account, with nothing written. A dead
-			// invitation is skipped and the sign-in goes on; an acceptor that fails ends
-			// it, the invitation standing.
-			_, stop, err := acceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Invitation, rules.Accept, namedCodeWait)
+			// invitation is skipped and the sign-in goes on, unless the sign-in entered
+			// the code mailed for it: that code is the invitation's acceptance and no
+			// account's second factor, so the sign-in ends with the invitation, nobody
+			// signed in and nothing written. An acceptor that fails ends it, the
+			// invitation standing.
+			dead, stop, err := acceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Invitation, rules.Accept, namedCodeWait)
 			if err != nil {
 				return err
 			}
 			if stop != nil {
 				return stop
+			}
+			if dead && req.Invitation.AddressProven {
+				return Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, InvitationEnded)
 			}
 		}
 	}
@@ -493,7 +499,10 @@ func notTheInvited[Tx any](ctx context.Context, d Driver[Tx], tx Tx, inv *sessio
 // the invited address to be its own: the sign-in is held for the email code, which the
 // library mails to the invited address. The person is known, so the wait names the
 // account; nothing is written before the code is entered, and the invitation is
-// accepted in the transaction of the sign-in that carries the code.
+// accepted in the transaction of the sign-in that carries the code. That transaction
+// is the one place the invited address is written on the account: the code is the
+// invitation's and no second factor of the account, so a sign-in that entered it and
+// finds the invitation dead ends there, with nobody signed in and no address taken.
 func namedCodeWait(user *dbtype.User, _ *sessioninfo.Invitation) error {
 	return &signin.PendingSignInError{
 		Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(user.ID), Username: user.Username, Tenant: "", Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},

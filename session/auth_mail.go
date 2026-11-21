@@ -128,7 +128,13 @@ const invitationGuessHorizon = 100 * 365 * 24 * time.Hour
 // accept the invitation inv: the invitation's id under a kind of its own, apart from
 // the count of the codes sent for it (invitationCodeLimitKey).
 func invitationGuessKey(inv *sessioninfo.Invitation) string {
-	return attempts.OwnKey(attempts.KindInvitationGuess, inv.ID.String())
+	return invitationGuessKeyOf(inv.ID)
+}
+
+// invitationGuessKeyOf is invitationGuessKey for the invitation with id: a code names
+// the invitation it was mailed for by its id (dbtype.FactorCode.InvitationID).
+func invitationGuessKeyOf(id impulse.UUID) string {
+	return attempts.OwnKey(attempts.KindInvitationGuess, id.String())
 }
 
 // errInvitationSpent is the refusal of a code asked for or entered to accept an
@@ -654,10 +660,30 @@ func (a *Auth[S, U, Tx]) invitationSpent(ctx context.Context, inv *sessioninfo.I
 // one is answered as the invitation spent. Every code takes a place, the right one too:
 // an invitation it accepts takes no more codes anyway.
 //
-// A code that is the account's own (codeDestination) is counted against no invitation,
-// and neither is the code of a wait whose invitation is gone, which is answered as it
-// always was. A browser that carries no invitation is asked nothing more for this.
-func (a *Auth[S, U, Tx]) takeInvitationGuess(ctx context.Context, p *pendingState) (last bool, err error) {
+// The invitation is the one the standing code was mailed for (standing's InvitationID),
+// whatever the request carries: a browser that drops the invitation, or carries another
+// one, still uses up that invitation's places and nobody else's. Such a code is judged
+// only in a browser that carries that same invitation, live (carriesInvitation): in any
+// other it is refused once its place is taken, compared with nothing, and nothing is
+// written.
+//
+// A code that names no invitation is the account's own. It, and a code entered while
+// none stands (standing is nil), takes a place only in a browser that carries an
+// invitation the wait's code would be mailed for (codeDestination), in that
+// invitation's count. The code of a wait whose invitation is gone is answered as it
+// always was.
+func (a *Auth[S, U, Tx]) takeInvitationGuess(ctx context.Context, p *pendingState, standing *sessionstorage.FactorCode) (last bool, err error) {
+	if standing != nil && standing.InvitationID.Valid {
+		last, err := a.countInvitationGuess(ctx, standing.InvitationID.UUID)
+		if err != nil {
+			return false, err
+		}
+		if err := a.carriesInvitation(ctx, standing.InvitationID.UUID); err != nil {
+			return false, err
+		}
+
+		return last, nil
+	}
 	if _, carried := invitationTokenHash(ctx); !carried {
 		return false, nil
 	}
@@ -672,7 +698,15 @@ func (a *Auth[S, U, Tx]) takeInvitationGuess(ctx context.Context, p *pendingStat
 	if inv == nil {
 		return false, nil
 	}
-	record, err := a.storage.RecordSignInFailure(ctx, invitationGuessKey(inv), invitationGuessLimit)
+
+	return a.countInvitationGuess(ctx, inv.ID)
+}
+
+// countInvitationGuess counts one code entered for the invitation with id, and reports
+// whether it took the last place. A code that is not counted, the invitation being at
+// its limit already, is refused with invitation_spent.
+func (a *Auth[S, U, Tx]) countInvitationGuess(ctx context.Context, id impulse.UUID) (last bool, err error) {
+	record, err := a.storage.RecordSignInFailure(ctx, invitationGuessKeyOf(id), invitationGuessLimit)
 	if err != nil {
 		return false, errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
 	}
@@ -682,6 +716,27 @@ func (a *Auth[S, U, Tx]) takeInvitationGuess(ctx context.Context, p *pendingStat
 	_, locked := record.Locked(time.Now())
 
 	return locked, nil
+}
+
+// carriesInvitation refuses a code mailed for the invitation with id in a browser that
+// does not carry that invitation, live. One that carries none, or whose invitation was
+// used, withdrawn or ran out, is answered as an invitation that ended, and one that
+// carries another as a wait that ran out, as a sign-up through an invitation answers
+// them (invitedSignUpAttempt). The code is that invitation's acceptance or it is
+// nothing: no account's second factor, and no proof of an address to write.
+func (a *Auth[S, U, Tx]) carriesInvitation(ctx context.Context, id impulse.UUID) error {
+	inv, err := a.invitationOf(ctx)
+	if err != nil {
+		return err
+	}
+	if inv == nil {
+		return errInvitationEnded()
+	}
+	if inv.ID != id {
+		return errPendingExpired()
+	}
+
+	return nil
 }
 
 // limitSent takes a message's place under the mail limit in the count kept under key,

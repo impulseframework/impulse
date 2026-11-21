@@ -77,8 +77,10 @@ the second factor's tables (`SessionFactorCodes`, `SessionTrustedDevices`), the
 person's name `Name` (`SessionNames`), the tenant an invitation makes, the mail
 links table's `NewTenant` column (`SessionTenantInvitations`), the mark that an
 invitation's roles are held in every tenant, its `EveryTenant` column
-(`SessionInvitationPlaces`), and the time a link's message could not be mailed, its
-`MailFailedAt` column (`SessionUnmailedLinks`); see "Users and their
+(`SessionInvitationPlaces`), the time a link's message could not be mailed, its
+`MailFailedAt` column (`SessionUnmailedLinks`), and the invitation a code was mailed
+for, the factor codes table's `InvitationId` column (`SessionCodeInvitations`); see
+"Users and their
 email address" for the two shapes the address columns take, "A person's name" and
 "Invitations".
 
@@ -1230,11 +1232,16 @@ the person reaches.
    under no address: whoever holds the invitation's link has them sent, and a mailed
    link can be forwarded, so its holder uses up that invitation's codes and nothing
    else. An invitation also takes twenty-five codes and no more. Its code is the only
-   thing between the holder of its link and what it gives, so every code entered to
-   accept it takes a place under the invitation (`INVITATION-GUESS:` and its id)
-   before it is judged, in every sign-in that carries it, and that count never starts
+   thing between the holder of its link and what it gives, so a code records the
+   invitation it was mailed for, and every such code entered takes a place under that
+   invitation (`INVITATION-GUESS:` and its id) before it is judged, in every sign-in
+   and whatever the browser that enters it carries, and that count never starts
    again: it is reset by nothing, and it is kept for longer than any invitation
-   stands. The wrong code that takes the twenty-fifth place, and every code asked for
+   stands. Such a code is judged only in a browser that carries that same invitation.
+   Entered in one that carries none (`401 {"code": "invitation_expired"}`) or another
+   invitation (`401 {"code": "pending_expired"}`), it is refused without being
+   compared, its place taken and nothing written: it is the acceptance of that
+   invitation and no account's second factor. The wrong code that takes the twenty-fifth place, and every code asked for
    or entered after it, is `401 {"code": "invitation_spent"}`; nothing more is mailed
    for the invitation, and an administrator invites the person again. The right code
    among the twenty-five accepts. The links, and a code asked for an address a person types at this step, are
@@ -1285,7 +1292,9 @@ administrator's reset by a notice to the address they confirmed (`NoticeFactorRe
 sends it for an application that resets the factor in rows of its own).
 
 **What the tables hold.** A code is a row of `SessionFactorCodes`: the pending sign-in
-it was sent for, the address, the code's hash salted by the pending sign-in, the wrong
+it was sent for, the address, the invitation it was mailed for where it accepts one
+(`InvitationId`, null for an account's own sign-in code), the code's hash salted by the
+pending sign-in, the wrong
 attempts, and when it was created, expires and was consumed; one code stands for a
 pending sign-in at a time, however many are recorded at once (the PostgreSQL driver
 takes the pending sign-in's row for the insert, and Spanner's transaction is
@@ -2001,6 +2010,10 @@ one it sends.
   address unconfirmed is mailed its own sign-in code there. Until the code is entered
   the invitation stands, nothing is granted and the account takes no address; entering
   it accepts the invitation and writes the address on the account, confirmed. The
+  invitation's code is held to its invitation here as well: the invited address reaches
+  the account in the acceptance's transaction and nowhere else, so the code entered in
+  a browser that does not carry that invitation, or once the invitation was used,
+  withdrawn or has taken its twenty-five codes, signs nobody in and writes nothing. The
   acceptance by hand of a person signed in
   (`Invitation().Accept()`) is held to the address the same way, answered 403 with the
   sentence. A session cannot wait for a code, so a person whose account has not

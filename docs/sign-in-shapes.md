@@ -313,7 +313,12 @@ the code. The code comes in a message of its own, which says that it accepts an
 invitation and that somebody else has the invitation's link if the person did not open
 it themselves. An invitation takes twenty-five codes: after twenty-five were entered and
 none of them accepted it, no more are mailed for it and none is taken, however long it
-stands, and the person asks whoever invited them for a new invitation. An account that
+stands, and the person asks whoever invited them for a new invitation. A code counts
+toward the twenty-five of the invitation it was mailed for, and it works only in a
+browser that has that invitation's link open: entered anywhere else it is refused, and
+it still counts. The invited address is put on an account only as the invitation is
+accepted, so the code of an invitation that was used, withdrawn or has taken its
+twenty-five changes nothing. An account that
 has confirmed the invited address accepts with no code.
 This is described under "Invitations" and "The first administrator's invitation" in
 [session/README.md](../session/README.md).

@@ -25,6 +25,7 @@ import (
 	"github.com/impulseframework/impulse/session/internal/oidctest"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
@@ -43,6 +44,8 @@ const takenDirectory = "Riverside High"
 type tenantInvitationApp[Tx any] struct {
 	*authApp[Tx]
 	google *oidctest.FakeIDP
+	// store is the Auth's store, where a scenario reads what the library counted.
+	store *sessionstorage.Auth[Tx]
 
 	mu sync.Mutex
 	// made are the invitations the hook was handed, as it was handed them.
@@ -61,7 +64,7 @@ func newTenantInvitationApp[Tx any](ctx context.Context, t *testing.T, be backen
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
-	a := &tenantInvitationApp[Tx]{google: googleIDP}
+	a := &tenantInvitationApp[Tx]{google: googleIDP, store: store}
 	auth.SetSignInPolicy(h.signInPolicy)
 	auth.SetInvitationAccepted(a.accepted)
 	password := session.PasswordSignIn(auth)

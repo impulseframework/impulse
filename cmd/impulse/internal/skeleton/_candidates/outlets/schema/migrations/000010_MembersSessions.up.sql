@@ -263,7 +263,9 @@ CREATE INDEX MembersSessionDeviceCodesByUserCode ON MembersSessionDeviceCodes(Us
 -- devices. A sign-in code is one code mailed for a pending sign-in (PendingId): the mail
 -- carries the code and the row keeps its hash; the row is live while it is not consumed
 -- and not expired, Attempts counts the wrong codes entered against it, and a new code for
--- the same pending sign-in consumes the earlier one. A trusted device is a browser a
+-- the same pending sign-in consumes the earlier one. A code mailed to an invited address
+-- names the invitation it was mailed for (InvitationId) and accepts that one alone; an
+-- account's own sign-in code names none. A trusted device is a browser a
 -- person asked to be remembered after a code (UserId): the browser holds an opaque token
 -- in the auth's trusted-device cookie and the row keeps its hash; it stands in for the
 -- factor while it is not revoked and not expired, and an administrator revokes every
@@ -279,6 +281,7 @@ CREATE TABLE MembersSessionFactorCodes (
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    InvitationId STRING(36),
     CONSTRAINT CK_MembersSessionFactorCodesId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT FK_MembersSessionFactorCodes_MembersSessionPendingSignIns FOREIGN KEY (PendingId) REFERENCES MembersSessionPendingSignIns (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);

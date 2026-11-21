@@ -349,9 +349,12 @@ func hashEmailCode(pendingID impulse.UUID, code string) []byte {
 // (invitationCodeMessage). limit takes the code's place under the count it is held to
 // before anything is mailed: the sign-in codes' own for the address an account holds
 // (limitCode), the invitation's for a code that accepts one (limitInvitationCode), and
-// the address's other mail for an address somebody typed (limitMail).
+// the address's other mail for an address somebody typed (limitMail). invitation is the
+// invitation a code that accepts one is mailed for, null for every other code: the code
+// records it (dbtype.FactorCode.InvitationID), and is held to it when it is entered
+// (takeInvitationGuess).
 func (a *Auth[S, U, Tx]) sendEmailCode(
-	ctx context.Context, p *pendingState, email string,
+	ctx context.Context, p *pendingState, email string, invitation impulse.NullUUID,
 	message func(to, code string, lifetime time.Duration) mail.Message, limit func(ctx context.Context) error,
 ) (*emailCodeAnswer, error) {
 	if err := limit(ctx); err != nil {
@@ -362,7 +365,9 @@ func (a *Auth[S, U, Tx]) sendEmailCode(
 		return nil, err
 	}
 	lifetime := a.settings.factors.codeTimeout
-	row := &sessionstorage.FactorCode{PendingID: p.ID, Email: email, CodeHash: hashEmailCode(p.ID, code), ExpiresAt: time.Now().Add(lifetime)}
+	row := &sessionstorage.FactorCode{
+		PendingID: p.ID, Email: email, CodeHash: hashEmailCode(p.ID, code), ExpiresAt: time.Now().Add(lifetime), InvitationID: invitation,
+	}
 	if err := a.storage.InsertFactorCode(ctx, row); err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertFactorCode()")
 	}
@@ -401,12 +406,12 @@ func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*
 		return nil, errNoAddress()
 	}
 	if inv != nil {
-		return a.sendEmailCode(ctx, p, email, m.invitationCodeMessage, func(ctx context.Context) error {
+		return a.sendEmailCode(ctx, p, email, impulse.NullUUIDFromUUID(inv.ID), m.invitationCodeMessage, func(ctx context.Context) error {
 			return a.limitInvitationCode(ctx, inv)
 		})
 	}
 
-	return a.sendEmailCode(ctx, p, email, m.codeMessage, func(ctx context.Context) error {
+	return a.sendEmailCode(ctx, p, email, impulse.NullUUID{}, m.codeMessage, func(ctx context.Context) error {
 		return a.limitCode(ctx, email)
 	})
 }
@@ -452,7 +457,7 @@ func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email
 		return &emailCodeAnswer{CodeEmail: maskAddress(bare), CodeSent: true}, nil
 	}
 
-	return a.sendEmailCode(ctx, p, bare, m.codeMessage, func(ctx context.Context) error {
+	return a.sendEmailCode(ctx, p, bare, impulse.NullUUID{}, m.codeMessage, func(ctx context.Context) error {
 		return a.limitMail(ctx, bare)
 	})
 }
@@ -514,7 +519,14 @@ func errCodeExpired() error {
 // verifyEmailCode checks code against the one standing for p and consumes it: a wrong
 // code counts, and the code that took its last attempt is consumed. A code entered
 // while none stands, because none was sent or the one sent expired or died, is
-// refused as expired. It returns the address the code went to.
+// refused as expired. It returns the code that was entered, which says where it went
+// and what it was mailed for.
+//
+// A code mailed for an invitation takes its place in that invitation's count of codes
+// entered before it is judged, and is judged only in a browser that carries that same
+// invitation (takeInvitationGuess): twenty-five are judged for one invitation, and the
+// wrong one that took the last place is answered, as every code after it is, with
+// invitation_spent.
 //
 // A guess takes its attempt before it is judged: the store counts it on the code's row
 // in one statement and answers which attempt it was, and a guess past the limit is not
@@ -522,84 +534,95 @@ func errCodeExpired() error {
 // each counted, so no more than the limit are ever judged, however many arrive
 // together; the right code spends an attempt like any other, on a code it then
 // consumes, and of several right guesses within the limit one is accepted.
-func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, code string) (string, error) {
+func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, code string) (*sessionstorage.FactorCode, error) {
 	standing, err := a.storage.FactorCode(ctx, p.ID)
 	if err != nil {
-		if httpio.HasNotFound(err) {
-			return "", errCodeExpired()
+		if !httpio.HasNotFound(err) {
+			return nil, errors.Wrap(err, "sessionstorage.AuthStore.FactorCode()")
 		}
-
-		return "", errors.Wrap(err, "sessionstorage.AuthStore.FactorCode()")
+		standing = nil
 	}
-	attempts, err := a.storage.RecordFactorCodeAttempt(ctx, standing.ID)
-	if err != nil {
-		if httpio.HasNotFound(err) {
-			return "", errCodeExpired()
-		}
-
-		return "", errors.Wrap(err, "sessionstorage.AuthStore.RecordFactorCodeAttempt()")
-	}
-	if attempts > emailCodeAttempts {
-		// Past the limit: the guess is not judged and touches nothing. The guess that
-		// took the last attempt consumes the code, right or wrong, and a consume from
-		// here would race the right code of a guess within the limit.
-		return "", errCodeExpired()
-	}
-	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
-	if subtle.ConstantTimeCompare(standing.CodeHash, hashEmailCode(p.ID, code)) != 1 {
-		if attempts >= emailCodeAttempts {
-			if err := a.storage.ConsumeFactorCode(ctx, standing.ID); err != nil && !httpio.HasNotFound(err) {
-				return "", errors.Wrap(err, "sessionstorage.AuthStore.ConsumeFactorCode()")
-			}
-
-			return "", errCodeExpired()
-		}
-
-		return "", errInvalidCode()
-	}
-	if err := a.storage.ConsumeFactorCode(ctx, standing.ID); err != nil {
-		if httpio.HasNotFound(err) {
-			return "", errCodeExpired()
-		}
-
-		return "", errors.Wrap(err, "sessionstorage.AuthStore.ConsumeFactorCode()")
-	}
-
-	return standing.Email, nil
-}
-
-// completeWithEmailCode completes the pending MFA wait p once code proved the person
-// reads email at the address the account holds, or, for a wait that accepts an
-// invitation, at the invited address: the pending identity is consumed, the address is
-// written on the user verified when it was not, and the session starts with an
-// email-code event. A code mailed to an address the account no longer holds completes
-// nothing (claimCodeAddress). A sign-up through an invitation makes its account here,
-// the code entered (invitedSignUpAttempt). With remember, a session that starts makes
-// the browser a trusted device of the user.
-//
-// A code that accepts an invitation takes its place in the invitation's count of codes
-// entered before it is judged (takeInvitationGuess): twenty-five are judged for one
-// invitation, and the wrong one that took the last place is answered, as every code
-// after it is, with invitation_spent.
-func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.ResponseWriter, p *pendingState, code string, remember bool) (*signInOutcome, error) {
-	last, err := a.takeInvitationGuess(ctx, p)
+	last, err := a.takeInvitationGuess(ctx, p, standing)
 	if err != nil {
 		return nil, err
 	}
-	email, err := a.verifyEmailCode(ctx, p, code)
-	if err != nil {
+	if err := a.judgeEmailCode(ctx, p, standing, code); err != nil {
 		if refused := sessioninfo.LoginRefusalCodeOf(err); last && (refused == sessioninfo.RefusedInvalidCode || refused == sessioninfo.RefusedCodeExpired) {
 			return nil, errInvitationSpent()
 		}
 
 		return nil, err
 	}
+
+	return standing, nil
+}
+
+// judgeEmailCode compares code with standing, the code standing for p (nil for none),
+// and consumes it, as verifyEmailCode describes.
+func (a *Auth[S, U, Tx]) judgeEmailCode(ctx context.Context, p *pendingState, standing *sessionstorage.FactorCode, code string) error {
+	if standing == nil {
+		return errCodeExpired()
+	}
+	attempts, err := a.storage.RecordFactorCodeAttempt(ctx, standing.ID)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return errCodeExpired()
+		}
+
+		return errors.Wrap(err, "sessionstorage.AuthStore.RecordFactorCodeAttempt()")
+	}
+	if attempts > emailCodeAttempts {
+		// Past the limit: the guess is not judged and touches nothing. The guess that
+		// took the last attempt consumes the code, right or wrong, and a consume from
+		// here would race the right code of a guess within the limit.
+		return errCodeExpired()
+	}
+	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
+	if subtle.ConstantTimeCompare(standing.CodeHash, hashEmailCode(p.ID, code)) != 1 {
+		if attempts >= emailCodeAttempts {
+			if err := a.storage.ConsumeFactorCode(ctx, standing.ID); err != nil && !httpio.HasNotFound(err) {
+				return errors.Wrap(err, "sessionstorage.AuthStore.ConsumeFactorCode()")
+			}
+
+			return errCodeExpired()
+		}
+
+		return errInvalidCode()
+	}
+	if err := a.storage.ConsumeFactorCode(ctx, standing.ID); err != nil {
+		if httpio.HasNotFound(err) {
+			return errCodeExpired()
+		}
+
+		return errors.Wrap(err, "sessionstorage.AuthStore.ConsumeFactorCode()")
+	}
+
+	return nil
+}
+
+// completeWithEmailCode completes the pending MFA wait p once code proved the person
+// reads email: the pending identity is consumed, the address of the account's own code
+// is written on the user verified when it was not, and the session starts with an
+// email-code event. A code mailed to an address the account no longer holds completes
+// nothing (codeHolder). A sign-up through an invitation makes its account here, the
+// code entered (invitedSignUpAttempt). With remember, a session that starts makes the
+// browser a trusted device of the user.
+//
+// A code that accepts an invitation is held to the invitation it was mailed for
+// (verifyEmailCode), and its address is written by that invitation's acceptance alone
+// (attemptWithCode).
+func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.ResponseWriter, p *pendingState, code string, remember bool) (*signInOutcome, error) {
+	entered, err := a.verifyEmailCode(ctx, p, code)
+	if err != nil {
+		return nil, err
+	}
+	email := entered.Email
 	// The code reached the person: the counts it was sent under are reset.
 	a.clearCodeLimit(ctx, email)
 	a.clearMailLimit(ctx, email)
 	a.clearInvitationCodeOf(ctx, email)
 
-	at, err := a.attemptWithCode(ctx, p, email)
+	at, err := a.attemptWithCode(ctx, p, entered)
 	if err != nil {
 		return nil, err
 	}
@@ -635,21 +658,29 @@ func (a *Auth[S, U, Tx]) clearInvitationCodeOf(ctx context.Context, email string
 	}
 }
 
-// attemptWithCode is the sign-in that completes the pending MFA wait p once the code
-// mailed to email was entered: the wait is consumed, so it completes once, and the
-// sign-in carries the address the code proved. A wait that names its user holds the
-// code to the address the account holds now, and writes that address on the account
-// first where the account has confirmed none (claimCodeAddress).
-// A wait that names none is an invitation's acceptance: the sign-in that carries the
-// code makes or finds the account and writes the address with the acceptance, and the
-// code counts for that acceptance alone. The account of a sign-up through an invitation
-// is made here (invitedSignUpAttempt).
-func (a *Auth[S, U, Tx]) attemptWithCode(ctx context.Context, p *pendingState, email string) (*signInAttempt, error) {
+// attemptWithCode is the sign-in that completes the pending MFA wait p once its code,
+// entered, was found right: the wait is consumed, so it completes once, and the sign-in
+// carries the invitation the code was mailed for, if any. A wait that names its user
+// holds the code to the address the account holds now (codeHolder), whether it is the
+// account's own or was mailed for an invitation. The account's own code then writes its
+// address on the account first where the account has confirmed none
+// (claimCodeAddress). A code mailed for an invitation writes nothing here, whether the
+// wait names an account or none: the sign-in that carries it is that invitation's
+// acceptance, which makes or finds the account and writes the invited address in its
+// own transaction, and the code counts for that acceptance alone. An invitation that
+// turns out used or withdrawn so leaves nothing written. The account of a sign-up
+// through an invitation is made here (invitedSignUpAttempt).
+func (a *Auth[S, U, Tx]) attemptWithCode(ctx context.Context, p *pendingState, entered *sessionstorage.FactorCode) (*signInAttempt, error) {
 	if signsUpInvited(p) {
-		return a.invitedSignUpAttempt(ctx, p, email)
+		return a.invitedSignUpAttempt(ctx, p, entered.Email)
 	}
-	if p.UserID.Valid {
-		if err := a.claimCodeAddress(ctx, p, email); err != nil {
+	switch {
+	case p.UserID.Valid && entered.InvitationID.Valid:
+		if _, err := a.codeHolder(ctx, p, entered.Email); err != nil {
+			return nil, err
+		}
+	case p.UserID.Valid:
+		if err := a.claimCodeAddress(ctx, p, entered.Email); err != nil {
 			return nil, err
 		}
 	}
@@ -660,9 +691,33 @@ func (a *Auth[S, U, Tx]) attemptWithCode(ctx context.Context, p *pendingState, e
 	if err != nil {
 		return nil, err
 	}
-	at.codeEmail, at.acceptsInvitation = email, !p.UserID.Valid
+	at.codeInvitation = entered.InvitationID
 
 	return at, nil
+}
+
+// codeHolder holds the code the person entered for the pending MFA wait p, mailed to
+// email, to the address the account holds now (codeStands), and returns the account as
+// the store holds it. A code that no longer stands is dead, as one that expired is: it
+// is refused with code_expired, the wait is not consumed and nothing is written. It
+// holds every code of a wait that names its user: the account's own, and one mailed for
+// an invitation.
+func (a *Auth[S, U, Tx]) codeHolder(ctx context.Context, p *pendingState, email string) (*sessionstorage.SessionUser, error) {
+	user, err := a.waitsUser(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	stands, err := a.codeStands(ctx, p, user, email)
+	if err != nil {
+		return nil, err
+	}
+	if !stands {
+		logger.FromCtx(ctx).Infof("the sign-in code user %s entered was mailed to %s, an address the account no longer holds: the code is dead, and nothing is written", user.ID, email)
+
+		return nil, errCodeExpired()
+	}
+
+	return user, nil
 }
 
 // claimCodeAddress holds the code the person entered for the pending MFA wait p to the
@@ -677,18 +732,9 @@ func (a *Auth[S, U, Tx]) attemptWithCode(ctx context.Context, p *pendingState, e
 // address is replaced only by the link that confirms a new one. The write is
 // bookkeeping after the proof: a failure of it is logged, and the sign-in goes on.
 func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, p *pendingState, email string) error {
-	user, err := a.waitsUser(ctx, p)
+	user, err := a.codeHolder(ctx, p, email)
 	if err != nil {
 		return err
-	}
-	stands, err := a.codeStands(ctx, p, user, email)
-	if err != nil {
-		return err
-	}
-	if !stands {
-		logger.FromCtx(ctx).Infof("the sign-in code user %s entered was mailed to %s, an address the account no longer holds: the code is dead, and nothing is written", user.ID, email)
-
-		return errCodeExpired()
 	}
 	if user.EmailVerified() {
 		return nil
