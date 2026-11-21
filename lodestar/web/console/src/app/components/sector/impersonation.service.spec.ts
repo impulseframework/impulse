@@ -100,8 +100,7 @@ describe('ImpersonationService', () => {
           { class: 'access', permission: 'Delete', resource: 'HangarPasses' },
           { class: 'access', permission: 'Update', resource: 'HangarPasses' },
         ],
-        maskWords:
-          'everything except access actions (still allowed: writing HangarPasses) and credential actions',
+        maskWords: 'everything except access actions (still allowed: writing HangarPasses) and credential actions',
         expiresAt: cap,
       },
     });
