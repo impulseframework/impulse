@@ -164,7 +164,8 @@ type Settings struct {
 	// names anything else is skipped and reported each time the policy loads. The package
 	// that constructs the auth passes it in, the generated router's Collection() or, where
 	// the application has several sites, the union of theirs (access.UnionCollection);
-	// this package imports no router. Required; New refuses nil.
+	// this package imports no router. Required; New refuses nil, a nil
+	// pointer of a collection's type included (access.IsNilCollection).
 	Collection access.PermissionCollection
 	// Signals is the application's live service: the permission engine signals the policy
 	// kind on it after every policy write and follows the kind from every other instance
@@ -425,7 +426,7 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // every tenant, and signs in with a second factor whatever the sign-in rule asks.
 {{- end}}
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
-	if settings.Collection == nil {
+	if access.IsNilCollection(settings.Collection) {
 		return nil, errors.New("{{.Name}}.Settings.Collection is nil: the permission engine holds every grant to the permission collection the release declares; pass the generated router's Collection(), or where the application has several sites the union of theirs (the configuration's Collection(), over access.UnionCollection)")
 	}
 	if settings.Signals == nil {

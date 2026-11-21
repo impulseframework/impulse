@@ -39,7 +39,7 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 		return nil, errors.New("UnionCollection: at least one collection is required")
 	}
 	for i, c := range collections {
-		if isNilCollection(c) {
+		if IsNilCollection(c) {
 			return nil, errors.Newf("UnionCollection: collection %d (in argument order) is nil: pass each site's permission collection, its generated router's Collection()", i+1)
 		}
 	}

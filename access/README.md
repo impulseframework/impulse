@@ -303,7 +303,10 @@ A removal is held to nothing: a grant the release no longer declares can
 always be taken away. No client is without
 the collection: `New` takes it as an argument and refuses a nil one, a nil
 pointer of a collection's type included, so there is no client that checks no
-name.
+name. `access.IsNilCollection` is that check, exported for a package that
+takes the collection as a setting and refuses a missing one in its own words,
+naming the setting: the generated auth packages ask it before they open
+anything.
 
 ### Change signal
 

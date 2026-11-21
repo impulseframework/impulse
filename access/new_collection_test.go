@@ -10,11 +10,13 @@ import (
 // TestNew_refusesANilCollection pins that no value stands for "no collection": a nil one
 // is refused, with or without options, and the refusal says what to pass. A nil pointer
 // of a collection's type is a nil collection too: the interface that holds it is not
-// nil, and the first question the engine asked it used to panic.
+// nil, and the first question the engine asked it used to panic. The refusal is the
+// sentence alone: New does not name itself in it, since the caller that wraps New's
+// errors names it, and a person would read the name twice.
 func TestNew_refusesANilCollection(t *testing.T) {
 	t.Parallel()
 
-	const want = "access.New(): the collection must not be nil: pass the permission collection the release declares, which every grant is held to: the generated router's Collection(), or for an application with several sites the union of theirs (access.UnionCollection)"
+	const want = "the collection must not be nil: pass the permission collection the release declares, which every grant is held to: the generated router's Collection(), or for an application with several sites the union of theirs (access.UnionCollection)"
 	var unassigned *stubCollection
 	tests := []struct {
 		name       string
@@ -32,8 +34,11 @@ func TestNew_refusesANilCollection(t *testing.T) {
 			t.Parallel()
 
 			client, err := New(newFakeStore(), tt.collection, tt.opts...)
-			if err == nil || !strings.HasSuffix(err.Error(), want) {
-				t.Fatalf("New() error = %v, want one ending %q", err, want)
+			if err == nil {
+				t.Fatalf("New() error = nil, want %q", want)
+			}
+			if got := plainText(err); got != want {
+				t.Errorf("New() error = %q, want %q", got, want)
 			}
 			if client != nil {
 				t.Errorf("New() = %v beside an error, want nil", client)
