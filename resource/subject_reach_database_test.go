@@ -27,9 +27,9 @@ const (
 // reachHub is the fixture's hub as a record a change is made to: its key is an id
 // of the library's own type, as an application's is.
 type reachHub struct {
-	ID     impulse.UUID `postgres:"Id"     spanner:"Id"`
-	Region *string      `postgres:"Region" spanner:"Region"`
-	ZoneID *string      `postgres:"ZoneId" spanner:"ZoneId"`
+	ID     impulse.UUID `spanner:"Id"     postgres:"Id"`
+	Region *string      `spanner:"Region" postgres:"Region"`
+	ZoneID *string      `spanner:"ZoneId" postgres:"ZoneId"`
 }
 
 func (reachHub) Resource() accesstypes.Resource {
@@ -38,8 +38,8 @@ func (reachHub) Resource() accesstypes.Resource {
 
 // reachZone is the fixture's zone as a record a change is made to.
 type reachZone struct {
-	ID      string  `postgres:"Id"      spanner:"Id"`
-	Climate *string `postgres:"Climate" spanner:"Climate"`
+	ID      string  `spanner:"Id"      postgres:"Id"`
+	Climate *string `spanner:"Climate" postgres:"Climate"`
 }
 
 func (reachZone) Resource() accesstypes.Resource {
@@ -191,8 +191,11 @@ func TestPatchSet_subjectReach_onPostgres(t *testing.T) {
 }
 
 // TestPatchSet_subjectReach_onSpanner asks the same questions over the same rows on
-// the Spanner emulator, inside a read-write transaction of the library's client.
-func TestPatchSet_subjectReach_onSpanner(t *testing.T) {
+// the Spanner emulator, each inside a read-write transaction of the library's client.
+// The questions are asked one after the other: they share one database, and the
+// emulator runs one read-write transaction of a database at a time and aborts any
+// other, so questions asked side by side would spend the test starting over.
+func TestPatchSet_subjectReach_onSpanner(t *testing.T) { //nolint:tparallel // the questions are asked one after the other, as the comment above says
 	t.Parallel()
 
 	container := spannerEmulator(t)
@@ -231,7 +234,7 @@ func TestPatchSet_subjectReach_onSpanner(t *testing.T) {
 
 	collection := reachCollection(t)
 	client := NewSpannerClient(db.Client)
-	for _, question := range reachQuestions(t) {
+	for _, question := range reachQuestions(t) { //nolint:paralleltest // one after the other, as the comment above the test says
 		t.Run(question.name, func(t *testing.T) {
 			var got bool
 			err := client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {

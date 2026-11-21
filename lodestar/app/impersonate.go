@@ -162,7 +162,7 @@ type impersonateRequest struct {
 // mask, which asks for none.
 func (r *impersonateRequest) mask() accesstypes.PermissionMask {
 	mask := accesstypes.MaskPermissions(accesstypes.AllowAll(), r.Mask...)
-	var kept []accesstypes.MaskException
+	kept := make([]accesstypes.MaskException, 0, len(r.ExceptWrites))
 	for _, record := range r.ExceptWrites {
 		kept = append(kept, accesstypes.ExceptWrites(record)...)
 	}

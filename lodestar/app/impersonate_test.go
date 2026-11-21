@@ -351,11 +351,11 @@ func (p *policyAsked) User() accesstypes.User {
 }
 
 func (p *policyAsked) Check(
-	_ context.Context, _ accesstypes.Environment, _ accesstypes.Scope, _ accesstypes.Permission, resources ...accesstypes.Resource,
+	_ context.Context, _ accesstypes.Environment, _ accesstypes.Scope, _ accesstypes.Permission, named ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
-	p.asked = append(p.asked, resources...)
-	decisions := make(accesstypes.Decisions, len(resources))
-	for _, res := range resources {
+	p.asked = append(p.asked, named...)
+	decisions := make(accesstypes.Decisions, len(named))
+	for _, res := range named {
 		decisions[res] = accesstypes.Granted()
 	}
 

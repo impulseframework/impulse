@@ -88,7 +88,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 
 	// Headquarters invites Ember's founder, whose first sign-in makes the sector and
 	// seats them as its marshal.
-	ember, _ := foundSector(ctx, t, s, hq, "Ember", "Near frontier", "2226-10-20", "ember-founder")
+	ember := foundSector(ctx, t, s, hq, "Ember", "Near frontier", "2226-10-20", "ember-founder")
 	founderID := crewAccountID(ctx, t, hq, "ember-founder")
 	founderUser := accesstypes.User(founderID)
 	emberScope := accesstypes.DomainPolicyScope(accesstypes.Domain(ember))

@@ -864,7 +864,7 @@ func readsDisabledAccountKept[Tx any](ctx context.Context, t *testing.T, a *read
 		t.Fatalf("the session = %+v, want pat@lakeside.edu's own (%s)", v, pat)
 	}
 
-	if err := a.store.AuthStore.DeactivateUser(ctx, pat); err != nil {
+	if err := a.store.DeactivateUser(ctx, pat); err != nil {
 		t.Fatalf("DeactivateUser(%s) on the library's store error = %v", pat, err)
 	}
 	own.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
@@ -872,7 +872,7 @@ func readsDisabledAccountKept[Tx any](ctx context.Context, t *testing.T, a *read
 		t.Errorf("the wrapper's User was never asked for %s: the account of an ordinary session is the store's to answer", pat)
 	}
 
-	if err := a.store.AuthStore.ActivateUser(ctx, pat); err != nil {
+	if err := a.store.ActivateUser(ctx, pat); err != nil {
 		t.Fatalf("ActivateUser(%s) on the library's store error = %v", pat, err)
 	}
 	if v := own.readsSession(ctx); v.User != pat.String() {
@@ -940,7 +940,7 @@ func readsOrdinarySessionCached[Tx any](ctx context.Context, t *testing.T, a *re
 	}
 
 	// The session is signed out where the library keeps it, past the wrapper.
-	if err := a.store.AuthStore.DestroySession(ctx, id); err != nil {
+	if err := a.store.DestroySession(ctx, id); err != nil {
 		t.Fatalf("DestroySession(%s) error = %v", id, err)
 	}
 	if kept, err := a.store.Session(ctx, id); err != nil || kept.Expired {

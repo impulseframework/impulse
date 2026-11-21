@@ -232,34 +232,9 @@ func refuseImpersonatorAsSetSubject(
 		return in, nil
 	}
 
-	// A column of the key holds the same value before the write and after it. Any
-	// other column is read off the stored row for the value before, and off the
-	// operation's fields for the value after.
-	var before, after bool
-	if value, inKey := keyValue(key, column); inKey {
-		in, err := holds(value)
-		if err != nil {
-			return err
-		}
-		before, after = in, in
-	} else {
-		if op != resource.OperationCreate {
-			held, found, err := stored()
-			if err != nil {
-				return err
-			}
-			if found {
-				if before, err = holds(held); err != nil {
-					return err
-				}
-			}
-		}
-		if op != resource.OperationDelete && patchSet.IsSet(column) {
-			var err error
-			if after, err = holds(patchSet.Get(column)); err != nil {
-				return err
-			}
-		}
+	before, after, err := heldBeforeAndAfter(op, key, patchSet, stored, column, holds)
+	if err != nil {
+		return err
 	}
 
 	switch {
@@ -278,6 +253,42 @@ func refuseImpersonatorAsSetSubject(
 	}
 
 	return nil
+}
+
+// heldBeforeAndAfter answers the question holds asks of the value the row's column
+// holds before the write, and of the value it holds after it. A column of the key holds
+// the same value before the write and after it. Any other column is read off the stored
+// row for the value before, and off the operation's fields for the value after: an add
+// has no row before it, and a removal sets nothing.
+func heldBeforeAndAfter(
+	op resource.OperationType, key resource.KeySet, patchSet subjectReach,
+	stored func() (value any, found bool, err error), column accesstypes.Field, holds func(value any) (bool, error),
+) (before, after bool, err error) {
+	if value, inKey := keyValue(key, column); inKey {
+		if before, err = holds(value); err != nil {
+			return false, false, err
+		}
+
+		return before, before, nil
+	}
+	if op != resource.OperationCreate {
+		held, found, storedErr := stored()
+		if storedErr != nil {
+			return false, false, storedErr
+		}
+		if found {
+			if before, err = holds(held); err != nil {
+				return false, false, err
+			}
+		}
+	}
+	if op != resource.OperationDelete && patchSet.IsSet(column) {
+		if after, err = holds(patchSet.Get(column)); err != nil {
+			return false, false, err
+		}
+	}
+
+	return before, after, nil
 }
 
 // RefuseImpersonatorAsReadThroughSubject is the rule of RefuseImpersonatorAsRowSubject

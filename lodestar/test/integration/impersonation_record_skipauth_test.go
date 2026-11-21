@@ -424,7 +424,7 @@ func TestImpersonation_sectorDeletedActingAsAPerson(t *testing.T) {
 	if d := decisionFor(ctx, t, s.access.ForUser(governor), accesstypes.GlobalScope(), accesstypes.Delete, sectorsResource, time.Now().Add(15*time.Second)); !d.IsGranted() {
 		t.Fatalf("Delete on Sectors for the governor holding %s = %s, want granted before the sector is made", closer, d)
 	}
-	forge, _ := foundSector(ctx, t, s, hq, "Forge", "Far frontier", "2226-11-20", "forge-founder")
+	forge := foundSector(ctx, t, s, hq, "Forge", "Far frontier", "2226-11-20", "forge-founder")
 
 	giveCrewRole(ctx, t, s, "StandIn", "cadet")
 	asGovernor := actingBrowser(ctx, t, s, "cadet", actAs(t, "governor", "standing in for the governor", ""))
@@ -598,7 +598,6 @@ func TestImpersonation_ownSetActingAsAPerson(t *testing.T) {
 	}
 	if after := standing(ctx, t, s); !slices.Equal(after, before) {
 		t.Errorf("a session that dropped the exception wrote a pass: %s", standingChanges(before, after))
-		before = after
 	}
 
 	// A request that names a record the kind does not keep is refused, never trimmed,
