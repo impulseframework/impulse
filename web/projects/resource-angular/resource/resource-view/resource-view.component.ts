@@ -1,9 +1,11 @@
 import { CommonModule, Location } from '@angular/common';
 import {
+  afterRenderEffect,
   Component,
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   inject,
   Injector,
   input,
@@ -55,6 +57,7 @@ import {
   DeleteConfirmation,
   DeleteResourceConfirmationModalComponent,
 } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
+import { refusedSentence } from '../refused-fields';
 import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
 import { filledMethods, OfferedMethod, rowMethods } from '../row-methods/row-methods';
 import { civildateCoercion, flattenElements } from '../gui-constants';
@@ -134,6 +137,7 @@ export class ResourceViewComponent implements OnInit {
   destroyRef = inject(DestroyRef);
   formState = inject(FormStateService);
   dialog = inject(MatDialog);
+  private host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   editMode: WritableSignal<'edit' | 'view'> = signal('view');
   uuid = input.required<string>();
@@ -157,6 +161,21 @@ export class ResourceViewComponent implements OnInit {
   isDirty = signal(false);
 
   displayFormInvalidMessage = signal<boolean>(false);
+  /**
+   * What the form says about a save it did not send because it refuses a changed field:
+   * the sentence as the form stands, read again after each change of the form while the
+   * refusal stands (see the constructor). Empty until a save is refused, and while the
+   * changed fields pass.
+   */
+  incomplete = signal('');
+  /**
+   * Counts the changes of the form: of a value, of what the form's rules say of one, of
+   * whether it was touched. A form is not made of signals, so what a template reads of it
+   * is read again only when its view is; a field given its value back while the form is
+   * being drawn (one that comes back to the form) changes it after the view has read it.
+   * Whatever reads this count is read again after every change of the form.
+   */
+  private formChanges = signal(0);
   deleted = output<boolean>();
   navAfterDelete = input(true);
 
@@ -546,7 +565,25 @@ export class ResourceViewComponent implements OnInit {
    * whatever an untouched field holds. displayFormInvalidMessage says a save was refused.
    */
   changedFieldsInvalid(): boolean {
+    this.formChanges();
     return this.changedControls().some((control) => control.invalid);
+  }
+
+  /**
+   * What the form says about a save it does not send: the sentence every form of the
+   * library says about the fields it refuses (see `refusedSentence`), over the changed
+   * fields that fail this form's rules. One of them can be off the form: a field another
+   * field's value takes off the screen and empties (`shouldRender` with
+   * `nullIfConditionallyHidden`) is changed by that and, where the form requires it,
+   * refused, with nothing on the screen to mark. The sentence names it by its label.
+   */
+  private refusedSentence(): string {
+    const changed = new Set(this.changedFieldNames());
+    return refusedSentence(
+      this.host.nativeElement,
+      this.config().elements,
+      (name) => changed.has(name) && this.form().get(name)?.invalid === true,
+    );
   }
 
   saveForm(): void {
@@ -561,6 +598,7 @@ export class ResourceViewComponent implements OnInit {
       for (const control of this.changedControls()) {
         control.markAsTouched();
       }
+      this.incomplete.set(this.refusedSentence());
       return;
     }
 
@@ -728,10 +766,28 @@ export class ResourceViewComponent implements OnInit {
       // of those is an event of the form, where a change of value is only the first.
       form.events
         .pipe(
-          tap(() => this.countUnsaved(this.form().dirty)),
+          tap(() => {
+            this.countUnsaved(this.form().dirty);
+            this.formChanges.update((count) => count + 1);
+          }),
           takeUntilDestroyed(this.destroyRef),
         )
         .subscribe();
+    });
+
+    // While a refused save stands, the form's sentence is read again once the form is
+    // drawn after each change of it. A change can take a refused field off the form or
+    // bring one back, and which fields are on the form is read from the screen: a sentence
+    // kept from the moment Save was pressed would go on saying a field is not on this form
+    // after it came back, or would not name one that left since.
+    afterRenderEffect({
+      read: () => {
+        this.formChanges();
+        if (!this.displayFormInvalidMessage()) {
+          return;
+        }
+        untracked(() => this.incomplete.set(this.changedFieldsInvalid() ? this.refusedSentence() : ''));
+      },
     });
 
     // The store setup: on a store of its own (impulseRowStore) this is the only setup; on

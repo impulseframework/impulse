@@ -24,6 +24,7 @@ func (a *App) ShipClasses() http.HandlerFunc {
 		RoleID      string       `json:"roleId"      index:"true"`
 		Tonnage     int64        `json:"tonnage"`
 		Hardened    bool         `json:"hardened"`
+		InService   bool         `json:"inService"`
 	}
 
 	type response []map[string]any
@@ -85,6 +86,10 @@ func (a *App) ShipClasses() http.HandlerFunc {
 					if !row.Masked("hardened") {
 						rmap["hardened"] = rec.Hardened
 					}
+				case "InService":
+					if !row.Masked("inService") {
+						rmap["inService"] = rec.InService
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -113,6 +118,7 @@ func (a *App) ShipClass() http.HandlerFunc {
 		RoleID      string       `json:"roleId"`
 		Tonnage     int64        `json:"tonnage"`
 		Hardened    bool         `json:"hardened"`
+		InService   bool         `json:"inService"`
 	}
 
 	decoder := NewQueryDecoder[resources.ShipClass, response](a, accesstypes.Read)
@@ -161,6 +167,10 @@ func (a *App) ShipClass() http.HandlerFunc {
 			case "Hardened":
 				if !row.Masked("hardened") {
 					rmap["hardened"] = rec.Hardened
+				}
+			case "InService":
+				if !row.Masked("inService") {
+					rmap["inService"] = rec.InService
 				}
 			}
 		}

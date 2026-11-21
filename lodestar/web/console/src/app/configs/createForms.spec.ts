@@ -18,6 +18,10 @@ import { shipClassesConfig } from './shipClasses.config';
 // of the console that hold such a field say nothing of where it starts: a new client is
 // not trusted and a new ship class is not hardened until the form says so, which is what
 // an empty box reads as.
+//
+// A yes or no field whose column declares its own default starts there instead, again with
+// nothing written in the page's config: a ship class is in service unless its form says
+// otherwise (the column is NOT NULL DEFAULT (TRUE)), so that box starts checked.
 
 function server(request: TransportRequest): TransportResponse {
   const url = new URL(request.url, 'http://lodestar.test');
@@ -35,17 +39,18 @@ function server(request: TransportRequest): TransportResponse {
 }
 
 describe("the console's create forms", () => {
-  const forms: [string, RootConfig, string][] = [
-    ['Clients', clientsConfig, Clients.fieldName.trusted],
-    ['Ship classes', shipClassesConfig, ShipClasses.fieldName.hardened],
+  const forms: [string, RootConfig, string, boolean][] = [
+    ['Clients', clientsConfig, Clients.fieldName.trusted, false],
+    ['Ship classes', shipClassesConfig, ShipClasses.fieldName.hardened, false],
+    ['Ship classes', shipClassesConfig, ShipClasses.fieldName.inService, true],
   ];
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  for (const [page, config, yesOrNo] of forms) {
-    it(`${page}: the yes or no field starts unchecked, and the form writes nothing to the console`, async () => {
+  for (const [page, config, yesOrNo, startsAt] of forms) {
+    it(`${page}: ${yesOrNo} starts ${startsAt ? 'checked' : 'unchecked'}, and the form writes nothing to the console`, async () => {
       const written: string[] = [];
       vi.spyOn(console, 'error').mockImplementation((...said: unknown[]) => {
         written.push(said.map(String).join(' '));
@@ -71,7 +76,7 @@ describe("the console's create forms", () => {
       expect({
         startsAt: fixture.componentInstance.form().get(yesOrNo)?.value as unknown,
         written,
-      }).toEqual({ startsAt: false, written: [] });
+      }).toEqual({ startsAt, written: [] });
     });
   }
 });

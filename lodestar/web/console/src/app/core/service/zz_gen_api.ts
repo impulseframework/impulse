@@ -495,12 +495,14 @@ export interface ShipClassesCreate {
   roleId: string;
   tonnage: number;
   hardened: boolean;
+  inService?: boolean;
 }
 /** The fields a client may change on ShipClasses. Keys, server-owned, and immutable fields are absent. */
 export interface ShipClassesPatch {
   roleId?: string;
   tonnage?: number;
   hardened?: boolean;
+  inService?: boolean;
 }
 /** The primary key of ShipClasses, in route order. */
 export type ShipClassesKey = [id: string];
@@ -1450,7 +1452,7 @@ export const apiDescriptor = defineApiDescriptor({
       keys: ['id'],
       operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
       page: { default: 25 },
-      patchable: ['roleId', 'tonnage', 'hardened'],
+      patchable: ['roleId', 'tonnage', 'hardened', 'inService'],
     },
     [Resources.Sorties]: {
       resource: Resources.Sorties,
