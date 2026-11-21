@@ -109,6 +109,9 @@ func TestFileDecoder_Decode(t *testing.T) {
 		conditional map[accesstypes.Permission][]accesstypes.Resource
 		wantStatus  int
 		wantErr     string
+		// wantSaid is the sentence a refused caller is told; wantErr is then in the
+		// error's text, which the server's log prints.
+		wantSaid string
 		// wantPredicate says whether the statement carries the fixture condition's
 		// column as its row predicate.
 		wantPredicate bool
@@ -125,12 +128,14 @@ func TestFileDecoder_Decode(t *testing.T) {
 			grants:     map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: {gate}},
 			wantStatus: http.StatusForbidden,
 			wantErr:    "does not have (Read) on [enforcementResources]",
+			wantSaid:   "You may not see enforcement resources here.",
 		},
 		{
 			name:       "Read on the resource without the segment is Forbidden: the key column is not the gate",
 			grants:     map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: {enforcedResource, enforcedResource + ".locked"}},
 			wantStatus: http.StatusForbidden,
 			wantErr:    "does not have (Read) on [enforcementResources.content]",
+			wantSaid:   "You may not see the content of enforcement resources here.",
 		},
 		{
 			name:          "a conditional grant on the segment is the row predicate",
@@ -187,6 +192,9 @@ func TestFileDecoder_Decode(t *testing.T) {
 				}
 				if tt.wantStatus != 0 && !httpio.HasForbidden(err) {
 					t.Errorf("Decode() error = %v, want Forbidden", err)
+				}
+				if tt.wantSaid != "" {
+					plainAnswer(t, err, httpio.HasForbidden, tt.wantSaid, "testDomain", "testUser", "enforcementResources")
 				}
 
 				return

@@ -417,7 +417,7 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 		}
 		status, body = assign("cadet", anvil, "ada", "Pilot")
 		assertStatus(t, status, http.StatusForbidden, body)
-		if !strings.Contains(string(body), "does not have Execute on [AssignCrewSectorRole]") {
+		if !strings.Contains(string(body), "You may not do this here.") {
 			t.Errorf("the cadet's refusal = %s", body)
 		}
 		if got, want := crewHolds(t, w.db, "ada"), []string{"domain/" + anvil + " Cadet", "domain/" + anvil + " Pilot"}; !slices.Equal(got, want) {

@@ -340,7 +340,7 @@ describe('RosterComponent', () => {
   });
 
   it("an Act as the server refuses is shown in the dialog in the server's words, and the picker stays", async () => {
-    const sentence = 'user standin does not have Execute on ActAsUser';
+    const sentence = 'You may not do this here.';
     await pageFor({
       grants: standIn,
       refuses: new HttpErrorResponse({ status: 403, error: { message: sentence } }),
@@ -417,7 +417,7 @@ describe('RosterComponent', () => {
   });
 
   it("a mint the server refuses is shown in the dialog in the server's words, and the picker stays", async () => {
-    const sentence = 'user marshal does not have Execute on AssumeRole';
+    const sentence = 'You may not do this here.';
     await pageFor({
       grants: marshal,
       refuses: new HttpErrorResponse({ status: 403, error: { message: sentence } }),
