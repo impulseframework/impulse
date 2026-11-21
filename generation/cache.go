@@ -22,8 +22,10 @@ const (
 	// foreign key's delete rule (v4), each column's generation expression with each
 	// index's search kind (v5), each table's foreign keys whole (v6), and each column's
 	// default expression (v7), and a cache an earlier generator wrote would load without
-	// them under the same schema hash.
-	tableMapCache  string = "tablemap-v7" + genCacheSuffix
+	// them under the same schema hash. It then came to pair a foreign key column with
+	// the column it references by its position in the referenced key (v8), and an
+	// earlier cache would load the pairing as it was read before.
+	tableMapCache  string = "tablemap-v8" + genCacheSuffix
 	enumValueCache string = "enumvalues" + genCacheSuffix
 
 	// latestEmulatorVersion is the emulator's moving tag: a generator may name it, and
