@@ -1654,10 +1654,10 @@ the stores' lookups by address and the address's unique index as in every compar
 library makes. A username is matched more widely (`NormalizedUsername`: the database's
 Unicode normalization and case folding), so on a store whose usernames are the addresses
 two addresses that differ only by such a letter cannot both be accounts, and a sign-in
-name written with one names the account written with the other. That lets nobody in:
-every way in still asks for the account's own proof (its password, the code mailed to
-the address it holds, or a provider's word for that address as the library compares
-one).
+name written with one names the account written with the other. A password sign-in
+under such a name still needs that account's password. A first sign-in that is linked
+on the provider's word for the name (see "A first link on a name alone") is linked to
+the account the wider match finds.
 
 How an address gets onto a user:
 

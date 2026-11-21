@@ -205,7 +205,7 @@ func (a *Auth[S, U, Tx]) factorAddress(ctx context.Context, p *pendingState) (st
 // is taken off the account (SetUserEmail), in one transaction, so a code still live on
 // an account that holds no address was mailed after the change, to an address the
 // person gave. A change that commits while the code is being entered is not seen here,
-// and needs not be: the account is read before the code is consumed and again after it
+// and need not be: the account is read before the code is consumed and again after it
 // (completeWithEmailCode, claimCodeAddress), a code whose account holds another address
 // at the second read than at the first is dead, and the write that follows is taken
 // only while the account still holds what the second read held (VerifyUserEmailIfHeld).
