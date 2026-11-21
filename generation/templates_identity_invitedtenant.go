@@ -52,8 +52,8 @@ type (
 	// reads each as the attribute its field declares.{{ end }}
 	//
 	// The message is sent once the invitation is committed, and the answer says whether
-	// it went (Sent). When it did not, the invitation is withdrawn, so no link stands
-	// that nobody holds: invite again.
+	// it went (Sent). When it did not, the invitation is ended, not mailed, so no link
+	// stands that nobody holds: invite again.
 	//
 	// @rpc
 	// @outlet({{ .Outlets }})` + identityAccessClass + `

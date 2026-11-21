@@ -44,7 +44,7 @@ func inviteCrew(ctx context.Context, t *testing.T, b *browser, body string) invi
 // the served stack, with the real session manager and its mail: the invitation is
 // written in the method's transaction and its message goes once that has committed,
 // the answer says whether it went, an invitation whose message could not be sent is
-// withdrawn, an invitation gives a role, the person who follows the link holds it, an
+// ended, an invitation gives a role, the person who follows the link holds it, an
 // invitation that names neither a sector nor every sector is held to the whole
 // application's roles and says what to choose for a sector's, an invitation into every
 // sector is held to the sectors' roles, and a withdrawal holds to invitations.
@@ -211,7 +211,7 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	}
 
 	// A message that cannot be sent: the method still answers, the answer says the
-	// message did not go, and the invitation is withdrawn.
+	// message did not go, and the invitation is ended.
 	s.mail.Fail(errors.New("relay down"))
 	unsent := inviteCrew(ctx, t, hq, `{"email":"lost@example.com","roles":["ClientBrowser"]}`)
 	s.mail.Fail(nil)
@@ -219,7 +219,7 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 		t.Errorf("the answer of an invitation whose message failed says it went: %+v", unsent)
 	}
 	if !consumed(unsent.ID) {
-		t.Error("the invitation whose message failed still stands, want it withdrawn")
+		t.Error("the invitation whose message failed still stands, want it ended")
 	}
 
 	// A withdrawal: the link is dead, a second one finds nothing, and a link that

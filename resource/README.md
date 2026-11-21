@@ -4272,8 +4272,8 @@ schema without it is refused at generation, naming the column.
   carries the switch (`sectorDirectoryOnly`), and where the directories record carries
   `@directoryDefaultSeat` it carries the role the people of the tenant's directory
   start with (`defaultRole`). It answers the invitation's id and whether its message
-  went (`{"id","sent"}`); an invitation whose message did not go is withdrawn, so no
-  link stands that nobody holds.
+  went (`{"id","sent"}`); an invitation whose message did not go is ended, not
+  mailed, so no link stands that nobody holds.
 - `<Auth>Invited<Record>s` (`CrewInvitedSectors`) lists the invitations that make a
   tenant and still stand: not one that was accepted or withdrawn, not one that expired,
   and not an invitation into a tenant that exists. A row carries the address, the
@@ -4709,8 +4709,8 @@ every policy store's schema holds it).
   written in the caller's transaction, beside whatever else the transaction writes, and
   the link is mailed once the transaction has committed (`resource.AfterCommit`). The
   answer's `sent` says whether the message went: an invitation whose message could not
-  be sent is withdrawn, so no link stands that nobody received, and the caller invites
-  again.
+  be sent is ended, not mailed, so no link stands that nobody received, and the caller
+  invites again.
 - Withdrawing holds to invitations. A mail link of another kind (a verification, a
   sign-up) is not found, and neither is an invitation that was accepted, withdrawn or
   has expired (404).

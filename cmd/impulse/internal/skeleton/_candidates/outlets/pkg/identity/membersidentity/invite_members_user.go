@@ -27,8 +27,8 @@ type (
 	// The invitation is written in the transaction, beside whatever else it writes,
 	// and its message is sent once the transaction has committed, since a message
 	// cannot be taken back. The answer says whether the message went (Sent). When it
-	// did not, the invitation is withdrawn, so no link stands that nobody holds:
-	// invite again.
+	// did not, the invitation is ended, not mailed, so no link stands that nobody
+	// holds: invite again.
 	//
 	// @rpc
 	// @outlet(portal)

@@ -32,7 +32,7 @@ func newInviter(t *testing.T, store Store, mail *fakeMail) *Manager {
 // TestManager_Invite pins the invitation: the row buffered in the caller's transaction,
 // the message sent once the transaction has committed and never when it has not, the
 // answer told how the send went, an invitation whose message could not be sent
-// withdrawn, a role required and held to the place the invitation names, that place
+// ended, a role required and held to the place the invitation names, that place
 // kept on the row (one tenant, every tenant, or neither for the whole application), an
 // invitation that says every tenant held to roles of every tenant alone, and the caller
 // recorded as the sender: the account whose id the caller carries, where a user of the
@@ -61,12 +61,12 @@ func TestManager_Invite(t *testing.T) {
 		failOn   string
 		wantErr  func(error) bool
 		// wantWrites are the buffered writes, wantMailed the addresses mailed,
-		// wantWithdrawn whether the session library withdrew the invitation, and
+		// wantEnded whether the session library ended the invitation, and
 		// wantSent what the answer was told: nil when it was told nothing.
-		wantWrites    []string
-		wantMailed    []string
-		wantWithdrawn bool
-		wantSent      *bool
+		wantWrites []string
+		wantMailed []string
+		wantEnded  bool
+		wantSent   *bool
 	}{
 		{
 			name:       "an invitation into the application: the row is written, and the message goes once it is committed",
@@ -127,12 +127,12 @@ func TestManager_Invite(t *testing.T) {
 			wantSent:   ptr(true),
 		},
 		{
-			name:          "a message that could not be sent: the answer says so, and the invitation is withdrawn",
-			inv:           Invitation{Email: "pat@example.com", Roles: []accesstypes.Role{"Steward"}},
-			sendErr:       errors.New("relay down"),
-			wantWrites:    []string{row("pat@example.com", "", "Steward", "<nobody>")},
-			wantWithdrawn: true,
-			wantSent:      ptr(false),
+			name:       "a message that could not be sent: the answer says so, and the invitation is ended",
+			inv:        Invitation{Email: "pat@example.com", Roles: []accesstypes.Role{"Steward"}},
+			sendErr:    errors.New("relay down"),
+			wantWrites: []string{row("pat@example.com", "", "Steward", "<nobody>")},
+			wantEnded:  true,
+			wantSent:   ptr(false),
 		},
 		{
 			name:       "a transaction that does not commit sends nothing and tells the answer nothing",
@@ -265,8 +265,8 @@ func TestManager_Invite(t *testing.T) {
 			if diff := cmp.Diff(tt.wantMailed, mail.sent); diff != "" {
 				t.Errorf("addresses mailed (-want +got):\n%s", diff)
 			}
-			if withdrawn := len(mail.withdrawn) == 1; withdrawn != tt.wantWithdrawn {
-				t.Errorf("the invitation withdrawn = %t, want %t", withdrawn, tt.wantWithdrawn)
+			if ended := len(mail.ended) == 1; ended != tt.wantEnded {
+				t.Errorf("the invitation ended = %t, want %t", ended, tt.wantEnded)
 			}
 			if diff := cmp.Diff(tt.wantSent, told); diff != "" {
 				t.Errorf("what the answer was told (-want +got):\n%s", diff)

@@ -1779,7 +1779,7 @@ describe('identityPages, what the notice says once a method has run', () => {
     expect(words(global, 'MakeCrewInviteOnly')).toBe('The method is invite only.');
   });
 
-  it('reads whether an invitation was mailed from its answer, and says a failed one was withdrawn and what to do', () => {
+  it('reads whether an invitation was mailed from its answer, and says a failed one is ended and what to do', () => {
     for (const [side, method] of [
       [sides[0], 'InviteCrewUser'],
       [sides[1], 'InviteCrewSectorUser'],
@@ -1791,7 +1791,7 @@ describe('identityPages, what the notice says once a method has run', () => {
       });
       for (const unsent of [{ id: 'i-1', sent: false }, {}, undefined]) {
         expect(invite.answered?.(unsent), method).toEqual({
-          message: 'The invitation could not be mailed, so it was withdrawn. Invite the person again.',
+          message: 'The invitation was not mailed, so it is ended. Invite the person again.',
           failed: true,
         });
       }

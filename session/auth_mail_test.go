@@ -539,7 +539,7 @@ func TestAuth_Invite(t *testing.T) {
 	t.Parallel()
 
 	t.Run("an invitation stores its row and mails a link to the login page that carries the token", authInviteCase1)
-	t.Run("a message that cannot be sent withdraws the invitation", authInviteCase2)
+	t.Run("a message that cannot be sent ends the invitation", authInviteCase2)
 	t.Run("an address that is not one is refused", authInviteCase3)
 	t.Run("an address no offered sign-in method could admit is refused, nothing stored or mailed", authInviteCase4)
 }
@@ -587,7 +587,7 @@ func authInviteCase2(t *testing.T) {
 		t.Fatalf("Invite() error = %v, want the message not sent", err)
 	}
 	if row := links.last(t); row.ConsumedAt == nil {
-		t.Error("the invitation stands after the send failed, want it withdrawn")
+		t.Error("the invitation stands after the send failed, want it ended")
 	}
 }
 
@@ -625,7 +625,7 @@ func authInviteCase4(t *testing.T) {
 // TestAuth_PrepareInvitation pins the invitation a caller stores itself: the checks
 // Invite makes, the row to store with the hash of the token the message carries, and
 // nothing stored or mailed until the caller does the one and asks for the other; a
-// message that cannot be sent withdraws the row the caller stored.
+// message that cannot be sent ends the invitation the caller stored.
 func TestAuth_PrepareInvitation(t *testing.T) {
 	t.Parallel()
 
@@ -667,7 +667,7 @@ func TestAuth_PrepareInvitation(t *testing.T) {
 		}
 	})
 
-	t.Run("a message that cannot be sent withdraws the row the caller stored", func(t *testing.T) {
+	t.Run("a message that cannot be sent ends the invitation the caller stored", func(t *testing.T) {
 		t.Parallel()
 		f, recorder, links := newMailFixture(t, gomock.NewController(t))
 		prepared, err := f.auth.API().PrepareInvitation(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", RoleNames: []string{"Teacher"}})
@@ -682,7 +682,7 @@ func TestAuth_PrepareInvitation(t *testing.T) {
 			t.Fatalf("Send() error = %v, want the message not sent", err)
 		}
 		if stored := links.last(t); stored.ConsumedAt == nil {
-			t.Error("the invitation stands after the send failed, want it withdrawn")
+			t.Error("the invitation stands after the send failed, want it ended")
 		}
 	})
 

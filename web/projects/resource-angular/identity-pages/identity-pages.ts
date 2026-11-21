@@ -1824,15 +1824,15 @@ function ofGroup(values: RecordData): string {
 
 /**
  * Reads the answer of a method that sends an invitation (`{ id, sent }`). Where the
- * message could not be sent the server has withdrawn the invitation, so that no link
- * stands that nobody holds: the notice says so, as a failure, with what to do.
+ * message could not be sent the server has ended the invitation, not mailed, so that no
+ * link stands that nobody holds: the notice says so, as a failure, with what to do.
  */
 function invited(answer: unknown): { message: string; failed?: boolean } {
   if (((answer ?? {}) as { sent?: unknown }).sent === true) {
     return { message: 'The invitation is on its way.' };
   }
   return {
-    message: 'The invitation could not be mailed, so it was withdrawn. Invite the person again.',
+    message: 'The invitation was not mailed, so it is ended. Invite the person again.',
     failed: true,
   };
 }

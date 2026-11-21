@@ -796,13 +796,13 @@ func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.Invitati
 }
 
 // fakeMail is the mailbox of the fake session library: the id its invitations take,
-// the addresses mailed, the invitations withdrawn after a failed send, and the failure
+// the addresses mailed, the invitations ended after a failed send, and the failure
 // a send answers.
 type fakeMail struct {
-	id        impulse.UUID
-	sent      []string
-	withdrawn []impulse.UUID
-	err       error
+	id    impulse.UUID
+	sent  []string
+	ended []impulse.UUID
+	err   error
 	// asked are the messages about an account the rules asked for, in order: the link
 	// that confirms a new address, the reset link, and the notices.
 	asked []string
@@ -820,11 +820,11 @@ func (p *fakePrepared) Row() *session.InvitationRow {
 	return &row
 }
 
-// Send mails the link as the session library does: a failed send withdraws the
+// Send mails the link as the session library does: a failed send ends the
 // invitation and is the error.
 func (p *fakePrepared) Send(context.Context) error {
 	if p.mail.err != nil {
-		p.mail.withdrawn = append(p.mail.withdrawn, p.row.ID)
+		p.mail.ended = append(p.mail.ended, p.row.ID)
 
 		return p.mail.err
 	}

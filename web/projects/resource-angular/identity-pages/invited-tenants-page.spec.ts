@@ -321,11 +321,11 @@ describe('identityPages, the invitations that make a tenant', () => {
   });
 
   it('says once the invitation is sent whether its message went, and what to do where it did not', () => {
-    // The server withdraws an invitation whose message could not be sent, and answers so.
+    // The server ends an invitation whose message could not be sent, and answers so.
     const answered = (list(page as RootConfig).listMethods ?? [])[0]?.answered;
     expect(answered?.({ id: 'i-1', sent: true })).toEqual({ message: 'The invitation is on its way.' });
     expect(answered?.({ id: 'i-1', sent: false })).toEqual({
-      message: 'The invitation could not be mailed, so it was withdrawn. Invite the person again.',
+      message: 'The invitation was not mailed, so it is ended. Invite the person again.',
       failed: true,
     });
   });

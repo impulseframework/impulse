@@ -48,8 +48,8 @@ type Invitation struct {
 // send is a step after the commit (resource.AfterCommit). sent is told how it went,
 // after the commit and before the transaction's ExecuteFunc returns: true once the
 // message is with the sender, false when it could not be sent, in which case the
-// session library has withdrawn the invitation, so no link stands that nobody holds,
-// and the caller invites again. A transaction that does not commit sends nothing and
+// session library has ended the invitation, not mailed, so no link stands that nobody
+// holds, and the caller invites again. A transaction that does not commit sends nothing and
 // never calls sent. sent may be nil.
 //
 // An invitation gives a role, at least one: a person an invitation admits holding no

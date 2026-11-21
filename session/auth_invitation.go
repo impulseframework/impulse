@@ -815,7 +815,7 @@ func (req *InvitationRequest) newTenant() (*sessioninfo.NewTenant, error) {
 // refused with a message naming its domain, and nothing is stored or mailed, so the
 // sender learns now what the invitee would learn at the sign-in. The invitation is
 // returned as stored; a message that could not be sent is an error and the invitation
-// is withdrawn.
+// is ended, not mailed.
 func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) (*sessioninfo.Invitation, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -962,10 +962,10 @@ type PreparedInvitation interface {
 	// Row answers the row to store, the caller's own copy.
 	Row() *InvitationRow
 	// Send mails the invitation's link to its address. Call it once the row is
-	// committed. A message that could not be sent withdraws the invitation, in the
-	// Auth's own storage, so no link stands that nobody holds, and is the error; the
-	// caller reports that the mail did not go, and the invitation is sent again by
-	// inviting again.
+	// committed. A message that could not be sent ends the invitation, not mailed, in
+	// the Auth's own storage, so no link stands that nobody holds, and is the error;
+	// the caller reports that the mail did not go, and the invitation is sent again
+	// by inviting again.
 	Send(ctx context.Context) error
 }
 
