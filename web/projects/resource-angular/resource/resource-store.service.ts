@@ -41,6 +41,7 @@ import {
   AnyResourceHandle,
   BatchResult,
   Capability,
+  ChangeEvent,
   Domain,
   keyBatches,
   keyLookupQuery,
@@ -50,6 +51,7 @@ import {
   MethodHandle,
   methodHandle,
   Operation,
+  ownWrite,
   Page,
   pageIsLive,
   readMode,
@@ -679,10 +681,11 @@ export class ResourceStore {
    * Holds the row or list `subscription` names on the client's live session for as long
    * as the signal names it: the session runs `refetch` when the row or list is to be
    * fetched again (a write this tab made, other people's changes after its wait, a
-   * resync). A new answer from the signal releases the old hold and takes the new;
-   * undefined holds nothing. Released with the store.
+   * resync), with the change that asked for it when one did. A new answer from the signal
+   * releases the old hold and takes the new; undefined holds nothing. Released with the
+   * store.
    */
-  private watchLive(subscription: Signal<LiveSubscription | undefined>, refetch: () => void): void {
+  private watchLive(subscription: Signal<LiveSubscription | undefined>, refetch: (event?: ChangeEvent) => void): void {
     let release: (() => void) | undefined;
     const ref = untracked(() =>
       effect(
@@ -690,7 +693,7 @@ export class ResourceStore {
           const current = subscription();
           untracked(() => {
             release?.();
-            release = current ? this.client.live.watch(current, () => refetch()) : undefined;
+            release = current ? this.client.live.watch(current, (_version, event) => refetch(event)) : undefined;
           });
         },
         { injector: this.injector },
@@ -729,7 +732,9 @@ export class ResourceStore {
    * session, which says when it is read again: at once for a write this tab made, after
    * the session's wait for other people's changes, and not while the tab is hidden. The
    * row stays on hand through every such read, so a form in use and the row's children
-   * stay on screen.
+   * stay on screen. A row this tab's own write deleted is not read again: the write's
+   * answer said it is gone, and the page that deleted it leaves, as on a page that is not
+   * live.
    */
   resourceView(
     route: Signal<string>,
@@ -770,7 +775,12 @@ export class ResourceStore {
       }) as ResourceRef<RecordData>;
       this.watchLive(
         computed(() => (live() ? this.rowSubscription(route(), uuid()) : undefined), { equal: sameSubscription }),
-        () => ref.reload(),
+        (event) => {
+          if (event?.deleted && ownWrite(event)) {
+            return;
+          }
+          ref.reload();
+        },
       );
       return ref;
     });
