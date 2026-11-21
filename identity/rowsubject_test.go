@@ -227,7 +227,7 @@ func TestRefuseImpersonatorAsRowSubject(t *testing.T) {
 
 				return
 			}
-			want := actingAsSomeoneElse + tt.wantAct + ": while you act as another person, nothing you do is done to your own account. Stop acting as them first"
+			want := actingAsSomeoneElse + tt.wantAct + "."
 			if err == nil || !httpio.HasForbidden(err) || httpio.Message(err) != want {
 				t.Fatalf("RefuseImpersonatorAsRowSubject() error = %v, want the refusal %q", err, want)
 			}
@@ -279,7 +279,7 @@ func TestRefuseImpersonatorAsRowSubject_keyedByPerson(t *testing.T) {
 
 				return
 			}
-			if err == nil || !httpio.HasForbidden(err) || !strings.HasPrefix(httpio.Message(err), actingAsSomeoneElse+tt.wantAct+":") {
+			if err == nil || !httpio.HasForbidden(err) || !strings.HasPrefix(httpio.Message(err), actingAsSomeoneElse+tt.wantAct+".") {
 				t.Fatalf("RefuseImpersonatorAsRowSubject() error = %v, want the refusal to %q", err, tt.wantAct)
 			}
 		})
@@ -348,7 +348,7 @@ func TestRefuseImpersonatorAsRowSubject_columns(t *testing.T) {
 
 				return
 			}
-			if err == nil || !httpio.HasForbidden(err) || !strings.HasPrefix(httpio.Message(err), actingAsSomeoneElse+tt.wantAct+":") {
+			if err == nil || !httpio.HasForbidden(err) || !strings.HasPrefix(httpio.Message(err), actingAsSomeoneElse+tt.wantAct+".") {
 				t.Fatalf("RefuseImpersonatorAsRowSubject() error = %v, want the refusal to %q", err, tt.wantAct)
 			}
 		})

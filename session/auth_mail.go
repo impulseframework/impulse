@@ -598,10 +598,12 @@ func (a *Auth[S, U, Tx]) hashToSet(password string) (*securehash.Hash, error) {
 	return hash, nil
 }
 
-// claimVerifiedEmail writes the address a sign-in method asserts as verified (Google
-// verifies the address itself, and the person has just proven they hold the account)
-// onto the user as verified, when the user holds no verified address and no other user
-// holds it. It is bookkeeping after the session stands: a failure is logged.
+// claimVerifiedEmail writes the address a sign-in method vouches for (Google alone, for
+// a Gmail address and a Workspace account's, which it is the authority for; the person
+// has just proven they hold the account) onto the user as verified, when the user holds
+// no verified address and no other user holds it. No other provider's word for an
+// address is written: that address is confirmed by the mailed code. It is bookkeeping
+// after the session stands: a failure is logged.
 func (a *Auth[S, U, Tx]) claimVerifiedEmail(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity) {
 	if identity == nil || !identity.EmailVerified || identity.Email == "" {
 		return

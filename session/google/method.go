@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/vouch"
 	"github.com/impulseframework/impulse/session/oidc"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -41,7 +42,9 @@ type Config struct {
 	// LoginURL is where refused and pending sign-ins are sent. (default: /login)
 	LoginURL string
 	// Authenticator replaces the verifier built from the fields above. Tests inject a
-	// fake identity provider through it; production leaves it nil.
+	// fake identity provider through it; production leaves it nil. A verifier the
+	// application sets here is trusted as Google's: what it says of an address is kept
+	// as Google's own word.
 	Authenticator Authenticator
 }
 
@@ -49,9 +52,20 @@ type Config struct {
 type Identity struct {
 	// Subject keys the identity: the sub claim, unique among all Google identities.
 	Subject string
-	// Email is the email claim; the sign-in refused it unless Google verified it. The
-	// standard account rule uses it as the username.
+	// Email is the email claim, which the standard account rule uses as the username.
+	// The sign-in refused it unless the token says Google verified it (email_verified),
+	// and that says only that somebody once read mail Google sent there: Google
+	// answers for the address itself only where EmailVouched says so.
 	Email string
+	// EmailVouched reports whether Google vouches for Email, which it does only for an
+	// address it is the authority for: a Workspace account's (the token carries hd,
+	// HostedDomain) and a Gmail address (gmail.com, googlemail.com). A Google account
+	// can be made with an address from anywhere else, and Google's word for that
+	// address is worth no more than any provider's: the library confirms no such
+	// address and finds no account by it. A rule that chooses a user by Email reads
+	// this first, and never chooses one by an address Google does not vouch for (see
+	// signin.Link).
+	EmailVouched bool
 	// HostedDomain is the hd claim: the domain of the Workspace the account is on, ""
 	// for a Google account outside a Workspace, which only AnyGoogleAccount admits.
 	HostedDomain string
@@ -71,8 +85,10 @@ type Identity struct {
 // AccountRule is the application's own rule for a Google identity that is not linked
 // to any user yet, given to SignIn; nil leaves every such identity to the library's
 // standard rule, which reads what an administrator chose for the registration in the
-// running application. See signin.AccountRule for when it runs and what it may do. Tx
-// is the Auth's storage transaction type.
+// running application. See signin.AccountRule for when it runs and what it may do. A
+// rule that chooses a user by the identity's address reads Identity.EmailVouched first:
+// Google answers only for a Gmail address and a Workspace account's. Tx is the Auth's
+// storage transaction type.
 type AccountRule[Tx any] func(ctx context.Context, tx Tx, identity *Identity) (*signin.Resolution, error)
 
 // Method holds the handlers of the Google Workspace sign-in method.
@@ -175,8 +191,10 @@ type claims struct {
 	Amr           []string `json:"amr"`
 }
 
-// identityOf decodes the ID token's claims into the identity. A token without sub or
-// email, or whose claims do not decode, is refused.
+// identityOf decodes the ID token's claims into the identity, and reports what the token
+// says of the address (email_verified). Whether Google vouches for the address is the
+// identity's own (Identity.EmailVouched, by vouchesFor). A token without sub or email,
+// or whose claims do not decode, is refused.
 func identityOf(rawClaims json.RawMessage) (*Identity, bool, error) {
 	c, err := oidc.DecodeClaims[claims](rawClaims)
 	if err != nil {
@@ -189,7 +207,10 @@ func identityOf(rawClaims json.RawMessage) (*Identity, bool, error) {
 		return nil, false, sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewUnauthorizedMessage("ID token carries no sub"))
 	}
 
-	return &Identity{Subject: c.Sub, Email: c.Email, HostedDomain: c.Hd, Name: c.Name, AMR: c.Amr, Claims: rawClaims}, c.EmailVerified, nil
+	return &Identity{
+		Subject: c.Sub, Email: c.Email, EmailVouched: vouchesFor(c.EmailVerified, c.Email, c.Hd),
+		HostedDomain: c.Hd, Name: c.Name, AMR: c.Amr, Claims: rawClaims,
+	}, c.EmailVerified, nil
 }
 
 // accountRule adapts the application's rule to the contract: the identity the core
@@ -213,12 +234,19 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 
 // method is the Google method over authn. The identity is (connection, sub), the
 // connection being what workspaces selects for the account's hd claim, and its sign-in
-// name the verified email. The authenticator checks the slot and the verified email;
-// the slot is checked here again, so an authenticator that did not cannot admit an
-// account outside it. When groups is set, the callback maps the person's directory
-// groups to role names using the access token, which is used once and never stored.
-// An address is admitted when the slot admits its domain, and a link's connection when
-// the slot would write that connection on a link today (admitsConnection).
+// name the verified email. Google's word for the address is the identity's
+// (sessioninfo.Identity.EmailVerified) only where Google is the address's authority
+// (vouchesFor): a Workspace account's address and a Gmail address. The application's
+// own account rule reads the same answer on the identity it receives
+// (Identity.EmailVouched). The method carries Google's mark
+// (signin.Method.AddressAuthority), by which the core knows it and keeps that word; a
+// method of any other package carries none. The authenticator checks the slot and the
+// verified email; the slot is checked here again, so an authenticator that did not
+// cannot admit an account outside it. When groups is set, the callback maps the
+// person's directory groups to role names using the access token, which is used once
+// and never stored. An address is admitted when the slot admits its domain, and a
+// link's connection when the slot would write that connection on a link today
+// (admitsConnection).
 func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *signin.Method {
 	m := &signin.Method{
 		Name:     sessioninfo.MethodGoogle,
@@ -229,6 +257,7 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 		},
 		AdmitsConnection: workspaces.admitsConnection,
 		ConnectionName:   workspaces.nameOf,
+		AddressAuthority: vouch.Google(),
 		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
 			hint, err := signin.LoginHint(r)
 			if err != nil {
@@ -262,7 +291,8 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
-					Method: sessioninfo.MethodGoogle, Connection: connection, Subject: id.Subject, Email: id.Email, EmailVerified: emailVerified, Name: id.Name, Claims: rawClaims, IDPAMR: id.AMR,
+					Method: sessioninfo.MethodGoogle, Connection: connection, Subject: id.Subject, Email: id.Email,
+					EmailVerified: id.EmailVouched, Name: id.Name, Claims: rawClaims, IDPAMR: id.AMR,
 					Organization: connection, Attestation: sessioninfo.AttestationOf(id.AMR, attests),
 				},
 				ReturnURL: returnURL,

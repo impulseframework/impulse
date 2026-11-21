@@ -8,7 +8,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/telemetry"
 	"github.com/impulseframework/impulse/resource"
@@ -28,7 +27,7 @@ func appendMissionNote(ctx context.Context, txn resource.ReadWriteTransaction, m
 		return errors.Wrap(err, "resources.MissionQuery.Read()")
 	}
 	if row == nil {
-		return httpio.NewNotFoundMessagef("mission %s does not exist", missionID)
+		return resource.TargetNotFound("Mission", missionID)
 	}
 
 	notes := line
@@ -57,7 +56,7 @@ func appendMissionNoteAs(ctx context.Context, txn resource.ReadWriteTransaction,
 		return errors.Wrap(err, "resources.MissionQuery.Read()")
 	}
 	if row == nil {
-		return httpio.NewNotFoundMessagef("mission %s does not exist", missionID)
+		return resource.TargetNotFound("Mission", missionID)
 	}
 
 	notes := line
@@ -107,7 +106,7 @@ func settleMission(ctx context.Context, txn resource.ReadWriteTransaction, missi
 		return nil, errors.Wrap(err, "resources.MissionQuery.Read()")
 	}
 	if row == nil {
-		return nil, httpio.NewNotFoundMessagef("mission %s does not exist", missionID)
+		return nil, resource.TargetNotFound("Mission", missionID)
 	}
 
 	settlement := &Settlement{Fee: row.Data.Fee, Expenses: decimal.Zero, Sorties: make([]SortieCost, 0, len(sortieIDs))}
@@ -149,7 +148,7 @@ func stampShipRefitted(ctx context.Context, txn resource.ReadWriteTransaction, r
 		return errors.Wrap(err, "resources.RefitQuery.Read()")
 	}
 	if row == nil {
-		return httpio.NewNotFoundMessagef("refit %s does not exist", refitID)
+		return resource.TargetNotFound("Refit", refitID)
 	}
 	if err := resources.NewShipUpdatePatch(row.Data.ShipID).SetLastRefitAt(&cloudspanner.CommitTimestamp).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.ShipUpdatePatch.Buffer()")
@@ -166,7 +165,7 @@ func ingestDroidReport(ctx context.Context, txn resource.ReadWriteTransaction, s
 		return errors.Wrap(err, "resources.ShipQuery.Read()")
 	}
 	if ship == nil {
-		return httpio.NewNotFoundMessagef("ship %s does not exist", shipID)
+		return resource.TargetNotFound("Ship", shipID)
 	}
 
 	hangar, err := resources.NewHangarQuery().AddColumns(resources.NewHangarColumns().SectorID()).SetID(ship.Data.HangarID).Read(ctx, txn)
@@ -174,7 +173,7 @@ func ingestDroidReport(ctx context.Context, txn resource.ReadWriteTransaction, s
 		return errors.Wrap(err, "resources.HangarQuery.Read()")
 	}
 	if hangar == nil {
-		return httpio.NewNotFoundMessagef("hangar %s does not exist", ship.Data.HangarID)
+		return resource.TargetNotFound("Hangar", ship.Data.HangarID)
 	}
 
 	if recordedAt.IsZero() {

@@ -53,7 +53,8 @@ type oidcApp[Tx any] struct {
 	// under its own connection name.
 	googleRiverside *oidctest.FakeIDP
 	// gateway is a provider with nothing vendor-specific about it, behind the generic
-	// OpenID Connect method as a public client admitting pre-created users only.
+	// OpenID Connect method as a public client admitting pre-created users only, whose
+	// names the registration declares the application's own.
 	gateway *oidctest.FakeIDP
 }
 
@@ -95,9 +96,12 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	})
 	google.IssuerURL = issuer
 	googleIssuerMu.Unlock()
+	// The gateway's names are the application's own (SeededUsers): an account created
+	// ahead for one of its people is linked on the name alone. Under any other
+	// registration that first link waits for the code mailed to the account's address.
 	gatewayMethod := oidc.SignIn[Tx](auth, "gateway", nil, &oidc.Config{
 		Issuer: gatewayIDP.Server.URL, ClientID: "gateway-client", RedirectURL: "https://app.example/gateway/callback", Connection: "gateway",
-		RoleSync: signin.DisableRoleSync(),
+		RoleSync: signin.DisableRoleSync(), SeededUsers: true,
 	})
 
 	r := chi.NewRouter()
@@ -184,15 +188,16 @@ func TestAuthSeams_GenericProvider(t *testing.T) {
 }
 
 // runGenericProviderSeams drives the generic OpenID Connect method as an identity
-// gateway's application uses it: a public client, pre-created password-less users, the
-// provider's preferred username as the sign-in name.
+// gateway's application uses it: a public client, pre-created password-less users the
+// registration declares its provider's names for, and the provider's preferred username
+// as the sign-in name.
 func runGenericProviderSeams[Tx any](t *testing.T, be backend[Tx]) {
 	tests := []struct {
 		name string
 		run  func(ctx context.Context, t *testing.T, a *oidcApp[Tx])
 	}{
 		{
-			name: "the provider's identity reaches the pre-created user under its preferred username, by the registration's connection and the subject; a stranger is refused and a repeat sign-in asks nothing",
+			name: "the identity of a provider whose names the registration declares the application's own reaches the pre-created user under its preferred username, by the registration's connection and the subject; a stranger is refused and a repeat sign-in asks nothing",
 			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
 				cadet, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: "cadet"})
 				if err != nil {

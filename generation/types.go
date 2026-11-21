@@ -1148,11 +1148,6 @@ func (c *computedResource) KeyParamList() string {
 	return keyParamList(c.HasCompoundPrimaryKey(), names)
 }
 
-// KeyFormat renders one %v per key part, slash-joined, for a refusal naming the row.
-func (c *computedResource) KeyFormat() string {
-	return keyFormat(len(c.PrimaryKeys()))
-}
-
 // Converters renders the closures a handler needs to build the named root mirror
 // from a computed row; empty for a flat resource, which converts whole.
 func (c *computedResource) Converters(rootMirror string) string {
@@ -1667,11 +1662,6 @@ func (r *resourceInfo) KeyParamList() string {
 			}
 		}
 	}))
-}
-
-// KeyFormat renders one %v per key part, slash-joined, for a refusal naming the row.
-func (r *resourceInfo) KeyFormat() string {
-	return keyFormat(r.keyCount())
 }
 
 func (r *resourceInfo) UpdateHandlerDisabled() bool {

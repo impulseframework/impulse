@@ -30,8 +30,8 @@ export const shipClassesConfig = rootConfig({
           field({ name: ShipClasses.fieldName.roleId, label: 'Role', cols: 3 }),
           field({ name: ShipClasses.fieldName.tonnage, label: 'Tonnage', cols: 3 }),
           // Hardened is a yes or no the table never leaves empty and gives no default of its
-          // own, so the form starts it unchecked: a new class is not hardened until its form
-          // says so.
+          // own, so a create must be given it: the create form draws it as a choice of yes or
+          // no that starts at No, and a new class is not hardened until its form says so.
           field({ name: ShipClasses.fieldName.hardened, label: 'Radiation hardened', cols: 3 }),
           // In service is a yes or no the table gives a default of its own: the column
           // declares yes, the generated metadata carries it, and the form starts the box

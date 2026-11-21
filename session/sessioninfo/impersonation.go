@@ -322,17 +322,17 @@ type ImpersonationQuery struct {
 // is the account of the person who started the session, and act says what was asked,
 // as the end of "you cannot" ("disable your own account", "give yourself a role").
 //
-// The sentence speaks to the person. The line speaks of them, in the third person
-// throughout ("asked to disable their own account"), and opens the same way wherever
-// the refusal was given, so one search of the log finds every refusal of the rule.
+// The sentence speaks to the person, and is one sentence wherever the refusal was
+// given: "You are acting as someone else, so you cannot give yourself a role." The line
+// speaks of them, in the third person throughout ("asked to disable their own
+// account"), names their account and opens the same way wherever the refusal was
+// given, so one search of the log finds every refusal of the rule.
 func ImpersonatorRefusal(actor impulse.UUID, act string) (line string, refusal error) {
 	line = fmt.Sprintf(
 		"impersonation: the person who started this impersonated session (%s) asked to %s: refused, since nobody is the subject of what they do while they act as someone else",
 		actor, ofThePerson(act),
 	)
-	refusal = httpio.NewForbiddenMessagef(
-		"you are acting as someone else, so you cannot %s: while you act as another person, nothing you do is done to your own account. Stop acting as them first", act,
-	)
+	refusal = httpio.NewForbiddenMessagef("You are acting as someone else, so you cannot %s.", act)
 
 	return line, refusal
 }
