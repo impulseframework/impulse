@@ -77,7 +77,12 @@ describe('PermissionsCardComponent', () => {
   };
   /** Whether the selector names the class or the element, whole: `.permission` is not `.permissions`. */
   const names = (selector: string, name: string): boolean => {
-    return new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(selector);
+    for (let at = selector.indexOf(name); at >= 0; at = selector.indexOf(name, at + 1)) {
+      if (!/[\w-]/.test(selector.charAt(at + name.length))) {
+        return true;
+      }
+    }
+    return false;
   };
   /**
    * What the card's own stylesheet, as the page is given it, declares in the rules whose
