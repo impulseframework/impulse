@@ -49,7 +49,12 @@ type Registration[Tx any] struct {
 	// tenants); the name is the application's, such as "azure" or "lakeside-entra".
 	Name string
 	// Method names the method; it is the identity's method and the session's auth
-	// event's.
+	// event's. It is the Name of the method Build builds, and the Method of every
+	// identity the method verifies: the core refuses a registration whose two names
+	// differ, and a sign-in whose identity is under another. It is never the name of a
+	// step the core records itself (sessioninfo.MethodEmailCode, MethodTrustedDevice,
+	// an attestation's), which the core refuses at registration: a method of an
+	// application's own takes a name of its own, such as "partner".
 	Method sessioninfo.AuthMethod
 	// AccountRule is the application's own rule for an identity of the method that is
 	// not linked to any user yet, nil for none, which leaves every such identity to the
@@ -100,7 +105,8 @@ type StateCookies interface {
 
 // Method is a registered external method as the core drives it.
 type Method struct {
-	// Name is the method's name.
+	// Name is the method's name: its registration's Method, and the Method of every
+	// identity it verifies.
 	Name sessioninfo.AuthMethod
 	// LoginURL is where refused and pending sign-ins are sent.
 	LoginURL func() string

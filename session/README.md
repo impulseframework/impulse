@@ -184,7 +184,10 @@ DML what a later rule must read.
   are recorded by the library alone: `CompletePending` and `StartAuthenticatedSession`
   refuse an event under `email-code`, `trusted-device` or an attestation's method
   (`400`), whatever the factors, and an application reports its step under a name of
-  its own. A `RequireMFA` is
+  its own. They refuse an event under the name of a sign-in the library runs too
+  (`password`, `azure`, `google`, `workos`, `oidc`, and the method of every
+  registration on the `Auth`): a session's first event says how the person signed in,
+  and only a sign-in the library ran says it was a password's or a directory's. A `RequireMFA` is
   satisfied without a step by a second factor the sign-in already carries: the
   attestation its connection makes, or a trusted device of the user; see "The second
   factor". An application whose users belong to tenants sets the library's
@@ -797,6 +800,15 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
   providers in one browser, and two `Auth`s on one host with a registration of the same
   name never read each other's state, and a callback completes only the login its own
   registration began.
+- **A method named after a step the library runs**: a registration whose `Method` is
+  `email-code`, `trusted-device`, `attested-by-evidence` or `attested-by-declaration`.
+  A sign-in's first auth event carries its method's name, and the library's rules read
+  those events as its own proof, so a method of the application's own takes a name of
+  its own (`"partner"`). A registration also has one method name: one whose `Method` is
+  not the `Name` of the method it builds is refused. The identities a method verifies
+  are held to that name at every sign-in: one under another method's name, or under
+  one of those four, is refused as the server's error (`internal_error`), and nothing
+  is linked or held.
 - **A method registered once the `Auth` is in use**: after it has served a request
   through any of its handlers or middleware, or read its methods to check or hash a
   password through its API (`CreateSessionUser` before `PasswordSignIn(auth,
@@ -1274,7 +1286,8 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   application's own). `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
   application authenticated itself, recording its events, which name steps of its own
   (an event under `email-code`, `trusted-device` or an attestation's method, which the
-  library records itself, is refused); it is decided like a login:
+  library records itself, is refused, and so is one under the name of a sign-in the
+  library runs: a password's, a directory method's, a registration's); it is decided like a login:
   the sign-in policy answers, a Deny refuses it and a RequireMFA holds it as a pending
   identity. No session start skips the policy; a support session is an impersonation.
 - **Role synchronization** (Azure, Google) reconciles the roles of the user the
