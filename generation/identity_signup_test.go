@@ -151,7 +151,7 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 		// package answers it, and the client hands the answers to the rules.
 		"crewidentity/grants.go": {
 			generationHeader, "var _ identity.RoleGrants = grants{}",
-			"caller.ExecuteGate(ctx, AssignCrewRole{}.Method(), &AssignCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
+			"caller.ExecuteGate(ctx, AssignCrewRole{}.Method(), &AssignCrewRole{UserID: userID, Role: string(role)})",
 		},
 		"crewidentity/client.go": {
 			"func (c *Client) SignedUp() session.SignUpSeatedHook[*spanner.ReadWriteTransaction] {", `return c.manager.SignedUp("Crew")`,

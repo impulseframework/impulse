@@ -14,12 +14,11 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
-// AssignStaffRole gives a person of the Staff auth a role: in the global
-// scope, in one domain (Domain), or in every domain (EveryDomain). The person is named
-// by the id of their account, and an id no user holds is refused: a role is held by an
-// account. The role must exist where it is given. The person's next request is served
-// with the role. The Super Administrator role is given in the global scope alone, and by
-// a super administrator.
+// AssignStaffRole gives a person of the Staff auth a role, held for the whole
+// application: the application has no tenants, so the request names no place. The
+// person is named by the id of their account, and an id no user holds is refused: a
+// role is held by an account. The role must exist. The person's next request is served
+// with the role. The Super Administrator role is given by a super administrator.
 //
 // The role is given for a period where the request names one (StartsAt, EndsAt, each
 // optional): outside it the role grants nothing, and nothing is written when it begins
@@ -36,9 +35,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type AssignStaffRole struct {
-	UserID      impulse.UUID
-	Domain      *string
-	EveryDomain bool
+	UserID impulse.UUID
 	// Role is the role the person is given, picked from the roles that exist where it is
 	// given that the caller could give there (StaffGivableRoles). A grant's condition
 	// reads it as new.role, so a role file can limit which roles the grant's holder hands
@@ -59,10 +56,8 @@ type AssignStaffRole struct {
 
 // Execute buffers the membership into the caller's transaction.
 func (m *AssignStaffRole) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
-	scope, err := identity.Scope(m.Domain, m.EveryDomain)
-	if err != nil {
-		return errors.Wrap(err, "identity.Scope()")
-	}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
 	period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)
 	if err != nil {
 		return errors.Wrap(err, "identity.RequestPeriod()")

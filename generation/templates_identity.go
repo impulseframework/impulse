@@ -1992,12 +1992,20 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+{{ if .HasTenant -}}
 // Assign{{ .Auth }}Role gives a person of the {{ .Auth }} auth a role: in the global
 // scope, in one domain (Domain), or in every domain (EveryDomain). The person is named
 // by the id of their account, and an id no user holds is refused: a role is held by an
 // account. The role must exist where it is given. The person's next request is served
 // with the role. The Super Administrator role is given in the global scope alone, and by
 // a super administrator.
+{{- else -}}
+// Assign{{ .Auth }}Role gives a person of the {{ .Auth }} auth a role, held for the whole
+// application: the application has no tenants, so the request names no place. The
+// person is named by the id of their account, and an id no user holds is refused: a
+// role is held by an account. The role must exist. The person's next request is served
+// with the role. The Super Administrator role is given by a super administrator.
+{{- end }}
 //
 // The role is given for a period where the request names one (StartsAt, EndsAt, each
 // optional): outside it the role grants nothing, and nothing is written when it begins
@@ -2015,6 +2023,7 @@ import (
 // @answers(204)
 type Assign{{ .Auth }}Role struct {
 	UserID      impulse.UUID
+	{{- if .HasTenant }}
 	{{- if .TenantPicker }}
 	// Domain is the one {{ .TenantName }} the role is given in, picked from the
 	// {{ .TenantName }} records the caller may list.
@@ -2023,6 +2032,7 @@ type Assign{{ .Auth }}Role struct {
 	{{- end }}
 	Domain      *string
 	EveryDomain bool
+	{{- end }}
 	// Role is the role the person is given, picked from the roles that exist where it is
 	// given that the caller could give there ({{ .GivablePicker }}). A grant's condition
 	// reads it as new.role, so a role file can limit which roles the grant's holder hands
@@ -2035,10 +2045,15 @@ type Assign{{ .Auth }}Role struct {
 
 // Execute buffers the membership into the caller's transaction.
 func (m *Assign{{ .Auth }}Role) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+	{{- if .HasTenant }}
 	scope, err := identity.Scope(m.Domain, m.EveryDomain)
 	if err != nil {
 		return errors.Wrap(err, "identity.Scope()")
 	}
+	{{- else }}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
+	{{- end }}
 	period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)
 	if err != nil {
 		return errors.Wrap(err, "identity.RequestPeriod()")
@@ -2070,10 +2085,17 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+{{ if .HasTenant -}}
 // Remove{{ .Auth }}Role takes a role from a person of the {{ .Auth }} auth, named by the
 // id of their account: the one held in the global scope, in one domain (Domain), or in
 // every domain (EveryDomain). A role the person does not hold there is no error. The
 // person's next request is served without it.
+{{- else -}}
+// Remove{{ .Auth }}Role takes a role from a person of the {{ .Auth }} auth, named by the
+// id of their account. The application has no tenants, so the role is the one held for
+// the whole application and the request names no place. A role the person does not hold
+// is no error. The person's next request is served without it.
+{{- end }}
 //
 // A person who removes a role from themselves in a domain keeps an administrator role
 // nobody else would hold there (identity.WithAdministratorRoles names them). The Super
@@ -2088,16 +2110,23 @@ import (
 type Remove{{ .Auth }}Role struct {
 	UserID      impulse.UUID
 	Role        string ` + "`validate:\"required\"`" + `
+	{{- if .HasTenant }}
 	Domain      *string
 	EveryDomain bool
+	{{- end }}
 }
 
 // Execute buffers the removal into the caller's transaction.
 func (m *Remove{{ .Auth }}Role) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+	{{- if .HasTenant }}
 	scope, err := identity.Scope(m.Domain, m.EveryDomain)
 	if err != nil {
 		return errors.Wrap(err, "identity.Scope()")
 	}
+	{{- else }}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
+	{{- end }}
 	if err := client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role)); err != nil {
 		return errors.Wrap(err, "identity.Manager.RemoveRole()")
 	}
@@ -2198,6 +2227,7 @@ import (
 )
 
 type (
+	{{- if .HasTenant }}
 	// Invite{{ .Auth }}User invites an address to the {{ .Auth }} auth: a link is
 	// mailed to it, and whoever follows the link and signs in, or signs up, is given
 	// the roles. An invitation gives at least one role: into a tenant (Domain), where
@@ -2207,6 +2237,14 @@ type (
 	// global scope: a role that exists only in the tenants is refused there, with what
 	// to choose. Name is the name the sender gives the person: whoever accepts the
 	// invitation takes it where their account holds none.
+	{{- else }}
+	// Invite{{ .Auth }}User invites an address to the {{ .Auth }} auth: a link is
+	// mailed to it, and whoever follows the link and signs in, or signs up, is given
+	// the roles. An invitation gives at least one role, held for the whole application:
+	// the application has no tenants, so the request names no place. Name is the name
+	// the sender gives the person: whoever accepts the invitation takes it where their
+	// account holds none.
+	{{- end }}
 	//
 	// The invitation is written in the transaction, beside whatever else it writes,
 	// and its message is sent once the transaction has committed, since a message
@@ -2219,6 +2257,7 @@ type (
 	Invite{{ .Auth }}User struct {
 		Email  string ` + "`validate:\"required\"`" + `
 		Name   *string
+		{{- if .HasTenant }}
 		{{- if .TenantPicker }}
 		// Domain is the one {{ .TenantName }} the roles are given in, picked from the
 		// {{ .TenantName }} records the caller may list.
@@ -2227,6 +2266,7 @@ type (
 		{{- end }}
 		Domain      *string
 		EveryDomain bool
+		{{- end }}
 		// Roles are the roles the person is given, picked from the roles that exist where
 		// they are given that the caller could give there ({{ .GivablePicker }}). A
 		// grant's condition reads each of them as new.role, so a role file can limit which
@@ -2248,7 +2288,7 @@ type (
 // Execute buffers the invitation into the caller's transaction and registers the send
 // for after its commit.
 func (m *Invite{{ .Auth }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Invite{{ .Auth }}UserResult, error) {
-	invitation := &identity.Invitation{Email: m.Email, Name: m.Name, Domain: m.Domain, EveryDomain: m.EveryDomain}
+	invitation := &identity.Invitation{Email: m.Email, Name: m.Name{{ if .HasTenant }}, Domain: m.Domain, EveryDomain: m.EveryDomain{{ end }}}
 	for _, role := range m.Roles {
 		invitation.Roles = append(invitation.Roles, accesstypes.Role(role))
 	}

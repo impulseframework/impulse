@@ -1725,13 +1725,13 @@ describe('identityPages, what the notice says once a method has run', () => {
 });
 
 describe('identityPages, an application without tenants', () => {
-  // The generator writes the same lists and methods for every application: a role row
-  // says its kind, a mailed link carries a tenant, and each method that gives a role or
-  // keeps a group has the fields that say where.
+  // The generator writes the same lists for every application: a role row says its kind
+  // and a mailed link carries a tenant. The methods that give a role, take one away or
+  // keep a group have no field that says where, and the roles to give name no place.
   const officeMetas: Record<string, ResourceMeta> = {
     OfficeSessionUsers: fields('id', 'username', 'name', 'email', 'disabled', 'lastSignInAt'),
     OfficeUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
-    OfficeGivableRoles: fields('name', 'description', 'method', 'domain', 'everyDomain'),
+    OfficeGivableRoles: fields('name', 'description', 'method'),
     OfficeSessionMailLinks: fields(
       'id',
       'kind',
@@ -1786,20 +1786,21 @@ describe('identityPages, an application without tenants', () => {
   });
   const [roles, throughGroups] = children(accounts);
   const [, groupRoles] = children(groups);
-  const nowhere = { domain: null, everyDomain: false };
+  /** What a page fills a method's request with from a row: nothing where it fills nothing. */
+  const filled = (offer: MethodPresentation, row: RecordData): Record<string, unknown> => offer.fill?.(row) ?? {};
 
-  it('asks no dialog where: each method that gives a role or keeps a group is filled with no place, by the fields it has', () => {
-    expect(presentation(list(accounts).listMethods, 'InviteOfficeUser').fill?.({})).toEqual(nowhere);
-    // The id of the person's account is filled beside it, as with tenants.
-    expect(presentation(list(accounts).rowMethods, 'AssignOfficeRole').fill?.({ id: 'u-1' })).toEqual({
-      ...nowhere,
+  it('sends no place: the methods have no field that says where, and a request is sent as filled', () => {
+    // The server refuses a field a method does not have, so a page that filled "no
+    // tenant" would have every one of these refused.
+    expect(filled(presentation(list(accounts).listMethods, 'InviteOfficeUser'), {})).toEqual({});
+    // The id of the person's account is filled, as with tenants, and nothing beside it.
+    expect(filled(presentation(list(accounts).rowMethods, 'AssignOfficeRole'), { id: 'u-1' })).toEqual({
       userId: 'u-1',
     });
-    expect(presentation(list(groups).rowMethods, 'GiveOfficeGroupRole').fill?.({ id: 'g-1' })).toEqual(nowhere);
-    expect(presentation(groupRoles.listMethods, 'GiveOfficeGroupRole').fill?.({ id: 'g-1' })).toEqual(nowhere);
-    // A group is kept in one place: its method has no "every tenant" to fill.
-    expect(presentation(list(groups).listMethods, 'CreateOfficeGroup').fill?.({})).toEqual({ domain: null });
-    // A method that names no place is filled with none.
+    expect(filled(presentation(list(groups).rowMethods, 'GiveOfficeGroupRole'), { id: 'g-1' })).toEqual({});
+    expect(filled(presentation(groupRoles.listMethods, 'GiveOfficeGroupRole'), { id: 'g-1' })).toEqual({});
+    expect(filled(presentation(list(groups).listMethods, 'CreateOfficeGroup'), {})).toEqual({});
+    // A method that never named a place is filled with none either.
     expect(presentation(list(groups).rowMethods, 'DescribeOfficeGroup').fill).toBeUndefined();
     expect(presentation(list(groups).rowMethods, 'AddOfficeGroupMember').fill).toBeUndefined();
   });
@@ -1830,14 +1831,21 @@ describe('identityPages, an application without tenants', () => {
       ['expiresAt', 'Expires'],
       ['consumedAt', 'Used'],
     ]);
-    // A role is taken away from where it is held, the whole application, and the question names no place.
+    // A role is taken away from where it is held, the whole application: the request and
+    // the question name no place, whatever kind the row says.
     const remove = presentation(roles.rowMethods, 'RemoveOfficeRole');
-    expect(remove.fill?.({ userId: 'u-1', role: 'Clerk' })).toEqual({ userId: 'u-1', role: 'Clerk', ...nowhere });
+    expect(remove.fill?.({ userId: 'u-1', role: 'Clerk', kind: 'global', domainId: '' })).toEqual({
+      userId: 'u-1',
+      role: 'Clerk',
+    });
     expect((remove.confirm as (row: RecordData) => string)({ role: 'Clerk' })).toBe(
       'Take Clerk away from this person?',
     );
     const take = presentation(groupRoles.rowMethods, 'TakeOfficeGroupRole');
-    expect(take.fill?.({ groupId: 'g-1', role: 'Clerk' })).toEqual({ groupId: 'g-1', role: 'Clerk', ...nowhere });
+    expect(take.fill?.({ groupId: 'g-1', role: 'Clerk', kind: 'global', domainId: '' })).toEqual({
+      groupId: 'g-1',
+      role: 'Clerk',
+    });
   });
 
   it('says "tenant" nowhere: no heading, no title, no button and no word above an input', () => {

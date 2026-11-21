@@ -159,11 +159,10 @@ describe("the staff's Accounts page brings a person in with a role", () => {
     await chooseRole('Administrator');
     await press('Invite');
 
+    // The request names no place either: the method has no field for one.
     expect(sent('invite-staff-user')).toEqual({
       email: 'pat@harbor.example',
       roles: ['Administrator'],
-      domain: null,
-      everyDomain: false,
     });
     // Without tenants the roles are not narrowed by a place.
     expect(rolesAsked.length).toBeGreaterThan(0);

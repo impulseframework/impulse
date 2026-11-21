@@ -1205,12 +1205,7 @@ class SideBuilder {
           {
             label: 'Take the role away',
             icon: 'remove_moderator',
-            fill: (row) => ({
-              groupId: row['groupId'],
-              role: row['role'],
-              domain: row['kind'] === heldInOneTenant ? row['domainId'] : null,
-              everyDomain: row['kind'] === heldInEveryTenant,
-            }),
+            fill: (row) => ({ groupId: row['groupId'], role: row['role'], ...this.heldPlace(row) }),
             confirm: (row) => `Take ${String(row['role'])}${this.heldWhere(row)} away from the group? ${whoLoses(row)}`,
           },
         ],
@@ -1442,8 +1437,8 @@ class SideBuilder {
   /**
    * The words for where a role is held, on the whole application's methods that take a
    * tenant: the tenant record's name for the tenant, and for the switch that says every
-   * tenant. None in an application without tenants, whose dialogs ask for no place
-   * (noPlace).
+   * tenant. None in an application without tenants, whose methods have no field that
+   * says where.
    */
   private where(): Record<string, string> {
     if (!this.identity.tenant) {
@@ -1499,10 +1494,7 @@ class SideBuilder {
    * A method's presentation with what every offer of the method shares. The notice says
    * what happened once the method has run, in a sentence a person would say: a method
    * that sends an invitation reads its answer (invited), and every other the words for
-   * what it is (doneWords); an offer that carries words of its own keeps them. In an
-   * application without tenants the whole application's methods that say where (a role
-   * given, a group kept) are filled with no place (noPlace), so their dialogs ask for
-   * none: the request names no tenant and everything is held for the whole application.
+   * what it is (doneWords); an offer that carries words of its own keeps them.
    */
   private shared(method: string, presentation: Omit<MethodPresentation, 'method'>): Omit<MethodPresentation, 'method'> {
     const kind = this.kinds.get(method);
@@ -1518,12 +1510,7 @@ class SideBuilder {
         said.successMessage = words;
       }
     }
-    const place = this.tenant || this.identity.tenant ? undefined : noPlace[kind];
-    if (!place) {
-      return { ...said, ...presentation };
-    }
-    const fill = presentation.fill;
-    return { ...said, ...presentation, fill: (row) => ({ ...place, ...fill?.(row) }) };
+    return { ...said, ...presentation };
   }
 
   /**
@@ -1600,15 +1587,25 @@ class SideBuilder {
 
   /**
    * What the whole application's method that takes a role from a person takes, from a
-   * row that names the role and where it is held. A role held for the whole application
-   * or in every tenant names no tenant: the page fills that with nothing (null), so the
-   * dialog asks for none and puts its question. Left undefined, the dialog would ask the
-   * person for it.
+   * row that names the role and where it is held.
    */
   private heldRole(row: RecordData): Record<string, unknown> {
+    return { userId: row['userId'], role: row['role'], ...this.heldPlace(row) };
+  }
+
+  /**
+   * Where the role of a row is held, as the whole application's methods that take a role
+   * away name it in their requests. A role held for the whole application or in every
+   * tenant names no tenant: the page fills that with nothing (null), so the dialog asks
+   * for none and puts its question. Left undefined, the dialog would ask the person for
+   * it. In an application without tenants the methods have no field that says where,
+   * and the server refuses a field a method does not have: the request names no place.
+   */
+  private heldPlace(row: RecordData): Record<string, unknown> {
+    if (!this.identity.tenant) {
+      return {};
+    }
     return {
-      userId: row['userId'],
-      role: row['role'],
       domain: row['kind'] === heldInOneTenant ? row['domainId'] : null,
       everyDomain: row['kind'] === heldInEveryTenant,
     };
@@ -1785,20 +1782,6 @@ const doneWords: Partial<Record<MethodKind, string>> = {
   removeGroupMember: 'The person was removed from the group.',
   giveGroupRole: 'The role was given to the group.',
   takeGroupRole: 'The role was taken away from the group.',
-};
-
-/**
- * The request fields that say where, on the whole application's methods that give a role
- * or keep a group, each filled with no place: no tenant (`domain`), and not every tenant
- * (`everyDomain`). An application without tenants has the one place, so the pages fill
- * these and its dialogs ask neither. Each method is filled with the fields it has, and no
- * other: a request is sent as filled.
- */
-const noPlace: Partial<Record<MethodKind, Record<string, unknown>>> = {
-  invite: { domain: null, everyDomain: false },
-  assignRole: { domain: null, everyDomain: false },
-  giveGroupRole: { domain: null, everyDomain: false },
-  createGroup: { domain: null },
 };
 
 /**

@@ -680,8 +680,6 @@ export namespace AddStaffGroupMember {
 export namespace AssignStaffRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
     role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
@@ -693,7 +691,6 @@ export namespace CreateStaffGroup {
   export const fieldName = {
     name: 'name' as FieldName,
     description: 'description' as FieldName,
-    domain: 'domain' as FieldName,
   };
 }
 
@@ -743,8 +740,6 @@ export namespace EndStaffUserSessions {
 export namespace GiveStaffGroupRole {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
     role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
@@ -755,8 +750,6 @@ export namespace InviteStaffUser {
   export const fieldName = {
     email: 'email' as FieldName,
     name: 'name' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
     roles: 'roles' as FieldName,
   };
 }
@@ -791,8 +784,6 @@ export namespace RemoveStaffRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
     role: 'role' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
   };
 }
 
@@ -851,8 +842,6 @@ export namespace TakeStaffGroupRole {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
     role: 'role' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
   };
 }
 

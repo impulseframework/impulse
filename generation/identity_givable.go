@@ -40,7 +40,9 @@ func (r *resourceGenerator) givableRoleSources(inst *identityInstance) []identit
 // globalGiving is one method a person gives a role with by hand from the whole
 // application's management, whose role field picks from the roles to give
 // (<Auth>GivableRoles): the method's struct, and the fields its request names the role
-// and where it is held in, as Go writes them over a scope's domain and everyDomain.
+// and where it is held in, as Go writes them over a scope's domain and everyDomain. In
+// an application without tenants the methods have no field that says where, and the
+// request names the role alone.
 type globalGiving struct {
 	Method string
 	Fields string
@@ -56,16 +58,20 @@ func (i *identityInstance) globalGivings() []globalGiving {
 	if i.rolesSynced || !i.has(identityMemberships) {
 		return nil
 	}
-	givings := []globalGiving{{Method: "Assign" + i.auth + "Role", Fields: "Role: string(role), Domain: domain, EveryDomain: everyDomain"}}
+	place := ""
+	if i.tenant != nil {
+		place = ", Domain: domain, EveryDomain: everyDomain"
+	}
+	givings := []globalGiving{{Method: "Assign" + i.auth + "Role", Fields: "Role: string(role)" + place}}
 	if i.has(identityMailLinks) {
-		givings = append(givings, globalGiving{Method: "Invite" + i.auth + "User", Fields: "Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain"})
+		givings = append(givings, globalGiving{Method: "Invite" + i.auth + "User", Fields: "Roles: []string{string(role)}" + place})
 	}
 	written := slices.ContainsFunc(i.groupMethodSources(), func(file identitySourceFile) bool {
 		return !file.tenant && file.name == fileStem("Give"+i.auth+"GroupRole") &&
 			!slices.ContainsFunc(file.needs, func(kind identityTable) bool { return !i.has(kind) })
 	})
 	if written {
-		givings = append(givings, globalGiving{Method: "Give" + i.auth + "GroupRole", Fields: "Role: string(role), Domain: domain, EveryDomain: everyDomain"})
+		givings = append(givings, globalGiving{Method: "Give" + i.auth + "GroupRole", Fields: "Role: string(role)" + place})
 	}
 
 	return givings

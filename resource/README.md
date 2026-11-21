@@ -3549,7 +3549,12 @@ POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-â€¦, delete-â€
 The names are table-derived: the Auth's package name in PascalCase and the library's own
 name for the table, with the tenant record's name between them for a tenant's list
 (`Sector` in the ones under the domain pair, which exist only where the application has
-a tenant record). Every resource over a table is global, none has a write route, and none
+a tenant record). In an application without tenants the six methods of the whole
+application that say where (`invite-crew-user`, `assign-crew-role`, `remove-crew-role`,
+`create-crew-group`, `give-crew-group-role`, `take-crew-group-role`) have neither `domain`
+nor `everyDomain`: every role is held and every group kept for the whole application, and
+a request that names either field is refused as any field the method does not have (400).
+Every resource over a table is global, none has a write route, and none
 carries a password hash or a token hash: no declaration has such a field. A method that
 targets a resource is listed in that resource's rows' Execute answer
 (`capabilities=Execute`), so a page draws its buttons from the row. The Auth's shape

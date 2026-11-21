@@ -23,8 +23,6 @@ export type AddStaffGroupMemberStatus = 204;
 
 export interface AssignStaffRoleConfig {
   userId: string | FieldPointer;
-  domain?: string | FieldPointer;
-  everyDomain: boolean | FieldPointer;
   role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
@@ -32,8 +30,6 @@ export interface AssignStaffRoleConfig {
 }
 export interface AssignStaffRole {
   userId: string;
-  domain?: string;
-  everyDomain: boolean;
   role: string;
   startsAt?: Date;
   endsAt?: Date;
@@ -45,12 +41,10 @@ export type AssignStaffRoleStatus = 204;
 export interface CreateStaffGroupConfig {
   name: string | FieldPointer;
   description: string | FieldPointer;
-  domain?: string | FieldPointer;
 }
 export interface CreateStaffGroup {
   name: string;
   description: string;
-  domain?: string;
 }
 /** The result CreateStaffGroup answers with. */
 export interface CreateStaffGroupResult {
@@ -124,16 +118,12 @@ export type EndStaffUserSessionsStatus = 204;
 
 export interface GiveStaffGroupRoleConfig {
   groupId: string | FieldPointer;
-  domain?: string | FieldPointer;
-  everyDomain: boolean | FieldPointer;
   role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
 }
 export interface GiveStaffGroupRole {
   groupId: string;
-  domain?: string;
-  everyDomain: boolean;
   role: string;
   startsAt?: Date;
   endsAt?: Date;
@@ -144,15 +134,11 @@ export type GiveStaffGroupRoleStatus = 204;
 export interface InviteStaffUserConfig {
   email: string | FieldPointer;
   name?: string | FieldPointer;
-  domain?: string | FieldPointer;
-  everyDomain: boolean | FieldPointer;
   roles: string[] | FieldPointer;
 }
 export interface InviteStaffUser {
   email: string;
   name?: string;
-  domain?: string;
-  everyDomain: boolean;
   roles: string[];
 }
 /** The result InviteStaffUser answers with. */
@@ -204,14 +190,10 @@ export type RemoveStaffPasswordStatus = 204;
 export interface RemoveStaffRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
-  domain?: string | FieldPointer;
-  everyDomain: boolean | FieldPointer;
 }
 export interface RemoveStaffRole {
   userId: string;
   role: string;
-  domain?: string;
-  everyDomain: boolean;
 }
 /** The statuses RemoveStaffRole declares; the method chooses one per response. */
 export type RemoveStaffRoleStatus = 204;
@@ -303,14 +285,10 @@ export type SetStaffUserNameStatus = 204;
 export interface TakeStaffGroupRoleConfig {
   groupId: string | FieldPointer;
   role: string | FieldPointer;
-  domain?: string | FieldPointer;
-  everyDomain: boolean | FieldPointer;
 }
 export interface TakeStaffGroupRole {
   groupId: string;
   role: string;
-  domain?: string;
-  everyDomain: boolean;
 }
 /** The statuses TakeStaffGroupRole declares; the method chooses one per response. */
 export type TakeStaffGroupRoleStatus = 204;
@@ -465,8 +443,6 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'domain', displayType: 'string', optional: true },
-      { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffGivableRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
@@ -480,7 +456,6 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'name', displayType: 'string', required: true },
       { fieldName: 'description', displayType: 'string', required: true },
-      { fieldName: 'domain', displayType: 'string', optional: true },
     ],
   },
   [Methods.DeleteStaffGroup]: {
@@ -554,8 +529,6 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
-      { fieldName: 'domain', displayType: 'string', optional: true },
-      { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffGivableRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
@@ -568,8 +541,6 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
       { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'domain', displayType: 'string', optional: true },
-      { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.StaffGivableRoles, attribute: 'role' },
     ],
   },
@@ -617,8 +588,6 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
-      { fieldName: 'domain', displayType: 'string', optional: true },
-      { fieldName: 'everyDomain', displayType: 'boolean' },
     ],
   },
   [Methods.RenameStaffUser]: {
@@ -702,8 +671,6 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
-      { fieldName: 'domain', displayType: 'string', optional: true },
-      { fieldName: 'everyDomain', displayType: 'boolean' },
     ],
   },
   [Methods.TakeStaffRole]: {

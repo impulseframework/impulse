@@ -108,8 +108,8 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"WHERE r.Role != 'SuperAdministrator'\n  AND (g.Kind = 'global' OR (r.Kind = g.Kind AND r.Axis = g.Axis AND r.DomainId = g.DomainId))",
 		},
 		"crewidentity/create_crew_group.go": {
-			"// @rpc\n\t// @outlet(default)\n\tCreateCrewGroup struct {", "Domain      *string", "identity.Scope(m.Domain, false)",
-			"client.manager.CreateGroup(ctx, txn, scope, m.Name, m.Description)", "return &CreateCrewGroupResult{ID: id}, nil",
+			"// @rpc\n\t// @outlet(default)\n\tCreateCrewGroup struct {",
+			"client.manager.CreateGroup(ctx, txn, accesstypes.GlobalPolicyScope(), m.Name, m.Description)", "return &CreateCrewGroupResult{ID: id}, nil",
 		},
 		"crewidentity/describe_crew_group.go": {"// @answers(204)\ntype DescribeCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID     impulse.UUID", "client.manager.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
 		"crewidentity/delete_crew_group.go":   {"type DeleteCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID\n}", "client.manager.DeleteGroup(ctx, txn, m.GroupID)"},
@@ -123,15 +123,15 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"client.manager.RemoveGroupMember(ctx, txn, m.GroupID, m.UserID)",
 		},
 		"crewidentity/give_crew_group_role.go": {
-			// Where the role is given is asked before the role, which is picked from the
-			// roles that exist there that the caller could give.
-			"type GiveCrewGroupRole struct {\n\t// @target(CrewListedGroup)\n\tGroupID     impulse.UUID\n\tDomain      *string\n\tEveryDomain bool\n",
+			// The role is picked from the roles the caller could give. The application has
+			// no tenants, so the request does not say where.
+			"type GiveCrewGroupRole struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID\n\t// Role is the role the group is given,",
 			"// @attribute(role)\n\t// @enumerate(CrewGivableRoles)\n\tRole string `validate:\"required\"`",
 			"client.manager.GiveGroupRoleFor(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role), period)",
 		},
 		// The whole application's method names no row: a role is held in a scope whose
 		// columns are empty for the whole application, so a page fills it from a row.
-		"crewidentity/take_crew_group_role.go": {"// @answers(204)\ntype TakeCrewGroupRole struct {\n\tGroupID     impulse.UUID", "client.manager.TakeGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role))"},
+		"crewidentity/take_crew_group_role.go": {"// @answers(204)\ntype TakeCrewGroupRole struct {\n\tGroupID impulse.UUID\n\tRole    string `validate:\"required\"`\n}", "client.manager.TakeGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role))"},
 		"crewidentity/store.go": {
 			"var _ identity.Store = store{}",
 			"func (store) InsertGroup(ctx context.Context, txn resource.ReadWriteTransaction, group *access.GroupRow) (impulse.UUID, error) {",
@@ -339,18 +339,19 @@ func Test_prepareIdentity_grants(t *testing.T) {
 		"crewidentity/grants.go": {
 			generationHeader, "var _ identity.RoleGrants = grants{}",
 			// The whole application's methods name no row: the request's fields settle the
-			// grant, the role in question among them.
-			"caller.ExecuteGate(ctx, AssignCrewRole{}.Method(), &AssignCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
+			// grant, the role in question among them. The application has no tenants, so a
+			// request names no place, and a scope that is not the whole application is a no.
+			"if !scope.IsGlobal() {\n\t\treturn false, nil\n\t}\n\tgate, err := caller.ExecuteGate(ctx, AssignCrewRole{}.Method(), &AssignCrewRole{UserID: userID, Role: string(role)})",
 			"return settled(gate, \"AssignCrewRole\")",
-			"caller.ExecuteGate(ctx, RemoveCrewRole{}.Method(), &RemoveCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
+			"if !scope.IsGlobal() {\n\t\treturn false, nil\n\t}\n\tgate, err := caller.ExecuteGate(ctx, RemoveCrewRole{}.Method(), &RemoveCrewRole{UserID: userID, Role: string(role)})",
 			"return settled(gate, \"RemoveCrewRole\")",
 			// The list the whole application's role fields pick from asks the one method
-			// whose dialog picks, with the role and where it is held: a role that method
+			// whose dialog picks, with the role, held for the whole application: a role that method
 			// takes from the caller is listed for it, and for no other method.
-			"func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {\n\tcaller := resource.CallerFrom(ctx)\n\tdomain, everyDomain := scopeFields(scope)\n\tswitch method {",
-			"\tcase AssignCrewRole{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &AssignCrewRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})\n" +
-				"\tcase InviteCrewUser{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &InviteCrewUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})\n" +
-				"\tcase GiveCrewGroupRole{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &GiveCrewGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})\n\t}",
+			"func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {\n\tcaller := resource.CallerFrom(ctx)\n\t// The application has no tenants: a role is held for the whole application, and\n\t// the methods give none anywhere else.\n\tif !scope.IsGlobal() {\n\t\treturn false, nil\n\t}\n\tswitch method {",
+			"\tcase AssignCrewRole{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &AssignCrewRole{Role: string(role)})\n" +
+				"\tcase InviteCrewUser{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &InviteCrewUser{Roles: []string{string(role)}})\n" +
+				"\tcase GiveCrewGroupRole{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &GiveCrewGroupRole{Role: string(role)})\n\t}",
 			// A method that picks no role from the list is no answer.
 			"return false, errors.Newf(\"%s is no method of the whole application that gives a role by hand: AssignCrewRole, InviteCrewUser, GiveCrewGroupRole\", method)",
 			// One method is asked: its refusal is the answer, and a grant that admits the

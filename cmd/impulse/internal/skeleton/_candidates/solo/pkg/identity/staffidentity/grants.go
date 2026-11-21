@@ -36,8 +36,12 @@ type grants struct{}
 // MayGive reports whether the caller may give the person the role in the scope.
 func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
 	caller := resource.CallerFrom(ctx)
-	domain, everyDomain := scopeFields(scope)
-	gate, err := caller.ExecuteGate(ctx, AssignStaffRole{}.Method(), &AssignStaffRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	// The application has no tenants: a role is held for the whole application, and
+	// the method gives none anywhere else.
+	if !scope.IsGlobal() {
+		return false, nil
+	}
+	gate, err := caller.ExecuteGate(ctx, AssignStaffRole{}.Method(), &AssignStaffRole{UserID: userID, Role: string(role)})
 	if err != nil {
 		return granted(err)
 	}
@@ -53,7 +57,7 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 //
 // For a request made for the whole application, the method is one of the whole
 // application's whose role field picks from the roles to give
-// (StaffGivableRoles), asked the same way, with the role and where it is held:
+// (StaffGivableRoles), asked the same way, with the role:
 //
 //	AssignStaffRole, InviteStaffUser, GiveStaffGroupRole
 //
@@ -61,14 +65,18 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 // is an error.
 func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	caller := resource.CallerFrom(ctx)
-	domain, everyDomain := scopeFields(scope)
+	// The application has no tenants: a role is held for the whole application, and
+	// the methods give none anywhere else.
+	if !scope.IsGlobal() {
+		return false, nil
+	}
 	switch method {
 	case AssignStaffRole{}.Method():
-		return couldGiveBy(ctx, caller, method, &AssignStaffRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})
+		return couldGiveBy(ctx, caller, method, &AssignStaffRole{Role: string(role)})
 	case InviteStaffUser{}.Method():
-		return couldGiveBy(ctx, caller, method, &InviteStaffUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})
+		return couldGiveBy(ctx, caller, method, &InviteStaffUser{Roles: []string{string(role)}})
 	case GiveStaffGroupRole{}.Method():
-		return couldGiveBy(ctx, caller, method, &GiveStaffGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})
+		return couldGiveBy(ctx, caller, method, &GiveStaffGroupRole{Role: string(role)})
 	}
 
 	return false, errors.Newf("%s is no method of the whole application that gives a role by hand: AssignStaffRole, InviteStaffUser, GiveStaffGroupRole", method)
@@ -92,8 +100,12 @@ func couldGiveBy(ctx context.Context, caller *resource.Caller, method accesstype
 // away.
 func (grants) MayTake(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
 	caller := resource.CallerFrom(ctx)
-	domain, everyDomain := scopeFields(scope)
-	gate, err := caller.ExecuteGate(ctx, RemoveStaffRole{}.Method(), &RemoveStaffRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	// The application has no tenants: a role is held for the whole application, and
+	// the method takes none away anywhere else.
+	if !scope.IsGlobal() {
+		return false, nil
+	}
+	gate, err := caller.ExecuteGate(ctx, RemoveStaffRole{}.Method(), &RemoveStaffRole{UserID: userID, Role: string(role)})
 	if err != nil {
 		return granted(err)
 	}
@@ -125,19 +137,4 @@ func settled(gate *resource.ExecuteGate, method string) (bool, error) {
 	}
 
 	return may, nil
-}
-
-// scopeFields spells a scope as the request of a whole application's role method names
-// it: one domain, every domain, or neither for the global scope.
-func scopeFields(scope accesstypes.PolicyScope) (domain *string, everyDomain bool) {
-	if scope.IsGlobal() {
-		return nil, false
-	}
-	if in, ok := scope.Domain(); ok {
-		name := string(in)
-
-		return &name, false
-	}
-
-	return nil, true
 }

@@ -9,17 +9,15 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
 
-// TakeStaffGroupRole takes away a role a group of the Staff auth holds: the
-// one held in the global scope, in one domain (Domain), or in every domain
-// (EveryDomain). Every person in the group is served without it at their next request,
-// unless they hold it some other way. A role the group does not hold there is no error.
-// It names no row: a page runs it from a row of StaffGroupRole, the roles the groups
-// hold, filling the request from the row. A person in the group does not take from it
-// the role that makes them the last administrator of a tenant.
+// TakeStaffGroupRole takes away a role a group of the Staff auth holds. The
+// application has no tenants, so the role is the one held for the whole application and
+// the request names no place. Every person in the group is served without it at their
+// next request, unless they hold it some other way. A role the group does not hold is no
+// error. It names no row: a page runs it from a row of StaffGroupRole, the roles the
+// groups hold, filling the request from the row.
 //
 // A group gives nobody a power that giving the role directly would not: beside the
 // grant of this method, the change needs what the same roles given or taken away
@@ -30,18 +28,14 @@ import (
 // @outlet(default)
 // @answers(204)
 type TakeStaffGroupRole struct {
-	GroupID     impulse.UUID
-	Role        string `validate:"required"`
-	Domain      *string
-	EveryDomain bool
+	GroupID impulse.UUID
+	Role    string `validate:"required"`
 }
 
 // Execute buffers the removal into the caller's transaction.
 func (m *TakeStaffGroupRole) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
-	scope, err := identity.Scope(m.Domain, m.EveryDomain)
-	if err != nil {
-		return errors.Wrap(err, "identity.Scope()")
-	}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
 	if err := client.manager.TakeGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role)); err != nil {
 		return errors.Wrap(err, "identity.Manager.TakeGroupRole()")
 	}

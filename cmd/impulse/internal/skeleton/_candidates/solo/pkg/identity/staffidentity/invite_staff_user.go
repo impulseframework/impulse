@@ -16,13 +16,10 @@ import (
 type (
 	// InviteStaffUser invites an address to the Staff auth: a link is
 	// mailed to it, and whoever follows the link and signs in, or signs up, is given
-	// the roles. An invitation gives at least one role: into a tenant (Domain), where
-	// every role is held there; into every tenant (EveryDomain), where every role is
-	// one of the domain kind and none carries the name of a role of the global scope;
-	// or with neither, into the whole application, where every role is one of the
-	// global scope: a role that exists only in the tenants is refused there, with what
-	// to choose. Name is the name the sender gives the person: whoever accepts the
-	// invitation takes it where their account holds none.
+	// the roles. An invitation gives at least one role, held for the whole application:
+	// the application has no tenants, so the request names no place. Name is the name
+	// the sender gives the person: whoever accepts the invitation takes it where their
+	// account holds none.
 	//
 	// The invitation is written in the transaction, beside whatever else it writes,
 	// and its message is sent once the transaction has committed, since a message
@@ -33,10 +30,8 @@ type (
 	// @rpc
 	// @outlet(default)
 	InviteStaffUser struct {
-		Email       string `validate:"required"`
-		Name        *string
-		Domain      *string
-		EveryDomain bool
+		Email string `validate:"required"`
+		Name  *string
 		// Roles are the roles the person is given, picked from the roles that exist where
 		// they are given that the caller could give there (StaffGivableRoles). A
 		// grant's condition reads each of them as new.role, so a role file can limit which
@@ -58,7 +53,7 @@ type (
 // Execute buffers the invitation into the caller's transaction and registers the send
 // for after its commit.
 func (m *InviteStaffUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*InviteStaffUserResult, error) {
-	invitation := &identity.Invitation{Email: m.Email, Name: m.Name, Domain: m.Domain, EveryDomain: m.EveryDomain}
+	invitation := &identity.Invitation{Email: m.Email, Name: m.Name}
 	for _, role := range m.Roles {
 		invitation.Roles = append(invitation.Roles, accesstypes.Role(role))
 	}

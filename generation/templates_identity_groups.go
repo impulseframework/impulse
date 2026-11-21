@@ -1046,6 +1046,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -1055,11 +1056,15 @@ type (
 	// Create{{ .Subject }}Group creates a group of people kept in one {{ .TenantName }}: the
 	// tenant the request is made under, and no other. A tenant's group is managed in the
 	// tenant, holds roles there alone, and holds any account.
-	{{- else }}
+	{{- else if .HasTenant }}
 	// Create{{ .Subject }}Group creates a group of people of the {{ .Auth }} auth: kept for
 	// the whole application, or in one domain (Domain), where it is then managed and
 	// holds roles alone. A group kept for the whole application holds roles wherever a
 	// person can.
+	{{- else }}
+	// Create{{ .Subject }}Group creates a group of people of the {{ .Auth }} auth, kept for
+	// the whole application: the application has no tenants, so the request names no
+	// place.
 	{{- end }}
 	// The name is what people know the group by, one group's where the group is kept,
 	// and the description says who is in it. A new group has no member and holds no
@@ -1070,7 +1075,7 @@ type (
 	Create{{ .Subject }}Group struct {
 		Name        string ` + "`validate:\"required\"`" + `
 		Description string ` + "`validate:\"required\"`" + `
-		{{- if not .ForTenant }}
+		{{- if and (not .ForTenant) .HasTenant }}
 		{{- if .TenantPicker }}
 		// Domain is the one {{ .TenantName }} the group is kept in, picked from the
 		// {{ .TenantName }} records the caller may list; none keeps it for the whole
@@ -1098,12 +1103,18 @@ func (m *Create{{ .Subject }}Group) Execute(ctx context.Context, txn resource.Re
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Tenant.CreateGroup()")
 	}
-	{{- else }}
+	{{- else if .HasTenant }}
 	scope, err := identity.Scope(m.Domain, false)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Scope()")
 	}
 	id, err := client.manager.CreateGroup(ctx, txn, scope, m.Name, m.Description)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.CreateGroup()")
+	}
+	{{- else }}
+	// The application has no tenants: every group is kept for the whole application.
+	id, err := client.manager.CreateGroup(ctx, txn, accesstypes.GlobalPolicyScope(), m.Name, m.Description)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Manager.CreateGroup()")
 	}
@@ -1285,8 +1296,17 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 		return granted(gate.EnforceView(ctx, txn, people, userID))
 	}
 	{{- end }}
+	{{- if .HasTenant }}
 	domain, everyDomain := scopeFields(scope)
 	gate, err := caller.ExecuteGate(ctx, Assign{{ .Auth }}Role{}.Method(), &Assign{{ .Auth }}Role{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	{{- else }}
+	// The application has no tenants: a role is held for the whole application, and
+	// the method gives none anywhere else.
+	if !scope.IsGlobal() {
+		return false, nil
+	}
+	gate, err := caller.ExecuteGate(ctx, Assign{{ .Auth }}Role{}.Method(), &Assign{{ .Auth }}Role{UserID: userID, Role: string(role)})
+	{{- end }}
 	if err != nil {
 		return granted(err)
 	}
@@ -1313,7 +1333,7 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 //
 // For a request made for the whole application, the method is one of the whole
 // application's whose role field picks from the roles to give
-// ({{ Pluralize .GivableRole }}), asked the same way, with the role and where it is held:
+// ({{ Pluralize .GivableRole }}), asked the same way, with the role{{ if .HasTenant }} and where it is held{{ end }}:
 //
 //	{{ .GlobalGivingMethods }}
 //
@@ -1337,7 +1357,15 @@ func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scop
 		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: {{ .GivingMethods }}", method)
 	}
 {{ end }}
+	{{- if .HasTenant }}
 	domain, everyDomain := scopeFields(scope)
+	{{- else }}
+	// The application has no tenants: a role is held for the whole application, and
+	// the methods give none anywhere else.
+	if !scope.IsGlobal() {
+		return false, nil
+	}
+	{{- end }}
 	switch method {
 	{{- range .GlobalGivings }}
 	case {{ .Method }}{}.Method():
@@ -1386,8 +1414,17 @@ func (grants) MayTake(ctx context.Context, txn resource.ReadWriteTransaction, sc
 		return granted(gate.EnforceProposed(ctx, txn, held, map[string]any{"role": string(role), "everyDomain": false}))
 	}
 	{{- end }}
+	{{- if .HasTenant }}
 	domain, everyDomain := scopeFields(scope)
 	gate, err := caller.ExecuteGate(ctx, Remove{{ .Auth }}Role{}.Method(), &Remove{{ .Auth }}Role{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	{{- else }}
+	// The application has no tenants: a role is held for the whole application, and
+	// the method takes none away anywhere else.
+	if !scope.IsGlobal() {
+		return false, nil
+	}
+	gate, err := caller.ExecuteGate(ctx, Remove{{ .Auth }}Role{}.Method(), &Remove{{ .Auth }}Role{UserID: userID, Role: string(role)})
+	{{- end }}
 	if err != nil {
 		return granted(err)
 	}
@@ -1420,6 +1457,7 @@ func settled(gate *resource.ExecuteGate, method string) (bool, error) {
 
 	return may, nil
 }
+{{- if .HasTenant }}
 
 // scopeFields spells a scope as the request of a whole application's role method names
 // it: one domain, every domain, or neither for the global scope.
@@ -1435,6 +1473,7 @@ func scopeFields(scope accesstypes.PolicyScope) (domain *string, everyDomain boo
 
 	return nil, true
 }
+{{- end }}
 `
 
 	// identityAddGroupMemberTemplate is the method that puts a person in a group.
@@ -1592,12 +1631,17 @@ import (
 // tenant, the one place a tenant's group holds a role: every person in the group then
 // holds the role there, and their next request is served with it. The role must exist
 // in the tenant.` + identityTenantGroupNote + `
-{{- else -}}
+{{- else if .HasTenant -}}
 // Give{{ .Subject }}GroupRole gives a group of the {{ .Auth }} auth a role: in the global
 // scope, in one domain (Domain), or in every domain (EveryDomain). Every person in the
 // group then holds the role there, and their next request is served with it. The role
 // must exist where it is given. A group kept in one domain is given a role in that
 // domain alone.
+{{- else -}}
+// Give{{ .Subject }}GroupRole gives a group of the {{ .Auth }} auth a role, held for the
+// whole application: the application has no tenants, so the request names no place.
+// Every person in the group then holds the role, and their next request is served with
+// it. The role must exist.
 {{- end }}
 // No group is given the Super Administrator role: a super administrator gives it to one
 // person at a time.
@@ -1624,6 +1668,7 @@ type Give{{ .Subject }}GroupRole struct {
 	// @enumerate({{ Pluralize .TenantRoleChoice }})
 	Role string ` + "`validate:\"required\"`" + `
 	{{- else }}
+	{{- if .HasTenant }}
 	{{- if .TenantPicker }}
 	// Domain is the one {{ .TenantName }} the role is given in, picked from the
 	// {{ .TenantName }} records the caller may list.
@@ -1632,6 +1677,7 @@ type Give{{ .Subject }}GroupRole struct {
 	{{- end }}
 	Domain      *string
 	EveryDomain bool
+	{{- end }}
 	// Role is the role the group is given, picked from the roles that exist where it is
 	// given that the caller could give there ({{ .GivablePicker }}). A grant's condition
 	// reads it as new.role, so a role file can limit which roles the grant's holder gives
@@ -1660,10 +1706,15 @@ func (m *Give{{ .Subject }}GroupRole) Execute(ctx context.Context, txn resource.
 		return errors.Wrap(err, "identity.Tenant.GiveGroupRoleFor()")
 	}
 	{{- else }}
+	{{- if .HasTenant }}
 	scope, err := identity.Scope(m.Domain, m.EveryDomain)
 	if err != nil {
 		return errors.Wrap(err, "identity.Scope()")
 	}
+	{{- else }}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
+	{{- end }}
 	if err := client.manager.GiveGroupRoleFor(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role), period); err != nil {
 		return errors.Wrap(err, "identity.Manager.GiveGroupRoleFor()")
 	}
@@ -1709,6 +1760,7 @@ type Take{{ .Subject }}GroupRole struct {
 	Role string ` + "`validate:\"required\"`" + `
 }
 {{- else -}}
+{{ if .HasTenant -}}
 // Take{{ .Subject }}GroupRole takes away a role a group of the {{ .Auth }} auth holds: the
 // one held in the global scope, in one domain (Domain), or in every domain
 // (EveryDomain). Every person in the group is served without it at their next request,
@@ -1716,6 +1768,14 @@ type Take{{ .Subject }}GroupRole struct {
 // It names no row: a page runs it from a row of {{ .GroupRole }}, the roles the groups
 // hold, filling the request from the row. A person in the group does not take from it
 // the role that makes them the last administrator of a tenant.` + identityJudgedNote + `
+{{- else -}}
+// Take{{ .Subject }}GroupRole takes away a role a group of the {{ .Auth }} auth holds. The
+// application has no tenants, so the role is the one held for the whole application and
+// the request names no place. Every person in the group is served without it at their
+// next request, unless they hold it some other way. A role the group does not hold is no
+// error. It names no row: a page runs it from a row of {{ .GroupRole }}, the roles the
+// groups hold, filling the request from the row.` + identityJudgedNote + `
+{{- end }}
 //
 // @rpc
 // @outlet({{ .Outlets }})
@@ -1723,8 +1783,10 @@ type Take{{ .Subject }}GroupRole struct {
 type Take{{ .Subject }}GroupRole struct {
 	GroupID     impulse.UUID
 	Role        string ` + "`validate:\"required\"`" + `
+	{{- if .HasTenant }}
 	Domain      *string
 	EveryDomain bool
+	{{- end }}
 }
 {{- end }}
 
@@ -1739,10 +1801,15 @@ func (m *Take{{ .Subject }}GroupRole) Execute(ctx context.Context, txn resource.
 		return errors.Wrap(err, "identity.Tenant.TakeGroupRole()")
 	}
 	{{- else }}
+	{{- if .HasTenant }}
 	scope, err := identity.Scope(m.Domain, m.EveryDomain)
 	if err != nil {
 		return errors.Wrap(err, "identity.Scope()")
 	}
+	{{- else }}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
+	{{- end }}
 	if err := client.manager.TakeGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role)); err != nil {
 		return errors.Wrap(err, "identity.Manager.TakeGroupRole()")
 	}
