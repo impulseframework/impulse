@@ -144,7 +144,7 @@ func (m *Manager) TakeRole(ctx context.Context, txn resource.ReadWriteTransactio
 	if _, found, err := m.store.Username(ctx, txn, userID); err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")
 	} else if !found {
-		return httpio.NewForbiddenMessage("a role is taken for your own account, and this session's account is no longer one of this application's: sign in again")
+		return httpio.NewForbiddenMessage("A role is taken for your own account, and this session's account is no longer one of this application's. Sign in again.")
 	}
 	may, err := m.grants.MayGive(ctx, txn, scope, userID, role)
 	if err != nil {
@@ -215,14 +215,14 @@ func (m *Manager) RolesToTake(ctx context.Context, method accesstypes.Resource, 
 func (m *Manager) taker(ctx context.Context) (impulse.UUID, error) {
 	user, person := m.callerUser(ctx)
 	if !person {
-		return impulse.NilUUID, httpio.NewForbiddenMessage("a role is taken by a person signed in to this application's own accounts, and this request comes from none")
+		return impulse.NilUUID, httpio.NewForbiddenMessage("A role is taken by a person signed in to this application's own accounts, and this request comes from none.")
 	}
 	userID, account := UserID(user)
 	if !account {
-		return impulse.NilUUID, httpio.NewForbiddenMessage("a role is taken for your own account, and this session acts for none")
+		return impulse.NilUUID, httpio.NewForbiddenMessage("A role is taken for your own account, and this session acts for none.")
 	}
 	if sess, found := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); found && sess.Impersonation != nil {
-		return impulse.NilUUID, httpio.NewForbiddenMessage("a role is taken by the person themselves, and this session views as someone else: end it and take the role as yourself")
+		return impulse.NilUUID, httpio.NewForbiddenMessage("A role is taken by the person themselves, and this session views as someone else. End it and take the role as yourself.")
 	}
 
 	return userID, nil

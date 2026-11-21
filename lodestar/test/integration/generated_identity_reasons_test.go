@@ -290,7 +290,7 @@ func TestGeneratedIdentityTakeRole(t *testing.T) {
 	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role",
 		periodBody(t, map[string]any{"userId": governor.String(), "role": "Engineer", "domain": anvil, "reason": again}, time.Time{}, longer.End.Add(time.Hour)))
 	assertStatus(t, status, http.StatusForbidden, body)
-	if !strings.Contains(string(body), "you cannot make your own role last longer") {
+	if !strings.Contains(string(body), "You cannot make your own role last longer than it was given for.") {
 		t.Errorf("the refusal to lengthen his own role the ordinary way = %s", body)
 	}
 

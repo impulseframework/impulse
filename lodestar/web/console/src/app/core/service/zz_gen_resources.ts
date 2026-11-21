@@ -46,6 +46,7 @@ export interface Consignments {
   mass?: number;
   expiresOn?: Date;
   releasedAt?: Date;
+  sectorName?: string;
 }
 
 export interface CrewGroups {
@@ -427,6 +428,7 @@ export interface DistressCalls {
   filedByUserId?: string;
   filedByName?: string;
   position?: Point;
+  sectorName?: string;
 }
 
 export interface FeeByKinds {
@@ -441,6 +443,7 @@ export interface Hangars {
   sectorId?: string;
   name?: string;
   zone?: string;
+  sectorName?: string;
 }
 
 export interface HangarPasses {
@@ -452,6 +455,8 @@ export interface HangarPasses {
   groupId?: string;
   levelId?: string;
   expiresAt?: Date;
+  sectorName?: string;
+  levelName?: string;
 }
 
 export interface MembersHeldRoles {
@@ -669,6 +674,10 @@ export interface Missions {
   statusId?: string;
   notes?: string;
   settlement?: string;
+  sectorName?: string;
+  kindName?: string;
+  requiredCertName?: string;
+  statusName?: string;
 }
 
 export interface MissionBoards {
@@ -681,6 +690,8 @@ export interface MissionBoards {
   statusId?: string;
   deadline?: Date;
   daysLeft?: number;
+  kindName?: string;
+  statusName?: string;
 }
 
 export interface MissionDocuments {
@@ -731,6 +742,7 @@ export interface PilotAssignments {
 export interface PilotCertifications {
   userId: string;
   certificationId: string;
+  certificationName?: string;
 }
 
 export interface Refits {
@@ -742,6 +754,7 @@ export interface Refits {
   openedByUserId?: string;
   openedByName?: string;
   notes?: string;
+  statusName?: string;
 }
 
 export interface RefitTasks {
@@ -766,6 +779,7 @@ export interface SectorDirectories {
   method?: string;
   connection?: string;
   defaultSeat?: string;
+  sectorName?: string;
 }
 
 export interface SectorPilots {
@@ -795,6 +809,7 @@ export interface ShipClasses {
   tonnage?: number;
   hardened?: boolean;
   inService?: boolean;
+  roleName?: string;
 }
 
 export interface Sorties {
@@ -840,6 +855,7 @@ export interface Wings {
   id: string;
   sectorId?: string;
   name?: string;
+  sectorName?: string;
 }
 
 export interface BriefingTemplates {
@@ -1067,6 +1083,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'expiresOn', displayType: 'civildate', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'releasedAt', displayType: 'date', required: false, isIndex: true, filterable: 'always' },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
   },
   [Resources.CrewGroups]: {
     route: 'crew-groups',
@@ -1599,6 +1616,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'filedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'position', displayType: 'object', required: false, isIndex: false, sortable: false },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
   },
   [Resources.FeeByKinds]: {
     route: 'fee-by-kinds',
@@ -1619,6 +1637,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['startswith'] },
       { fieldName: 'zone', displayType: 'string', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
   },
   [Resources.HangarPasses]: {
     route: 'sectors/{sectorID}/hangar-passes',
@@ -1634,6 +1653,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'levelId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "run", display: "Run" }, { id: "visit", display: "Visit" }] },
       { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }, { fieldName: 'levelName', of: 'levelId' }],
   },
   [Resources.MembersHeldRoles]: {
     route: 'members-held-roles',
@@ -1941,6 +1961,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'settlement', displayType: 'number', required: false, isIndex: false },
     ],
     searchFields: ['title', 'deadline'],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }, { fieldName: 'kindName', of: 'kindId' }, { fieldName: 'requiredCertName', of: 'requiredCertId' }, { fieldName: 'statusName', of: 'statusId' }],
   },
   [Resources.MissionBoards]: {
     route: 'sectors/{sectorID}/mission-boards',
@@ -1958,6 +1979,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'daysLeft', displayType: 'number', required: true, isIndex: false, filterable: 'withIndexed' },
     ],
     searchFields: ['title', 'clientName'],
+    nameFields: [{ fieldName: 'kindName', of: 'kindId' }, { fieldName: 'statusName', of: 'statusId' }],
   },
   [Resources.MissionDocuments]: {
     route: 'sectors/{sectorID}/mission-documents',
@@ -2021,6 +2043,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'certificationId', primaryKey: { ordinalPosition: 1 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "deep_space", display: "Deep space" }, { id: "escort", display: "Escort" }, { id: "hazmat", display: "Hazardous materials" }, { id: "salvage", display: "Salvage" }] },
     ],
+    nameFields: [{ fieldName: 'certificationName', of: 'certificationId' }],
   },
   [Resources.Refits]: {
     route: 'sectors/{sectorID}/refits',
@@ -2036,6 +2059,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'openedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'notes', displayType: 'string', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'statusName', of: 'statusId' }],
   },
   [Resources.RefitTasks]: {
     route: 'sectors/{sectorID}/refit-tasks',
@@ -2074,6 +2098,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'connection', displayType: 'string', required: true, isIndex: false, readOnly: true },
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, readOnly: true },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
   },
   [Resources.SectorPilots]: {
     route: 'sectors/{sectorID}/sector-pilots',
@@ -2115,6 +2140,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'hardened', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'inService', displayType: 'boolean', required: false, schemaDefault: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'roleName', of: 'roleId' }],
   },
   [Resources.Sorties]: {
     route: 'sectors/{sectorID}/sorties',
@@ -2184,6 +2210,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
     ],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId' }],
   },
   [Resources.BriefingTemplates]: {
     route: 'briefing-templates',

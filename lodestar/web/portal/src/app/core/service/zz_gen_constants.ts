@@ -131,6 +131,7 @@ export namespace DistressCalls {
     severity: 'severity' as FieldName,
     summary: 'summary' as FieldName,
     transcript: 'transcript' as FieldName,
+    sectorName: 'sectorName' as FieldName,
   };
   export const piiFieldName = {
     callerContact: 'callerContact' as FieldName,
@@ -626,6 +627,10 @@ export namespace Missions {
     settlement: 'settlement' as FieldName,
     statusId: 'statusId' as FieldName,
     title: 'title' as FieldName,
+    sectorName: 'sectorName' as FieldName,
+    kindName: 'kindName' as FieldName,
+    requiredCertName: 'requiredCertName' as FieldName,
+    statusName: 'statusName' as FieldName,
   };
   export const resourceName = {
     assignedSquadronId: 'Missions.assignedSquadronId' as Resource,

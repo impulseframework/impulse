@@ -321,6 +321,7 @@ export namespace Consignments {
     mass: 'mass' as FieldName,
     releasedAt: 'releasedAt' as FieldName,
     sectorId: 'sectorId' as FieldName,
+    sectorName: 'sectorName' as FieldName,
   };
   export const resourceName = {
     bondCode: 'Consignments.bondCode' as Resource,
@@ -1274,6 +1275,7 @@ export namespace DistressCalls {
     severity: 'severity' as FieldName,
     summary: 'summary' as FieldName,
     transcript: 'transcript' as FieldName,
+    sectorName: 'sectorName' as FieldName,
   };
   export const piiFieldName = {
     callerContact: 'callerContact' as FieldName,
@@ -1353,6 +1355,8 @@ export namespace HangarPasses {
     sectorId: 'sectorId' as FieldName,
     squadronId: 'squadronId' as FieldName,
     userId: 'userId' as FieldName,
+    sectorName: 'sectorName' as FieldName,
+    levelName: 'levelName' as FieldName,
   };
   export const resourceName = {
     expiresAt: 'HangarPasses.expiresAt' as Resource,
@@ -1372,6 +1376,7 @@ export namespace Hangars {
     name: 'name' as FieldName,
     sectorId: 'sectorId' as FieldName,
     zone: 'zone' as FieldName,
+    sectorName: 'sectorName' as FieldName,
   };
   export const resourceName = {
     id: 'Hangars.id' as Resource,
@@ -1802,6 +1807,8 @@ export namespace MissionBoards {
     squadronName: 'squadronName' as FieldName,
     statusId: 'statusId' as FieldName,
     title: 'title' as FieldName,
+    kindName: 'kindName' as FieldName,
+    statusName: 'statusName' as FieldName,
   };
   export const resourceName = {
     clientName: 'MissionBoards.clientName' as Resource,
@@ -1866,6 +1873,10 @@ export namespace Missions {
     settlement: 'settlement' as FieldName,
     statusId: 'statusId' as FieldName,
     title: 'title' as FieldName,
+    sectorName: 'sectorName' as FieldName,
+    kindName: 'kindName' as FieldName,
+    requiredCertName: 'requiredCertName' as FieldName,
+    statusName: 'statusName' as FieldName,
   };
   export const resourceName = {
     assignedSquadronId: 'Missions.assignedSquadronId' as Resource,
@@ -1947,6 +1958,7 @@ export namespace PilotCertifications {
   export const fieldName = {
     certificationId: 'certificationId' as FieldName,
     userId: 'userId' as FieldName,
+    certificationName: 'certificationName' as FieldName,
   };
   export const resourceName = {
     certificationId: 'PilotCertifications.certificationId' as Resource,
@@ -2000,6 +2012,7 @@ export namespace Refits {
     openedByUserId: 'openedByUserId' as FieldName,
     shipId: 'shipId' as FieldName,
     statusId: 'statusId' as FieldName,
+    statusName: 'statusName' as FieldName,
   };
   export const resourceName = {
     estimate: 'Refits.estimate' as Resource,
@@ -2020,6 +2033,7 @@ export namespace SectorDirectories {
     id: 'id' as FieldName,
     method: 'method' as FieldName,
     sectorId: 'sectorId' as FieldName,
+    sectorName: 'sectorName' as FieldName,
   };
   export const resourceName = {
     connection: 'SectorDirectories.connection' as Resource,
@@ -2114,6 +2128,7 @@ export namespace ShipClasses {
     inService: 'inService' as FieldName,
     roleId: 'roleId' as FieldName,
     tonnage: 'tonnage' as FieldName,
+    roleName: 'roleName' as FieldName,
   };
   export const resourceName = {
     designation: 'ShipClasses.designation' as Resource,
@@ -2249,6 +2264,7 @@ export namespace Wings {
     id: 'id' as FieldName,
     name: 'name' as FieldName,
     sectorId: 'sectorId' as FieldName,
+    sectorName: 'sectorName' as FieldName,
   };
   export const resourceName = {
     id: 'Wings.id' as Resource,

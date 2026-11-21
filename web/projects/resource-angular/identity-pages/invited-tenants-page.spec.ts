@@ -432,7 +432,7 @@ describe('the page of the invitations that make a tenant, drawn by the list', ()
       RowAction[] | undefined) ?? [];
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const above = (): string[] =>
-    Array.from(element().querySelectorAll('button.list-method')).map((button) =>
+    Array.from(element().querySelectorAll('button.impulse-resource-list-method')).map((button) =>
       (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
     );
   const cells = (): string[][] =>

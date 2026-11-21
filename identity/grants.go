@@ -124,18 +124,27 @@ func (m *Manager) judged(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// roleInWords names a role as a role picker shows it: its words in lower case with the
+// first in upper case, so "SectorMarshal" is "Sector marshal". A sentence a person reads
+// names a role this way, never by its code name, which the refusal's cause keeps for the
+// server's log.
+func roleInWords(role accesstypes.Role) string {
+	return sentenceStart(inWords(string(role)))
+}
+
 // refuseGivingThrough holds a change that gives people a group's roles to what giving
 // each role directly needs: every person named is asked for every role named, and the
 // first the caller may not give refuses the change. act says what was asked, as a
 // sentence a person reads completes ("putting a person in the group Night shift gives
-// them"). The person is told the act and that it gives a role they may not give, in one
-// sentence that names no role. Which role it is, and who gives it, is the refusal's
-// cause, kept for the server's log.
+// them"). The person is told the act and the role it gives that they may not give, in
+// one sentence that names the role in words (roleInWords): an administrator stopped by
+// one of a group's roles needs to know which. The role's code name, and who gives it,
+// is the refusal's cause, kept for the server's log.
 func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWriteTransaction, kept accesstypes.PolicyScope, roles []access.GroupRoleKey, users []accesstypes.User, act string) error {
 	return m.judgeThrough(ctx, txn, kept, roles, users, m.grants.MayGive, func(role accesstypes.Role) error {
 		return httpio.NewForbiddenMessageWithError(
 			errors.Newf("%s the role %s, which you may not give them: someone who may give the role does it", act, string(role)),
-			sentenceStart(act)+" a role you may not give them.",
+			sentenceStart(act)+" the role "+roleInWords(role)+", which you may not give them.",
 		)
 	})
 }
@@ -147,7 +156,7 @@ func (m *Manager) refuseTakingThrough(ctx context.Context, txn resource.ReadWrit
 	return m.judgeThrough(ctx, txn, kept, roles, users, m.grants.MayTake, func(role accesstypes.Role) error {
 		return httpio.NewForbiddenMessageWithError(
 			errors.Newf("%s the role %s, which you may not take from them: someone who may take the role away does it", act, string(role)),
-			sentenceStart(act)+" a role you may not take from them.",
+			sentenceStart(act)+" the role "+roleInWords(role)+", which you may not take from them.",
 		)
 	})
 }
@@ -241,11 +250,16 @@ func shortens(had, next accesstypes.Period, now time.Time) bool {
 // the caller that would make something the caller holds last longer than it was given
 // for is refused, and is done by someone else who may. own says the assignment is the
 // caller's own (their role, their place in a group, or a role of a group they are in),
-// and what names it in the refusal ("your own role").
+// and what names it in the refusal ("your own role"). The person is told that they
+// cannot, in one sentence; who does it instead is the refusal's cause, kept for the
+// server's log.
 func refuseLongerForOneself(own bool, had, next accesstypes.Period, what string) error {
 	if !own || !lengthens(had, next, time.Now()) {
 		return nil
 	}
 
-	return httpio.NewForbiddenMessagef("you cannot make %s last longer than it was given for: someone else who may give it gives it a new period", what)
+	return httpio.NewForbiddenMessageWithErrorf(
+		errors.Newf("you cannot make %s last longer than it was given for: someone else who may give it gives it a new period", what),
+		"You cannot make %s last longer than it was given for.", what,
+	)
 }

@@ -35,6 +35,7 @@ import {
 } from '@impulseframework/resource-angular/types';
 import { of, Subject } from 'rxjs';
 
+import { notNamedFor } from '../../auth-frame/frame-testing';
 import { CompoundResourceComponent } from '../compound-resource/compound-resource.component';
 import { MethodDialogData, MethodDialogResult } from '../method-dialog/method-dialog.component';
 import { ResourceListComponent } from './resource-list.component';
@@ -450,7 +451,7 @@ describe('ResourceListComponent row methods', () => {
     );
 
     expect(fixture.componentInstance.listMethods().map((m) => m.label)).toEqual(['Add a person']);
-    const buttons = Array.from(element().querySelectorAll('button.list-method'));
+    const buttons = Array.from(element().querySelectorAll('button.impulse-resource-list-method'));
     expect(buttons.map((b) => b.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['person_add Add a person']);
 
     (buttons[0] as HTMLButtonElement).click();
@@ -474,16 +475,20 @@ describe('ResourceListComponent row methods', () => {
       },
       { CreatePerson: { Execute: 'granted' }, InvitePerson: { Execute: 'granted' } },
     );
-    const row = element().querySelector('.header-container') as HTMLElement;
+    const row = element().querySelector('.impulse-resource-list-header-container') as HTMLElement;
 
     expect(
       Array.from(row.children).map((child) => child.tagName.toLowerCase() + '.' + (child.classList[0] ?? '')),
-    ).toEqual(['h1.title', 'action-access-control-wrapper.', 'div.list-methods']);
-    expect(declared(row, ['.header-container'], ['>'])).toContain('flex-wrap: wrap');
-    expect(declared(row, ['.header-container', '>', '+'])).toContain('margin-left: auto');
+    ).toEqual([
+      'h1.impulse-resource-list-title',
+      'action-access-control-wrapper.',
+      'div.impulse-resource-list-methods',
+    ]);
+    expect(declared(row, ['.impulse-resource-list-header-container'], ['>'])).toContain('flex-wrap: wrap');
+    expect(declared(row, ['.impulse-resource-list-header-container', '>', '+'])).toContain('margin-left: auto');
     // Each button whole, its icon and its words: the buttons wrap, none is squeezed.
-    expect(declared(row, ['.list-methods'])).toContain('flex-wrap: wrap');
-    const buttons = Array.from(row.querySelectorAll('button.list-method'));
+    expect(declared(row, ['.impulse-resource-list-methods'])).toContain('flex-wrap: wrap');
+    const buttons = Array.from(row.querySelectorAll('button.impulse-resource-list-method'));
     expect(buttons.map((b) => b.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
       'person_add Add a person',
       'Invite',
@@ -492,53 +497,98 @@ describe('ResourceListComponent row methods', () => {
 
   it('draws that row as wide as the list under it and no wider: the indent of its title is inside its width', async () => {
     await create({ primaryResource: people, title: 'People' });
-    const row = element().querySelector('.header-container') as HTMLElement;
+    const row = element().querySelector('.impulse-resource-list-header-container') as HTMLElement;
 
     // The row is indented, and as wide as what holds it: an indent added to that width
     // put its far end 20 pixels past the list's.
-    expect(row.classList.contains('indent')).toBe(true);
-    expect(declared(row, ['.indent'])).toContain('padding-left: 20px');
-    const rule = declared(row, ['.header-container'], ['>']);
+    expect(row.classList.contains('impulse-resource-list-indent')).toBe(true);
+    expect(declared(row, ['.impulse-resource-list-indent'])).toContain('padding-left: 20px');
+    const rule = declared(row, ['.impulse-resource-list-header-container'], ['>']);
     expect(rule).toContain('width: 100%');
     expect(rule).toContain('box-sizing: border-box');
   });
 
   it('indents a notice as a box: the box moves in by the indent, and keeps the room it gives its icon and its words on every side', async () => {
     await create({ primaryResource: people, title: 'People', notice: () => 'Two people are waiting to be let in.' });
-    const box = element().querySelector('.notice') as HTMLElement;
+    const box = element().querySelector('.impulse-resource-list-notice') as HTMLElement;
 
-    expect(box.querySelector('.notice-words')?.textContent).toBe('Two people are waiting to be let in.');
-    expect(box.classList.contains('indent')).toBe(true);
+    expect(box.querySelector('.impulse-resource-list-notice-words')?.textContent).toBe(
+      'Two people are waiting to be let in.',
+    );
+    expect(box.classList.contains('impulse-resource-list-indent')).toBe(true);
     // The box keeps 12 pixels around what it holds, and its indent is outside its border.
     // An indent written as the box's padding moves nothing: it only replaces that room on
     // one side, which is what the rule for an indented row does to a box left to it.
-    expect(declared(box, ['.notice'], ['.indent', '.notice-'])).toContain('padding: 12px');
-    const indented = declared(box, ['.notice', '.indent']);
+    expect(
+      declared(
+        box,
+        ['.impulse-resource-list-notice'],
+        ['.impulse-resource-list-indent', '.impulse-resource-list-notice-'],
+      ),
+    ).toContain('padding: 12px');
+    const indented = declared(box, ['.impulse-resource-list-notice', '.impulse-resource-list-indent']);
     expect(indented).toContain('margin-left: 20px');
     expect(indented).toContain('padding-left: 12px');
     // As the page draws it, a later rule over an earlier one: 20 pixels in, 12 inside.
     expect([getComputedStyle(box).marginLeft, getComputedStyle(box).paddingLeft]).toEqual(['20px', '12px']);
   });
 
+  // An application's stylesheet is global: a rule it writes for a class of its own under a
+  // plain name lands on every element that carries the name, the list's among them.
+  it("names every element it draws and every rule of its stylesheet for the list, so an application's rule for its own .title, .notice or .indent lands on nothing of it", async () => {
+    await create(
+      {
+        primaryResource: people,
+        title: 'People',
+        notice: () => 'Two people are waiting to be let in.',
+        listMethods: [{ method: 'CreatePerson' as Method, label: 'Add a person', icon: 'person_add' }],
+      },
+      { CreatePerson: { Execute: 'granted' } },
+    );
+
+    // The heading row with its title and a button, the notice with its icon and its words,
+    // and what holds the rows are on the page, each under a name of the list's.
+    const drawn = (part: string): boolean => element().querySelector(`.impulse-resource-list-${part}`) !== null;
+    expect(
+      [
+        'page-container',
+        'header-container',
+        'indent',
+        'title',
+        'methods',
+        'method',
+        'edit-text',
+        'edit-button-text',
+        'notice',
+        'notice-icon',
+        'notice-words',
+        'resource-container',
+      ].filter((part) => !drawn(part)),
+    ).toEqual([]);
+    expect(notNamedFor('impulse-resource-list-', element())).toEqual([]);
+  });
+
   it("draws its title as the page's where the list is the page and as a section's where it is one of the things under a row, and lets it break where its line ends", async () => {
     await create({ primaryResource: people, title: 'People' });
-    const title = element().querySelector('h1.title') as HTMLElement;
+    const title = element().querySelector('h1.impulse-resource-list-title') as HTMLElement;
 
     // The title, with how many the list holds.
     expect(title.textContent).toBe('People (2)');
-    expect(title.classList.contains('impulse-section')).toBe(false);
-    const any = declared(title, ['.title'], ['.impulse-section']);
+    expect(title.classList.contains('impulse-resource-list-section')).toBe(false);
+    const any = declared(title, ['.impulse-resource-list-title'], ['.impulse-resource-list-section']);
     expect(any).toContain('font-size: var(--impulse-page-title-size)');
     expect(any).toContain('overflow-wrap: anywhere');
     expect(any).toContain('min-width: 0');
     expect(any).toContain('line-height: 1.2');
     // It may give way: a title that could not shrink is what ran past the edge.
     expect(any).not.toContain('flex-shrink');
-    expect(declared(title, ['.title', '.impulse-section'])).toContain('font-size: var(--impulse-section-title-size)');
+    expect(declared(title, ['.impulse-resource-list-title', '.impulse-resource-list-section'])).toContain(
+      'font-size: var(--impulse-section-title-size)',
+    );
 
     fixture.componentRef.setInput('isRootList', false);
     fixture.detectChanges();
-    expect(title.classList.contains('impulse-section')).toBe(true);
+    expect(title.classList.contains('impulse-resource-list-section')).toBe(true);
   });
 
   it('offers on every row a method that names no row and that the page fills from the row, while the digest grants it', async () => {
@@ -692,7 +742,7 @@ describe('ResourceListComponent row methods', () => {
       { name: 'ada' },
     );
 
-    (element().querySelector('button.list-method') as HTMLButtonElement).click();
+    (element().querySelector('button.impulse-resource-list-method') as HTMLButtonElement).click();
     await settle();
 
     expect(opened).toEqual([
@@ -725,7 +775,7 @@ describe('ResourceListComponent row methods', () => {
     );
 
     expect(fixture.componentInstance.listMethods().map((m) => m.label)).toEqual(['Disable']);
-    (element().querySelector('button.list-method') as HTMLButtonElement).click();
+    (element().querySelector('button.impulse-resource-list-method') as HTMLButtonElement).click();
     await settle();
 
     // The row's key fills the request, as it does for a method run from a row's menu.
@@ -752,7 +802,7 @@ describe('ResourceListComponent row methods', () => {
     );
 
     expect(fixture.componentInstance.listMethods().map((m) => m.label)).toEqual(['Disable']);
-    (element().querySelector('button.list-method') as HTMLButtonElement).click();
+    (element().querySelector('button.impulse-resource-list-method') as HTMLButtonElement).click();
     await settle();
     expect(opened.map((data) => data.confirm)).toEqual(['Disable cy, listed with ada and bo?']);
   });
@@ -766,7 +816,7 @@ describe('ResourceListComponent row methods', () => {
     );
 
     expect(fixture.componentInstance.listMethods()).toEqual([]);
-    expect(element().querySelector('button.list-method')).toBeNull();
+    expect(element().querySelector('button.impulse-resource-list-method')).toBeNull();
   });
 
   for (const tt of [
@@ -786,7 +836,7 @@ describe('ResourceListComponent row methods', () => {
       );
 
       expect(fixture.componentInstance.listMethods()).toEqual([]);
-      expect(element().querySelector('button.list-method')).toBeNull();
+      expect(element().querySelector('button.impulse-resource-list-method')).toBeNull();
     });
   }
 });

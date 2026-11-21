@@ -131,6 +131,7 @@ export namespace Announcements {
     id: 'id' as FieldName,
     tenantId: 'tenantId' as FieldName,
     title: 'title' as FieldName,
+    tenantName: 'tenantName' as FieldName,
   };
   export const resourceName = {
     body: 'Announcements.body' as Resource,
@@ -1054,6 +1055,7 @@ export namespace TenantDirectories {
     id: 'id' as FieldName,
     method: 'method' as FieldName,
     tenantId: 'tenantId' as FieldName,
+    tenantName: 'tenantName' as FieldName,
   };
   export const resourceName = {
     connection: 'TenantDirectories.connection' as Resource,

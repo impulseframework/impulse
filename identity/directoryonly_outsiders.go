@@ -97,7 +97,8 @@ func (m *Manager) entersToChange(ctx context.Context, scope accesstypes.PolicySc
 
 // requireEnteringToChange refuses a change to who holds the role in the scope unless
 // the request's caller enters the tenant (entersToChange), in a sentence that says who
-// makes the change.
+// makes the change. The person reads the role in words (roleInWords); the same words
+// with the role's code name are the refusal's cause, kept for the server's log.
 func (m *Manager) requireEnteringToChange(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, kept *accesstypes.PolicyScope) error {
 	enters, err := m.entersToChange(ctx, scope, role, kept)
 	if err != nil {
@@ -107,10 +108,10 @@ func (m *Manager) requireEnteringToChange(ctx context.Context, scope accesstypes
 		return nil
 	}
 
-	return httpio.NewForbiddenMessagef(
-		"%[1]s is a role that administers a %[2]s, and this %[2]s admits only people who sign in through its own directory, which your sign-in does not enter. "+
-			"Who holds the role there is changed by one of its administrators, or by a super administrator",
-		string(role), m.tenantWord)
+	const said = "%[1]s is a role that administers a %[2]s, and this %[2]s admits only people who sign in through its own directory, which your sign-in does not enter. " +
+		"Who holds the role there is changed by one of its administrators, or by a super administrator"
+
+	return httpio.NewForbiddenMessageWithErrorf(errors.Newf(said, string(role), m.tenantWord), said+".", roleInWords(role), m.tenantWord)
 }
 
 // requireEnteringFor refuses a change to how a person signs in, to where their codes
@@ -143,13 +144,13 @@ func (m *Manager) requireEnteringFor(ctx context.Context, txn resource.ReadWrite
 		if len(tenants) > 1 {
 			return httpio.NewForbiddenMessagef(
 				"This person administers more than one %[1]s, and one of them admits only people who sign in through its own directory, which your sign-in does not enter. "+
-					"Their account is changed by someone whose sign-in enters every %[1]s they administer, or by a super administrator",
+					"Their account is changed by someone whose sign-in enters every %[1]s they administer, or by a super administrator.",
 				m.tenantWord)
 		}
 
 		return httpio.NewForbiddenMessagef(
 			"This person administers a %[1]s that admits only people who sign in through its own directory, which your sign-in does not enter. "+
-				"Their account is changed by one of that %[1]s's administrators, or by a super administrator",
+				"Their account is changed by one of that %[1]s's administrators, or by a super administrator.",
 			m.tenantWord)
 	}
 

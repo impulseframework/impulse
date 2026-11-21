@@ -1,0 +1,244 @@
+package generation
+
+import (
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/generation/parser"
+)
+
+// nameFixtureTables is the synthetic schema behind the namefixture structs: every table
+// keyed by one Id, each pointing column a foreign key except the two a struct declares
+// with @enumerate, and Grades shaped as an enumeration table.
+func nameFixtureTables() map[string]*tableMetadata {
+	pk := columnMeta{IsPrimaryKey: true, IsIndex: true, IsUniqueIndex: true}
+	plain := columnMeta{}
+	nullable := columnMeta{IsNullable: true}
+	to := func(table string) columnMeta {
+		return columnMeta{IsForeignKey: true, ReferencedTable: table, ReferencedColumn: "Id"}
+	}
+
+	return map[string]*tableMetadata{
+		"Bases":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Title": plain}},
+		"Wings":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "CallSign": plain}},
+		"Kits":     {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Label": nullable}},
+		"Crates":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "Weight": plain}},
+		"Permits":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings"), "LeadWing": nullable, "KitId": to("Kits"), "CrateId": to("Crates"), "Grade": to("Grades"), "MemberId": plain}},
+		"Ledgers":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings"), "KitId": to("Kits"), "Grade": to("Grades")}},
+		"Stocks":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "WingId": to("Wings"), "KitId": to("Kits")}},
+		"Clashes":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings"), "WingName": plain}},
+		"Pairs":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings"), "Wing": plain}},
+		"Counteds": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Count": plain}},
+		"Twices":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "First": plain, "Second": plain}},
+		"Forts":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Title": plain}},
+		"Grades":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Description": plain}},
+	}
+}
+
+// nameFixtureResources extracts the named namefixture structs, tables and views, and
+// resolves across them the way Generate does up to the name fields: the enumerations,
+// the tenant record, then the name fields.
+func nameFixtureResources(t *testing.T, names ...string) (*client, error) {
+	t.Helper()
+
+	structs := fixtureStructs(loadFixture(t, "namefixture"))
+	picked := tenantFixtureStructs(t, structs, names...)
+	c := &client{tableMap: nameFixtureTables(), enumerateTables: map[string]string{"Grades": "Grade"}}
+	resources, err := c.structsToResources(picked)
+	if err != nil {
+		return nil, err
+	}
+	views, err := c.structsToVirtualResources(picked)
+	if err != nil {
+		return nil, err
+	}
+	c.resources = slices.Concat(resources, views)
+	r := &resourceGenerator{client: c, routePrefix: "api", applicationName: "App", receiverName: "a", domainRouteSegment: defaultDomainRouteSegment, domainRouteParam: defaultDomainRouteParam}
+	if err := r.resolveFieldEnumerations(c.resources, nil); err != nil {
+		return nil, err
+	}
+	if err := r.resolveTenantRecord(); err != nil {
+		return nil, err
+	}
+
+	err = c.resolveNameFields(c.resources)
+
+	return c, err
+}
+
+// Test_resolveNameFields pins the name field the generator adds beside an id: one for a
+// foreign key or a declared enumeration into a resource that says what its rows are
+// known by (@name, or the tenant record's @tenantName), into a view that does, and into
+// an enumeration table, which needs no declaration; none, and no refusal, where the
+// pointed-to resource declares no name; and none for the name of a tenant's row on a
+// list that is asked outside one tenant.
+func Test_resolveNameFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		structs  []string
+		resource string
+		want     []string
+	}{
+		{
+			name:     "each kind of row a tenant's resource points to",
+			structs:  []string{"Base", "Wing", "Kit", "Crate", "Member", "Permit"},
+			resource: "Permit",
+			want: []string{
+				`{Field: "BaseName", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "WingName", Key: "WingID", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+				`{Field: "LeadWingName", Key: "LeadWing", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+				`{Field: "KitName", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`,
+				`{Field: "GradeName", Key: "Grade", Resource: "", Tag: "", Table: "Grades", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""}`,
+				`{Field: "MemberName", Key: "MemberID", Resource: "Members", Tag: "shown", Table: "Members", KeyColumn: "Id", NameColumn: "Shown", TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "a resource with no name gives no name field and no refusal",
+			structs:  []string{"Base", "Crate"},
+			resource: "Crate",
+			want:     []string{`{Field: "BaseName", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`},
+		},
+		{
+			name:     "a list also asked across tenants reads no name of a tenant's row",
+			structs:  []string{"Base", "Wing", "Kit", "Ledger"},
+			resource: "Ledger",
+			want: []string{
+				`{Field: "BaseName", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "KitName", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`,
+				`{Field: "GradeName", Key: "Grade", Resource: "", Tag: "", Table: "Grades", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "a global resource reads no name of a tenant's row",
+			structs:  []string{"Base", "Wing", "Kit", "Stock"},
+			resource: "Stock",
+			want:     []string{`{Field: "KitName", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`},
+		},
+		{
+			name:     "a view pointing to a named resource",
+			structs:  []string{"Kit", "Roster"},
+			resource: "Roster",
+			want:     []string{`{Field: "KitName", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, err := nameFixtureResources(t, tt.structs...)
+			if err != nil {
+				t.Fatalf("nameFixtureResources() error = %v", err)
+			}
+			var got []string
+			for _, res := range c.resources {
+				if res.Name() != tt.resource {
+					continue
+				}
+				for _, name := range res.NameFields {
+					got = append(got, name.GoLiteral())
+				}
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("name fields of %s mismatch (-want +got):\n%s", tt.resource, diff)
+			}
+		})
+	}
+}
+
+// Test_nameFieldRefusals pins each refusal: a generated name that a declared field or
+// another generated name already has, and @name where it cannot say what a row is known by.
+func Test_nameFieldRefusals(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		structs []string
+		wantErr string
+	}{
+		{name: "a declared field has the generated name", structs: []string{"Base", "Wing", "Clash"}, wantErr: "struct Clash field WingID: the generator adds the field WingName beside it, carrying the name of the Wings row it points to, and the struct declares a field WingName already; remove the struct's WingName where it carried that name, since the generated field now does, or rename it"},
+		{name: "two ids are given the same name", structs: []string{"Base", "Wing", "Pair"}, wantErr: "struct Pair field Wing: the generator adds the field WingName beside it, carrying the name of the Wings row it points to, and adds a field of that name beside WingID too; rename one of the two fields"},
+		{name: "a number", structs: []string{"Counted"}, wantErr: "struct Counted field Count: @name on a int64 field; the name a row is known by is a string or a nullable string (*string)"},
+		{name: "two fields", structs: []string{"Twice"}, wantErr: "struct Twice field Second: @name on a second field; field First carries it already, and a row is known by one name"},
+		{name: "the tenant record", structs: []string{"Fort"}, wantErr: "struct Fort field Title: @name on the tenant record; a tenant's name is declared with @tenantName, which names the record's rows wherever @name would, so write @tenantName here in its place"},
+		{name: "an enumeration table", structs: []string{"Grade"}, wantErr: "struct Grade field Description: @name on an enumeration table; its rows are known by their Description column already, so remove the annotation"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := nameFixtureResources(t, tt.structs...)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("nameFixtureResources() error = %v, want error containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Test_rejectRowName pins that a computed resource, whose rows no statement reads,
+// refuses @name.
+func Test_rejectRowName(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "namefixture"))
+	c := &client{}
+	_, err := c.structsToCompResources([]*parser.Struct{structs["Tally"]})
+	wantErr := "struct Tally field Shown: @name on a computed resource; a name is looked up in a table or a view by the statement that lists the rows pointing to it, and a computed resource has neither, so remove the annotation"
+	if err == nil || !strings.Contains(err.Error(), wantErr) {
+		t.Fatalf("structsToCompResources() error = %v, want error containing %q", err, wantErr)
+	}
+}
+
+// Test_nameFieldName pins the spelling: the id field's own name with a trailing Id
+// dropped, then Name, and none for a field that is called Id alone.
+func Test_nameFieldName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		field  string
+		want   string
+		wantOK bool
+	}{
+		{field: "SquadronID", want: "SquadronName", wantOK: true},
+		{field: "SquadronId", want: "SquadronName", wantOK: true},
+		{field: "MissionStatus", want: "MissionStatusName", wantOK: true},
+		{field: "Paid", want: "PaidName", wantOK: true},
+		{field: "ID"},
+		{field: "Id"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.field, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := nameFieldName(tt.field)
+			if got != tt.want || ok != tt.wantOK {
+				t.Errorf("nameFieldName(%q) = %q, %v, want %q, %v", tt.field, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
+// Test_tsNameFields_FieldNameTags pins what a resource's field-name constants are
+// written for: its registered tags, then its name fields. A resource with no name field,
+// as every computed resource is, has its tags alone, so a page that names a name field
+// of one does not compile.
+func Test_tsNameFields_FieldNameTags(t *testing.T) {
+	t.Parallel()
+
+	names := tsNameFields{"Permits": {"wingName", "gradeName"}}
+	tags := []accesstypes.Tag{"id", "wingId", "grade"}
+
+	if diff := cmp.Diff([]accesstypes.Tag{"id", "wingId", "grade", "wingName", "gradeName"}, names.FieldNameTags("Permits", tags)); diff != "" {
+		t.Errorf("FieldNameTags(Permits) mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(tags, names.FieldNameTags("Tallies", tags)); diff != "" {
+		t.Errorf("FieldNameTags(Tallies) mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]accesstypes.Tag{"id", "wingId", "grade"}, tags); diff != "" {
+		t.Errorf("FieldNameTags changed the registered tags (-want +got):\n%s", diff)
+	}
+}

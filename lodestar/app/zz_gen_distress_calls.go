@@ -19,7 +19,7 @@ import (
 
 func (a *App) DistressCalls() http.HandlerFunc {
 	type distressCall struct {
-		ID            impulse.UUID        `json:"id"            index:"true" perm:"-"`
+		ID            impulse.UUID        `json:"id"            index:"true"      perm:"-"`
 		SectorID      impulse.UUID        `json:"sectorId"      index:"true"`
 		Summary       string              `json:"summary"`
 		Severity      int64               `json:"severity"      index:"true"`
@@ -29,6 +29,7 @@ func (a *App) DistressCalls() http.HandlerFunc {
 		FiledByUserID string              `json:"filedByUserId"`
 		FiledByName   string              `json:"filedByName"`
 		Position      *resources.Position `json:"position"`
+		SectorName    *string             `json:"sectorName"    nameof:"SectorID"`
 	}
 
 	type response []map[string]any
@@ -67,7 +68,7 @@ func (a *App) DistressCalls() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*distressCall)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -130,7 +131,7 @@ func (a *App) DistressCalls() http.HandlerFunc {
 
 func (a *App) DistressCall() http.HandlerFunc {
 	type response struct {
-		ID            impulse.UUID        `json:"id"            index:"true" perm:"-"`
+		ID            impulse.UUID        `json:"id"            index:"true"      perm:"-"`
 		SectorID      impulse.UUID        `json:"sectorId"`
 		Summary       string              `json:"summary"`
 		Severity      int64               `json:"severity"`
@@ -140,6 +141,7 @@ func (a *App) DistressCall() http.HandlerFunc {
 		FiledByUserID string              `json:"filedByUserId"`
 		FiledByName   string              `json:"filedByName"`
 		Position      *resources.Position `json:"position"`
+		SectorName    *string             `json:"sectorName"    nameof:"SectorID"`
 	}
 
 	decoder := NewQueryDecoder[resources.DistressCall, response](a, accesstypes.Read)
@@ -166,7 +168,7 @@ func (a *App) DistressCall() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {

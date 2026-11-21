@@ -277,18 +277,18 @@ func TestManager_TakeRole(t *testing.T) {
 		{
 			name: "a call outside any request has nobody to give the role to", ctx: func(ctx context.Context) context.Context { return ctx },
 			scope: alphaScope, role: "Reader", length: TakeOneHour, reason: why,
-			refused: httpio.HasForbidden, wantSays: "this request comes from none",
+			refused: httpio.HasForbidden, wantSays: "A role is taken by a person signed in to this application's own accounts, and this request comes from none.",
 		},
 		{
 			name:  "a caller who came through another auth is nobody of this one",
 			ctx:   func(ctx context.Context) context.Context { return asCallerThrough(ctx, otherAuth, dana) },
 			scope: alphaScope, role: "Reader", length: TakeOneHour, reason: why,
-			refused: httpio.HasForbidden, wantSays: "this request comes from none",
+			refused: httpio.HasForbidden, wantSays: "A role is taken by a person signed in to this application's own accounts, and this request comes from none.",
 		},
 		{
 			name: "a caller with no account", ctx: func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, "night-batch") },
 			scope: alphaScope, role: "Reader", length: TakeOneHour, reason: why,
-			refused: httpio.HasForbidden, wantSays: "this session acts for none",
+			refused: httpio.HasForbidden, wantSays: "A role is taken for your own account, and this session acts for none.",
 		},
 		{
 			name: "a caller whose account is gone",
@@ -296,7 +296,7 @@ func TestManager_TakeRole(t *testing.T) {
 				return asCallerThrough(ctx, managedAuth, User(mustUUID("99999999-9999-4999-8999-999999999999")))
 			},
 			scope: alphaScope, role: "Reader", length: TakeOneHour, reason: why,
-			refused: httpio.HasForbidden, wantSays: "no longer one of this application's",
+			refused: httpio.HasForbidden, wantSays: "A role is taken for your own account, and this session's account is no longer one of this application's. Sign in again.",
 		},
 		{
 			name: "the accounts cannot be read", ctx: asDana, scope: alphaScope, role: "Reader", length: TakeOneHour, reason: why,
@@ -310,7 +310,7 @@ func TestManager_TakeRole(t *testing.T) {
 				return context.WithValue(asDana(ctx), sessioninfo.CtxSessionInfo, viewing)
 			},
 			scope: alphaScope, role: "Reader", length: TakeOneHour, reason: why,
-			refused: httpio.HasForbidden, wantSays: "this session views as someone else",
+			refused: httpio.HasForbidden, wantSays: "A role is taken by the person themselves, and this session views as someone else. End it and take the role as yourself.",
 		},
 		{
 			name: "taken again for longer: the new time and the new reason, and nothing refused", ctx: asDana, scope: alphaScope, role: "Reader", length: TakeFourHours, reason: why,
@@ -401,9 +401,7 @@ func TestManager_TakeRole_aloneLengthensTheCallersOwn(t *testing.T) {
 
 		return m.AssignRoleFor(asCallerThrough(ctx, managedAuth, dana), txn, alphaScope, userID, "Reader", longer, "covering the night desk")
 	})
-	if err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), "you cannot make your own role last longer") {
-		t.Fatalf("AssignRoleFor(the caller's own role, longer) error = %v, want it refused", err)
-	}
+	toldPlainly(t, err, "You cannot make your own role last longer than it was given for.", "someone else who may give it")
 	if len(store.writes) != 0 {
 		t.Errorf("buffered writes = %v, want none", store.writes)
 	}

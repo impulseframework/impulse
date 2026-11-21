@@ -16,11 +16,12 @@ import (
 
 // The refusal of a role the caller could not give by hand as the role everyone from a
 // tenant's directory gets. directoryRoleNotGiven is the one sentence the caller is told,
-// with the word for a tenant: it names no role, so it reads the same of a role the
-// tenant holds and of one it does not. directoryRoleNotGivenCause is the refusal's
-// cause, kept for the server's log: the role, then the word for a tenant.
+// with the role in words (roleInWords), then the word for a tenant: it is the role the
+// request named, so it reads the same of a role the tenant holds and of one it does
+// not. directoryRoleNotGivenCause is the refusal's cause, kept for the server's log:
+// the role's code name, then the word for a tenant.
 const (
-	directoryRoleNotGiven      = "You may not give this role in this %s, so you cannot make it the role everyone from its directory gets."
+	directoryRoleNotGiven      = "You may not give the role %s in this %s, so you cannot make it the role everyone from its directory gets."
 	directoryRoleNotGivenCause = "you may not give the role %s in this %s, so you cannot make it the role everyone from its directory gets: " +
 		"choose a role you may give, or ask someone who may give this one"
 )
@@ -62,7 +63,7 @@ func (m *Manager) DirectoryRole(ctx context.Context, txn resource.ReadWriteTrans
 		if !may {
 			return httpio.NewForbiddenMessageWithError(
 				errors.Newf(directoryRoleNotGivenCause, string(role), m.tenantWord),
-				fmt.Sprintf(directoryRoleNotGiven, m.tenantWord),
+				fmt.Sprintf(directoryRoleNotGiven, roleInWords(role), m.tenantWord),
 			)
 		}
 	}

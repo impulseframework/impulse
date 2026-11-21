@@ -120,7 +120,7 @@ describe('the Standing Orders page', () => {
         'Section',
         'Directive',
       ]);
-      expect(element.querySelector('.create-button')).toBeNull();
+      expect(element.querySelector('.impulse-resource-list-create-button')).toBeNull();
       const component = fixture.componentInstance;
       expect(component.keyless()).toBe(true);
       expect(component.rowKey()).toBeUndefined();
