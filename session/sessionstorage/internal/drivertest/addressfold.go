@@ -45,10 +45,13 @@ func (a *addressesIn[Tx]) UserByEmailIn(ctx context.Context, email string) (*dbt
 	if err := a.d.Transact(ctx, func(ctx context.Context, tx Tx) error {
 		var err error
 		user, err = a.d.UserByEmailIn(ctx, tx, email)
+		if err != nil {
+			return errors.Wrap(err, "signinflow.Driver.UserByEmailIn()")
+		}
 
-		return err
+		return nil
 	}); err != nil {
-		return nil, errors.Wrap(err, "signinflow.Driver.UserByEmailIn()")
+		return nil, errors.Wrap(err, "signinflow.Driver.Transact()")
 	}
 
 	return user, nil
@@ -59,10 +62,13 @@ func (a *addressesIn[Tx]) UserByVerifiedEmailIn(ctx context.Context, email strin
 	if err := a.d.Transact(ctx, func(ctx context.Context, tx Tx) error {
 		var err error
 		user, err = a.d.UserByVerifiedEmailIn(ctx, tx, email)
+		if err != nil {
+			return errors.Wrap(err, "signinflow.Driver.UserByVerifiedEmailIn()")
+		}
 
-		return err
+		return nil
 	}); err != nil {
-		return nil, errors.Wrap(err, "signinflow.Driver.UserByVerifiedEmailIn()")
+		return nil, errors.Wrap(err, "signinflow.Driver.Transact()")
 	}
 
 	return user, nil
@@ -73,10 +79,13 @@ func (a *addressesIn[Tx]) ClaimVerifiedEmailIn(ctx context.Context, userID impul
 	if err := a.d.Transact(ctx, func(ctx context.Context, tx Tx) error {
 		var err error
 		claimed, err = a.d.ClaimVerifiedEmailIn(ctx, tx, userID, email)
+		if err != nil {
+			return errors.Wrap(err, "signinflow.Driver.ClaimVerifiedEmailIn()")
+		}
 
-		return err
+		return nil
 	}); err != nil {
-		return false, errors.Wrap(err, "signinflow.Driver.ClaimVerifiedEmailIn()")
+		return false, errors.Wrap(err, "signinflow.Driver.Transact()")
 	}
 
 	return claimed, nil

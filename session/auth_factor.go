@@ -558,7 +558,9 @@ func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, p *pendingState, 
 	}
 	if err := a.storage.VerifyUserEmailIfHeld(ctx, user.ID, user.Email, email); err != nil {
 		if httpio.HasConflict(err) {
-			logger.FromCtx(ctx).Infof("the address of user %s changed while the sign-in code mailed to %s was entered, or another account holds it now: the code is dead, and nothing is written", user.ID, email)
+			logger.FromCtx(ctx).Infof(
+				"the address of user %s changed while the sign-in code mailed to %s was entered, or another account holds it now: the code is dead, and nothing is written",
+				user.ID, email)
 
 			return errCodeExpired()
 		}

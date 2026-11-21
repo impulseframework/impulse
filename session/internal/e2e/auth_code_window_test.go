@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/mail"
@@ -87,22 +88,28 @@ func (s *windowStore[Tx]) assertPlayed(t *testing.T, want int) {
 // first.
 func (s *windowStore[Tx]) VerifyUserEmailIfHeld(ctx context.Context, id impulse.UUID, held *string, email string) error {
 	s.play(&s.beforeWrite)
+	if err := s.Auth.VerifyUserEmailIfHeld(ctx, id, held, email); err != nil {
+		return errors.Wrap(err, "sessionstorage.Auth.VerifyUserEmailIfHeld()")
+	}
 
-	return s.Auth.VerifyUserEmailIfHeld(ctx, id, held, email)
+	return nil
 }
 
 // VerifyUserEmail is the library's write, with the move armed before it played first.
 func (s *windowStore[Tx]) VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error {
 	s.play(&s.beforeWrite)
+	if err := s.Auth.VerifyUserEmail(ctx, id, email); err != nil {
+		return errors.Wrap(err, "sessionstorage.Auth.VerifyUserEmail()")
+	}
 
-	return s.Auth.VerifyUserEmail(ctx, id, email)
+	return nil
 }
 
 // ConsumeFactorCode is the library's consume, with the move armed after it played once
 // the code is consumed.
 func (s *windowStore[Tx]) ConsumeFactorCode(ctx context.Context, id impulse.UUID) error {
 	if err := s.Auth.ConsumeFactorCode(ctx, id); err != nil {
-		return err
+		return errors.Wrap(err, "sessionstorage.Auth.ConsumeFactorCode()")
 	}
 	s.play(&s.afterConsume)
 
@@ -171,7 +178,7 @@ func newCodeWindowApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx])
 	t.Cleanup(server.Close)
 	a.authApp = &authApp[Tx]{
 		db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder,
-		verified: window.Auth.VerifyUserEmail, setEmail: window.Auth.SetUserEmail,
+		verified: window.Auth.VerifyUserEmail, setEmail: window.SetUserEmail,
 	}
 
 	return a
