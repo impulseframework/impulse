@@ -445,7 +445,10 @@ and the wait, the send button then standing in the form's place, disabled until 
 passed; a code that is used resets the count, so a person who signs in with each code sent never
 meets the limit. An invitation that twenty-five codes were entered for, none of them accepting it,
 takes no more and mails none: the step shows the sentence for `invitation_spent`, which says to ask
-for a new invitation. Send me a link on the sign-up form is held the same way. With the box checked, the server remembers the
+for a new invitation. A code mailed for an invitation and entered in a browser that carries no
+invitation or another one shows the sentence for `invitation_not_open`, which says to open the
+invitation's link again, and one entered where its invitation has ended the sentence for
+`invitation_expired`. Send me a link on the sign-up form is held the same way. With the box checked, the server remembers the
 browser, and this person's next sign-ins from it skip the code until the server forgets it, or an
 operator does from the person's account page. A step this page does not render, a reason it does
 not know or a second-factor step without the mailed code, shows a note saying the page is older

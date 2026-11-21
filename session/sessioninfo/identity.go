@@ -363,6 +363,12 @@ const (
 	// the invitation and no code is compared with one. The person asks whoever invited
 	// them for a new invitation.
 	RefusedInvitationSpent LoginRefusalCode = "invitation_spent"
+	// RefusedInvitationNotOpen is the code for a sign-in code mailed for an invitation
+	// and entered in a browser that does not have that invitation open: it carries no
+	// invitation, or another one. The code is not compared and nothing is written, and it
+	// takes its place in the invitation's count. The person opens the invitation's link
+	// again and enters the code.
+	RefusedInvitationNotOpen LoginRefusalCode = "invitation_not_open"
 	// RefusedGuestAccount is the code for an identity that is a guest of its directory
 	// (Identity.Guest), which the standard account rule refuses.
 	RefusedGuestAccount LoginRefusalCode = "guest_account"

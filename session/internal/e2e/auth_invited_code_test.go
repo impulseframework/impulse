@@ -729,16 +729,16 @@ func seamInvitationCodeHeldToItsInvitation[Tx any](ctx context.Context, t *testi
 	// one that carries the cookie of Lee's invitation instead. Each time it is refused
 	// unjudged and takes a place in the count of Pat's invitation, never of Lee's.
 	dropped := b.withoutCookie("auth-invitation")
-	refused(dropped, "invitation_expired", 1, "entered without the invitation's cookie")
+	refused(dropped, "invitation_not_open", 1, "entered without the invitation's cookie")
 	other := dropped.clone()
 	other.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": leesToken}, other.xsrfToken())
-	refused(other, "pending_expired", 2, "entered with another invitation's cookie")
+	refused(other, "invitation_not_open", 2, "entered with another invitation's cookie")
 
 	// Twenty-three more, and Pat's invitation has taken its twenty-five. It takes no
 	// more: not in a browser without its cookie, and not in the one that carries it,
 	// where the code still stands and is the right one.
 	for entered := int64(3); entered <= 25; entered++ {
-		refused(dropped, "invitation_expired", entered, "entered again without the invitation's cookie")
+		refused(dropped, "invitation_not_open", entered, "entered again without the invitation's cookie")
 	}
 	refused(dropped, "invitation_spent", 25, "of a spent invitation, entered without its cookie")
 	refused(b, "invitation_spent", 25, "of a spent invitation, entered in the browser that carries it")

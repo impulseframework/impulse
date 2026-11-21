@@ -932,8 +932,10 @@ export class AuthClient {
    * refusal: a wrong code answers 401 with `invalid_code`, and the code stands with one
    * fewer attempt; a code entered while none stands (none sent, or the one sent expired,
    * was used, took its last attempt, or was mailed to an address the account no longer
-   * holds) answers 401 with `code_expired`, and the page has a new one sent; an expired
-   * sign-in answers `pending_expired`.
+   * holds) answers 401 with `code_expired`, and the page has a new one sent; a code mailed
+   * for an invitation answers 401 with `invitation_not_open` in a browser that carries no
+   * invitation or another one, and with `invitation_expired` where its invitation has ended;
+   * an expired sign-in answers `pending_expired`.
    */
   async verifyCode(code: string, rememberDevice: boolean): Promise<SignInResult> {
     const routes = await this.codeRoutes();

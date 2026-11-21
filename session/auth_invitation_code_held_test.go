@@ -130,18 +130,18 @@ func TestAuth_invitationCodeIsHeldToItsInvitation(t *testing.T) {
 		wantEntered int64
 	}{
 		{
-			name: "entered in a browser that carries no invitation, the right code is refused as an invitation that ended, and is counted against the invitation it was mailed for",
+			name: "entered in a browser that carries no invitation, the right code is refused as an invitation not open there, and is counted against the invitation it was mailed for",
 			carries: func(*namedInvitedWait) context.Context {
 				return t.Context()
 			},
-			want: sessioninfo.RefusedInvitationExpired, wantEntered: 1,
+			want: sessioninfo.RefusedInvitationNotOpen, wantEntered: 1,
 		},
 		{
-			name: "entered in a browser that carries another live invitation, the right code is refused as a wait that ran out, and is counted against its own invitation and not the other",
+			name: "entered in a browser that carries another live invitation, the right code is refused as an invitation not open there, and is counted against its own invitation and not the other",
 			carries: func(w *namedInvitedWait) context.Context {
 				return w.carriesOther
 			},
-			want: sessioninfo.RefusedPendingExpired, wantEntered: 1,
+			want: sessioninfo.RefusedInvitationNotOpen, wantEntered: 1,
 		},
 		{
 			name: "the right code of an invitation that takes no more codes is refused as spent, whatever the browser carries",

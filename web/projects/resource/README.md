@@ -611,8 +611,10 @@ another account holds is answered as sent and that account told by mail, so the 
 nothing); `verifyCode(code, rememberDevice)` enters the code and resolves as a sign-in step does,
 a wrong code refused with `invalid_code` and the code standing with one fewer attempt, a code
 entered while none stands (none sent; the one sent expired, was used or took its last attempt)
-with `code_expired`, and the twenty-fifth wrong code entered for one invitation, as every code
-after it, with `invitation_spent`. With `rememberDevice` the server remembers the browser, and this person's
+with `code_expired`, the twenty-fifth wrong code entered for one invitation, as every code
+after it, with `invitation_spent`, a code mailed for an invitation and entered in a browser that
+carries no invitation or another one with `invitation_not_open`, and one entered where its
+invitation has ended with `invitation_expired`. With `rememberDevice` the server remembers the browser, and this person's
 next sign-ins from it skip the code for as long as the server keeps a remembered browser. A
 server whose pending routes name none of the three does not route them, and they throw saying so.
 

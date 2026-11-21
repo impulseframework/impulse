@@ -144,6 +144,13 @@ func errInvitationSpent() error {
 		httpio.NewUnauthorizedMessage("This invitation can't be used any more. Ask the person who invited you to send a new one."))
 }
 
+// errInvitationNotOpen is the refusal of a code mailed for an invitation and entered in
+// a browser that does not have that invitation open (carriesInvitation).
+func errInvitationNotOpen() error {
+	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvitationNotOpen,
+		httpio.NewUnauthorizedMessage("This code belongs to an invitation that is not open in this browser. Open the link in your invitation again, then enter the code."))
+}
+
 // mailSettings are the Auth's mail settings once validated.
 type mailSettings struct {
 	sender   mail.Sender
@@ -741,12 +748,16 @@ func (a *Auth[S, U, Tx]) countInvitationGuess(ctx context.Context, id impulse.UU
 }
 
 // carriesInvitation refuses a code mailed for the invitation with id in a browser that
-// does not carry that invitation, live. One that carries none, or whose invitation was
-// used, withdrawn or ran out, is answered as an invitation that ended, and one that
-// carries another as a wait that ran out, as a sign-up through an invitation answers
-// them (invitedSignUpAttempt). The code is that invitation's acceptance or it is
-// nothing: no account's second factor, and no proof of an address to write.
+// does not carry that invitation, live. One that carries no invitation, or another one
+// that is live, does not have the code's invitation open, and is answered so
+// (invitation_not_open): the person opens the invitation's link again and enters the
+// code. One whose invitation was used, withdrawn or ran out is answered as an
+// invitation that ended (invitation_expired). The code is that invitation's acceptance
+// or it is nothing: no account's second factor, and no proof of an address to write.
 func (a *Auth[S, U, Tx]) carriesInvitation(ctx context.Context, id impulse.UUID) error {
+	if _, carried := invitationTokenHash(ctx); !carried {
+		return errInvitationNotOpen()
+	}
 	inv, err := a.invitationOf(ctx)
 	if err != nil {
 		return err
@@ -755,7 +766,7 @@ func (a *Auth[S, U, Tx]) carriesInvitation(ctx context.Context, id impulse.UUID)
 		return errInvitationEnded()
 	}
 	if inv.ID != id {
-		return errPendingExpired()
+		return errInvitationNotOpen()
 	}
 
 	return nil
