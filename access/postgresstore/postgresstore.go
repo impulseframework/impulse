@@ -739,7 +739,10 @@ func (s *Store) ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([
 // locks the role's row for update, which a holding of the role written by the
 // store, or by a transaction that reads the row for key share, waits on and holds
 // a lock against: of such a holding and the delete at the same moment, the checks
-// read the holding and refuse, or the holding finds the row gone.
+// read the holding and refuse, or the holding finds the row gone. Before it
+// removes a group's ended roles it reads the rows of the groups that hold them for
+// key share, as a write under a group does, so it takes its turn with a DeleteGroup
+// of one of them.
 func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	// Read committed whatever the database's default, as InsertRole: the checks after
@@ -787,6 +790,14 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		// are not this delete's to touch.
 		if _, err := tx.Exec(ctx, s.sqlDeleteEndedMembers, kind, axis, domain, role); err != nil {
 			return false, errors.Wrap(err, "pgx.Tx.Exec() ended memberships")
+		}
+		// The groups whose ended roles go next are read for key share first, as a
+		// write under a group reads its row. A DeleteGroup locks its group's row for
+		// update before it removes its ended roles in one statement, where this delete
+		// of a role held in every domain removes them in two: the two take turns on
+		// the group's row, and neither holds a group's role the other waits for.
+		if _, err := tx.Exec(ctx, s.groups.shareEndedOf, role); err != nil {
+			return false, errors.Wrap(err, "pgx.Tx.Exec() groups of ended roles")
 		}
 		if _, err := tx.Exec(ctx, s.groups.deleteEndedOf, kind, axis, domain, role); err != nil {
 			return false, errors.Wrap(err, "pgx.Tx.Exec() ended group roles")

@@ -279,6 +279,60 @@ func TestStore_DeleteRole_takesItsTurnWithAGive(t *testing.T) {
 	}
 }
 
+// TestStore_DeleteRole_takesItsTurnWithAGroupsDelete pins that the deletion of a role
+// held in every domain reads for key share the row of a group whose ended roles of the
+// name it removes before it removes any of them: while a transaction holds the group's
+// row for update, as a group's deletion does before it removes the same ended roles, the
+// role's deletion waits on it. A deletion that removed the group's ended roles first
+// could hold one of them while the group's deletion holds the other, and the database
+// would end one of the two with a deadlock.
+func TestStore_DeleteRole_takesItsTurnWithAGroupsDelete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, database := prepareStore(ctx, t)
+	every := accesstypes.EveryDomainPolicyScope()
+	if err := store.InsertRole(ctx, every, turnRole, "Keeps the wards."); err != nil {
+		t.Fatalf("InsertRole() error = %v", err)
+	}
+	group := &policy.GroupRow{Group: policy.Group{ID: turnGroup, Scope: accesstypes.GlobalPolicyScope()}, Name: "Wards", Description: "Who keeps the wards."}
+	if taken, err := store.InsertGroup(ctx, group); err != nil || taken {
+		t.Fatalf("InsertGroup() = (%v, %v), want it written", taken, err)
+	}
+	now := time.Now()
+	ended := accesstypes.Period{Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour)}
+	// tenant2 holds no role of the name of its own: the group's role there reads
+	// every domain's row, and goes with it.
+	for _, scope := range []accesstypes.PolicyScope{every, accesstypes.DomainPolicyScope("tenant2")} {
+		if err := store.InsertGroupRole(ctx, turnGroup, scope, turnRole, ended); err != nil {
+			t.Fatalf("InsertGroupRole() in %s error = %v", scope, err)
+		}
+	}
+	turns := repeatableReadStore(ctx, t, database.Pool)
+
+	deletion := lockRow(ctx, t, database.Pool, store.groups.lockGroup, turnGroup)
+	var (
+		deleted bool
+		err     error
+	)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		deleted, err = turns.DeleteRole(ctx, every, turnRole)
+	}()
+	waitingOnALock(t, database.Pool, done)
+	if err := deletion.Rollback(ctx); err != nil {
+		t.Fatalf("pgx.Tx.Rollback() error = %v", err)
+	}
+	<-done
+
+	if !deleted || err != nil {
+		t.Errorf("DeleteRole(every domain) once the group's deletion rolled back = (%v, %v), want (true, nil)", deleted, err)
+	}
+	if held := heldUnder(ctx, t, store); len(held) != 0 {
+		t.Errorf("ReadPolicy() after the role was deleted holds %v, want no role of the name for the group", held)
+	}
+}
+
 // TestStore_writeUnderAParent_takesItsTurnWithItsDelete pins that a write under a role
 // or a group reads its parent's row for key share before it writes, and reads it after
 // the lock: where a transaction that holds the row deletes it, the write waits, finds
@@ -463,8 +517,8 @@ func roleRowSQL(store *Store, strength string) string {
 	return fmt.Sprintf(`select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 for %s`, store.names.roles, strength)
 }
 
-// heldUnder lists what the store holds that a turn test's write would write: a
-// membership of turnRole, a role or a member of turnGroup, a grant of turnRole.
+// heldUnder lists what the store holds under turnRole or turnGroup: a membership of
+// turnRole, a role or a member of turnGroup, a grant of turnRole.
 func heldUnder(ctx context.Context, t *testing.T, store *Store) []string {
 	t.Helper()
 	records, err := store.ReadPolicy(ctx)

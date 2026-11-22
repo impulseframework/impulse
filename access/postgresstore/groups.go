@@ -49,6 +49,7 @@ type groupStatements struct {
 	listRolesIn    string
 	roleHeld       string
 	deleteEndedOf  string
+	shareEndedOf   string
 	heldInDomain   string
 	endedInDomain  string
 	readGroups     string
@@ -96,6 +97,10 @@ from %s g join %s r on r."GroupId" = g."Id"
 where g."Kind" = $1 and g."Axis" = $2 and g."DomainId" = $3 and %s order by r."GroupId", r."Kind", r."Axis", r."DomainId", r."Role"`, n.groups, n.groupRoles, standing("r.")),
 		roleHeld:      fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s)`, n.groupRoles, standing("")),
 		deleteEndedOf: fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and %s`, n.groupRoles, ended),
+		// The rows of the groups that hold a role of the name whose end has passed,
+		// wherever they hold it, for key share.
+		shareEndedOf: fmt.Sprintf(`select 1 from %s g where g."Id" in (select r."GroupId" from %s r where r."Role" = $1 and r.%s) order by g."Id" for key share of g`,
+			n.groups, n.groupRoles, ended),
 		// The group roles held in one domain that read a role's every-domain row.
 		heldInDomain:  fmt.Sprintf(`select u."DomainId" from %s u where %s and %s order by u."DomainId" limit 1`, n.groupRoles, readsEveryDomainRow(n.roles), standing("u.")),
 		endedInDomain: fmt.Sprintf(`delete from %s u where %s and u.%s`, n.groupRoles, readsEveryDomainRow(n.roles), ended),
