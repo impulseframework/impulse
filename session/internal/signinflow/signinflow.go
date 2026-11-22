@@ -1757,9 +1757,9 @@ func holdsAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impul
 // invitation only through a directory some tenant has, not invited through any other.
 // An application with no tenant directories has only the directories its deployment
 // registered for itself, and no tenant to vouch for a link: the link is made when the
-// method vouches for the name, and otherwise waits for the code mailed to the address
-// the account holds (nameAloneHold; tenant is the link's tenant key, which the wait
-// carries).
+// method vouches for the name and the name is the account's own, and otherwise waits for
+// the code mailed to the address the account holds (nameAloneHold; tenant is the link's
+// tenant key, which the wait carries).
 func firstLink[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User, tenant string, rules Rules[Tx],
 ) (byInvitation bool, stop, err error) {
@@ -1767,7 +1767,9 @@ func firstLink[Tx any](
 		return false, nil, nil
 	}
 	if rules.Directories == nil {
-		return false, nameAloneHold(req, user, tenant), nil
+		stop, err := nameAloneHold(ctx, d, tx, req, user, tenant)
+
+		return false, stop, err
 	}
 	declared, err := declaredDirectory(ctx, tx, req.Identity, rules.Directories)
 	if err != nil {
@@ -1803,8 +1805,13 @@ func firstLink[Tx any](
 // directories: nothing but the sign-in name ties the account to the person signing in.
 // A name the method vouches for is the person's own: Google names an account by its
 // address, and answers for a Gmail address and for a Workspace account's
-// (Identity.EmailVerified), so that link is made at once (nil). Any other name is the
-// provider's word alone. A Google account can be made under any address from outside
+// (Identity.EmailVerified). That link is made at once (nil) where the name is also the
+// account's own: its username as the library compares two addresses (sameAddress), or
+// the address the account holds confirmed (holdsAddress). The stores find a username
+// more widely than that (they fold Unicode's case and normalization), so a vouched name
+// that only reads like the account's (the Kelvin sign for a k) vouches for another
+// mailbox than the one the account is under, and goes on as a name the method does not
+// vouch for. Any other name is the provider's word alone. A Google account can be made under any address from outside
 // Google, an identity provider's administrators give the names they like, and a
 // Microsoft directory answers for no address; the link would hand whoever signs in
 // everything the account holds. So the sign-in waits for the code mailed to the address
@@ -1815,22 +1822,32 @@ func firstLink[Tx any](
 // event is linked. An account that holds no address has nowhere to mail the code, and
 // an address given at the sign-in would show only that the person reads their own
 // mail, so the link is refused (signin.ErrLinkNeedsAddress).
-func nameAloneHold(req *sessioninfo.NewSessionRequest, user *dbtype.User, tenant string) error {
+func nameAloneHold[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User, tenant string,
+) (stop, err error) {
 	identity := req.Identity
 	if identity.EmailVerified && sameAddress(identity.SignInName, identity.Email) {
-		return nil
+		own := sameAddress(identity.SignInName, user.Username)
+		if !own {
+			if own, err = holdsAddress(ctx, d, tx, user.ID, identity); err != nil {
+				return nil, err
+			}
+		}
+		if own {
+			return nil, nil
+		}
 	}
 	if slices.ContainsFunc(req.AuthEvents, func(e sessioninfo.AuthEvent) bool { return e.Method == sessioninfo.MethodEmailCode }) {
-		return nil
+		return nil, nil
 	}
 	if !user.EmailHeld {
-		return Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkNeedsAddress, "the account under this sign-in name holds no email address to mail a sign-in code to")
+		return Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkNeedsAddress, "the account under this sign-in name holds no email address to mail a sign-in code to"), nil
 	}
 
 	return &signin.PendingSignInError{
 		Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(user.ID), Username: user.Username, Tenant: tenant,
 		Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
-	}
+	}, nil
 }
 
 // ownInvitation reports whether the invitation a sign-in carries was mailed to user's

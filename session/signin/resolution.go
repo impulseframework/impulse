@@ -52,9 +52,12 @@ import (
 // person no user was created for is, since a directory asserts the names it likes. In
 // any other application no tenant vouches for a link, so such a user is linked at once
 // only where the method vouches for the sign-in name (Google, for a Gmail address or a
-// Workspace account's), and otherwise once the person enters the code mailed to the
-// address the user holds, with nothing linked while the sign-in waits; a user who holds
-// no address is refused the link (ErrLinkNeedsAddress). A
+// Workspace account's) and that name is the user's own (its username as the library
+// compares two addresses, or the address it holds confirmed; a username the stores'
+// wider match found under another spelling is not), and otherwise once the person
+// enters the code mailed to the address the user holds, with nothing linked while the
+// sign-in waits; a user who holds no address is refused the link
+// (ErrLinkNeedsAddress). A
 // registration that declares its provider's names the application's own
 // (Registration.SeededUsers) links such a user on the name alone. A user with no
 // password who already signs in through an identity is never linked a second one on

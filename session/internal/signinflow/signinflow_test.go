@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -204,18 +205,25 @@ func (d *memDriver) LockUserIn(ctx context.Context, tx *memTx, userID impulse.UU
 	return d.UserIn(ctx, tx, userID)
 }
 
+// UserByUsernameIn finds a committed user as the stores find one, more widely than the
+// library compares two addresses: Unicode's case folding (strings.EqualFold) takes the
+// Kelvin sign for a k.
 func (d *memDriver) UserByUsernameIn(_ context.Context, _ *memTx, username string) (*dbtype.User, error) {
-	id, user := d.store.userNamed(username)
-	if user == nil {
-		return nil, nil
+	for id, user := range d.store.users {
+		if strings.EqualFold(user.username, username) {
+			return &dbtype.User{ID: id, Username: user.username}, nil
+		}
 	}
 
-	return &dbtype.User{ID: id, Username: user.username}, nil
+	return nil, nil
 }
 
+// UserByVerifiedEmailIn finds the committed user who holds email confirmed, as the stores
+// match an address: the case of its ASCII letters aside, every other character as
+// written.
 func (d *memDriver) UserByVerifiedEmailIn(_ context.Context, _ *memTx, email string) (*dbtype.User, error) {
 	for id, user := range d.store.users {
-		if user.confirmed && user.email != "" && strings.EqualFold(user.email, email) {
+		if user.confirmed && user.email != "" && util.EqualASCIIFold(user.email, email) {
 			return &dbtype.User{ID: id, Username: user.username, EmailConfirmed: true, EmailHeld: true}, nil
 		}
 	}
@@ -281,11 +289,11 @@ func (d *memDriver) ClaimUserNameIn(_ context.Context, tx *memTx, userID impulse
 	return true, nil
 }
 
-// UserByEmailIn finds the committed user who holds email, confirmed or not, without
-// regard to case.
+// UserByEmailIn finds the committed user who holds email, confirmed or not, as the
+// stores match an address: the case of its ASCII letters aside.
 func (d *memDriver) UserByEmailIn(_ context.Context, _ *memTx, email string) (*dbtype.User, error) {
 	for id, user := range d.store.users {
-		if user.email != "" && strings.EqualFold(user.email, email) {
+		if user.email != "" && util.EqualASCIIFold(user.email, email) {
 			return &dbtype.User{ID: id, Username: user.username, EmailConfirmed: user.confirmed}, nil
 		}
 	}

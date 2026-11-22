@@ -243,11 +243,12 @@ DML what a later rule must read.
     since a person is one user whichever way they sign in. The link is made after a
     password confirmation when the user has a password. When the user has none and has
     never signed in, it is the user's first identity, and is made when something vouches
-    for it: at once where the method vouches for the sign-in name, and otherwise once
-    the person enters the code mailed to the address the account holds (see "A first
-    link on a name alone" below). A user with no password who
-    already signs in through an identity is linked no second one on the name, on the
-    same connection or another (see "Never a second identity on a name alone" below).
+    for it: at once where the method vouches for the sign-in name and that name is the
+    account's own, and otherwise once the person enters the code mailed to the address
+    the account holds (see "A first link on a name alone" below). A user with no
+    password who already signs in through an identity is linked no second one on the
+    name, on the same connection or another (see "Never a second identity on a name
+    alone" below).
     An address a user holds unverified is a reservation, not a match.
     The rule asks what the Auth registers. On an Auth with no password method nobody
     can enter a password, so a password a user holds there (one the API set, or one
@@ -324,7 +325,12 @@ DML what a later rule must read.
   deployment registered for itself, and no tenant to vouch for a link. There the link
   is made at once only where the method vouches for the sign-in name: Google names an
   account by its address, and answers for a Gmail address and for a Workspace
-  account's. Any other name is the provider's word alone (a Google account can be made
+  account's. The name must also be the account's own: its username as the library
+  compares two addresses (the case of ASCII letters aside, every other character as
+  written), or the address the account holds confirmed. The stores find a username more
+  widely than that (they fold Unicode's case and normalization), so a name that only
+  reads like the account's is not the account's, and waits for the code as any name the
+  method does not vouch for. Any other name is the provider's word alone (a Google account can be made
   under any address from outside Google, an identity provider's administrators give
   the names they like, and Microsoft Entra ID answers for no address), so the sign-in
   waits for the code mailed to the address the account holds, whether or not its

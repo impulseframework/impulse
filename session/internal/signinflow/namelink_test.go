@@ -20,10 +20,13 @@ import (
 // person has confirmed it, and nothing is linked while it waits; the sign-in that
 // carries the code's event makes the link and goes on. An account that holds no address
 // is refused, since a code mailed to an address typed at the sign-in would show only
-// that the person reads their own mail. A name Google vouches for links at once, and so
-// does a registration of the deployment's own seeded accounts. The wait is the link's
-// own: it does not turn on whether the rules hold a person for an address
-// (Rules.ConfirmAddress).
+// that the person reads their own mail. A name Google vouches for links at once where it
+// is the account's own: its username as the library compares two addresses, or the
+// address the account holds confirmed. A vouched name the stores' wider match found under
+// another spelling (the Kelvin sign for a k) is not the account's own, and waits as a
+// name the method does not vouch for. A registration of the deployment's own seeded
+// accounts links on the name. The wait is the link's own: it does not turn on whether
+// the rules hold a person for an address (Rules.ConfirmAddress).
 func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 	t.Parallel()
 
@@ -32,12 +35,18 @@ func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 	workspace := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "corp.example", Subject: "g-2", SignInName: name, Email: name, EmailVerified: true}
 	provider := &sessioninfo.Identity{Method: sessioninfo.MethodOIDC, Connection: "https://id.example", Subject: "p-1", SignInName: name, Email: name}
 	microsoft := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "a-1", SignInName: name, Email: name}
+	const kim, kelvinKim = "kim@lakeside.edu", "\u212Aim@lakeside.edu"
+	upperKim := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "lakeside.edu", Subject: "g-3", SignInName: "KIM@lakeside.edu", Email: "KIM@lakeside.edu", EmailVerified: true}
+	lookalike := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "lakeside.edu", Subject: "g-4", SignInName: kelvinKim, Email: kelvinKim, EmailVerified: true}
+	gmail := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "google", Subject: "g-5", SignInName: "pat@gmail.com", Email: "pat@gmail.com", EmailVerified: true}
 	code := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodGoogle}, {Method: sessioninfo.MethodEmailCode}}
 	tests := []struct {
 		name string
-		// identity is who signs in, linked to nobody; address the address the account
-		// under the name holds, "" for none, and confirmed whether its person confirmed it.
+		// identity is who signs in, linked to nobody; username the account's username,
+		// name when empty; address the address the account holds, "" for none, and
+		// confirmed whether its person confirmed it.
 		identity  *sessioninfo.Identity
+		username  string
 		address   string
 		confirmed bool
 		rules     Rules[*memTx]
@@ -84,6 +93,30 @@ func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 			name:     "rules that hold nobody for an address wait for the link's code all the same",
 			identity: outside, address: name, confirmed: true, rules: Rules[*memTx]{}, wantHeld: true,
 		},
+		{
+			name:     "a vouched name that is the account's username in other ASCII capitals links at once",
+			identity: upperKim, username: kim, rules: Rules[*memTx]{ConfirmAddress: true},
+		},
+		{
+			name:     "a vouched name that reads as the account's username only under Unicode's folding waits for the code mailed to the account's address",
+			identity: lookalike, username: kim, address: kim, rules: Rules[*memTx]{ConfirmAddress: true}, wantHeld: true,
+		},
+		{
+			name:     "a vouched look-alike name waits as well where the account holds its own address confirmed: that address is not the one vouched for",
+			identity: lookalike, username: kim, address: kim, confirmed: true, rules: Rules[*memTx]{ConfirmAddress: true}, wantHeld: true,
+		},
+		{
+			name:     "a vouched look-alike name to an account that holds no address is refused",
+			identity: lookalike, username: kim, rules: Rules[*memTx]{ConfirmAddress: true}, wantRefused: signin.ErrLinkNeedsAddress,
+		},
+		{
+			name:     "a vouched look-alike name is linked by the code mailed to the account's address",
+			identity: lookalike, username: kim, address: kim, rules: Rules[*memTx]{ConfirmAddress: true}, reason: sessioninfo.ReasonStepUp, events: code,
+		},
+		{
+			name:     "a vouched address the account holds confirmed links at once under a username that is no address",
+			identity: gmail, username: "pat", address: "pat@gmail.com", confirmed: true, rules: Rules[*memTx]{ConfirmAddress: true},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -91,7 +124,11 @@ func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 
 			store := newMemStore()
 			userID := impulse.Must(impulse.NewUUID())
-			store.users[userID] = &memUser{username: name, email: tt.address, confirmed: tt.confirmed}
+			username := tt.username
+			if username == "" {
+				username = name
+			}
+			store.users[userID] = &memUser{username: username, email: tt.address, confirmed: tt.confirmed}
 			reason := tt.reason
 			if reason == "" {
 				reason = sessioninfo.ReasonLogin
@@ -115,8 +152,8 @@ func TestSignIn_aLinkOnTheNameAloneWaitsForTheAccountsCode(t *testing.T) {
 				if diff := cmp.Diff([]sessioninfo.AuthMethod{sessioninfo.MethodEmailCode}, wait.Factors); diff != "" {
 					t.Errorf("the factors the wait accepts (-want +got):\n%s", diff)
 				}
-				if !wait.UserID.Valid || wait.UserID.UUID != userID || wait.Username != name {
-					t.Errorf("the wait names the user %v (%q), want %s (%q): the code goes to that account's address", wait.UserID, wait.Username, userID, name)
+				if !wait.UserID.Valid || wait.UserID.UUID != userID || wait.Username != username {
+					t.Errorf("the wait names the user %v (%q), want %s (%q): the code goes to that account's address", wait.UserID, wait.Username, userID, username)
 				}
 			default:
 				if err != nil {
