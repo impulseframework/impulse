@@ -19,6 +19,9 @@ type clientOptions struct {
 	collection  PermissionCollection
 	roleFile    RoleFile
 	roleFileSet bool
+	// roleFiles counts the times WithDefaultRoles was applied: New refuses more than
+	// one, since an engine holds the roles of one auth.
+	roleFiles int
 	// auth is the name of the auth the role file is of (WithDefaultRoles).
 	auth         string
 	superMethods []accesstypes.Resource
@@ -122,10 +125,14 @@ func WithReloadErrorHandler(f func(error)) Option {
 // read. An empty auth is refused where the collection knows several auths.
 // Where it knows one or none, it refuses no grant for whose people its set
 // describes, and looks at every set.
+//
+// New takes one role file: the option given a second time is refused, since an
+// engine holds the roles of one auth.
 func WithDefaultRoles(file RoleFile, auth string) Option {
 	return func(o *clientOptions) {
 		o.roleFile = file
 		o.roleFileSet = true
+		o.roleFiles++
 		o.auth = auth
 	}
 }

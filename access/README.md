@@ -821,11 +821,13 @@ read as the scope of a request, for default and custom roles alike.
 Default roles are policy that travels with the release. They are authored as a
 role file, JSON in the `RoleConfig` shape (see JSON Configuration), embedded in
 the application binary and handed to `New` through `WithDefaultRoles`. `New`
-parses the file and validates it against the collection the release declares:
-a file that does not parse, names a role outside the grammar, leaves a role
-without a description, declares a role twice or at both scopes, grants what
-the collection does not declare, or carries a condition the vocabulary refuses
-fails `New`, so a release whose default roles are wrong does not start.
+takes one role file: a second `WithDefaultRoles` among its options is refused,
+since an engine holds the roles of one auth. `New` parses the file and
+validates it against the collection the release declares: a file that does not
+parse, names a role outside the grammar, leaves a role without a description,
+declares a role twice or at both scopes, grants what the collection does not
+declare, or carries a condition the vocabulary refuses fails `New`, so a
+release whose default roles are wrong does not start.
 
 A collection may mark an action as one no role is given, as the generator marks the
 action of the create-your-tenant route (`NoRole: true` in the generated collection).
