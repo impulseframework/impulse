@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
 
 	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/names"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
@@ -296,7 +297,7 @@ func TestAuthMeaning(t *testing.T) {
 		{
 			name:  "a directory auth whose roles the application assigns names the grants the invitations need",
 			auth:  Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}}, Outlet: "portal"},
-			wants: []string{`generation.GoogleMethod("workspace"))`, "(`google.SignIn`), role membership the application's", "Every method of the partners auth starts invite only", "the generated management of the partners auth makes both (the `InvitePartnersUser` and `CreatePartnersUser` methods), so grant Execute on them to the role that invites in the role file"},
+			wants: []string{`generation.GoogleMethod("workspace"))`, "(`google.SignIn`), role membership the application's", "Every method of the partners auth starts invite only", "the generated management of the partners auth sends it (the `InvitePartnersUser` method), so grant Execute on it to the role that invites in the role file"},
 			never: []string{".InvitedUsers()", "signin.InvitedUsersOnly"},
 		},
 	}
@@ -594,11 +595,11 @@ func TestAuthApply(t *testing.T) {
 					"\tif settings.TenantDeclarations == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantDeclarations is nil: the sign-in rule reads what each tenant declares about who may enter it through the generated reader (app.NewTenantDeclarationReader), which the data level hands in\")\n\t}\n",
 					"\tif settings.TenantDirectories == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantDirectories is nil: the directory admission reads what the tenants declare about one directory, its default seat included, through the generated reader (app.NewTenantDirectoryReader), which the data level hands in\")\n\t}\n\tif settings.TenantMaker == nil {",
 					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n\n\t// The auth's identity client (pkg/identity, generated)",
-					"\t\tsettings.CookieKey,\n\t\tsession.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),\n\t\tsession.WithSessionTableName(sessionsTable),\n",
+					"\t\tsettings.CookieKey,\n\t\tsession.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),\n\t\tsession.MailSettings{Sender: settings.Mail, Application: Application, LoginURL: settings.MailLoginURL},\n\t\tsession.WithSessionTableName(sessionsTable),\n",
 					"\t_, tenantAdministrators := AdministratorRoles()\n\taccessClient, err := access.New(store, settings.Collection,\n\t\taccess.WithDefaultRoles(Roles(), Name),\n",
 					"\t\taccess.WithSuperAdministratorMethods(partnersidentity.SuperAdministratorMethods()...),\n",
 					"\t\t// its directory has a problem; the sign-in rule and each request ask the engine.\n\t\taccess.WithTenantAdministratorRoles(tenantAdministrators...),\n\t)",
-					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// A role, a place in a group and a group's role may each be given for a period",
+					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// A role, a place in a group and a group's role may each be given for a period",
 					// What a sign-in clears is set before what a sign-in gives: the identity
 					// client's hook for a sign-in that stands, over the application's database.
 					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// The directory admission",
@@ -641,7 +642,7 @@ func TestAuthApply(t *testing.T) {
 					"\tTenantMaker identity.TenantMaker\n}",
 					"\tif settings.TenantDeclarations == nil {\n",
 					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n\n\t// The auth's identity client (pkg/identity, generated)",
-					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))\n",
+					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))\n",
 					// With no directory admission between them, what a sign-in clears is followed
 					// at once by what an accepted invitation gives.
 					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// An accepted invitation gives its roles",
@@ -1267,6 +1268,161 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 						t.Errorf("%s still carries %q:\n%s", rel, never, text)
 					}
 				}
+			}
+		})
+	}
+}
+
+// TestAuthApplyRebindsDialogsSpec pins what add auth does to the test of the dialogs in
+// the browser application it rebinds. The base skeleton's test of the dialog that invites
+// a person asks the library for the pages of the base auth's management and expects that
+// auth's invite method. Where nobody edited it, it is rendered again for the new auth, or
+// written as the outlets reference's, which has no test of that dialog, where the outlet's
+// program generates no management of the new auth. One edited since is never rewritten in
+// place: where it still asks for the base auth's pages it is left and a skipped line says
+// what to change, and any other is left without a word.
+func TestAuthApplyRebindsDialogsSpec(t *testing.T) {
+	t.Parallel()
+
+	const (
+		portalSpec    = "apps/portal/web/portal/src/" + appDialogsSpecFile
+		portalProgram = "cmd/generate/portalgenerator/main.go"
+	)
+	members := Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication}}, Outlet: "portal"}
+	base := skeletonWeb(t, appDialogsSpecFile)
+	staffRequest := "auth: 'Staff'"
+	if !strings.Contains(base, staffRequest) {
+		t.Fatalf("the base skeleton's %s holds no %s: the fixture is not the test this one pins", appDialogsSpecFile, staffRequest)
+	}
+	reference, err := referenceText(ReferenceCandidate, appDialogsSpecFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A portal whose program declares the staff auth on a second outlet too, so the
+	// program gains no tree for the members and generates no management of them.
+	unmanaged := func(text string) string {
+		return strings.Replace(text, "\t\tgeneration.GenerateHandlerTests(", "\t\tgeneration.WithRouterOutlet(\"desk\", \"desk/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/staff\", generation.PasswordMethod()),\n\t\t),\n\t\tgeneration.GenerateHandlerTests(", 1)
+	}
+	spec := func(text string) func(string) string {
+		return func(string) string {
+			return text
+		}
+	}
+	edited := "// The portal's own case, added after the skeleton rendered the file.\n" + base
+	own := "// the application's own dialogs test\n"
+
+	tests := []struct {
+		name        string
+		edits       map[string]func(text string) string
+		wantText    string
+		wantDid     string
+		wantSkipped string
+	}{
+		{
+			name: "no test of the dialogs is left without a word",
+		},
+		{
+			name:     "the skeleton's test, where the program generates the auth's management, is rendered again for the auth",
+			edits:    map[string]func(string) string{portalSpec: spec(base)},
+			wantText: names.Rename(base, skeleton.PlaceholderAuth, "members"),
+			wantDid:  portalSpec + ": rendered again from the skeleton's for the members auth: its test of the dialog that invites a person asks the library for the pages of the members auth's management (identityPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' })) and expects that auth's invite method, in place of the staff auth's",
+		},
+		{
+			name:     "the skeleton's test, where the program generates no management of the auth, is written without the test of the invite dialog",
+			edits:    map[string]func(string) string{portalSpec: spec(base), portalProgram: unmanaged},
+			wantText: reference,
+			wantDid:  portalSpec + ": written again without its test of the dialog that invites a person: the outlet's program generates no management of the members auth, so its API description names no such page, and the library refuses a request for one",
+		},
+		{
+			name:        "an edited test that asks for the old auth's pages, where the program generates the auth's management, is left with what to change",
+			edits:       map[string]func(string) string{portalSpec: spec(edited)},
+			wantText:    edited,
+			wantSkipped: portalSpec + " was edited since the skeleton rendered it, so it was left as it is: it asks the library for the pages of the staff auth's management (auth: 'Staff'), which the outlet's API description no longer carries; name the members auth there (auth: 'Members') and expect its methods, or take the test out: the web-wired check refuses the application until then",
+		},
+		{
+			name:        "an edited test that asks for the old auth's pages, where the program generates no management of the auth, is left with what to take out",
+			edits:       map[string]func(string) string{portalSpec: spec(edited), portalProgram: unmanaged},
+			wantText:    edited,
+			wantSkipped: portalSpec + " was edited since the skeleton rendered it, so it was left as it is: it asks the library for the pages of the staff auth's management (auth: 'Staff'), which the outlet's API description no longer carries, and the outlet's program generates no management of the members auth to ask for in its place; take the test of those pages out: the web-wired check refuses the application until then",
+		},
+		{
+			name:     "a test of the application's own that asks for no auth's pages is left without a word",
+			edits:    map[string]func(string) string{portalSpec: spec(own)},
+			wantText: own,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a := sitesApp(t, tt.edits)
+			ch, err := members.Apply(t.Context(), a, &fakeExec{})
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			if tt.wantText == "" {
+				if _, err := os.Stat(a.Abs(portalSpec)); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("%s was written where the application had none (stat error %v)", portalSpec, err)
+				}
+			} else if diff := cmp.Diff(tt.wantText, read(t, a, portalSpec)); diff != "" {
+				t.Errorf("dialogs test mismatch (-want +got):\n%s", diff)
+			}
+			var said []string
+			for _, line := range slices.Concat(ch.Did, ch.Skipped) {
+				if strings.Contains(line, appDialogsSpecFile) {
+					said = append(said, line)
+				}
+			}
+			var want []string
+			for _, line := range []string{tt.wantDid, tt.wantSkipped} {
+				if line != "" {
+					want = append(want, line)
+				}
+			}
+			if diff := cmp.Diff(want, said); diff != "" {
+				t.Errorf("what the brief says of the dialogs test mismatch (-want +got):\n%s", diff)
+			}
+			if tt.wantDid != "" && !slices.Contains(ch.Did, tt.wantDid) {
+				t.Errorf("Did lacks %q; got:\n%s", tt.wantDid, strings.Join(ch.Did, "\n"))
+			}
+			if tt.wantSkipped != "" && !slices.Contains(ch.Skipped, tt.wantSkipped) {
+				t.Errorf("Skipped lacks %q; got:\n%s", tt.wantSkipped, strings.Join(ch.Skipped, "\n"))
+			}
+		})
+	}
+}
+
+// TestOutletMoveLeavesDialogsSpec pins that an outlet's move leaves the base skeleton's
+// test of the dialogs as it is: in the console the default outlet's move rewrites in
+// place, and in the project an outlet's copy makes from that console. The commands that
+// write the file again compare it with the base's as rendered, so the file a move leaves
+// must still be that text: the test names its API URL through the application's
+// environment, which the move rewrites in its place.
+func TestOutletMoveLeavesDialogsSpec(t *testing.T) {
+	t.Parallel()
+
+	base := skeletonWeb(t, appDialogsSpecFile)
+	console := moveRewrites(apiSegment, "/", "console/"+apiSegment, "/console")
+	copied := moveRewrites("console/"+apiSegment, "/console", "partners/"+apiSegment, "/partners")
+	for _, tt := range []struct {
+		name  string
+		moves [][]rewrite
+	}{
+		{name: "the console the default outlet's move rewrites in place", moves: [][]rewrite{console}},
+		{name: "the project an outlet's copy makes from that console", moves: [][]rewrite{console, copied}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Each move applies its rewrites in order, as copyProject does.
+			moved := base
+			for _, rewrites := range tt.moves {
+				for _, r := range rewrites {
+					moved = strings.ReplaceAll(moved, r.old, r.new)
+				}
+			}
+			if diff := cmp.Diff(base, moved); diff != "" {
+				t.Errorf("an outlet's move rewrites the base skeleton's %s (-base +moved):\n%s\nimpulse add tenancy, impulse add auth and a Directory start compare this file with the base's as rendered, so it must name its API URL through the environment (environment.apiUrl), never as a prefix of its own", appDialogsSpecFile, diff)
 			}
 		})
 	}

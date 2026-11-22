@@ -142,7 +142,9 @@ CREATE TABLE StaffSessionSignInMethods (
 ) PRIMARY KEY (Name);
 
 -- The mail links: the single-use links the auth mails. A row is one link: an invitation
--- to an address, carrying the tenant and the roles its acceptance seats, the name its
+-- to an address, carrying the roles its acceptance gives and the place they are held in
+-- (TenantId for one tenant, EveryTenant for every tenant, neither for the whole
+-- application: the acceptance gives each role there and nowhere else), the name its
 -- sender gave the person (Name, null for none) and who sent it, or, for an invitation
 -- that brings an organization in, the tenant its first sign-in makes (NewTenant, a JSON
 -- document: the tenant's name, whether it is entered through its directory only, and
@@ -156,10 +158,12 @@ CREATE TABLE StaffSessionSignInMethods (
 -- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
--- update so one link completes once. A revoked invitation is consumed by hand. A
+-- update so one link completes once. A revoked invitation is consumed by hand, and a
+-- link whose message could not be mailed is consumed where the mail failed, with
+-- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
 -- verification link, a first-password code, a reset link and an address confirmation
--- go with their user. CreatedAt and
--- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
+-- go with their user. CreatedAt, ConsumedAt and MailFailedAt take the commit time;
+-- ExpiresAt is the library's deadline, written as given.
 CREATE TABLE StaffSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -168,12 +172,14 @@ CREATE TABLE StaffSessionMailLinks (
     Name       STRING(MAX),
     UserId     STRING(36),
     TenantId   STRING(MAX),
+    EveryTenant BOOL NOT NULL DEFAULT (false),
     RoleNames  ARRAY<STRING(MAX)>,
     NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_StaffSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT CK_StaffSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_StaffSessionMailLinks_StaffSessionUsers FOREIGN KEY (UserId) REFERENCES StaffSessionUsers (Id) ON DELETE CASCADE,
@@ -257,7 +263,9 @@ CREATE INDEX StaffSessionDeviceCodesByUserCode ON StaffSessionDeviceCodes(UserCo
 -- devices. A sign-in code is one code mailed for a pending sign-in (PendingId): the mail
 -- carries the code and the row keeps its hash; the row is live while it is not consumed
 -- and not expired, Attempts counts the wrong codes entered against it, and a new code for
--- the same pending sign-in consumes the earlier one. A trusted device is a browser a
+-- the same pending sign-in consumes the earlier one. A code mailed for an invitation
+-- names it (InvitationId) and accepts that one alone; every other code names none. A
+-- trusted device is a browser a
 -- person asked to be remembered after a code (UserId): the browser holds an opaque token
 -- in the auth's trusted-device cookie and the row keeps its hash; it stands in for the
 -- factor while it is not revoked and not expired, and an administrator revokes every
@@ -273,6 +281,7 @@ CREATE TABLE StaffSessionFactorCodes (
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    InvitationId STRING(36),
     CONSTRAINT CK_StaffSessionFactorCodesId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT FK_StaffSessionFactorCodes_StaffSessionPendingSignIns FOREIGN KEY (PendingId) REFERENCES StaffSessionPendingSignIns (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);

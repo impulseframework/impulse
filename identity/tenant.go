@@ -22,7 +22,7 @@ import (
 //     value of the request, so no request names another tenant;
 //   - a role is given and taken in the tenant alone, and a role a person holds in every
 //     tenant is not one tenant's to take;
-//   - a person is created, and an address invited, into the tenant.
+//   - an address is invited into the tenant.
 //
 // A method that names a person names a row of the tenant's own list, which the generated
 // frame locates within the tenant before the method runs: a person who holds no role in
@@ -98,9 +98,10 @@ func (t *Tenant) AssignRole(ctx context.Context, txn resource.ReadWriteTransacti
 }
 
 // RemoveRole buffers the removal of a role a person holds in the tenant, under the rules
-// of Manager.RemoveRole: the last administrator of the tenant keeps the role, and a
-// person left with no role anywhere is deleted. The person's id and the role are the key
-// of the row in the tenant's list of the roles held there.
+// of Manager.RemoveRole: the tenant's last administrator of its own cannot give the role
+// up, though someone whose role lets them take it from that person may, and a person
+// left with no role anywhere is deleted. The person's id and the role are the key of the
+// row in the tenant's list of the roles held there.
 //
 // The role goes where the tenant holds a membership of its own for it. A role the person
 // holds in every tenant alone is a row of the tenant's list too, and is not the tenant's
@@ -145,16 +146,6 @@ func (t *Tenant) RemoveRole(ctx context.Context, txn resource.ReadWriteTransacti
 	}
 
 	return nil
-}
-
-// CreateUser buffers a new user who holds the roles in the tenant (see
-// Manager.CreateUser). The roles are held in the tenant whatever scope the account
-// names.
-func (t *Tenant) CreateUser(ctx context.Context, txn resource.ReadWriteTransaction, account *NewAccount) (impulse.UUID, error) {
-	inTenant := *account
-	inTenant.Scope = t.scope()
-
-	return t.manager.CreateUser(ctx, txn, &inTenant)
 }
 
 // Invite buffers an invitation into the tenant and has its link mailed once the

@@ -494,8 +494,8 @@ import (
 // custom one, with its description. The Super Administrator role is not among them: it
 // takes no end.
 {{- end }}
-// The list holds the roles the caller could give by hand and no other
-// (identity.Manager.RolesToTake), so a page offers what the caller may do.
+// The list holds the roles the caller could give a person by hand (Assign{{ .Auth }}Role)
+// and no other (identity.Manager.RolesToTake), so a page offers what the caller may do.
 //
 // It is a computed resource: the role file's roles are held by the permission engine,
 // so the engine is asked and no query selects the list. The role file grants it like
@@ -522,7 +522,7 @@ func ({{ .TakeableRole }}) Resource() accesstypes.Resource {
 // applies the request's filter, sort and page over them.
 func List{{ .TakeableRole }}(ctx context.Context, _ *resource.QuerySet[{{ .TakeableRole }}], _ resource.Client, client *Client) iter.Seq2[*{{ .TakeableRole }}, error] {
 	return func(yield func(*{{ .TakeableRole }}, error) bool) {
-		roles, err := client.manager.RolesToTake(ctx, {{ .HasTenant }})
+		roles, err := client.manager.RolesToTake(ctx, Assign{{ .Auth }}Role{}.Method(), {{ .HasTenant }})
 		if err != nil {
 			yield(nil, errors.Wrap(err, "identity.Manager.RolesToTake()"))
 

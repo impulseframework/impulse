@@ -122,7 +122,7 @@ func Test_prepareIdentity_holdings(t *testing.T) {
 		},
 		"crewidentity/crew_takeable_roles.go": {
 			"// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\n// @rowWord(role)\ntype CrewTakeableRole struct {",
-			"roles, err := client.manager.RolesToTake(ctx, false)",
+			"roles, err := client.manager.RolesToTake(ctx, AssignCrewRole{}.Method(), false)",
 		},
 		"crewidentity/crew_take_lengths.go": {
 			"// @order(Minutes asc)\n// @rowWord(length of time, plural: lengths of time)\ntype CrewTakeLength struct {\n\t// @primarykey\n\tName    string `spanner:\"Name\"`\n\tMinutes int64  `spanner:\"Minutes\"`",
@@ -249,7 +249,7 @@ func Test_prepareIdentity_holdings_tenant(t *testing.T) {
 			"Domain string `validate:\"required\"`\n\t// Role is the role taken",
 			"scope := accesstypes.DomainPolicyScope(accesstypes.Domain(m.Domain))\n\tif err := client.manager.TakeRole(ctx, txn, scope, accesstypes.Role(m.Role), identity.TakeLength(m.Length), m.Reason); err != nil {",
 		},
-		"crewidentity/crew_takeable_roles.go": {"a role that exists in every ship", "roles, err := client.manager.RolesToTake(ctx, true)"},
+		"crewidentity/crew_takeable_roles.go": {"a role that exists in every ship", "roles, err := client.manager.RolesToTake(ctx, AssignCrewRole{}.Method(), true)"},
 	})
 }
 

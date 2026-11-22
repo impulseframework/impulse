@@ -50,8 +50,12 @@ login() { # login <persona>: the crew's password method under the console prefix
   second_factor "$p" "$API" "$p@fleet.example" "$LOG"
 }
 
-codes_mailed() { # codes_mailed <address> <log>: how many sign-in codes the log holds for the address
-  grep -ac "mail (not sent) to $1, subject \"Your Lodestar sign-in code is" "$2"
+# A code comes in one of two mails: the code an account signs in with, and the code that
+# accepts an invitation, which says so. Both end their subject with the code.
+CODE_SUBJECT='Your (Lodestar sign-in code|code to accept your invitation to Lodestar) is'
+
+codes_mailed() { # codes_mailed <address> <log>: how many codes the log holds for the address, a sign-in's or an invitation's
+  grep -acE "mail \(not sent\) to $1, subject \"$CODE_SUBJECT" "$2"
 }
 
 invitation_mailed() { # invitation_mailed <address> <log>: the last invitation the auths mailed to the address, its line of the log and the lines of its text
@@ -81,7 +85,7 @@ second_factor() { # second_factor <persona> <api> <address> <log>: the sign-in c
       curl -s -c "$S/$p.jar" -b "$S/$p.jar" -o /dev/null -H "X-XSRF-TOKEN: $(xsrf "$p")" -X POST "$api/user/pending/code" ;;
   esac
   for _ in $(seq 1 100); do [ "$(codes_mailed "$address" "$log")" -gt "$before" ] && break; sleep 0.1; done
-  code=$(grep -a "mail (not sent) to $address, subject \"Your Lodestar sign-in code is" "$log" | tail -1 | sed -E 's/.*sign-in code is ([0-9]{3}) ([0-9]{3}).*/\1\2/')
+  code=$(grep -aE "mail \(not sent\) to $address, subject \"$CODE_SUBJECT" "$log" | tail -1 | sed -E 's/.* is ([0-9]{3}) ([0-9]{3}).*/\1\2/')
   curl -s -c "$S/$p.jar" -b "$S/$p.jar" -o /dev/null -H "X-XSRF-TOKEN: $(xsrf "$p")" -H 'Content-Type: application/json' \
     -d "{\"code\":\"$code\"}" "$api/user/pending/code/verify"
 }
@@ -1272,11 +1276,18 @@ login marshal
 #
 # The refusal is shown on a person the marshal's own grant reaches, so it is the mask's
 # and not her roles': her sector's credential methods stop at a person who holds a role
-# anywhere else, as every seeded person does, so she first makes one Anvil holds alone
-# and runs the method herself, as a dry run.
-r=$(req marshal GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the marshal's own digest carries her sector's credential methods" "$r" "'Execute' in rows.get('RequireCrewSectorPasswordChange',{}) and 'Execute' in rows.get('SetCrewSectorTemporaryPassword',{})"
-r=$(req marshal POST "$ANVIL/create-crew-sector-user" '{"username":"gus","email":"Gus <gus@example.com>","roles":["Cadet"]}'); check "the marshal makes a person Anvil holds alone" 200 "$r"
-GUS_ID=$(body "$r" | py "print(rows['id'])")
+# anywhere else, as every seeded person does, so she first invites one into Anvil, who
+# accepts with a password of their own and is then a person Anvil holds alone, and runs
+# the method herself, as a dry run.
+r=$(req marshal GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the marshal's own digest carries her sector's credential methods" "$r" "'Execute' in rows.get('RequireCrewSectorPasswordChange',{}) and 'Execute' in rows.get('SetCrewSectorUserEmail',{})"
+r=$(req marshal POST "$ANVIL/invite-crew-sector-user" '{"email":"gus@example.com","roles":["Cadet"]}'); check "the marshal invites a person into Anvil" 200 "$r"
+GUS_TOKEN=$(invitation_mailed gus@example.com "$LOG" | grep -ao 'invitation=[A-Za-z0-9_-]*' | head -1 | cut -d= -f2)
+curl -s -L -c "$S/gus.jar" -b "$S/gus.jar" -o /dev/null "$API/user/session"
+r=$(req gus POST "$API/user/invitation" '{"token":"'"$GUS_TOKEN"'"}'); check "the invited person follows the mailed link" 200 "$r"
+r=$(req gus POST "$API/user/invitation/sign-up" '{"username":"gus","password":"orbit-and-anchor"}'); check "and signs up with a password of their own" 200 "$r"
+second_factor gus "$API" gus@example.com "$LOG"
+r=$(req marshal GET "$ANVIL/crew-sector-user-roles"); assert_py "Anvil's list of the roles held carries the new person, whom Anvil holds alone" "$r" "[h['role'] for h in rows if h['username']=='gus']==['Cadet']"
+GUS_ID=$(body "$r" | py "print([h['userId'] for h in rows if h['username']=='gus'][0])")
 r=$(dryrun marshal POST "$ANVIL/set-crew-sector-user-email" "{\"userId\":\"$GUS_ID\",\"email\":\"gus.new@example.com\"}"); check "the marshal herself may set that person's address: her dry run would commit" 200 "$r"
 ACT_MASK='everything except access actions (still allowed: writing HangarPasses) and credential actions'
 r=$(req governor POST "$API/impersonate" "{\"kind\":\"act\",\"principal\":\"$MARSHAL_ID\",\"reason\":\"walkthrough\"}"); check "governor mints a session that acts as the marshal" 200 "$r"
@@ -1290,7 +1301,7 @@ r=$(req governor POST "$ANVIL/assign-crew-sector-role" "{\"userId\":\"$GUS_ID\",
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/squadron-memberships/$TONGS/$GUS_ID\",\"value\":{}}]"); check "and so is a write of a record that decides what a person may do, a place in a squadron: the record's writes are classed access" 403 "$r"
 r=$(req governor POST "$ANVIL/disable-crew-sector-user" "{\"userId\":\"$GUS_ID\"}"); check "an account disabled carries no class: the session that acts as her disables the person's account, as she may" 204 "$r"
 r=$(req governor POST "$ANVIL/enable-crew-sector-user" "{\"userId\":\"$GUS_ID\"}"); check "and enables it again" 204 "$r"
-r=$(req governor GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the session's digest leaves the credential and the access methods out and keeps their neighbors, the account's switches among them" "$r" "'RequireCrewSectorPasswordChange' not in rows and 'SetCrewSectorTemporaryPassword' not in rows and 'AssignCrewSectorRole' not in rows and 'Execute' in rows.get('SetCrewSectorUserName',{}) and 'Execute' in rows.get('DisableCrewSectorUser',{}) and 'Execute' in rows.get('EnableCrewSectorUser',{})"
+r=$(req governor GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the session's digest leaves the credential and the access methods out and keeps their neighbors, the account's switches among them" "$r" "'RequireCrewSectorPasswordChange' not in rows and 'SetCrewSectorUserEmail' not in rows and 'AssignCrewSectorRole' not in rows and 'Execute' in rows.get('SetCrewSectorUserName',{}) and 'Execute' in rows.get('DisableCrewSectorUser',{}) and 'Execute' in rows.get('EnableCrewSectorUser',{})"
 r=$(req marshal GET "$API/crew-session-impersonations?limit=200"); assert_py "the watch desk says what the session may do, in words" "$r" "any(s['sessionId']=='$ACTING' and s['actorUsername']=='governor' and s['principalUserId']=='$MARSHAL_ID' and s['mask']=='$ACT_MASK' for s in rows)"
 r=$(req governor POST "$API/impersonate/end" '{}'); assert_py "governor returns to self" "$r" "rows['restored'] is True"
 
@@ -1369,8 +1380,6 @@ r=$(curl -s -w '\n%{http_code}' -c "$S/stranger.jar" -b "$S/stranger.jar" -H "X-
   -d '{"username":"marshal","password":"not the password"}' "$API/user/password/login"); check "a wrong password for the marshal, from a browser of nobody's, is counted under her name" 401 "$r"
 r=$(req marshal POST "$API/unlock-crew-sign-in" '{"name":"marshal"}'); check "nor does she unlock her own sign-in" 403 "$r"
 assert_py "for the same reason" "$r" "rows['message'].startswith('you are acting as someone else, so you cannot unlock your own sign-in:')"
-r=$(req marshal POST "$API/set-crew-temporary-password" "{\"userId\":\"$MARSHAL_ID\",\"password\":\"a temporary passphrase 7\"}"); check "nor set her own password" 403 "$r"
-assert_py "for the same reason" "$r" "rows['message'].startswith('you are acting as someone else, so you cannot set your own password:')"
 r=$(req marshal PATCH "$API/resources" '[{"op":"patch","path":"/pilots/30000000-0000-4000-8000-000000000002","value":{"clearance":5}}]'); check "nor write her own row of the pilots' registry, which her clearance is read from: the record's generated write asks the same rule" 403 "$r"
 assert_py "for the same reason" "$r" "'you are acting as someone else, so you cannot change your own pilot record:' in json.dumps(rows)"
 r=$(dryrun marshal POST "$API/assign-crew-role" "{\"userId\":\"$CADET_ID\",\"role\":\"StandIn\"}"); check "the same role given to another person would go through: the dry run would commit" 200 "$r"

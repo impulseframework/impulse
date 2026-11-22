@@ -18,18 +18,19 @@ import "regexp"
 type ActionClass string
 
 // ClassCredential is the class of the actions that change how a person signs in:
-// a password set, required anew or removed, a sign-in identity unlinked, an
-// address or a username changed. The library marks its own generated identity
-// methods of that kind with it, so an application can grant "act as a person,
-// except the credential actions" with a mask that refuses the class.
+// a new password required, a password removed, a reset link sent, a sign-in
+// identity unlinked, an address or a username changed. The library marks its own
+// generated identity methods of that kind with it, so an application can grant
+// "act as a person, except the credential actions" with a mask that refuses the
+// class.
 const ClassCredential ActionClass = "credential"
 
 // ClassAccess is the class of the actions that give or take away what someone may
 // do: a role given or removed, a role a person takes themselves for a set time, a
 // person put in a group or taken out of one, a role given to a group or taken from
-// it, a group made or deleted, an invitation sent or withdrawn, an account made (it
-// is made with the roles its person holds), what a sign-in method or a tenant's
-// directory gives everyone who arrives through it, the settings that say who may
+// it, a group made or deleted, an invitation sent or withdrawn (it carries the
+// roles its person will hold), what a sign-in method or a tenant's directory
+// gives everyone who arrives through it, the settings that say who may
 // sign in at all (the switch that makes a tenant sign in with its directory alone,
 // and the one that lets people ask at the sign-in page for a link that resets their
 // own password), and the making of a tenant of one's own, which makes its maker the

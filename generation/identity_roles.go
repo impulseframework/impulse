@@ -82,3 +82,103 @@ func reservedRoleIn(importPath, file string) error {
 
 	return nil
 }
+
+// retiredIdentityMethod is a method the generated management once had and has no more,
+// with what an application grants in its place.
+type retiredIdentityMethod struct {
+	// name is the method's name, which a role file may still grant.
+	name string
+
+	// why says what is true now, as a clause of the refusal.
+	why string
+
+	// instead is the method that took its place.
+	instead string
+}
+
+// retiredMethods are the methods of the instance's management that are gone: the direct
+// create of an account, in the application and in a tenant, and the temporary password
+// an administrator set for someone else. An account is added by an invitation, and a
+// person chooses their own password through a reset link.
+func (i *identityInstance) retiredMethods() []retiredIdentityMethod {
+	subjects := []string{i.subject(false)}
+	if i.tenant != nil {
+		subjects = append(subjects, i.subject(true))
+	}
+	retired := make([]retiredIdentityMethod, 0, 2*len(subjects))
+	for _, subject := range subjects {
+		retired = append(retired,
+			retiredIdentityMethod{
+				name:    "Create" + subject + "User",
+				why:     "an account is added by an invitation, and nobody creates one for someone else",
+				instead: "Invite" + subject + "User",
+			},
+			retiredIdentityMethod{
+				name:    "Set" + subject + "TemporaryPassword",
+				why:     "a person chooses their own password through a reset link, and nobody sets one for someone else",
+				instead: "Send" + subject + "UserPasswordResetLink",
+			},
+		)
+	}
+
+	return retired
+}
+
+// refuseRetiredGrants refuses an auth whose role file still lets a role run a method the
+// generated management no longer has (see retiredMethods), in words that name what took
+// its place: the engine would refuse the file at the release's start for naming what the
+// collection does not declare, and would not say where the power went. methods are the
+// methods of the run, the application's own among them: a name the application declares
+// itself is its own method and its grant stands. The file is read where the auth package
+// lives in the main module, as refuseReservedRole reads it.
+func (r *resourceGenerator) refuseRetiredGrants(methods []*rpcMethodInfo) error {
+	declared := make(map[string]bool, len(methods))
+	for _, method := range methods {
+		declared[method.Name()] = true
+	}
+	for _, inst := range r.identity {
+		dir, ok := r.moduleDir(inst.importPath)
+		if !ok {
+			continue
+		}
+		if err := retiredGrantsIn(inst.importPath, filepath.Join(dir, identityRolesFile), inst.retiredMethods(), declared); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// retiredGrantsIn reads the role file of the auth package importPath and refuses every
+// grant of Execute on a retired method that the run does not declare, all of them in one
+// error. A file that is not there grants nothing, and one that does not parse is left to
+// the engine and to impulse check, which say why.
+func retiredGrantsIn(importPath, file string, retired []retiredIdentityMethod, declared map[string]bool) error {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+
+		return errors.Wrapf(err, "Auth(%q): os.ReadFile(%q)", importPath, file)
+	}
+	var errs []error
+	for _, role := range definedRoles(data) {
+		if role == nil {
+			continue
+		}
+		for _, grant := range role.Permissions[accesstypes.Execute] {
+			name, _, _ := strings.Cut(string(grant.Resource), ".")
+			at := slices.IndexFunc(retired, func(method retiredIdentityMethod) bool { return method.name == name })
+			if at < 0 || declared[name] {
+				continue
+			}
+			errs = append(errs, errors.Newf("Auth(%q): %s: the role %s is granted Execute on %s, and the generated management has no such method any more: %s; grant %s to the role instead, or remove the grant", importPath, filepath.ToSlash(file), role.Name, name, retired[at].why, retired[at].instead))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Wrap(errors.Join(errs...), "the role file grants methods that are gone")
+	}
+
+	return nil
+}

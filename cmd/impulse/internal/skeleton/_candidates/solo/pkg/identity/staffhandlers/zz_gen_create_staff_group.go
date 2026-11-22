@@ -20,9 +20,8 @@ import (
 
 func (h *Handlers) CreateStaffGroup() http.HandlerFunc {
 	type request struct {
-		Name        string  `json:"name"`
-		Description string  `json:"description"`
-		Domain      *string `json:"domain"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
 	}
 
 	// The answer as the wire carries it: Execute's result mirrored with generated

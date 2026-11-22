@@ -31,6 +31,7 @@ import (
 	"github.com/impulseframework/impulse/session/internal/signinflow"
 	"github.com/impulseframework/impulse/session/internal/vouch"
 	"github.com/impulseframework/impulse/session/internal/workos"
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/mock/mock_azure"
 	"github.com/impulseframework/impulse/session/mock/mock_google"
 	"github.com/impulseframework/impulse/session/mock/mock_signin"
@@ -153,7 +154,7 @@ func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption
 func newAuthFixtureWith(t *testing.T, ctrl *gomock.Controller, passwordOptions []PasswordOption, options ...AuthOption) *authFixture {
 	t.Helper()
 
-	return newAuthFixtureOf(t, ctrl, true, passwordOptions, options...)
+	return newAuthFixtureOf(t, ctrl, &mail.Recorder{}, true, passwordOptions, options...).withNoMailLinks()
 }
 
 // newAuthFixtureWithoutPassword is the fixture with no password method registered: the
@@ -161,10 +162,14 @@ func newAuthFixtureWith(t *testing.T, ctrl *gomock.Controller, passwordOptions [
 func newAuthFixtureWithoutPassword(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
 	t.Helper()
 
-	return newAuthFixtureOf(t, ctrl, false, nil, options...)
+	return newAuthFixtureOf(t, ctrl, &mail.Recorder{}, false, nil, options...).withNoMailLinks()
 }
 
-func newAuthFixtureOf(t *testing.T, ctrl *gomock.Controller, withPassword bool, passwordOptions []PasswordOption, options ...AuthOption) *authFixture {
+// newAuthFixtureOf builds the fixture whose Auth sends its mail through sender: a
+// recorder nobody reads, for a test that is not about what is mailed.
+func newAuthFixtureOf(
+	t *testing.T, ctrl *gomock.Controller, sender mail.Sender, withPassword bool, passwordOptions []PasswordOption, options ...AuthOption,
+) *authFixture {
 	t.Helper()
 
 	f := &authFixture{
@@ -190,7 +195,7 @@ func newAuthFixtureOf(t *testing.T, ctrl *gomock.Controller, withPassword bool, 
 
 		return signin.Allow(), nil
 	}
-	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, NoSuperAdministrators(), append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
+	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, NoSuperAdministrators(), mailThrough(sender), append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -200,6 +205,15 @@ func newAuthFixtureOf(t *testing.T, ctrl *gomock.Controller, withPassword bool, 
 		f.password = PasswordSignIn(a, passwordOptions...)
 		a.methods.attempts.SetClock(f.now)
 	}
+
+	return f
+}
+
+// withNoMailLinks answers the store's standing mail links with none: the fixture of a
+// test that is not about mail has no link to withdraw when a password is written. A
+// test about mail keeps its links in expectMailLinks.
+func (f *authFixture) withNoMailLinks() *authFixture {
+	f.store.EXPECT().LiveMailLinks(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	return f
 }
@@ -579,7 +593,7 @@ func TestNewAuth(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, NoSuperAdministrators(), tt.options...)
+			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, NoSuperAdministrators(), quietMail(), tt.options...)
 			switch {
 			case tt.wantErrHas != "":
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrHas) {
@@ -598,7 +612,7 @@ func TestNewAuth(t *testing.T) {
 func newBareAuth(t *testing.T, ctrl *gomock.Controller) *Auth[NoCustomData, NoCustomData, mockTx] {
 	t.Helper()
 
-	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators())
+	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators(), quietMail())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -2600,7 +2614,7 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	store := newAuthStoreMock(ctrl)
-	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
+	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -3188,76 +3202,20 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		}
 	})
 
-	t.Run("resetting the password marks the user and ends its sessions in the store's one write; setting one the user chose clears the mark", func(t *testing.T) {
-		t.Parallel()
-		ctrl := gomock.NewController(t)
-		f := newAuthFixture(t, ctrl)
-		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).Times(2)
-		// The store writes the password and ends the sessions in one transaction
-		// (ReplaceUserPassword). The mock refuses a call it was not told of: the sessions
-		// are not ended by a second call, which a failure could come before.
-		replaced := func(password string) func(context.Context, impulse.UUID, *securehash.Hash, bool) error {
-			return func(_ context.Context, _ impulse.UUID, hash *securehash.Hash, _ bool) error {
-				if hash == nil {
-					t.Errorf("ReplaceUserPassword() was handed no hash, want the hash of %q", password)
-
-					return nil
-				}
-				if _, err := securehash.New(securehash.Argon2()).Compare(hash, password); err != nil {
-					t.Errorf("ReplaceUserPassword() was handed a hash %q does not match: %v", password, err)
-				}
-
-				return nil
-			}
-		}
-		gomock.InOrder(
-			f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), true).DoAndReturn(replaced("temporary")),
-			f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), false).DoAndReturn(replaced("chosen well")),
-		)
-		if err := f.auth.API().ResetSessionUserPassword(context.Background(), userID, "temporary"); err != nil {
-			t.Errorf("ResetSessionUserPassword() error = %v", err)
-		}
-		if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen well"); err != nil {
-			t.Errorf("SetSessionUserPassword() error = %v", err)
-		}
-		if _, _, clears := f.counts(); clears != 2 {
-			t.Errorf("the name's sign-in attempts were cleared %d times, want once per password", clears)
-		}
-	})
-
-	t.Run("a reset the store could not make resets nothing: the failure is the caller's, and the name's attempts stay", func(t *testing.T) {
-		t.Parallel()
-		ctrl := gomock.NewController(t)
-		f := newAuthFixture(t, ctrl)
-		failed := errors.New("the sessions could not be ended")
-		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
-		f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), true).Return(failed)
-
-		if err := f.auth.API().ResetSessionUserPassword(context.Background(), userID, "temporary"); !errors.Is(err, failed) {
-			t.Errorf("ResetSessionUserPassword() error = %v, want the store's failure", err)
-		}
-		if _, _, clears := f.counts(); clears != 0 {
-			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was written", clears)
-		}
-	})
-
-	t.Run("a user created with a password an operator set carries the mark; the mark without a password is refused", func(t *testing.T) {
+	t.Run("a user created with a password holds it under no mark: the seam for a seed or an import", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
 		f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, user *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
-			if user.Username != "pat" || user.PasswordHash == nil || !user.PasswordChangeRequired {
-				t.Errorf("CreateUser() = %+v, want pat with a password and the mark", user)
+			if user.Username != "pat" || user.PasswordHash == nil {
+				t.Errorf("CreateUser() = %+v, want pat with a password", user)
 			}
 
-			return &sessionstorage.SessionUser{ID: userID, Username: user.Username, PasswordHash: user.PasswordHash, PasswordChangeRequired: user.PasswordChangeRequired}, nil
+			return &sessionstorage.SessionUser{ID: userID, Username: user.Username, PasswordHash: user.PasswordHash}, nil
 		})
-		temporary := "temporary"
-		if id, err := f.auth.API().CreateSessionUser(context.Background(), &CreateUserRequest{Username: "pat", Password: &temporary, PasswordChangeRequired: true}); err != nil || id != userID {
+		seeded := "a seeded password"
+		if id, err := f.auth.API().CreateSessionUser(context.Background(), &CreateUserRequest{Username: "pat", Password: &seeded}); err != nil || id != userID {
 			t.Errorf("CreateSessionUser() = %s, %v; want %s", id, err, userID)
-		}
-		if _, err := f.auth.API().CreateSessionUser(context.Background(), &CreateUserRequest{Username: "sam", PasswordChangeRequired: true}); !httpio.HasBadRequest(err) {
-			t.Errorf("CreateSessionUser() of a password-less user with the mark error = %v, want BadRequest", err)
 		}
 	})
 

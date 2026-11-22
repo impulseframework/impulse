@@ -9,7 +9,7 @@ import (
 )
 
 // resetLink finds the token of a password reset link in a message the staff auth mailed.
-var resetLink = regexp.MustCompile(`http://tenanted\.test/login\?reset=([A-Za-z0-9_-]+)`)
+var resetLink = regexp.MustCompile(`http://tenanted\.test/login#reset=([A-Za-z0-9_-]+)`)
 
 // TestPasswordReset_aTenantsAdministratorSendsTheLink proves, on the served stack of an
 // application with tenants, that a tenant's administrator sends a person of the tenant a
@@ -48,12 +48,10 @@ func TestPasswordReset_aTenantsAdministratorSendsTheLink(t *testing.T) {
 		t.Fatalf("the invitation page: status %d: %v", status, page)
 	}
 	status, body = nell.do(ctx, http.MethodPost, "/api/user/invitation/sign-up", []byte(`{"username":"nell","password":"`+invitedPassword+`"}`))
-	if status != http.StatusOK {
-		t.Fatalf("signing up at the invitation: status %d: %s", status, body)
+	if status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("signing up at the invitation: status %d: %s, want 200 held for the code mailed to the invited address", status, body)
 	}
-	if heldForFactor(t, body) {
-		nell.secondFactor(ctx, "nell")
-	}
+	nell.secondFactor(ctx, "nell")
 	var nellID string
 	for id, row := range tenantRows(ctx, t, member, north, "staff-tenant-users") {
 		if row["username"] == "nell" {

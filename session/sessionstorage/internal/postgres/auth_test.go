@@ -19,13 +19,15 @@ func TestAuth(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunAuth(t, &drivertest.AuthHarness{
-		New:                newAuthInstance,
-		CountAuthEvents:    countAuthEvents,
-		DeleteSession:      deleteSession,
-		Recorded:           recorded,
-		Record:             record,
-		PendingConsumedAt:  pendingConsumedAt,
-		MailLinkConsumedAt: mailLinkConsumedAt,
+		New:                   newAuthInstance,
+		CountAuthEvents:       countAuthEvents,
+		DeleteSession:         deleteSession,
+		Recorded:              recorded,
+		Record:                record,
+		PendingConsumedAt:     pendingConsumedAt,
+		MailLinkConsumedAt:    mailLinkConsumedAt,
+		MailLinkMailFailedAt:  mailLinkMailFailedAt,
+		RequirePasswordChange: requirePasswordChange,
 	})
 }
 
@@ -119,6 +121,16 @@ func deleteSession(ctx context.Context, t *testing.T, raw any, sessionID impulse
 	}
 }
 
+// requirePasswordChange sets the user's password change mark directly, as an
+// application's account management writes it.
+func requirePasswordChange(ctx context.Context, t *testing.T, raw any, userID impulse.UUID) {
+	t.Helper()
+
+	if _, err := queryer(t, raw).Exec(ctx, `UPDATE "SessionUsers" SET "PasswordChangeRequired" = TRUE WHERE "Id" = $1`, userID); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+}
+
 // hookTx is drivertest.HookTx over a hook's transaction.
 type hookTx struct {
 	txn pgx.Tx
@@ -188,4 +200,15 @@ func mailLinkConsumedAt(ctx context.Context, t *testing.T, raw any, tokenHash []
 	}
 
 	return consumedAt
+}
+
+func mailLinkMailFailedAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	var failedAt *time.Time
+	if err := queryer(t, raw).QueryRow(ctx, `SELECT "MailFailedAt" FROM "SessionMailLinks" WHERE "TokenHash" = $1`, tokenHash).Scan(&failedAt); err != nil {
+		t.Fatalf("QueryRow().Scan() error = %v", err)
+	}
+
+	return failedAt
 }

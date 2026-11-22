@@ -276,12 +276,4 @@ func TestSecretFieldGeneratedMetadata(t *testing.T) {
 	if !strings.Contains(string(meta), entry) {
 		t.Errorf("zz_gen_resources.ts is missing the secret's metadata entry %q", entry)
 	}
-	methods, err := os.ReadFile("../../web/console/src/app/core/service/zz_gen_methods.ts")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The generated identity methods that take a password declare it a secret too.
-	if got := strings.Count(string(methods), "{ fieldName: 'password', displayType: 'string', required: true, secret: true },"); got != 2 {
-		t.Errorf("zz_gen_methods.ts marks %d required password field(s) secret, want the two temporary-password methods'", got)
-	}
 }

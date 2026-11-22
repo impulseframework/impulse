@@ -144,6 +144,17 @@ type Method struct {
 	// person's password is removed on the strength of it. It is nil when the method
 	// cannot tell one connection from another, which admits.
 	AdmitsConnection func(connection string) bool
+	// NamedByLabel reports that the name the method gives its one organization
+	// (Audience.Organizations, ConnectionName) is the registration's own key for it and
+	// no name its people know: the OpenID Connect method's is the connection the
+	// application registered the provider under, or the host of its issuer. Where the
+	// login page gives such a registration a label, the Auth says the organization by
+	// the label instead, in the words that say whom the method admits
+	// (session.AuthAPI.SignInMethods) and where a directory is named to a person
+	// (session.AuthAPI.DirectoryName). The connection stays what the links carry, and
+	// the audience is compared by its identities as before, which such a method gives
+	// (Audience.Identities).
+	NamedByLabel bool
 	// ConnectionName answers the name the registration gives the organization behind a
 	// connection, in words a person knows: the application's name for a listed
 	// Microsoft Entra tenant, a Google Workspace's name or the domain of one admitted

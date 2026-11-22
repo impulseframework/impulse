@@ -3,138 +3,15 @@ package identity
 import (
 	"context"
 	netmail "net/mail"
-	"slices"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 )
-
-// NewAccount is a person to create: who they are, and the roles they hold from the
-// start.
-type NewAccount struct {
-	Username string
-	// Name is the person's name as people read it, nil for none: what pages show for
-	// the person in place of the username. The person may change it themselves.
-	Name *string
-	// Email is the person's address, entered unverified; nil for none, and always nil
-	// where the auth's usernames are the addresses.
-	Email *string
-	// Scope is where the roles are held, and Roles the roles: at least one.
-	Scope accesstypes.PolicyScope
-	Roles []accesstypes.Role
-	// Password is a temporary password an operator chose, which the person changes
-	// before anything else is served; nil for a person who signs in another way or
-	// chooses their own from an invitation. PasswordRequired marks an auth where the
-	// password is the only way in, so a person created without one could never sign
-	// in. Both are for an auth with a password method alone.
-	Password         *string
-	PasswordRequired bool
-}
-
-// CreateUser buffers a new user and the memberships that give them their roles, in the
-// caller's transaction. Without a password the person signs in through a directory, or
-// follows an invitation and chooses their own; with one (NewAccount.Password) it is a
-// temporary password, which the person changes before anything else is served. In an
-// application whose tenants have directories, the sign-in that first links such an
-// account, on the name the directory asserts, is made through the directory of the one
-// tenant the person belongs to or with their own invitation (the session library's rule
-// on a first link made on a name alone): a person created in two tenants, or holding a
-// role in every tenant or outside them, is invited or given a temporary password. It
-// answers the id the row is created under, so the caller may write its own rows beside
-// it before anything is committed. A username or an address another user holds is
-// refused by the table's unique indexes when the transaction commits.
-//
-// A person is created holding a role: an account that holds no role anywhere is not
-// kept (RemoveRole deletes one with its last role), so none is created without one.
-// Every role is held in the one scope and is held to the rule a role assigned later is
-// (AssignRole): it exists there under exactly this spelling.
-//
-// Shared rule: an address is written bare, the part a message is sent to, as the session
-// library writes one (its address function); a value that is no address is refused. A
-// name is held to the session library's rule of one (sessioninfo.CleanName): without
-// the space around it, none where nothing is left, refused where it is too long.
-func (m *Manager) CreateUser(ctx context.Context, txn resource.ReadWriteTransaction, account *NewAccount) (impulse.UUID, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	username := strings.TrimSpace(account.Username)
-	if username == "" {
-		return impulse.NilUUID, httpio.NewBadRequestMessage("a user needs a username")
-	}
-	bare, err := optionalAddress(account.Email)
-	if err != nil {
-		return impulse.NilUUID, err
-	}
-	name, err := sessioninfo.CleanName(account.Name)
-	if err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "sessioninfo.CleanName()")
-	}
-	roles := distinctRoles(account.Roles)
-	if len(roles) == 0 {
-		return impulse.NilUUID, httpio.NewBadRequestMessage("at least one role is required: an account that holds no role anywhere is not kept, so none is created without one")
-	}
-	hash, err := m.temporaryPassword(account)
-	if err != nil {
-		return impulse.NilUUID, err
-	}
-
-	id, err := m.store.InsertUser(ctx, txn, &NewUser{Username: username, Name: name, Email: bare})
-	if err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "identity.Store.InsertUser()")
-	}
-	if hash != "" {
-		if err := m.store.SetPassword(ctx, txn, id, hash, true); err != nil {
-			return impulse.NilUUID, errors.Wrap(err, "identity.Store.SetPassword()")
-		}
-	}
-	for _, role := range roles {
-		if err := m.AssignRole(ctx, txn, account.Scope, id, role); err != nil {
-			return impulse.NilUUID, err
-		}
-	}
-
-	return id, nil
-}
-
-// temporaryPassword hashes the password a new account is created with, "" for none. A
-// password is required where it is the only way in, and an empty one is never a
-// password.
-func (m *Manager) temporaryPassword(account *NewAccount) (string, error) {
-	if account.PasswordRequired && (account.Password == nil || *account.Password == "") {
-		return "", httpio.NewBadRequestMessage("a password is required: the password is the way in")
-	}
-	if account.Password == nil {
-		return "", nil
-	}
-	if *account.Password == "" {
-		return "", httpio.NewBadRequestMessage("an empty password is not a password: leave it out for a person who signs in another way")
-	}
-	hash, err := m.sessions.HashPassword(*account.Password)
-	if err != nil {
-		return "", errors.Wrap(err, "identity.SessionAPI.HashPassword()")
-	}
-
-	return hash, nil
-}
-
-// distinctRoles returns the roles a request names, each once, in the order given: a
-// role named twice is one membership, and two inserts of it would fail the commit.
-func distinctRoles(roles []accesstypes.Role) []accesstypes.Role {
-	distinct := make([]accesstypes.Role, 0, len(roles))
-	for _, role := range roles {
-		if !slices.Contains(distinct, role) {
-			distinct = append(distinct, role)
-		}
-	}
-
-	return distinct
-}
 
 // DisableUser buffers the disabling of a user and the end of every session they hold
 // (EndUserSessions), in the caller's transaction: once it commits, the person's next
@@ -211,10 +88,10 @@ func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransact
 // they hold, so the requirement is refused for a user who holds none: nothing they could
 // do would lift it. It is required of a super administrator by a super administrator
 // alone: a holder who signs in through a directory and no longer knows the password is
-// shut out by it until someone sets them another (requireSuperAdministratorFor).
+// shut out by it until they follow a password reset link (requireSuperAdministratorFor).
 //
-// Shared rule: the session library refuses the flag on a user without a password where
-// it creates one (CreateSessionUser), and reads it on every request.
+// Shared rule: the session library reads the flag on every request and sets it nowhere,
+// so this write is the one way a person comes under it.
 func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -345,8 +222,9 @@ func optionalAddress(email *string) (*string, error) {
 
 // RequireUser answers NotFound unless a user of the auth holds the id, read in the
 // caller's transaction. A role is held by an account, and AssignRole looks nobody up (it
-// serves a user created in its own transaction), so a method that gives a role to a
-// person named in a request asks this first.
+// serves an account a sign-in created in the same transaction: the acceptance of an
+// invitation, a sign-up), so a method that gives a role to a person named in a request
+// asks this first.
 func (m *Manager) RequireUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
 	_, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {

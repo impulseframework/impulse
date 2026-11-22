@@ -63,6 +63,20 @@ type signInAttempt struct {
 	// fromPending reports a completion of the browser's pending identity, consumed
 	// before the sign-in; only its cookie remains, to delete or replace.
 	fromPending bool
+	// codeInvitation is the invitation the code this sign-in entered was mailed for,
+	// null for a sign-in that entered none or the account's own code: what an
+	// invitation's acceptance rests on where the identity answers for no address,
+	// asserting none or one its method did not verify
+	// (sessioninfo.Invitation.AddressProven). It is set by the completion of a wait of
+	// an invitation's acceptance: one that named no user (signinflow's invitedCodeWait,
+	// a sign-up through an invitation), or one that named an account which holds no
+	// address (signinflow's namedCodeWait). The sign-in is that invitation's acceptance
+	// or it is nothing.
+	codeInvitation impulse.NullUUID
+	// signUp is what a sign-up through an invitation keeps until its code is entered,
+	// for the attempt that holds it as a pending identity (invitationSignUp); nil for
+	// every other attempt.
+	signUp *heldSignUp
 }
 
 // signInOutcome is a sign-in's result: a session, or a pending identity.
@@ -120,7 +134,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 
 	// The invitation the browser opened, if any, goes with the sign-in: the store
 	// accepts it once the user is known.
-	inv, err := a.invitationOf(ctx)
+	inv, err := a.invitationCarried(ctx, at)
 	if err != nil {
 		return nil, err
 	}
@@ -147,10 +161,10 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 			NoPassword:    !a.registered().passwordRegistered(),
 			TrustedDevice: a.trustedDeviceOf, Proven: at.proof, WaitedOn: at.expectUserID,
 			// A person who comes through a directory that does not vouch for their address
-			// confirms one by the mailed code before their first session, where the Auth
-			// can mail it; the accounts a deployment seeds for its own provider are given
-			// their address where they are seeded.
-			ConfirmAddress: a.settings.mail != nil && method != "" && !seeded,
+			// confirms one by the mailed code before their first session; the accounts a
+			// deployment seeds for its own provider are given their address where they are
+			// seeded.
+			ConfirmAddress: method != "" && !seeded,
 		})
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
@@ -214,6 +228,46 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	return &signInOutcome{sessionID: id, userID: req.UserID}, nil
 }
 
+// invitationCarried returns the live invitation the browser carries as the sign-in at
+// takes it to the store, nil for none: told whether the person entered, in this
+// sign-in, the code mailed for that invitation (Invitation.AddressProven). A sign-in
+// that completes the wait of an invitation's acceptance and finds the invitation gone
+// is refused before anything is resolved or written.
+func (a *Auth[S, U, Tx]) invitationCarried(ctx context.Context, at *signInAttempt) (*sessioninfo.Invitation, error) {
+	inv, err := a.invitationOf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if inv == nil {
+		if at.codeInvitation.Valid {
+			// The code was mailed for an invitation that no longer stands (used, withdrawn
+			// or run out since the wait began). It proves nothing else: not the address of
+			// an account the sign-in would otherwise make or find, and no second factor
+			// of one.
+			return nil, errInvitationEnded()
+		}
+
+		return nil, nil
+	}
+	// The code the person entered was mailed for this invitation, or it proves nothing
+	// about the invitation.
+	inv.AddressProven = at.codeInvitation.Valid && at.codeInvitation.UUID == inv.ID
+
+	return inv, nil
+}
+
+// errInvitationEnded is the refusal (invitation_expired) of a sign-in that is an
+// invitation's acceptance or nothing, where the invitation no longer stands.
+func errInvitationEnded() error {
+	return signinflow.Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, signinflow.InvitationEnded)
+}
+
+// wrongCredentials is what a sign-in is told when the name and the password entered are
+// no account's: one sentence whatever the cause (no user of the name, a user with no
+// password, a wrong password, a password the user no longer holds), so the answer never
+// says which.
+const wrongCredentials = "The username or password is wrong. Check what you entered and try again"
+
 // passwordNoLongerHeld answers a sign-in that rested on a password proof and found the
 // user holding another password, or none (sessionstorage.ErrPasswordChanged): the
 // password was changed, reset or removed after it was proved, so nothing was inserted,
@@ -221,7 +275,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 // other error is returned as it is.
 func passwordNoLongerHeld(err error) error {
 	if errors.Is(err, sessionstorage.ErrPasswordChanged) {
-		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+		return httpio.NewUnauthorizedMessageWithError(err, wrongCredentials)
 	}
 
 	return err
@@ -624,7 +678,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 
 	user, lookupErr := a.storage.UserByUserName(ctx, username)
 	if lookupErr != nil && !httpio.HasNotFound(lookupErr) {
-		return nil, nil, httpio.NewUnauthorizedMessageWithError(lookupErr, "Invalid Credentials")
+		return nil, nil, httpio.NewUnauthorizedMessageWithError(lookupErr, wrongCredentials)
 	}
 	var hash *securehash.Hash
 	if lookupErr == nil {
@@ -638,7 +692,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 			err = lookupErr
 		}
 
-		return nil, nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+		return nil, nil, httpio.NewUnauthorizedMessageWithError(err, wrongCredentials)
 	}
 	held := user.PasswordHash
 	if upgrade && methods.autoUpgrade {
@@ -649,7 +703,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 			// the check fails as a wrong password does.
 			a.attemptFailed(ctx, username, taken)
 
-			return nil, nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+			return nil, nil, httpio.NewUnauthorizedMessageWithError(err, wrongCredentials)
 		case err != nil:
 			logger.FromCtx(ctx).Error(err)
 		default:
@@ -884,7 +938,7 @@ func (a *Auth[S, U, Tx]) changeUserPasswordHandler() http.HandlerFunc {
 // signed-in user removes their own password, proving it first as a change does. It
 // validates the session itself, and holds it to what every own-account route but the
 // change holds it to: a user who must change their password is refused
-// (password_change_required, Forbidden), since removing a temporary password would
+// (password_change_required, Forbidden), since removing a password under the mark would
 // clear the mark with it and leave the session standing with no change made. It is
 // refused in an impersonated session. The password is checked under the attempt
 // limiter, for the request's client, as the change checks the old one. The removal is
@@ -928,7 +982,7 @@ func (a *Auth[S, U, Tx]) removeUserPasswordHandler() http.HandlerFunc {
 // the one userID holds (BadRequest otherwise, as a change answers a wrong old password),
 // checked under the attempt limiter for client (provePassword).
 // The store is handed the hash the password matched and removes the password only while
-// the user still holds it, so a password an operator set meanwhile is not removed on
+// the user still holds it, so a password written meanwhile is not removed on
 // proof of the one it replaced (a Conflict that says to try again). The removal does
 // what AuthAPI.RemoveSessionUserPassword does, under the same judgment of the links
 // that count as a means of sign-in (signsInThrough), and its refusal of the last means

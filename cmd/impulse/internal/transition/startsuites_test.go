@@ -291,7 +291,7 @@ func TestDirectoryStart_Apply_byDirectorySuites(t *testing.T) {
 
 			start := byDirectoryStart("members")
 			start.Tenants = &tt.tenants
-			a, ch := started(t, &start, "set_members_temporary_password")
+			a, ch := started(t, &start, "send_members_user_password_reset_link")
 
 			checkWritten(t, a, byDirectoryWritten)
 			for rel, wants := range tt.wants {
@@ -387,7 +387,7 @@ func TestDirectoryStart_Apply_loginPageSpec(t *testing.T) {
 
 				return start
 			},
-			removes:     []string{"set_members_temporary_password"},
+			removes:     []string{"send_members_user_password_reset_link"},
 			wantMethods: [][3]string{{"google", "google", "Google"}, {"azure", "azure", "Microsoft"}, {"persona", "oidc", "Persona"}},
 			wantButtons: "expect(redirects).toEqual(['Sign in with Google', 'Sign in with Microsoft', 'Sign in with Persona']);",
 			wantLinks:   "const links: Record<string, string>[] = [{ invitation: 'token' }, { verify: 'token' }];",
@@ -568,7 +568,7 @@ func TestDirectoryStart_Apply_menuSpec(t *testing.T) {
 		t.Parallel()
 
 		start := byDirectoryStart("members")
-		a, ch := started(t, &start, "set_members_temporary_password")
+		a, ch := started(t, &start, "send_members_user_password_reset_link")
 		base, err := baseRendering(menuSpec, "example.com/acme/depot", start.Auth)
 		if err != nil {
 			t.Fatalf("baseRendering() error = %v", err)
@@ -617,6 +617,102 @@ func TestDirectoryStart_Apply_menuSpec(t *testing.T) {
 		if got := append(linesWith(ch.Did, menuSpec, nil), leftLine(ch, menuSpec)...); len(got) != 0 {
 			t.Errorf("the change speaks of a menu file's test the application does not have: %q", got)
 		}
+	})
+}
+
+// TestDirectoryStart_Apply_dialogsSpec holds a Directory roles start to a test of the
+// dialogs that compiles in the application it makes. The base's tests the dialog that
+// invites a person by the auth's invite method, which the generator does not write for
+// an auth whose directory gives every role, so the base's test fails in the
+// application's browser tests as the application was made.
+func TestDirectoryStart_Apply_dialogsSpec(t *testing.T) {
+	t.Parallel()
+
+	base, err := baseRendering(dialogsSpec, "example.com/acme/depot", "staff")
+	if err != nil {
+		t.Fatalf("baseRendering() error = %v", err)
+	}
+	if !strings.Contains(string(base), "InviteStaffUser") {
+		t.Fatalf("the base's %s names no InviteStaffUser: the fixture is not the test this one pins", dialogsSpec)
+	}
+	reference, err := referenceText(ReferenceCandidate, appDialogsSpecFile)
+	if err != nil {
+		t.Fatalf("referenceText() error = %v", err)
+	}
+	if strings.Contains(reference, "Invite") {
+		t.Fatalf("the outlets reference's %s names an invite method: it is not the test without the invite dialog's that the start writes", appDialogsSpecFile)
+	}
+	did := dialogsSpec + ": written again without its test of the dialog that invites a person: the staff auth's directory gives every role, so the generator writes no method that invites a person, and the base's test names one"
+	left := dialogsSpec + " names the staff auth's invite method (InviteStaffUser), which the generator does not write where the directory gives every role: take the test of the dialog that invites a person out of it"
+	unsaid := func(t *testing.T, ch *Change) {
+		t.Helper()
+		if got := append(linesWith(ch.Did, dialogsSpec, nil), leftLine(ch, dialogsSpec)...); len(got) != 0 {
+			t.Errorf("the change speaks of the test of the dialogs: %q", got)
+		}
+	}
+
+	t.Run("a start whose directory gives every role writes the reference's test over the base's", func(t *testing.T) {
+		t.Parallel()
+
+		start := directoryRolesStart(app.MethodGoogle, "fleet.example")
+		a, ch := started(t, &start)
+		if diff := cmp.Diff(forAuth(reference, start.Auth), read(t, a, dialogsSpec)); diff != "" {
+			t.Errorf("%s is not the outlets reference's (-want +got):\n%s", dialogsSpec, diff)
+		}
+		if !slices.Contains(ch.Did, did) {
+			t.Errorf("Did lacks %q; got:\n%s", did, strings.Join(ch.Did, "\n"))
+		}
+		if got := leftLine(ch, dialogsSpec); len(got) != 0 {
+			t.Errorf("the change leaves the test of the dialogs to the author, and the start wrote it: %q", got)
+		}
+	})
+
+	t.Run("a start whose application gives the roles leaves the base's test", func(t *testing.T) {
+		t.Parallel()
+
+		start := byDirectoryStart("members")
+		a, ch := started(t, &start, "send_members_user_password_reset_link")
+		base, err := baseRendering(dialogsSpec, "example.com/acme/depot", start.Auth)
+		if err != nil {
+			t.Fatalf("baseRendering() error = %v", err)
+		}
+		if got := read(t, a, dialogsSpec); got != string(base) {
+			t.Errorf("%s was changed, and the auth's application gives the roles, so its invite method is written (-want +got):\n%s", dialogsSpec, cmp.Diff(string(base), got))
+		}
+		unsaid(t, ch)
+	})
+
+	t.Run("a test of the application's own that names the invite method is left, and named with what to do", func(t *testing.T) {
+		t.Parallel()
+
+		start := directoryRolesStart(app.MethodGoogle, "fleet.example")
+		own := "it('invites a person', () => {\n  open(Methods.InviteStaffUser);\n});\n"
+		a, ch := startedOver(t, &start, func(a *app.App) {
+			if err := os.WriteFile(a.Abs(dialogsSpec), []byte(own), 0o644); err != nil {
+				t.Fatalf("os.WriteFile() error = %v", err)
+			}
+		})
+		if got := read(t, a, dialogsSpec); got != own {
+			t.Errorf("%s was changed, and it is not the base's:\n%s", dialogsSpec, got)
+		}
+		if !slices.Contains(ch.Left, left) {
+			t.Errorf("Left lacks %q; got:\n%s", left, strings.Join(ch.Left, "\n"))
+		}
+		if got := linesWith(ch.Did, dialogsSpec, nil); len(got) != 0 {
+			t.Errorf("the change says it changed the test of the dialogs: %q", got)
+		}
+	})
+
+	t.Run("an application with no such test is left without a word", func(t *testing.T) {
+		t.Parallel()
+
+		start := directoryRolesStart(app.MethodGoogle, "fleet.example")
+		_, ch := startedOver(t, &start, func(a *app.App) {
+			if err := os.Remove(a.Abs(dialogsSpec)); err != nil {
+				t.Fatalf("os.Remove() error = %v", err)
+			}
+		})
+		unsaid(t, ch)
 	})
 }
 

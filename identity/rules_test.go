@@ -354,7 +354,7 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 		{
 			name: "a role of the global scope goes from its last holder: the application's last administrator is its last super administrator",
 			opts: []Option{administrators}, caller: dana, scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, erin, "Reader")},
+			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, dana, "Reader"), membership(globalScope, erin, "Reader")},
 			wantRemoved: true,
 		},
 		{
@@ -378,20 +378,20 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 		{
 			name: "a tenant's administrator leaves once another holds the role there",
 			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(alphaScope, erin, "Warden")},
+			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(globalScope, dana, "Reader"), membership(alphaScope, erin, "Warden")},
 			wantRemoved: true,
 		},
 		{
-			name: "a person who holds the role in every tenant is the tenant's administrator too",
+			name: "a person who holds the role in every tenant is no administrator of the tenant's own: its last one keeps the role",
 			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, erin, "Warden")},
-			wantRemoved: true,
+			held:    []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, erin, "Warden")},
+			wantErr: httpio.HasForbidden,
 		},
 		{
-			name: "the caller's own membership in every tenant keeps them the tenant's administrator",
+			name: "the caller's own membership in every tenant does not stand in for the one they hold in the tenant",
 			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, dana, "Warden")},
-			wantRemoved: true,
+			held:    []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, dana, "Warden")},
+			wantErr: httpio.HasForbidden,
 		},
 		{
 			name: "a role held in every tenant is no administrator role of the application",
@@ -428,7 +428,12 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &fakeStore{memberships: map[access.MembershipKey]bool{}}
+			// Both people have accounts that can sign in: the rule counts no other
+			// holder as a tenant's administrator.
+			store := &fakeStore{
+				usernames:   map[impulse.UUID]string{userID: "dana", otherUser: "erin"},
+				memberships: map[access.MembershipKey]bool{},
+			}
 			for _, key := range tt.held {
 				store.memberships[key] = true
 			}
@@ -493,7 +498,10 @@ func TestManager_RemoveRole_lastAdministrator_sentence(t *testing.T) {
 
 			const tenant = "0190a000-0000-7000-8000-000000000001"
 			scope := accesstypes.DomainPolicyScope(tenant)
-			store := &fakeStore{memberships: map[access.MembershipKey]bool{access.NewMembershipKey(scope, dana, "Warden"): true}}
+			store := &fakeStore{
+				usernames:   map[impulse.UUID]string{userID: "dana"},
+				memberships: map[access.MembershipKey]bool{access.NewMembershipKey(scope, dana, "Warden"): true},
+			}
 			m, _ := newManager(t, store, engineRoles, tt.opts...)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {

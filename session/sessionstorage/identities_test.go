@@ -117,13 +117,6 @@ func TestAuth_StoreMethods(t *testing.T) {
 			wantErr: ErrPasswordChanged,
 		},
 		{
-			name:    "ReplaceUserPassword hands the driver the hash and the mark, for its one transaction",
-			prepare: func(db *Mockdb) { db.EXPECT().ReplaceUserPassword(gomock.Any(), userID, chosen, true).Return(nil) },
-			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
-				return nil, a.ReplaceUserPassword(ctx, userID, chosen, true)
-			},
-		},
-		{
 			name:    "ChangeUserPassword hands the driver the proven hash beside the new one",
 			prepare: func(db *Mockdb) { db.EXPECT().ChangeUserPassword(gomock.Any(), userID, proven, chosen).Return(nil) },
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {

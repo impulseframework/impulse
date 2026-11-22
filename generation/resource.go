@@ -658,6 +658,11 @@ func (r *resourceGenerator) extractAndGenerateRPC(packageMap map[string]*package
 		methods = append(methods, own...)
 	}
 	sortMethods(methods)
+	// A role file is judged against every method of the run, the application's own
+	// among them, so the grants of a retired method are read here and not sooner.
+	if err := r.refuseRetiredGrants(methods); err != nil {
+		return err
+	}
 	r.rpcMethods, r.scheduledMethods = splitScheduled(methods)
 	if err := r.requireRouterForSchedules(); err != nil {
 		return err

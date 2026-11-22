@@ -47,7 +47,7 @@ A mask holds a session off any other record by naming it (`RefusePermission`,
 `RefuseWrites`). Two classes are the library's:
 `ClassCredential` (`credential`), the actions that change how a person signs
 in, and `ClassAccess` (`access`), the actions that give or take away what
-someone may do: a role, a place in a group, an invitation, an account made,
+someone may do: a role, a place in a group, an invitation,
 the settings that say who may sign in at all, and the making of a tenant of
 one's own. An account disabled, enabled or deleted is in neither class: that
 is work a person who stands in for an administrator is there to do. An

@@ -14,8 +14,8 @@ import (
 
 // seamHeldSignInRestsOnItsPassword: a password sign-in held for the email code completes
 // only while the password it proved is still the person's. The code may be given until
-// the pending sign-in expires, and a change of the password, an operator's temporary
-// password or a removal in between leaves the old password nothing to complete: the
+// the pending sign-in expires, and a change of the password or a removal in between
+// leaves the old password nothing to complete: the
 // right code is then refused in the status and the body a wrong password gets, no
 // session starts, and the pending sign-in is spent. The password the person holds now
 // signs in, with a code of its own.
@@ -23,7 +23,6 @@ func seamHeldSignInRestsOnItsPassword[Tx any](ctx context.Context, t *testing.T,
 	t.Helper()
 
 	pat := a.seedWithEmail(ctx, t, "pat@lakeside.edu", "pat@lakeside.edu")
-	sam := a.seedWithEmail(ctx, t, "sam@lakeside.edu", "sam@lakeside.edu")
 	kim := a.seedWithEmail(ctx, t, "kim@lakeside.edu", "kim@lakeside.edu")
 
 	// Kim signs in through the directory once, so the password is not kim's only way in
@@ -92,17 +91,6 @@ func seamHeldSignInRestsOnItsPassword[Tx any](ctx context.Context, t *testing.T,
 	refused("the person's own change", waiting, code)
 	renewed, code := held("pat@lakeside.edu", "a-new-password-1")
 	complete(renewed, code, pat)
-
-	// An operator's temporary password.
-	waiting, code = held("sam@lakeside.edu", seedPassword)
-	if err := a.api.ResetSessionUserPassword(ctx, sam, "a-temporary-password-1"); err != nil {
-		t.Fatalf("ResetSessionUserPassword() error = %v", err)
-	}
-	refused("an operator's temporary password", waiting, code)
-	// The temporary password signs sam in, to a session held to its change.
-	renewed, code = held("sam@lakeside.edu", "a-temporary-password-1")
-	renewed.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": code})
-	renewed.expect(ctx, http.StatusForbidden, http.MethodGet, "/whoami", nil)
 
 	// A removal: the password signs nobody in any more, with whatever code.
 	waiting, code = held("kim@lakeside.edu", seedPassword)

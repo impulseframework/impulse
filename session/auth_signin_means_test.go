@@ -84,7 +84,10 @@ func directoriesAuthWithPassword(t *testing.T) (*Auth[NoCustomData, NoCustomData
 			return &sessionstorage.SignInAttempts{Name: name, Failures: 1, Counted: true}, nil
 		}).AnyTimes()
 	store.EXPECT().ClearSignInAttempts(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
+	// No reset link stands for anybody, so a password that is written or removed has none
+	// to withdraw.
+	store.EXPECT().LiveMailLinks(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}

@@ -298,17 +298,50 @@ type testConfigurer struct {
 	jobs jobs.Starter
 }
 
-// noSessionAPI stands where a suite serves no session manager: the methods that need
-// one (a temporary password's hash) are driven on the served stack, which has the
-// real one. It still says which identities sign a person in, since the removal of a
-// password and the list of how a person signs in are judged by it.
-type noSessionAPI struct{}
-
-func (noSessionAPI) HashPassword(string) (string, error) {
-	return "", fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
+// invitationLog holds the invitations the suites without a session manager handed
+// their stand-in to prepare (noSessionAPI.PrepareInvitation), by the address invited.
+// The stand-in makes no link and fails every one, so a failed request alone does not
+// say how far it came: a test that sent one reads here whether it reached that step,
+// and with what. The suites share the stand-in and run in parallel, so a test invites
+// an address no other does and takes what was kept for it.
+type invitationLog struct {
+	mu      sync.Mutex
+	byEmail map[string][]session.InvitationRequest
 }
 
-func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
+// keep records one invitation the stand-in was handed.
+func (l *invitationLog) keep(req *session.InvitationRequest) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.byEmail[req.Email] = append(l.byEmail[req.Email], *req)
+}
+
+// take answers the invitations the stand-in was handed for the address, in the order
+// they came, and forgets them: a second run of the test in one process starts from none.
+func (l *invitationLog) take(email string) []session.InvitationRequest {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	taken := l.byEmail[email]
+	delete(l.byEmail, email)
+
+	return taken
+}
+
+// preparedInvitations is the log of every stand-in of this package.
+var preparedInvitations = &invitationLog{byEmail: make(map[string][]session.InvitationRequest)}
+
+// noSessionAPI stands where a suite serves no session manager: the methods that need
+// one (an invitation's link) are driven on the served stack, which has the real one. It
+// still says which identities sign a person in, since the removal of a password and the
+// list of how a person signs in are judged by it.
+type noSessionAPI struct{}
+
+// PrepareInvitation makes no link and fails, after it has kept what it was handed
+// (preparedInvitations): a request that reaches it passed every check before the link
+// is made.
+func (noSessionAPI) PrepareInvitation(_ context.Context, req *session.InvitationRequest) (session.PreparedInvitation, error) {
+	preparedInvitations.keep(req)
+
 	return nil, fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
 }
 
@@ -762,12 +795,31 @@ func knownAs(t *testing.T, username accesstypes.User, id impulse.UUID) accesstyp
 func makeCrewAccount(ctx context.Context, t *testing.T, db *initiator.SpannerDB, username accesstypes.User) accesstypes.User {
 	t.Helper()
 
+	return writeCrewAccount(ctx, t, db, username, nil)
+}
+
+// makeCrewAccountAt is makeCrewAccount for a person with an address, held as the person
+// typed it at a registration: nobody has confirmed it.
+func makeCrewAccountAt(ctx context.Context, t *testing.T, db *initiator.SpannerDB, username accesstypes.User, email string) accesstypes.User {
+	t.Helper()
+
+	return writeCrewAccount(ctx, t, db, username, &email)
+}
+
+// writeCrewAccount writes the row of makeCrewAccount and makeCrewAccountAt, with the
+// address when there is one.
+func writeCrewAccount(ctx context.Context, t *testing.T, db *initiator.SpannerDB, username accesstypes.User, email *string) accesstypes.User {
+	t.Helper()
+
 	id, err := impulse.NewUUID()
 	if err != nil {
 		t.Fatalf("impulse.NewUUID: %v", err)
 	}
-	row := spanner.InsertMap("CrewSessionUsers", map[string]any{"Id": id.String(), "Username": string(username), "CreatedAt": spanner.CommitTimestamp})
-	if _, err := db.Apply(ctx, []*spanner.Mutation{row}); err != nil {
+	columns := map[string]any{"Id": id.String(), "Username": string(username), "CreatedAt": spanner.CommitTimestamp}
+	if email != nil {
+		columns["Email"] = *email
+	}
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessionUsers", columns)}); err != nil {
 		t.Fatalf("writing %s's crew account: %v", username, err)
 	}
 
@@ -1142,6 +1194,24 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	return &served{server: server, crew: crewAuth, access: crewAuth.Access(), members: membersAuth.Access(), stores: stores, db: db, scheduler: keys, jobs: starter, live: fake, tenants: roster, mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
+// seedCrewAccount makes an account of the crew's on the served stack through the session
+// library's API, as the bootstrap makes the cast's: with no password and no role, for a
+// person who has not signed in, and with the address given when there is one, which
+// nobody has confirmed. Nobody creates an account for someone else through the
+// application, where a person comes in by an invitation; a suite that needs an account
+// nobody has signed in to makes one here, and gives it its roles through the generated
+// methods. It answers the account's id.
+func (s *served) seedCrewAccount(ctx context.Context, t *testing.T, username string, email *string) impulse.UUID {
+	t.Helper()
+
+	id, err := s.crew.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: username, Email: email})
+	if err != nil {
+		t.Fatalf("CreateSessionUser(%s) error = %v", username, err)
+	}
+
+	return id
+}
+
 // personaSettings is the crew auth's persona settings for the stack: none when no
 // provider is configured, else the provider with the stack's own callback.
 func personaSettings(p *auth.Persona, callback string) auth.Persona {
@@ -1348,6 +1418,27 @@ func (b *browser) secondFactor(ctx context.Context, user string) {
 func (b *browser) secondFactorLocked(ctx context.Context, user string, remember bool) {
 	b.t.Helper()
 
+	if status, body := b.enterCodeLocked(ctx, user, remember); status != http.StatusOK {
+		b.t.Fatalf("verifying the sign-in code of %s: status %d: %s", user, status, body)
+	}
+}
+
+// enterCode is secondFactor for a sign-in the code does not finish: it asks for the
+// code, reads it from the mail and enters it, and answers what entering it was answered,
+// for the caller to judge. The code itself is right; what it would complete is refused.
+func (b *browser) enterCode(ctx context.Context, user string) (status int, body []byte) {
+	b.t.Helper()
+
+	b.served.codeMu.Lock()
+	defer b.served.codeMu.Unlock()
+
+	return b.enterCodeLocked(ctx, user, false)
+}
+
+// enterCodeLocked is enterCode for a caller holding the stack's factor lock.
+func (b *browser) enterCodeLocked(ctx context.Context, user string, remember bool) (status int, body []byte) {
+	b.t.Helper()
+
 	pending := b.pending(ctx)
 	if pending.Reason != string(sessioninfo.PendingMFA) || pending.EmailCode == nil {
 		b.t.Fatalf("the sign-in of %s waits for %+v, want the second factor with the sign-in code offered", user, pending)
@@ -1357,9 +1448,8 @@ func (b *browser) secondFactorLocked(ctx context.Context, user string, remember 
 	if err != nil {
 		b.t.Fatal(err)
 	}
-	if status, body := b.do(ctx, http.MethodPost, b.prefix+"/user/pending/code/verify", verify); status != http.StatusOK {
-		b.t.Fatalf("verifying the sign-in code of %s: status %d: %s", user, status, body)
-	}
+
+	return b.do(ctx, http.MethodPost, b.prefix+"/user/pending/code/verify", verify)
 }
 
 // sentCode asks for the sign-in code, giving the address first where the person holds

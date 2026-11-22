@@ -309,8 +309,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	}
 
 	// One Auth session the directory establishes, which mails as the fleet
-	// (session.WithMail): the verification of an address, leading to the portal's login
-	// page with its token in the query. It is built knowing who holds the Super
+	// (session.MailSettings): the verification of an address, leading to the portal's
+	// login page with its token in the address's fragment. It is built knowing who holds the Super
 	// Administrator role (session.SuperAdministratorsBy), as every auth with roles is.
 	// The library's own second factor for a holder holds nobody here: every member
 	// signs in through the directory, which writes the roles, and there the directory is
@@ -319,6 +319,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,
 		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
+		session.MailSettings{Sender: settings.Mail.Sender, Application: Application, LoginURL: settings.Mail.LoginURL},
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
@@ -329,7 +330,6 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithFactorCodesTableName(factorCodesTable),
 		session.WithTrustedDevicesTableName(trustedDevicesTable),
 		session.WithTrustedDeviceCookieName(TrustedDeviceCookie),
-		session.WithMail(settings.Mail.Sender, session.MailSettings{Application: Application, LoginURL: settings.Mail.LoginURL}),
 		session.WithCookieName(Name),
 		session.WithXSRFCookieName(XSRFCookie),
 		session.WithSessionTimeout(settings.SessionTimeout),

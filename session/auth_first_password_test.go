@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -94,7 +93,7 @@ func TestAuth_FirstPassword(t *testing.T) {
 	t.Run("the password is held to the rule a sign-up's is, and a refused one leaves the code standing", firstPasswordCase7)
 	t.Run("a new code replaces the one that stood, and a code writes one password", firstPasswordCase8)
 	t.Run("a mailbox is sent five codes it does not use, then refused", firstPasswordCase9)
-	t.Run("an Auth that records no auth events writes the password and records none; an Auth without mail has no first password handlers", firstPasswordCase10)
+	t.Run("an Auth that records no auth events writes the password and records none", firstPasswordCase10)
 	t.Run("a code counts for the mailbox it was mailed to: once the account's confirmed address is another, or none, it writes no password", firstPasswordCase11)
 }
 
@@ -437,11 +436,6 @@ func firstPasswordCase10(t *testing.T) {
 	rr := f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": chosenPassword}, nil)
 	if rr.Code != http.StatusOK || *written != 1 {
 		t.Errorf("Set() on an Auth that records no auth events = %d %s (%d written), want the password written", rr.Code, rr.Body.String(), *written)
-	}
-
-	plain := newAuthFixture(t, gomock.NewController(t))
-	if recovered := registrationPanic(func() { plain.auth.FirstPassword() }); recovered == nil || !strings.Contains(fmt.Sprint(recovered), "FirstPassword() needs mail") {
-		t.Errorf("FirstPassword() on an Auth without mail panic = %v, want it to say the handlers need mail", recovered)
 	}
 }
 

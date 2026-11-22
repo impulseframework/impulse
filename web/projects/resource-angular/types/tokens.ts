@@ -228,7 +228,7 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
     'This Google account is not one this application accepts. Sign in with the Google account your organization gave you.',
   email_not_verified: 'The email address of this account is not verified.',
   no_roles: 'This account has no role in this application. Please contact your administrator.',
-  password_change_required: 'Your password was set by an administrator. Choose a new password to continue.',
+  password_change_required: 'An administrator asked you to choose a new password. Choose one to continue.',
   no_email_claim: 'The service you signed in with did not say which account signed in.',
   unlisted_tenant: 'This account belongs to an organization that cannot sign in here.',
   personal_account: 'Personal Microsoft accounts cannot sign in here. Use your work or school account.',
@@ -237,6 +237,11 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
   not_invited: 'This account has not been invited to this application.',
   // The login page names the invited address itself while the invitation stands; this is the sentence without it.
   invitation_address: 'This invitation is for another account. Sign in with the account it was sent to.',
+  // Twenty-five codes were entered for the invitation and none accepted it: it takes no more and mails none.
+  invitation_spent: "This invitation can't be used any more. Ask the person who invited you to send a new one.",
+  // A code mailed for an invitation, entered where that invitation's link is not open: the step stays, and the code works once the link is opened again.
+  invitation_not_open:
+    'This code belongs to an invitation that is not open in this browser. Open the link in your invitation again, then enter the code.',
   guest_account: 'Guest accounts cannot sign in here. Use an account that is a member of the organization.',
   policy_denied: 'Signing in this way is not allowed for this account.',
   user_disabled: 'This account has been disabled. Please contact your administrator.',

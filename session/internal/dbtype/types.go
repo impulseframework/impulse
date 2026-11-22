@@ -47,9 +47,10 @@ type InsertSession struct {
 }
 
 // SessionUser is a person authorized to access the application. PasswordChangeRequired
-// marks a user whose password an operator set (a new user's first password, a reset):
-// the user changes it before anything else. CreatedAt is the database's time at the
-// insert and LastSignInAt its time at the user's latest sign-in, nil before the first.
+// marks a user an administrator required a new password of: the user changes it before
+// anything else.
+// CreatedAt is the database's time at the insert and LastSignInAt its time at the
+// user's latest sign-in, nil before the first.
 // Email is the user's email address, nil for none, and EmailVerifiedAt the database's
 // time at which the person proved they read it, nil while it is unverified; both are
 // nil on a store without the auth schema. An unverified address is trusted for
@@ -101,17 +102,18 @@ func (u *SessionUser) Look() sessioninfo.Look {
 // stamps EmailVerifiedAt with the commit time. On a store whose usernames are the
 // addresses (UsernameIsEmail) the address is the username and Email must be nil or
 // match it. Name, nil for none, is the person's name, written as CleanName leaves it.
+// A user is created under no password change mark: the drivers write it false, and
+// the application writes it when an administrator requires a new password.
 type InsertSessionUser struct {
 	// ID is the id the user is created under when the caller chose one; null has the
 	// driver generate it.
-	ID                     impulse.NullUUID `spanner:"-"                      db:"-"`
-	Username               string           `spanner:"Username"               db:"Username"`
-	PasswordHash           *securehash.Hash `spanner:"PasswordHash"           db:"PasswordHash"`
-	Disabled               bool             `spanner:"Disabled"               db:"Disabled"`
-	PasswordChangeRequired bool             `spanner:"PasswordChangeRequired" db:"PasswordChangeRequired"`
-	Email                  *string          `spanner:"Email"                  db:"Email"`
-	EmailVerified          bool             `spanner:"-"                      db:"-"`
-	Name                   *string          `spanner:"Name"                   db:"Name"`
+	ID            impulse.NullUUID `spanner:"-"            db:"-"`
+	Username      string           `spanner:"Username"     db:"Username"`
+	PasswordHash  *securehash.Hash `spanner:"PasswordHash" db:"PasswordHash"`
+	Disabled      bool             `spanner:"Disabled"     db:"Disabled"`
+	Email         *string          `spanner:"Email"        db:"Email"`
+	EmailVerified bool             `spanner:"-"            db:"-"`
+	Name          *string          `spanner:"Name"         db:"Name"`
 }
 
 // SessionIDColumn is the primary-key column of the custom session data table, referencing the session table's primary key.

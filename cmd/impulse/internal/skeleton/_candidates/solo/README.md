@@ -33,8 +33,8 @@ what they hold.
   generator (`GenerateIdentity`) as code of this application; the generator owns the
   tree whole. It carries the lists (`StaffSessionUsers`, `StaffUserRoles`,
   `StaffSessionMailLinks`, `StaffSessions` and the rest) and the methods
-  (`CreateStaffUser`, `InviteStaffUser`, `AssignStaffRole`, `SetStaffTemporaryPassword`
-  and the rest), served like every other resource and method and granted in the role
+  (`InviteStaffUser`, `AssignStaffRole`, `SendStaffUserPasswordResetLink` and the
+  rest), served like every other resource and method and granted in the role
   file. The auth builds the client the handlers act through when it opens (`staff.New`,
   answered by `staff.Auth.Identity`) with the roles that count as an administrator's
   (`staff.AdministratorRoles`), so an administrator cannot give the role up while nobody
@@ -62,7 +62,7 @@ what they hold.
   role, the foothold a deployed environment starts from: an invitation mailed to the address the placement names for
   the environment (`APP_STAFF_ADMINISTRATOR`), which gives the Super Administrator role
   and the development administrator's roles. The person opens the link and chooses a
-  password there, their address proven by the link. No account is made ahead of them and
+  password there, and enters the code mailed to the address. No account is made ahead of them and
   no password is generated. A release leaves an invitation that stands as it is, mails a new one once
   it has run out (seven days), and withdraws one for an address the placement no longer
   names; the migrate command's `-reinvite-administrator staff` withdraws the

@@ -63,7 +63,7 @@ func leftStart(t *testing.T, edit func(t *testing.T, a *app.App)) (a *app.App, c
 				before[rel] = read(t, a, rel)
 			}
 		}
-	}, "set_staff_temporary_password", "assign_staff_role", "remove_staff_role", "invite_staff_user", "withdraw_staff_invitation", "create_staff_user")
+	}, "send_staff_user_password_reset_link", "assign_staff_role", "remove_staff_role", "invite_staff_user", "withdraw_staff_invitation")
 
 	return a, ch, before
 }

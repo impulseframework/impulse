@@ -10,6 +10,47 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 )
 
+// TestGroupMayHold pins the rule a list of the roles to offer a group asks, the one
+// every write of a group's role holds its row to: no group holds the Super
+// Administrator role, a group kept in one tenant holds roles in that tenant alone, and
+// a group kept for the whole application holds a role wherever a person can. What the
+// list offers is what the write takes: the two never disagree.
+func TestGroupMayHold(t *testing.T) {
+	t.Parallel()
+
+	global, every := accesstypes.GlobalPolicyScope(), accesstypes.EveryDomainPolicyScope()
+	anvil, bastion := accesstypes.DomainPolicyScope("anvil"), accesstypes.DomainPolicyScope("bastion")
+	tests := []struct {
+		name  string
+		kept  accesstypes.PolicyScope
+		scope accesstypes.PolicyScope
+		role  accesstypes.Role
+		want  bool
+	}{
+		{name: "a tenant's group, a role in its tenant", kept: anvil, scope: anvil, role: "Reader", want: true},
+		{name: "a tenant's group, a role for the whole application", kept: anvil, scope: global, role: "Reader"},
+		{name: "a tenant's group, a role in every tenant", kept: anvil, scope: every, role: "Reader"},
+		{name: "a tenant's group, a role in another tenant", kept: anvil, scope: bastion, role: "Reader"},
+		{name: "a tenant's group, the Super Administrator role", kept: anvil, scope: anvil, role: accesstypes.SuperAdministrator},
+		{name: "the whole application's group, a role for the whole application", kept: global, scope: global, role: "Steward", want: true},
+		{name: "the whole application's group, a role in every tenant", kept: global, scope: every, role: "Reader", want: true},
+		{name: "the whole application's group, a role in one tenant", kept: global, scope: anvil, role: "Reader", want: true},
+		{name: "the whole application's group, the Super Administrator role", kept: global, scope: global, role: accesstypes.SuperAdministrator},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := GroupMayHold(tt.kept, tt.scope, tt.role); got != tt.want {
+				t.Errorf("GroupMayHold(%v, %v, %s) = %t, want %t", tt.kept, tt.scope, tt.role, got, tt.want)
+			}
+			if taken := refuseGroupRole(tt.kept, tt.scope, tt.role) == nil; taken != tt.want {
+				t.Errorf("a write of %s in %v for a group kept in %v is taken = %t, want %t as the list offers it", tt.role, tt.scope, tt.kept, taken, tt.want)
+			}
+		})
+	}
+}
+
 // groupClient is superClient with the custom role Editor made in tenant1: the
 // role file gives Steward (global) and Reader (every tenant).
 func groupClient(t *testing.T) (*Client, UserManager) {

@@ -84,9 +84,12 @@ func (p *AuthAPI[S, U, Tx]) SignsInThrough(method sessioninfo.AuthMethod, connec
 // DirectoryName answers what the Auth's sign-in registrations call the directory an
 // identity of method and connection came through, for a sentence that names it to a
 // person: name is the name a registration that takes the connection gives it (a listed
-// Entra tenant's or Workspace's name, a provider's), "" where none names it, and label
-// is the label of the button of the first registration of the login page that takes
-// the connection, "" where the page offers none. A sentence says the name where there
+// Entra tenant's or Workspace's name), "" where none names it, and label is the label
+// of the button of the first registration of the login page that takes the connection,
+// "" where the page offers none. An organization's own identity provider (the OpenID
+// Connect method) is named by the label of its registration where the page gives it
+// one: its connection is the key the application registered it under, which no person
+// knows it by (connectionSaid). A sentence says the name where there
 // is one and otherwise the directory by the button a person signs in to it with, never
 // the connection itself, which for an Entra tenant is an id. It reads nothing: the
 // answer is what the registrations fixed in code. It closes registration, as every read
@@ -113,8 +116,8 @@ func (a *Auth[S, U, Tx]) directoryName(method sessioninfo.AuthMethod, connection
 		if external.AdmitsConnection != nil && !external.AdmitsConnection(connection) {
 			continue
 		}
-		if name == "" && external.ConnectionName != nil {
-			name = external.ConnectionName(connection)
+		if name == "" {
+			name = m.connectionSaid(registered, connection)
 		}
 		if label == "" {
 			label = m.labels[registered]
@@ -122,6 +125,22 @@ func (a *Auth[S, U, Tx]) directoryName(method sessioninfo.AuthMethod, connection
 	}
 
 	return name, label
+}
+
+// connectionSaid is the name the external registration under registered gives the
+// organization behind connection, as people read it: the registration's label where its
+// method leaves the naming to it (labelName), and otherwise the method's own name for
+// the connection, "" where it has none.
+func (m *signInMethods[Tx]) connectionSaid(registered, connection string) string {
+	if said := m.labelName(registered); said != "" {
+		return said
+	}
+	external := m.external[registered]
+	if external.ConnectionName == nil {
+		return ""
+	}
+
+	return external.ConnectionName(connection)
 }
 
 // signsIn reports whether an identity of method and connection counts as a means of

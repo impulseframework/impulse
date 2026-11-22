@@ -22,9 +22,9 @@ var _ identity.RoleGrants = grants{}
 // since none of it gives a power that giving the role directly would not: a person put
 // in a group is given the group's roles, and a sign-in method opened to sign-up gives
 // its default role to every person who signs up. Each is judged by the grant of the
-// method that gives a role. The list a tenant's role is picked from asks which roles
-// the caller could give at all (CouldGive), so a page offers no role every method
-// would refuse.
+// method that gives a role. A list a role is picked from asks which roles the caller
+// could give with the method whose dialog picks (CouldGive), so a dialog offers no role
+// its own method would refuse.
 //
 // The answer is the one the method's own frame would reach for the same caller, asked
 // of the request's own check (resource.Caller.ExecuteGate): the method's Execute grant
@@ -36,8 +36,12 @@ type grants struct{}
 // MayGive reports whether the caller may give the person the role in the scope.
 func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
 	caller := resource.CallerFrom(ctx)
-	domain, everyDomain := scopeFields(scope)
-	gate, err := caller.ExecuteGate(ctx, AssignStaffRole{}.Method(), &AssignStaffRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	// The application has no tenants: a role is held for the whole application, and
+	// the method gives none anywhere else.
+	if !scope.IsGlobal() {
+		return false, nil
+	}
+	gate, err := caller.ExecuteGate(ctx, AssignStaffRole{}.Method(), &AssignStaffRole{UserID: userID, Role: string(role)})
 	if err != nil {
 		return granted(err)
 	}
@@ -46,19 +50,62 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 }
 
 // CouldGive reports whether the caller could give the role in the scope by hand, to
-// somebody: the question of the list a role is picked from, asked before anybody is
-// named, with no row to read and so no transaction. The method that gives a role names no row, and its
-// grant answers (MayGive, of nobody).
-func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
-	return g.MayGive(ctx, nil, scope, impulse.NilUUID, role)
+// somebody, with the method named: the question of the list a role is picked from,
+// asked for the method whose dialog picks, before anybody is named, with no row to read
+// and so no transaction. Each method is asked of its own grant and no other's, so a
+// dialog is offered the roles its own method takes from the caller.
+//
+// For a request made for the whole application, the method is one of the whole
+// application's whose role field picks from the roles to give
+// (StaffGivableRoles), asked the same way, with the role:
+//
+//	AssignStaffRole, InviteStaffUser, GiveStaffGroupRole
+//
+// A method that is none of them gives no role by hand where the request was made, and
+// is an error.
+func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+	caller := resource.CallerFrom(ctx)
+	// The application has no tenants: a role is held for the whole application, and
+	// the methods give none anywhere else.
+	if !scope.IsGlobal() {
+		return false, nil
+	}
+	switch method {
+	case AssignStaffRole{}.Method():
+		return couldGiveBy(ctx, caller, method, &AssignStaffRole{Role: string(role)})
+	case InviteStaffUser{}.Method():
+		return couldGiveBy(ctx, caller, method, &InviteStaffUser{Roles: []string{string(role)}})
+	case GiveStaffGroupRole{}.Method():
+		return couldGiveBy(ctx, caller, method, &GiveStaffGroupRole{Role: string(role)})
+	}
+
+	return false, errors.Newf("%s is no method of the whole application that gives a role by hand: AssignStaffRole, InviteStaffUser, GiveStaffGroupRole", method)
+}
+
+// couldGiveBy reports whether the method does not refuse the caller its request, which
+// names the role: its grant admits it, or what is left of the grant's condition reads
+// the row the method names, so the role could be given to some of them. A method the
+// caller holds no grant on, or whose grant refuses the role, is a no.
+func couldGiveBy(ctx context.Context, caller *resource.Caller, method accesstypes.Resource, request any) (bool, error) {
+	gate, err := caller.ExecuteGate(ctx, method, request)
+	if err != nil {
+		return granted(err)
+	}
+	may, settled := gate.Settled()
+
+	return may || !settled, nil
 }
 
 // MayTake reports whether the caller may take the role the person holds in the scope
 // away.
 func (grants) MayTake(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
 	caller := resource.CallerFrom(ctx)
-	domain, everyDomain := scopeFields(scope)
-	gate, err := caller.ExecuteGate(ctx, RemoveStaffRole{}.Method(), &RemoveStaffRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	// The application has no tenants: a role is held for the whole application, and
+	// the method takes none away anywhere else.
+	if !scope.IsGlobal() {
+		return false, nil
+	}
+	gate, err := caller.ExecuteGate(ctx, RemoveStaffRole{}.Method(), &RemoveStaffRole{UserID: userID, Role: string(role)})
 	if err != nil {
 		return granted(err)
 	}
@@ -90,19 +137,4 @@ func settled(gate *resource.ExecuteGate, method string) (bool, error) {
 	}
 
 	return may, nil
-}
-
-// scopeFields spells a scope as the request of a whole application's role method names
-// it: one domain, every domain, or neither for the global scope.
-func scopeFields(scope accesstypes.PolicyScope) (domain *string, everyDomain bool) {
-	if scope.IsGlobal() {
-		return nil, false
-	}
-	if in, ok := scope.Domain(); ok {
-		name := string(in)
-
-		return &name, false
-	}
-
-	return nil, true
 }

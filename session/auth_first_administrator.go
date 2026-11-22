@@ -230,10 +230,7 @@ func (p *AuthAPI[S, U, Tx]) inviteFirstAdministrator(ctx context.Context, holder
 		return result, nil
 	}
 
-	m, err := p.auth.mailOf()
-	if err != nil {
-		return nil, err
-	}
+	m := p.auth.settings.mail
 	if !mail.Delivers(m.sender) {
 		return nil, withdrawnBefore(ErrFirstAdministratorNoMailbox, result.Withdrawn)
 	}

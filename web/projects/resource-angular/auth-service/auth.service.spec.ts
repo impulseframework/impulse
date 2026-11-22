@@ -67,7 +67,7 @@ class FakeFeed implements ChangeFeed {
 
 /** The flags the features route says are on; a spec changes it between checks. */
 let enabledFeatures: string[] = ['debriefs'];
-/** The session's operator-set password must change; a spec sets it before a check and clears it after the change. */
+/** An administrator required a new password of the session's person; a spec sets it before a check and clears it after the change. */
 let passwordChangeRequired = false;
 
 /** The session, digest, domains, features, and live routes, each answering; `authenticated` is what the session says. */

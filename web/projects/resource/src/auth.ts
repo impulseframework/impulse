@@ -45,7 +45,7 @@ export interface LoginMethod {
 
 /**
  * The paths of the pending sign-in's handlers: its status, the password confirmation, the
- * cancel, and the sign-in code's three, present on a server that sends mail: `sendCode`,
+ * cancel, and the sign-in code's three, present on a server that routes them: `sendCode`,
  * where the page has the code mailed; `verifyCode`, where it posts the code entered; and
  * `enrollEmail`, where a person whose account holds no email address gives one for the code.
  *
@@ -101,12 +101,12 @@ export interface StandingInvitation {
   readonly expiresAt: string;
   /** An account created from the invitation has the address as its username; the person chooses one otherwise. */
   readonly usernameIsEmail: boolean;
-  /** The registration names of the listed directory methods that could admit the address, as `OpenedInvitation.methods`; absent when the server did not say. */
-  readonly methods?: readonly string[];
-  /** An account already holds the invited address; absent when the server did not say (an older server). */
-  readonly accountExists?: boolean;
-  /** That account signs in with a password; absent when the server did not say. */
-  readonly hasPassword?: boolean;
+  /** The registration names of the listed directory methods that could admit the address, as `OpenedInvitation.methods`. */
+  readonly methods: readonly string[];
+  /** An account already holds the invited address. */
+  readonly accountExists: boolean;
+  /** That account signs in with a password. */
+  readonly hasPassword: boolean;
 }
 
 /**
@@ -160,8 +160,8 @@ export interface LoginMethods {
   readonly pending?: PendingRoutes;
   /**
    * The path of the password method's change: where a signed-in person posts
-   * `{ oldPassword, newPassword }`, including one whose operator-set password must change
-   * before anything else is served. Absent on a server with no password method.
+   * `{ oldPassword, newPassword }`, including one who must change their password before
+   * anything else is served. Absent on a server with no password method.
    */
   readonly changePassword?: string;
   /**
@@ -213,20 +213,24 @@ export interface LoginMethods {
   readonly usernameIsEmail?: boolean;
   /** The invitation routes, and the invitation the browser carries; absent on a server that serves no invitations. */
   readonly invitation?: InvitationRoutes;
-  /** The email address routes; absent on a server that sends no mail. */
+  /** The email address routes; absent on a server that does not route them. */
   readonly email?: EmailRoutes;
   /** The sign-up routes; absent on a server whose password method does not offer sign-up, or that has none. */
   readonly signUp?: SignUpRoutes;
   /**
-   * The password reset routes; absent on a server with no password method, or that sends
-   * no mail. A page offers "Forgot your password?" only while `request` is among them.
+   * The password reset routes; absent on a server with no password method. A page offers
+   * "Forgot your password?" only while `request` is among them.
    */
   readonly passwordReset?: PasswordResetRoutes;
 }
 
 /** An invitation as opening it describes it to the page. */
 export interface OpenedInvitation {
-  /** The address the invitation was mailed to; the account that accepts it holds it, verified, unless it already holds a verified one. */
+  /**
+   * The address the invitation was mailed to. The sign-in that accepts it proves the
+   * address the person's own, by a verified claim of its directory or by the code mailed
+   * to the address, and the account then holds it, verified.
+   */
   readonly email: string;
   /** The id of the tenant the invitation seats the person in; empty for the application's global surface. Never shown: the person reads `tenantName`. */
   readonly tenantId: string;
@@ -256,17 +260,16 @@ export interface OpenedInvitation {
    * The registration names of the listed directory methods that could admit the address,
    * each a listed method's `name`, so a page shows those buttons alone while the invitation
    * stands; the password method is never among them, `signUp` being its word. Possibly
-   * empty; absent when the server did not say.
+   * empty.
    */
-  readonly methods?: readonly string[];
+  readonly methods: readonly string[];
   /**
    * An account already holds the invited address, and whether it signs in with a password:
    * the page offers that account's password form, and offers to create an account only
-   * where none holds the address. Absent when the server did not say (an older server),
-   * where the page offers every path.
+   * where none holds the address.
    */
-  readonly accountExists?: boolean;
-  readonly hasPassword?: boolean;
+  readonly accountExists: boolean;
+  readonly hasPassword: boolean;
 }
 
 /**
@@ -564,7 +567,7 @@ const verifyRefusals: readonly number[] = [400, 404, 409];
 
 /**
  * The refusal code the server answers, with a 403, on every request of a session whose
- * operator-set password must change: everything but the password change, the session
+ * person must change their password: everything but the password change, the session
  * read and the logout. A framework over the client treats such a refusal as it treats a
  * 401, returning the browser to the login page, where the change form is served.
  */
@@ -893,7 +896,7 @@ export class AuthClient {
    * standing: reads the methods list again, then posts to the send route. The result is
    * `sent`, with the masked address and when the code stops being accepted, or the
    * server's refusal (see EmailCodeResult). A server whose pending routes name no send
-   * route sends no mail, and the call throws saying so.
+   * route does not route the code's handlers, and the call throws saying so.
    */
   async sendCode(): Promise<EmailCodeResult> {
     const routes = await this.codeRoutes();
@@ -908,8 +911,10 @@ export class AuthClient {
    * Gives the address of an account that holds none, and has the sign-in code mailed to
    * it: reads the methods list again, then posts the address to the enrollment route. The
    * address is written on the account, verified, once its code is entered; an address
-   * another account holds is answered as sent, and that account is told by mail, so the
-   * screen reveals nothing. The result is as sendCode's.
+   * another account holds is answered as sent, and that account is told by mail, and an
+   * address an invitation is waiting for is answered as sent, and its mailbox is told to
+   * open the invitation's link, so the screen reveals nothing. The result is as
+   * sendCode's.
    */
   async enrollEmail(email: string): Promise<EmailCodeResult> {
     const routes = await this.codeRoutes();
@@ -929,8 +934,10 @@ export class AuthClient {
    * refusal: a wrong code answers 401 with `invalid_code`, and the code stands with one
    * fewer attempt; a code entered while none stands (none sent, or the one sent expired,
    * was used, took its last attempt, or was mailed to an address the account no longer
-   * holds) answers 401 with `code_expired`, and the page has a new one sent; an expired
-   * sign-in answers `pending_expired`.
+   * holds) answers 401 with `code_expired`, and the page has a new one sent; a code mailed
+   * for an invitation answers 401 with `invitation_not_open` in a browser that carries no
+   * invitation or another one, and with `invitation_expired` where its invitation has ended;
+   * an expired sign-in answers `pending_expired`.
    */
   async verifyCode(code: string, rememberDevice: boolean): Promise<SignInResult> {
     const routes = await this.codeRoutes();
@@ -945,8 +952,8 @@ export class AuthClient {
   /**
    * Changes the signed-in person's password: reads the methods list again, then posts the
    * old and the new password to the change path the refreshed list names. The route is
-   * the one a person whose operator-set password must change reaches before anything else
-   * is served, so a login page that finds `passwordChangeRequired` on the session read
+   * the one a person who must change their password reaches before anything else is
+   * served, so a login page that finds `passwordChangeRequired` on the session read
    * posts here, then checks the session again. The result is `changed`, or the server's
    * refusal with its words (the old password did not match, the new one is the old one;
    * or 429 with `too_many_attempts` and the wait, `retryAfter`, once the wrong old
@@ -1167,7 +1174,6 @@ export class AuthClient {
       return refusalOf(response);
     }
     const body = response.body ?? {};
-    const methods = methodNamesOf(body.methods);
     return {
       outcome: 'opened',
       email: stringOf(body.email),
@@ -1177,18 +1183,21 @@ export class AuthClient {
       expiresAt: stringOf(body.expiresAt),
       signUp: body.signUp === true,
       usernameIsEmail: body.usernameIsEmail === true,
-      ...(methods === undefined ? {} : { methods }),
+      methods: methodNamesOf(body.methods),
       ...accountFactsOf(body),
     };
   }
 
   /**
    * Accepts the invitation the browser carries for the signed-in person: reads the methods
-   * list again, then posts to the accept route. The roles the invitation carried are
-   * granted, and the address it was sent to is the person's when they hold no verified one.
-   * A browser that carries no live invitation resolves `refused` with 404; an account that
-   * holds another address than the invited one resolves `refused` with 403 and the server's
-   * sentence, the invitation still standing.
+   * list again, then posts to the accept route. The server accepts it this way only for an
+   * account that holds the invited address confirmed, and then grants the roles the
+   * invitation carried. A browser that carries no live invitation resolves `refused` with
+   * 404. An account that holds another address than the invited one resolves `refused` with
+   * 403 and the server's sentence, the invitation still standing; so does an account that
+   * has not confirmed the invited address or holds none, since the link proves nothing of
+   * who holds it: the sentence tells the person to sign in again from the invitation's
+   * link, and that sign-in is held for the code mailed to the invited address.
    */
   async acceptInvitation(): Promise<InvitationAcceptResult> {
     const routes = await this.invitationRoutes();
@@ -1200,14 +1209,17 @@ export class AuthClient {
   }
 
   /**
-   * Creates the invited person's account with a password and signs them in, accepting the
-   * invitation the browser carries: reads the methods list again, then posts the account to
-   * the invitation's sign-up route. The account's address is the one the invitation was
-   * sent to, verified; its username is that address when the list says `usernameIsEmail`
-   * (none is posted), and the one given otherwise. The result is the sign-in's: the session, a pending step,
-   * or the refusal: a taken username or address (409), a password under eight characters
-   * or no username (400), no live invitation (404). A server whose list names no sign-up
-   * route for invitations offers no password method, and the call throws saying so.
+   * Asks for the invited person's account with a password, for the invitation the browser
+   * carries: reads the methods list again, then posts the account to the invitation's
+   * sign-up route. The server makes nobody yet: the link proves nothing of who holds it, so
+   * the result is a pending step that waits for the code mailed to the invited address
+   * (`sendCode`, `verifyCode`), and the code creates the account, signs the person in and
+   * accepts the invitation. The account's address is the one the invitation was sent to,
+   * verified by the code; its username is that address when the list says `usernameIsEmail`
+   * (none is posted), and the one given otherwise. A refusal is a taken username or address
+   * (409), a password under eight characters or no username (400), or no live invitation
+   * (404). A server whose list names no sign-up route for invitations offers no password
+   * method, and the call throws saying so.
    */
   async signUpFromInvitation(account: NewAccount): Promise<SignInResult> {
     const routes = await this.invitationRoutes();
@@ -1422,7 +1434,7 @@ export class AuthClient {
   private async emailRoutes(): Promise<EmailRoutes> {
     const list = await this.methods();
     if (!list.email) {
-      throw new Error('this server names no email address routes in its methods list: it sends no mail');
+      throw new Error('this server names no email address routes in its methods list: its router does not serve them');
     }
     return list.email;
   }
@@ -1432,7 +1444,7 @@ export class AuthClient {
     const list = await this.methods();
     if (!list.passwordReset) {
       throw new Error(
-        'this server names no password reset routes in its methods list: it has no password method, or sends no mail',
+        'this server names no password reset routes in its methods list: it has no password method, or its router does not serve them',
       );
     }
     return list.passwordReset;
@@ -1467,7 +1479,7 @@ export class AuthClient {
     const routes = await this.pendingRoutes(true);
     if (!routes.sendCode || !routes.verifyCode || !routes.enrollEmail) {
       throw new Error(
-        'this server names no sign-in code routes in its methods list: it sends no mail, and no sign-in of its waits on the code',
+        'this server names no sign-in code routes in its methods list: its router does not serve them, and no sign-in of its waits on the code',
       );
     }
     return { ...routes, sendCode: routes.sendCode, verifyCode: routes.verifyCode, enrollEmail: routes.enrollEmail };
@@ -1563,6 +1575,45 @@ export class AuthClient {
 }
 
 /**
+ * The kinds of link the server mails, each the name its token travels under in the link:
+ * an invitation, a sign-up, a password reset, an address an administrator asked to
+ * change, and an address a person added.
+ */
+export const MAILED_LINK_KINDS = ['invitation', 'signUp', 'reset', 'address', 'verify'] as const;
+
+/** One kind of mailed link. */
+export type MailedLinkKind = (typeof MAILED_LINK_KINDS)[number];
+
+/** A mailed link as a page was opened with it: its kind, and the token the page posts to the route that uses it. */
+export interface MailedLink {
+  readonly kind: MailedLinkKind;
+  readonly token: string;
+}
+
+/**
+ * Reads the mailed link a page was opened with. The server writes a link's token in the
+ * URL's fragment (`https://app.example/login#invitation=<token>`), which a browser sends
+ * to no server: the token is in no request line, so in no request log. `fragment` is the
+ * address's fragment, with or without its `#`.
+ *
+ * The answer is the link, for the page to take out of the address at once and post in the
+ * body of the request that uses it, or undefined for an address that carries no link. The
+ * fragment is the only place a link is read from: the server writes a token nowhere else,
+ * so a parameter of a link's name in the address's query is not a link, and a page that
+ * asks here never reads or posts one.
+ */
+export function mailedLink(fragment: string | null | undefined): MailedLink | undefined {
+  const carried = new URLSearchParams((fragment ?? '').replace(/^#/, ''));
+  for (const kind of MAILED_LINK_KINDS) {
+    const token = carried.get(kind) ?? '';
+    if (token !== '') {
+      return { kind, token };
+    }
+  }
+  return undefined;
+}
+
+/**
  * What a person reads who asks for their own password reset link where the application
  * does not let them: the server's own sentence for the request, word for word.
  */
@@ -1627,7 +1678,6 @@ function standingOf(value: Partial<StandingInvitation> | null | undefined): Stan
   if (!value || typeof value !== 'object') {
     return undefined;
   }
-  const methods = methodNamesOf(value.methods);
   return {
     email: stringOf(value.email),
     tenantId: stringOf(value.tenantId),
@@ -1635,7 +1685,7 @@ function standingOf(value: Partial<StandingInvitation> | null | undefined): Stan
     ...newTenantOf(value),
     expiresAt: stringOf(value.expiresAt),
     usernameIsEmail: value.usernameIsEmail === true,
-    ...(methods === undefined ? {} : { methods }),
+    methods: methodNamesOf(value.methods),
     ...accountFactsOf(value),
   };
 }
@@ -1656,25 +1706,22 @@ function newTenantOf(value: { newTenant?: unknown; directoryOnly?: unknown }): {
 }
 
 /**
- * The account facts an invitation answer carries, when it carries them: whether an account
- * holds the invited address and whether it signs in with a password. Both are read only
- * when the server said whether an account exists; an older server says nothing, and the
- * facts stay absent.
+ * The account facts an invitation answer carries: whether an account holds the invited
+ * address and whether it signs in with a password. A fact left out reads as false, and
+ * the password is read only beside an account.
  */
 function accountFactsOf(value: { accountExists?: unknown; hasPassword?: unknown }): {
-  accountExists?: boolean;
-  hasPassword?: boolean;
+  accountExists: boolean;
+  hasPassword: boolean;
 } {
-  if (typeof value.accountExists !== 'boolean') {
-    return {};
-  }
-  return { accountExists: value.accountExists, hasPassword: value.hasPassword === true };
+  const accountExists = value.accountExists === true;
+  return { accountExists, hasPassword: accountExists && value.hasPassword === true };
 }
 
-/** The registration names an invitation answer lists, strings only; undefined where it lists none, or what it lists is not a list. */
-function methodNamesOf(value: unknown): readonly string[] | undefined {
+/** The registration names an invitation answer lists, strings only; none where what it lists is not a list. */
+function methodNamesOf(value: unknown): readonly string[] {
   if (!Array.isArray(value)) {
-    return undefined;
+    return [];
   }
   return value.filter((name): name is string => typeof name === 'string');
 }

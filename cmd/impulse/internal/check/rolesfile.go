@@ -30,11 +30,12 @@ import (
 // that parses. And where the application's generators have written a permission
 // collection (App.Served), every grant is on what the application serves: a resource the
 // collection names, at the scope of the role that grants it, for a permission the
-// resource takes, and on fields the resource has for that permission. No grant names an
-// action no role is given either: an entry the generated collection files write with
-// NoRole: true, such as the action of the generated create-your-tenant route. That is
-// the one finding such a grant gets, saying why, since the engine refuses the grant for
-// it before it looks at the action's scope or permission. A file the engine would refuse
+// resource takes, and on fields the resource has for that permission, whether among a
+// grant's fields or granted alone (Resource.field). No grant names an action no role is
+// given either: an entry the generated collection files write with NoRole: true, such as
+// the action of the generated create-your-tenant route. That is the one finding such a
+// grant gets, saying why, since the engine refuses the grant for it before it looks at
+// the action's scope or permission. A file the engine would refuse
 // stops the release at start, so the refusal is a finding here, naming the file, the
 // role and the rule. A grant's condition against the collection's vocabulary stays with
 // the engine and the validation test auths-wired asks for.
@@ -93,10 +94,12 @@ func (c rolesFileAccepted) Run(_ context.Context, env *Env) Result {
 // unservedGrants are the grants of a role file the permission engine refuses against the
 // application's collection, each as a finding: a grant on a resource the application
 // does not serve, at the other scope than its role's, for a permission the resource does
-// not take, or on a field the resource does not have for the permission. A nil served,
-// an application whose generators have written no collection, has none to find. A grant
-// of an action no role is given is not judged here: noRoleGrants names it, and the
-// engine refuses it for that before it looks at where the action is served.
+// not take, or on a field the resource does not have for the permission, among the
+// grant's fields or granted alone (Resource.field). A nil served, an application whose
+// generators have written no collection, has none to find. A grant of an action no role
+// is given, by its name or as all its fields (Action.*), is not judged here: noRoleGrants
+// names it, and the engine refuses it for that before it looks at where the action is
+// served.
 func unservedGrants(rel string, config *access.RoleConfig, served *app.Served, noRole map[accesstypes.Resource]string) []string {
 	if served == nil || config == nil {
 		return nil
@@ -118,7 +121,7 @@ func unservedGrants(rel string, config *access.RoleConfig, served *app.Served, n
 			sort.Strings(permissions)
 			for _, permission := range permissions {
 				for _, grant := range role.Permissions[accesstypes.Permission(permission)] {
-					if _, marked := noRole[grant.Resource]; marked {
+					if _, marked := noRole[heldName(grant.Resource)]; marked {
 						continue
 					}
 					if finding := unservedGrant(served, s.scope, string(role.Name), permission, grant); finding != "" {
@@ -133,15 +136,23 @@ func unservedGrants(rel string, config *access.RoleConfig, served *app.Served, n
 }
 
 // unservedGrant is what is wrong with one grant against what the application serves,
-// with what to do, or empty for a grant the engine accepts.
+// with what to do, or empty for a grant the engine accepts. A grant of one field alone,
+// written Resource.field (as a role grants a field beside a grant of the resource that
+// carries a condition), is judged as that field of the resource, and a grant of all a
+// resource's fields, Resource.*, as the resource: the engine reads both so.
 func unservedGrant(served *app.Served, scope, role, permission string, grant access.Grant) string {
 	resource := string(grant.Resource)
-	r, ok := served.Resource(resource)
+	base, field, dotted := strings.Cut(string(heldName(grant.Resource)), ".")
+	r, ok := served.Resource(base)
 	switch {
 	case !ok:
 		return fmt.Sprintf("the %s role %s grants %s on %s, which the application does not serve (no resource of that name is in %s): take the grant out of the role, or serve the resource and run go generate ./...", scope, role, permission, resource, strings.Join(served.Files, ", "))
 	case r.Scope != scope:
 		return fmt.Sprintf("%s is a %s role and grants %s on %s, a %s resource: a role's grants are at its own scope, so move the grant to a %[5]s role", role, scope, permission, resource, r.Scope)
+	case dotted && !r.FieldTakes(field, permission):
+		return fmt.Sprintf("the %s role %s grants %s on %s, a field %s does not have for %[3]s: take the grant out of the role, or run go generate ./... if the resource just gained the field", scope, role, permission, resource, base)
+	case dotted:
+		return ""
 	case !r.Takes(permission):
 		return fmt.Sprintf("the %s role %s grants %s on %s, which takes %s and not %[3]s: take the grant out of the role, or grant a permission the resource takes", scope, role, permission, resource, takenWords(r.Permissions))
 	}
@@ -156,6 +167,19 @@ func unservedGrant(served *app.Served, scope, role, permission string, grant acc
 	}
 
 	return ""
+}
+
+// heldName is the name the permission engine holds a role file's grant to: the
+// resource's own for a grant of all its fields (Resource.*), and the name as written
+// for every other, as the engine's declaredName reads it. The name is cut with
+// strings.Cut, since accesstypes.Resource.ResourceAndTag panics on a name with a
+// second dot and a role file can hold any text.
+func heldName(res accesstypes.Resource) accesstypes.Resource {
+	if base, field, dotted := strings.Cut(string(res), "."); dotted && field == "*" {
+		return accesstypes.Resource(base)
+	}
+
+	return res
 }
 
 // takenWords names the permissions a resource takes, or says it takes none.
@@ -264,8 +288,9 @@ func noRoleEntry(n ast.Node) (accesstypes.Resource, bool) {
 }
 
 // noRoleGrants names each grant of a parsed role file that names an action no role is
-// given, in the file's order (the global roles, then the domain roles, each role's
-// permissions by name), saying what the action is and what to do.
+// given, by its name or as all its fields (Action.*, held to the action's name as the
+// engine holds it), in the file's order (the global roles, then the domain roles, each
+// role's permissions by name), saying what the action is and what to do.
 func noRoleGrants(rel string, config *access.RoleConfig, noRole map[accesstypes.Resource]string) []string {
 	if len(noRole) == 0 {
 		return nil
@@ -280,7 +305,7 @@ func noRoleGrants(rel string, config *access.RoleConfig, noRole map[accesstypes.
 		sort.Strings(permissions)
 		for _, p := range permissions {
 			for _, g := range role.Permissions[accesstypes.Permission(p)] {
-				marks, ok := noRole[g.Resource]
+				marks, ok := noRole[heldName(g.Resource)]
 				if !ok {
 					continue
 				}

@@ -86,7 +86,7 @@ func newFirstAdministratorApp[Tx any](ctx context.Context, t *testing.T, be back
 		sender = recorder
 	}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
-		session.WithMail(sender, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login", InvitationTimeout: shape.stands}))
+		session.MailSettings{Sender: sender, Application: "Lakeside", LoginURL: "https://app.example/login", InvitationTimeout: shape.stands})
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
@@ -255,7 +255,7 @@ func runFirstAdministratorSeams[Tx any](t *testing.T, be backend[Tx]) {
 		run  func(ctx context.Context, t *testing.T, be backend[Tx])
 	}{
 		{
-			name: "a first release mails the address one invitation; the person chooses a password from it and holds the roles; no account stood before, and a release after it mails nothing",
+			name: "a first release mails the address one invitation; the person chooses a password from it, enters the code mailed to the address and holds the roles; no account stood before, and a release after it mails nothing",
 			run:  seamFirstAdministratorByPassword[Tx],
 		},
 		{
@@ -329,7 +329,7 @@ func seamFirstAdministratorByPassword[Tx any](ctx context.Context, t *testing.T,
 	if status := a.open(ctx, b, lastInvitationToken(t, a.mail)); status != http.StatusOK {
 		t.Fatalf("opening the invitation = %d, want 200", status)
 	}
-	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation/sign-up", map[string]string{"username": "ada", "password": seedPassword}, b.xsrfToken())
+	a.signUpInvited(ctx, b, "ada", firstAdministrator)
 	signedInAs(ctx, t, b, "ada")
 	if diff := cmp.Diff(firstAdministratorRoles, a.holds("ada")); diff != "" {
 		t.Errorf("the roles the acceptance gave (-want +got):\n%s", diff)
@@ -342,15 +342,15 @@ func seamFirstAdministratorByPassword[Tx any](ctx context.Context, t *testing.T,
 		t.Fatalf("UserByUsername(ada) error = %v", err)
 	}
 	if user.Email == nil || *user.Email != firstAdministrator || !user.EmailVerified() {
-		t.Errorf("the account's address = %v (verified %v), want %s, proven by the link", user.Email, user.EmailVerified(), firstAdministrator)
+		t.Errorf("the account's address = %v (verified %v), want %s, proven by the code mailed to it", user.Email, user.EmailVerified(), firstAdministrator)
 	}
 
 	after := a.release(ctx, t, firstAdministrator)
 	if after.Outcome != session.FirstAdministratorRoleHeld {
 		t.Errorf("the release after the person accepted = %+v, want nobody invited: they hold the Super Administrator role", after)
 	}
-	if got := len(a.mailed()); got != 1 {
-		t.Errorf("messages mailed in all = %d, want the one invitation", got)
+	if diff := cmp.Diff([]string{firstAdministrator, firstAdministrator}, a.mailed()); diff != "" {
+		t.Errorf("addresses mailed in all (-want +got): the one invitation and the code that accepted it\n%s", diff)
 	}
 }
 
@@ -538,7 +538,7 @@ func seamFirstAdministratorSentAgain[Tx any](ctx context.Context, t *testing.T, 
 	if status := a.open(ctx, b, fresh); status != http.StatusOK {
 		t.Fatalf("opening the fresh invitation = %d, want 200", status)
 	}
-	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation/sign-up", map[string]string{"username": "ada", "password": seedPassword}, b.xsrfToken())
+	a.signUpInvited(ctx, b, "ada", firstAdministrator)
 	signedInAs(ctx, t, b, "ada")
 
 	// The person holds the Super Administrator role: the action refuses, and mails
@@ -546,8 +546,8 @@ func seamFirstAdministratorSentAgain[Tx any](ctx context.Context, t *testing.T, 
 	if _, err := a.api.ReinviteFirstAdministrator(ctx, a, req); !errors.Is(err, session.ErrFirstAdministratorRoleHeld) {
 		t.Errorf("ReinviteFirstAdministrator() once the person holds the role: error = %v, want %v", err, session.ErrFirstAdministratorRoleHeld)
 	}
-	if got := len(a.mailed()); got != 2 {
-		t.Errorf("messages mailed in all = %d, want 2: the release's and the action's", got)
+	if got := len(a.mailed()); got != 3 {
+		t.Errorf("messages mailed in all = %d, want 3: the release's, the action's and the code that accepted the invitation", got)
 	}
 }
 
@@ -597,7 +597,7 @@ func seamFirstAdministratorAccountsWithoutTheRole[Tx any](ctx context.Context, t
 	if status := a.open(ctx, b, lastInvitationToken(t, a.mail)); status != http.StatusOK {
 		t.Fatalf("opening the fresh invitation = %d, want 200", status)
 	}
-	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation/sign-up", map[string]string{"username": "ada", "password": seedPassword}, b.xsrfToken())
+	a.signUpInvited(ctx, b, "ada", firstAdministrator)
 	signedInAs(ctx, t, b, "ada")
 	after := a.release(ctx, t, firstAdministrator)
 	if after.Outcome != session.FirstAdministratorRoleHeld {
@@ -606,8 +606,8 @@ func seamFirstAdministratorAccountsWithoutTheRole[Tx any](ctx context.Context, t
 	if _, err := a.api.ReinviteFirstAdministrator(ctx, a, req); !errors.Is(err, session.ErrFirstAdministratorRoleHeld) {
 		t.Errorf("ReinviteFirstAdministrator() once the person holds the role: error = %v, want %v", err, session.ErrFirstAdministratorRoleHeld)
 	}
-	if got := len(a.mailed()); got != 2 {
-		t.Errorf("messages mailed in all = %d, want 2: the release's and the action's", got)
+	if got := len(a.mailed()); got != 3 {
+		t.Errorf("messages mailed in all = %d, want 3: the release's, the action's and the code that accepted the invitation", got)
 	}
 }
 

@@ -94,7 +94,7 @@ func TestAuth_ACodeWritesOnlyWhileTheAccountHoldsWhatItHeld(t *testing.T) {
 				ID: impulse.Must(impulse.NewUUID()), TokenHash: []byte("the pending token's hash"), Step: sessioninfo.PendingMFA,
 				UserID: impulse.NullUUIDFromUUID(userID), Username: "pat", Identity: passwords,
 			}
-			code := expectFactorCode(f, pending, "123456")
+			code := expectFactorCode(f, pending)
 			code.row.Email = tt.mailedTo
 			// consumedAtRead says, for each read of the account, whether the code had been
 			// consumed by then.
@@ -122,7 +122,7 @@ func TestAuth_ACodeWritesOnlyWhileTheAccountHoldsWhatItHeld(t *testing.T) {
 				f.store.EXPECT().ConsumePendingSignIn(gomock.Any(), pending.TokenHash).Return(httpio.NewNotFoundMessage("no live pending sign-in"))
 			}
 
-			_, err := f.auth.completeWithEmailCode(context.Background(), httptest.NewRecorder(), pending, "123456", false)
+			_, err := f.auth.completeWithEmailCode(context.Background(), httptest.NewRecorder(), pending, standingCode, false)
 
 			if got := sessioninfo.LoginRefusalCodeOf(err); err == nil || got != tt.want {
 				t.Errorf("completeWithEmailCode() error = %v (code %q), want the refusal %q", err, got, tt.want)

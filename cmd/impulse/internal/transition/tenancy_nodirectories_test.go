@@ -79,7 +79,7 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 			"\tTenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]\n",
 			"\tif settings.TenantDeclarations == nil {\n",
 			"\tTenantMaker identity.TenantMaker\n}",
-			"\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators)",
+			"\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators)",
 			"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n",
 		},
 		"pkg/config/data.go":              {"app.NewTenantDeclarationReader()", "app.NewTenantMaker(tenants, liveService)"},

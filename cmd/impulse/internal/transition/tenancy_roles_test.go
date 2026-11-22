@@ -237,7 +237,7 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		for _, want := range []string{
 			"func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *testing.T) {",
 			`provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "DisableStaffTenantUser", "heldElsewhere = false AND heldGlobally = false")`,
-			`"example.com/acme/depot/pkg/auth/staff"`, `"/api/tenants/"+tenant+"/"+method`, `"create-staff-tenant-user"`, `"password": "first-day-pass"`,
+			`"example.com/acme/depot/pkg/auth/staff"`, `"/api/tenants/"+tenant+"/"+method`, "staffAccount(ctx, t, s, name,", `password := "first-day-pass"`, `"/api/assign-staff-role"`,
 			`const south = "` + devTenantSouth + `"`, "admin.signIn(ctx, adminUser)",
 		} {
 			if !strings.Contains(proof, want) {
@@ -385,7 +385,7 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		}
 		for _, want := range []string{
 			`provesGrant(t, crew.Roles(), "SectorAdministrator", "List", "CrewSectorSignInWays", "password = false OR heldElsewhere = false")`,
-			`"/api/sectors/"+tenant+"/"+method`, `"create-crew-sector-user"`, `"/api/assign-crew-role"`, `spanner.InsertMap("CrewSessionIdentities"`,
+			`"/api/sectors/"+tenant+"/"+method`, "crewAccount(ctx, t, s, name,", `"/api/assign-crew-role"`, `spanner.InsertMap("CrewSessionIdentities"`,
 		} {
 			if !strings.Contains(proof, want) {
 				t.Errorf("%s does not contain %q", tenantPeopleTest, want)

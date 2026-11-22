@@ -182,13 +182,11 @@ type GeneratedHandlers interface {
 
 	CreateCrewSectorGroup() http.HandlerFunc
 
-	CreateCrewSectorUser() http.HandlerFunc
-
-	CreateCrewUser() http.HandlerFunc
-
 	CreateSector() http.HandlerFunc
 
 	CreateSectorOffered() http.HandlerFunc
+
+	CrewGivableRoles() http.HandlerFunc
 
 	CrewGroups() http.HandlerFunc
 	CrewGroup() http.HandlerFunc
@@ -526,15 +524,11 @@ type GeneratedHandlers interface {
 
 	ServiceLedgers() http.HandlerFunc
 
-	SetCrewSectorTemporaryPassword() http.HandlerFunc
-
 	SetCrewSectorUserEmail() http.HandlerFunc
 
 	SetCrewSectorUserName() http.HandlerFunc
 
 	SetCrewSelfServiceReset() http.HandlerFunc
-
-	SetCrewTemporaryPassword() http.HandlerFunc
 
 	SetCrewUserEmail() http.HandlerFunc
 
@@ -708,13 +702,13 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/console/api/sectors/{sectorID}/create-crew-sector-group", domainGuard(h.CreateCrewSectorGroup()))
 
-	asked.Post("/console/api/sectors/{sectorID}/create-crew-sector-user", domainGuard(h.CreateCrewSectorUser()))
-
-	asked.Post("/console/api/create-crew-user", h.CreateCrewUser())
-
 	bounded.Post("/console/api/create-sector", h.CreateSector())
 
 	bounded.Get("/console/api/create-sector", h.CreateSectorOffered())
+
+	crewGivableRolesHandler := h.CrewGivableRoles()
+	bounded.Get("/console/api/crew-givable-roles", crewGivableRolesHandler)
+	bounded.Post("/console/api/crew-givable-roles", crewGivableRolesHandler)
 
 	crewGroupsHandler := h.CrewGroups()
 	bounded.Get("/console/api/crew-groups", crewGroupsHandler)
@@ -1360,15 +1354,11 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/service-ledgers", serviceLedgersHandler)
 	bounded.Post("/console/api/service-ledgers", serviceLedgersHandler)
 
-	asked.Post("/console/api/sectors/{sectorID}/set-crew-sector-temporary-password", domainGuard(h.SetCrewSectorTemporaryPassword()))
-
 	asked.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-email", domainGuard(h.SetCrewSectorUserEmail()))
 
 	asked.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-name", domainGuard(h.SetCrewSectorUserName()))
 
 	asked.Post("/console/api/set-crew-self-service-reset", h.SetCrewSelfServiceReset())
-
-	asked.Post("/console/api/set-crew-temporary-password", h.SetCrewTemporaryPassword())
 
 	asked.Post("/console/api/set-crew-user-email", h.SetCrewUserEmail())
 

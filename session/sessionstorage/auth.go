@@ -116,24 +116,14 @@ type AuthStore[Tx any] interface {
 	UserStore
 	// Users lists every user, by username.
 	Users(ctx context.Context) ([]*SessionUser, error)
-	// ReplaceUserPassword sets a user's password hash and whether the user must change
-	// the password before anything else is served (SessionUser.PasswordChangeRequired:
-	// true for a password an operator set, false for one the user chose), and expires
-	// every session of the user, as DestroyUserSessions does, in one transaction: the
-	// password is replaced and the sessions ended together, or neither is, so no
-	// failure leaves the new password in place and a session alive. It follows no proof
-	// of the password it replaces and overwrites whatever the row holds: it is an
-	// operator's write, or the end of a flow that proved who the person is by other
-	// means. A user's own change is ChangeUserPassword.
-	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
 	// ChangeUserPassword replaces the password a user proved with one the user chose,
 	// clears the password change mark and expires every session of the user, as
 	// DestroyUserSessions does, in one transaction: the password is changed and the
 	// sessions ended together, or neither is. proven is the hash the caller compared the
 	// user's old password against, and the write lands only while the row still holds
 	// it: a password changed, reset or removed since the caller read it stands as it is
-	// (ErrPasswordChanged), with no session ended, so a temporary password an operator
-	// set meanwhile is not overwritten on proof of the password it replaced. A write with
+	// (ErrPasswordChanged), with no session ended, so a password a reset link set
+	// meanwhile is not overwritten on proof of the password it replaced. A write with
 	// no proven hash writes nothing, and one with no new hash is refused.
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// SetFirstUserPassword gives a user who holds no password the one they chose, with
@@ -406,6 +396,11 @@ type AuthStore[Tx any] interface {
 	// RevokeMailLink consumes the live mail link id: an invitation withdrawn by hand.
 	// A link that is not live is NotFound.
 	RevokeMailLink(ctx context.Context, id impulse.UUID) error
+	// FailMailLink ends the live mail link id whose message could not be mailed. The
+	// link is consumed, as a withdrawn one is, and its row says the mail failed, so a
+	// list of the links tells it from one that was followed or withdrawn. A link that
+	// is not live is NotFound.
+	FailMailLink(ctx context.Context, id impulse.UUID) error
 	// SetFactorCodesTableName sets the name of the factor codes table.
 	SetFactorCodesTableName(name string) error
 	// SetTrustedDevicesTableName sets the name of the trusted devices table.
@@ -440,11 +435,16 @@ type AuthStore[Tx any] interface {
 	// RevokeTrustedDevices revokes every device of userID that is not revoked yet: an
 	// administrator's reset of the person's factors.
 	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
-	// AcceptInvitation accepts inv for user userID in one transaction: the
-	// invitation is consumed, the user's address is set from it when the user holds
-	// no verified address, and accept, the application's hook (nil for none), gives
-	// what the invitation names, handed the transaction; what the hook asks to have
-	// run after the commit runs once it has landed. An invitation that is no longer
+	// AcceptInvitation accepts inv for user userID, a person signed in, in one
+	// transaction: the invitation is consumed and accept, the application's hook (nil
+	// for none), gives what the invitation names, handed the transaction; what the
+	// hook asks to have run after the commit runs once it has landed. The user's
+	// account must hold the invited address confirmed, read in the transaction: the
+	// invitation's link proves no address, so an account that holds none, or has not
+	// confirmed the invited one, is refused (invitation_address, with
+	// signin.ErrInvitationCode among the causes) with nothing written, and accepts by
+	// signing in again from the invitation, which waits for the code mailed to the
+	// invited address. An invitation that is no longer
 	// live is NotFound (signin.ErrInvitationExpired its cause), and nothing is
 	// written; a hook that fails is its error, and nothing is written either.
 	AcceptInvitation(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor[Tx]) error
@@ -634,8 +634,8 @@ type SignInRules[Tx any] struct {
 	Proven PasswordProof
 	// ConfirmAddress says a sign-in through a directory that does not vouch for the
 	// person's address is held for the mailed code that confirms one, while the account
-	// holds no confirmed address. The Auth sets it where it sends mail, for a
-	// registration that is not the deployment's own provider of seeded accounts.
+	// holds no confirmed address. The Auth sets it for every registration but the
+	// deployment's own provider of seeded accounts.
 	ConfirmAddress bool
 	// WaitedOn is the user a pending sign-in waited on, given by the sign-in that
 	// completes the wait and by no other. An identity still linked to nobody is linked
@@ -911,6 +911,18 @@ func (a *Auth[Tx]) RevokeMailLink(ctx context.Context, id impulse.UUID) error {
 	return nil
 }
 
+// FailMailLink implements AuthStore.
+func (a *Auth[Tx]) FailMailLink(ctx context.Context, id impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.FailMailLink(ctx, id, time.Now()); err != nil {
+		return errors.Wrap(err, "db.FailMailLink()")
+	}
+
+	return nil
+}
+
 // SetFactorCodesTableName implements AuthStore.
 func (a *Auth[Tx]) SetFactorCodesTableName(name string) error {
 	if err := a.db.SetFactorCodesTableName(name); err != nil {
@@ -1061,18 +1073,6 @@ func (a *Auth[Tx]) Users(ctx context.Context) ([]*SessionUser, error) {
 	}
 
 	return users, nil
-}
-
-// ReplaceUserPassword implements AuthStore.
-func (a *Auth[Tx]) ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if err := a.db.ReplaceUserPassword(ctx, id, hash, changeRequired); err != nil {
-		return errors.Wrap(err, "db.ReplaceUserPassword()")
-	}
-
-	return nil
 }
 
 // ChangeUserPassword implements AuthStore.

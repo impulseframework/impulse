@@ -155,12 +155,6 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 			},
 		},
 		{
-			name: "a password", route: "set-crew-temporary-password", says: "set your own password", classed: true,
-			body: func(p who) string {
-				return fmt.Sprintf(`{"userId":%q,"password":"a temporary passphrase 7"}`, p.id)
-			},
-		},
-		{
 			name: "a reset link", route: "send-crew-user-password-reset-link", says: "send yourself a password reset link", classed: true,
 			body: func(p who) string {
 				return fmt.Sprintf(`{"userId":%q}`, p.id)
@@ -316,9 +310,7 @@ func TestImpersonation_accountSwitchesNeverTheirOwn(t *testing.T) {
 	marshal := account(t, "marshal")
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
-	status, body := governor.do(ctx, http.MethodPost, sectorPath(anvil, "create-crew-sector-user"), []byte(`{"username":"gus","email":"Gus <gus@example.com>","roles":["Cadet"]}`))
-	assertStatus(t, status, http.StatusOK, body)
-	gus := cell[string](t, decodeRow(t, body), "id")
+	gus := string(anvilsOwn(ctx, t, s))
 
 	giveMarshalStandIn(ctx, t, s)
 	acting := newBrowser(t, s, consoleAPI)

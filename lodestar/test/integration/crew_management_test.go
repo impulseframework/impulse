@@ -147,13 +147,13 @@ func standingInvitations(ctx context.Context, t *testing.T, b *browser) []map[st
 	return standing
 }
 
-// standingSectorInvitations are the invitations into the sector that stand, read from
-// the sector's list of invitations.
-func standingSectorInvitations(ctx context.Context, t *testing.T, b *browser, sector string) []map[string]any {
+// standingAnvilInvitations are the invitations into Anvil that stand, read from the
+// sector's list of invitations.
+func standingAnvilInvitations(ctx context.Context, t *testing.T, b *browser) []map[string]any {
 	t.Helper()
 
 	var standing []map[string]any
-	for _, row := range crewSectorList(ctx, t, b, sector, sectorInvitationsPath) {
+	for _, row := range crewSectorList(ctx, t, b, anvil, sectorInvitationsPath) {
 		if pending, _ := row["pending"].(bool); pending {
 			standing = append(standing, row)
 		}

@@ -42,10 +42,11 @@ var invitedSectorFields = []string{"email", "name", "sectorName", "sectorRegion"
 // method's own grant sends nothing without it; a sender who may create a sector's name
 // and region but not the date it was established is refused an invitation that carries
 // the date; and with the record and every field given the check passes. This suite
-// serves no session manager, so the invitation the check let through fails where its
-// link would be made (500): the status that tells the check was passed, since a refused
-// check answers 403 and never reaches that step. A name a sector holds is refused by the
-// same check (409), before anything is prepared.
+// serves no session manager, and its stand-in for one keeps each invitation it is
+// handed before it fails (preparedInvitations), so the invitation the check let through
+// is told from any other failure: it answers 500 and the stand-in was handed it, with
+// the sector it makes, where a refused check answers 403 and hands it nothing. A name a
+// sector holds is refused by the same check (409), before anything is prepared.
 func TestInvitedSectorGrants_sendingTakesCreateOnSectors(t *testing.T) {
 	t.Parallel()
 
@@ -55,7 +56,9 @@ func TestInvitedSectorGrants_sendingTakesCreateOnSectors(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const dawn = `{"email":"founder@dawn.example","sectorName":"Dawn","sectorRegion":"Outer frontier","sectorEstablished":"2226-10-02"}`
+	// The address is this test's own: the stand-in keeps what it is handed under it.
+	const founder = "founder-of-dawn@grants.example"
+	const dawn = `{"email":"` + founder + `","sectorName":"Dawn","sectorRegion":"Outer frontier","sectorEstablished":"2226-10-02"}`
 	method := []accesstypes.Resource{inviteSectorMethod}
 	tests := []struct {
 		name     string
@@ -63,6 +66,9 @@ func TestInvitedSectorGrants_sendingTakesCreateOnSectors(t *testing.T) {
 		body     string
 		want     int
 		wantBody string
+		// prepared is the sector of the invitation the stand-in for the session manager
+		// is handed, "" where the request is refused before the link is made.
+		prepared string
 	}{
 		{
 			name:   "the method's grant alone: no Create on Sectors",
@@ -96,16 +102,32 @@ func TestInvitedSectorGrants_sendingTakesCreateOnSectors(t *testing.T) {
 			wantBody: "a sector with the name Anvil already exists: give the new one another",
 		},
 		{
-			name:   "Create on the record and every field: the check passes, and the suite has no session manager to make the link",
-			grants: grants{accesstypes.Execute: method, accesstypes.Create: withFields(sectorsRecord, "name", "region", "established")},
-			body:   dawn,
-			want:   http.StatusInternalServerError,
+			name:     "Create on the record and every field: the check passes, the request reaches the step that makes the link, with the sector, and fails there alone, in the suite's stand-in for the session manager",
+			grants:   grants{accesstypes.Execute: method, accesstypes.Create: withFields(sectorsRecord, "name", "region", "established")},
+			body:     dawn,
+			want:     http.StatusInternalServerError,
+			prepared: "Dawn",
 		},
 	}
 	for _, tt := range tests {
 		status, body := doRequestAs(t, newTestApp(db, tt.grants), tenantGovernor, http.MethodPost, inviteSectorPath, tt.body)
 		if status != tt.want || !strings.Contains(string(body), tt.wantBody) {
 			t.Errorf("%s: status %d, want %d saying %q: %s", tt.name, status, tt.want, tt.wantBody, body)
+		}
+		var prepared []string
+		for _, req := range preparedInvitations.take(founder) {
+			if req.NewTenant == nil {
+				t.Errorf("%s: the session manager's stand-in was handed an invitation that makes no sector: %+v", tt.name, req)
+
+				continue
+			}
+			prepared = append(prepared, req.NewTenant.Name)
+		}
+		switch {
+		case tt.prepared == "" && len(prepared) != 0:
+			t.Errorf("%s: the session manager's stand-in was handed the invitation of %v, want it never reached", tt.name, prepared)
+		case tt.prepared != "" && !slices.Equal(prepared, []string{tt.prepared}):
+			t.Errorf("%s: the session manager's stand-in was handed the invitations of %v, want the one of %s: a 500 that never reached it is another failure", tt.name, prepared, tt.prepared)
 		}
 	}
 

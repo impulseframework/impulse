@@ -381,8 +381,8 @@ func (tn Tenancy) inApplicationNames(grant access.Grant, served *app.Served, aut
 // The opening of the description the base gives its administrator role, and what
 // tenancy retells it as: the role now brings tenants in too.
 const (
-	administratorManages        = "Manages the application's people: creates accounts, invites people,"
-	administratorManagesTenants = "Manages the application's %s and people: brings a %s in by inviting the person who will administer it, creates accounts and invites people,"
+	administratorManages        = "Manages the application's people: invites people,"
+	administratorManagesTenants = "Manages the application's %s and people: brings a %s in by inviting the person who will administer it, invites people,"
 )
 
 // grantTenantMaking gives the application's own administrator role, the first global

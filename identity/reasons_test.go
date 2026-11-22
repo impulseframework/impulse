@@ -434,19 +434,19 @@ func TestManager_RolesToTake(t *testing.T) {
 	}{
 		{
 			name: "with tenants: the roles that exist in every tenant", ctx: asDana, tenants: true, grants: &fakeGrants{},
-			want: []accesstypes.Role{"Reader", "Warden"}, wantAsked: []string{"could give " + everyScope.String() + " Reader", "could give " + everyScope.String() + " Warden"},
+			want: []accesstypes.Role{"Reader", "Warden"}, wantAsked: []string{string(assigns) + " could give " + everyScope.String() + " Reader", string(assigns) + " could give " + everyScope.String() + " Warden"},
 		},
 		{
 			name: "without tenants: the whole application's roles, never the Super Administrator role", ctx: asDana, grants: &fakeGrants{},
-			want: []accesstypes.Role{"Steward"}, wantAsked: []string{"could give " + globalScope.String() + " Steward"},
+			want: []accesstypes.Role{"Steward"}, wantAsked: []string{string(assigns) + " could give " + globalScope.String() + " Steward"},
 		},
 		{
 			name: "a role the caller could give nobody is not offered", ctx: asDana, tenants: true, grants: &fakeGrants{noneGives: []accesstypes.Role{"Warden"}},
-			want: []accesstypes.Role{"Reader"}, wantAsked: []string{"could give " + everyScope.String() + " Reader", "could give " + everyScope.String() + " Warden"},
+			want: []accesstypes.Role{"Reader"}, wantAsked: []string{string(assigns) + " could give " + everyScope.String() + " Reader", string(assigns) + " could give " + everyScope.String() + " Warden"},
 		},
 		{name: "a call outside any request lists every role", ctx: outside, tenants: true, noGrants: true, want: []accesstypes.Role{"Reader", "Warden"}},
 		{name: "a request the manager cannot judge is an error", ctx: asDana, tenants: true, noGrants: true, wantErr: "identity.WithRoleGrants"},
-		{name: "the role grants cannot be read", ctx: asDana, tenants: true, grants: &fakeGrants{err: errStore}, wantErr: errStore.Error(), wantAsked: []string{"could give " + everyScope.String() + " Reader"}},
+		{name: "the role grants cannot be read", ctx: asDana, tenants: true, grants: &fakeGrants{err: errStore}, wantErr: errStore.Error(), wantAsked: []string{string(assigns) + " could give " + everyScope.String() + " Reader"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -461,7 +461,7 @@ func TestManager_RolesToTake(t *testing.T) {
 			}
 			m, _ := newManager(t, groupStore(), roles, opts...)
 
-			listed, err := m.RolesToTake(tt.ctx(t.Context()), tt.tenants)
+			listed, err := m.RolesToTake(tt.ctx(t.Context()), assigns, tt.tenants)
 			if tt.wantErr != "" {
 				if err == nil || httpio.HasForbidden(err) || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("RolesToTake() error = %v, want an error containing %q", err, tt.wantErr)

@@ -70,8 +70,8 @@ const (
 
 // TestManager_directoryOnly_administratorsRole pins that who holds a tenant's
 // administrator role in the tenant is changed only by a caller the tenant admits: every
-// act that gives the role or takes it away, to a person, through a new account, by an
-// invitation, to a group, or by a place in a group that holds it, is refused a caller
+// act that gives the role or takes it away, to a person, by an invitation, to a group,
+// or by a place in a group that holds it, is refused a caller
 // whose session does not enter the tenant, in a sentence that says who does it. A
 // caller the tenant admits makes the change, the application acts outside any request,
 // and neither another role of the tenant nor the role held in every tenant is judged.
@@ -90,9 +90,6 @@ func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 		act   func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, scope accesstypes.PolicyScope, role accesstypes.Role) error
 		// tenantOnly marks an act that names one tenant and no other scope.
 		tenantOnly bool
-		// buffersFirst marks an act that buffers a row before its roles are judged: the
-		// refusal fails the transaction, so nothing of it is committed.
-		buffersFirst bool
 	}{
 		{
 			name: "giving a person the role",
@@ -110,15 +107,6 @@ func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 			},
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 				return m.RemoveRole(ctx, txn, scope, userID, role)
-			},
-		},
-		{
-			name: "a new account that starts with the role", buffersFirst: true,
-			setup: func(store *fakeStore) { store.nextID = createdID },
-			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, scope accesstypes.PolicyScope, role accesstypes.Role) error {
-				_, err := m.CreateUser(ctx, txn, &NewAccount{Username: "hale", Scope: scope, Roles: []accesstypes.Role{role}})
-
-				return err
 			},
 		},
 		{
@@ -205,11 +193,77 @@ func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 				if !httpio.HasForbidden(err) || httpio.Message(err) != roleKeptFromOutsiders {
 					t.Fatalf("error = %v, want the refusal reading %q", err, roleKeptFromOutsiders)
 				}
-				if len(store.writes) != 0 && !act.buffersFirst {
+				if len(store.writes) != 0 {
 					t.Errorf("buffered writes = %v, want none", store.writes)
 				}
 			})
 		}
+	}
+}
+
+// TestManager_directoryOnly_administratorsRoleInEveryTenant pins three decisions as they
+// are built. An administrator's role held in every tenant is the application's to give:
+// it is no way into a directory-only tenant, so an invitation that gives it in every
+// tenant and a group of the whole application given it in every tenant are not judged,
+// and a caller no tenant admits makes both. And a person who holds the role in every
+// tenant, and in no tenant of its own, gives the tenant's own administrator role from a
+// session the tenant admits, as its directory's sign-in is: the tenant keeps out who its
+// directory does not let in, and what a person it lets in may give is the role file's
+// to say.
+func TestManager_directoryOnly_administratorsRoleInEveryTenant(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ctx  func(context.Context) context.Context
+		// setup commits what the caller holds.
+		setup func(store *fakeStore)
+		act   func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+	}{
+		{
+			name: "an invitation that gives the role in every tenant is sent by a caller no tenant admits",
+			ctx:  func(ctx context.Context) context.Context { return asEntering(ctx, erin) },
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				_, err := m.Invite(ctx, txn, &Invitation{Email: "hale@example.com", EveryDomain: true, Roles: []accesstypes.Role{"Warden"}}, nil)
+
+				return err
+			},
+		},
+		{
+			name: "a group of the whole application is given the role in every tenant by a caller no tenant admits",
+			ctx:  func(ctx context.Context) context.Context { return asEntering(ctx, erin) },
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.GiveGroupRoleFor(ctx, txn, staffID, everyScope, "Warden", accesstypes.Period{})
+			},
+		},
+		{
+			name: "a caller who holds the role in every tenant gives the tenant's own administrator role from a session the tenant admits",
+			ctx:  func(ctx context.Context) context.Context { return asEntering(ctx, erin, "alpha") },
+			setup: func(store *fakeStore) {
+				store.memberships[access.NewMembershipKey(everyScope, erin, "Warden")] = true
+			},
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.AssignRole(ctx, txn, alphaScope, userID, "Warden")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := groupStore()
+			if tt.setup != nil {
+				tt.setup(store)
+			}
+			m := outsiderManager(t, store)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return tt.act(tt.ctx(ctx), txn, m)
+			})
+			if err != nil {
+				t.Fatalf("error = %v, want the act to go through", err)
+			}
+		})
 	}
 }
 
@@ -310,9 +364,6 @@ func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 		name string
 		act  func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
 	}{
-		{name: "a temporary password", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-			return m.SetTemporaryPassword(ctx, txn, userID, "first-day")
-		}},
 		{name: "the removal of the password", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 			return m.RemovePassword(ctx, txn, userID)
 		}},
@@ -466,7 +517,7 @@ func TestManager_RolesToGive_directoryOnly(t *testing.T) {
 			t.Parallel()
 
 			m := outsiderManager(t, groupStore())
-			roles, err := m.RolesToGive(asEntering(t.Context(), erin, tt.enters...), "alpha")
+			roles, err := m.RolesToGive(asEntering(t.Context(), erin, tt.enters...), assigns, "alpha")
 			if err != nil {
 				t.Fatalf("RolesToGive() error = %v", err)
 			}

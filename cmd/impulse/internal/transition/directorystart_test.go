@@ -376,7 +376,7 @@ func TestDirectoryStart_Apply_byDirectory(t *testing.T) {
 	t.Parallel()
 
 	start := byDirectoryStart("members")
-	a, ch := started(t, &start, "require_members_password_change", "remove_members_password", "set_members_temporary_password", "send_members_user_password_reset_link", "set_members_self_service_reset")
+	a, ch := started(t, &start, "require_members_password_change", "remove_members_password", "send_members_user_password_reset_link", "set_members_self_service_reset")
 
 	t.Run("the auth registers the three methods and no password", func(t *testing.T) {
 		t.Parallel()
@@ -514,18 +514,18 @@ func TestDirectoryStart_Apply_byDirectory(t *testing.T) {
 		t.Parallel()
 
 		resources := granted(t, a, "pkg/auth/members/roles.json")
-		for _, gone := range []string{"RequireMembersPasswordChange", "RemoveMembersPassword", "SetMembersTemporaryPassword", "SendMembersUserPasswordResetLink", "SetMembersSelfServiceReset"} {
+		for _, gone := range []string{"RequireMembersPasswordChange", "RemoveMembersPassword", "SendMembersUserPasswordResetLink", "SetMembersSelfServiceReset"} {
 			if slices.Contains(resources, gone) {
 				t.Errorf("the role file still grants %s, which the application no longer serves: the permission engine refuses the file at start", gone)
 			}
 		}
-		for _, kept := range []string{"CreateMembersUser", "InviteMembersUser", "AssignMembersRole", "MembersSessionUsers", "FeatureFlags"} {
+		for _, kept := range []string{"InviteMembersUser", "AssignMembersRole", "MembersSessionUsers", "FeatureFlags"} {
 			if !slices.Contains(resources, kept) {
 				t.Errorf("the role file lost its grant on %s, which the application still serves", kept)
 			}
 		}
-		if roles := read(t, a, "pkg/auth/members/roles.json"); strings.Contains(roles, "sets temporary passwords") {
-			t.Error("the role file's description still says the role sets temporary passwords")
+		if roles := read(t, a, "pkg/auth/members/roles.json"); strings.Contains(roles, "mails password reset links") {
+			t.Error("the role file's description still says the role mails password reset links")
 		}
 	})
 
@@ -560,7 +560,7 @@ func TestDirectoryStart_Apply_directoryRoles(t *testing.T) {
 	t.Parallel()
 
 	start := directoryRolesStart(app.MethodGoogle, "fleet.example")
-	a, ch := started(t, &start, "set_staff_temporary_password", "assign_staff_role", "remove_staff_role", "invite_staff_user", "withdraw_staff_invitation", "create_staff_user")
+	a, ch := started(t, &start, "send_staff_user_password_reset_link", "assign_staff_role", "remove_staff_role", "invite_staff_user", "withdraw_staff_invitation")
 
 	t.Run("the auth registers the one method, whose directory gives the roles", func(t *testing.T) {
 		t.Parallel()
@@ -686,7 +686,7 @@ func TestDirectoryStart_Apply_directoryRoles(t *testing.T) {
 		t.Parallel()
 
 		resources := granted(t, a, "pkg/auth/staff/roles.json")
-		for _, gone := range []string{"SetStaffTemporaryPassword", "AssignStaffRole", "RemoveStaffRole", "InviteStaffUser", "WithdrawStaffInvitation", "CreateStaffUser"} {
+		for _, gone := range []string{"SendStaffUserPasswordResetLink", "AssignStaffRole", "RemoveStaffRole", "InviteStaffUser", "WithdrawStaffInvitation"} {
 			if slices.Contains(resources, gone) {
 				t.Errorf("the role file still grants %s, which the application no longer serves", gone)
 			}

@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/staff"
+	"github.com/impulseframework/impulse/session"
 )
 
 // TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone proves the
@@ -20,12 +21,12 @@ import (
 //
 // An account is one row for the whole application: a person who holds a role in two
 // tenants is one account, and so is a person who holds a role of the whole application
-// beside a tenant's. The methods a tenant acts on an account through (a temporary
-// password, a new name, a delete) change that one account, so the role file grants them
-// to a tenant's administrator for the people the tenant holds alone and nobody else
+// beside a tenant's. The methods a tenant acts on an account through (a new name, a new
+// address, a delete) change that one account, so the role file grants them to a tenant's
+// administrator for the people the tenant holds alone and nobody else
 // (heldElsewhere = false AND heldGlobally = false). Without the condition north's
-// administrator could set a password on an account that also manages the application,
-// and sign in as it. The same reasoning hides the address and the directory's subject
+// administrator could rename, disable or delete an account that also manages the
+// application. The same reasoning hides the address and the directory's subject
 // of a person another tenant holds too (heldElsewhere = false), and whether such a
 // person has a password (password = false OR heldElsewhere = false on the list of how a
 // person signs in, which lists everyone's identities that count), leaves a role held in
@@ -50,7 +51,6 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "RenameStaffTenantUser", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "SetStaffTenantUserName", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "SetStaffTenantUserEmail", "heldElsewhere = false AND heldGlobally = false")
-	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "SetStaffTenantTemporaryPassword", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "RequireStaffTenantPasswordChange", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "RevokeStaffTenantUserTrustedDevices", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "EndStaffTenantUserSessions", "heldElsewhere = false AND heldGlobally = false")
@@ -67,27 +67,19 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	member := newBrowser(t, s, consoleAPI)
 	member.signIn(ctx, memberUser)
 
-	// North's administrator creates the three in north; the application's administrator
-	// then gives sam a role in south and gail one of the whole application.
+	// The three have accounts already (staffAccount), and the application's
+	// administrator gives each a role in north; then sam a role in south and gail one of
+	// the whole application. A tenant's own method gives a role to a person the tenant
+	// already holds, so every one of these goes through the whole application's method,
+	// which names the tenant, and the person by the id of their account as every method
+	// does.
 	ids := map[string]string{}
 	for _, name := range []string{"nora", "sam", "gail"} {
-		status, body := tenantPost(ctx, member, north, "create-staff-tenant-user", map[string]any{
-			"username": name, "name": "  " + name + " of north ", "email": name + "@example.com", "password": "first-day-pass", "roles": []string{"TenantAdministrator"},
-		})
-		if status != http.StatusOK {
-			t.Fatalf("creating %s in %s: status %d: %s", name, north, status, body)
+		ids[name] = staffAccount(ctx, t, s, name, "  "+name+" of north ")
+		if status, body := admin.do(ctx, http.MethodPost, consoleAPI+"/assign-staff-role", []byte(`{"userId":"`+ids[name]+`","role":"TenantAdministrator","domain":"`+north+`"}`)); status != http.StatusNoContent {
+			t.Fatalf("giving %s a role in %s: status %d: %s", name, north, status, body)
 		}
-		var created struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(body, &created); err != nil || created.ID == "" {
-			t.Fatalf("creating %s answered %s (%v), want the new account's id", name, body, err)
-		}
-		ids[name] = created.ID
 	}
-	// A tenant's own method gives a role to a person the tenant already holds, so the
-	// role in south is given through the whole application's method, which names the
-	// tenant, and the person by the id of their account as every method does.
 	if status, body := admin.do(ctx, http.MethodPost, consoleAPI+"/assign-staff-role", []byte(`{"userId":"`+ids["sam"]+`","role":"TenantAdministrator","domain":"`+south+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("giving sam a role in %s: status %d: %s", south, status, body)
 	}
@@ -200,12 +192,9 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		// A person keeps one way in: a password is removed while an identity that can sign
 		// them in is linked, and an identity unlinked while a password is held. The staff
 		// here sign in with a password alone, so the link written above is of a sign-in the
-		// login page does not offer and signs nobody in: the removal is refused, the
-		// password stays, and the temporary one set next replaces it.
+		// login page does not offer and signs nobody in: the removal is refused, and the
+		// password stays, which is what lets the link go further down.
 		{"remove-staff-tenant-password", user},
-		{"set-staff-tenant-temporary-password", func(name string) map[string]any {
-			return map[string]any{"userId": ids[name], "password": "second-day-pass"}
-		}},
 		{"require-staff-tenant-password-change", user},
 		{"end-staff-tenant-user-sessions", user},
 		{"revoke-staff-tenant-user-trusted-devices", user},
@@ -409,4 +398,22 @@ func rolesHeldIn(ctx context.Context, t *testing.T, b *browser, tenant, list, us
 	slices.Sort(roles)
 
 	return roles
+}
+
+// staffAccount creates an account through the session library's API, as the bootstrap
+// creates the development ones, and answers its id: with a password, the name, which is
+// kept without the space around it, and an address nobody has confirmed. Nobody creates
+// an account for someone else through the application, where a person comes in by an
+// invitation, so a test that needs a person who is there already makes one here and
+// gives them their roles through the methods.
+func staffAccount(ctx context.Context, t *testing.T, s *served, username, name string) string {
+	t.Helper()
+
+	password, email := "first-day-pass", username+"@example.com"
+	id, err := s.staffAuth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: username, Password: &password, Name: &name, Email: &email})
+	if err != nil {
+		t.Fatalf("CreateSessionUser(%s) error = %v", username, err)
+	}
+
+	return id.String()
 }

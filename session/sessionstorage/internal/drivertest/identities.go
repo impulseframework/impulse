@@ -967,10 +967,11 @@ func testPasswordRemoval(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pat, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "pat@lakeside.edu", PasswordHash: temporary, PasswordChangeRequired: true}, nil)
+	pat, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "pat@lakeside.edu", PasswordHash: temporary}, nil)
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
+	h.RequirePasswordChange(ctx, t, in.Raw, pat.ID)
 	session, err := in.Driver.InsertSession(ctx, newInsertSession(pat.Username), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: pat.Username, UserID: pat.ID})
 	if err != nil {
 		t.Fatalf("InsertSession() error = %v", err)

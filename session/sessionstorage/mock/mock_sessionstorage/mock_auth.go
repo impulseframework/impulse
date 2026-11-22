@@ -462,6 +462,20 @@ func (mr *MockAuthStoreMethodsMockRecorder[Tx]) FactorCode(ctx, pendingID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FactorCode", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).FactorCode), ctx, pendingID)
 }
 
+// FailMailLink mocks base method.
+func (m *MockAuthStoreMethods[Tx]) FailMailLink(ctx context.Context, id impulse.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailMailLink", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FailMailLink indicates an expected call of FailMailLink.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) FailMailLink(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailMailLink", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).FailMailLink), ctx, id)
+}
+
 // HoldSignIn mocks base method.
 func (m *MockAuthStoreMethods[Tx]) HoldSignIn(ctx context.Context, p *sessionstorage.PendingSignIn) (impulse.UUID, error) {
 	m.ctrl.T.Helper()
@@ -752,20 +766,6 @@ func (m *MockAuthStoreMethods[Tx]) RemoveUserPassword(ctx context.Context, userI
 func (mr *MockAuthStoreMethodsMockRecorder[Tx]) RemoveUserPassword(ctx, userID, standing any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveUserPassword", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).RemoveUserPassword), ctx, userID, standing)
-}
-
-// ReplaceUserPassword mocks base method.
-func (m *MockAuthStoreMethods[Tx]) ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceUserPassword", ctx, id, hash, changeRequired)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ReplaceUserPassword indicates an expected call of ReplaceUserPassword.
-func (mr *MockAuthStoreMethodsMockRecorder[Tx]) ReplaceUserPassword(ctx, id, hash, changeRequired any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceUserPassword", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).ReplaceUserPassword), ctx, id, hash, changeRequired)
 }
 
 // RevokeMailLink mocks base method.

@@ -20,7 +20,6 @@ package integration
 // headquarters and is the fleet's super administrator.
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"slices"
@@ -29,8 +28,6 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
-	"github.com/impulseframework/impulse/resource"
 )
 
 // The lists of what is held, as the generated routes name them: a sector's one list of
@@ -390,19 +387,7 @@ func TestGeneratedIdentityWhoLosesAGroupRole(t *testing.T) {
 	ctx := t.Context()
 
 	// Gil is a Cadet at Anvil and nothing else, as ada is.
-	anvilSector := anvil
-	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		created, err := (&crewidentity.CreateCrewUser{Username: "gil", Roles: []string{"Cadet"}, Domain: &anvilSector}).Execute(ctx, txn, w.app.CrewIdentity())
-		if err != nil {
-			return fmt.Errorf("CreateCrewUser(gil): %w", err)
-		}
-		w.ids["gil"] = created.ID.String()
-		knownAs(t, "gil", created.ID)
-
-		return nil
-	}); err != nil {
-		t.Fatalf("seating gil: %v", err)
-	}
+	w.seat(ctx, t, "gil", "Cadet", anvil)
 
 	post := func(method, body string) (int, []byte) {
 		return doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, method), body)

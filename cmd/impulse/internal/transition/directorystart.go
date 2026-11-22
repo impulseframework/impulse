@@ -248,6 +248,9 @@ func (d *DirectoryStart) Apply(ctx context.Context, a *app.App, exec check.Exece
 	if err := d.editMenuSpec(a, ch); err != nil {
 		return nil, err
 	}
+	if err := d.writeDialogsSpec(a, ch); err != nil {
+		return nil, err
+	}
 	if !settled[integrationHarness] || !settled[migrateTest] {
 		// The tests were not written for the methods, so what each registration
 		// validates is still the author's to give them.
@@ -585,7 +588,7 @@ func (d *DirectoryStart) pruneRoles(a *app.App, pkg *app.AuthPackage, before, af
 		return nil
 	}
 	pruned, err := pruneGrants(a, rel, gone, func(file []byte) []byte {
-		return []byte(strings.Replace(string(file), ", keeps groups of people, and sets temporary passwords.", ", and keeps groups of people.", 1))
+		return []byte(strings.Replace(string(file), ", keeps groups of people, and mails password reset links.", ", and keeps groups of people.", 1))
 	})
 	if err != nil || len(pruned) == 0 {
 		return err

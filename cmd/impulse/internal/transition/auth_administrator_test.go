@@ -21,7 +21,7 @@ func directoryRoles(t *testing.T) *app.App {
 	t.Helper()
 
 	start := directoryRolesStart(app.MethodGoogle, "fleet.example")
-	a, _ := started(t, &start, "set_staff_temporary_password", "assign_staff_role", "remove_staff_role", "invite_staff_user", "withdraw_staff_invitation", "create_staff_user")
+	a, _ := started(t, &start, "send_staff_user_password_reset_link", "assign_staff_role", "remove_staff_role", "invite_staff_user", "withdraw_staff_invitation")
 
 	return a
 }

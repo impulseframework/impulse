@@ -13,8 +13,9 @@ import (
 // AdministratorRoles are the roles that count as an administrator's, by where they are
 // held: the ones whose holder can give a role back. A person removes one held in a tenant
 // from themselves only while another person holds one there
-// (identity.WithAdministratorRoles), so nobody is the last to leave and a tenant always
-// has someone who manages its people. The application as a whole is kept by the Super
+// (identity.WithAdministratorRoles), so nobody is the last to leave: a tenant loses its
+// last administrator only where someone whose role lets them take the role away does
+// it. The application as a whole is kept by the Super
 // Administrator role instead (accesstypes.SuperAdministrator), whose last holder keeps it
 // whoever asks. A role that manages nothing of people is not among them, whoever holds it.
 func AdministratorRoles() (global, everyDomain []accesstypes.Role) {
@@ -42,8 +43,8 @@ const AdministratorVariable = "APP_STAFF_ADMINISTRATOR"
 // application's own roles for the first administrator (FirstAdministratorRoles). The
 // person opens the link and signs in by a method of the auth, as everyone invited after
 // them does.
-// With the password method they choose a password there, their address proven by the
-// link.
+// With the password method they choose a password there and enter the code mailed to
+// the address, which proves it theirs.
 // Through a directory the invitation is what ties the sign-in to the roles, whoever
 // else the directory admits and however many organizations the method is open to, and
 // the address the directory gives must be the invited one.
@@ -106,11 +107,12 @@ func (a *Auth) ReinviteAdministrator(ctx context.Context, email string) (*sessio
 // firstAdministratorRoleNames are the roles the first administrator's invitation
 // carries: the role the framework defines in every auth (accesstypes.SuperAdministrator),
 // held for the whole application, whose holder alone makes another, and the
-// application's own (FirstAdministratorRoles). The acceptance gives each role where the
-// role file holds it, a global role for the whole application and a domain role in every
-// tenant, so the invitation names nothing the file does not define where
-// FirstAdministratorRoles says it is held: a role the release does not ship there is
-// refused here, before an invitation is mailed that nobody could accept.
+// application's own (FirstAdministratorRoles). The acceptance gives each role where
+// FirstAdministratorRoles says it is held, the first list for the whole application and
+// the second in every tenant (identity.WithFirstAdministratorRoles, which New hands the
+// two lists), so the invitation names nothing the role file does not define there: a
+// role the release does not ship there is refused here, before an invitation is mailed
+// that nobody could accept.
 func firstAdministratorRoleNames() ([]string, error) {
 	defined, err := Roles().Parse()
 	if err != nil {

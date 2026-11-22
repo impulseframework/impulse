@@ -20,12 +20,18 @@ type FactorCode struct {
 	// PendingID is the pending sign-in the code was sent for.
 	PendingID impulse.UUID
 	// Email is the address the code was mailed to.
-	Email      string
-	CodeHash   []byte
-	Attempts   int
-	CreatedAt  time.Time
-	ExpiresAt  time.Time
-	ConsumedAt *time.Time
+	Email string
+	// InvitationID is the invitation the code was mailed for, null for every other code:
+	// an account's own sign-in code, and a code mailed to an address a person gave. A code
+	// mailed for an invitation accepts that invitation and nothing else: it is judged only
+	// in a browser that carries that invitation, the codes entered for it are counted
+	// against that invitation, and it is no account's second factor.
+	InvitationID impulse.NullUUID
+	CodeHash     []byte
+	Attempts     int
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+	ConsumedAt   *time.Time
 }
 
 // TrustedDevice is a row of the trusted devices table: a browser the person asked to

@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"regexp"
 	"strings"
@@ -47,6 +47,17 @@ type mailLinks struct {
 	// the store was asked for, whatever it answered.
 	beforeRevoke func(ctx context.Context)
 	revokes      int
+
+	// unmailed holds the ids of the links the store was told could not be mailed.
+	unmailed map[impulse.UUID]bool
+}
+
+// notMailed reports whether the store was told the link id could not be mailed.
+func (m *mailLinks) notMailed(id impulse.UUID) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.unmailed[id]
 }
 
 // holds makes the store report user as the account holding email.
@@ -132,6 +143,25 @@ func expectMailLinks(f *authFixture) *mailLinks {
 
 		return httpio.NewNotFoundMessage("no live mail link")
 	}).AnyTimes()
+	f.store.EXPECT().FailMailLink(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id impulse.UUID) error {
+		links.mu.Lock()
+		defer links.mu.Unlock()
+		for _, l := range links.rows {
+			if l.ID != id || l.ConsumedAt != nil {
+				continue
+			}
+			now := time.Now()
+			l.ConsumedAt = &now
+			if links.unmailed == nil {
+				links.unmailed = make(map[impulse.UUID]bool)
+			}
+			links.unmailed[id] = true
+
+			return nil
+		}
+
+		return httpio.NewNotFoundMessage("no live mail link")
+	}).AnyTimes()
 	f.store.EXPECT().LiveMailLinks(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, kind sessionstorage.MailLinkKind) ([]*sessionstorage.MailLink, error) {
 		links.mu.Lock()
 		defer links.mu.Unlock()
@@ -184,8 +214,22 @@ func (m *mailLinks) insert(l *sessionstorage.MailLink) {
 	m.rows = append(m.rows, l)
 }
 
-// testMail is the fixture's mail: a recorder and the settings.
+// testMail is the fixture's mail settings, without their sender.
 var testMail = MailSettings{Application: "Harbor", LoginURL: "https://harbor.test/login"}
+
+// mailThrough is the fixture's mail settings with sender to send through.
+func mailThrough(sender mail.Sender) MailSettings {
+	settings := testMail
+	settings.Sender = sender
+
+	return settings
+}
+
+// quietMail is the mail of an Auth whose test reads nothing it sends: the fixture's
+// settings over a recorder of its own.
+func quietMail() MailSettings {
+	return mailThrough(&mail.Recorder{})
+}
 
 // newMailFixture is an Auth fixture that sends mail to a recorder, with the password
 // method registered under passwordOptions.
@@ -193,7 +237,7 @@ func newMailFixture(t *testing.T, ctrl *gomock.Controller, passwordOptions ...Pa
 	t.Helper()
 
 	recorder := &mail.Recorder{}
-	f := newAuthFixtureWith(t, ctrl, passwordOptions, WithMail(recorder, testMail))
+	f := newAuthFixtureOf(t, ctrl, recorder, true, passwordOptions)
 
 	return f, recorder, expectMailLinks(f)
 }
@@ -204,7 +248,7 @@ func newMailFixtureWithoutPassword(t *testing.T, ctrl *gomock.Controller) (*auth
 	t.Helper()
 
 	recorder := &mail.Recorder{}
-	f := newAuthFixtureWithoutPassword(t, ctrl, WithMail(recorder, testMail))
+	f := newAuthFixtureOf(t, ctrl, recorder, false, nil)
 
 	return f, recorder, expectMailLinks(f)
 }
@@ -213,12 +257,58 @@ func newMailFixtureWithoutPassword(t *testing.T, ctrl *gomock.Controller) (*auth
 func tokenIn(t *testing.T, body, param string) string {
 	t.Helper()
 
-	m := regexp.MustCompile(`https://harbor\.test/login\?` + param + `=([A-Za-z0-9_-]+)`).FindStringSubmatch(body)
+	m := regexp.MustCompile(`https://harbor\.test/login#` + param + `=([A-Za-z0-9_-]+)`).FindStringSubmatch(body)
 	if m == nil {
-		t.Fatalf("no link with ?%s= in the message:\n%s", param, body)
+		t.Fatalf("no link with #%s= in the message that opens %q: a message's text holds its link and is not printed", param, strings.SplitN(body, "\n", 2)[0])
 	}
 
 	return m[1]
+}
+
+// TestMailSettings_linkTokenInTheFragment holds every kind of mailed link to carrying
+// its token in the URL's fragment and nowhere else. A browser sends a fragment to no
+// server, so a link a person opens writes its token to no request log; a token in the
+// query or the path would be in the first request line the browser sends.
+func TestMailSettings_linkTokenInTheFragment(t *testing.T) {
+	t.Parallel()
+
+	const token = "tok_9-Z"
+	for _, loginURL := range []string{"https://harbor.test/login", "https://harbor.test/login?theme=dark"} {
+		m := &mailSettings{settings: MailSettings{Application: "Harbor", LoginURL: loginURL}}
+		for _, tt := range []struct {
+			kind    string
+			message mail.Message
+		}{
+			{kind: "invitation", message: m.invitationMessage("pat@lakeside.edu", token, time.Hour)},
+			{kind: "verify", message: m.verificationMessage("pat@lakeside.edu", token, time.Hour)},
+			{kind: "signUp", message: m.signUpMessage("pat@lakeside.edu", token, time.Hour)},
+			{kind: "reset", message: m.passwordResetMessage("pat@lakeside.edu", token, time.Hour, AskedByPerson(), "")},
+			{kind: "reset", message: m.passwordResetMessage("pat@lakeside.edu", token, time.Hour, AskedBy{Administrator: true, Tenant: ""}, "Harbor")},
+			{kind: "address", message: m.addressChangeMessage("pat@lakeside.edu", token, time.Hour, "Sam")},
+		} {
+			var links []*url.URL
+			for _, word := range strings.Fields(tt.message.Text) {
+				if link, err := url.Parse(word); err == nil && link.Scheme == "https" {
+					links = append(links, link)
+				}
+			}
+			if len(links) != 1 {
+				t.Errorf("the %s message under %s carries %d links, want one", tt.kind, loginURL, len(links))
+
+				continue
+			}
+			link := links[0]
+			if got, want := link.Fragment, tt.kind+"="+token; got != want {
+				t.Errorf("the %s link's fragment = %q, want %q", tt.kind, got, want)
+			}
+			if strings.Contains(link.RawQuery, token) || strings.Contains(link.Path, token) || link.Query().Has(tt.kind) {
+				t.Errorf("the %s link carries its token outside the fragment (path %q, query %q), want it in the fragment alone: a browser sends the rest to the server", tt.kind, link.Path, link.RawQuery)
+			}
+			if got, want := strings.SplitN(link.String(), "#", 2)[0], loginURL; got != want {
+				t.Errorf("the %s link leads to %q, want the login page %q", tt.kind, got, want)
+			}
+		}
+	}
 }
 
 func TestMailSettings_Messages(t *testing.T) {
@@ -236,7 +326,7 @@ func TestMailSettings_Messages(t *testing.T) {
 			want: mail.Message{To: "pat@lakeside.edu", Subject: "You are invited to Harbor", Text: `You are invited to Harbor.
 
 To accept the invitation, open this link:
-https://harbor.test/login?invitation=tok_1
+https://harbor.test/login#invitation=tok_1
 
 The link is good for 7 days.
 
@@ -253,7 +343,7 @@ Anyone who opens the link can accept the invitation in your place. Don't forward
 			want: mail.Message{To: "pat@lakeside.edu", Subject: "Confirm your email address for Harbor", Text: `You added this address to your Harbor account.
 
 To confirm it, open this link:
-https://harbor.test/login?verify=tok_2
+https://harbor.test/login#verify=tok_2
 
 The link is good for 6 hours.
 
@@ -274,12 +364,23 @@ If you did not try to add this address, ignore this message. Nothing changes.
 `},
 		},
 		{
+			name: "an address an invitation waits for: no code, how the invitation adds it, and what to do if it was not them",
+			got:  m.addressInvitedMessage("pat@lakeside.edu"),
+			want: mail.Message{To: "pat@lakeside.edu", Subject: "Your email address and Harbor", Text: `Someone just tried to add this address to a Harbor account. Nothing was changed: an invitation to Harbor is waiting for this address, and the address is added to an account when that invitation is accepted.
+
+If that was you, open the link in your invitation and sign in to your account there. A code is then mailed to this address, and entering it accepts the invitation and adds the address to your account.
+
+Didn't do this?
+If you did not try to add this address, ignore this message. Nothing changes.
+`},
+		},
+		{
 			name: "a sign-up link: open it and choose a password, how long it is good for, then the two notices",
 			got:  m.signUpMessage("new@lakeside.edu", "tok_3", 6*time.Hour),
 			want: mail.Message{To: "new@lakeside.edu", Subject: "Finish creating your Harbor account", Text: `You asked to create a Harbor account with this address.
 
 To finish, open this link and choose your password:
-https://harbor.test/login?signUp=tok_3
+https://harbor.test/login#signUp=tok_3
 
 The link is good for 6 hours.
 
@@ -304,6 +405,22 @@ If you did not start a sign-in, ignore this message and change your password: so
 
 Keep the code to yourself
 Nobody from Harbor will ask you for it. Don't share it.
+`},
+		},
+		{
+			name: "the code that accepts an invitation: the code spaced for reading, what it accepts, where to enter it and how long it is good for, then what it means if they did not open the invitation and that only they enter it, with no word of a password",
+			got:  m.invitationCodeMessage("pat@lakeside.edu", "483920", 10*time.Minute),
+			want: mail.Message{To: "pat@lakeside.edu", Subject: "Your code to accept your invitation to Harbor is 483 920", Text: `Your code to accept your invitation to Harbor is:
+
+483 920
+
+It accepts the invitation to Harbor that was sent to this address. Enter it on the page that asked you for it. The code is good for 10 minutes.
+
+Didn't do this?
+If you did not open your invitation yourself, someone else has its link. Don't give the code to anyone, and tell the person who invited you.
+
+Keep the code to yourself
+Only you should enter it. Nobody from Harbor will ask you for it. Don't share it.
 `},
 		},
 		{
@@ -433,8 +550,8 @@ func TestAuth_Invite(t *testing.T) {
 	t.Parallel()
 
 	t.Run("an invitation stores its row and mails a link to the login page that carries the token", authInviteCase1)
-	t.Run("a message that cannot be sent withdraws the invitation", authInviteCase2)
-	t.Run("an address that is not one, and an Auth without mail, are refused", authInviteCase3)
+	t.Run("a message that cannot be sent ends the invitation", authInviteCase2)
+	t.Run("an address that is not one is refused", authInviteCase3)
 	t.Run("an address no offered sign-in method could admit is refused, nothing stored or mailed", authInviteCase4)
 }
 
@@ -481,7 +598,7 @@ func authInviteCase2(t *testing.T) {
 		t.Fatalf("Invite() error = %v, want the message not sent", err)
 	}
 	if row := links.last(t); row.ConsumedAt == nil {
-		t.Error("the invitation stands after the send failed, want it withdrawn")
+		t.Error("the invitation stands after the send failed, want it ended")
 	}
 }
 
@@ -490,10 +607,6 @@ func authInviteCase3(t *testing.T) {
 	f, _, _ := newMailFixture(t, gomock.NewController(t))
 	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat at lakeside"}); !httpio.HasBadRequest(err) {
 		t.Errorf("Invite() of a bad address error = %v, want BadRequest", err)
-	}
-	plain := newAuthFixture(t, gomock.NewController(t))
-	if _, err := plain.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu"}); err == nil || !strings.Contains(err.Error(), "WithMail") {
-		t.Errorf("Invite() without mail error = %v, want the wiring named", err)
 	}
 }
 
@@ -523,7 +636,7 @@ func authInviteCase4(t *testing.T) {
 // TestAuth_PrepareInvitation pins the invitation a caller stores itself: the checks
 // Invite makes, the row to store with the hash of the token the message carries, and
 // nothing stored or mailed until the caller does the one and asks for the other; a
-// message that cannot be sent withdraws the row the caller stored.
+// message that cannot be sent ends the invitation the caller stored.
 func TestAuth_PrepareInvitation(t *testing.T) {
 	t.Parallel()
 
@@ -565,7 +678,7 @@ func TestAuth_PrepareInvitation(t *testing.T) {
 		}
 	})
 
-	t.Run("a message that cannot be sent withdraws the row the caller stored", func(t *testing.T) {
+	t.Run("a message that cannot be sent ends the invitation the caller stored", func(t *testing.T) {
 		t.Parallel()
 		f, recorder, links := newMailFixture(t, gomock.NewController(t))
 		prepared, err := f.auth.API().PrepareInvitation(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", RoleNames: []string{"Teacher"}})
@@ -580,19 +693,15 @@ func TestAuth_PrepareInvitation(t *testing.T) {
 			t.Fatalf("Send() error = %v, want the message not sent", err)
 		}
 		if stored := links.last(t); stored.ConsumedAt == nil {
-			t.Error("the invitation stands after the send failed, want it withdrawn")
+			t.Error("the invitation stands after the send failed, want it ended")
 		}
 	})
 
-	t.Run("an address that is not one, one no method could admit, and an Auth without mail are refused", func(t *testing.T) {
+	t.Run("an address that is not one, and one no method could admit, are refused", func(t *testing.T) {
 		t.Parallel()
 		f, recorder, _ := newMailFixture(t, gomock.NewController(t))
 		if _, err := f.auth.API().PrepareInvitation(context.Background(), &InvitationRequest{Email: "pat at lakeside"}); !httpio.HasBadRequest(err) {
 			t.Errorf("PrepareInvitation() of a bad address error = %v, want BadRequest", err)
-		}
-		plain := newAuthFixture(t, gomock.NewController(t))
-		if _, err := plain.auth.API().PrepareInvitation(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu"}); err == nil || !strings.Contains(err.Error(), "WithMail") {
-			t.Errorf("PrepareInvitation() without mail error = %v, want the wiring named", err)
 		}
 		google.SignIn(f.auth, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "lakeside.edu")})
 		f.auth.Methods(&MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}}})
@@ -629,11 +738,10 @@ func TestAuth_Invitation(t *testing.T) {
 
 	t.Run("opening an invitation answers what it is and sets the cookie; a dead or foreign token is 404", authInvitationCase1)
 	t.Run("a signed-in person accepts the invitation the browser carries, in the store's transaction with the hook, and the cookie goes", authInvitationCase2)
-	t.Run("an invited person creates an account with a password: the address verified, the sign-in carrying the invitation", authInvitationCase3)
 	t.Run("a sign-up from an invitation refuses a short password, a missing username and a missing invitation", authInvitationCase4)
-	t.Run("where the username is the address, the sign-up takes the invitation's address as the username", authInvitationCase5)
 	t.Run("opening an invitation names the listed registrations that could admit its address, none as an empty list", authInvitationCase6)
 	t.Run("opening an invitation names its tenant by the application's namer, and by nothing for a tenant the namer does not know", authInvitationCase7)
+	t.Run("an invitation names every registration that could admit its address, and for an account with no password that signs in through an identity, only the registrations it signs in through", authInvitationCase8)
 }
 
 // namedTenants is a TenantNamer over a fixed map, as the application's tenant roster is
@@ -785,6 +893,81 @@ func authInvitationCase6(t *testing.T) {
 	}
 }
 
+// authInvitationCase8 holds the methods an invitation names to what the sign-in rules
+// accept for the invited address. Two registrations could admit pat@lakeside.edu here,
+// Lakeside's Google Workspace and its Entra tenant. Both are named while no account
+// holds the address, for an account with a password (the password confirms a new
+// identity's link) and for an account nobody signs in to yet (its first identity is
+// linked by the invitation). An account with no password that signs in through an
+// identity is linked no identity of another connection, so only the registrations it
+// signs in through are named, and none when its identity is of a registration that does
+// not admit the address. Open() and the methods answer's invitation block say the same.
+func authInvitationCase8(t *testing.T) {
+	t.Parallel()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	for _, w := range []struct{ name, domain string }{{"lakeside", "lakeside.edu"}, {"riverside", "riverside.edu"}} {
+		google.SignIn(f.auth, "google-"+w.name, resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/" + w.name + "/callback", Workspaces: google.Workspace(w.name, w.domain)})
+	}
+	azure.SignIn(f.auth, "lakeside-entra", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/entra/callback"})
+	list := &MethodList{
+		Methods: []AdvertisedMethod{
+			{Name: "google-riverside", Label: "Riverside", Path: "/api/user/google-riverside/login"},
+			{Name: "google-lakeside", Label: "Lakeside", Path: "/api/user/google-lakeside/login"},
+			{Name: "lakeside-entra", Label: "Lakeside staff", Path: "/api/user/lakeside-entra/login"},
+			{Name: "password", Label: "Password", Path: "/api/user/password/login"},
+		},
+		ChangePassword: "/api/user/password",
+		Invitation:     InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+	}
+	f.auth.Methods(list)
+	links.expectAccounts(f)
+	const invited = "pat@lakeside.edu"
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: invited}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	token := tokenIn(t, recorder.Messages()[0].Text, "invitation")
+	cookies := invitationCookies(t, f, links, token)
+
+	both := []any{"google-lakeside", "lakeside-entra"}
+	through := func(method sessioninfo.AuthMethod, connection string) []*sessionstorage.SessionIdentity {
+		return []*sessionstorage.SessionIdentity{{ID: impulse.Must(impulse.NewUUID()), Method: method, Connection: connection, Subject: "subject"}}
+	}
+	for _, tt := range []struct {
+		name     string
+		account  bool
+		password bool
+		links    []*sessionstorage.SessionIdentity
+		want     []any
+	}{
+		{name: "no account holds the address", want: both},
+		{name: "an account with a password that signs in through the Entra tenant", account: true, password: true, links: through(sessioninfo.MethodAzure, tenantLake), want: both},
+		{name: "an account with no password that nobody signs in to yet", account: true, want: both},
+		{name: "an account with no password that signs in through the Entra tenant", account: true, links: through(sessioninfo.MethodAzure, tenantLake), want: []any{"lakeside-entra"}},
+		{name: "an account with no password that signs in through the Workspace", account: true, links: through(sessioninfo.MethodGoogle, "lakeside"), want: []any{"google-lakeside"}},
+		{name: "an account with no password that signs in through another Workspace, which does not admit the address", account: true, links: through(sessioninfo.MethodGoogle, "riverside"), want: []any{}},
+	} {
+		if tt.account {
+			user := &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: "pat"}
+			if tt.password {
+				user.PasswordHash = hashed(t, "pw")
+			}
+			links.holds(invited, user)
+			linkIdentities(t, user.ID, tt.links...)
+		}
+		rr := f.serve(f.auth.Invitation().Open(), http.MethodPost, "/invitation", map[string]string{"token": token}, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s: Open() = %d, want 200", tt.name, rr.Code)
+		}
+		if diff := cmp.Diff(tt.want, decoded(t, rr)["methods"]); diff != "" {
+			t.Errorf("%s: Open() methods mismatch (-want +got):\n%s", tt.name, diff)
+		}
+		standing, _ := invitationBlock(t, f, list, cookies)["standing"].(map[string]any)
+		if diff := cmp.Diff(tt.want, standing["methods"]); diff != "" {
+			t.Errorf("%s: the methods answer's standing invitation: methods mismatch (-want +got):\n%s", tt.name, diff)
+		}
+	}
+}
+
 func authInvitationCase1(t *testing.T) {
 	t.Parallel()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
@@ -895,45 +1078,13 @@ func authInvitationCase2(t *testing.T) {
 
 	// The invitation died meanwhile: 404, and the cookie goes.
 	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).Return(
-		httpio.NewNotFoundMessageWithError(signin.ErrInvitationExpired, "the invitation has expired or was already used"))
+		httpio.NewNotFoundMessageWithError(signin.ErrInvitationExpired, signinflow.InvitationEnded))
 	rr = f.asUser(f.auth.Invitation().Accept(), sessionID, nil, cookies)
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("Accept() of an invitation that died = %d, want 404", rr.Code)
 	}
 	if c := cookieNamed(rr, defaultInvitationCookieName); c == nil || c.Value != "" {
 		t.Error("Accept() of an invitation that died left the invitation cookie, want it deleted")
-	}
-}
-
-func authInvitationCase3(t *testing.T) {
-	t.Parallel()
-	userID, sessionID := newIDs()
-	f, recorder, links := newMailFixture(t, gomock.NewController(t))
-	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: "lakeside"}); err != nil {
-		t.Fatal(err)
-	}
-	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
-	created := &sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}
-	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, u *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
-		if u.Username != "patl" || u.PasswordHash == nil || u.Email == nil || *u.Email != "pat@lakeside.edu" || !u.EmailVerified {
-			t.Errorf("CreateUser() given %+v, want the chosen username, a hash and the invitation's address verified", u)
-		}
-
-		return created, nil
-	})
-	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-		if req.Invitation == nil || req.Invitation.ID != links.rows[0].ID || req.UserID != userID || req.Identity.Method != sessioninfo.MethodPassword {
-			t.Errorf("SignIn() given %+v with invitation %+v, want the new user's password identity carrying the invitation", req, req.Invitation)
-		}
-		req.Invitation.Accepted = true
-	}, nil)
-
-	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
-	if rr.Code != http.StatusOK || decoded(t, rr)["mfaIsRequired"] != false || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
-		t.Errorf("SignUp() = %d %s, want a session", rr.Code, rr.Body.String())
-	}
-	if c := cookieNamed(rr, defaultInvitationCookieName); c == nil || c.Value != "" {
-		t.Error("SignUp() left the invitation cookie, want it deleted")
 	}
 }
 
@@ -960,36 +1111,12 @@ func authInvitationCase4(t *testing.T) {
 	}
 }
 
-func authInvitationCase5(t *testing.T) {
-	t.Parallel()
-	userID, sessionID := newIDs()
-	f, recorder, links := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
-	links.expectAccounts(f)
-	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu"}); err != nil {
-		t.Fatal(err)
-	}
-	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
-	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, u *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
-		if u.Username != "pat@lakeside.edu" || !u.EmailVerified {
-			t.Errorf("CreateUser() given %+v, want the address as the username, verified", u)
-		}
-
-		return &sessionstorage.SessionUser{ID: userID, Username: u.Username}, nil
-	})
-	f.expectSignIn(sessionID, nil, nil)
-
-	if rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse"}, cookies); rr.Code != http.StatusOK {
-		t.Errorf("SignUp() = %d %s, want 200", rr.Code, rr.Body.String())
-	}
-}
-
 func TestAuth_Email(t *testing.T) {
 	t.Parallel()
 
 	t.Run("adding an address mails it a verification link, and following the link writes the address verified and resets the address's mail count", authEmailCase1)
 	t.Run("a link counts only for the account that asked", authEmailCase2)
 	t.Run("an address another account holds is told so by mail, the screen says nothing; a mailbox is sent five mails it does not use, then refused", authEmailCase3)
-	t.Run("an Auth without mail has no email and no password reset handlers, and changes nobody's address", authEmailCase4)
 	t.Run("where the username is the address, a verified new address renames the user and the rename hook moves what the application keys by it", authEmailCase5)
 }
 
@@ -1108,20 +1235,6 @@ func authEmailCase5(t *testing.T) {
 	}
 	if len(renamed) != 1 || renamed[0] != "pat@lakeside.edu -> pat.lee@lakeside.edu" {
 		t.Errorf("rename hook calls = %v, want the one rename", renamed)
-	}
-}
-
-func authEmailCase4(t *testing.T) {
-	t.Parallel()
-	plain := newAuthFixture(t, gomock.NewController(t))
-	if recovered := registrationPanic(func() { plain.auth.Email() }); recovered == nil || !strings.Contains(fmt.Sprint(recovered), "WithMail") {
-		t.Errorf("Email() without mail panicked with %v, want the wiring named", recovered)
-	}
-	if recovered := registrationPanic(func() { plain.auth.PasswordReset() }); recovered == nil || !strings.Contains(fmt.Sprint(recovered), "WithMail") {
-		t.Errorf("PasswordReset() without mail panicked with %v, want the wiring named", recovered)
-	}
-	if err := plain.auth.API().RequestAddressChange(context.Background(), impulse.Must(impulse.NewUUID()), "pat@lakeside.edu", AskedByApplication()); err == nil {
-		t.Error("RequestAddressChange() on an Auth without mail error = nil, want the wiring named: the change waits on a mailed link")
 	}
 }
 
@@ -1356,18 +1469,18 @@ func TestNewAuth_Mail(t *testing.T) {
 
 	for _, tt := range []struct {
 		name     string
-		sender   mail.Sender
 		settings MailSettings
 		want     string
 	}{
+		{name: "no mail settings at all", settings: MailSettings{}, want: "sender is nil"},
 		{name: "no sender", settings: testMail, want: "sender is nil"},
-		{name: "no application name", sender: &mail.Recorder{}, settings: MailSettings{LoginURL: "https://harbor.test/login"}, want: "application name is empty"},
-		{name: "a relative login URL", sender: &mail.Recorder{}, settings: MailSettings{Application: "Harbor", LoginURL: "/login"}, want: "not an absolute"},
-		{name: "a login URL with a fragment", sender: &mail.Recorder{}, settings: MailSettings{Application: "Harbor", LoginURL: "https://harbor.test/#/login"}, want: "not an absolute"},
+		{name: "no application name", settings: MailSettings{Sender: &mail.Recorder{}, LoginURL: "https://harbor.test/login"}, want: "application name is empty"},
+		{name: "a relative login URL", settings: MailSettings{Sender: &mail.Recorder{}, Application: "Harbor", LoginURL: "/login"}, want: "not an absolute"},
+		{name: "a login URL with a fragment", settings: MailSettings{Sender: &mail.Recorder{}, Application: "Harbor", LoginURL: "https://harbor.test/#/login"}, want: "not an absolute"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, NoSuperAdministrators(), WithMail(tt.sender, tt.settings))
+			_, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, NoSuperAdministrators(), tt.settings)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("NewAuth() error = %v, want %q", err, tt.want)
 			}
@@ -1376,7 +1489,7 @@ func TestNewAuth_Mail(t *testing.T) {
 
 	t.Run("the invitation cookie must differ from the session and pending cookies", func(t *testing.T) {
 		t.Parallel()
-		if _, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, NoSuperAdministrators(), WithInvitationCookieName(defaultPendingCookieName)); err == nil {
+		if _, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, NoSuperAdministrators(), quietMail(), WithInvitationCookieName(defaultPendingCookieName)); err == nil {
 			t.Error("NewAuth() with the pending cookie's name for the invitation cookie error = nil, want a refusal")
 		}
 	})
@@ -1401,7 +1514,7 @@ func TestAuth_ClaimVerifiedEmail(t *testing.T) {
 			store := mockstore.NewAuthStore[mockTx](ctrl)
 			store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 			store.EXPECT().ClaimVerifiedEmail(gomock.Any(), userID, "pat@lakeside.edu").Return(true, nil).Times(tt.claims)
-			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
+			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())
 			if err != nil {
 				t.Fatal(err)
 			}

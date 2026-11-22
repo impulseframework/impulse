@@ -37,7 +37,7 @@ func Name(ctx context.Context) string {
 // The sender is the configuration's one driver, shared by both auths (the Google
 // Workspace relay as the configured mailbox, or the library's logging stand-in in
 // development); LoginURL is the absolute URL of the login page of the surface that
-// binds to the auth, where every mailed link leads with its token in the query.
+// binds to the auth, where every mailed link leads with its token in the URL's fragment.
 type Mail struct {
 	Sender   mail.Sender
 	LoginURL string

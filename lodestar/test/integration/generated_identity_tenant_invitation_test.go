@@ -17,12 +17,13 @@ import (
 // TestGeneratedIdentitySectorInvitationsAndPassword holds the methods of a sector that
 // need the real session manager, on the served stack: an invitation into the sector
 // (written in the method's transaction, mailed once it has committed, accepted into the
-// sector and no other), its withdrawal, and a temporary password.
+// sector and no other), its withdrawal, and a new password required of a person who
+// signed up at one.
 //
 // The Sector Marshal invites in every role but the Marshal's own
 // (new.role != 'SectorMarshal'), withdraws an invitation that stands and gives no
-// Marshal's role (pending = true AND role != 'SectorMarshal'), and sets a temporary
-// password for a person the sector holds alone. The roles an invitation gives are a list
+// Marshal's role (pending = true AND role != 'SectorMarshal'), and requires a new
+// password of a person the sector holds alone. The roles an invitation gives are a list
 // column of its row, so the withdrawal's condition is judged once for each of them: an
 // invitation Headquarters sent in the Marshal's role, alone or among others, is not the
 // Marshal's to withdraw.
@@ -36,7 +37,7 @@ func TestGeneratedIdentitySectorInvitationsAndPassword(t *testing.T) {
 	// The Execute grants this suite proves, pinned to the roles file (conditions-proven).
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "InviteCrewSectorUser", "new.role != 'SectorMarshal'")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "WithdrawCrewSectorInvitation", "pending = true AND role != 'SectorMarshal'")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "SetCrewSectorTemporaryPassword", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RequireCrewSectorPasswordChange", "heldElsewhere = false AND heldGlobally = false")
 
 	hq := newBrowser(t, s, consoleAPI)
 	hq.signIn(ctx, "governor")
@@ -206,40 +207,26 @@ func TestGeneratedIdentitySectorInvitationsAndPassword(t *testing.T) {
 		t.Error("the invitation in the Marshal's role still stands after Headquarters withdrew it")
 	}
 
-	// A temporary password for a person Anvil holds alone: the recruit, who signed up
-	// with a password of their own. Their session ends and the next sign-in is held to
-	// a change of password.
+	// A new password required of a person Anvil holds alone: the recruit, who signed up
+	// with a password of their own. The session they hold is refused everything until
+	// the password is changed. (The reset link a sector's Marshal sends is held by
+	// TestPasswordResetLink.)
 	recruitID := crewAccountID(ctx, t, hq, username)
-	if status, body := post(marshal, anvil, "set-crew-sector-temporary-password", `{"userId":"`+recruitID+`","password":""}`); status != http.StatusBadRequest {
-		t.Errorf("an empty temporary password: status %d, want 400: %s", status, body)
-	}
-	status, body = post(marshal, anvil, "set-crew-sector-temporary-password", `{"userId":"`+recruitID+`","password":"first-day-pass"}`)
+	status, body = post(marshal, anvil, "require-crew-sector-password-change", `{"userId":"`+recruitID+`"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
 	if got := readColumn[bool](ctx, t, s.db, "CrewSessionUsers", spanner.Key{recruitID}, "PasswordChangeRequired"); !got {
 		t.Error("the recruit is not marked to change the password")
 	}
-	if status, body := stranger.do(ctx, http.MethodGet, consoleAPI+"/user-domains", nil); status != http.StatusUnauthorized {
-		t.Errorf("the recruit's session after the temporary password: status %d, want 401: %s", status, body)
-	}
-	status, body = stranger.login(ctx, username, "first-day-pass")
-	assertStatus(t, status, http.StatusOK, body)
-	if heldForFactor(t, body) {
-		stranger.secondFactor(ctx, username)
-	}
 	if status, body := stranger.do(ctx, http.MethodGet, consoleAPI+"/user-domains", nil); status != http.StatusForbidden || !strings.Contains(string(body), string(sessioninfo.RefusedPasswordChangeRequired)) {
-		t.Errorf("the recruit signed in with the temporary password: status %d, want 403 naming %s: %s", status, sessioninfo.RefusedPasswordChangeRequired, body)
+		t.Errorf("the recruit's next request once a new password is required: status %d, want 403 naming %s: %s", status, sessioninfo.RefusedPasswordChangeRequired, body)
 	}
-	// The requirement stands for a person who holds a password, and the Marshal's grant
-	// reaches it for the same people.
-	status, body = post(marshal, anvil, "require-crew-sector-password-change", `{"userId":"`+recruitID+`"}`)
-	assertStatus(t, status, http.StatusNoContent, body)
 
 	// Once the recruit holds a role at Bastion too, the account is not Anvil's alone:
-	// the Marshal sets no password for them.
+	// the Marshal requires nothing of it.
 	if status, body := hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"userId":"`+recruitID+`","role":"Pilot","domain":"`+bastion+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("seating the recruit at Bastion: status %d: %s", status, body)
 	}
-	if status, body := post(marshal, anvil, "set-crew-sector-temporary-password", `{"userId":"`+recruitID+`","password":"second-day-pass"}`); status != http.StatusForbidden {
-		t.Errorf("a temporary password for a person who holds a role at Bastion too: status %d, want 403: %s", status, body)
+	if status, body := post(marshal, anvil, "require-crew-sector-password-change", `{"userId":"`+recruitID+`"}`); status != http.StatusForbidden {
+		t.Errorf("a new password required of a person who holds a role at Bastion too: status %d, want 403: %s", status, body)
 	}
 }

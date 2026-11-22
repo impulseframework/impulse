@@ -241,9 +241,11 @@
                 "consumedAt",
                 "createdAt",
                 "email",
+                "everyTenant",
                 "expiresAt",
                 "invitedByUserId",
                 "kind",
+                "mailFailedAt",
                 "name",
                 "roleNames",
                 "tenantId",
@@ -306,6 +308,16 @@
               ]
             },
             {
+              "resource": "CrewGivableRoles",
+              "fields": [
+                "description",
+                "method",
+                "group",
+                "domain",
+                "everyDomain"
+              ]
+            },
+            {
               "resource": "CrewRoleGrants",
               "fields": [
                 "updatedAt"
@@ -330,9 +342,11 @@
                 "consumedAt",
                 "createdAt",
                 "email",
+                "everyTenant",
                 "expiresAt",
                 "invitedByUserId",
                 "kind",
+                "mailFailedAt",
                 "name",
                 "roleNames",
                 "tenantId",
@@ -603,9 +617,11 @@
                 "consumedAt",
                 "createdAt",
                 "email",
+                "everyTenant",
                 "expiresAt",
                 "invitedByUserId",
                 "kind",
+                "mailFailedAt",
                 "name",
                 "roleNames",
                 "tenantId",
@@ -648,9 +664,11 @@
                 "consumedAt",
                 "createdAt",
                 "email",
+                "everyTenant",
                 "expiresAt",
                 "invitedByUserId",
                 "kind",
+                "mailFailedAt",
                 "name",
                 "roleNames",
                 "tenantId",
@@ -821,9 +839,6 @@
               "resource": "IssueBulletin"
             },
             {
-              "resource": "CreateCrewUser"
-            },
-            {
               "resource": "DisableCrewUser"
             },
             {
@@ -879,9 +894,6 @@
             },
             {
               "resource": "RenameCrewUser"
-            },
-            {
-              "resource": "SetCrewTemporaryPassword"
             },
             {
               "resource": "SendCrewUserPasswordResetLink"
@@ -1560,6 +1572,9 @@
                 "description"
               ],
               "condition": "name != 'SectorMarshal'"
+            },
+            {
+              "resource": "CrewSectorRoles.method"
             },
             {
               "resource": "CrewSectorDirectoryRoles",
@@ -2252,10 +2267,6 @@
               "resource": "SetSectorPilotClearance"
             },
             {
-              "resource": "CreateCrewSectorUser",
-              "condition": "new.role != 'SectorMarshal'"
-            },
-            {
               "resource": "InviteCrewSectorUser",
               "condition": "new.role != 'SectorMarshal'"
             },
@@ -2293,10 +2304,6 @@
             },
             {
               "resource": "SetCrewSectorUserName",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
-            },
-            {
-              "resource": "SetCrewSectorTemporaryPassword",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
             {

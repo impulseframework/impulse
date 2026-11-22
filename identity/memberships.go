@@ -80,7 +80,10 @@ func UserID(user accesstypes.User) (userID impulse.UUID, ok bool) {
 // (access.ValidatePeriod). AssignRole gives the membership with no period. Nobody
 // lengthens their own holding: a caller who may give the role does not give their own
 // membership a period that lasts longer than the one it has, and someone else who may
-// give it does (refuseLongerForOneself).
+// give it does (refuseLongerForOneself). Nor does the last administrator of a tenant's
+// own cut their role there short: a period of the caller's giving that takes their own
+// role away from now on, or from an instant sooner than the one it had, is refused as
+// the role's removal is, in the same words (refuseLastAdministrator).
 //
 // reason says why the role is given: one line of plain text, empty for none
 // (access.ValidateReason). It is kept with the membership and shown wherever the roles a
@@ -157,7 +160,7 @@ func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransact
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.InsertMembership()")
 	}
-	changed, err := m.settleMembershipPeriod(ctx, txn, userID, &key, given, inserted, !given.lengthens && m.callerIs(ctx, userID))
+	changed, err := m.settleMembershipPeriod(ctx, txn, scope, userID, &key, given, inserted, m.callerIs(ctx, userID))
 	if err != nil {
 		return err
 	}
@@ -231,9 +234,8 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 		if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "take the role from them"); err != nil {
 			return err
 		}
-	case m.callerIs(ctx, userID):
-		gone := &removal{user: key.User, role: key.Role, group: "", wholeGroup: false, unnamed: "you cannot remove a role from yourself", before: "remove your own"}
-		if err := m.refuseLastAdministrator(ctx, txn, scope, gone); err != nil {
+	case !ended && m.callerIs(ctx, userID):
+		if err := m.refuseLastAdministrator(ctx, txn, scope, ownRoleGone(key)); err != nil {
 			return err
 		}
 	}

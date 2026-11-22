@@ -10,7 +10,6 @@ import (
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"go.uber.org/mock/gomock"
@@ -53,7 +52,7 @@ func TestAuth_ownAccountRoutes_refuseAViewOfThePerson(t *testing.T) {
 		for name, impersonation := range sessions {
 			t.Run(route.operation+": "+name, func(t *testing.T) {
 				t.Parallel()
-				f := newAuthFixture(t, gomock.NewController(t), WithMail(&mail.Recorder{}, testMail))
+				f := newAuthFixture(t, gomock.NewController(t))
 				impersonation.SessionID, impersonation.Actor, impersonation.ExpiresAt = sessionID, "admin", time.Now().Add(time.Hour)
 				viewed := &sessioninfo.SessionData{
 					SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "pat", UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(userID),

@@ -28,25 +28,6 @@ var _ identity.Store = store{}
 // types, and holds no rule.
 type store struct{}
 
-func (store) InsertUser(ctx context.Context, txn resource.ReadWriteTransaction, user *identity.NewUser) (impulse.UUID, error) {
-	patch, err := membersresources.NewMembersSessionUserCreatePatch()
-	if err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "membersresources.NewMembersSessionUserCreatePatch()")
-	}
-	patch.SetUsername(user.Username).SetDisabled(false).SetPasswordChangeRequired(false).SetCreatedAt(spanner.CommitTimestamp)
-	if user.Name != nil {
-		patch.SetName(user.Name)
-	}
-	if user.Email != nil {
-		patch.SetEmail(user.Email)
-	}
-	if err := patch.Buffer(ctx, txn); err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "membersresources.MembersSessionUserCreatePatch.Buffer()")
-	}
-
-	return patch.ID(), nil
-}
-
 func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, change *identity.UserChange) error {
 	patch := membersresources.NewMembersSessionUserUpdatePatch(id)
 	if change.Username != nil {
@@ -99,12 +80,7 @@ func (store) RenameSession(ctx context.Context, txn resource.ReadWriteTransactio
 	return nil
 }
 
-// The Members auth has no password method: nobody of it holds a password, and none
-// is written.
-
-func (store) SetPassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, _ string, _ bool) error {
-	return errors.Newf("the Members auth has no password method: user %s is given no password", id)
-}
+// The Members auth has no password method: nobody of it holds a password.
 
 func (store) RemovePassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
 	return errors.Newf("the Members auth has no password method: user %s holds no password to remove", id)
@@ -498,15 +474,18 @@ func (invitationWrite) Resource() accesstypes.Resource {
 
 func (store) InsertInvitation(_ context.Context, txn resource.ReadWriteTransaction, row *session.InvitationRow) error {
 	// The row as the session library says an invitation is written
-	// (session.InvitationRow): the user and the consumption are left null.
+	// (session.InvitationRow): the user and the consumption are left null. EveryTenant
+	// is written on every row, true or false: with TenantId it is the place the
+	// acceptance gives the roles in.
 	columns := map[string]any{
-		"Id":        row.ID,
-		"TokenHash": row.TokenHash,
-		"Kind":      string(sessionstorage.MailLinkInvitation),
-		"Email":     row.Email,
-		"RoleNames": row.RoleNames,
-		"CreatedAt": spanner.CommitTimestamp,
-		"ExpiresAt": row.ExpiresAt,
+		"Id":          row.ID,
+		"TokenHash":   row.TokenHash,
+		"Kind":        string(sessionstorage.MailLinkInvitation),
+		"Email":       row.Email,
+		"EveryTenant": row.EveryTenant,
+		"RoleNames":   row.RoleNames,
+		"CreatedAt":   spanner.CommitTimestamp,
+		"ExpiresAt":   row.ExpiresAt,
 	}
 	if row.Name != "" {
 		columns["Name"] = row.Name

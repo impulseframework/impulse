@@ -346,7 +346,7 @@ func signInMethods(ctx context.Context, t *testing.T, b *browser) []signInMethod
 func mailedToken(t *testing.T, s *served, before int, kind string) string {
 	t.Helper()
 
-	link := regexp.MustCompile(`http://solo\.test/login\?` + kind + `=([A-Za-z0-9_-]+)`)
+	link := regexp.MustCompile(`http://solo\.test/login#` + kind + `=([A-Za-z0-9_-]+)`)
 	for _, m := range s.mail.Messages()[before:] {
 		if match := link.FindStringSubmatch(m.Text); match != nil {
 			return match[1]
@@ -368,8 +368,9 @@ func factorIfHeld(ctx context.Context, t *testing.T, b *browser, username string
 }
 
 // invited has the administrator invite the address with the FeatureAdministrator role
-// and the invited person create their account from the link, whatever was chosen for
-// the method: an invitation is the way in under either choice.
+// and the invited person create their account from the link and the code mailed to the
+// address, whatever was chosen for the method: an invitation is the way in under either
+// choice.
 func invited(ctx context.Context, t *testing.T, s *served, admin *browser, email, username string) {
 	t.Helper()
 
@@ -394,10 +395,10 @@ func invited(ctx context.Context, t *testing.T, s *served, admin *browser, email
 		t.Fatal(err)
 	}
 	status, body = b.do(ctx, http.MethodPost, "/api/user/invitation/sign-up", accept)
-	if status != http.StatusOK {
-		t.Fatalf("POST /api/user/invitation/sign-up as %s: status %d: %s", username, status, body)
+	if status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("POST /api/user/invitation/sign-up as %s: status %d: %s, want 200 held for the code mailed to the invited address", username, status, body)
 	}
-	factorIfHeld(ctx, t, b, username, body)
+	b.secondFactor(ctx, username, false)
 	if status, body := b.do(ctx, http.MethodGet, "/api/feature-flags", nil); status != http.StatusOK {
 		t.Fatalf("GET /api/feature-flags as the invited %s: status %d, want 200 by the invitation's role: %s", username, status, body)
 	}

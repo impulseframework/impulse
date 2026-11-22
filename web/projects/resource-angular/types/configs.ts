@@ -179,6 +179,14 @@ export interface MethodPresentation {
    * field the page does not name lists its options by the source's own name.
    */
   shows?: Record<string, string[]>;
+  /**
+   * How a picker among the request's inputs narrows its options by what the dialog
+   * holds, by the request field's name: the filter its list is asked with, from the
+   * values of the inputs as they stand (where a role is to be held, for the roles that
+   * exist there). The picker asks again as they change, and a choice made before the
+   * filter changed is cleared.
+   */
+  narrows?: Record<string, (values: RecordData) => string>;
 }
 
 export type ListConcatFn =
@@ -357,6 +365,20 @@ export type MultiColumnConfig = FieldColumnConfig & {
    * the cell shows `emptyDataValue`.
    */
   fallback?: (data: any) => string;
+  /**
+   * The column's field holds a tenant's key. Where the tenant's record could not be read
+   * (the caller holds no List on it), the tenant is named as the person's own list of
+   * tenants names it, the tenants they hold a role in, which the client already holds,
+   * before `fallback` is asked.
+   */
+  tenantKey?: boolean;
+  /**
+   * How the cell says the value it found, given the value and the row: the page's words
+   * around a bare name, where the heading does not say what the name is a name of
+   * ("Sector Anvil" under "Held in"). Absent, the cell shows the value. It is not asked
+   * for a row that falls back.
+   */
+  said?: (value: string, data: any) => string;
 };
 export type MultiColumnConfigOptions = MultiColumnConfig;
 

@@ -325,11 +325,13 @@ export interface CrewSessionMailLinks {
   name?: string;
   userId?: string;
   tenantId?: string;
+  everyTenant?: boolean;
   roleNames?: string[];
   invitedByUserId?: string;
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
+  mailFailedAt?: Date;
 }
 
 export interface CrewSessionSignInAttempts {
@@ -615,11 +617,13 @@ export interface MembersSessionMailLinks {
   name?: string;
   userId?: string;
   tenantId?: string;
+  everyTenant?: boolean;
   roleNames?: string[];
   invitedByUserId?: string;
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
+  mailFailedAt?: Date;
 }
 
 export interface MembersSessionSignInAttempts {
@@ -873,6 +877,15 @@ export interface BriefingTemplates {
   layout?: unknown;
 }
 
+export interface CrewGivableRoles {
+  name: string;
+  description?: string;
+  method?: string;
+  group?: string;
+  domain?: string;
+  everyDomain?: boolean;
+}
+
 export interface CrewInvitedSectors {
   id: string;
   email?: string;
@@ -895,6 +908,7 @@ export interface CrewSectorDirectoryRoles {
 export interface CrewSectorRoles {
   name: string;
   description?: string;
+  method?: string;
 }
 
 export interface CrewSectorSignInWays {
@@ -1493,11 +1507,13 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSessionUsers },
       { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'everyTenant', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
       { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false, sortable: false },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSessionSignInAttempts]: {
@@ -1923,11 +1939,13 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessionUsers },
       { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'everyTenant', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
       { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false, sortable: false },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.MembersSessionSignInAttempts]: {
@@ -2313,6 +2331,25 @@ const resourceMap = defineResourceMap({
       { fieldName: 'layout', displayType: 'object', required: false, isIndex: false, sortable: false },
     ],
   },
+  [Resources.CrewGivableRoles]: {
+    route: 'crew-givable-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'crew givable role', many: 'crew givable roles' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'group', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'domain', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'everyDomain', displayType: 'boolean', required: false, isIndex: false, filterable: 'always' },
+    ],
+    searchFields: ['method', 'group', 'domain'],
+  },
   [Resources.CrewInvitedSectors]: {
     route: 'crew-invited-sectors',
     readDisabled: true,
@@ -2362,7 +2399,9 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
     ],
+    searchFields: ['method'],
   },
   [Resources.CrewSectorSignInWays]: {
     route: 'sectors/{sectorID}/crew-sector-sign-in-ways',
@@ -2652,6 +2691,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.SquadronRosters]: PermissionScopes.domain,
   [Resources.Wings]: PermissionScopes.domain,
   [Resources.BriefingTemplates]: PermissionScopes.global,
+  [Resources.CrewGivableRoles]: PermissionScopes.global,
   [Resources.CrewInvitedSectors]: PermissionScopes.global,
   [Resources.CrewSectorDirectoryRoles]: PermissionScopes.domain,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,

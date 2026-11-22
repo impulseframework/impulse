@@ -131,21 +131,22 @@ func (m *Manager) DirectoryRoles(ctx context.Context, db resource.Executor, tena
 	return offered, nil
 }
 
-// RolesToGive lists the roles a person picks from to give one in a tenant by hand, as
-// the dialogs of the methods that give a role offer them: the roles that exist in the
-// tenant (TenantRoles) that the request's caller could give there by one of those
-// methods (RoleGrants.CouldGive), and no other. A page offers what the caller may do: a
-// role the list leaves out is one every such method refuses this caller, whoever it is
-// given to, so a role file says which roles a person hands out once, on the methods'
-// grants, and the list follows. One list serves the pickers of all of them, so it holds
-// a role that one of them takes and another refuses, which the method then says. A call
-// outside any request is the application's own and lists every role of the tenant; a
-// manager a request reaches without the role grants cannot judge it, which is an error
-// and never a list.
+// RolesToGive lists the roles a person picks from to give one in a tenant by hand with
+// one of the tenant's methods (method: the one that gives a person a role, the create
+// or the invitation that starts a person with one, or the one that gives a group a
+// role, by the name its grant is written under), as the method's dialog offers them:
+// the roles that exist in the tenant (TenantRoles) that the request's caller could
+// give there with that method (RoleGrants.CouldGive), and no other. A dialog offers
+// what its own method takes from the caller: a role the list leaves out is one the
+// method refuses this caller, whoever it is given to, so a role file says which roles
+// a person hands out once, on each method's grant, and each method's list follows its
+// own. A call outside any request is the application's own and lists every role of the
+// tenant; a manager a request reaches without the role grants cannot judge it, which
+// is an error and never a list.
 //
 // It is a list's read, called outside any transaction, and opens none: the question
 // reads no row (DirectoryRoles asks for nobody in particular, which may).
-func (m *Manager) RolesToGive(ctx context.Context, tenant accesstypes.Domain) ([]access.RoleInfo, error) {
+func (m *Manager) RolesToGive(ctx context.Context, method accesstypes.Resource, tenant accesstypes.Domain) ([]access.RoleInfo, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -168,7 +169,7 @@ func (m *Manager) RolesToGive(ctx context.Context, tenant accesstypes.Domain) ([
 		if enters, err := m.entersToChange(ctx, scope, role, nil); err != nil || !enters {
 			return false, err
 		}
-		could, err := m.grants.CouldGive(ctx, scope, role)
+		could, err := m.grants.CouldGive(ctx, method, scope, role)
 		if err != nil {
 			return false, errors.Wrap(err, "identity.RoleGrants.CouldGive()")
 		}

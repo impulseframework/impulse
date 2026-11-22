@@ -279,11 +279,10 @@ describe('Break glass', () => {
     const page_ = page(withoutTenants, 'Break glass');
     expect(shown(list(page_)).map(([, header]) => header)).toEqual(['Username', 'Name', 'Role', 'Why', 'Ends']);
     const end = presentation(list(page_).rowMethods, 'RemoveStaffRole');
+    // The method that ends a role has no field that says where in such an application.
     expect(end.fill?.({ userId: 'u1', role: 'Editor', kind: 'global', domainId: '' })).toEqual({
       userId: 'u1',
       role: 'Editor',
-      domain: null,
-      everyDomain: false,
     });
     expect(presentation(list(page_).listMethods, 'TakeStaffRole').label).toBe('Take a role');
   });

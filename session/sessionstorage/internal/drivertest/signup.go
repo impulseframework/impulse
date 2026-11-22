@@ -264,9 +264,9 @@ func testOpenMethodDefaultRole(ctx context.Context, t *testing.T, h *AuthHarness
 		t.Errorf("the sign-up hook gave a role %d time(s) after the second sign-in, want once still", got)
 	}
 
-	// A person an administrator created an account for is not signing up: the account
-	// is linked by the sign-in that carries the mailed code's event, and holds what the
-	// administrator gave it.
+	// A person whose account was created ahead is not signing up: the account is
+	// linked by the sign-in that carries the mailed code's event, and holds what it
+	// was given.
 	const created = "kim@lakeside.edu"
 	kim := createUser(ctx, t, in.Driver, created)
 	kimIdentity := entra("oid-kim", created)

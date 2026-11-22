@@ -249,7 +249,10 @@ type PendingIdentity struct {
 	Identity Identity
 	Reason   PendingReason
 	// UserID and Username name the user the identity waits on. This includes an
-	// user the sign-in has just provisioned.
+	// user the sign-in has just provisioned. They name nobody (a null UserID and an
+	// empty Username) for the one wait that comes before any user: the acceptance of
+	// an invitation through an identity that asserts no address, or one its method did
+	// not verify, held for the code mailed to the invited address.
 	UserID    impulse.NullUUID
 	Username  string
 	ExpiresAt time.Time
@@ -339,17 +342,35 @@ const (
 	RefusedInvitationOnly LoginRefusalCode = "invitation_only"
 	// RefusedInvitationExpired is the code for a sign-in that an invitation alone
 	// admitted, through a sign-in method that is invite only, whose invitation had expired
-	// or been used by the time the sign-in accepted it.
+	// or been used by the time the sign-in accepted it. It is also the code for a sign-in
+	// code mailed for an invitation, and for the sign-in that entered it, once that
+	// invitation was used, withdrawn or ran out.
 	RefusedInvitationExpired LoginRefusalCode = "invitation_expired"
 	// RefusedInvitationAddress is the code for a sign-in or an acceptance that carried
 	// an invitation for another address. An invitation is accepted only by the account
 	// it was mailed to: the address the sign-in asserts, the directory's for an external
 	// identity and the account's own for a password one or a person signed in, differs
 	// from the invited one, so the sign-in or acceptance is refused, the invitation left
-	// standing and nothing consumed. An account that holds no address accepts by the
-	// link. The login page names the invited address and asks for a sign-in with that
-	// account.
+	// standing and nothing consumed. The link proves no address: an account that names
+	// itself and has not confirmed the invited address is held, at a sign-in, for the
+	// code mailed to that address, and its acceptance by hand, where nothing can wait,
+	// is refused with this code and a sentence that says to sign in again from the
+	// invitation's link. The login page names the invited address and asks for a
+	// sign-in with that account.
 	RefusedInvitationAddress LoginRefusalCode = "invitation_address"
+	// RefusedInvitationSpent is the code for a sign-in code asked for or entered to
+	// accept an invitation that takes no more codes: twenty-five were entered for it
+	// and none of them accepted it. The count is the invitation's own, across every
+	// sign-in that carried it, and never starts again, so nothing more is mailed for
+	// the invitation and no code is compared with one. The person asks whoever invited
+	// them for a new invitation.
+	RefusedInvitationSpent LoginRefusalCode = "invitation_spent"
+	// RefusedInvitationNotOpen is the code for a sign-in code mailed for an invitation
+	// and entered in a browser that does not have that invitation open: it carries no
+	// invitation, or another one. The code is not compared and nothing is written, and it
+	// takes its place in the invitation's count. The person opens the invitation's link
+	// again and enters the code.
+	RefusedInvitationNotOpen LoginRefusalCode = "invitation_not_open"
 	// RefusedGuestAccount is the code for an identity that is a guest of its directory
 	// (Identity.Guest), which the standard account rule refuses.
 	RefusedGuestAccount LoginRefusalCode = "guest_account"

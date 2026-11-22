@@ -36,22 +36,16 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	founderID := staffAccountID(ctx, t, admin, "founder")
 	eastSegment := "/api/tenants/" + east + "/announcements"
 
-	// The member, north's administrator, is given a role in East; a person is created in
-	// East who holds a role nowhere else; and an invitation into East stands.
+	// The member, north's administrator, is given a role in East; so is a person who
+	// holds a role nowhere else; and an invitation into East stands.
 	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+s.memberID+`","role":"TenantAdministrator","domain":"`+east+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("giving the member a role in East: status %d: %s", status, body)
 	}
-	status, body := tenantPost(ctx, admin, east, "create-staff-tenant-user", map[string]any{"username": "easterner", "password": "a-temporary-password", "roles": []string{"TenantAdministrator"}})
-	if status != http.StatusOK {
-		t.Fatalf("creating a person in East: status %d: %s", status, body)
+	easterner := staffAccount(ctx, t, s, "easterner", "Easterner")
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+easterner+`","role":"TenantAdministrator","domain":"`+east+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving a person with no other role one in East: status %d: %s", status, body)
 	}
-	var easterner struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(body, &easterner); err != nil || easterner.ID == "" {
-		t.Fatalf("creating a person in East answered %s (%v), want the new account's id", body, err)
-	}
-	status, body = tenantPost(ctx, admin, east, "invite-staff-tenant-user", map[string]any{"email": "invited@example.com", "roles": []string{"TenantAdministrator"}})
+	status, body := tenantPost(ctx, admin, east, "invite-staff-tenant-user", map[string]any{"email": "invited@example.com", "roles": []string{"TenantAdministrator"}})
 	if status != http.StatusOK {
 		t.Fatalf("inviting into East: status %d: %s", status, body)
 	}
@@ -68,11 +62,11 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 		}
 	}
 	if !accountExists(ctx, t, s, "easterner") {
-		t.Fatal("the person created in East has no account")
+		t.Fatal("the person of East alone has no account")
 	}
 	// The permission store holds a role in East for the three who were given one there,
 	// under the id of the person's account, which is how it names anyone: the member's,
-	// the founder's (the acceptance seated them) and the person's who was created there.
+	// the founder's (the acceptance seated them) and the person's who holds one there alone.
 	scope := accesstypes.DomainPolicyScope(accesstypes.Domain(east))
 	type holder struct {
 		name string
@@ -81,7 +75,7 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	seated := []holder{
 		{"the member", accesstypes.User(s.memberID)},
 		{"the founder", accesstypes.User(founderID)},
-		{"the person created there", accesstypes.User(easterner.ID)},
+		{"the person of East alone", accesstypes.User(easterner)},
 	}
 	for _, h := range seated {
 		if roles := rolesHeld(ctx, t, s, h.user, scope); !slices.Contains(roles, "TenantAdministrator") {
@@ -135,14 +129,14 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	}
 
 	// The permission store holds no role in the deleted tenant: not the member's, not
-	// the founder's, not the person's who was created there.
+	// the founder's, not the person's who held a role there alone.
 	for _, h := range seated {
 		if roles := rolesHeld(ctx, t, s, h.user, scope); len(roles) != 0 {
 			t.Errorf("the roles the permission store holds for %s in the deleted tenant = %v, want none", h.name, roles)
 		}
 	}
 	// The member holds north still and keeps the account; the people who held roles in
-	// East alone, its founder and the person created there, are deleted with it.
+	// East alone, its founder and the person given a role there, are deleted with it.
 	if !accountExists(ctx, t, s, memberUser) {
 		t.Error("the member's account is gone, want it kept: the member holds a role in north")
 	}

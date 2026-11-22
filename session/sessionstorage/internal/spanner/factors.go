@@ -15,27 +15,33 @@ import (
 )
 
 // factorCodeColumns are the factor codes table's columns.
-const factorCodeColumns = `Id, PendingId, Email, CodeHash, Attempts, CreatedAt, ExpiresAt, ConsumedAt`
+const factorCodeColumns = `Id, PendingId, Email, CodeHash, Attempts, CreatedAt, ExpiresAt, ConsumedAt, InvitationId`
 
 // factorCodeRow is a factor code as the table holds it.
 type factorCodeRow struct {
-	ID         string           `spanner:"Id"`
-	PendingID  string           `spanner:"PendingId"`
-	Email      string           `spanner:"Email"`
-	CodeHash   []byte           `spanner:"CodeHash"`
-	Attempts   int64            `spanner:"Attempts"`
-	CreatedAt  time.Time        `spanner:"CreatedAt"`
-	ExpiresAt  time.Time        `spanner:"ExpiresAt"`
-	ConsumedAt spanner.NullTime `spanner:"ConsumedAt"`
+	ID           string             `spanner:"Id"`
+	PendingID    string             `spanner:"PendingId"`
+	Email        string             `spanner:"Email"`
+	CodeHash     []byte             `spanner:"CodeHash"`
+	Attempts     int64              `spanner:"Attempts"`
+	CreatedAt    time.Time          `spanner:"CreatedAt"`
+	ExpiresAt    time.Time          `spanner:"ExpiresAt"`
+	ConsumedAt   spanner.NullTime   `spanner:"ConsumedAt"`
+	InvitationID spanner.NullString `spanner:"InvitationId"`
 }
 
 // newFactorCodeRow renders c as the table holds it: created at the commit time, unused
 // and not consumed, whatever c carries.
 func newFactorCodeRow(c *dbtype.FactorCode) *factorCodeRow {
-	return &factorCodeRow{
+	r := &factorCodeRow{
 		ID: c.ID.String(), PendingID: c.PendingID.String(), Email: c.Email, CodeHash: c.CodeHash, Attempts: 0,
 		CreatedAt: spanner.CommitTimestamp, ExpiresAt: c.ExpiresAt,
 	}
+	if c.InvitationID.Valid {
+		r.InvitationID = spanner.NullString{StringVal: c.InvitationID.String(), Valid: true}
+	}
+
+	return r
 }
 
 func (r *factorCodeRow) code() (*dbtype.FactorCode, error) {
@@ -53,6 +59,13 @@ func (r *factorCodeRow) code() (*dbtype.FactorCode, error) {
 	if r.ConsumedAt.Valid {
 		consumedAt := r.ConsumedAt.Time
 		c.ConsumedAt = &consumedAt
+	}
+	if r.InvitationID.Valid {
+		invitationID, err := impulse.UUIDFromString(r.InvitationID.StringVal)
+		if err != nil {
+			return nil, errors.Wrap(err, "impulse.UUIDFromString()")
+		}
+		c.InvitationID = impulse.NullUUIDFromUUID(invitationID)
 	}
 
 	return c, nil

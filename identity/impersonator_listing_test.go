@@ -48,7 +48,6 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.DeleteUser":            {subject: true},
 	"Manager.DisableUser":           {subject: true},
 	"Manager.EnableUser":            {subject: true},
-	"Manager.SetTemporaryPassword":  {subject: true},
 	"Manager.RequirePasswordChange": {subject: true},
 	"Manager.RemovePassword":        {subject: true},
 	"Manager.SendPasswordResetLink": {subject: true},
@@ -96,13 +95,9 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.EndImpersonation": {
 		none: "it ends a session that acts as someone else, which is the session of the person acted as or of no account at all: the person who started one ends it, here and by the session library's own way out",
 	},
-	"Manager.CreateUser": {
-		none: "it makes an account that did not exist, which is nobody's yet; an account made for another address of the real person's is a road the rule cannot see",
-	},
 	"Manager.TakeRole": {
 		none: "it names no person: the role goes to the request's caller, and a session that acts as someone else takes nothing, for the person acted as or for the person behind it (taker)",
 	},
-	"Tenant.CreateUser":                {none: "it is Manager.CreateUser for one tenant"},
 	"Manager.CreateGroup":              {none: ofAGroup},
 	"Manager.DescribeGroup":            {none: ofAGroup},
 	"Manager.DeleteGroup":              {none: ofAGroup},
@@ -135,6 +130,8 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.CallerPassword":                  {none: reads},
 	"Manager.DirectoryRoles":                  {none: reads},
 	"Manager.RolesToGive":                     {none: reads},
+	"Manager.GivableRoles":                    {none: reads},
+	"Manager.GivableGroupRoles":               {none: reads},
 	"Manager.RolesToTake":                     {none: reads},
 	"Manager.DirectoryName":                   {none: reads},
 	"Manager.CheckInvitedTenant":              {none: reads},

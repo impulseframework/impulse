@@ -40,8 +40,8 @@ CREATE TABLE CrewSessionUsers (
   LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
-  -- An operator set the password (a first password, a reset): the person changes it
-  -- before anything else is served (the session library's forced change).
+  -- An administrator required a new password of the person: they choose it before
+  -- anything else is served (the session library's forced change).
   PasswordChangeRequired BOOL NOT NULL DEFAULT (FALSE),
   -- The database's time at the insert and at the latest sign-in (null before the
   -- first); the session library writes both as commit timestamps.
@@ -192,8 +192,8 @@ CREATE TABLE MembersSessionUsers (
   LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
-  -- An operator set the password (a first password, a reset): the person changes it
-  -- before anything else is served (the session library's forced change).
+  -- An administrator required a new password of the person: they choose it before
+  -- anything else is served (the session library's forced change).
   PasswordChangeRequired BOOL NOT NULL DEFAULT (FALSE),
   -- The database's time at the insert and at the latest sign-in (null before the
   -- first); the session library writes both as commit timestamps.
@@ -1182,7 +1182,9 @@ CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STO
 
 -- The crew's mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
--- to an address, carrying the sector and the roles its acceptance seats and who sent it,
+-- to an address, carrying the roles its acceptance gives, the place they are held in
+-- (TenantId for one sector, EveryTenant for every sector, neither for the whole
+-- application: the acceptance gives each role there and nowhere else) and who sent it,
 -- or, for an invitation that brings an organization in, the sector its first sign-in
 -- makes (NewTenant, a JSON document: the sector's name, whether it is entered through its
 -- directory only, and its details; null on every other link);
@@ -1195,10 +1197,12 @@ CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STO
 -- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
--- update so one link completes once. A revoked invitation is consumed by hand. A
+-- update so one link completes once. A revoked invitation is consumed by hand, and a
+-- link whose message could not be mailed is consumed where the mail failed, with
+-- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
 -- verification link, a first-password code, a reset link and an address confirmation
--- go with their user. CreatedAt and
--- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
+-- go with their user. CreatedAt, ConsumedAt and MailFailedAt take the commit time;
+-- ExpiresAt is the library's deadline, written as given.
 CREATE TABLE CrewSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -1207,12 +1211,14 @@ CREATE TABLE CrewSessionMailLinks (
     Name       STRING(MAX),
     UserId     STRING(36),
     TenantId   STRING(MAX),
+    EveryTenant BOOL NOT NULL DEFAULT (false),
     RoleNames  ARRAY<STRING(MAX)>,
     NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_CrewSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_CrewSessionMailLinks_CrewSessionUsers FOREIGN KEY (UserId) REFERENCES CrewSessionUsers (Id) ON DELETE CASCADE,
@@ -1276,7 +1282,9 @@ CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Usernam
 
 -- The members' mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
--- to an address, carrying the sector and the roles its acceptance seats and who sent it,
+-- to an address, carrying the roles its acceptance gives, the place they are held in
+-- (TenantId for one sector, EveryTenant for every sector, neither for the whole
+-- application: the acceptance gives each role there and nowhere else) and who sent it,
 -- or, for an invitation that brings an organization in, the sector its first sign-in
 -- makes (NewTenant, a JSON document: the sector's name, whether it is entered through its
 -- directory only, and its details; null on every other link);
@@ -1289,10 +1297,12 @@ CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Usernam
 -- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
--- update so one link completes once. A revoked invitation is consumed by hand. A
+-- update so one link completes once. A revoked invitation is consumed by hand, and a
+-- link whose message could not be mailed is consumed where the mail failed, with
+-- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
 -- verification link, a first-password code, a reset link and an address confirmation
--- go with their user. CreatedAt and
--- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
+-- go with their user. CreatedAt, ConsumedAt and MailFailedAt take the commit time;
+-- ExpiresAt is the library's deadline, written as given.
 CREATE TABLE MembersSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -1301,12 +1311,14 @@ CREATE TABLE MembersSessionMailLinks (
     Name       STRING(MAX),
     UserId     STRING(36),
     TenantId   STRING(MAX),
+    EveryTenant BOOL NOT NULL DEFAULT (false),
     RoleNames  ARRAY<STRING(MAX)>,
     NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_MembersSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_MembersSessionMailLinks_MembersSessionUsers FOREIGN KEY (UserId) REFERENCES MembersSessionUsers (Id) ON DELETE CASCADE,
@@ -1394,7 +1406,9 @@ CREATE INDEX CrewSessionDeviceCodesByUserCode ON CrewSessionDeviceCodes(UserCode
 -- mailed for a pending sign-in (PendingId): the mail carries the code and the row keeps
 -- its hash; the row is live while it is not consumed and not expired, Attempts counts the
 -- wrong codes entered against it, and a new code for the same pending sign-in consumes
--- the earlier one. A trusted device is a browser a crew member asked to be remembered
+-- the earlier one. A code mailed for an invitation names it (InvitationId) and accepts
+-- that one alone; every other code names none. A trusted device is a browser a crew
+-- member asked to be remembered
 -- after a code (UserId): the browser holds an opaque token in the crew-trusted cookie and
 -- the row keeps its hash; it stands in for the factor while it is not revoked and not
 -- expired, and headquarters revokes every browser of a person's from the user-management
@@ -1410,6 +1424,7 @@ CREATE TABLE CrewSessionFactorCodes (
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    InvitationId STRING(36),
     CONSTRAINT CK_CrewSessionFactorCodesId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT FK_CrewSessionFactorCodes_CrewSessionPendingSignIns FOREIGN KEY (PendingId) REFERENCES CrewSessionPendingSignIns (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
@@ -1447,6 +1462,7 @@ CREATE TABLE MembersSessionFactorCodes (
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    InvitationId STRING(36),
     CONSTRAINT CK_MembersSessionFactorCodesId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT FK_MembersSessionFactorCodes_MembersSessionPendingSignIns FOREIGN KEY (PendingId) REFERENCES MembersSessionPendingSignIns (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);

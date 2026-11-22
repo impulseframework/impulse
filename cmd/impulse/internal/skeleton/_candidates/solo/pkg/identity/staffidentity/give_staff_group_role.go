@@ -14,11 +14,10 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
-// GiveStaffGroupRole gives a group of the Staff auth a role: in the global
-// scope, in one domain (Domain), or in every domain (EveryDomain). Every person in the
-// group then holds the role there, and their next request is served with it. The role
-// must exist where it is given. A group kept in one domain is given a role in that
-// domain alone.
+// GiveStaffGroupRole gives a group of the Staff auth a role, held for the
+// whole application: the application has no tenants, so the request names no place.
+// Every person in the group then holds the role, and their next request is served with
+// it. The role must exist.
 // No group is given the Super Administrator role: a super administrator gives it to one
 // person at a time.
 //
@@ -41,13 +40,14 @@ import (
 type GiveStaffGroupRole struct {
 	// @target(StaffListedGroup)
 	GroupID impulse.UUID
-	// Role is the role the group is given. A grant's condition reads it as new.role, so a
-	// role file can limit which roles the grant's holder gives a group.
+	// Role is the role the group is given, picked from the roles that exist where it is
+	// given that the caller could give there (StaffGivableRoles). A grant's condition
+	// reads it as new.role, so a role file can limit which roles the grant's holder gives
+	// a group.
 	//
 	// @attribute(role)
-	Role        string `validate:"required"`
-	Domain      *string
-	EveryDomain bool
+	// @enumerate(StaffGivableRoles)
+	Role string `validate:"required"`
 	// StartsAt is the first instant it counts. Left out, it counts from now.
 	StartsAt *time.Time
 	// EndsAt is the first instant it no longer counts. Left out, it counts until it is
@@ -61,10 +61,8 @@ func (m *GiveStaffGroupRole) Execute(ctx context.Context, txn resource.ReadWrite
 	if err != nil {
 		return errors.Wrap(err, "identity.RequestPeriod()")
 	}
-	scope, err := identity.Scope(m.Domain, m.EveryDomain)
-	if err != nil {
-		return errors.Wrap(err, "identity.Scope()")
-	}
+	// The application has no tenants: every role is held for the whole application.
+	scope := accesstypes.GlobalPolicyScope()
 	if err := client.manager.GiveGroupRoleFor(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role), period); err != nil {
 		return errors.Wrap(err, "identity.Manager.GiveGroupRoleFor()")
 	}

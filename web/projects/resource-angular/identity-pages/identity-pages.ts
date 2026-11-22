@@ -1,5 +1,11 @@
 import { Route } from '@angular/router';
-import { ApiDescriptor, IdentityDescriptor, IdentitySideDescriptor, ScopeKind } from '@impulseframework/resource';
+import {
+  ApiDescriptor,
+  IdentityDescriptor,
+  IdentitySideDescriptor,
+  quoteFilterValue,
+  ScopeKind,
+} from '@impulseframework/resource';
 import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
 import { Page, page, pageRoute } from '@impulseframework/resource-angular/auth-frame';
 import { resourcePage, resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
@@ -219,11 +225,18 @@ function saidRoute(said: SaidPage): Route {
 /** A column or a row page field: the row's field and the words above it. */
 type Named = [field: string, words: string];
 
+/** What a method of a side is: its name in the description's list of the side's methods (`invite`, `assignRole`). */
+type MethodKind = keyof IdentitySideDescriptor['methods'];
+
 class SideBuilder {
   private readonly tenant: boolean;
   /** The tenant record in words, lowercase ("sector", "cost center"); "tenant" where the description names none. */
   private readonly tenantWord: string;
   private readonly base: string;
+  /** What each of the side's methods is, by the name the server gave it (`InviteCrewUser` is `invite`). */
+  private readonly kinds: ReadonlyMap<string, MethodKind>;
+  /** What the notice says once a method has run, by what the method is (doneWords). */
+  private readonly done: Partial<Record<MethodKind, string>>;
 
   constructor(
     private readonly descriptor: ApiDescriptor,
@@ -235,6 +248,12 @@ class SideBuilder {
     this.tenant = side.scope === 'domain';
     this.tenantWord = identity.tenant ? words(identity.tenant).toLowerCase() : 'tenant';
     this.base = this.tenant ? `${this.tenantSegment()}/${kebab(identity.auth)}` : kebab(identity.auth);
+    this.kinds = new Map(
+      (Object.entries(side.methods) as [MethodKind, string | undefined][])
+        .filter((entry): entry is [MethodKind, string] => entry[1] !== undefined)
+        .map(([kind, name]) => [name, kind]),
+    );
+    this.done = doneWords;
   }
 
   /**
@@ -244,7 +263,7 @@ class SideBuilder {
    */
   people(): RootConfig {
     const { lists, methods } = this.side;
-    const password = methods.setTemporaryPassword !== undefined || methods.requirePasswordChange !== undefined;
+    const password = methods.requirePasswordChange !== undefined;
     const fields: Named[] = [
       ['username', 'Username'],
       ['name', 'Name'],
@@ -289,10 +308,9 @@ class SideBuilder {
         rowMethods: this.onPerson(),
         listMethods: this.present([
           [
-            methods.create,
-            { label: this.tenant ? 'Add a person' : 'Add an account', icon: 'person_add', labels: this.where() },
+            methods.invite,
+            { label: 'Invite', icon: 'send', labels: this.where(), ...this.rolesWhere('roles', methods.invite) },
           ],
-          [methods.invite, { label: 'Invite', icon: 'send', labels: this.where() }],
         ]),
         elements: [
           section({
@@ -377,6 +395,8 @@ class SideBuilder {
               icon: 'badge',
               labels: { ...this.where(), ...periodWords },
               throughDay: periodEnds,
+              fill: (row) => this.keptPlace(row),
+              ...this.rolesWhere('role', methods.giveGroupRole),
             },
           ],
           [
@@ -465,12 +485,24 @@ class SideBuilder {
           ['kind', 'Kind'],
           ['email', 'Email'],
           ['name', 'Name'],
-          ['tenantId', words(this.identity.tenant ?? 'Tenant')],
+          // The tenant a link invites into, where the application has tenants.
+          ...(this.identity.tenant ? ([['tenantId', words(this.identity.tenant)]] as Named[]) : []),
           ['roleNames', 'Roles'],
           ['createdAt', 'Sent'],
           ['expiresAt', 'Expires'],
           ['consumedAt', 'Used'],
         ];
+    // Whether the list says where a link that names no tenant gives its roles: the whole
+    // application's list, in an application with tenants, where the reader may read the
+    // mark of an invitation into every tenant.
+    const placed = !this.tenant && this.identity.tenant ? this.has(resource, 'everyTenant') : false;
+    // Whether the list can tell the first administrator's own invitation, which nobody
+    // sent: where it says the place, and the reader may read who sent a link.
+    const sender = placed && this.has(resource, 'invitedByUserId');
+    // Whether the list can tell a link whose message could not be mailed: the whole
+    // application's list, where the reader may read when the mail failed.
+    const unmailed = !this.tenant && this.has(resource, 'mailFailedAt');
+    const into = (row: RecordData): string => String(row['tenantId'] ?? '') || this.invitedInto(row, placed, sender);
     return rootConfig({
       page: this.tenant ? { label: 'Invitations', icon: 'mail' } : { label: 'Mailed links', icon: 'forward_to_inbox' },
       routeData: {
@@ -482,12 +514,21 @@ class SideBuilder {
         primaryResource: resource,
         showViewButton: false,
         showRowCount: true,
-        // The tenant a link invites into is named, where the tenant record can be read.
-        listColumns: this.columns(resource, fields).map((column) =>
-          column.id === 'tenantId'
-            ? this.tenantNamed(column.id, column.header ?? '', (row) => String(row['tenantId'] ?? ''))
-            : column,
-        ),
+        // The tenant a link invites into is named, where the tenant record can be read,
+        // and a link that names none says where its roles are held instead. A link whose
+        // message could not be mailed says so where its dates would be.
+        listColumns: [
+          ...this.columns(resource, fields).map((column) => {
+            if (column.id === 'tenantId') {
+              return this.tenantNamed(column.id, column.header ?? '', into);
+            }
+            return unmailed ? this.unmailedCell(column) : column;
+          }),
+          // Read with each row and not drawn.
+          ...(placed ? [{ id: 'everyTenant' as FieldName, hidden: true }] : []),
+          ...(sender ? [{ id: 'invitedByUserId' as FieldName, hidden: true }] : []),
+          ...(unmailed ? [{ id: 'mailFailedAt' as FieldName, hidden: true }] : []),
+        ],
         rowMethods: this.present([
           [
             methods.withdrawInvitation,
@@ -500,7 +541,11 @@ class SideBuilder {
             },
           ],
         ]),
-        listMethods: this.tenant ? this.present([[methods.invite, { label: 'Invite', icon: 'send' }]]) : [],
+        listMethods: this.tenant
+          ? this.present([
+              [methods.invite, { label: 'Invite', icon: 'send', ...this.rolesWhere('roles', methods.invite) }],
+            ])
+          : [],
         elements: [],
       }),
     });
@@ -988,7 +1033,8 @@ class SideBuilder {
         ...comesFrom,
         // Where the role is held: the tenant by its name, where the tenant record can
         // be read, and in words for a role held in every tenant or the whole application.
-        ...(this.has(resource, 'kind')
+        // An application without tenants holds every role in one place, and says none.
+        ...(this.has(resource, 'kind') && this.identity.tenant
           ? [
               this.tenantNamed('domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
               // Read with each row and not drawn: what the words and the methods are filled from.
@@ -1048,7 +1094,7 @@ class SideBuilder {
           ])
         : [
             ...this.columns(resource, named),
-            ...(this.has(resource, 'kind')
+            ...(this.has(resource, 'kind') && this.identity.tenant
               ? [
                   this.tenantNamed('domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
                   { id: 'kind' as FieldName, hidden: true },
@@ -1115,11 +1161,20 @@ class SideBuilder {
       ...column,
       hidden: true,
     }));
-    // The method runs against the group the list sits under.
+    // The method runs against the group the list sits under, and picks the role as the
+    // same method does from the group's row: among the roles that group may hold in the
+    // place the dialog holds.
     const give = this.present([
       [
         methods.giveGroupRole,
-        { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords }, throughDay: periodEnds },
+        {
+          label: 'Give a role',
+          icon: 'badge',
+          labels: { ...this.where(), ...periodWords },
+          throughDay: periodEnds,
+          fill: (row) => this.keptPlace(row),
+          ...this.rolesWhere('role', methods.giveGroupRole),
+        },
       ],
     ]);
     if (this.tenant) {
@@ -1158,7 +1213,7 @@ class SideBuilder {
       collapsible: false,
       listColumns: [
         ...this.columns(resource, [['role', 'Role']]),
-        ...(this.has(resource, 'kind')
+        ...(this.has(resource, 'kind') && this.identity.tenant
           ? [
               this.tenantNamed('domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
               { id: 'kind' as FieldName, hidden: true },
@@ -1173,12 +1228,7 @@ class SideBuilder {
           {
             label: 'Take the role away',
             icon: 'remove_moderator',
-            fill: (row) => ({
-              groupId: row['groupId'],
-              role: row['role'],
-              domain: row['kind'] === heldInOneTenant ? row['domainId'] : null,
-              everyDomain: row['kind'] === heldInEveryTenant,
-            }),
+            fill: (row) => ({ groupId: row['groupId'], role: row['role'], ...this.heldPlace(row) }),
             confirm: (row) => `Take ${String(row['role'])}${this.heldWhere(row)} away from the group? ${whoLoses(row)}`,
           },
         ],
@@ -1299,7 +1349,13 @@ class SideBuilder {
       [
         methods.assignRole,
         this.tenant
-          ? { label: 'Give a role', icon: 'badge', labels: periodWords, throughDay: periodEnds }
+          ? {
+              label: 'Give a role',
+              icon: 'badge',
+              labels: periodWords,
+              throughDay: periodEnds,
+              ...this.rolesWhere('role', methods.assignRole),
+            }
           : // The whole application's method takes the id of the person's account, which the row fills.
             {
               label: 'Give a role',
@@ -1307,6 +1363,7 @@ class SideBuilder {
               fill: (row) => ({ userId: row['id'] }),
               labels: { ...this.where(), ...periodWords },
               throughDay: periodEnds,
+              ...this.rolesWhere('role', methods.assignRole),
             },
       ],
       // A person has two names: the one people read, and the username they sign in under.
@@ -1324,7 +1381,6 @@ class SideBuilder {
           ),
         },
       ],
-      [methods.setTemporaryPassword, { label: 'Set a temporary password', icon: 'password' }],
       [
         methods.sendPasswordResetLink,
         {
@@ -1404,25 +1460,113 @@ class SideBuilder {
   /**
    * The words for where a role is held, on the whole application's methods that take a
    * tenant: the tenant record's name for the tenant, and for the switch that says every
-   * tenant.
+   * tenant. None in an application without tenants, whose methods have no field that
+   * says where.
    */
   private where(): Record<string, string> {
-    return { domain: words(this.identity.tenant ?? 'Tenant'), everyDomain: `In every ${this.tenantWord}` };
+    if (!this.identity.tenant) {
+      return {};
+    }
+    return { domain: words(this.identity.tenant), everyDomain: `In every ${this.tenantWord}` };
   }
 
-  /** The presentations of the methods the description names; one it does not name presents nothing. */
+  /**
+   * How a dialog that gives a role offers the roles: the role field's picker lists the
+   * roles the caller could give with the dialog's own method. The generated list of the
+   * roles to give answers for one method at a time, the one its filter names
+   * (`method:eq:InviteCrewUser`), so each dialog offers what its own request is allowed
+   * and nothing that only another method's is. The whole application's dialog also asks
+   * where the role is to be held first (the tenant, "In every tenant", or neither for
+   * the whole application), and its picker lists the roles that exist there: the filter
+   * names the place beside the method (heldWhere). Every such dialog asks the same,
+   * the invitation's too, so a role is given in every tenant only where the person said
+   * so. A tenant's own dialogs pick from that tenant's roles, and an application
+   * without tenants holds every role for the whole application: neither names a place.
+   * A list that carries no `method` field lists the same roles for every method (a
+   * tenant's roles, where nothing answers what the caller could give), and is asked for
+   * none.
+   *
+   * The dialog that gives a group a role names the group too, by the id the dialog was
+   * opened with, where the list takes one (`group`): the server then lists the roles
+   * that group may hold, by the rule its method keeps, so the page holds no copy of it.
+   */
+  private rolesWhere(field: 'roles' | 'role', method: string | undefined): Pick<MethodPresentation, 'narrows'> {
+    const list = this.side.lists.rolesToGive as Resource | undefined;
+    const asked = method !== undefined && list !== undefined && this.has(list, 'method') ? `method:eq:${method}` : '';
+    const placed = !this.tenant && this.identity.tenant !== undefined;
+    const grouped =
+      asked !== '' && method === this.side.methods.giveGroupRole && list !== undefined && this.has(list, 'group');
+    if (!asked && !placed) {
+      return {};
+    }
+    return {
+      narrows: {
+        [field]: (values) =>
+          [asked, grouped ? ofGroup(values) : '', placed ? heldWhere(values) : '']
+            .filter((part) => part !== '')
+            .join(','),
+      },
+    };
+  }
+
+  /**
+   * Where a group is given a role without the dialog asking: a group kept in one tenant
+   * holds roles in that tenant alone, so the whole application's dialog is opened with
+   * the tenant the group's row names and puts no question a person could only answer one
+   * way. A group kept for the whole application holds a role anywhere a person can, and
+   * its dialog asks where. The roles offered are the server's either way (rolesWhere).
+   * Nothing in a tenant's own pages, whose method names no place, nor in an application
+   * without tenants, whose methods have no field that says where.
+   */
+  private keptPlace(row: RecordData): Record<string, unknown> {
+    if (this.tenant || !this.identity.tenant || row['kind'] !== heldInOneTenant) {
+      return {};
+    }
+    return { domain: row['domainId'], everyDomain: false };
+  }
+
+  /**
+   * The presentations of the methods the description names; one it does not name presents
+   * nothing. Each carries what every offer of its method shares, wherever a page makes it
+   * (shared).
+   */
   private present(
     entries: [method: string | undefined, presentation: Omit<MethodPresentation, 'method'>][],
   ): MethodPresentation[] {
     return entries
       .filter((entry): entry is [string, Omit<MethodPresentation, 'method'>] => entry[0] !== undefined)
-      .map(([method, presentation]) => ({ method: method as Method, ...presentation }));
+      .map(([method, presentation]) => ({ method: method as Method, ...this.shared(method, presentation) }));
+  }
+
+  /**
+   * A method's presentation with what every offer of the method shares. The notice says
+   * what happened once the method has run, in a sentence a person would say: a method
+   * that sends an invitation reads its answer (invited), and every other the words for
+   * what it is (doneWords); an offer that carries words of its own keeps them.
+   */
+  private shared(method: string, presentation: Omit<MethodPresentation, 'method'>): Omit<MethodPresentation, 'method'> {
+    const kind = this.kinds.get(method);
+    if (!kind) {
+      return presentation;
+    }
+    const said: Omit<MethodPresentation, 'method'> = {};
+    if (presentation.successMessage === undefined && presentation.answered === undefined) {
+      const words = this.done[kind];
+      if (invitations.includes(kind)) {
+        said.answered = invited;
+      } else if (words !== undefined) {
+        said.successMessage = words;
+      }
+    }
+    return { ...said, ...presentation };
   }
 
   /**
    * Where a role of the whole application's list is held, or a group of it is kept, in
-   * words, for a row whose tenant could not be named: a role held in one tenant falls
-   * back to the tenant's key, which is all the row carries.
+   * words, for a row that names no tenant, and for one whose tenant has no name to
+   * show (the tenant record marks none): a role held in one tenant then falls back to the
+   * tenant's key, which is all there is. A tenant that has a name the reader may not
+   * read is said by tenantNamed, in words and never by its key.
    */
   private heldIn(row: RecordData): string {
     switch (row['kind']) {
@@ -1433,6 +1577,34 @@ class SideBuilder {
       default:
         return 'The whole application';
     }
+  }
+
+  /**
+   * Where a mailed link that names no tenant gives its roles, in words: every tenant, or
+   * the whole application, or both for the first administrator's own invitation, which
+   * nobody sent and which gives the Super Administrator role (told where the list reads
+   * who sent a link: sender). A link that gives no role says nothing, since nothing is held
+   * anywhere: a verification, and an invitation that makes a tenant, which the list of
+   * invited tenants shows. Nothing either where the list does not say the place (placed
+   * is false): without the mark of an invitation into every tenant the two could not be
+   * told apart.
+   */
+  private invitedInto(row: RecordData, placed: boolean, sender: boolean): string {
+    if (!placed) {
+      return '';
+    }
+    if (row['everyTenant'] === true) {
+      return `Every ${this.tenantWord}`;
+    }
+    const roles: unknown = row['roleNames'];
+    if (!Array.isArray(roles) || roles.length === 0) {
+      return '';
+    }
+    // The first administrator's own invitation: its acceptance gives roles in the whole
+    // application and in every tenant, so the row says both.
+    const first =
+      sender && row['kind'] === 'invitation' && !row['invitedByUserId'] && roles.includes(superAdministrator);
+    return first ? `The whole application and every ${this.tenantWord}` : 'The whole application';
   }
 
   /**
@@ -1472,15 +1644,25 @@ class SideBuilder {
 
   /**
    * What the whole application's method that takes a role from a person takes, from a
-   * row that names the role and where it is held. A role held for the whole application
-   * or in every tenant names no tenant: the page fills that with nothing (null), so the
-   * dialog asks for none and puts its question. Left undefined, the dialog would ask the
-   * person for it.
+   * row that names the role and where it is held.
    */
   private heldRole(row: RecordData): Record<string, unknown> {
+    return { userId: row['userId'], role: row['role'], ...this.heldPlace(row) };
+  }
+
+  /**
+   * Where the role of a row is held, as the whole application's methods that take a role
+   * away name it in their requests. A role held for the whole application or in every
+   * tenant names no tenant: the page fills that with nothing (null), so the dialog asks
+   * for none and puts its question. Left undefined, the dialog would ask the person for
+   * it. In an application without tenants the methods have no field that says where,
+   * and the server refuses a field a method does not have: the request names no place.
+   */
+  private heldPlace(row: RecordData): Record<string, unknown> {
+    if (!this.identity.tenant) {
+      return {};
+    }
     return {
-      userId: row['userId'],
-      role: row['role'],
       domain: row['kind'] === heldInOneTenant ? row['domainId'] : null,
       everyDomain: row['kind'] === heldInEveryTenant,
     };
@@ -1504,27 +1686,54 @@ class SideBuilder {
   /**
    * A column over a field that holds a tenant's key, showing the tenant's name: the
    * tenant record's row is read by the keys on the page (the list's related-record
-   * column) and its name field shown. A tenant's key is an id nobody reads. `otherwise`
-   * says what a row shows that names no tenant, or whose tenant could not be read (the
-   * caller holds no List on the record); it is all a row shows where the description
-   * names no tenant record or the record marks no name.
+   * column) and its name field shown; a reader who may not read the record is shown the
+   * name their own list of tenants holds, for a tenant they hold a role in
+   * (`tenantKey`). Under a heading that is not the tenant's word the name follows the
+   * word ("Sector Anvil" under "Held in"), and under the word itself it stands alone. A
+   * tenant's key is an id nobody reads, so a row whose tenant's name the reader may not
+   * read says that in words (tenantUnseen) and never shows the key. Where the outlet's
+   * description names no tenant record there is none to read, and the reader's own list
+   * of tenants and those words are what a row shows. `otherwise` says what a row shows
+   * that names no tenant; it is all a row shows where the record marks no name, since
+   * the key is then all there is.
    */
   private tenantNamed(id: FieldName, header: string, otherwise: (row: RecordData) => string): ColumnConfig {
     const record = this.identity.tenantResource as Resource | undefined;
     const meta = record ? this.resourceMeta(record) : undefined;
     const key = meta?.fields.find((candidate) => candidate.primaryKey)?.fieldName;
-    if (!record || !meta?.nameField || !key) {
+    if (!this.identity.tenant || (record && (!meta?.nameField || !key))) {
+      // An application without tenants has no key to name, and where the tenant record
+      // marks no name the key is all there is to say.
       return { id, header, valueGetter: otherwise, filterable: false };
     }
+    const word = words(this.identity.tenant ?? 'Tenant');
+    const worded = header.trim().toLowerCase() !== word.toLowerCase();
     return multiColumnConfig({
       id,
       header,
-      additionalIds: [{ resource: record, id: key as FieldName, field: meta.nameField as FieldName }],
+      // Where the outlet serves no tenant record there is none to read: the person's own
+      // list of tenants names the tenant, or the page's words stand.
+      additionalIds:
+        record && meta?.nameField && key
+          ? [{ resource: record, id: key as FieldName, field: meta.nameField as FieldName }]
+          : [],
       concatFn: 'hyphen-concat',
-      fallback: otherwise,
+      tenantKey: true,
+      ...(worded ? { said: (name: string) => `${word} ${name}` } : {}),
+      fallback: (row: RecordData) => (String(row[id] ?? '') === '' ? otherwise(row) : this.tenantUnseen()),
       // The field holds the key: a filter typed over the column would be asked for an id.
       filterable: false,
     });
+  }
+
+  /**
+   * What a cell says of a tenant that has a name the reader may not read, because they
+   * hold no List on the tenant record and no role in the tenant: "A sector you cannot
+   * see".
+   */
+  private tenantUnseen(): string {
+    const one = withArticle(this.tenantWord);
+    return `${one.charAt(0).toUpperCase()}${one.slice(1)} you cannot see`;
   }
 
   /** Whether the resource has the field, by its metadata. */
@@ -1549,6 +1758,26 @@ class SideBuilder {
     );
   }
 
+  /**
+   * A column of the whole application's mailed links that says when a link's message
+   * could not be mailed. Such a link ended where the mail failed, so its Sent cell says
+   * "Not mailed", its Expires cell "Ended" and its Used cell nothing: the dates the row
+   * keeps would say it was sent, still waits and was used. Every other row shows its
+   * dates, and every other column is left as it is.
+   */
+  private unmailedCell(column: ColumnConfig): ColumnConfig {
+    const id: string = column.id;
+    if (!(id in unmailedWords)) {
+      return column;
+    }
+    const said = unmailedWords[id];
+    return {
+      id: column.id,
+      header: column.header,
+      valueGetter: (row: RecordData) => (row['mailFailedAt'] ? said : String(row[id] ?? '')),
+    };
+  }
+
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
   private route(page: IdentityPage, lists: string): string {
     return this.options.routes?.[page] ?? `${this.base}-${lists}`;
@@ -1565,6 +1794,82 @@ class SideBuilder {
     return `${route.segment}/:${route.param}`;
   }
 }
+
+/**
+ * The filter the list of the roles to give is asked with for where a role is to be held,
+ * from the dialog's values: one tenant's roles where a tenant is chosen; where none is,
+ * the roles held in every tenant or for the whole application, as "In every tenant"
+ * says. The request then says the same place, and the server holds it to that place: a
+ * request that names neither a tenant nor every tenant gives roles of the whole
+ * application alone, so a role of a tenant's kind is given in every tenant only by a
+ * person who ticked that.
+ */
+function heldWhere(values: RecordData): string {
+  const domain = values['domain'];
+  if (typeof domain === 'string' && domain !== '') {
+    return `domain:eq:${quoteFilterValue(domain)}`;
+  }
+  return `everyDomain:eq:${values['everyDomain'] === true}`;
+}
+
+/**
+ * The filter that names the group a dialog gives a role to, from the id the dialog was
+ * opened with (`groupId`, the method's target). Nothing where the dialog holds none:
+ * the server then lists no role for the method, which gives a role to a group alone.
+ */
+function ofGroup(values: RecordData): string {
+  const group = values['groupId'];
+  return typeof group === 'string' && group !== '' ? `group:eq:${quoteFilterValue(group)}` : '';
+}
+
+/**
+ * Reads the answer of a method that sends an invitation (`{ id, sent }`). Where the
+ * message could not be sent the server has ended the invitation, not mailed, so that no
+ * link stands that nobody holds: the notice says so, as a failure, with what to do.
+ */
+function invited(answer: unknown): { message: string; failed?: boolean } {
+  if (((answer ?? {}) as { sent?: unknown }).sent === true) {
+    return { message: 'The invitation is on its way.' };
+  }
+  return {
+    message: 'The invitation was not mailed, so it is ended. Invite the person again.',
+    failed: true,
+  };
+}
+
+/** The methods that send an invitation, whose notice reads the answer (invited). */
+const invitations: readonly MethodKind[] = ['invite', 'inviteTenant'];
+
+/**
+ * What the notice says once a method has run, by what the method is: what happened, as a
+ * person would say it, in place of the method's label and "done". A method that is not
+ * here says its own: the ones that mail a person read their answer, and the Sign-in
+ * page's and a withdrawn tenant invitation's carry their words where they are offered.
+ */
+const doneWords: Partial<Record<MethodKind, string>> = {
+  withdrawInvitation: 'The invitation is withdrawn.',
+  assignRole: 'The role was given.',
+  removeRole: 'The role was taken away.',
+  disable: 'The account is disabled.',
+  enable: 'The account is enabled.',
+  delete: 'The account was deleted.',
+  rename: 'The username was changed.',
+  setName: 'The name was changed.',
+  requirePasswordChange: 'The person is asked for a new password.',
+  endUserSessions: 'The person is signed out everywhere.',
+  revokeTrustedDevices: 'The trusted devices are forgotten.',
+  unlinkIdentity: 'The sign-in identity is unlinked.',
+  removePassword: 'The password is removed.',
+  endSession: 'The session is ended.',
+  unlockSignIn: 'The name is unlocked.',
+  createGroup: 'The group was added.',
+  describeGroup: 'The description was changed.',
+  deleteGroup: 'The group was deleted.',
+  addGroupMember: 'The person was added to the group.',
+  removeGroupMember: 'The person was removed from the group.',
+  giveGroupRole: 'The role was given to the group.',
+  takeGroupRole: 'The role was taken away from the group.',
+};
 
 /**
  * Whether who signs in through a method is decided outside this page: by the directory
@@ -1697,6 +2002,22 @@ const periodWords: Record<string, string> = { startsAt: 'From', endsAt: 'Until' 
  * method's `throughDay`), and a list shows the last day the assignment counts (lastDay).
  */
 const periodEnds: readonly string[] = ['endsAt'];
+
+/**
+ * The role the deployment's first administrator is invited to hold, as the server names
+ * it. The invitation that gives it and that nobody sent is the first administrator's own.
+ */
+const superAdministrator = 'SuperAdministrator';
+
+/**
+ * What the Sent, Expires and Used cells of a mailed link say when its message could not
+ * be mailed: it was never sent, it waits for no deadline and nobody used it.
+ */
+const unmailedWords: Readonly<Record<string, string>> = {
+  createdAt: 'Not mailed',
+  expiresAt: 'Ended',
+  consumedAt: '',
+};
 
 /**
  * The last day a period that ends at the instant counts, as a list shows it: the day of

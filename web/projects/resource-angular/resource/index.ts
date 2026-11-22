@@ -7,6 +7,7 @@ export * from './delete-resource-confirmation-modal/delete-resource-confirmation
 export * from './empty-readonly-field/empty-readonly-field.component';
 export * from './format-fns';
 export * from './gui-constants';
+export * from './method-dialog/completable';
 export * from './method-dialog/method-dialog.component';
 export * from './method-dialog/open-method-dialog';
 export * from './padding-element/padding-element.component';

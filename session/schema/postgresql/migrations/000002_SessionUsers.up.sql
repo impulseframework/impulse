@@ -10,8 +10,8 @@ CREATE TABLE "SessionUsers" (
   "NormalizedUsername" character varying GENERATED ALWAYS AS (casefold(normalize("Username"))) STORED,
   "PasswordHash"  character varying,
   "Disabled"      BOOL NOT NULL DEFAULT (FALSE),
-  -- An operator set the password (a first password, a reset): the user changes it
-  -- before anything else is served.
+  -- An administrator required a new password of the user: they choose it before
+  -- anything else is served.
   "PasswordChangeRequired" BOOL NOT NULL DEFAULT (FALSE),
   -- The database's time at the insert and at the latest sign-in (null before the
   -- first); the driver writes both with now().

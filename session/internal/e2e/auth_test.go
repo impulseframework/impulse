@@ -207,8 +207,7 @@ type authApp[Tx any] struct {
 	hooks  *hooks[Tx]
 	// mail keeps what the Auth sent, for the scenarios that read a code out of it.
 	mail *mail.Recorder
-	// verified writes an address as a person's confirmed one, the store's own write, on
-	// an app that sends mail.
+	// verified writes an address as a person's confirmed one, the store's own write.
 	verified func(ctx context.Context, userID impulse.UUID, email string) error
 	// setEmail writes a person's address as an administrator does, the store's own
 	// write; nil takes the address off the account.
@@ -240,6 +239,22 @@ func (a *authApp[Tx]) confirmAddress(ctx context.Context, b *browser, held *url.
 	a.answerAddressCode(ctx, b, address)
 
 	return &url.URL{Path: returnURL}
+}
+
+// throughAddressHold answers the hold a directory's sign-in met, when to, where the
+// callback sent the browser, is the login page's step for the code that confirms the
+// person's address: the person answers the code mailed to the address in claims. It
+// returns where the completed sign-in sent the browser, and to itself when the sign-in
+// was not held, which is a refusal or a person whose address is confirmed already.
+func (a *authApp[Tx]) throughAddressHold(ctx context.Context, b *browser, to *url.URL, claims map[string]any) *url.URL {
+	b.t.Helper()
+
+	if to.Path != "/login" || to.Query().Get("pending") != "mfa" {
+		return to
+	}
+	address, _ := claims["email"].(string)
+
+	return a.confirmAddress(ctx, b, to, address)
 }
 
 // answerAddressCode has the person held in b give address where their account holds
@@ -299,7 +314,11 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 		// follows carries it.
 		r.Post("/invitation", auth.Invitation().Open())
 		r.Post("/invitation/accept", auth.Invitation().Accept())
-		routesWithMail(r, auth)
+		// The pending handlers that send mail: the library's second factor, and the
+		// code that confirms a person's address.
+		r.Post("/pending/code/send", auth.Pending().SendCode())
+		r.Post("/pending/code/verify", auth.Pending().VerifyCode())
+		r.Post("/pending/email", auth.Pending().EnrollEmail())
 		// The application's MFA step: here it accepts anything, which is what the
 		// scenarios need; a real one checks a code first.
 		r.Post("/mfa", func(w http.ResponseWriter, r *http.Request) {
@@ -380,20 +399,6 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 	})
 }
 
-// routesWithMail mounts the pending handlers that send mail, the library's second
-// factor, on an Auth given mail; an Auth without mail offers none of them.
-func routesWithMail[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserData, Tx]) {
-	defer func() {
-		// The handlers panic at wiring on an Auth without mail, as the README says;
-		// such an Auth mounts none of them.
-		_ = recover()
-	}()
-	sendCode := auth.Pending().SendCode()
-	r.Post("/pending/code/send", sendCode)
-	r.Post("/pending/code/verify", auth.Pending().VerifyCode())
-	r.Post("/pending/email", auth.Pending().EnrollEmail())
-}
-
 // sessionView is GET /whoami's answer: the validated session as the application sees
 // it.
 type sessionView struct {
@@ -429,8 +434,8 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 	db, store := be.newStore(ctx, t)
 	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
-		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook),
-		session.WithMail(recorder, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login"}))
+		session.MailSettings{Sender: recorder, Application: "Lakeside", LoginURL: "https://app.example/login"},
+		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
@@ -842,7 +847,7 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamDisabledAndImpersonation[Tx],
 		},
 		{
-			name: "a user with a temporary password reaches the session read, the logout and the password change, and nothing else, until the change",
+			name: "a user who must change their password reaches the session read, the logout and the password change, and nothing else, until the change",
 			run:  seamForcedPasswordChange[Tx],
 		},
 		{
@@ -851,7 +856,7 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, lockForCases)},
 		},
 		{
-			name: "a password sign-in held for the email code completes only while the password it proved is the person's: after their own change, an operator's temporary password or a removal the right code is refused as a wrong password is",
+			name: "a password sign-in held for the email code completes only while the password it proved is the person's: after their own change, a password set on another proof or a removal the right code is refused as a wrong password is",
 			run:  seamHeldSignInRestsOnItsPassword[Tx],
 		},
 		{
@@ -931,19 +936,21 @@ func seamMethodsList[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], 
 	}
 }
 
-// seamForcedPasswordChange: an operator creates pat with a temporary password. Signed
-// in, pat reaches the session read, which reports the mark, the password change and
-// the logout, and nothing else: a protected route answers 403 with
+// seamForcedPasswordChange: an administrator requires a new password of pat, which the
+// application writes as the change mark. Signed in, pat reaches the session read, which reports the mark, the password
+// change and the logout, and nothing else: a protected route answers 403 with
 // password_change_required. The change clears the mark and continues in a new session
-// that opens the application; an operator's reset marks pat again and ends the session.
+// that opens the application.
 func seamForcedPasswordChange[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
 	t.Helper()
 
 	temporary := seedPassword
-	pat, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: "pat@lakeside.edu", Password: &temporary, PasswordChangeRequired: true})
+	pat, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: "pat@lakeside.edu", Password: &temporary})
 	if err != nil {
 		t.Fatalf("CreateSessionUser() error = %v", err)
 	}
+	// An administrator requires a new password of pat: the application's own write.
+	a.db.requirePasswordChange(ctx, t, pat)
 	if user, err := a.api.User(ctx, pat); err != nil || !user.PasswordChangeRequired || user.LastSignInAt != nil {
 		t.Fatalf("User() = %+v, %v; want the mark and no sign-in", user, err)
 	}
@@ -993,20 +1000,6 @@ func seamForcedPasswordChange[Tx any](ctx context.Context, t *testing.T, a *auth
 	}
 	if user, err := a.api.User(ctx, pat); err != nil || user.PasswordChangeRequired || user.LastSignInAt == nil {
 		t.Errorf("User() after the change = %+v, %v; want no mark and a last sign-in", user, err)
-	}
-
-	// An operator's reset marks pat again and ends the session; the temporary password
-	// signs in under the mark.
-	if err := a.api.ResetSessionUserPassword(ctx, pat, "temporary-2"); err != nil {
-		t.Fatalf("ResetSessionUserPassword() error = %v", err)
-	}
-	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
-	b.prime(ctx)
-	if status, _ := b.passwordLogin(ctx, "temporary-2"); status != http.StatusOK {
-		t.Fatalf("password login with the reset password = %d, want 200", status)
-	}
-	if _, required := b.passwordChangeRequired(ctx); !required {
-		t.Error("GET /authenticated after the reset reports no passwordChangeRequired")
 	}
 }
 

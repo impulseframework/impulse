@@ -21,6 +21,7 @@ import (
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
 	"github.com/impulseframework/impulse/session/internal/oidctest"
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/oidc"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -69,7 +70,9 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	googleRiversideIDP := oidctest.NewFakeIDP(t, "google-riverside-client")
 	gatewayIDP := oidctest.NewFakeIDP(t, "gateway-client")
 
-	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(), session.WithIdentityLinked(h.identityLinked))
+	recorder := &mail.Recorder{}
+	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
+		session.MailSettings{Sender: recorder, Application: "Lakeside", LoginURL: "https://app.example/login"}, session.WithIdentityLinked(h.identityLinked))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
@@ -122,9 +125,20 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	t.Cleanup(server.Close)
 
 	return &oidcApp[Tx]{
-		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h},
+		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder},
 		azure:   azureIDP, google: googleIDP, riverside: riversideIDP, googleRiverside: googleRiversideIDP, gateway: gatewayIDP,
 	}
+}
+
+// entraSignIn runs a login round trip through an Entra provider at prefix (/azure or
+// /riverside) with claims in b and returns where the completed sign-in sent the browser.
+// Entra does not vouch for an address, so a person whose account holds no confirmed one
+// is held for a mailed code first: the helper answers it with the address in claims, as
+// the person would.
+func (a *oidcApp[Tx]) entraSignIn(ctx context.Context, b *browser, provider *oidctest.FakeIDP, prefix string, claims map[string]any) *url.URL {
+	b.t.Helper()
+
+	return a.throughAddressHold(ctx, b, b.oidcSignIn(ctx, provider, prefix, claims), claims)
 }
 
 // oidcSignIn runs a login round trip through provider at prefix (/azure or /google)
@@ -289,8 +303,18 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				if !names["OIDC-auth-azure"] || !names["OIDC-auth-riverside"] {
 					t.Fatalf("state cookies after both logins began = %v, want OIDC-auth-azure and OIDC-auth-riverside", names)
 				}
-				assertRedirect(t, b.location(ctx, "/azure/callback?code=c&state="+url.QueryEscape(lake.Query().Get("state"))), "/home", url.Values{})
-				assertRedirect(t, b.location(ctx, "/riverside/callback?code=c&state="+url.QueryEscape(river.Query().Get("state"))), "/home", url.Values{})
+				// Each callback's person is new, so each is held for the code that confirms
+				// their address, and answers it. The second is held in a browser that carries
+				// the first one's session, so its hold is answered without the check that no
+				// session stands yet.
+				lakeTo := b.location(ctx, "/azure/callback?code=c&state="+url.QueryEscape(lake.Query().Get("state")))
+				assertRedirect(t, a.throughAddressHold(ctx, b, lakeTo, a.azure.TokenClaims()), "/home", url.Values{})
+				riverTo := b.location(ctx, "/riverside/callback?code=c&state="+url.QueryEscape(river.Query().Get("state")))
+				assertRedirect(t, riverTo, "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+				a.answerAddressCode(ctx, b, "river@riverside.edu")
+				if got := b.view(ctx).Username; got != "river@riverside.edu" {
+					t.Errorf("the session after the second callback's code = %q, want river@riverside.edu's", got)
+				}
 
 				a.riverside.TokenClaims = func() map[string]any {
 					t.Error("riverside's token endpoint was called for a callback carrying lakeside's state")
@@ -323,11 +347,12 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				})
 
 				b := a.browser(t)
-				assertRedirect(t, b.oidcSignIn(ctx, a.azure, "/azure", azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
+				assertRedirect(t, a.entraSignIn(ctx, b, a.azure, "/azure", azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
 				v := b.view(ctx)
 				// The fake Entra asserts mfa in every token: the session records the
-				// evidence after the sign-in's own event.
-				assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant)
+				// evidence after the sign-in's own event, and then the code that confirmed
+				// the address of a person Entra does not vouch for.
+				assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant, "email-code")
 				a.hooks.set(func(*hooks[Tx]) { user = impulse.Must(impulse.UUIDFromString(v.UserID)) })
 
 				// Pat has no password, so a Google identity reaches the Azure-provisioned user
@@ -379,7 +404,7 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				}
 				signIn := func(name string) *browser {
 					b := a.browser(t)
-					assertRedirect(t, b.oidcSignIn(ctx, a.azure, "/azure", named(name)), "/home", url.Values{})
+					assertRedirect(t, a.entraSignIn(ctx, b, a.azure, "/azure", named(name)), "/home", url.Values{})
 
 					return b
 				}
@@ -431,7 +456,7 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				})
 				signIn := func() *browser {
 					b := a.browser(t)
-					assertRedirect(t, b.oidcSignIn(ctx, a.azure, "/azure", azureClaims(azureTenant, "oid-lee", "lee@lakeside.edu")), "/home", url.Values{})
+					assertRedirect(t, a.entraSignIn(ctx, b, a.azure, "/azure", azureClaims(azureTenant, "oid-lee", "lee@lakeside.edu")), "/home", url.Values{})
 
 					return b
 				}
@@ -555,14 +580,14 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				})
 
 				named := a.browser(t)
-				assertRedirect(t, named.oidcSignIn(ctx, a.azure, "/azure", withSID(azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu"), "sid-pat-1")), "/home", url.Values{})
+				assertRedirect(t, a.entraSignIn(ctx, named, a.azure, "/azure", withSID(azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu"), "sid-pat-1")), "/home", url.Values{})
 				other := a.browser(t)
-				assertRedirect(t, other.oidcSignIn(ctx, a.azure, "/azure", withSID(azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu"), "sid-pat-2")), "/home", url.Values{})
+				assertRedirect(t, a.entraSignIn(ctx, other, a.azure, "/azure", withSID(azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu"), "sid-pat-2")), "/home", url.Values{})
 				named.view(ctx)
 				other.view(ctx)
 				// The same sid at the other Entra tenant is another issuer's: out of reach.
 				elsewhere := a.browser(t)
-				assertRedirect(t, elsewhere.oidcSignIn(ctx, a.riverside, "/riverside", withSID(azureClaims(riversideTenant, "oid-rpat", "rpat@riverside.edu"), "sid-pat-1")), "/home", url.Values{})
+				assertRedirect(t, a.entraSignIn(ctx, elsewhere, a.riverside, "/riverside", withSID(azureClaims(riversideTenant, "oid-rpat", "rpat@riverside.edu"), "sid-pat-1")), "/home", url.Values{})
 				elsewhere.view(ctx)
 				// An impersonation started on the session under sid-pat-1 keeps that id, so
 				// the logout reaches it too.

@@ -563,7 +563,7 @@ shape of the session library's login routes.
 `workos`), its `kind` (`password`, a form the page posts; `redirect`, a navigation that sends
 the browser to the identity provider), its `label` and its `path`; and `pending`, the pending
 sign-in's status and cancel paths, its confirmation path on a server with a password sign-in,
-and the sign-in code's send, verification and enrollment paths on a server that sends mail. The answer is kept in `api.auth.snapshot`, a
+and the sign-in code's send, verification and enrollment paths. The answer is kept in `api.auth.snapshot`, a
 `Store` a framework mirrors into its own reactivity, so a page re-renders whenever the list is
 read again. A listed method of a kind the client does not drive is left out and announced once
 through the warn hook.
@@ -620,16 +620,22 @@ address the code goes to (`codeEmail`, `n•••@fleet.example`), whether a co
 the code mailed, replacing one standing, and answers `sent` with the address and the expiry, or
 the refusal (409 when the sign-in does not wait for the code or the account holds no address;
 `too_many_emails` with the wait when the address was sent five codes within fifteen minutes and
-used none; a code that is used resets the count);
+used none; a code that is used resets the count; `invitation_spent` when the code would accept an
+invitation that twenty-five codes were entered for already, which takes no more and mails none);
 `enrollEmail(email)` gives the address of an account that holds none and has the code mailed to
 it, and the address is written on the account, verified, once its code is entered (an address
-another account holds is answered as sent and that account told by mail, so the screen reveals
-nothing); `verifyCode(code, rememberDevice)` enters the code and resolves as a sign-in step does,
+another account holds is answered as sent and that account told by mail, and an address an
+invitation is waiting for is answered as sent and its mailbox told to open the invitation's link,
+so the screen reveals nothing); `verifyCode(code, rememberDevice)` enters the code and resolves
+as a sign-in step does,
 a wrong code refused with `invalid_code` and the code standing with one fewer attempt, a code
 entered while none stands (none sent; the one sent expired, was used or took its last attempt)
-with `code_expired`. With `rememberDevice` the server remembers the browser, and this person's
+with `code_expired`, the twenty-fifth wrong code entered for one invitation, as every code
+after it, with `invitation_spent`, a code mailed for an invitation and entered in a browser that
+carries no invitation or another one with `invitation_not_open`, and one entered where its
+invitation has ended with `invitation_expired`. With `rememberDevice` the server remembers the browser, and this person's
 next sign-ins from it skip the code for as long as the server keeps a remembered browser. A
-server whose pending routes name none of the three sends no mail, and they throw saying so.
+server whose pending routes name none of the three does not route them, and they throw saying so.
 
 A refusal the server answers on a step (401, 403 or 429; 404 or 409 on a confirmation or the
 code; 400 on an address given for the code) resolves as `refused` with the server's code and
@@ -643,9 +649,9 @@ malformed request, a server fault, no response, throws as the client's requests 
 The Angular binding's `<impulse-login-methods>` renders all of this; a page over another framework
 does the same over these calls.
 
-A password an operator set (a first password, a reset) is temporary: the server refuses every
+Where an administrator required a new password of a person, the server refuses every
 request of the signed-in person with 403 and the code `password_change_required` until they
-change it, answering only the session read (which carries `passwordChangeRequired: true`), the
+choose one, answering only the session read (which carries `passwordChangeRequired: true`), the
 logout and the change. The methods list names the change path as `changePassword` when the
 server offers a password method, and `changePassword(oldPassword, newPassword)` posts there,
 reading the list again first like every step: `changed`, after which the page checks the
@@ -725,26 +731,46 @@ the browser holds none. Each step below
 reads the list again first, like every step that posts, and throws when the list names no
 routes for it.
 
-An invitation (`?invitation=<token>`) brings a person into the application, or into one of its
+Every mailed link carries its token in the URL's fragment (`/login#invitation=<token>`), which a
+browser sends to no server, so the token is in no request line and no request log.
+`mailedLink(fragment)` reads the link a page was opened with: its kind (one of
+`MAILED_LINK_KINDS`: `invitation`, `signUp`, `reset`, `address`, `verify`) and its token. A page
+takes the link out of the address at once and hands the token to the call below that posts it, in
+the request's body. The fragment is the only place a link is read from: the server writes a token
+nowhere else, so a parameter of a link's name in the address's query is not a link, and the answer
+for such an address is undefined, as for any address that carries no link.
+
+An invitation (`#invitation=<token>`) brings a person into the application, or into one of its
 tenants, with the roles it carries. `openInvitation(token)` posts the token: the answer
 describes the invitation (`email`; `tenantId` and `tenantName`, the tenant's id and what people
 call it, both empty for the global surface and the name empty where the server names none, so
 the screen names the tenant by its name or not at all; `expiresAt`;
 `signUp`, whether an account with a password may be created here; `usernameIsEmail`;
-`methods`, the registration names of the listed directory methods that could admit the
-address, absent when the server did not say; and `accountExists` and `hasPassword`, whether
-an account already holds the address and signs in with a password, absent when the server did
-not say; and, for an invitation that makes a tenant, `newTenant` and `directoryOnly`, whether
+`methods`, the registration names of the listed directory methods through which the
+invitation can be accepted for the address (those that could admit it, and for an account with
+no password that already signs in through a directory, the ones it signs in through alone);
+and `accountExists` and `hasPassword`, whether an account already holds the address and signs
+in with a password; and, for an invitation that makes a tenant, `newTenant` and `directoryOnly`, whether
 that tenant is entered through its directory only, both absent for any other invitation), and the browser now carries it, so the sign-in that follows accepts it and the
-server's hook seats the person: a password sign-in or sign-up by whoever holds the link, a
-directory sign-in, or a password sign-in by an account that holds an address, only as the
-invited address (another address is refused with `invitation_address`, the invitation still
-standing; an account with no address accepts by the link). `signInUrl(method, returnUrl, {
+server's hook seats the person: a directory sign-in, or a password sign-in by an account
+that holds an address, only as the invited address (another address is refused with
+`invitation_address`, the invitation still standing). The link only opens the invitation,
+so every sign-in that does not itself prove the invited address is held for the sign-in
+code, which the server mails to the invited address: a directory sign-in that asserts no
+address, or one its method did not verify (the invited one or another); a password sign-in
+by an account that has not confirmed the invited address; and a sign-up with a password
+(`signUpFromInvitation` then answers `mfaIsRequired` true, and the account is made once
+the code is entered). The
+pending step's `emailCode` names it masked and never asks for one (`enrollEmail` is false), and
+`verifyCode` accepts the invitation. `signInUrl(method, returnUrl, {
 loginHint })` names the account the provider should take, which a login page sets to the
-invited address. `acceptInvitation()` accepts it for a person already signed in, under the
-same rule: an account that holds another address resolves `refused` with 403 and the
-server's sentence, the invitation still standing. `signUpFromInvitation({ password, username? })` creates the invited person's account with
-a password, the address verified, and signs them in, answering as a sign-in step does. A link
+invited address. `acceptInvitation()` accepts it for a person already signed in whose account
+holds the invited address confirmed. An account that holds another address resolves `refused`
+with 403 and the server's sentence, the invitation still standing; so does one that has not
+confirmed the invited address or holds none, whose sentence says to sign in again from the
+invitation's link, since a session cannot wait for a code. `signUpFromInvitation({ password, username? })` asks for the invited person's account with
+a password and answers the pending step that waits for the code; the code makes the account,
+its address verified, signs the person in and accepts the invitation. A link
 that has expired or was already used resolves `refused` with 404 and the server's words; a
 taken username or address 409. An invitation that makes a tenant names the tenant to be
 (`tenantName`) and has no `tenantId` yet. One whose tenant is entered through its directory
@@ -753,7 +779,7 @@ acceptance by hand for it with `organization_account_required`: it is accepted t
 organization's directory alone. A directory sign-in of an organization that already has a
 tenant is refused with `organization_has_tenant`, which says nothing more of that tenant.
 
-A sign-up (`?signUp=<token>`), where the password method offers it: `startSignUp(email)` asks
+A sign-up (`#signUp=<token>`), where the password method offers it: `startSignUp(email)` asks
 for the link, answering `sent` whatever the address's state (an address an account already
 holds is pointed at the account by mail, and the screen reveals nothing), or the refusal: not
 an address (400), a mailbox sent five links within fifteen minutes and using none (429 with
@@ -761,7 +787,7 @@ an address (400), a mailbox sent five links within fifteen minutes and using non
 address and `usernameIsEmail` for the form; `completeSignUp(token, { password, username? })`
 creates the account with the address verified and signs the person in.
 
-A password reset (`?reset=<token>`), where the server has a password method and sends mail:
+A password reset (`#reset=<token>`), where the server has a password method:
 the list's `passwordReset` names `open` and `complete`, and `request` only while the
 application lets people reset their own password, which an administrator turns on and off in
 the running application. A page offers "Forgot your password?" only while `request` is
@@ -779,12 +805,12 @@ password that changed while the reader was choosing (409, which changes nothing)
 session of the person ends with a reset, this browser's too, and nobody is signed in by it:
 the person signs in with the new password.
 
-An address an administrator set (`?address=<token>`): `confirmEmail(token)` posts the token
+An address an administrator set (`#address=<token>`): `confirmEmail(token)` posts the token
 to the list's `email.confirm`, with or without a session, and answers the address the
 account now holds. A page asks before it posts: a link opened by a program that reads a
 person's mail must confirm nothing.
 
-An address (`?verify=<token>`): `addEmail(email)` asks, for the signed-in person, for a
+An address (`#verify=<token>`): `addEmail(email)` asks, for the signed-in person, for a
 confirmation link, answering `sent` the same way, and nothing is written until
 `verifyEmail(token)` posts the token back, which counts for the account that asked and no
 other: the address lands on the user verified (`verified` with the address), replacing what
@@ -801,9 +827,9 @@ each with its `lists` (`users`, `roles`, `identities`, `signInWays`, `invitation
 `signInAttempts`, `invitedTenants`; `signInWays` is how one person signs in, the password and the identities
 that can sign them in as the server judges it, from which a page offers the removal of a
 password; `invitedTenants` is the invitations that make a tenant and still stand, on the whole
-application's side of the Auth whose people make the tenants) and its `methods` (`create`, `invite`, `withdrawInvitation`, `inviteTenant`,
+application's side of the Auth whose people make the tenants) and its `methods` (`invite`, `withdrawInvitation`, `inviteTenant`,
 `withdrawInvitedTenant`, `assignRole`,
-`removeRole`, `disable`, `enable`, `delete`, `rename`, `setName`, `setEmail`, `setTemporaryPassword`,
+`removeRole`, `disable`, `enable`, `delete`, `rename`, `setName`, `setEmail`, `sendPasswordResetLink`,
 `requirePasswordChange`, `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`,
 `removePassword`, `endSession`, `unlockSignIn`) by the names the generator gave them. Every key but `users` is
 optional: the block names what the outlet serves and nothing else. The lists and the methods

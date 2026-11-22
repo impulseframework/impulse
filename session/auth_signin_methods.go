@@ -2,6 +2,7 @@ package session
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -51,12 +52,41 @@ func (p *AuthAPI[S, U, Tx]) SignInMethods() []RegisteredMethod {
 	for _, name := range names {
 		method := RegisteredMethod{Name: name, Method: sessioninfo.MethodPassword, Label: m.labels[name], Audience: passwordAudience()}
 		if external, ok := m.external[name]; ok {
-			method.Method, method.Audience, method.SyncsRoles, method.OwnRule = external.Name, external.Audience, external.SyncRoles != nil, external.rule != nil
+			method.Method, method.Audience, method.SyncsRoles, method.OwnRule = external.Name, m.audienceSaid(name), external.SyncRoles != nil, external.rule != nil
 		}
 		methods = append(methods, method)
 	}
 
 	return methods
+}
+
+// labelName is the name people read for the one organization of the external
+// registration under name, where its method leaves the naming to the label
+// (signin.Method.NamedByLabel) and the login page gives the registration one: the
+// label, the words of its button. It is "" for every other registration, whose method's
+// own names stand.
+func (m *signInMethods[Tx]) labelName(name string) string {
+	external, ok := m.external[name]
+	if !ok || !external.NamedByLabel {
+		return ""
+	}
+
+	return strings.TrimSpace(m.labels[name])
+}
+
+// audienceSaid is the audience of the external registration under name as people read
+// it: the method's own, with its one organization said by the registration's label
+// where the method leaves the naming to it (labelName). "Anyone with an account at
+// Acme sign-in" then says the provider by the words of its button, and not by the key
+// it is registered under. What the audience is compared by (signin.Audience.Key) is its
+// identities, which the label does not touch.
+func (m *signInMethods[Tx]) audienceSaid(name string) signin.Audience {
+	audience := m.external[name].Audience
+	if said := m.labelName(name); said != "" && len(audience.Organizations) == 1 {
+		audience.Organizations = []string{said}
+	}
+
+	return audience
 }
 
 // identityEmailAddress is what identifies whom the password method admits, as an

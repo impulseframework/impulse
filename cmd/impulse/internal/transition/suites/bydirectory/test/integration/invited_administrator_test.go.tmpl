@@ -174,7 +174,7 @@ func accountExists(ctx context.Context, t *testing.T, s *served, username string
 func mailedInvitation(t *testing.T, s *served, email string) string {
 	t.Helper()
 
-	link := regexp.MustCompile(`http://solo\.test/login\?invitation=([A-Za-z0-9_-]+)`)
+	link := regexp.MustCompile(`http://solo\.test/login#invitation=([A-Za-z0-9_-]+)`)
 	messages := s.mail.Messages()
 	for _, m := range slices.Backward(messages) {
 		if !strings.Contains(m.To, email) {

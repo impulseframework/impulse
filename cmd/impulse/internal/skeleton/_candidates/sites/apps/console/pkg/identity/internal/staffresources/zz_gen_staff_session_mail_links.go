@@ -33,11 +33,13 @@ type staffSessionMailLinkRead struct {
 	Name            *string       `json:"name"`
 	UserID          *impulse.UUID `json:"userId"`
 	TenantID        *string       `json:"tenantId"`
+	EveryTenant     bool          `json:"everyTenant"`
 	RoleNames       []string      `json:"roleNames"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	MailFailedAt    *time.Time    `json:"mailFailedAt"`
 }
 
 var staffSessionMailLinkReadSets resource.SetCache[StaffSessionMailLink, staffSessionMailLinkRead]
@@ -52,11 +54,13 @@ type staffSessionMailLinkWrite struct {
 	Name            *string       `json:"name"`
 	UserID          *impulse.UUID `json:"userId"`
 	TenantID        *string       `json:"tenantId"`
+	EveryTenant     bool          `json:"everyTenant"`
 	RoleNames       []string      `json:"roleNames"       nullable:"true"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	MailFailedAt    *time.Time    `json:"mailFailedAt"`
 }
 
 var staffSessionMailLinkWriteSets resource.SetCache[StaffSessionMailLink, staffSessionMailLinkWrite]
@@ -171,11 +175,13 @@ func (c *StaffSessionMailLinkColumns) All() *StaffSessionMailLinkColumns {
 		"Name",
 		"UserID",
 		"TenantID",
+		"EveryTenant",
 		"RoleNames",
 		"InvitedByUserID",
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
+		"MailFailedAt",
 	}
 
 	return c
@@ -217,6 +223,12 @@ func (c *StaffSessionMailLinkColumns) TenantID() *StaffSessionMailLinkColumns {
 	return c
 }
 
+func (c *StaffSessionMailLinkColumns) EveryTenant() *StaffSessionMailLinkColumns {
+	c.fields = append(c.fields, "EveryTenant")
+
+	return c
+}
+
 func (c *StaffSessionMailLinkColumns) RoleNames() *StaffSessionMailLinkColumns {
 	c.fields = append(c.fields, "RoleNames")
 
@@ -243,6 +255,12 @@ func (c *StaffSessionMailLinkColumns) ExpiresAt() *StaffSessionMailLinkColumns {
 
 func (c *StaffSessionMailLinkColumns) ConsumedAt() *StaffSessionMailLinkColumns {
 	c.fields = append(c.fields, "ConsumedAt")
+
+	return c
+}
+
+func (c *StaffSessionMailLinkColumns) MailFailedAt() *StaffSessionMailLinkColumns {
+	c.fields = append(c.fields, "MailFailedAt")
 
 	return c
 }
@@ -365,6 +383,10 @@ func (c *staffSessionMailLinkSort) TenantID() *StaffSessionMailLinkSort {
 	return c.addField("TenantID")
 }
 
+func (c *staffSessionMailLinkSort) EveryTenant() *StaffSessionMailLinkSort {
+	return c.addField("EveryTenant")
+}
+
 func (c *staffSessionMailLinkSort) RoleNames() *StaffSessionMailLinkSort {
 	return c.addField("RoleNames")
 }
@@ -383,6 +405,10 @@ func (c *staffSessionMailLinkSort) ExpiresAt() *StaffSessionMailLinkSort {
 
 func (c *staffSessionMailLinkSort) ConsumedAt() *StaffSessionMailLinkSort {
 	return c.addField("ConsumedAt")
+}
+
+func (c *staffSessionMailLinkSort) MailFailedAt() *StaffSessionMailLinkSort {
+	return c.addField("MailFailedAt")
 }
 
 type StaffSessionMailLinkSort struct {
@@ -564,6 +590,22 @@ func (p *StaffSessionMailLinkCreatePatch) TenantIDIsSet() bool {
 	return p.patchSet.IsSet("TenantID")
 }
 
+func (p *StaffSessionMailLinkCreatePatch) SetEveryTenant(v bool) *StaffSessionMailLinkCreatePatch {
+	p.patchSet.Set("EveryTenant", v)
+
+	return p
+}
+
+func (p *StaffSessionMailLinkCreatePatch) EveryTenant() bool {
+	v, _ := p.patchSet.Get("EveryTenant").(bool)
+
+	return v
+}
+
+func (p *StaffSessionMailLinkCreatePatch) EveryTenantIsSet() bool {
+	return p.patchSet.IsSet("EveryTenant")
+}
+
 func (p *StaffSessionMailLinkCreatePatch) SetRoleNames(v []string) *StaffSessionMailLinkCreatePatch {
 	p.patchSet.Set("RoleNames", v)
 
@@ -650,6 +692,26 @@ func (p *StaffSessionMailLinkCreatePatch) ConsumedAt() *time.Time {
 
 func (p *StaffSessionMailLinkCreatePatch) ConsumedAtIsSet() bool {
 	return p.patchSet.IsSet("ConsumedAt")
+}
+
+func (p *StaffSessionMailLinkCreatePatch) SetMailFailedAt(v *time.Time) *StaffSessionMailLinkCreatePatch {
+	if v != nil {
+		p.patchSet.Set("MailFailedAt", v)
+	} else {
+		p.patchSet.Set("MailFailedAt", nil)
+	}
+
+	return p
+}
+
+func (p *StaffSessionMailLinkCreatePatch) MailFailedAt() *time.Time {
+	v, _ := p.patchSet.Get("MailFailedAt").(*time.Time)
+
+	return v
+}
+
+func (p *StaffSessionMailLinkCreatePatch) MailFailedAtIsSet() bool {
+	return p.patchSet.IsSet("MailFailedAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -836,6 +898,22 @@ func (p *StaffSessionMailLinkUpdatePatch) TenantIDIsSet() bool {
 	return p.patchSet.IsSet("TenantID")
 }
 
+func (p *StaffSessionMailLinkUpdatePatch) SetEveryTenant(v bool) *StaffSessionMailLinkUpdatePatch {
+	p.patchSet.Set("EveryTenant", v)
+
+	return p
+}
+
+func (p *StaffSessionMailLinkUpdatePatch) EveryTenant() bool {
+	v, _ := p.patchSet.Get("EveryTenant").(bool)
+
+	return v
+}
+
+func (p *StaffSessionMailLinkUpdatePatch) EveryTenantIsSet() bool {
+	return p.patchSet.IsSet("EveryTenant")
+}
+
 func (p *StaffSessionMailLinkUpdatePatch) SetRoleNames(v []string) *StaffSessionMailLinkUpdatePatch {
 	p.patchSet.Set("RoleNames", v)
 
@@ -922,6 +1000,26 @@ func (p *StaffSessionMailLinkUpdatePatch) ConsumedAt() *time.Time {
 
 func (p *StaffSessionMailLinkUpdatePatch) ConsumedAtIsSet() bool {
 	return p.patchSet.IsSet("ConsumedAt")
+}
+
+func (p *StaffSessionMailLinkUpdatePatch) SetMailFailedAt(v *time.Time) *StaffSessionMailLinkUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("MailFailedAt", v)
+	} else {
+		p.patchSet.Set("MailFailedAt", nil)
+	}
+
+	return p
+}
+
+func (p *StaffSessionMailLinkUpdatePatch) MailFailedAt() *time.Time {
+	v, _ := p.patchSet.Get("MailFailedAt").(*time.Time)
+
+	return v
+}
+
+func (p *StaffSessionMailLinkUpdatePatch) MailFailedAtIsSet() bool {
+	return p.patchSet.IsSet("MailFailedAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

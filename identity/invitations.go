@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -24,10 +25,14 @@ type Invitation struct {
 	// invitation takes it where their account holds no name: a new account that the
 	// sign-in asserts no name for, and an existing one without a name.
 	Name *string
-	// Domain is the tenant the roles are held in, nil for an invitation into the
-	// application: a role of the global scope is then held there, and a role of the
-	// domain kind in every tenant.
+	// Domain is the tenant the roles are held in, nil for an invitation that names
+	// none: with EveryDomain unset too, the invitation is into the whole application,
+	// and every role is one of the global scope.
 	Domain *string
+	// EveryDomain says every role is one of the domain kind, held in every tenant: the
+	// sender's own word for where the roles go, which the invitation is held to. It is
+	// not set with Domain.
+	EveryDomain bool
 	// Roles are the roles the acceptance gives: at least one.
 	Roles []accesstypes.Role
 }
@@ -43,14 +48,21 @@ type Invitation struct {
 // send is a step after the commit (resource.AfterCommit). sent is told how it went,
 // after the commit and before the transaction's ExecuteFunc returns: true once the
 // message is with the sender, false when it could not be sent, in which case the
-// session library has withdrawn the invitation, so no link stands that nobody holds,
-// and the caller invites again. A transaction that does not commit sends nothing and
+// session library has ended the invitation, not mailed, so no link stands that nobody
+// holds, and the caller invites again. A transaction that does not commit sends nothing and
 // never calls sent. sent may be nil.
 //
 // An invitation gives a role, at least one: a person an invitation admits holding no
-// role is deleted by the rule on an account nothing admits. Every role must exist
-// where the acceptance seats it: in the tenant for an invitation into one, and in the
-// global scope or in every tenant for an invitation into the application. The
+// role is deleted by the rule on an account nothing admits. An invitation says where
+// its roles go, as a role given by hand does (Scope), and every role must exist there:
+// in the tenant for an invitation into one, in every tenant for one that says so
+// (EveryDomain), and in the global scope for one that names neither, which is an
+// invitation into the whole application. A role that exists only in the tenants is
+// refused there with what to choose: nobody is seated in every tenant who was not
+// invited there in so many words. The row keeps the place (the tenant, the mark for
+// every tenant, or neither), and the acceptance gives each role there and nowhere else
+// (giveInvitedRoles), so a role of every tenant whose name a role of the global scope
+// carries too is invited like any other: the person is given the tenants' one. The
 // request's caller is recorded as its sender where they are a user of the auth. An
 // invitation that gives the Super Administrator role is written by a caller who holds
 // it (requireSuperAdministrator); the acceptance then gives what it wrote.
@@ -76,37 +88,22 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 		return impulse.NilUUID, httpio.NewBadRequestMessage("at least one role is required: the roles are what the invitation gives")
 	}
 	req := &session.InvitationRequest{
-		Email: email, Name: "", TenantID: "", RoleNames: make([]string, 0, len(roles)), NewTenant: nil,
+		Email: email, Name: "", TenantID: "", EveryTenant: inv.EveryDomain, RoleNames: make([]string, 0, len(roles)), NewTenant: nil,
 		InvitedByUserID: impulse.NullUUID{UUID: impulse.NilUUID, Valid: false},
 	}
 	if inv.Name != nil {
 		req.Name = *inv.Name
 	}
-	scopes := []accesstypes.PolicyScope{accesstypes.GlobalPolicyScope(), accesstypes.EveryDomainPolicyScope()}
+	scope, err := Scope(inv.Domain, inv.EveryDomain)
+	if err != nil {
+		return impulse.NilUUID, err
+	}
 	if inv.Domain != nil {
-		scope, err := Scope(inv.Domain, false)
-		if err != nil {
-			return impulse.NilUUID, err
-		}
-		req.TenantID, scopes = *inv.Domain, []accesstypes.PolicyScope{scope}
+		req.TenantID = *inv.Domain
 	}
 	for _, role := range roles {
-		exists, err := m.roleExistsIn(ctx, txn, role, scopes)
-		if err != nil {
+		if err := m.refuseUninvitable(ctx, txn, inv, role, scope); err != nil {
 			return impulse.NilUUID, err
-		}
-		if !exists {
-			return impulse.NilUUID, httpio.NewBadRequestMessagef("role %q does not exist where the invitation gives it", role)
-		}
-		if role == accesstypes.SuperAdministrator {
-			if err := m.requireSuperAdministrator(ctx, txn, "invites a person to the Super Administrator role"); err != nil {
-				return impulse.NilUUID, err
-			}
-		}
-		if inv.Domain != nil {
-			if err := m.requireEnteringToChange(ctx, scopes[0], role, nil); err != nil {
-				return impulse.NilUUID, err
-			}
 		}
 		req.RoleNames = append(req.RoleNames, string(role))
 	}
@@ -142,7 +139,7 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 	if err := resource.AfterCommit(txn, func(ctx context.Context) {
 		err := prepared.Send(ctx)
 		if err != nil {
-			logger.FromCtx(ctx).Errorf("identity: the invitation %s to %s is committed and its message could not be sent, so it is withdrawn: %v", row.ID, row.Email, err)
+			logger.FromCtx(ctx).Errorf("identity: the invitation %s to %s is committed and its message could not be sent, so it is ended, not mailed: %v", row.ID, row.Email, err)
 		}
 		if sent != nil {
 			sent(err == nil)
@@ -152,6 +149,67 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 	}
 
 	return row.ID, nil
+}
+
+// distinctRoles returns the roles a request names, each once, in the order given: a
+// role named twice is one membership, and two inserts of it would fail the commit.
+func distinctRoles(roles []accesstypes.Role) []accesstypes.Role {
+	distinct := make([]accesstypes.Role, 0, len(roles))
+	for _, role := range roles {
+		if !slices.Contains(distinct, role) {
+			distinct = append(distinct, role)
+		}
+	}
+
+	return distinct
+}
+
+// refuseUninvitable refuses a role the invitation cannot give in the scope it says: one
+// that does not exist there, with what to choose where it is a role of the tenants and
+// the invitation names neither a tenant nor every tenant (refuseAbsentRole), the Super
+// Administrator role from a caller who does not hold it, and a tenant's role from a
+// caller who may not change who holds it there.
+func (m *Manager) refuseUninvitable(ctx context.Context, txn resource.ReadWriteTransaction, inv *Invitation, role accesstypes.Role, scope accesstypes.PolicyScope) error {
+	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{scope})
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return m.refuseAbsentRole(ctx, txn, role, scope)
+	}
+	if role == accesstypes.SuperAdministrator {
+		if err := m.requireSuperAdministrator(ctx, txn, "invites a person to the Super Administrator role"); err != nil {
+			return err
+		}
+	}
+	if inv.Domain != nil {
+		if err := m.requireEnteringToChange(ctx, scope, role, nil); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// refuseAbsentRole answers the refusal of a role that does not exist in the scope an
+// invitation says. An invitation that names neither a tenant nor every tenant is into
+// the whole application; for a role that exists in the tenants the refusal says so and
+// what to choose, since the sender most likely left the place out.
+func (m *Manager) refuseAbsentRole(ctx context.Context, txn resource.ReadWriteTransaction, role accesstypes.Role, scope accesstypes.PolicyScope) error {
+	if scope.IsGlobal() {
+		inTenants, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{accesstypes.EveryDomainPolicyScope()})
+		if err != nil {
+			return err
+		}
+		if inTenants {
+			return httpio.NewBadRequestMessagef(
+				"%q is a role held in a %s, and this invitation names none. Choose the %s it is for, or every %s",
+				role, m.tenantWord, m.tenantWord, m.tenantWord,
+			)
+		}
+	}
+
+	return httpio.NewBadRequestMessagef("role %q does not exist where the invitation gives it", role)
 }
 
 // roleExistsIn reports whether the role exists in one of the scopes, by the rule a

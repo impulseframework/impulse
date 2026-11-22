@@ -47,12 +47,12 @@ type Auth struct {
 	session *Session
 }
 
-func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection) (*Auth, error) {
+func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
 	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))
 	if err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))),
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))), mail,
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err
@@ -253,12 +253,12 @@ type Auth struct {
 	session *Session
 }
 
-func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection) (*Auth, error) {
+func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
 	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))
 	if err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))),
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))), mail,
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err
@@ -306,12 +306,12 @@ type Auth struct {
 	session *Session
 }
 
-func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection) (*Auth, error) {
+func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
 	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))
 	if err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))),
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))), mail,
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err

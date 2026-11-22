@@ -831,8 +831,8 @@ writes for each auth (below, and [one channel](#one-channel-between-instances)):
 console serves the crew's and, by the generator program's `Manages`, the members' beside
 it, so headquarters administers both populations; a directory-signed member's roles are
 the directory's, reconciled at every login, and the members' management has no method
-that writes them. A crew login an operator creates with a password, or gives a temporary
-one, carries the forced password change, which the login page serves before anything
+that writes them. A crew login an
+administrator requires a new password of carries the forced password change, which the login page serves before anything
 else.
 
 A person is named by the id of their account, never by their username. The id (the key
@@ -871,24 +871,24 @@ The generator also writes each auth's management as code the application owns
 (`generation.GenerateIdentity("pkg/identity")` in the generator program). Per auth it
 writes three packages: resource declarations over every table the session library and
 the permission store keep for the auth (`pkg/identity/internal/crewresources`), the
-methods that change them (`pkg/identity/crewidentity`: create a user holding a role;
-rename, disable, enable and delete one; ask for a change of their email address, which
-the person confirms from the new mailbox; set a temporary password, send a password
-reset link and require a password change; say whether people may ask for a reset link
-themselves at the sign-in page; reset the second factor; clear a lockout; invite an
-address and withdraw the
-invitation; assign and remove a role; end a session, all of a person's sessions or an
-impersonation; unlink an identity; remove a password; revoke a token), and their handlers
+methods that change them (`pkg/identity/crewidentity`: invite an address, which is how
+a person is added, and withdraw the invitation; rename, disable, enable and delete an
+account; ask for a change of its email address, which the person confirms from the new
+mailbox; send a password reset link, through which the person chooses their own
+password, and require a password change; say whether people may ask for a reset link
+themselves at the sign-in page; reset the second factor; clear a lockout; assign and
+remove a role; end a session, all of a person's sessions or an impersonation; unlink an
+identity; remove a password; revoke a token), and their handlers
 (`pkg/identity/crewhandlers`); the members get the same three, without the methods
 their auth has no use for (their roles are the directory's and the auth declares no
-password, so they have no create, no invitation, no role method and no password
-method). The lists are served through the console's permission surface
+password, so they have no invitation, no role method and no password method). The
+lists are served through the console's permission surface
 (`crew-session-users`, `crew-sessions`, …) and take no write: a table changes through a
 method, each a route behind an Execute grant (`disable-crew-user`, …) and also a Go call
 the application makes in a transaction of its own, beside its own writes. No declaration
-carries a password hash or a token hash. The rules are the methods' own: an account
-is created holding a role and deleted with its last, nobody disables or deletes their
-own account, a person keeps a sector's administrator role nobody else holds there (the
+carries a password hash or a token hash. The rules are the methods' own: an
+invitation gives a role, at least one, and an account is deleted with its last, nobody
+disables or deletes their own account, a person keeps a sector's administrator role nobody else holds there (the
 client is built with the roles that administer a sector, `identity.WithAdministratorRoles`
 in `pkg/auth/crew/crew.go`), the last super administrator who can sign in keeps the role
 and the account, and an invitation is written in the method's transaction and
@@ -928,10 +928,10 @@ through a membership in every sector alone, so not the sector's to take away) an
 Marshal holds all three lists, and sees a person's address and password state only
 where the person holds no role outside the sector (`heldElsewhere = false`); the
 Dispatcher sees the sector's own crew, the rows whose role the sector itself gave
-(`everyDomain = false`). A role given or a person created through the generated methods
-reaches the open lists: the views' record is part of the application's live derivations.
-A sector changes its people through the methods the management writes beside the lists
-(`create-crew-sector-user`, `invite-crew-sector-user`, `assign-crew-sector-role`,
+(`everyDomain = false`). A role given or a person's name changed through the generated
+methods reaches the open lists: the views' record is part of the application's live
+derivations. A sector changes its people through the methods the management writes
+beside the lists (`invite-crew-sector-user`, `assign-crew-sector-role`,
 `remove-crew-sector-role` and the account methods), each run against a row of the
 sector's lists, so a grant's condition decides row by row: the Sector Marshal disables a
 person the sector holds alone and no one who also holds a role elsewhere, and gives every

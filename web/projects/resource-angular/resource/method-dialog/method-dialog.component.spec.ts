@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideNativeDateAdapter } from '@angular/material/core';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
+import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import {
   ApiDescriptor,
@@ -18,6 +19,7 @@ import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { METHOD_META, RecordData, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
 import { EMPTY } from 'rxjs';
+import { EnumeratedFieldComponent } from '../resource-field/fields/enumerated-field/enumerated-field.component';
 import { offered } from '../row-methods/row-methods';
 import {
   declaredRefusal,
@@ -95,6 +97,13 @@ const descriptor: ApiDescriptor = {
       statuses: [204],
     },
     AddPerson: { method: 'AddPerson' as Method, property: 'addPerson', route: 'add-person', scope: 'domain' },
+    InviteSomewhere: {
+      method: 'InviteSomewhere' as Method,
+      property: 'inviteSomewhere',
+      route: 'invite-somewhere',
+      scope: 'global',
+      answers: true,
+    },
     SendNotice: { method: 'SendNotice' as Method, property: 'sendNotice', route: 'send-notice', scope: 'domain' },
     OpenSignUp: {
       method: 'OpenSignUp' as Method,
@@ -211,6 +220,17 @@ const methodMeta: Record<string, MethodMeta> = {
     fields: [
       { fieldName: 'method', displayType: 'string', required: true },
       { fieldName: 'defaultRole', displayType: 'string' },
+    ],
+  },
+  // Asks where the roles are held, then the roles, picked from a list.
+  InviteSomewhere: {
+    route: 'invite-somewhere',
+    answers: true,
+    fields: [
+      { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: 'Sectors' as Resource, optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: 'CrewGivableRoles' as Resource },
     ],
   },
   // Warns before it runs, and requires an input the row does not carry.
@@ -436,6 +456,96 @@ describe('MethodDialogComponent', () => {
     ]);
     // An input the page did not name keeps the default: the source's own name.
     expect([config('username').listDisplay, config('username').viewDisplay]).toEqual([[], []]);
+  });
+
+  it('narrows a picker by what the dialog holds, as the page says: the filter is read from the inputs as they stand', async () => {
+    const asked: Record<string, unknown>[] = [];
+    const o = await open(
+      {
+        method: 'InviteSomewhere',
+        label: 'Invite',
+        preset: {},
+        narrows: {
+          roles: (values) => {
+            asked.push(values);
+            return typeof values['domain'] === 'string' && values['domain'] !== ''
+              ? `domain:eq:${values['domain']}`
+              : '';
+          },
+        },
+      },
+      scriptedTransport({ status: 200, body: undefined }),
+    );
+    const roles = o.component.elements.find((element) => element.name === 'roles');
+    const domain = o.component.elements.find((element) => element.name === 'domain');
+    // The narrowed picker reads its filter from the dialog's values, which every input is handed.
+    expect(roles?.enumeratedConfig.filterType).toBe('parentResource');
+    expect(roles?.enumeratedConfig.filter(o.component.values())).toBe('');
+    o.component.form.controls['domain'].setValue('anvil');
+    expect(o.component.values()['domain']).toBe('anvil');
+    expect(roles?.enumeratedConfig.filter(o.component.values())).toBe('domain:eq:anvil');
+    expect(asked.at(-1)).toEqual({ email: '', domain: 'anvil', everyDomain: '', roles: [] });
+    // The picker drawn for the field is handed those values, which its filter is read from.
+    o.fixture.detectChanges();
+    const drawn = o.fixture.debugElement
+      .queryAll(By.directive(EnumeratedFieldComponent))
+      .map((found) => found.componentInstance as EnumeratedFieldComponent)
+      .find((picker) => picker.fieldConfig().name === 'roles');
+    expect(drawn?.relatedData()?.['domain']).toBe('anvil');
+    // An input the page does not narrow lists every option.
+    expect(domain?.enumeratedConfig.filter({ domain: 'anvil' })).toBe('');
+  });
+
+  it('hands a narrowing what the dialog was opened with beside its inputs: a value the page filled narrows as one a person picked', async () => {
+    const asked: Record<string, unknown>[] = [];
+    const o = await open(
+      {
+        method: 'InviteSomewhere',
+        label: 'Invite',
+        preset: { domain: 'anvil' },
+        narrows: {
+          roles: (values) => {
+            asked.push(values);
+            return `domain:eq:${String(values['domain'])}`;
+          },
+        },
+      },
+      scriptedTransport({ status: 200, body: undefined }),
+    );
+    const roles = o.component.elements.find((element) => element.name === 'roles');
+    // The tenant was filled and is not asked, so no input holds it: the filter reads it
+    // from what the dialog was opened with.
+    expect(o.component.elements.some((element) => element.name === 'domain')).toBe(false);
+    expect(roles?.enumeratedConfig.filter(o.component.values())).toBe('domain:eq:anvil');
+    expect(asked.at(-1)?.['domain']).toBe('anvil');
+    // An input's own value stands over one the dialog was opened with.
+    expect(roles?.enumeratedConfig.filter({ domain: 'bastion' })).toBe('domain:eq:bastion');
+  });
+
+  it('clears a narrowed choice when its filter changes, and keeps it while the filter stands', async () => {
+    const o = await open(
+      {
+        method: 'InviteSomewhere',
+        label: 'Invite',
+        preset: {},
+        narrows: { roles: (values) => (values['domain'] ? `domain:eq:${String(values['domain'])}` : '') },
+      },
+      scriptedTransport({ status: 200, body: { id: 'i-1', sent: true } }),
+    );
+    o.component.form.controls['roles'].setValue(['Dispatcher']);
+    o.component.form.controls['email'].setValue('pat@lakeside.example');
+    // Typing elsewhere keeps the choice: the roles listed are the same.
+    expect(o.component.form.controls['roles'].value).toEqual(['Dispatcher']);
+    // A role was chosen among the whole application's: a tenant chosen now lists others.
+    o.component.form.controls['domain'].setValue('anvil');
+    expect(o.component.form.controls['roles'].value).toEqual([]);
+    o.component.form.controls['roles'].setValue(['SectorCrew']);
+    await o.component.run();
+    expect(o.transport.requests[0].body).toEqual({
+      email: 'pat@lakeside.example',
+      domain: 'anvil',
+      roles: ['SectorCrew'],
+    });
   });
 
   it('sends a day the page says is the last of a period as the first instant of the day after it', async () => {

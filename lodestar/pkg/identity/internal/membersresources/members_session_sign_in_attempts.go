@@ -10,9 +10,10 @@ type (
 	// for one name: a row of MembersSessionSignInAttempts. Name is what was typed into
 	// the username field, folded as the auth compares names, whether or not a user
 	// holds it; the rows the auth keeps for its own counts are named in capitals, which
-	// no folded name holds: MAIL: and RESET: and the address for the mail and the reset
-	// links an address is sent, FIRST-PASSWORD: and the account for the guesses at the
-	// code of a first password. A name is locked while LockedUntil is ahead.
+	// no folded name holds: MAIL:, CODE: and RESET: and the address for the mail, the
+	// sign-in codes and the reset links an address is sent, FIRST-PASSWORD: and the
+	// account for the guesses at the code of a first password. A name is locked while
+	// LockedUntil is ahead.
 	//
 	// @resource
 	// @suppress(readHandler)

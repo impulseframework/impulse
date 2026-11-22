@@ -160,16 +160,12 @@ type Auth struct {
 	SignInMethodsTable string
 	// MailLinksTable is the mail links table the Auth's invitations, address
 	// verifications and sign-ups are kept in: WithMailLinksTableName or the library
-	// default. Read when the Auth sends mail (Mail).
+	// default.
 	MailLinksTable string
-	// Mail reports an Auth constructed with session.WithMail: it mails invitations,
-	// address verifications, sign-up links and sign-in codes, and reads the mail links,
-	// sign-in codes and trusted devices tables.
-	Mail bool
 	// FactorCodesTable is the sign-in codes table the second factor's mailed codes are
 	// kept in, and TrustedDevicesTable the browsers people asked to be remembered after
 	// a code: WithFactorCodesTableName and WithTrustedDevicesTableName or the library
-	// defaults. Read when the Auth sends mail (Mail), since the code is mailed.
+	// defaults.
 	FactorCodesTable    string
 	TrustedDevicesTable string
 	// TokensTable is the tokens table the bearer tokens the Auth issues are kept in,

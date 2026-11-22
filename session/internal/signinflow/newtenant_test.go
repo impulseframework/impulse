@@ -163,7 +163,7 @@ func TestSignIn_anInvitationThatMakesATenant(t *testing.T) {
 	passwordRequest := func(id impulse.UUID, inv *sessioninfo.Invitation) *sessioninfo.NewSessionRequest {
 		return &sessioninfo.NewSessionRequest{
 			Reason: sessioninfo.ReasonLogin, Username: "sam", UserID: id,
-			Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: id.String()}, Invitation: inv,
+			Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: id.String(), Email: "sam@lakeside.edu", EmailVerified: true}, Invitation: inv,
 		}
 	}
 
@@ -174,7 +174,7 @@ func TestSignIn_anInvitationThatMakesATenant(t *testing.T) {
 		d := &memDriver{store: store}
 		acceptor := &tenantAcceptor{store: store}
 		id := impulse.Must(impulse.NewUUID())
-		store.users[id] = &memUser{username: "sam"}
+		store.users[id] = &memUser{username: "sam", email: "sam@lakeside.edu", confirmed: true}
 		inv := store.inviteTenant("sam@lakeside.edu", false)
 
 		if err := signInWith(t, d, passwordRequest(id, inv), Rules[*memTx]{Accept: acceptor.accept}); err != nil {
@@ -265,11 +265,11 @@ func TestInvitationThatMakesATenant_noAcceptor(t *testing.T) {
 		store := newMemStore()
 		d := &memDriver{store: store}
 		id := impulse.Must(impulse.NewUUID())
-		store.users[id] = &memUser{username: "sam"}
+		store.users[id] = &memUser{username: "sam", email: "sam@lakeside.edu", confirmed: true}
 		inv := store.inviteTenant("sam@lakeside.edu", false)
 		inv.SignInMethod = sessioninfo.MethodPassword
 
-		err := AcceptInvitation[*memTx](t.Context(), d, id, "sam", "", inv, nil)
+		err := AcceptInvitation[*memTx](t.Context(), d, id, "sam", "sam@lakeside.edu", inv, nil)
 
 		if err == nil || !strings.Contains(err.Error(), "has no acceptance hook to make it with") {
 			t.Fatalf("AcceptInvitation() error = %v, want the missing acceptance hook named", err)
@@ -304,11 +304,11 @@ func TestAcceptInvitation_anInvitationThatMakesATenant(t *testing.T) {
 			d := &memDriver{store: store}
 			acceptor := &tenantAcceptor{store: store}
 			id := impulse.Must(impulse.NewUUID())
-			store.users[id] = &memUser{username: "sam"}
+			store.users[id] = &memUser{username: "sam", email: "sam@lakeside.edu", confirmed: true}
 			inv := store.inviteTenant("sam@lakeside.edu", tt.directoryOnly)
 			inv.SignInMethod, inv.SignInConnection = tt.method, tt.connection
 
-			err := AcceptInvitation(t.Context(), d, id, "sam", "", inv, acceptor.accept)
+			err := AcceptInvitation(t.Context(), d, id, "sam", "sam@lakeside.edu", inv, acceptor.accept)
 
 			if tt.wantRefused {
 				assertOrganizationAccountRequired(t, err)

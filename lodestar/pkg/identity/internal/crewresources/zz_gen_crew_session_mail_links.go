@@ -33,11 +33,13 @@ type crewSessionMailLinkRead struct {
 	Name            *string       `json:"name"`
 	UserID          *impulse.UUID `json:"userId"`
 	TenantID        *string       `json:"tenantId"`
+	EveryTenant     bool          `json:"everyTenant"`
 	RoleNames       []string      `json:"roleNames"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	MailFailedAt    *time.Time    `json:"mailFailedAt"`
 }
 
 var crewSessionMailLinkReadSets resource.SetCache[CrewSessionMailLink, crewSessionMailLinkRead]
@@ -52,11 +54,13 @@ type crewSessionMailLinkWrite struct {
 	Name            *string       `json:"name"`
 	UserID          *impulse.UUID `json:"userId"`
 	TenantID        *string       `json:"tenantId"`
+	EveryTenant     bool          `json:"everyTenant"`
 	RoleNames       []string      `json:"roleNames"       nullable:"true"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	MailFailedAt    *time.Time    `json:"mailFailedAt"`
 }
 
 var crewSessionMailLinkWriteSets resource.SetCache[CrewSessionMailLink, crewSessionMailLinkWrite]
@@ -171,11 +175,13 @@ func (c *CrewSessionMailLinkColumns) All() *CrewSessionMailLinkColumns {
 		"Name",
 		"UserID",
 		"TenantID",
+		"EveryTenant",
 		"RoleNames",
 		"InvitedByUserID",
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
+		"MailFailedAt",
 	}
 
 	return c
@@ -217,6 +223,12 @@ func (c *CrewSessionMailLinkColumns) TenantID() *CrewSessionMailLinkColumns {
 	return c
 }
 
+func (c *CrewSessionMailLinkColumns) EveryTenant() *CrewSessionMailLinkColumns {
+	c.fields = append(c.fields, "EveryTenant")
+
+	return c
+}
+
 func (c *CrewSessionMailLinkColumns) RoleNames() *CrewSessionMailLinkColumns {
 	c.fields = append(c.fields, "RoleNames")
 
@@ -243,6 +255,12 @@ func (c *CrewSessionMailLinkColumns) ExpiresAt() *CrewSessionMailLinkColumns {
 
 func (c *CrewSessionMailLinkColumns) ConsumedAt() *CrewSessionMailLinkColumns {
 	c.fields = append(c.fields, "ConsumedAt")
+
+	return c
+}
+
+func (c *CrewSessionMailLinkColumns) MailFailedAt() *CrewSessionMailLinkColumns {
+	c.fields = append(c.fields, "MailFailedAt")
 
 	return c
 }
@@ -365,6 +383,10 @@ func (c *crewSessionMailLinkSort) TenantID() *CrewSessionMailLinkSort {
 	return c.addField("TenantID")
 }
 
+func (c *crewSessionMailLinkSort) EveryTenant() *CrewSessionMailLinkSort {
+	return c.addField("EveryTenant")
+}
+
 func (c *crewSessionMailLinkSort) RoleNames() *CrewSessionMailLinkSort {
 	return c.addField("RoleNames")
 }
@@ -383,6 +405,10 @@ func (c *crewSessionMailLinkSort) ExpiresAt() *CrewSessionMailLinkSort {
 
 func (c *crewSessionMailLinkSort) ConsumedAt() *CrewSessionMailLinkSort {
 	return c.addField("ConsumedAt")
+}
+
+func (c *crewSessionMailLinkSort) MailFailedAt() *CrewSessionMailLinkSort {
+	return c.addField("MailFailedAt")
 }
 
 type CrewSessionMailLinkSort struct {
@@ -564,6 +590,22 @@ func (p *CrewSessionMailLinkCreatePatch) TenantIDIsSet() bool {
 	return p.patchSet.IsSet("TenantID")
 }
 
+func (p *CrewSessionMailLinkCreatePatch) SetEveryTenant(v bool) *CrewSessionMailLinkCreatePatch {
+	p.patchSet.Set("EveryTenant", v)
+
+	return p
+}
+
+func (p *CrewSessionMailLinkCreatePatch) EveryTenant() bool {
+	v, _ := p.patchSet.Get("EveryTenant").(bool)
+
+	return v
+}
+
+func (p *CrewSessionMailLinkCreatePatch) EveryTenantIsSet() bool {
+	return p.patchSet.IsSet("EveryTenant")
+}
+
 func (p *CrewSessionMailLinkCreatePatch) SetRoleNames(v []string) *CrewSessionMailLinkCreatePatch {
 	p.patchSet.Set("RoleNames", v)
 
@@ -650,6 +692,26 @@ func (p *CrewSessionMailLinkCreatePatch) ConsumedAt() *time.Time {
 
 func (p *CrewSessionMailLinkCreatePatch) ConsumedAtIsSet() bool {
 	return p.patchSet.IsSet("ConsumedAt")
+}
+
+func (p *CrewSessionMailLinkCreatePatch) SetMailFailedAt(v *time.Time) *CrewSessionMailLinkCreatePatch {
+	if v != nil {
+		p.patchSet.Set("MailFailedAt", v)
+	} else {
+		p.patchSet.Set("MailFailedAt", nil)
+	}
+
+	return p
+}
+
+func (p *CrewSessionMailLinkCreatePatch) MailFailedAt() *time.Time {
+	v, _ := p.patchSet.Get("MailFailedAt").(*time.Time)
+
+	return v
+}
+
+func (p *CrewSessionMailLinkCreatePatch) MailFailedAtIsSet() bool {
+	return p.patchSet.IsSet("MailFailedAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -836,6 +898,22 @@ func (p *CrewSessionMailLinkUpdatePatch) TenantIDIsSet() bool {
 	return p.patchSet.IsSet("TenantID")
 }
 
+func (p *CrewSessionMailLinkUpdatePatch) SetEveryTenant(v bool) *CrewSessionMailLinkUpdatePatch {
+	p.patchSet.Set("EveryTenant", v)
+
+	return p
+}
+
+func (p *CrewSessionMailLinkUpdatePatch) EveryTenant() bool {
+	v, _ := p.patchSet.Get("EveryTenant").(bool)
+
+	return v
+}
+
+func (p *CrewSessionMailLinkUpdatePatch) EveryTenantIsSet() bool {
+	return p.patchSet.IsSet("EveryTenant")
+}
+
 func (p *CrewSessionMailLinkUpdatePatch) SetRoleNames(v []string) *CrewSessionMailLinkUpdatePatch {
 	p.patchSet.Set("RoleNames", v)
 
@@ -922,6 +1000,26 @@ func (p *CrewSessionMailLinkUpdatePatch) ConsumedAt() *time.Time {
 
 func (p *CrewSessionMailLinkUpdatePatch) ConsumedAtIsSet() bool {
 	return p.patchSet.IsSet("ConsumedAt")
+}
+
+func (p *CrewSessionMailLinkUpdatePatch) SetMailFailedAt(v *time.Time) *CrewSessionMailLinkUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("MailFailedAt", v)
+	} else {
+		p.patchSet.Set("MailFailedAt", nil)
+	}
+
+	return p
+}
+
+func (p *CrewSessionMailLinkUpdatePatch) MailFailedAt() *time.Time {
+	v, _ := p.patchSet.Get("MailFailedAt").(*time.Time)
+
+	return v
+}
+
+func (p *CrewSessionMailLinkUpdatePatch) MailFailedAtIsSet() bool {
+	return p.patchSet.IsSet("MailFailedAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

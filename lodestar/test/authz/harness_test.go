@@ -199,10 +199,6 @@ func (c *testConfigurer) LiveOrigins() []string { return nil }
 // is asked through (how a person signs in) is asked about nobody.
 type noSessionAPI struct{}
 
-func (noSessionAPI) HashPassword(string) (string, error) {
-	return "", fmt.Errorf("the authorization matrix serves no session manager")
-}
-
 func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
 	return nil, fmt.Errorf("the authorization matrix serves no session manager")
 }

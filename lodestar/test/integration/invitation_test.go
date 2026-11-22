@@ -27,8 +27,10 @@ const (
 	signUpPassword = "orbit-and-anchor"
 )
 
-// lastMailTo answers the last message the auths sent to the address and the token in
-// its link under the query parameter named (invitation, verify, signUp).
+// lastMailTo answers the last message the auths sent to the address and the token its
+// link carries, in the URL's fragment, under the name given (invitation, verify,
+// signUp). A link that carries anything in its query fails the test: a browser sends the
+// query to the server, and a token there would be written to the request log.
 func lastMailTo(t *testing.T, s *served, to, param string) (message mail.Message, token string) {
 	t.Helper()
 
@@ -42,15 +44,37 @@ func lastMailTo(t *testing.T, s *served, to, param string) (message mail.Message
 			if err != nil || link.Scheme == "" {
 				continue
 			}
-			if token := link.Query().Get(param); token != "" {
+			if link.RawQuery != "" {
+				t.Fatalf("the link in the message %q to %s carries a query, want its token in the fragment alone", messages[i].Subject, to)
+			}
+			carried, err := url.ParseQuery(link.Fragment)
+			if err != nil {
+				continue
+			}
+			if token := carried.Get(param); token != "" {
 				return messages[i], token
 			}
 		}
-		t.Fatalf("the message to %s carries no link with ?%s=: %q", to, param, messages[i].Text)
+		t.Fatalf("the message %q to %s carries no link with #%s=: a message's text holds its link and is not printed", messages[i].Subject, to, param)
 	}
 	t.Fatalf("no message was sent to %s", to)
 
 	return mail.Message{}, ""
+}
+
+// lastCodeTo answers the address the last sign-in code the auths mailed went to.
+func lastCodeTo(t *testing.T, s *served) string {
+	t.Helper()
+
+	messages := s.mail.Messages()
+	for i := len(messages) - 1; i >= 0; i-- {
+		if codeSubject.MatchString(messages[i].Subject) {
+			return messages[i].To
+		}
+	}
+	t.Fatal("no sign-in code was mailed")
+
+	return ""
 }
 
 // inviteBody is the request of an invitation method: the address and the roles.
@@ -63,10 +87,12 @@ func inviteBody(t *testing.T, email string, roles ...string) []byte {
 // TestInvitation_globalSignUpWithPassword invites a stranger into the application and
 // follows the link to a password login: the governor (Headquarters, which holds Execute
 // on InviteCrewUser) invites an address with a global role, the recorder holds
-// the message, the stranger opens the invitation on a fresh browser, creates a login
-// with a password, and is signed in holding the role; the invitation is consumed, the
-// address is theirs verified, and when the governor takes that one role away, the last
-// the person holds anywhere, the account goes with it.
+// the message, the stranger opens the invitation on a fresh browser and asks for a login
+// with a password. The link only opened the invitation: nothing is made until the code
+// mailed to the invited address is entered. The code entered, the login exists and is
+// signed in holding the role; the invitation is consumed, the address is theirs
+// verified, and when the governor takes that one role away, the last the person holds
+// anywhere, the account goes with it.
 //
 // Demonstrates: auth.invitation, auth.email-address.
 func TestInvitation_globalSignUpWithPassword(t *testing.T) {
@@ -107,12 +133,30 @@ func TestInvitation_globalSignUpWithPassword(t *testing.T) {
 	if err := json.Unmarshal(body, &opened); err != nil || opened.Email != email || !opened.SignUp {
 		t.Fatalf("the opened invitation = %s (%v), want the address %s with sign-up offered", body, err, email)
 	}
-	if status, body := stranger.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/sign-up", jsonBody(t, map[string]string{"username": username, "password": signUpPassword})); status != http.StatusOK {
-		t.Fatalf("POST invitation/sign-up: status %d: %s", status, body)
+	status, body = stranger.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/sign-up", jsonBody(t, map[string]string{"username": username, "password": signUpPassword}))
+	if status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("POST invitation/sign-up: status %d, want 200 held for the code: %s", status, body)
 	}
-	// The login is created and signed in, and the sign-in waits for the second factor
-	// as every session does: the code goes to the invitation's address, now theirs.
+	// Whoever holds the link may have been forwarded it, so the link and a password
+	// make nothing: no login, no session, and the invitation stands.
+	if row := crewAccount(ctx, t, governor, username); row != nil {
+		t.Fatalf("the ensign's account before the code = %v, want none: the link alone makes nobody", row)
+	}
+	if sess := stranger.session(ctx); sess["authenticated"] != false {
+		t.Fatalf("the session before the code = %v, want none", sess)
+	}
+	if standing := standingInvitations(ctx, t, governor); len(standing) != 1 || standing[0]["email"] != email {
+		t.Fatalf("standing invitations before the code = %v, want the one to %s still", standing, email)
+	}
+	// The code goes to the invited address and nowhere else, with nobody typing an
+	// address for it. Entered, it creates the login, signs it in and accepts.
+	if waits := stranger.pending(ctx); waits.EmailCode == nil || waits.EmailCode.EnrollEmail || waits.EmailCode.CodeEmail != "e•••@example.com" {
+		t.Fatalf("the sign-up waits for %+v, want the code to the invited address, masked, and no address asked for", waits)
+	}
 	stranger.secondFactor(ctx, username)
+	if to := lastCodeTo(t, s); to != email {
+		t.Errorf("the code of the sign-up went to %q, want the invited address %s", to, email)
+	}
 	sess := stranger.session(ctx)
 	if sess["authenticated"] != true || sess["username"] != username || sess["email"] != email || sess["emailVerified"] != true {
 		t.Fatalf("session after the sign-up = %v, want %s signed in with %s verified", sess, username, email)
@@ -212,7 +256,7 @@ func TestInvitation_sectorAcceptedBySignedInPersona(t *testing.T) {
 	if held := rolesHeldInSector(ctx, t, marshal, anvil, string(policyCadet)); len(held) == 0 || slices.Contains(held, string(harbormasterRole)) {
 		t.Fatalf("the cadet's roles at Anvil after the refusal = %v, want hers without Harbormaster", held)
 	}
-	if standing := standingSectorInvitations(ctx, t, marshal, anvil); len(standing) != 1 || standing[0]["email"] != email {
+	if standing := standingAnvilInvitations(ctx, t, marshal); len(standing) != 1 || standing[0]["email"] != email {
 		t.Fatalf("Anvil's standing invitations after the refusal = %v, want the one to %s", standing, email)
 	}
 
@@ -238,8 +282,79 @@ func TestInvitation_sectorAcceptedBySignedInPersona(t *testing.T) {
 	if held := rolesHeldInSector(ctx, t, marshal, anvil, string(policyCadet)); !equalStrings(held, []string{"Cadet", string(harbormasterRole), "SectorCrew"}) {
 		t.Fatalf("the cadet's roles at Anvil = %v, want Cadet, Harbormaster and SectorCrew", held)
 	}
-	if standing := standingSectorInvitations(ctx, t, marshal, anvil); len(standing) != 1 || standing[0]["email"] != email {
+	if standing := standingAnvilInvitations(ctx, t, marshal); len(standing) != 1 || standing[0]["email"] != email {
 		t.Errorf("Anvil's standing invitations = %v, want the stranger's alone, untouched", standing)
+	}
+}
+
+// TestInvitation_accountWithNoAddressAcceptsByTheMailedCode invites an address into
+// Anvil and has a persona who holds a login and no address follow the link: the pilot,
+// who has not signed in on this stack and so has given no address, opens the invitation
+// and signs in with her password. The link and the password accept nothing: the sign-in
+// waits for a code, which is mailed to the invited address with no address asked of
+// her, and until it is entered the invitation stands and she holds nothing new. The
+// code entered, she is signed in, the invited address is hers, verified, she holds the
+// role, and the invitation is consumed.
+//
+// Demonstrates: auth.invitation, auth.second-factor.
+func TestInvitation_accountWithNoAddressAcceptsByTheMailedCode(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	const email, pilot = "relief@example.com", "pilot"
+
+	marshal := newBrowser(t, s, consoleAPI)
+	marshal.signIn(ctx, "marshal")
+	if status, body := marshal.do(ctx, http.MethodPost, sectorPath(anvil, "invite-crew-sector-user"), inviteBody(t, email, string(harbormasterRole))); status != http.StatusOK {
+		t.Fatalf("the marshal's invitation: status %d: %s", status, body)
+	}
+	_, token := lastMailTo(t, s, email, "invitation")
+	before := rolesHeldInSector(ctx, t, marshal, anvil, pilot)
+	if slices.Contains(before, string(harbormasterRole)) {
+		t.Fatalf("the pilot's roles at Anvil before the invitation = %v, want no %s", before, harbormasterRole)
+	}
+
+	// The pilot follows the link on a browser of her own and signs in with her
+	// password. The sign-in is held for a code, and nothing is accepted yet.
+	b := newBrowser(t, s, consoleAPI)
+	if status, body := b.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before the invitation: status %d: %s", status, body)
+	}
+	if status, body := b.do(ctx, http.MethodPost, consoleAPI+"/user/invitation", jsonBody(t, map[string]string{"token": token})); status != http.StatusOK {
+		t.Fatalf("the pilot opens the invitation: status %d: %s", status, body)
+	}
+	status, body := b.login(ctx, pilot, personaPassword)
+	if status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("the pilot's password sign-in at the invitation: status %d, want 200 held for the code: %s", status, body)
+	}
+	if sess := b.session(ctx); sess["authenticated"] != false {
+		t.Fatalf("the pilot's session before the code = %v, want none", sess)
+	}
+	if held := rolesHeldInSector(ctx, t, marshal, anvil, pilot); !equalStrings(held, before) {
+		t.Fatalf("the pilot's roles at Anvil before the code = %v, want %v: the link and a password accept nothing", held, before)
+	}
+	if standing := standingAnvilInvitations(ctx, t, marshal); len(standing) != 1 || standing[0]["email"] != email {
+		t.Fatalf("Anvil's standing invitations before the code = %v, want the one to %s still", standing, email)
+	}
+
+	// The code goes to the invited address: she holds none, and is asked for none.
+	if waits := b.pending(ctx); waits.EmailCode == nil || waits.EmailCode.EnrollEmail || waits.EmailCode.CodeEmail != "r•••@example.com" {
+		t.Fatalf("the pilot's sign-in waits for %+v, want the code to the invited address, masked, and no address asked for", waits)
+	}
+	b.secondFactor(ctx, pilot)
+	if to := lastCodeTo(t, s); to != email {
+		t.Errorf("the code that accepts went to %q, want the invited address %s", to, email)
+	}
+	sess := b.session(ctx)
+	if sess["authenticated"] != true || sess["username"] != pilot || sess["email"] != email || sess["emailVerified"] != true {
+		t.Fatalf("the pilot's session after the code = %v, want her signed in with %s verified", sess, email)
+	}
+	if held := rolesHeldInSector(ctx, t, marshal, anvil, pilot); !slices.Contains(held, string(harbormasterRole)) {
+		t.Errorf("the pilot's roles at Anvil after the code = %v, want %s among them", held, harbormasterRole)
+	}
+	if standing := standingAnvilInvitations(ctx, t, marshal); len(standing) != 0 {
+		t.Errorf("Anvil's standing invitations after the acceptance = %v, want none", standing)
 	}
 }
 

@@ -111,12 +111,6 @@ var impersonatorActs = []struct {
 		},
 	},
 	{
-		name: "SetTemporaryPassword", says: "set your own password",
-		act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, who *person) error {
-			return m.SetTemporaryPassword(ctx, txn, who.id, "correct horse battery staple")
-		},
-	},
-	{
 		name: "RequirePasswordChange", says: "require a password change of your own account",
 		act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, who *person) error {
 			return m.RequirePasswordChange(ctx, txn, who.id)

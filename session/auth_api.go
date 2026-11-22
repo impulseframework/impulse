@@ -138,10 +138,11 @@ func (p *AuthAPI[S, U, Tx]) Logout(ctx context.Context) error {
 }
 
 // CreateSessionUser creates a user. A nil req.Password creates a password-less
-// user. req.PasswordChangeRequired marks the password as one an operator set, which
-// the user changes before anything else is served; a user without a password has
-// nothing to change, so the mark without a password is a BadRequest. req.Email, when
-// given, is written unverified and reserves the address; one another user holds is a
+// user. req.Password is the seam for a seed or an import, which creates an account
+// that already holds a password: it is held to the rule every password is, and the
+// user is created under no password change mark, which is the application's to write
+// when an administrator requires a new password of a person. req.Email, when given,
+// is written unverified and reserves the address; one another user holds is a
 // Conflict. req.Name, when given, is the person's name, kept without the space around
 // it; one too long to keep is a BadRequest.
 func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUserRequest, customData ...*U) (impulse.UUID, error) {
@@ -150,9 +151,6 @@ func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUs
 
 	if len(customData) > 1 {
 		return impulse.NilUUID, errors.New("at most one customData value may be provided; it is the complete custom user data row")
-	}
-	if req.PasswordChangeRequired && req.Password == nil {
-		return impulse.NilUUID, httpio.NewBadRequestMessage("a password change can only be required of a user that has a password")
 	}
 	if req.ID.Valid && req.ID.UUID == impulse.NilUUID {
 		return impulse.NilUUID, errors.New("the id a user is created under is the nil id, which names nobody: leave ID null for a generated id")
@@ -177,7 +175,7 @@ func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUs
 		return impulse.NilUUID, err
 	}
 	user, err := p.auth.storage.CreateUser(ctx, &sessionstorage.InsertSessionUser{
-		ID: req.ID, Username: req.Username, PasswordHash: hash, Disabled: req.Disabled, PasswordChangeRequired: req.PasswordChangeRequired, Email: email, Name: req.Name,
+		ID: req.ID, Username: req.Username, PasswordHash: hash, Disabled: req.Disabled, Email: email, Name: req.Name,
 	}, data)
 	if err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.CreateUser()")
@@ -327,23 +325,6 @@ func continuedAuthEvents(ctx context.Context, userID impulse.UUID) []sessioninfo
 	return slices.Clone(current.AuthEvents)
 }
 
-// SetSessionUserPassword sets a password the user chose, without the old one: the end
-// of a flow of the application's own that proved who they are (a reset link, an
-// enrollment). The password change mark is cleared, the user's sessions are
-// destroyed and the name's sign-in attempts are reset. A password an operator chose
-// is ResetSessionUserPassword.
-func (p *AuthAPI[S, U, Tx]) SetSessionUserPassword(ctx context.Context, userID impulse.UUID, password string) error {
-	return p.auth.replacePassword(ctx, userID, password, false)
-}
-
-// ResetSessionUserPassword sets a temporary password an operator chose: the user must
-// change it before anything else is served (SessionUser.PasswordChangeRequired; see
-// "Users and the forced password change" in the README), its sessions are destroyed
-// and the name's sign-in attempts are reset.
-func (p *AuthAPI[S, U, Tx]) ResetSessionUserPassword(ctx context.Context, userID impulse.UUID, temporary string) error {
-	return p.auth.replacePassword(ctx, userID, temporary, true)
-}
-
 // RemoveSessionUserPassword removes a user's password: from then on the user signs in
 // through their identity links alone, and a password sign-in under their name is
 // refused as a wrong password is. A user keeps the password, their last means of
@@ -388,56 +369,6 @@ func (p *AuthAPI[S, U, Tx]) RemoveSessionUserPassword(ctx context.Context, userI
 	}
 	a.clearAttempts(ctx, user.Username)
 	a.endResetLinks(ctx, user.ID)
-
-	return nil
-}
-
-// HashPassword hashes a password with the password method's hasher and answers the
-// hash as the users table's PasswordHash column holds it. It is for a caller that
-// writes the column in a transaction of its own (the generated user management, which
-// sets a temporary password beside its other writes); the session library's own
-// writers (ResetSessionUserPassword, CreateSessionUser) hash for themselves. An empty
-// password is refused: no password is an absent hash, never the hash of nothing.
-func (p *AuthAPI[S, U, Tx]) HashPassword(password string) (string, error) {
-	if password == "" {
-		return "", httpio.NewBadRequestMessage("an empty password is not a password")
-	}
-	hash, err := p.auth.hashToSet(password)
-	if err != nil {
-		return "", err
-	}
-	text, err := hash.MarshalText()
-	if err != nil {
-		return "", errors.Wrap(err, "securehash.Hash.MarshalText()")
-	}
-
-	return string(text), nil
-}
-
-// replacePassword sets a new password for userID with its change mark (true for a
-// password an operator set, false for one the user chose), destroys the user's sessions
-// and resets the name's sign-in attempts. It follows no proof of the password it
-// replaces, so it overwrites whatever the user holds, on purpose: the caller is an
-// operator, or a flow that proved who the person is by other means, and its password is
-// to stand whatever was changed a moment before.
-func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUID, password string, changeRequired bool) error {
-	user, err := a.storage.User(ctx, userID)
-	if err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
-	}
-	hash, err := a.hashToSet(password)
-	if err != nil {
-		return err
-	}
-	// One store call writes the password and ends the user's sessions, in one
-	// transaction: no failure leaves the new password in place and a session alive, on
-	// the act meant to end them.
-	if err := a.storage.ReplaceUserPassword(ctx, userID, hash, changeRequired); err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.ReplaceUserPassword()")
-	}
-	a.clearAttempts(ctx, user.Username)
-	// A reset link mailed for the password before does not reset the new one.
-	a.endResetLinks(ctx, userID)
 
 	return nil
 }

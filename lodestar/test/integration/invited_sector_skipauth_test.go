@@ -468,9 +468,10 @@ func TestInvitedSector(t *testing.T) {
 
 	// Two invitations wait with the same new name: no sector holds it yet, so both are
 	// sent and both stand. The first acceptance takes the name. The second person's
-	// first sign-in is refused and told why: no second sector is made, no role is
-	// given, no session opens, and the invitation stands until Headquarters withdraws
-	// it.
+	// sign-up waits for its code as every sign-up through an invitation does, and the
+	// code entered, their first sign-in is refused and told why: no second sector is
+	// made, no role is given, no session opens, and the invitation stands until
+	// Headquarters withdraws it.
 	gale := map[string]any{"sectorName": "Gale", "sectorRegion": "Windward reach", "sectorEstablished": "2226-11-09"}
 	status, body, first := inviteSector(ctx, t, governor, with(gale, "email", "first@gale.example"))
 	assertStatus(t, status, http.StatusOK, body)
@@ -492,7 +493,13 @@ func TestInvitedSector(t *testing.T) {
 	}
 	galeSecond := newBrowser(t, s, consoleAPI)
 	openInvitation(ctx, t, galeSecond, secondToken)
-	status, body = galeSecond.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/sign-up", jsonBody(t, map[string]string{"username": "gale-second", "password": signUpPassword}))
+	if status, body := galeSecond.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/sign-up", jsonBody(t, map[string]string{"username": "gale-second", "password": signUpPassword})); status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("the second person's sign-up for Gale: status %d, want 200 held for the code: %s", status, body)
+	}
+	if row := crewAccount(ctx, t, governor, "gale-second"); row != nil {
+		t.Errorf("the second person's account before the code = %v, want none: the link alone makes nobody", row)
+	}
+	status, body = galeSecond.enterCode(ctx, "gale-second")
 	t.Logf("the second person for Gale is answered %d %s", status, body)
 	if status != http.StatusConflict || !strings.Contains(string(body), "a sector with the name Gale already exists: give the new one another") {
 		t.Errorf("the second acceptance for Gale: status %d, want 409 saying the name is taken: %s", status, body)
@@ -504,7 +511,7 @@ func TestInvitedSector(t *testing.T) {
 		t.Errorf("the person refused Gale holds %v, want nothing", got)
 	}
 	if row := crewAccount(ctx, t, governor, "gale-second"); row == nil {
-		t.Error("the refused sign-up left no account, want the one it made before the sign-in: it holds nothing, and accepts the next invitation by signing in")
+		t.Error("the refused sign-up left no account, want the one the code made before the sign-in: it holds nothing, and accepts the next invitation by signing in")
 	}
 	if got := sectorNames(); !slices.Equal(got, []string{"Anvil", "Bastion", "Cinder", "Dawn", "Ember", "Gale"}) {
 		t.Errorf("the sectors after the refused acceptance = %v, want one Gale", got)

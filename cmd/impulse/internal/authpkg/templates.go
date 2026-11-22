@@ -511,6 +511,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,
 		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
+		session.MailSettings{Sender: settings.Mail, Application: Application, LoginURL: settings.MailLoginURL},
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
@@ -523,7 +524,6 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithFactorCodesTableName(factorCodesTable),
 		session.WithTrustedDevicesTableName(trustedDevicesTable),
 		session.WithTrustedDeviceCookieName(TrustedDeviceCookie),
-		session.WithMail(settings.Mail, session.MailSettings{Application: Application, LoginURL: settings.MailLoginURL}),
 		session.WithCookieName(Name),
 		session.WithXSRFCookieName(XSRFCookie),
 		session.WithSessionTimeout(settings.SessionTimeout),
@@ -621,12 +621,16 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// The auth's identity client ({{.IdentityDir}}, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the session
-	// manager that signs them in, whose hasher makes the hash of a temporary password one
-	// of its methods sets.{{if .Foothold}} The client knows the roles that count as a
-	// tenant's administrator's (identity.WithAdministratorRoles, the ones held in every
-	// tenant), so a person who removes a role from themselves in a tenant is judged by
-	// the rule on the tenant's last administrator. The application's last administrator
-	// is its last super administrator, kept by the client's own rule.{{end}}
+	// manager that signs them in, which makes the link an invitation mails.{{if .Foothold}}
+	// The client knows the roles that count as a tenant's administrator's
+	// (identity.WithAdministratorRoles, the ones held in every tenant), so a person who
+	// removes a role from themselves in a tenant is judged by the rule on the tenant's
+	// last administrator. The application's last administrator is its last super
+	// administrator, kept by the client's own rule.{{end}}{{if .InvitesAdministrator}}
+	// It knows where the first administrator's roles are held, too
+	// (identity.WithFirstAdministratorRoles over FirstAdministratorRoles): that one
+	// invitation is sent for the whole application and gives each role where the
+	// foothold declares it, for the whole application or in every tenant.{{end}}
 {{- if .MakesTenants}}
 	//
 	// The client makes the tenants too. Nobody creates a {{.TenantPolicy.Record}} directly: staff invite
@@ -643,7 +647,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// however they signed in: no tenant takes a directory.
 {{- end}}
 {{- end}}
-	identityClient, err := {{.Name}}identity.NewClient(accessClient, authSession.API(){{if .MakesTenants}}, settings.TenantMaker{{end}}{{if .Foothold}}, identity.WithAdministratorRoles(tenantAdministrators){{end}})
+	identityClient, err := {{.Name}}identity.NewClient(accessClient, authSession.API(){{if .MakesTenants}}, settings.TenantMaker{{end}}{{if .InvitesAdministrator}}, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()){{end}}{{if .Foothold}}, identity.WithAdministratorRoles(tenantAdministrators){{end}})
 	if err != nil {
 		return nil, errors.Wrap(err, "{{.Name}}identity.NewClient()")
 	}
@@ -865,9 +869,11 @@ func (h *Handlers) PasswordResetComplete() http.HandlerFunc {
 	return h.PasswordReset().Complete()
 }
 
-// InvitationSignUp accepts an invitation as a stranger with a new password: the invitee
+// InvitationSignUp starts the acceptance of an invitation as a stranger with a new
+// password. The link only opened the invitation, so nothing is made yet: the sign-up
+// waits for the code mailed to the invited address. The code entered, the invitee
 // becomes a user under the sign-in name they give{{if .UsernameIsEmail}}, the invited address{{end}}, with the
-// address verified by the link, seated in the roles the invitation names.
+// address verified by the code, seated in the roles the invitation names.
 func (h *Handlers) InvitationSignUp() http.HandlerFunc {
 	return h.Invitation().SignUp()
 }
@@ -937,8 +943,9 @@ import "github.com/impulseframework/impulse/accesstypes"
 // held: the ones whose holder can give a role back.
 {{- if .AdministratorAuthored}} A person removes one held in a tenant
 // from themselves only while another person holds one there
-// (identity.WithAdministratorRoles), so nobody is the last to leave and a tenant always
-// has someone who manages its people. The application as a whole is kept by the Super
+// (identity.WithAdministratorRoles), so nobody is the last to leave: a tenant loses its
+// last administrator only where someone whose role lets them take the role away does
+// it. The application as a whole is kept by the Super
 // Administrator role instead (accesstypes.SuperAdministrator), whose last holder keeps it
 // whoever asks. A role that manages nothing of people is not among them, whoever holds it.
 {{- else}} None until they are authored with
@@ -977,8 +984,8 @@ const AdministratorVariable = "{{.AdministratorVariable}}"
 // person opens the link and signs in by a method of the auth, as everyone invited after
 // them does.
 {{- if .Password}}
-// With the password method they choose a password there, their address proven by the
-// link.
+// With the password method they choose a password there and enter the code mailed to
+// the address, which proves it theirs.
 {{- end}}
 {{- if .Directory}}
 // Through a directory the invitation is what ties the sign-in to the roles, whoever
@@ -1044,11 +1051,12 @@ func (a *Auth) ReinviteAdministrator(ctx context.Context, email string) (*sessio
 // firstAdministratorRoleNames are the roles the first administrator's invitation
 // carries: the role the framework defines in every auth (accesstypes.SuperAdministrator),
 // held for the whole application, whose holder alone makes another, and the
-// application's own (FirstAdministratorRoles). The acceptance gives each role where the
-// role file holds it, a global role for the whole application and a domain role in every
-// tenant, so the invitation names nothing the file does not define where
-// FirstAdministratorRoles says it is held: a role the release does not ship there is
-// refused here, before an invitation is mailed that nobody could accept.
+// application's own (FirstAdministratorRoles). The acceptance gives each role where
+// FirstAdministratorRoles says it is held, the first list for the whole application and
+// the second in every tenant (identity.WithFirstAdministratorRoles, which New hands the
+// two lists), so the invitation names nothing the role file does not define there: a
+// role the release does not ship there is refused here, before an invitation is mailed
+// that nobody could accept.
 func firstAdministratorRoleNames() ([]string, error) {
 	defined, err := Roles().Parse()
 	if err != nil {

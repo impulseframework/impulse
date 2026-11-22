@@ -82,13 +82,10 @@ func (h *PasswordResetHandlers) Complete() http.HandlerFunc {
 	return h.complete
 }
 
-// PasswordReset returns the password reset handlers. It panics on an Auth without mail,
-// as a wiring mistake. Every application with the password method and mail routes them:
-// whether a person may ask for their own link is an administrator's choice in the
-// running application, read as each request arrives.
+// PasswordReset returns the password reset handlers. Every application with the
+// password method routes them: whether a person may ask for their own link is an
+// administrator's choice in the running application, read as each request arrives.
 func (a *Auth[S, U, Tx]) PasswordReset() *PasswordResetHandlers {
-	a.requireMail("PasswordReset()")
-
 	return &PasswordResetHandlers{
 		request:  a.serving(a.passwordResetRequest()),
 		open:     a.serving(a.passwordResetOpen()),
@@ -156,9 +153,6 @@ func (a *Auth[S, U, Tx]) passwordResetRequest() http.HandlerFunc {
 // request is answered (later), so neither the answer nor the time it takes says which
 // it was. A failure there is logged: the person asks again.
 func (a *Auth[S, U, Tx]) requestOwnReset(ctx context.Context, email string) error {
-	if _, err := a.mailOf(); err != nil {
-		return err
-	}
 	bare, err := address(email)
 	if err != nil {
 		return err
@@ -205,10 +199,7 @@ func resettable(user *sessionstorage.SessionUser, email string) bool {
 // confirmed, saying who asked. A message that could not be sent withdraws the link, so
 // none stands that nobody holds.
 func (a *Auth[S, U, Tx]) mailReset(ctx context.Context, user *sessionstorage.SessionUser, by AskedBy) error {
-	m, err := a.mailOf()
-	if err != nil {
-		return err
-	}
+	m := a.settings.mail
 	token, hash, err := linkToken()
 	if err != nil {
 		return err
@@ -221,8 +212,8 @@ func (a *Auth[S, U, Tx]) mailReset(ctx context.Context, user *sessionstorage.Ses
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := a.send(ctx, m.passwordResetMessage(email, token, lifetime, by, a.administratorOf(m, by))); err != nil {
-		if rerr := a.storage.RevokeMailLink(ctx, link.ID); rerr != nil && !httpio.HasNotFound(rerr) {
-			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.RevokeMailLink()"))
+		if rerr := a.storage.FailMailLink(ctx, link.ID); rerr != nil && !httpio.HasNotFound(rerr) {
+			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.FailMailLink()"))
 		}
 
 		return err
@@ -240,16 +231,12 @@ func (a *Auth[S, U, Tx]) mailReset(ctx context.Context, user *sessionstorage.Ses
 // both causes. An address sent five reset links within fifteen minutes and using
 // none is refused with a *sessioninfo.LoginRefusal carrying RefusedTooManyEmails and
 // the wait (sessioninfo.RetryAfterOf), whoever asked for them. Who may ask for whom is
-// the caller's to decide before it calls. It needs mail (WithMail) and the password
-// method.
+// the caller's to decide before it calls. It needs the password method.
 func (p *AuthAPI[S, U, Tx]) SendPasswordReset(ctx context.Context, userID impulse.UUID, by AskedBy) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	a := p.auth
-	if _, err := a.mailOf(); err != nil {
-		return err
-	}
 	if !a.registered().passwordRegistered() {
 		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset")
 	}
@@ -398,11 +385,8 @@ func (a *Auth[S, U, Tx]) endResetLinks(ctx context.Context, userID impulse.UUID)
 // links of an account whose password was written, however it was, and the
 // confirmations of a new address an administrator asked for before asking again. It is
 // work after the change that made them stale: a failure is logged, and the change
-// stands. An Auth that sends no mail mailed none.
+// stands.
 func (a *Auth[S, U, Tx]) endLinks(ctx context.Context, kind sessionstorage.MailLinkKind, userID impulse.UUID) {
-	if a.settings.mail == nil {
-		return
-	}
 	links, err := a.storage.LiveMailLinks(ctx, kind)
 	if err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.LiveMailLinks()"))

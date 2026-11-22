@@ -151,6 +151,14 @@ func refuseGroupRole(kept, scope accesstypes.PolicyScope, role accesstypes.Role)
 	return nil
 }
 
+// GroupMayHold reports whether a group kept where kept says may hold role in scope: the
+// rule every write of a group's role holds its row to (groupRoleRefusal). A list of the
+// roles to offer a group asks it, so that the list and the write follow one statement
+// of the rule and a role is offered exactly where the write would take it.
+func GroupMayHold(kept, scope accesstypes.PolicyScope, role accesstypes.Role) bool {
+	return groupRoleRefusal(kept, scope, role) == ""
+}
+
 // GroupRole answers the key of the row that says group holds role in scope, for a caller
 // that writes it inside a transaction of its own instead of through AddGroupRoles. kept
 // is where the group is kept, which the caller read with the group's row in that

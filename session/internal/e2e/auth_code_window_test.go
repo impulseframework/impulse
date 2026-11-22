@@ -153,8 +153,8 @@ func newCodeWindowApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx])
 	window := &windowStore[Tx]{Auth: withCustomData(t, store, h)}
 	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](window, cookieKey, session.NoSuperAdministrators(),
-		session.WithIdentityLinked(h.identityLinked),
-		session.WithMail(recorder, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login"}))
+		session.MailSettings{Sender: recorder, Application: "Lakeside", LoginURL: "https://app.example/login"},
+		session.WithIdentityLinked(h.identityLinked))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}

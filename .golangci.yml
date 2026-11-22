@@ -391,12 +391,16 @@ linters:
       text: Test_prepareIdentity
     - linters:
       - paralleltest
-      path: generation/identity_(groups|periods|holdings)_test\.go
+      path: generation/identity_(givable|groups|periods|holdings|mailfailed|place)_test\.go
       text: Test_prepareIdentity
     - linters:
       - paralleltest
       path: generation/identity_invitedtenant_test\.go
       text: Test_prepareIdentity
+    - linters:
+      - paralleltest
+      path: generation/identity_roles_test\.go
+      text: Test_extractAndGenerateRPC_retiredGrants
     - linters:
       - paralleltest
       path: generation/identity_classes_test\.go

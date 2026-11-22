@@ -38,18 +38,18 @@ export type AddCrewSectorGroupMemberStatus = 204;
 
 export interface AssignCrewRoleConfig {
   userId: string | FieldPointer;
-  role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
+  role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
   reason?: string | FieldPointer;
 }
 export interface AssignCrewRole {
   userId: string;
-  role: string;
   domain?: string;
   everyDomain: boolean;
+  role: string;
   startsAt?: Date;
   endsAt?: Date;
   reason?: string;
@@ -194,48 +194,6 @@ export interface CreateCrewSectorGroup {
 }
 /** The result CreateCrewSectorGroup answers with. */
 export interface CreateCrewSectorGroupResult {
-  id: string;
-}
-
-export interface CreateCrewSectorUserConfig {
-  username: string | FieldPointer;
-  name?: string | FieldPointer;
-  email?: string | FieldPointer;
-  password?: string | FieldPointer;
-  roles: string[] | FieldPointer;
-}
-export interface CreateCrewSectorUser {
-  username: string;
-  name?: string;
-  email?: string;
-  password?: string;
-  roles: string[];
-}
-/** The result CreateCrewSectorUser answers with. */
-export interface CreateCrewSectorUserResult {
-  id: string;
-}
-
-export interface CreateCrewUserConfig {
-  username: string | FieldPointer;
-  name?: string | FieldPointer;
-  email?: string | FieldPointer;
-  password?: string | FieldPointer;
-  roles: string[] | FieldPointer;
-  domain?: string | FieldPointer;
-  everyDomain: boolean | FieldPointer;
-}
-export interface CreateCrewUser {
-  username: string;
-  name?: string;
-  email?: string;
-  password?: string;
-  roles: string[];
-  domain?: string;
-  everyDomain: boolean;
-}
-/** The result CreateCrewUser answers with. */
-export interface CreateCrewUserResult {
   id: string;
 }
 
@@ -468,17 +426,17 @@ export interface FailMission {
 
 export interface GiveCrewGroupRoleConfig {
   groupId: string | FieldPointer;
-  role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
+  role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
 }
 export interface GiveCrewGroupRole {
   groupId: string;
-  role: string;
   domain?: string;
   everyDomain: boolean;
+  role: string;
   startsAt?: Date;
   endsAt?: Date;
 }
@@ -586,14 +544,16 @@ export interface InviteCrewSectorUserResult {
 export interface InviteCrewUserConfig {
   email: string | FieldPointer;
   name?: string | FieldPointer;
-  roles: string[] | FieldPointer;
   domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
+  roles: string[] | FieldPointer;
 }
 export interface InviteCrewUser {
   email: string;
   name?: string;
-  roles: string[];
   domain?: string;
+  everyDomain: boolean;
+  roles: string[];
 }
 /** The result InviteCrewUser answers with. */
 export interface InviteCrewUserResult {
@@ -877,17 +837,6 @@ export interface SendCrewUserPasswordResetLinkResult {
   reason: string;
 }
 
-export interface SetCrewSectorTemporaryPasswordConfig {
-  userId: string | FieldPointer;
-  password: string | FieldPointer;
-}
-export interface SetCrewSectorTemporaryPassword {
-  userId: string;
-  password: string;
-}
-/** The statuses SetCrewSectorTemporaryPassword declares; the method chooses one per response. */
-export type SetCrewSectorTemporaryPasswordStatus = 204;
-
 export interface SetCrewSectorUserEmailConfig {
   userId: string | FieldPointer;
   email: string | FieldPointer;
@@ -921,17 +870,6 @@ export interface SetCrewSelfServiceReset {
 }
 /** The statuses SetCrewSelfServiceReset declares; the method chooses one per response. */
 export type SetCrewSelfServiceResetStatus = 204;
-
-export interface SetCrewTemporaryPasswordConfig {
-  userId: string | FieldPointer;
-  password: string | FieldPointer;
-}
-export interface SetCrewTemporaryPassword {
-  userId: string;
-  password: string;
-}
-/** The statuses SetCrewTemporaryPassword declares; the method chooses one per response. */
-export type SetCrewTemporaryPasswordStatus = 204;
 
 export interface SetCrewUserEmailConfig {
   userId: string | FieldPointer;
@@ -1311,9 +1249,9 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewGivableRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
       { fieldName: 'reason', displayType: 'string', optional: true },
@@ -1408,32 +1346,6 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'name', displayType: 'string', required: true },
       { fieldName: 'description', displayType: 'string', required: true },
-    ],
-  },
-  [Methods.CreateCrewSectorUser]: {
-    route: 'create-crew-sector-user',
-    answers: true,
-    dryRun: true,
-    fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
-      { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'password', displayType: 'string', optional: true, secret: true },
-      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.CrewSectorRoles, attribute: 'role' },
-    ],
-  },
-  [Methods.CreateCrewUser]: {
-    route: 'create-crew-user',
-    answers: true,
-    dryRun: true,
-    fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
-      { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'password', displayType: 'string', optional: true, secret: true },
-      { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
-      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
-      { fieldName: 'everyDomain', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteCrewGroup]: {
@@ -1671,9 +1583,9 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
-      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewGivableRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
     ],
@@ -1749,8 +1661,9 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
       { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.CrewGivableRoles, attribute: 'role' },
     ],
   },
   [Methods.IssueBulletin]: {
@@ -2014,16 +1927,6 @@ const methodMap: MethodMap = {
       { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
-  [Methods.SetCrewSectorTemporaryPassword]: {
-    route: 'set-crew-sector-temporary-password',
-    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
-    statuses: [204],
-    dryRun: true,
-    fields: [
-      { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'password', displayType: 'string', required: true, secret: true },
-    ],
-  },
   [Methods.SetCrewSectorUserEmail]: {
     route: 'set-crew-sector-user-email',
     target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
@@ -2050,16 +1953,6 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'on', displayType: 'boolean' },
-    ],
-  },
-  [Methods.SetCrewTemporaryPassword]: {
-    route: 'set-crew-temporary-password',
-    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
-    dryRun: true,
-    fields: [
-      { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'password', displayType: 'string', required: true, secret: true },
     ],
   },
   [Methods.SetCrewUserEmail]: {

@@ -19,6 +19,7 @@ export const PermissionScopes = {
 
 export const Resources = {
   FeatureFlags: 'FeatureFlags' as Resource,
+  StaffGivableRoles: 'StaffGivableRoles' as Resource,
   StaffGroupMembers: 'StaffGroupMembers' as Resource,
   StaffGroupRoles: 'StaffGroupRoles' as Resource,
   StaffGroupUsers: 'StaffGroupUsers' as Resource,
@@ -50,7 +51,6 @@ export const Methods = {
   AddStaffGroupMember: 'AddStaffGroupMember' as Method,
   AssignStaffRole: 'AssignStaffRole' as Method,
   CreateStaffGroup: 'CreateStaffGroup' as Method,
-  CreateStaffUser: 'CreateStaffUser' as Method,
   DeleteStaffGroup: 'DeleteStaffGroup' as Method,
   DeleteStaffUser: 'DeleteStaffUser' as Method,
   DescribeStaffGroup: 'DescribeStaffGroup' as Method,
@@ -71,7 +71,6 @@ export const Methods = {
   RevokeStaffUserTrustedDevices: 'RevokeStaffUserTrustedDevices' as Method,
   SendStaffUserPasswordResetLink: 'SendStaffUserPasswordResetLink' as Method,
   SetStaffSelfServiceReset: 'SetStaffSelfServiceReset' as Method,
-  SetStaffTemporaryPassword: 'SetStaffTemporaryPassword' as Method,
   SetStaffUserEmail: 'SetStaffUserEmail' as Method,
   SetStaffUserName: 'SetStaffUserName' as Method,
   TakeStaffGroupRole: 'TakeStaffGroupRole' as Method,
@@ -96,6 +95,21 @@ export namespace FeatureFlags {
     name: 'FeatureFlags.name' as Resource,
     updatedAt: 'FeatureFlags.updatedAt' as Resource,
     updatedBy: 'FeatureFlags.updatedBy' as Resource,
+  };
+}
+
+export namespace StaffGivableRoles {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    group: 'group' as FieldName,
+    method: 'method' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    description: 'StaffGivableRoles.description' as Resource,
+    group: 'StaffGivableRoles.group' as Resource,
+    method: 'StaffGivableRoles.method' as Resource,
+    name: 'StaffGivableRoles.name' as Resource,
   };
 }
 
@@ -357,10 +371,12 @@ export namespace StaffSessionMailLinks {
     consumedAt: 'consumedAt' as FieldName,
     createdAt: 'createdAt' as FieldName,
     email: 'email' as FieldName,
+    everyTenant: 'everyTenant' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
     invitedByUserId: 'invitedByUserId' as FieldName,
     kind: 'kind' as FieldName,
+    mailFailedAt: 'mailFailedAt' as FieldName,
     name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
     tenantId: 'tenantId' as FieldName,
@@ -370,10 +386,12 @@ export namespace StaffSessionMailLinks {
     consumedAt: 'StaffSessionMailLinks.consumedAt' as Resource,
     createdAt: 'StaffSessionMailLinks.createdAt' as Resource,
     email: 'StaffSessionMailLinks.email' as Resource,
+    everyTenant: 'StaffSessionMailLinks.everyTenant' as Resource,
     expiresAt: 'StaffSessionMailLinks.expiresAt' as Resource,
     id: 'StaffSessionMailLinks.id' as Resource,
     invitedByUserId: 'StaffSessionMailLinks.invitedByUserId' as Resource,
     kind: 'StaffSessionMailLinks.kind' as Resource,
+    mailFailedAt: 'StaffSessionMailLinks.mailFailedAt' as Resource,
     name: 'StaffSessionMailLinks.name' as Resource,
     roleNames: 'StaffSessionMailLinks.roleNames' as Resource,
     tenantId: 'StaffSessionMailLinks.tenantId' as Resource,
@@ -667,8 +685,6 @@ export namespace AssignStaffRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
     role: 'role' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
     reason: 'reason' as FieldName,
@@ -679,19 +695,6 @@ export namespace CreateStaffGroup {
   export const fieldName = {
     name: 'name' as FieldName,
     description: 'description' as FieldName,
-    domain: 'domain' as FieldName,
-  };
-}
-
-export namespace CreateStaffUser {
-  export const fieldName = {
-    username: 'username' as FieldName,
-    name: 'name' as FieldName,
-    email: 'email' as FieldName,
-    password: 'password' as FieldName,
-    roles: 'roles' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
   };
 }
 
@@ -742,8 +745,6 @@ export namespace GiveStaffGroupRole {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
     role: 'role' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
   };
@@ -754,7 +755,6 @@ export namespace InviteStaffUser {
     email: 'email' as FieldName,
     name: 'name' as FieldName,
     roles: 'roles' as FieldName,
-    domain: 'domain' as FieldName,
   };
 }
 
@@ -788,8 +788,6 @@ export namespace RemoveStaffRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
     role: 'role' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
   };
 }
 
@@ -830,13 +828,6 @@ export namespace SetStaffSelfServiceReset {
   };
 }
 
-export namespace SetStaffTemporaryPassword {
-  export const fieldName = {
-    userId: 'userId' as FieldName,
-    password: 'password' as FieldName,
-  };
-}
-
 export namespace SetStaffUserEmail {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -855,8 +846,6 @@ export namespace TakeStaffGroupRole {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
     role: 'role' as FieldName,
-    domain: 'domain' as FieldName,
-    everyDomain: 'everyDomain' as FieldName,
   };
 }
 

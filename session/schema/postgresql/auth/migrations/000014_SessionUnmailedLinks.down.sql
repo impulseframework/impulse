@@ -1,0 +1,3 @@
+BEGIN;
+ALTER TABLE "SessionMailLinks" DROP COLUMN IF EXISTS "MailFailedAt";
+COMMIT;

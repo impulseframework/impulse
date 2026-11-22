@@ -1,4 +1,4 @@
-// Package identity holds the rules of managing the people of one auth: creating a
+// Package identity holds the rules of managing the people of one auth: inviting a
 // person, disabling one and ending their sessions, seating one in a role. An
 // application does not call it directly. The code generator writes, for every auth an
 // application declares, the resources over the auth's own tables and the methods that
@@ -16,8 +16,8 @@
 // Manager.WithdrawTenantInvitation withdraws one.
 //
 // Every rule runs inside the caller's transaction (resource.ReadWriteTransaction): a
-// generated handler's, or one an application opened to create a person beside its own
-// rows and commit them together. Nothing here commits, and nothing reads a row a sibling
+// generated handler's, or one an application opened to write its own rows beside the
+// change and commit them together. Nothing here commits, and nothing reads a row a sibling
 // call buffered in the same transaction, which Spanner applies only at the commit: a
 // rule takes what it needs from its caller.
 //
@@ -47,14 +47,8 @@ import (
 // and patches. An implementation holds no rule: it maps the values it is given onto the
 // auth's columns and answers what it read.
 type Store interface {
-	// InsertUser buffers a new user and answers the id the row is created under.
-	InsertUser(ctx context.Context, txn resource.ReadWriteTransaction, user *NewUser) (impulse.UUID, error)
 	// UpdateUser buffers a change to a user: every field of change that is set.
 	UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, change *UserChange) error
-	// SetPassword buffers a user's password hash, as the session library's hasher
-	// rendered it, and whether the person must change the password before anything
-	// else is served. An auth with no password method has no such write.
-	SetPassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error
 	// RemovePassword buffers the removal of a user's password, and with it the mark that
 	// the person must change it. An auth with no password method has no such write.
 	RemovePassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
@@ -207,12 +201,9 @@ type Store interface {
 
 // SessionAPI is what the rules take from the session library's Auth, the one that signs
 // the auth's people in: the API of the application's own Auth satisfies it
-// (session.Auth.API). The password method's hasher is the Auth's, so a password written
-// here is one the sign-in can check.
+// (session.Auth.API). No rule here writes a password: a person chooses their own, from
+// an invitation or a reset link, in the session library's storage.
 type SessionAPI interface {
-	// HashPassword hashes a password as the users table holds one; an empty password
-	// is refused.
-	HashPassword(password string) (string, error)
 	// PrepareInvitation checks and makes an invitation without storing or mailing it:
 	// the row to store, and the step that mails its link once the row is committed.
 	// The token, the message and the sender stay in the session library.
@@ -287,17 +278,6 @@ type HeldImpersonation struct {
 	ActsAsRole bool
 }
 
-// NewUser is a user row as InsertUser writes it.
-type NewUser struct {
-	Username string
-	// Name is the person's name as people read it, nil for none. It is written as
-	// given: the manager has held it to the rule of a name (sessioninfo.CleanName).
-	Name *string
-	// Email is the address the person is reached at, nil for none. It is written
-	// unverified.
-	Email *string
-}
-
 // UserChange is a change to a user row: a nil field is left as it is. The address is
 // not among them: an address reaches a row confirmed, through the session library, or
 // not at all (Manager.SetEmail).
@@ -339,6 +319,11 @@ type Manager struct {
 	// application named none (WithAdministratorRoles). The application as a whole is
 	// administered by the holders of the Super Administrator role, which needs no naming.
 	administrators *administratorRoles
+	// firstAdministrator are the roles the first administrator's invitation gives, by
+	// where they are held; nil where the application named none
+	// (WithFirstAdministratorRoles), and the invitation then gives every role in the
+	// one place it stores, as any other does.
+	firstAdministrator *firstAdministratorRoles
 	// superMethods are the methods that give and take the auth's roles for the whole
 	// application, which the permission engine must let a super administrator execute
 	// (WithSuperAdministratorMethods); New holds the engine to it.
@@ -367,14 +352,23 @@ type administratorRoles struct {
 	domain []accesstypes.Role
 }
 
+// firstAdministratorRoles are the roles the first administrator's invitation gives, by
+// where they are held: global for the whole application, everyDomain in every tenant.
+type firstAdministratorRoles struct {
+	global      []accesstypes.Role
+	everyDomain []accesstypes.Role
+}
+
 // Option configures a manager.
 type Option func(*Manager)
 
 // WithAdministratorRoles names the roles whose holders administer a tenant: the domain
-// roles a person holds in the tenant, or in every tenant. The rule on a person removing
-// a role from themselves in a tenant reads them (RemoveRole): nobody gives up a tenant's
-// administrator role nobody else would hold there. Without them a person removes no
-// role from themselves in a tenant at all.
+// roles a person holds in the tenant itself, by a membership of their own or through a
+// group kept in the tenant. The rule on a person removing a role from themselves in a
+// tenant reads them (RemoveRole): nobody gives up a tenant's administrator role nobody
+// else would hold there. A person who holds one in every tenant is none of the tenant's
+// own administrators, and does not stand in for its last one. Without them a person
+// removes no role from themselves in a tenant at all.
 //
 // The application as a whole needs no such list: its last administrator is the last
 // super administrator, the holder of the role the framework defines
@@ -384,6 +378,32 @@ type Option func(*Manager)
 func WithAdministratorRoles(domain []accesstypes.Role) Option {
 	return func(m *Manager) {
 		m.administrators = &administratorRoles{domain: domain}
+	}
+}
+
+// WithFirstAdministratorRoles names the roles the first administrator's invitation
+// gives, by where they are held: global for the whole application, everyDomain in every
+// tenant. They are the two lists the auth's first-administrator setup declares
+// (FirstAdministratorRoles in the auth package's foothold file), handed here as that
+// function returns them.
+//
+// The first administrator's invitation is the one invitation whose roles are held in
+// two places. The deployment sends it for the whole application, so its row stores no
+// tenant, and the acceptance gives each of its roles where these lists say
+// (giveInvitedRoles): a role everyDomain names in every tenant, a role both lists name
+// in both places, and every other in the whole application, which is where the Super
+// Administrator role it always carries is held. The lists are the application's own
+// declaration, read when the person accepts; nothing is looked up by what kind of role
+// a name happens to be.
+//
+// No other invitation reads the lists: one a user sent, one for a tenant or for every
+// tenant, and one that does not give the Super Administrator role each give their roles
+// in the one place they store, whatever is named here. Without the option the first
+// administrator's invitation does too, so one that names a role of the tenants is not
+// accepted.
+func WithFirstAdministratorRoles(global, everyDomain []accesstypes.Role) Option {
+	return func(m *Manager) {
+		m.firstAdministrator = &firstAdministratorRoles{global: global, everyDomain: everyDomain}
 	}
 }
 
@@ -435,7 +455,7 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	}
 	m := &Manager{
 		auth: auth, store: store, access: controller, sessions: sessions,
-		administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil, now: time.Now,
+		administrators: nil, firstAdministrator: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil, now: time.Now,
 	}
 	for _, opt := range opts {
 		opt(m)

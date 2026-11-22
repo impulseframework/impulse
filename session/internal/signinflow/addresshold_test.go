@@ -21,7 +21,7 @@ import (
 // address. The sign-in that carries the code's event goes on, and so does every sign-in
 // of an account that holds a confirmed address. A directory that vouches for the address
 // is not held, nor is a password sign-in, nor any sign-in where the Auth does not ask
-// for it (it sends no mail, or the registration is the deployment's own provider).
+// for it (the registration is the deployment's own provider).
 func TestSignIn_anUnconfirmedAddressIsConfirmedFirst(t *testing.T) {
 	t.Parallel()
 

@@ -3,12 +3,9 @@
     "global": [
       {
         "name": "Administrator",
-        "description": "Manages the application's people: creates accounts, invites people, gives and takes roles, keeps groups of people, and sets temporary passwords.",
+        "description": "Manages the application's people: invites people, gives and takes roles, keeps groups of people, and mails password reset links.",
         "permissions": {
           "Execute": [
-            {
-              "resource": "CreateStaffUser"
-            },
             {
               "resource": "DisableStaffUser"
             },
@@ -47,9 +44,6 @@
             },
             {
               "resource": "RenameStaffUser"
-            },
-            {
-              "resource": "SetStaffTemporaryPassword"
             },
             {
               "resource": "SendStaffUserPasswordResetLink"
@@ -181,9 +175,11 @@
                 "consumedAt",
                 "createdAt",
                 "email",
+                "everyTenant",
                 "expiresAt",
                 "invitedByUserId",
                 "kind",
+                "mailFailedAt",
                 "name",
                 "roleNames",
                 "tenantId",
@@ -232,6 +228,14 @@
               "fields": [
                 "description",
                 "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffGivableRoles",
+              "fields": [
+                "description",
+                "method",
+                "group"
               ]
             },
             {
@@ -406,9 +410,11 @@
                 "consumedAt",
                 "createdAt",
                 "email",
+                "everyTenant",
                 "expiresAt",
                 "invitedByUserId",
                 "kind",
+                "mailFailedAt",
                 "name",
                 "roleNames",
                 "tenantId",

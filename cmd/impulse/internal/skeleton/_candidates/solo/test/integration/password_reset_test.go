@@ -295,7 +295,7 @@ func TestPasswordReset_closingWaitsForTheLink(t *testing.T) {
 	// A message's text holds its link, so a failure counts the messages and never
 	// prints one.
 	sent := s.mail.Messages()[before:]
-	if len(sent) != 1 || !strings.Contains(sent[0].To, address) || !strings.Contains(sent[0].Text, "/login?reset=") {
+	if len(sent) != 1 || !strings.Contains(sent[0].To, address) || !strings.Contains(sent[0].Text, "/login#reset=") {
 		t.Fatalf("%d message(s) in the mailbox once the auth was closed, want the one reset link, to %s", len(sent), address)
 	}
 }
