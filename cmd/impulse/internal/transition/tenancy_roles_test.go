@@ -313,7 +313,7 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 			roles + ": the role TenantAdministrator, a domain role":                                              {"a tenant's administrator holds", "the tenanted skeleton's TenantAdministrator", strconv.Itoa(len(held)) + " of them under the condition the skeleton holds each to"},
 			tenantPeopleTest + ": the test that proves each of the " + strconv.Itoa(len(held)) + " condition(s)": {"conditions-proven", "a person the tenant holds alone"},
 			integrationHarness + ": written again with its provesGrant marked for the application's lint":        {"//nolint:unparam", "the TenantAdministrator role's"},
-			roles + ": the role Administrator gained the 8 grant(s)":                                             {"Execute on InviteStaffTenant", "List on StaffInvitedTenants"},
+			roles + ": the role Administrator gained the 9 grant(s)":                                             {"Execute on InviteStaffTenant", "List on StaffInvitedTenants", "List on StaffInvitedTenantRoles"},
 			foothold + ": AdministratorRoles() and FirstAdministratorRoles() name TenantAdministrator":           {"TenantAdministratorRoles()", "the application's router is built"},
 			deployTest + ": the test of the first administrator's roles":                                         {"every tenant"},
 		} {
