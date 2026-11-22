@@ -28,6 +28,7 @@ import (
 // @suppress(readHandler)
 // @outlet(default)
 // @order(Name asc)
+// @rowWord(sign-up role)
 type StaffSignUpRole struct {
 	// @primarykey
 	// @attribute(name)

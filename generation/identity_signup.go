@@ -208,6 +208,7 @@ type (
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
 	// @outlet({{ .Outlets }})
+	// @rowWord(way to sign in, plural: ways to sign in)
 	{{ .SignInMethodRow }} struct {
 		Name             string    ` + "`spanner:\"Name\"`" + `
 		OpenSignUp       bool      ` + "`spanner:\"OpenSignUp\"`" + `
@@ -384,6 +385,7 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(Label asc)
+// @rowWord(way to sign in, plural: ways to sign in)
 type {{ .SignInMethod }} struct {
 	// @primarykey
 	Name                string ` + "`spanner:\"Name\"`" + `
@@ -461,6 +463,7 @@ import (
 // @suppress(readHandler)
 // @outlet({{ .Outlets }})
 // @order(Name asc)
+// @rowWord(sign-up role)
 type {{ .SignUpRole }} struct {
 	// @primarykey
 	// @attribute(name)

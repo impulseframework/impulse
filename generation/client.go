@@ -30,6 +30,7 @@ import (
 	"github.com/impulseframework/impulse/generation/internal/gomod"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/apptree"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"golang.org/x/tools/go/packages"
@@ -67,6 +68,13 @@ type client struct {
 	// package is loaded: the import paths of the sources a run writes ahead of its load
 	// (the generated management of an auth) are derived from it.
 	modulePathRoot string
+	// moduleRoot is the main module's directory, the root of the application's tree: a
+	// run reads the application's auths from it (treeAuthNames). A generator built with
+	// none, as a test builds one, reads no tree.
+	moduleRoot string
+	// treeAuths are the auth packages of the application's tree, read once a run.
+	treeAuths     []string
+	treeAuthsRead bool
 	// outputs are the packages the run writes generated files into (the handlers and the
 	// routes), whose import paths are derived from the module.
 	outputs             []packageDir
@@ -136,6 +144,7 @@ func newClient(ctx context.Context, resourcePackageDir string, migrationSourceUR
 		migrationSourceURLs: migrationSourceURL,
 		genCache:            gCache,
 		modulePathRoot:      modInfo.PackageName,
+		moduleRoot:          modInfo.AbsolutePath,
 	}
 	if err := resolveOptions(c, opts); err != nil {
 		return nil, err
@@ -240,6 +249,23 @@ func (c *client) notePackages(packageMap map[string]*packages.Package) {
 	if resources := packageMap[c.resource.Package()]; resources != nil && resources.Module != nil {
 		c.module = resources.Module
 	}
+}
+
+// treeAuthNames lists the auth packages in the application's tree by name, in name
+// order, by the rule impulse check finds an auth package by (apptree.AuthPackages): a
+// package directly under an auth directory that constructs a session Auth. The tree is
+// read once a run. A generator with no module root reads none.
+func (c *client) treeAuthNames() ([]string, error) {
+	if c.moduleRoot == "" || c.treeAuthsRead {
+		return c.treeAuths, nil
+	}
+	names, err := apptree.AuthPackages(c.moduleRoot)
+	if err != nil {
+		return nil, errors.Wrap(err, "apptree.AuthPackages()")
+	}
+	c.treeAuths, c.treeAuthsRead = names, true
+
+	return names, nil
 }
 
 // leaves is the run's leaf resolver: the built-in table and the @typescript

@@ -63,6 +63,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(account)
 	{{ .User }} struct {
 		ID                     impulse.UUID ` + "`spanner:\"Id\"`" + `
 		Username               string       ` + "`spanner:\"Username\"`" + `
@@ -99,6 +100,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(session)
 	{{ .Session }} struct {
 		ID              impulse.UUID  ` + "`spanner:\"Id\"`" + `
 		UserID          *impulse.UUID ` + "`spanner:\"UserId\"`" + `
@@ -134,6 +136,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in identity)
 	{{ .Identity }} struct {
 		ID          impulse.UUID ` + "`spanner:\"Id\"`" + `
 		UserID      impulse.UUID ` + "`spanner:\"UserId\"`" + `
@@ -172,6 +175,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(token)
 	{{ .Token }} struct {
 		ID            impulse.UUID  ` + "`spanner:\"Id\"`" + `
 		Kind          string        ` + "`spanner:\"Kind\"`" + `
@@ -224,6 +228,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(mailed link)
 	{{ .MailLink }} struct {
 		ID         impulse.UUID  ` + "`spanner:\"Id\"`" + `
 		Kind       string        ` + "`spanner:\"Kind\"`" + `
@@ -268,6 +273,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(UpdatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(failed sign-in)
 	{{ .SignInAttempt }} struct {
 		Name         string     ` + "`spanner:\"Name\"`" + `
 		Failures     int64      ` + "`spanner:\"Failures\"`" + `
@@ -303,6 +309,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(OccurredAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(sign-in event)
 	{{ .AuthEvent }} struct {
 		SessionID  impulse.UUID ` + "`spanner:\"SessionId\"`" + `
 		Seq        int64        ` + "`spanner:\"Seq\"`" + `
@@ -350,6 +357,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(StartedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(impersonation)
 	{{ .Impersonation }} struct {
 		SessionID       impulse.UUID  ` + "`spanner:\"SessionId\"`" + `
 		ActorUsername   string        ` + "`spanner:\"ActorUsername\"`" + `
@@ -394,6 +402,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(trusted device)
 	{{ .TrustedDevice }} struct {
 		ID         impulse.UUID ` + "`spanner:\"Id\"`" + `
 		UserID     impulse.UUID ` + "`spanner:\"UserId\"`" + `
@@ -435,6 +444,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(held role)
 	{{ .Membership }} struct {
 		Kind      string    ` + "`spanner:\"Kind\"`" + `
 		Axis      string    ` + "`spanner:\"Axis\"`" + `
@@ -474,6 +484,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role)
 	{{ .Role }} struct {
 		Kind        string    ` + "`spanner:\"Kind\"`" + `
 		Axis        string    ` + "`spanner:\"Axis\"`" + `
@@ -510,6 +521,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role grant)
 	{{ .RoleGrant }} struct {
 		Kind         string    ` + "`spanner:\"Kind\"`" + `
 		Axis         string    ` + "`spanner:\"Axis\"`" + `

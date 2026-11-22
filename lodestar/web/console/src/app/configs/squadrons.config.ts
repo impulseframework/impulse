@@ -28,7 +28,10 @@ import { SquadronChannelComponent } from '@components/sector/squadron-channel/sq
 // the view alone, its create form is SquadronMemberships' (the squadron filled from the
 // page, the person picked from the sector's people), and a row is deleted from the list
 // through the table by the compound key the view carries under the table's own column
-// names. The row route names the roster's pilotId, whose declared enumeration is Pilots:
+// names. The roster writes its add button's label ("Add a pilot"): the view states no
+// word for its rows and so takes its table's, a squadron membership, which is what a
+// delete takes away ("Delete this squadron membership?"), never the pilot. The row
+// route names the roster's pilotId, whose declared enumeration is Pilots:
 // a row opens the pilot's page by that value, gated on Read of Pilots.
 //
 // The row page also carries the two related-config shapes that are not a list: the
@@ -48,7 +51,6 @@ export const squadronsConfig = rootConfig({
   parentConfig: listViewConfig({
     title: 'Squadrons',
     createTitle: 'Squadron',
-    createButtonLabel: 'Add a squadron',
     primaryResource: Resources.Squadrons,
     listColumns: [
       { id: Squadrons.fieldName.name },

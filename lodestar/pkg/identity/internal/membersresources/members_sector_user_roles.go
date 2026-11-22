@@ -37,6 +37,7 @@ type (
 	// @outlet(portal, default)
 	// @order(Username asc, Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(held role)
 	MembersSectorUserRole struct {
 		// @domain
 		DomainID string `spanner:"DomainId" index:"true"`

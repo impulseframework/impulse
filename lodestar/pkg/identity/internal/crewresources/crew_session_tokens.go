@@ -20,6 +20,7 @@ type (
 	// @outlet(default)
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(token)
 	CrewSessionToken struct {
 		ID            impulse.UUID  `spanner:"Id"`
 		Kind          string        `spanner:"Kind"`

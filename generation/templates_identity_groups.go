@@ -36,6 +36,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group)
 	{{ .Group }} struct {
 		// @attribute(group)
 		ID          impulse.UUID ` + "`spanner:\"Id\"`" + `
@@ -72,14 +73,17 @@ type (
 	// subject.{{ .GroupSet }} is the ids of the groups the caller is in. A grant's
 	// condition tests a row's group against it, and a table of the application's own
 	// whose rows name a group follows a person through it in its own set's definition
-	// (who: GroupID IN subject.{{ .GroupSet }}).
+	// (who: GroupID IN subject.{{ .GroupSet }}). The people are the {{ .Auth }} auth's, and the
+	// set says so (auth: {{ .AuthName }}): generation refuses a set that describes another
+	// auth's people and follows a person through this one.
 	//
 	// The table is no tenant's, and a group is kept in one tenant or for the whole
 	// application, so the set says where a row's tenant is found (domain:
 	// GroupID.DomainID). In a request that has a tenant the set holds the groups kept in
-	// that tenant alone: a row of the tenant's that names another tenant's group, or a
-	// group kept for the whole application, gives nobody anything through it. In a
-	// request that has no tenant the set holds every group the caller is in.
+	// that tenant alone: a row of the tenant's that named another tenant's group, or a
+	// group kept for the whole application, would give nobody anything through it, and
+	// the library refuses to write one. In a request that has no tenant the set holds
+	// every group the caller is in.
 	//
 	// StartsAt and EndsAt are the place's period: the first instant it counts and the
 	// first it no longer does, each empty for none. Outside its period a place gives the
@@ -94,10 +98,11 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group member)
 	{{ .GroupMember }} struct {
 		// @attribute(group)
 		GroupID impulse.UUID ` + "`spanner:\"GroupId\"`" + `
-		// @subjectSet({{ .GroupSet }}, value: GroupID, domain: GroupID.DomainID, where: {{ .GroupSetWhere }})
+		// @subjectSet({{ .GroupSet }}, value: GroupID, domain: GroupID.DomainID, auth: {{ .AuthName }}, where: {{ .GroupSetWhere }})
 		UserID    string     ` + "`spanner:\"UserId\"`" + `
 		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
 		StartsAt  *time.Time ` + "`spanner:\"StartsAt\"`" + `
@@ -138,6 +143,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group role)
 	{{ .GroupRole }} struct {
 		// @attribute(group)
 		GroupID   impulse.UUID ` + "`spanner:\"GroupId\"`" + `
@@ -656,6 +662,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group member)
 	{{ .SubjectGroupUser }} struct {
 		{{- if .ForTenant }}
 		// @domain
@@ -740,6 +747,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group)
 	{{ .SubjectGroup }} struct {
 		// @primarykey
 		// @attribute(group)
@@ -811,6 +819,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(GroupName asc, Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(group role)
 	{{ .SubjectGroupRole }} struct {
 		// @domain
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
@@ -913,6 +922,7 @@ type (
 	// @outlet({{ .Outlets }})
 	// @order(Username asc, GroupName asc, Role asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(role held through a group, plural: roles held through a group)
 	{{ .SubjectUserGroupRole }} struct {
 		{{- if .ForTenant }}
 		// @domain

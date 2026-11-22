@@ -107,7 +107,7 @@ func main() {
     // The collection is what the release declares, here Read on documents and
     // their fields: the application's generated router answers it. An
     // application that ships default roles adds
-    // access.WithDefaultRoles(roles.File); see Default Roles.
+    // access.WithDefaultRoles(staff.Roles(), staff.Name); see Default Roles.
     client, err := access.New(store, router.Collection())
     if err != nil {
         log.Fatal(err)
@@ -209,8 +209,9 @@ client, err := access.New(store,
     // client is not built without it.
     router.Collection(),
     // The release's default roles: the role file embedded in the binary,
-    // validated against the collection (see Default Roles).
-    access.WithDefaultRoles(roles.File),
+    // validated against the collection, with the name of the auth whose
+    // roles they are (see Default Roles).
+    access.WithDefaultRoles(staff.Roles(), staff.Name),
     // Recommended: propagate changes between instances in near-realtime over
     // the application's signal channel (see Change signal).
     access.WithChangeSignal(policySignal),
@@ -850,11 +851,11 @@ the default policy.
 
 ### Usage
 
-Embed the role file in a package of the application:
+Embed the role file in the auth's package, which gives it beside its name:
 
 ```go
-// Package roles holds the release's default roles.
-package roles
+// Package staff is the auth of the application's staff.
+package staff
 
 import (
     _ "embed"
@@ -862,17 +863,23 @@ import (
     "github.com/impulseframework/impulse/access"
 )
 
-// File is the release's role file.
-//
+// Name is the auth's name.
+const Name = "staff"
+
 //go:embed roles.json
-var File access.RoleFile
+var roleFile access.RoleFile
+
+// Roles returns the auth's role file.
+func Roles() access.RoleFile {
+    return roleFile
+}
 ```
 
 Hand it to `New`, which validates it against the collection it is given:
 
 ```go
 client, err := access.New(store, router.Collection(),
-    access.WithDefaultRoles(roles.File),
+    access.WithDefaultRoles(staff.Roles(), staff.Name),
     access.WithChangeSignal(policySignal), // see Change signal
 )
 if err != nil {
@@ -884,6 +891,11 @@ The collection is given once, to `New`: the role file validates against it, and
 the names of every grant the store holds or a write adds are held to it, a
 grant on a resource or a field and a grant of a permission for the whole of a
 scope alike.
+
+The second argument of `WithDefaultRoles`, `auth`, is the name of the auth whose roles the
+file holds, as the auth's package names it (`Name` in a package `impulse add auth`
+renders). It says whose subject sets the file is held to: see `access.UnreadSetWarning`
+below. `ValidateRoles` takes the same name.
 
 The deploy's migrate step calls `CheckPolicy`. It reads the store once and
 returns the role file's warnings (see Warnings) beside what the store holds that
@@ -908,9 +920,68 @@ func checkPolicy(ctx context.Context, client *access.Client) error {
 ```
 
 Every warning prints as one line. A consumer that wants the fields switches on
-the kind: `access.GrantWarning`, `access.RequiredFieldWarning` and
-`access.ConcealingKeyWarning` come from the role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
+the kind: `access.GrantWarning`, `access.RequiredFieldWarning`,
+`access.ConcealingKeyWarning` and `access.UnreadSetWarning` come from the role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
 `*access.OrphanedMembership` from the store.
+
+`access.UnreadSetWarning` names a subject set the application declares
+(`@subjectSet`) that no role reads. A set is read when a grant's condition
+names it (`hangarId IN subject.hangarsOpen`), or when a set that is read builds
+on it in its `who:` part (`GroupID IN subject.crewGroups`). Nobody holds
+anything through an unread set, so the line says to write the grant that reads
+it. It is never a refusal: a set may be declared one change before its first
+grant, and the role-file test accepts the warning until then. The set of a
+person's groups that the generator declares for an auth is not flagged, since
+nobody wrote it.
+
+A set describes the people of one auth: its user column holds that auth's
+people, and the set is looked up by their ids. An engine that is told its auth's
+name takes no grant that reads another auth's set, whether the grant is in its
+role file, written to a custom role, or found in the store. An application with
+more than one auth says whose people each set holds (`auth: staff` in the
+`@subjectSet`, the auth's name as its package names it; generation refuses a set
+that says none). A run knows the auths its own outlets declare and the auth
+packages in the tree of its module (a package directly under a directory named
+`auth` that constructs a session Auth, the rule `impulse check` finds an auth
+package by), so the generate program of one site knows another site's auth in
+the same module with nothing declared for it. Each auth hands its own name with
+its role file:
+
+```go
+access.WithDefaultRoles(staff.Roles(), staff.Name)
+warnings, err := access.ValidateRoles(collection, membersRoles, members.Name)
+```
+
+The check of an auth looks at that auth's sets and at the sets that name no
+auth, and never at another auth's, so a set is never flagged as unread in the
+role file of an auth whose roles could not read it. The name is the one
+generation knows the auth by, the name of its package, and, where the
+collection's generation knew any auth, a file handed over under a name it did
+not know is refused with the name given and the names known
+(`PermissionCollection.Auths`; the generated collection lists the application's
+auths as its run read them, and a union every site's). Two sites that say one
+set name describes two different auths' people are refused where the union is
+built (`UnionCollection`), naming the set and both auths: a role file reads a
+set by its name alone, so one of the two sets takes another name, or both name
+the same auth. Where the collections of a union together know several auths, a
+set that does not say whose people it describes is refused there too, naming the
+set: the union is where an application's sites meet, and it holds the rule for
+the auths one site's generation could not see. A grant whose condition reads a
+set that describes another auth's people is refused, naming the grant, the set
+and both auths: in the role file when it is loaded (`New`, `ValidateRoles`), and
+on a custom role when the grant is written. One found in the store is left out
+when the policy is loaded, and reported. The set is looked up by the other
+auth's ids, so it says nothing about the people who hold the role, whichever way
+the condition tests it. A set follows a person through sets of its own auth
+alone: generation refuses a `who:` that tests a set labeled for another auth,
+the set of a person's groups that the generator declares for another auth
+included. That set is named after its auth (`subject.staffGroups` for the auth
+`staff`) and names its auth without being told. An application with one auth
+need not write `auth:`: every set is that auth's. Where the collection knows
+several auths, an engine is told whose roles it holds: `New` refuses an empty
+name and refuses to open with no role file, and `ValidateRoles` refuses an empty
+name. Where it knows one auth or none, an empty name holds no grant to an auth's
+sets, and its check looks at every set.
 
 ### Behavior
 
@@ -1079,11 +1150,11 @@ as `[]access.Warning`, with no store and no client involved, so a project test o
 gets the answer the release's start would:
 
 ```go
-config, err := roles.File.Parse()
+config, err := staff.Roles().Parse()
 if err != nil {
     return err
 }
-warnings, err := access.ValidateRoles(router.Collection(), config)
+warnings, err := access.ValidateRoles(router.Collection(), config, staff.Name)
 if err != nil {
     return err // the refusals that would fail New
 }
@@ -1113,7 +1184,7 @@ if err != nil {
     return err
 }
 
-client, err := access.New(store, collection, access.WithDefaultRoles(roles.File))
+client, err := access.New(store, collection, access.WithDefaultRoles(staff.Roles(), staff.Name))
 ```
 
 ### JSON Configuration

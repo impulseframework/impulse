@@ -102,6 +102,22 @@ type DomainBindingData struct {
 // tenancy binding is the filter, and a global resource's set reads every row.
 // A set of a tenant's resource carries none, and a subject value never does
 // (validateCollectionBindings).
+//
+// Offered marks a set the generator declares for an auth, the set of a
+// person's groups: nobody wrote it, so the role-file check does not flag it
+// when no role reads it (GeneratedCollection.SubjectSets). Its declaration
+// names the auth it was generated for (Auth).
+//
+// Auth names the auth whose people the set describes, as the auth's package
+// names it (auth: in the @subjectSet): the user column holds that auth's
+// people and the set is looked up by their ids, so an engine opened for
+// another auth takes no grant that reads the set, in its role file, on a
+// custom role or from the store (GeneratedCollection.SubjectSetAuth), and
+// only that auth's role-file check looks at it
+// (GeneratedCollection.SubjectSets). It is empty on a set that says none,
+// which an application with one auth may leave so, every set being that
+// auth's, and on a subject value. Generation refuses a set that follows a
+// person through a set of another auth's people (a who: test against it).
 type SubjectBindingData struct {
 	Name       string
 	UserColumn string
@@ -111,6 +127,8 @@ type SubjectBindingData struct {
 	Who        []SubjectWhoData
 	Where      *SubjectWhereData
 	Domain     *DomainBindingData
+	Offered    bool
+	Auth       string
 }
 
 // SubjectWhoData is one test of a subject set's who: part. Column is the
@@ -254,6 +272,61 @@ func (g *GeneratedCollection) SubjectSetComparisonType(name string) (accesstypes
 	}
 
 	return anchor.Binding.Type, true
+}
+
+// Auths lists the names of the auths the generation run knew
+// (CollectionData.Auths), in name order: the names a subject set may be labeled
+// for, and so the names a role file may be handed to the permission engine
+// under. It is empty for a run that declared no auth.
+func (g *GeneratedCollection) Auths() []string {
+	return slices.Clone(g.auths)
+}
+
+// SubjectSetAuth names the auth whose people a declared subject set describes
+// (SubjectBindingData.Auth), as the auth's package names it. It is empty for a
+// set that names none and for a name no set declares. The set of a person's
+// groups that the generator declares for an auth names that auth, so the answer
+// holds for it as for a set a person wrote, where SubjectSets leaves it out.
+func (g *GeneratedCollection) SubjectSetAuth(name string) string {
+	anchor, ok := g.SubjectSet(name)
+	if !ok {
+		return ""
+	}
+
+	return anchor.Binding.Auth
+}
+
+// SubjectSets lists the subject sets the application declares (@subjectSet)
+// that describe the people of one auth, by name, each with the names of the
+// sets its who: part builds on (Column IN subject.<set>). auth is the auth's
+// name, as its package names it. A set that names another auth is left out:
+// an engine opened for this auth takes no grant that reads it, so that auth's
+// role-file check is the one that looks at it. A set that names no auth, as a set of an application with
+// one auth may, is listed for every auth, and an empty auth lists every set.
+// A set the generator declares for an auth (Offered) is left out: the
+// role-file check flags a listed set that no role reads
+// (access.UnreadSetWarning), and a set nobody wrote is no oversight.
+func (g *GeneratedCollection) SubjectSets(auth string) map[string][]string {
+	sets := make(map[string][]string)
+	for _, store := range g.bindings {
+		for _, bindings := range store {
+			for i := range bindings.SubjectSets {
+				set := &bindings.SubjectSets[i]
+				if set.Offered || (auth != "" && set.Auth != "" && set.Auth != auth) {
+					continue
+				}
+				var builds []string
+				for _, test := range set.Who {
+					if test.Set != "" {
+						builds = append(builds, test.Set)
+					}
+				}
+				sets[set.Name] = builds
+			}
+		}
+	}
+
+	return sets
 }
 
 // SubjectValueComparisonType resolves the comparison type of the column a

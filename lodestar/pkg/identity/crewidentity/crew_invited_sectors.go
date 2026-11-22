@@ -33,6 +33,7 @@ import (
 // @suppress(readHandler)
 // @outlet(default)
 // @order(CreatedAt asc)
+// @rowWord(invitation)
 type CrewInvitedSector struct {
 	// @primarykey
 	ID    impulse.UUID `spanner:"Id"`

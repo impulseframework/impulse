@@ -417,6 +417,7 @@ const resourceMap = defineResourceMap({
     route: 'tenants/{tenantID}/announcements',
     consolidatedRoute: 'resources',
     live: true,
+    rowWords: { one: 'announcement', many: 'announcements' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'tenantId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always', readOnly: true },
@@ -431,6 +432,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'group', many: 'groups' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
@@ -448,6 +450,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'group member', many: 'group members' },
     fields: [
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersGroups },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -463,6 +466,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'group role', many: 'group roles' },
     fields: [
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersGroups },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -477,6 +481,7 @@ const resourceMap = defineResourceMap({
   [Resources.MembersGroupUsers]: {
     route: 'members-group-users',
     live: true,
+    rowWords: { one: 'group member', many: 'group members' },
     fields: [
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
@@ -492,6 +497,7 @@ const resourceMap = defineResourceMap({
     route: 'members-held-roles',
     readDisabled: true,
     live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
     fields: [
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -510,6 +516,7 @@ const resourceMap = defineResourceMap({
   [Resources.MembersListedGroups]: {
     route: 'members-listed-groups',
     live: true,
+    rowWords: { one: 'group', many: 'groups' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -526,6 +533,7 @@ const resourceMap = defineResourceMap({
     route: 'members-listed-group-roles',
     readDisabled: true,
     live: true,
+    rowWords: { one: 'group role', many: 'group roles' },
     fields: [
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -545,6 +553,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'role', many: 'roles' },
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
@@ -561,6 +570,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'role grant', many: 'role grants' },
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
@@ -579,6 +589,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'session', many: 'sessions' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessionUsers },
@@ -596,6 +607,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'sign-in event', many: 'sign-in events' },
     fields: [
       { fieldName: 'sessionId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessions },
       { fieldName: 'seq', primaryKey: { ordinalPosition: 1 }, displayType: 'number', required: true, isIndex: false },
@@ -611,6 +623,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'sign-in identity', many: 'sign-in identities' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessionUsers },
@@ -629,6 +642,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'mailed link', many: 'mailed links' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
@@ -652,6 +666,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'failed sign-in', many: 'failed sign-ins' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'failures', displayType: 'number', required: true, isIndex: false },
@@ -666,6 +681,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'token', many: 'tokens' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: false, maxLength: 16 },
@@ -687,6 +703,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'trusted device', many: 'trusted devices' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessionUsers },
@@ -702,6 +719,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'account', many: 'accounts' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -718,6 +736,7 @@ const resourceMap = defineResourceMap({
     route: 'members-taken-roles',
     readDisabled: true,
     live: true,
+    rowWords: { one: 'taken role', many: 'taken roles' },
     fields: [
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -735,6 +754,7 @@ const resourceMap = defineResourceMap({
   [Resources.MembersTenantGroups]: {
     route: 'tenants/{tenantID}/members-tenant-groups',
     live: true,
+    rowWords: { one: 'group', many: 'groups' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -748,6 +768,7 @@ const resourceMap = defineResourceMap({
   [Resources.MembersTenantGroupRoles]: {
     route: 'tenants/{tenantID}/members-tenant-group-roles',
     live: true,
+    rowWords: { one: 'group role', many: 'group roles' },
     fields: [
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
@@ -762,6 +783,7 @@ const resourceMap = defineResourceMap({
   [Resources.MembersTenantGroupUsers]: {
     route: 'tenants/{tenantID}/members-tenant-group-users',
     live: true,
+    rowWords: { one: 'group member', many: 'group members' },
     fields: [
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
@@ -778,6 +800,7 @@ const resourceMap = defineResourceMap({
     route: 'tenants/{tenantID}/members-tenant-held-roles',
     readDisabled: true,
     live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
     fields: [
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
@@ -797,6 +820,7 @@ const resourceMap = defineResourceMap({
   [Resources.MembersTenantIdentities]: {
     route: 'tenants/{tenantID}/members-tenant-identities',
     live: true,
+    rowWords: { one: 'sign-in identity', many: 'sign-in identities' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -816,6 +840,7 @@ const resourceMap = defineResourceMap({
   [Resources.MembersTenantInvitations]: {
     route: 'tenants/{tenantID}/members-tenant-invitations',
     live: true,
+    rowWords: { one: 'invitation', many: 'invitations' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -832,6 +857,7 @@ const resourceMap = defineResourceMap({
   [Resources.MembersTenantUsers]: {
     route: 'tenants/{tenantID}/members-tenant-users',
     live: true,
+    rowWords: { one: 'person', many: 'people' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -852,6 +878,7 @@ const resourceMap = defineResourceMap({
   [Resources.MembersTenantUserGroupRoles]: {
     route: 'tenants/{tenantID}/members-tenant-user-group-roles',
     live: true,
+    rowWords: { one: 'role held through a group', many: 'roles held through a group' },
     fields: [
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
@@ -869,6 +896,7 @@ const resourceMap = defineResourceMap({
   [Resources.MembersTenantUserRoles]: {
     route: 'tenants/{tenantID}/members-tenant-user-roles',
     live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
     fields: [
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
@@ -884,6 +912,7 @@ const resourceMap = defineResourceMap({
   [Resources.MembersUserGroupRoles]: {
     route: 'members-user-group-roles',
     live: true,
+    rowWords: { one: 'role held through a group', many: 'roles held through a group' },
     fields: [
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -905,6 +934,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: true,
+    rowWords: { one: 'held role', many: 'held roles' },
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
@@ -924,6 +954,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
+    rowWords: { one: 'members givable role', many: 'members givable roles' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
@@ -941,6 +972,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
+    rowWords: { one: 'length of time', many: 'lengths of time' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'minutes', displayType: 'number', required: false, isIndex: false },
@@ -953,6 +985,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
+    rowWords: { one: 'role', many: 'roles' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
@@ -965,6 +998,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
+    rowWords: { one: 'role', many: 'roles' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
@@ -978,6 +1012,7 @@ const resourceMap = defineResourceMap({
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
+    rowWords: { one: 'feature flag', many: 'feature flags' },
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },

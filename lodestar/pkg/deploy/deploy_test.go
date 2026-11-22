@@ -40,7 +40,11 @@ var archivistFee = access.ConcealingKeyWarning{
 // through the validation the permission engine performs when the auth opens:
 // the grammar holds, every condition resolves against the generated
 // collection, and the warnings the deploy's role check would print are exactly
-// the ones pinned here. No role holds a conditional write on a row it can
+// the ones pinned here. Every subject set the application declares describes the crew's
+// people (auth: crew), the set of a person's groups that the generator declares among them,
+// and is read by a role of the crew, so no set is flagged as unread,
+// and the members' check looks at none of them: each auth's file is validated with its
+// auth's name. No role holds a conditional write on a row it can
 // neither Read nor List, and no role may create a resource without a field every
 // create of it must be given. The archivist's Missions grants raise the concealing-key warning on
 // the fee filter key alone: her completed grant implies her closed-states
@@ -50,7 +54,7 @@ var archivistFee = access.ConcealingKeyWarning{
 // the default order, is declared positional and raises nothing: her every
 // page orders on the real column.
 //
-// Demonstrates: warning.concealing-key, masking.positional, warning.required-field.
+// Demonstrates: warning.concealing-key, masking.positional, warning.required-field, @subjectSet.auth.
 func TestRoles_validateAgainstTheCollection(t *testing.T) {
 	t.Parallel()
 
@@ -59,8 +63,8 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 		roles        access.RoleFile
 		wantWarnings []access.Warning
 	}{
-		{name: "crew", roles: crew.Roles(), wantWarnings: []access.Warning{archivistFee}},
-		{name: "members", roles: members.Roles()},
+		{name: crew.Name, roles: crew.Roles(), wantWarnings: []access.Warning{archivistFee}},
+		{name: members.Name, roles: members.Roles()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -71,7 +75,9 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 				t.Fatalf("access.RoleFile.Parse() error = %v", err)
 			}
 
-			warnings, err := access.ValidateRoles(router.Collection(), roles)
+			// The file is validated as its auth's: the check looks at the subject sets
+			// that describe that auth's people, and at no other auth's.
+			warnings, err := access.ValidateRoles(router.Collection(), roles, tt.name)
 			if err != nil {
 				t.Fatalf("access.ValidateRoles() error = %v", err)
 			}
@@ -88,6 +94,31 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestRoles_theAuthsTheCollectionKnows pins that the generated collection names the
+// application's two auths, and that a role file handed over under any other name is
+// refused: the name of the auth's cookie where an application gives it another, and the
+// auth's name in another case. The role-file check ties a file to its auth's subject sets
+// by this name, so under a name no set is labeled for it would look at none of them.
+func TestRoles_theAuthsTheCollectionKnows(t *testing.T) {
+	t.Parallel()
+
+	collection := router.Collection()
+	if got, want := collection.Auths(), []string{crew.Name, members.Name}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("router.Collection().Auths() = %v, want %v", got, want)
+	}
+	roles, err := crew.Roles().Parse()
+	if err != nil {
+		t.Fatalf("access.RoleFile.Parse() error = %v", err)
+	}
+	for _, name := range []string{"__Host-" + crew.Name, crew.TablePrefix} {
+		_, err := access.ValidateRoles(collection, roles, name)
+		want := "the role file is handed over as the roles of \"" + name + "\", and the application's generation knew no auth of that name: the auths it knew are crew, members."
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("access.ValidateRoles() under the name %q: error = %v, want it to contain %q", name, err, want)
+		}
 	}
 }
 

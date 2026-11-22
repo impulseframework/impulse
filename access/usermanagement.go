@@ -542,9 +542,12 @@ func requireResources(rows []GrantRow) error {
 // scope, a global resource for a role held globally and a domain's for one
 // held in a domain or in every domain; Update is not given on what the release
 // marks immutable, a grant of all a resource's fields reaching no such field
-// (snapshot.allFieldsLeaveOut); and a condition parses and reads only the attributes the
+// (snapshot.allFieldsLeaveOut); a condition parses and reads only the attributes the
 // resource declares and the subject vocabulary the application declares, a
-// field's condition being held to its resource's attributes.
+// field's condition being held to its resource's attributes; and, in an engine
+// whose role file was handed over under an auth's name, the condition reads no
+// set of another auth's people (anotherAuthsSet), since the custom role is
+// a role of that auth.
 //
 // A load of the policy holds a role's stored grant to the same rule
 // (snapshot.intern): a grant refused here is one the load would skip and
@@ -559,7 +562,7 @@ func (u *userManager) requireDeclared(scope accesstypes.PolicyScope, role access
 		return nil
 	}
 
-	rule := newGrantRule(u.collection)
+	rule := newGrantRule(u.collection, u.defaults.authName())
 	for _, row := range rows {
 		base, field, err := splitGrantResource(row.Resource)
 		if err != nil {
@@ -819,7 +822,7 @@ func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.PolicySc
 // load's reason: the store holds it and the role does not, so a listing that showed it
 // as any other row would show a grant nobody is given.
 func (u *userManager) listStoredGrants(held accesstypes.PolicyScope, role accesstypes.Role, rows []policy.RoleGrant) map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant {
-	rule := newGrantRule(u.collection)
+	rule := newGrantRule(u.collection, u.defaults.authName())
 	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant)
 	for _, row := range rows {
 		listed := RoleGrant{Condition: row.Condition}

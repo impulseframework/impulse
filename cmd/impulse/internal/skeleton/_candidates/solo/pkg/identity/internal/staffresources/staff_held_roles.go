@@ -33,6 +33,7 @@ type (
 	// @outlet(default)
 	// @order(Username asc, Role asc, GroupName asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(held role)
 	StaffHeldRole struct {
 		// @primarykey
 		UserID   impulse.UUID `spanner:"UserId"   index:"true"`

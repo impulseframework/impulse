@@ -97,6 +97,7 @@ type rowsOfView struct {
 	outlets *outletMembership
 	key     []keyColumn
 	decl    *rowsOfDecl
+	words   *rowWordsDecl
 }
 
 // tableKey is a table-backed resource's primary key in key order.
@@ -161,6 +162,7 @@ func (c *client) resolveRowsOf(resources []*resourceInfo, computed []*computedRe
 			outlets: &res.outletMembership,
 			key:     virtualKey(res),
 			decl:    &res.rowsOfDecl,
+			words:   &res.rowWordsDecl,
 		}
 		if err := c.resolveViewRowsOf(&view); err != nil {
 			errs = append(errs, err)
@@ -177,6 +179,7 @@ func (c *client) resolveRowsOf(resources []*resourceInfo, computed []*computedRe
 			outlets: &res.outletMembership,
 			key:     computedKey(res),
 			decl:    &res.rowsOfDecl,
+			words:   &res.rowWordsDecl,
 		}
 		if err := c.resolveViewRowsOf(&view); err != nil {
 			errs = append(errs, err)
@@ -229,6 +232,7 @@ func (c *client) resolveViewRowsOf(view *rowsOfView) error {
 	}
 
 	view.decl.RowsOf = name
+	view.words.takeTableWords(&table.rowWordsDecl)
 
 	return nil
 }

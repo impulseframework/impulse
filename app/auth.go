@@ -12,12 +12,14 @@ import (
 	"strconv"
 
 	"github.com/go-playground/errors/v5"
+
+	"github.com/impulseframework/impulse/internal/apptree"
 )
 
 // The session library and the packages of it the scan reads: the Auth and the password
 // method (the root package), the storage, and the redirect methods, each its own package.
 const (
-	sessionImportPath        = "github.com/impulseframework/impulse/session"
+	sessionImportPath        = apptree.SessionImportPath
 	sessionStorageImportPath = "github.com/impulseframework/impulse/session/sessionstorage"
 	sessionAzureImportPath   = "github.com/impulseframework/impulse/session/azure"
 	sessionGoogleImportPath  = "github.com/impulseframework/impulse/session/google"
@@ -107,7 +109,7 @@ const (
 )
 
 // authConstructor is the Auth's constructor in the session package.
-const authConstructor = "NewAuth"
+const authConstructor = apptree.AuthConstructor
 
 // methodConstructors maps each sign-in method's registration function, by the package
 // that exports it, to the method it registers. The password method is registered by the
@@ -677,7 +679,7 @@ func readSuperAdministrators(arg ast.Expr, fset *token.FileSet, f *ast.File, pkg
 	}
 	read.EngineLine = fset.Position(r.engine.Pos()).Line
 	for _, option := range r.engine.Args {
-		if roles, ok := option.(*ast.CallExpr); ok && isQualified(roles.Fun, r.access, defaultRolesFunc) && len(roles.Args) == 1 {
+		if roles, ok := option.(*ast.CallExpr); ok && isQualified(roles.Fun, r.access, defaultRolesFunc) && len(roles.Args) > 0 {
 			read.RolesPackage = rolesCallPackage(roles.Args[0], r.imports, ownPkg)
 		}
 	}
@@ -1004,23 +1006,17 @@ func constString(expr ast.Expr, consts map[string]string) (string, bool) {
 	return foldString(expr, specs, map[string]bool{})
 }
 
-// authDir is the directory the auth packages live under: pkg/auth/<name>, one per
-// population that signs in one way and holds roles in one store.
-const authDir = "auth"
-
 // RolesFileName is the role file an auth package embeds beside its source: the
 // release's default roles for that auth, which the package exports through Roles().
 const RolesFileName = "roles.json"
 
 // AuthPackageName returns the auth an authenticator construction belongs to, from its
-// file's place in the tree (a package directly under an auth directory), or empty.
+// file's place in the tree (a package directly under an auth directory: pkg/auth/<name>,
+// one per population that signs in one way and holds roles in one store), or empty. The
+// rule is the apptree package's, where a generation run reads the application's auths by
+// it too.
 func AuthPackageName(file string) string {
-	dir := path.Dir(file)
-	if path.Base(path.Dir(dir)) != authDir {
-		return ""
-	}
-
-	return path.Base(dir)
+	return apptree.AuthPackageName(file)
 }
 
 // AuthPackage is one auth: a package under an auth directory constructing a session

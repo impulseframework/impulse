@@ -205,8 +205,8 @@ describe('the salvage hold', () => {
         format(new Date('2026-09-28T10:30:00Z'), dayAndMinuteFormat),
       ],
     ]);
-    // The Supercargo may book a consignment in: the page offers Create.
-    expect(element().querySelector('.impulse-resource-list-create-button')?.textContent).toContain('Create');
+    // The Supercargo may book a consignment in: the page offers Add a consignment.
+    expect(element().querySelector('.impulse-resource-list-create-button')?.textContent).toContain('Add a consignment');
   });
 
   it("offers Release in the row's menu on cargo in bond the server says may be released, and nothing on a released one whatever the server answers", () => {

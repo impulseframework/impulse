@@ -1067,7 +1067,7 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 		return d
 	}
 	withGroups := func(d *identitySourceData) *identitySourceData {
-		d.groupSet = "groups"
+		d.groupSet = "crewGroups"
 		d.tables[identityGroups], d.tables[identityGroupMembers], d.tables[identityGroupRoles] = true, true, true
 		d.Policy.Groups, d.Policy.GroupMembers, d.Policy.GroupRoles = "CrewGroups", "CrewGroupMembers", "CrewGroupRoles"
 

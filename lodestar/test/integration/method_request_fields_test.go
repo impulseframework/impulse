@@ -146,7 +146,7 @@ func TestMethodRequestFieldsValidation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RoleFile.Parse() error = %v", err)
 			}
-			_, err = access.ValidateRoles(router.Collection(), config)
+			_, err = access.ValidateRoles(router.Collection(), config, crew.Name)
 			t.Logf("access.ValidateRoles() error = %v", err)
 			switch {
 			case tt.wantErr == "" && err != nil:

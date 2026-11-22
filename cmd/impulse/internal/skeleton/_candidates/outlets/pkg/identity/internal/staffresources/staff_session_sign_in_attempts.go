@@ -21,6 +21,7 @@ type (
 	// @outlet(default)
 	// @order(UpdatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(failed sign-in)
 	StaffSessionSignInAttempt struct {
 		Name         string     `spanner:"Name"`
 		Failures     int64      `spanner:"Failures"`

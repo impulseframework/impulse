@@ -1,10 +1,12 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
+import { By } from '@angular/platform-browser';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import { field, FieldMeta, FieldName, ResourceMeta, ValidDisplayTypes } from '@impulseframework/resource-angular/types';
 
 import { resourceValidators } from '../gui-constants';
 import { ResourceStore } from '../resource-store.service';
+import { NumberFieldComponent } from './fields/number-field/number-field.component';
 import { FieldRenderer } from './renderer';
 import { ResourceFieldComponent } from './resource-field.component';
 
@@ -181,5 +183,48 @@ describe('ResourceFieldComponent with a validators function', () => {
     expect(control.errors).toEqual({ maxlength: { requiredLength: 5, actualLength: 7 } });
     control.setValue('');
     expect(control.errors).toEqual({ required: true });
+  });
+});
+
+// The field and its control read through the store of the view they are in. A page that
+// hosts one field of a form it wrote itself provides no store: the field then makes one
+// of its own, so its control draws and takes what is typed.
+describe('ResourceFieldComponent and the store it reads through', () => {
+  const fee: FieldMeta = { fieldName: 'fee', displayType: 'number', decimal: true, required: false, isIndex: false };
+
+  const create = (): ComponentFixture<ResourceFieldComponent> => {
+    const fixture = TestBed.createComponent(ResourceFieldComponent);
+    fixture.componentRef.setInput('meta', { route: 'missions', fields: [fee] } as ResourceMeta);
+    fixture.componentRef.setInput('fieldConfig', field({ name: 'fee' as FieldName, label: 'Fee' }));
+    fixture.componentRef.setInput('form', new FormGroup({ fee: new FormControl<string | null>('900') }));
+    return fixture;
+  };
+
+  it('draws its control on a page that provides no store', async () => {
+    await TestBed.configureTestingModule({
+      imports: [ResourceFieldComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    const fixture = create();
+    expect(() => fixture.detectChanges()).not.toThrow();
+    const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      'impulse-number-field input[type=number]',
+    );
+    expect(input?.value).toBe('900');
+    // A store of the field's own views no row, so nothing holds the field to view mode.
+    expect(fixture.componentInstance.mode()).toBe('edit');
+    expect(input?.readOnly).toBe(false);
+  });
+
+  it("reads through the page's store where the page provides one", async () => {
+    await TestBed.configureTestingModule({
+      imports: [ResourceFieldComponent],
+      providers: [provideResourceTesting(), ResourceStore],
+    }).compileComponents();
+    const fixture = create();
+    fixture.detectChanges();
+    const control = fixture.debugElement.query(By.directive(NumberFieldComponent))
+      .componentInstance as NumberFieldComponent;
+    expect(control.store).toBe(TestBed.inject(ResourceStore));
   });
 });

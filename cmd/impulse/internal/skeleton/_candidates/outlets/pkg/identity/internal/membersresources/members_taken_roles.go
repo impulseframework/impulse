@@ -27,6 +27,7 @@ type (
 	// @outlet(portal)
 	// @order(EndsAt desc, Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(taken role)
 	MembersTakenRole struct {
 		// @primarykey
 		UserID   impulse.UUID `spanner:"UserId"   index:"true"`

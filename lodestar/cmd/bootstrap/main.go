@@ -44,10 +44,12 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
 	"github.com/impulseframework/impulse/lodestar/pkg/config"
 	"github.com/impulseframework/impulse/lodestar/pkg/deploy"
+	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"google.golang.org/grpc/codes"
@@ -415,7 +417,7 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 		if err != nil {
 			return err
 		}
-		if err := seedGroupPasses(ctx, client, data.TenantRoster(), group, id); err != nil {
+		if err := seedGroupPasses(ctx, client, data.ResourceClient(), data.TenantRoster(), group, id); err != nil {
 			return err
 		}
 	}
@@ -530,56 +532,77 @@ func seedGroup(ctx context.Context, manager access.UserManager, sectors *resourc
 	return id, nil
 }
 
-// groupPassInsert writes one pass a group holds, to the hangar of the group's sector that
-// carries the name: no row is written when the sector has no hangar of that name.
-const groupPassInsert = `INSERT INTO HangarPasses (Id, SectorId, HangarId, GroupId, LevelId)
-SELECT @id, SectorId, Id, @group, @level FROM Hangars WHERE SectorId = @sector AND Name = @hangar`
+// hangarByName reads the hangars that carry a name, with the sector each belongs to: the
+// hangars of one sector, or of every sector when no sector is given. A pass names its
+// hangar by id, and the file names it as a person does.
+const hangarByName = `SELECT Id, SectorId FROM Hangars WHERE Name = @hangar AND (@sector = '' OR SectorId = @sector)`
 
 // seedGroupPasses writes the hangar passes the file gives a group, each to the hangar of
 // the group's own sector that carries the name, naming the group by the id it was created
-// under. A group kept for the whole fleet is refused a pass: a pass counts for the people
-// of a group kept in the hangar's own sector, and for no other group.
-func seedGroupPasses(ctx context.Context, client *spanner.Client, sectors *resource.TenantRoster, group *devGroup, id accesstypes.Group) error {
+// under. Each pass is written through the resource's own patch, as every writer of the
+// application writes one, so the library holds the group to the pass's sector and this
+// file repeats no rule of it: a group kept for the whole fleet that the file gives a pass
+// is refused there, in the words a request is refused in.
+func seedGroupPasses(ctx context.Context, client *spanner.Client, writer resource.Client, sectors *resource.TenantRoster, group *devGroup, id accesstypes.Group) error {
 	if len(group.Passes) == 0 {
 		return nil
 	}
-	if group.Domain == "" {
-		return errors.Newf("%s: the group %s is kept for the whole fleet and holds a hangar pass: a pass opens a hangar to a group kept in the hangar's own sector, so keep the group in that sector", usersPath, group.Name)
-	}
-	domain, err := sectors.Named(group.Domain)
+	groupID, err := impulse.NullUUIDFromString(string(id))
 	if err != nil {
-		return errors.Wrapf(err, "resource.TenantRoster.Named(): group %s", group.Name)
+		return errors.Wrapf(err, "impulse.NullUUIDFromString(): group %s", group.Name)
+	}
+	var domain accesstypes.Domain
+	if group.Domain != "" {
+		if domain, err = sectors.Named(group.Domain); err != nil {
+			return errors.Wrapf(err, "resource.TenantRoster.Named(): group %s", group.Name)
+		}
 	}
 	for i := range group.Passes {
 		pass := &group.Passes[i]
 		if pass.ID.IsNil() {
 			return errors.Newf("%s: the pass of the group %s to the hangar %q carries no id: every row of the demo world is written under a fixed id", usersPath, group.Name, pass.Hangar)
 		}
-		var written int64
-		if _, err := client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-			var err error
-			written, err = txn.Update(ctx, spanner.Statement{SQL: groupPassInsert, Params: map[string]any{
-				"id":     pass.ID.String(),
-				"group":  string(id),
-				"level":  pass.Level,
-				"sector": string(domain),
-				"hangar": pass.Hangar,
-			}})
-			if err != nil {
-				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		hangar, sector, err := hangarNamed(ctx, client, domain, pass.Hangar)
+		if err != nil {
+			return errors.Wrapf(err, "%s: the pass of the group %s", usersPath, group.Name)
+		}
+		patch := resources.NewHangarPassUpdatePatch(pass.ID).
+			SetSectorID(sector).
+			SetHangarID(hangar).
+			SetGroupID(groupID).
+			SetLevelID(pass.Level).
+			OrCreate()
+		if err := patch.Apply(ctx, writer); err != nil {
+			if message := httpio.Message(err); message != "" {
+				return errors.Newf("%s: the pass of the group %s to the hangar %q is refused: %s", usersPath, group.Name, pass.Hangar, message)
 			}
 
-			return nil
-		}); err != nil {
-			return errors.Wrapf(err, "spanner.Client.ReadWriteTransaction(): the pass of the group %s to the hangar %s", group.Name, pass.Hangar)
-		}
-		if written != 1 {
-			return errors.Newf("%s: the group %s holds a pass to the hangar %q, and the sector %s has %d hangars of that name: name one hangar of the group's own sector", usersPath, group.Name, pass.Hangar, group.Domain, written)
+			return errors.Wrapf(err, "resources.HangarPassUpdatePatch.Apply(): the pass of the group %s to the hangar %s", group.Name, pass.Hangar)
 		}
 		fmt.Printf("Gave the group %s a pass to %s the hangar %s\n", group.Name, pass.Level, pass.Hangar)
 	}
 
 	return nil
+}
+
+// hangarNamed finds the one hangar that carries the name, in the sector given or in
+// every sector when none is, and answers its id and its sector. No hangar of that name,
+// or several, is refused.
+func hangarNamed(ctx context.Context, client *spanner.Client, domain accesstypes.Domain, name string) (hangar, sector impulse.UUID, err error) {
+	found := 0
+	it := client.Single().Query(ctx, spanner.Statement{SQL: hangarByName, Params: map[string]any{"sector": string(domain), "hangar": name}})
+	if err := it.Do(func(row *spanner.Row) error {
+		found++
+
+		return row.Columns(&hangar, &sector)
+	}); err != nil {
+		return impulse.NilUUID, impulse.NilUUID, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+	if found != 1 {
+		return impulse.NilUUID, impulse.NilUUID, errors.Newf("%d hangars are named %q where the group is kept: name one hangar of the group's own sector", found, name)
+	}
+
+	return hangar, sector, nil
 }
 
 // accountCreator is the part of an auth's session API the bootstrap creates accounts

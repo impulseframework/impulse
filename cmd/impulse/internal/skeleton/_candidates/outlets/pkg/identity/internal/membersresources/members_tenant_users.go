@@ -45,6 +45,7 @@ type (
 	// @outlet(portal)
 	// @order(Username asc)
 	// @page(default: 25, max: 200)
+	// @rowWord(person, plural: people)
 	MembersTenantUser struct {
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`

@@ -514,16 +514,16 @@ func TestNewGeneratedCollection_subjectSetParts(t *testing.T) {
 		wantErr   string
 	}{
 		{name: "the parts as the generator writes them", resources: []CollectionResource{
-			set("groups", nil),
+			set("crewGroups", nil),
 			set("teams", func(binding *SubjectBindingData) {
-				who(SubjectWhoData{Column: "UserId"}, SubjectWhoData{Column: "GroupId", Set: "groups"})(binding)
+				who(SubjectWhoData{Column: "UserId"}, SubjectWhoData{Column: "GroupId", Set: "crewGroups"})(binding)
 				where("Level = 'edit'", level)(binding)
 			}),
 		}},
 		{
 			name:      "a who: naming a set nothing declares",
-			resources: []CollectionResource{set("teams", who(SubjectWhoData{Column: "GroupId", Set: "groups"}))},
-			wantErr:   `subject set "teams" tests GroupId against subject.groups, which is not a declared subject set`,
+			resources: []CollectionResource{set("teams", who(SubjectWhoData{Column: "GroupId", Set: "crewGroups"}))},
+			wantErr:   `subject set "teams" tests GroupId against subject.crewGroups, which is not a declared subject set`,
 		},
 		{
 			name:      "a who: test naming no column",

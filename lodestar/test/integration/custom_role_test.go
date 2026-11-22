@@ -8,7 +8,9 @@ package integration
 // the deploy's role check (access.Client.CheckPolicy) as a skipped grant; the role's other
 // grants hold, so a check answers the declared grants granted and the undeclared one
 // denied. A grant whose names the release declares and whose condition reads an attribute
-// it does not is in the store the same way, and is left out and reported the same way.
+// it does not is in the store the same way, and is left out and reported the same way. A
+// custom role is a role of the auth whose engine made it, and is refused a grant that
+// reads another auth's set of people.
 
 import (
 	"net/http"
@@ -21,6 +23,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
+	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
 )
 
 func TestCustomRole_undeclaredGrantIsSkipped(t *testing.T) {
@@ -351,5 +354,50 @@ func TestCustomRole_storedConditionOnAnUndeclaredAttributeGrantsNothing(t *testi
 				}
 			}
 		})
+	}
+}
+
+// TestCustomRole_grantThroughAnotherAuthsSetIsRefused: a custom role made through the
+// members' engine is a role of the members auth, held to that auth's sets as the members'
+// role file is. A grant whose condition reads the set of a crew person's groups is
+// refused as a bad request in the role file's sentence, and nothing of it is written:
+// the set is looked up by the ids of the crew's people, so it says nothing about a
+// member who holds the role.
+func TestCustomRole_grantThroughAnotherAuthsSetIsRefused(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	membersEngine, err := openEngine(db, members.TablePrefix, members.Roles())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := membersEngine.Close(); err != nil {
+			t.Errorf("access.Client.Close() error = %v", err)
+		}
+	})
+	manager := membersEngine.UserManager()
+
+	const (
+		role     accesstypes.Role     = "GroupReader"
+		resource accesstypes.Resource = "CrewSectorGroups"
+		reads                         = "group IN subject.crewGroups"
+		refused                       = "role GroupReader: Read grant on CrewSectorGroups: the condition reads subject.crewGroups, which describes the people of crew (auth: crew in the set's @subjectSet), and this is a role of members. " +
+			"The set is looked up by the ids of crew's people, so it says nothing about the people who hold this role: read a set that describes the people of members, or give the grant to a role of crew"
+	)
+	held := accesstypes.DomainPolicyScope(anvil)
+	if err := manager.AddRole(ctx, held, role, "Reads the groups of a sector."); err != nil {
+		t.Fatalf("access.UserManager.AddRole() error = %v", err)
+	}
+	err = manager.AddRoleGrant(ctx, held, role, accesstypes.Read, resource, reads)
+	if !httpio.HasBadRequest(err) || httpio.Message(err) != refused {
+		t.Fatalf("access.UserManager.AddRoleGrant() through the crew's group set, error = %v, want a bad request saying %q", err, refused)
+	}
+	if grants, err := manager.RoleGrants(ctx, held, role); err != nil || len(grants) != 0 {
+		t.Fatalf("access.UserManager.RoleGrants() after the refused call = %v, %v; want no grant written", grants, err)
 	}
 }

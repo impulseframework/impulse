@@ -24,10 +24,10 @@ func TestNew_refusesANilCollection(t *testing.T) {
 		opts       []Option
 	}{
 		{name: "nothing beside it"},
-		{name: "beside a role file", opts: []Option{WithDefaultRoles(grammarRoleFile)}},
+		{name: "beside a role file", opts: []Option{WithDefaultRoles(grammarRoleFile, fixtureAuth)}},
 		{name: "beside the super administrator's methods", opts: []Option{WithSuperAdministratorMethods("Restore")}},
 		{name: "a nil pointer of a collection's type", collection: unassigned},
-		{name: "a nil pointer of a collection's type beside a role file", collection: unassigned, opts: []Option{WithDefaultRoles(grammarRoleFile)}},
+		{name: "a nil pointer of a collection's type beside a role file", collection: unassigned, opts: []Option{WithDefaultRoles(grammarRoleFile, "")}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -87,8 +87,8 @@ func TestNew_withoutTheCollectionDoesNotCompile(t *testing.T) {
 			refusal:      []string{"undefined: access.WithPermissionCollection"},
 		},
 		{
-			construction: "access.New(store, collection, access.WithDefaultRoles(collection, roles))",
-			refusal:      []string{"too many arguments in call to access.WithDefaultRoles", "want (access.RoleFile)"},
+			construction: "access.New(store, collection, access.WithDefaultRoles(collection, roles, \"staff\"))",
+			refusal:      []string{"too many arguments in call to access.WithDefaultRoles", "want (access.RoleFile, string)"},
 		},
 	}
 	if len(messages) != len(want) {

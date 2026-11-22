@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Resources } from '@app/service/zz_gen_constants';
 import { Workflows } from '@app/service/zz_gen_resources';
 import { Resource } from '@impulseframework/resource';
-import { labelFaults } from './testing';
+import { arrowFaults, labelFaults } from './testing';
 import { WorkflowGraphComponent } from './workflow-graph.component';
 
 // A label is the only way to tell one edge of the graph from another, so no label is
@@ -116,6 +116,34 @@ describe('WorkflowGraphComponent', () => {
       'the line of "Stand down" crosses "Complete"',
       'the line of "Resume" crosses "Complete"',
     ]);
+  });
+
+  it('finds a line that ends inside a state or at none, and lets one end on a state’s edge', () => {
+    const graph = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    graph.setAttribute('viewBox', '0 0 300 100');
+    graph.innerHTML =
+      '<g class="edge"><path d="M 86 50 L 214 50" /><text x="150" y="46">Claim</text></g>' +
+      '<g class="edge"><path d="M 250 50 Q 150 110 50 50" /><text x="150" y="90">Release</text></g>' +
+      '<g class="edge"><path d="M 50 36 L 50 10" /><text x="80" y="20">Stand down</text></g>' +
+      '<g class="node"><rect x="14" y="36" width="72" height="28" /><text x="50" y="54">open</text></g>' +
+      '<g class="node"><rect x="214" y="36" width="72" height="28" /><text x="250" y="54">claimed</text></g>';
+
+    expect(arrowFaults(graph)).toEqual([
+      'the line of "Release" starts inside the state claimed',
+      'the line of "Release" ends inside the state open',
+      'the line of "Stand down" ends at no state',
+    ]);
+  });
+
+  it('ends every line on the edge of a state, across or top to bottom, so its arrowhead shows', () => {
+    for (const width of [1000, 400]) {
+      for (const root of [Resources.Missions, Resources.Refits]) {
+        const graph = draw(root, '', undefined, width);
+
+        expect(graph.classList.contains('down')).toBe(width === 400);
+        expect(arrowFaults(graph)).toEqual([]);
+      }
+    }
   });
 
   it('draws no line through another edge’s label, across or top to bottom', () => {

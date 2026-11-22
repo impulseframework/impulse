@@ -110,7 +110,7 @@ func Workspaces(sets ...WorkspaceSet) WorkspaceSet {
 // Workspaces only: AnyWorkspace and AnyGoogleAccount admit organizations the
 // application does not administer, and a set holding either is refused at
 // registration; name the administered Workspace beside the open entry instead,
-// google.Workspaces(google.Workspace("staff", "example.com").Attesting(), google.AnyGoogleAccount()).
+// google.Workspaces(google.Workspace("example", "example.com").Attesting(), google.AnyGoogleAccount()).
 func (s WorkspaceSet) Attesting() WorkspaceSet {
 	named := make([]namedWorkspace, len(s.named))
 	for i, w := range s.named {

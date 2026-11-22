@@ -1,6 +1,8 @@
 package access
 
 import (
+	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -26,6 +28,15 @@ type stubCollection struct {
 	lists         []string
 	subjectSets   map[string]accesstypes.AttributeType
 	subjectValues map[string]accesstypes.AttributeType
+	declaredSets  map[string][]string
+	// authSets are the sets that describe one auth's people, by the auth's name.
+	authSets map[string]map[string][]string
+	// auths are the auths the stub's generation knew.
+	auths []string
+	// unlistedSets are the sets the stub names an auth for and does not list, by the
+	// set's name: what the generated collection does for the set of a person's groups
+	// that the generator declares.
+	unlistedSets map[string]string
 }
 
 func (s *stubCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
@@ -76,6 +87,42 @@ func (s *stubCollection) SubjectSetComparisonType(name string) (accesstypes.Attr
 	typ, ok := s.subjectSets[name]
 
 	return typ, ok
+}
+
+// SubjectSets lists the stub's sets for one auth: those that name no auth, and those of
+// the auth asked for. An empty auth lists every set, whichever auth each names.
+func (s *stubCollection) SubjectSets(auth string) map[string][]string {
+	sets := maps.Clone(s.declaredSets)
+	for of, named := range s.authSets {
+		if auth != "" && of != auth {
+			continue
+		}
+		for name, builds := range named {
+			if sets == nil {
+				sets = make(map[string][]string)
+			}
+			sets[name] = builds
+		}
+	}
+
+	return sets
+}
+
+// Auths lists the auths the stub is told its generation knew.
+func (s *stubCollection) Auths() []string {
+	return s.auths
+}
+
+// SubjectSetAuth names the auth a set is declared under in authSets or in unlistedSets,
+// and none for a set that names no auth or that the stub does not declare.
+func (s *stubCollection) SubjectSetAuth(name string) string {
+	for of, sets := range s.authSets {
+		if _, ok := sets[name]; ok {
+			return of
+		}
+	}
+
+	return s.unlistedSets[name]
 }
 
 func (s *stubCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
@@ -409,6 +456,300 @@ func Test_unionCollection_ListIsACopy(t *testing.T) {
 	}
 }
 
+// TestUnionCollection_auths pins that the union knows every site's auths: each name
+// once, in name order, and none where no site's generation knew any.
+func TestUnionCollection_auths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		sites [][]string
+		want  []string
+	}{
+		{name: "no site knows an auth", sites: [][]string{nil, nil}},
+		{name: "every site knows the one auth", sites: [][]string{{"staff"}, {"staff"}}, want: []string{"staff"}},
+		{name: "each site knows its own", sites: [][]string{{"staff"}, {"patrons"}}, want: []string{"patrons", "staff"}},
+		{name: "a site that knows none beside one that knows two", sites: [][]string{nil, {"crew", "members"}}, want: []string{"crew", "members"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			collections := make([]PermissionCollection, 0, len(tt.sites))
+			for _, auths := range tt.sites {
+				collections = append(collections, &stubCollection{auths: auths})
+			}
+			union, err := UnionCollection(collections...)
+			if err != nil {
+				t.Fatalf("UnionCollection() error = %v", err)
+			}
+			if got := union.Auths(); !slices.Equal(got, tt.want) {
+				t.Errorf("Auths() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func (s *stubCollection) RequiredOnCreate(_ accesstypes.PermissionScope, res accesstypes.Resource) []accesstypes.Tag {
 	return s.required[res]
+}
+
+// TestUnionCollection_subjectSets pins that the union lists every collection's declared
+// subject sets for the auth it is asked about, and joins what two collections say a
+// shared set builds on: a set that describes another auth's people is in no
+// collection's answer, so it is not in the union's.
+func TestUnionCollection_subjectSets(t *testing.T) {
+	t.Parallel()
+
+	first := &stubCollection{
+		declaredSets: map[string][]string{"crews": nil, "docks": {"crews"}},
+		authSets:     map[string]map[string][]string{"members": {"accounts": nil}},
+	}
+	second := &stubCollection{
+		declaredSets: map[string][]string{"docks": {"watches"}, "watches": nil},
+		authSets:     map[string]map[string][]string{"crew": {"berths": {"docks"}}},
+	}
+	union, err := UnionCollection(first, second)
+	if err != nil {
+		t.Fatalf("UnionCollection() error = %v", err)
+	}
+	want := map[string][]string{"berths": {"docks"}, "crews": nil, "docks": {"crews", "watches"}, "watches": nil}
+	if got := union.SubjectSets("crew"); !reflect.DeepEqual(got, want) {
+		t.Errorf("SubjectSets(crew) = %v, want %v", got, want)
+	}
+
+	// An empty auth lists every set, whichever auth's people each describes: the union
+	// asks every collection the same question and joins the answers.
+	wantEvery := map[string][]string{"accounts": nil, "berths": {"docks"}, "crews": nil, "docks": {"crews", "watches"}, "watches": nil}
+	if got := union.SubjectSets(""); !reflect.DeepEqual(got, wantEvery) {
+		t.Errorf("SubjectSets(\"\") = %v, want %v", got, wantEvery)
+	}
+
+	// Whose people a set describes is answered by the collection that says it, whichever
+	// site declares the set, and a set no collection names an auth for has none.
+	for name, wantAuth := range map[string]string{"accounts": "members", "berths": "crew", "crews": "", "docks": "", "holds": ""} {
+		if got := union.SubjectSetAuth(name); got != wantAuth {
+			t.Errorf("SubjectSetAuth(%q) = %q, want %q", name, got, wantAuth)
+		}
+	}
+}
+
+// TestUnionCollection_oneSetNameForTwoAuths pins what the union refuses of the subject
+// namespace. subject.<name> is one name to a role file, and a grant is held to the sets
+// of its own auth by that name, so two collections that say one set describes two
+// different auths' people are refused where the union is built, with the set and both
+// auths named. A set the collections label alike is taken, and so is a set one labels
+// and another leaves unsaid, the label standing for both.
+func TestUnionCollection_oneSetNameForTwoAuths(t *testing.T) {
+	t.Parallel()
+
+	staffTeams := &stubCollection{authSets: map[string]map[string][]string{"staff": {"teams": nil}}}
+	membersTeams := &stubCollection{authSets: map[string]map[string][]string{"members": {"teams": nil}}}
+	unsaidTeams := &stubCollection{declaredSets: map[string][]string{"teams": nil}}
+	noSets := &stubCollection{}
+
+	tests := []struct {
+		name        string
+		collections []PermissionCollection
+		wantErr     []string
+		wantAuth    string
+	}{
+		{
+			name:        "two collections label one set for two auths",
+			collections: []PermissionCollection{staffTeams, membersTeams},
+			wantErr: []string{
+				`collections 1 and 2 (in argument order) both declare subject set "teams" and disagree on whose people it describes: auth "staff" vs auth "members"`,
+				"give one of the two sets another name, or name the same auth on both (auth: in the @subjectSet)",
+			},
+		},
+		{
+			name:        "the disagreeing collections are named by position, whatever stands between them",
+			collections: []PermissionCollection{noSets, membersTeams, unsaidTeams, staffTeams},
+			wantErr:     []string{`collections 2 and 4 (in argument order) both declare subject set "teams"`, `auth "members" vs auth "staff"`},
+		},
+		{
+			name: "a set one collection lists and another names an auth for without listing it",
+			collections: []PermissionCollection{
+				&stubCollection{unlistedSets: map[string]string{"staffGroups": "staff"}},
+				&stubCollection{authSets: map[string]map[string][]string{"members": {"staffGroups": nil}}},
+			},
+			wantErr: []string{`both declare subject set "staffGroups"`, `auth "staff" vs auth "members"`},
+		},
+		{
+			name:        "both label the set for one auth",
+			collections: []PermissionCollection{staffTeams, &stubCollection{authSets: map[string]map[string][]string{"staff": {"teams": {"docks"}}}}},
+			wantAuth:    "staff",
+		},
+		{
+			name:        "one labels the set and the other leaves it unsaid",
+			collections: []PermissionCollection{unsaidTeams, membersTeams},
+			wantAuth:    "members",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			union, err := UnionCollection(tt.collections...)
+			if len(tt.wantErr) > 0 {
+				if err == nil {
+					t.Fatal("UnionCollection() error = nil, want a refusal")
+				}
+				for _, want := range tt.wantErr {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("UnionCollection() error = %v, want it to contain %q", err, want)
+					}
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("UnionCollection() error = %v", err)
+			}
+			if got := union.SubjectSetAuth("teams"); got != tt.wantAuth {
+				t.Errorf("SubjectSetAuth(\"teams\") = %q, want %q", got, tt.wantAuth)
+			}
+		})
+	}
+}
+
+// TestUnionCollection_groupSetsOfTwoAuths pins what two sites meet with when each keeps
+// groups for an auth of its own: the set of a person's groups that generation declares
+// for each, listed by neither, under the name of its own auth. Each auth's role file
+// reads its own auth's set, and a role file of one auth that reads the other's set is
+// refused, since the set says nothing about the people who hold the role.
+func TestUnionCollection_groupSetsOfTwoAuths(t *testing.T) {
+	t.Parallel()
+
+	aSet, bSet := "aGroups", "bGroups"
+	site := func(auth, set string) *stubCollection {
+		return &stubCollection{
+			auths:        []string{auth},
+			subjectSets:  map[string]accesstypes.AttributeType{set: accesstypes.AttributeTypeString},
+			unlistedSets: map[string]string{set: auth},
+		}
+	}
+	readsSet := func(set string) RoleFile {
+		return RoleFile(`{"roles": {"domain": [{"name": "Fitter", "description": "Reads the widgets of their groups.", "permissions": {"Read": [{"resource": "Widgets", "condition": "owner IN subject.` + set + `"}]}}]}}`)
+	}
+	tests := []struct {
+		name    string
+		auth    string
+		reads   string
+		wantErr string
+	}{
+		{name: "the role file of a reads the set of a's groups", auth: "a", reads: aSet},
+		{name: "the role file of b reads the set of b's groups", auth: "b", reads: bSet},
+		{
+			name:    "the role file of a reads the set of b's groups",
+			auth:    "a",
+			reads:   bSet,
+			wantErr: "role Fitter: Read grant on Widgets: the condition reads subject." + bSet + ", which describes the people of b (auth: b in the set's @subjectSet)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			union, err := UnionCollection(grammarCollection{}, site("a", aSet), site("b", bSet))
+			if err != nil {
+				t.Fatalf("UnionCollection() error = %v", err)
+			}
+			client, err := New(newFakeStore(), union, WithDefaultRoles(readsSet(tt.reads), tt.auth))
+			if client != nil {
+				t.Cleanup(func() {
+					if err := client.Close(); err != nil {
+						t.Errorf("Client.Close() error = %v", err)
+					}
+				})
+			}
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("New() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("New() error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestUnionCollection_unsaidSetAmongSeveralAuths pins that a union of collections that
+// together know several auths refuses a subject set a collection lists without saying
+// whose people it describes: a role of any of the auths could read it, and nothing
+// holds the role to the set. The first such collection in argument order is named,
+// with the set and the auths. A set another collection labels is still refused where
+// this one leaves it unsaid. With one auth known, or none, an unsaid set is taken.
+func TestUnionCollection_unsaidSetAmongSeveralAuths(t *testing.T) {
+	t.Parallel()
+
+	staffTeams := func() *stubCollection {
+		return &stubCollection{auths: []string{"staff"}, authSets: map[string]map[string][]string{"staff": {"teams": nil}}}
+	}
+	unsaid := func(set string, auths ...string) *stubCollection {
+		return &stubCollection{auths: auths, declaredSets: map[string][]string{set: nil}}
+	}
+	refused := func(collection int, set string) string {
+		return fmt.Sprintf("UnionCollection: collection %d (in argument order) declares subject set %q and does not say whose people it describes, and the collections together know several auths (members, staff). A role of any of them could read the set, so say whose people it holds: add auth: and that auth's name to the set's @subjectSet", collection, set)
+	}
+
+	tests := []struct {
+		name        string
+		collections []PermissionCollection
+		wantErr     string
+	}{
+		{
+			name:        "no auth known, and a set that says none",
+			collections: []PermissionCollection{unsaid("docks"), unsaid("watches")},
+		},
+		{
+			name:        "one auth known, and a set that says none",
+			collections: []PermissionCollection{staffTeams(), unsaid("docks", "staff")},
+		},
+		{
+			name: "several auths known, and every set labeled",
+			collections: []PermissionCollection{
+				staffTeams(),
+				&stubCollection{auths: []string{"members"}, authSets: map[string]map[string][]string{"members": {"accounts": nil}}},
+			},
+		},
+		{
+			name:        "several auths known, and a set that says none",
+			collections: []PermissionCollection{staffTeams(), unsaid("docks", "members")},
+			wantErr:     refused(2, "docks"),
+		},
+		{
+			name:        "the second of three collections leaves a set unsaid",
+			collections: []PermissionCollection{staffTeams(), unsaid("docks"), unsaid("watches", "members")},
+			wantErr:     refused(2, "docks"),
+		},
+		{
+			name:        "a set another collection labels, left unsaid by this one",
+			collections: []PermissionCollection{staffTeams(), unsaid("teams", "members")},
+			wantErr:     refused(2, "teams"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := UnionCollection(tt.collections...)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("UnionCollection() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil {
+				t.Fatalf("UnionCollection() error = nil, want %q", tt.wantErr)
+			}
+			if got := plainText(err); got != tt.wantErr {
+				t.Errorf("UnionCollection() error = %q, want %q", got, tt.wantErr)
+			}
+		})
+	}
 }

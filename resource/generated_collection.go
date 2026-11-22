@@ -143,6 +143,15 @@ type ManualRegistration struct {
 // NewGeneratedCollection validates, decoupling generated code from the collection's
 // internal representation.
 type CollectionData struct {
+	// Auths are the names of the auths the generation run knew, as their packages
+	// name them, in name order: the auth packages in the application's tree and the
+	// auths the run's own outlets declare. They are the auths a subject set of the
+	// run may be labeled for (SubjectBindingData.Auth), and so the names a role file
+	// may be handed to the permission engine under (access.WithDefaultRoles,
+	// access.ValidateRoles). Empty for a run that declared no auth in an application
+	// whose tree holds no auth package.
+	Auths []string
+
 	Resources []CollectionResource
 
 	// Permissions are the permissions the application declares with no resource
@@ -481,6 +490,9 @@ type GeneratedCollection struct {
 	// setWheres are the subject sets' where: parts, compiled once at construction, by
 	// set name (subjectSetWhere).
 	setWheres map[string]condition.Expr
+	// auths are the names of the auths the generation run knew, in name order
+	// (CollectionData.Auths).
+	auths []string
 	// acrossTenants are the tenants' resources declared for listing across tenants.
 	acrossTenants map[accesstypes.Resource]struct{}
 	// classes are the classes each action carries, sorted, within scope.
@@ -530,6 +542,16 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 		return nil, err
 	}
 	g.setWheres = wheres
+	for _, auth := range data.Auths {
+		if auth == "" {
+			return nil, errors.New("the collection's data lists an auth with an empty name")
+		}
+		if slices.Contains(g.auths, auth) {
+			return nil, errors.Newf("auth %q is listed twice in the collection's data", auth)
+		}
+		g.auths = append(g.auths, auth)
+	}
+	slices.Sort(g.auths)
 
 	type resourceKey struct {
 		scope accesstypes.PermissionScope
@@ -1658,7 +1680,7 @@ func collectionResourceKeys(g *GeneratedCollection) []resourceKey {
 func collectionDataFrom(g *GeneratedCollection) CollectionData {
 	keys := collectionResourceKeys(g)
 
-	data := CollectionData{Resources: make([]CollectionResource, 0, len(keys))}
+	data := CollectionData{Auths: slices.Clone(g.auths), Resources: make([]CollectionResource, 0, len(keys))}
 	for _, key := range keys {
 		res := CollectionResource{
 			Name:  key.name,

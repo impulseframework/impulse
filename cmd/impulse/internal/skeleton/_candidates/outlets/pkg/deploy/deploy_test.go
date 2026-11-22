@@ -99,7 +99,8 @@ func TestAdministratorRoles_areHeldByTheFirstAdministrator(t *testing.T) {
 // the deploy would print. Every expected set is empty: a warning here is accepted by
 // adding its typed value (access.GrantWarning, access.ConcealingKeyWarning) to the row's
 // wantWarnings, so the acceptance is recorded in code, or removed by fixing the grant it
-// names. A new auth adds a row.
+// names. Each auth's file is validated with the others' beside it, since a subject set
+// any auth's roles read is read. A new auth adds a row.
 func TestRoles_validateAgainstTheCollection(t *testing.T) {
 	t.Parallel()
 
@@ -108,8 +109,8 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 		roles        access.RoleFile
 		wantWarnings []access.Warning
 	}{
-		{name: "staff", roles: staff.Roles()},
-		{name: "members", roles: members.Roles()},
+		{name: staff.Name, roles: staff.Roles()},
+		{name: members.Name, roles: members.Roles()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -120,7 +121,9 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 				t.Fatalf("access.RoleFile.Parse() error = %v", err)
 			}
 
-			warnings, err := access.ValidateRoles(router.Collection(), roles)
+			// The file is validated as its auth's: the check looks at the subject sets
+			// that describe that auth's people, and at no other auth's.
+			warnings, err := access.ValidateRoles(router.Collection(), roles, tt.name)
 			if err != nil {
 				t.Fatalf("access.ValidateRoles() error = %v", err)
 			}

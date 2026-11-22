@@ -54,7 +54,8 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
  * (`position: sticky; top: 0`) stays right under the bar, and the side panel is as high as
  * the window however long the page is. What scrolls is known to the overlays
  * (`cdkScrollable`), so a pop-up opened from the page follows it. On paper nothing scrolls:
- * the frame is as long as the page.
+ * the frame is as long as the page. On a phone the page keeps room at its end for a notice,
+ * which an application shows at the foot of the screen there.
  *
  * A browser sends the keys that scroll (Page Down and Page Up, Space, the arrows, Home and
  * End) to what has the focus, and to the document while nothing has it, which here never
@@ -162,6 +163,14 @@ const SCROLL_KEYS: ReadonlySet<string> = new Set([
       flex: 1 0 auto;
       min-width: 0;
       padding: var(--impulse-page-padding, 16px 24px);
+    }
+
+    /* On a phone an application's notices show at the foot of the screen: a page keeps
+       room for one at its end, so its last line can always be scrolled clear of it. */
+    @media (max-width: 599.98px) {
+      .impulse-frame-scroll > .impulse-frame-page {
+        padding-bottom: 72px;
+      }
     }
 
     /* On paper nothing scrolls: the frame is as long as the page, as it was on the screen

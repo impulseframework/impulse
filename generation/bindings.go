@@ -41,12 +41,15 @@ const bindingViaArgKey = "via"
 // The named arguments of a subject binding: the column a set or a value yields,
 // the two parts a set's definition may add, which rows are the requester's
 // (who:) and which of those rows count (where:), and where a row's tenant is
-// found, which a set on a resource that is no tenant's may name (domain:).
+// found, which a set on a resource that is no tenant's may name (domain:). A set
+// also says whose people it describes where the application has several auths
+// (auth:).
 const (
 	subjectValueArgKey  = "value"
 	subjectWhoArgKey    = "who"
 	subjectWhereArgKey  = "where"
 	subjectDomainArgKey = "domain"
+	subjectAuthArgKey   = "auth"
 )
 
 // bindingName pins the attribute-name charset, agreed jointly with the
@@ -125,6 +128,21 @@ type subjectBinding struct {
 	// Scalar marks a @subjectValue (threshold comparisons, unique-anchored);
 	// false is a @subjectSet (IN membership, no cardinality claim).
 	Scalar bool
+
+	// Offered marks the set of a person's groups that the generator declares for
+	// an auth (the generated group members resource): nobody wrote it, so the
+	// role-file check does not flag it when no role reads it. Its annotation
+	// names the auth it was generated for (Auth).
+	Offered bool
+
+	// Auth is a @subjectSet's auth: part: the name of the auth whose people the
+	// set describes, as the auth's package names it. The anchor holds that auth's
+	// people, so only its roles give anybody anything through the set, and only
+	// its role-file check looks at it. Empty when the annotation writes none,
+	// which an application with one auth may leave so and one with several may
+	// not (resolveSubjectSetAuths). A who: test names a set of the same auth's
+	// people (resolveSubjectSetReferences).
+	Auth string
 
 	// Who is a @subjectSet's who: part: the tests that make a row the
 	// requester's, joined by OR, Anchor being the field of one of them. Nil
@@ -588,7 +606,7 @@ func (c *client) resolveDomain(anchor *resourceField, arg genlang.Arg, structsBy
 func subjectBindingArgSpec() *genlang.ArgSpec {
 	return &genlang.ArgSpec{
 		Positional:  1,
-		Keys:        []string{subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey, subjectDomainArgKey},
+		Keys:        []string{subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey, subjectDomainArgKey, subjectAuthArgKey},
 		Required:    []string{subjectValueArgKey},
 		Expressions: []string{subjectWhoArgKey, subjectWhereArgKey},
 	}
@@ -659,15 +677,23 @@ func (c *client) resolveSubjectBindings(res *resourceInfo, anchor *resourceField
 }
 
 // resolveSubjectParts compiles the two parts a @subjectSet's definition may
-// write, who: and where:, each against the fields of the same struct. A
-// @subjectValue takes neither: its one row is the requester's by the unique
-// anchor, and a filter over it would be a second way to have no value.
+// write, who: and where:, each against the fields of the same struct, and takes
+// the auth the set names (auth:), which is checked once the run's auths are
+// known (resolveSubjectSetAuths). A @subjectValue takes none of them: its one
+// row is the requester's by the unique anchor, a filter over it would be a
+// second way to have no value, and no role-file check asks whose it is.
 func (c *client) resolveSubjectParts(binding *subjectBinding, invocation *genlang.NamedArgs, fieldByName map[string]*resourceField) error {
 	who, hasWho := invocation.Named(subjectWhoArgKey)
 	where, hasWhere := invocation.Named(subjectWhereArgKey)
 	if binding.Scalar && (hasWho || hasWhere) {
 		return errors.Newf("@%s takes the name and %s: alone; %s: and %s: are the parts of a @%s, which a value has none of", subjectValueKeyword, subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey, subjectSetKeyword)
 	}
+
+	auth, hasAuth := invocation.Named(subjectAuthArgKey)
+	if binding.Scalar && hasAuth {
+		return errors.Newf("@%s takes the name and %s: alone; %s: is a part of a @%s", subjectValueKeyword, subjectValueArgKey, subjectAuthArgKey, subjectSetKeyword)
+	}
+	binding.Auth = auth
 
 	if hasWho {
 		tests, err := resolveSubjectWho(binding.Anchor, who, fieldByName)
@@ -940,20 +966,73 @@ func (c *client) resolveExtractedSubjectSets(resources []*resourceInfo) error {
 // resolveRunSubjectSets checks the sets of a run that generates an auth's management,
 // once the application's resources and the management's are both extracted: the
 // management's declarations are resources of the run like any other, and the set one
-// of them declares is one an application's who: may name. A run with no generated
-// management has checked its sets where it extracted them (resolveExtractedSubjectSets).
+// of them declares is one an application's who: may name. The columns that name a
+// group of people of an auth are found here too, for the same reason
+// (nameGroupColumns). A run with no generated management has checked its sets where
+// it extracted them (resolveExtractedSubjectSets).
 func (c *client) resolveRunSubjectSets(resources []*resourceInfo) error {
 	if len(c.identity) == 0 {
 		return nil
 	}
+	if err := resolveSubjectSetReferences(resources); err != nil {
+		return err
+	}
+	c.nameGroupColumns(resources)
 
-	return resolveSubjectSetReferences(resources)
+	return nil
+}
+
+// resolveSubjectSetAuths holds each set to saying whose people it describes, once
+// every resource of the run is known. auths are the names of the application's
+// auths, as their packages name them, in name order. A set's user column holds
+// the people of one auth, and nothing in a schema says which: a table one auth's
+// staff keep about another's people is served to the first and names the second.
+// So where the application has several auths every set a person wrote says it
+// (auth:), and the role-file check of an auth then looks at that auth's sets
+// alone. With one auth every set is its, and the part may be left out. A name
+// that is no auth of the application is refused wherever the run knows its
+// auths, and so is a name in a run that knows no auth: there is nothing to hold
+// it to, and it would reach the generated collection unchecked. The set of a
+// person's groups, which the generator declares for an auth
+// (Offered), is asked nothing here: its declaration names the auth it was
+// generated for.
+func resolveSubjectSetAuths(resources []*resourceInfo, auths []string) error {
+	var errs []error
+	for _, res := range resources {
+		for _, set := range res.SubjectSets {
+			if set.Offered {
+				continue
+			}
+			where := fmt.Sprintf("struct %s field %s: @%s(%s):", res.Name(), set.Anchor.Name(), subjectSetKeyword, set.Name)
+			switch {
+			case set.Auth == "" && len(auths) > 1:
+				// The refusal lists the auths and picks none: a label pasted from it onto a
+				// set of another auth's people would pass generation.
+				errs = append(errs, errors.Newf("%s the application has several auths (%s), and a set describes the people of one; say whose people %s holds by adding %s: and that auth's name to the annotation",
+					where, strings.Join(auths, ", "), set.Anchor.Name(), subjectAuthArgKey))
+			case set.Auth != "" && len(auths) > 0 && !slices.Contains(auths, set.Auth):
+				errs = append(errs, errors.Newf("%s %s: names %s, which is no auth of the application; its auths are: %s", where, subjectAuthArgKey, set.Auth, strings.Join(auths, ", ")))
+			case set.Auth != "" && len(auths) == 0:
+				errs = append(errs, errors.Newf("%s %s: names %s, and this run knows no auth to hold the name to: name the auth on the outlet of the generate program that serves its people, or take %s: off the set", where, subjectAuthArgKey, set.Auth, subjectAuthArgKey))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Wrap(errors.Join(errs...), "subject set error")
+	}
+
+	return nil
 }
 
 // resolveSubjectSetReferences checks what a who: part says of other sets, once
 // every resource is extracted and every set is known: a test names a declared
 // @subjectSet, one that yields values of the tested column's own type, and sets
-// never build on each other in a loop, which no statement could render.
+// never build on each other in a loop, which no statement could render. A set
+// describes the people of one auth, so a test names a set of the same auth's
+// people wherever both sets say whose they are (auth:): through a test against
+// another auth's set the set would hold rows for that auth's people, whom it does
+// not describe. The set of a person's groups an auth's generated management
+// declares says whose it is, so it is held to the rule as a set a person wrote is.
 func resolveSubjectSetReferences(resources []*resourceInfo) error {
 	type declared struct {
 		res *resourceInfo
@@ -987,6 +1066,9 @@ func resolveSubjectSetReferences(resources []*resourceInfo) error {
 				errs = append(errs, errors.Newf("%s tests %s against subject.%s, which no @%s declares; the sets declared are: %s", where, test.Field.Name(), test.Set, subjectSetKeyword, strings.Join(names, ", ")))
 			case target.set.Type != test.Type:
 				errs = append(errs, errors.Newf("%s %s is a %s column and subject.%s (declared on %s) is a set of %s values; a column is tested against a set of its own type", where, test.Field.Name(), test.Type, test.Set, target.res.Name(), target.set.Type))
+			case owner.set.Auth != "" && target.set.Auth != "" && owner.set.Auth != target.set.Auth:
+				errs = append(errs, errors.Newf("%s tests %s against subject.%s, which describes the people of %s (declared on %s, %s: %s), and %s describes the people of %s (%s: %s); a set describes the people of one auth, and through this test %s would hold rows for the people of %s: test a set that describes the people of %s, or take the test out",
+					where, test.Field.Name(), test.Set, target.set.Auth, target.res.Name(), subjectAuthArgKey, target.set.Auth, name, owner.set.Auth, subjectAuthArgKey, owner.set.Auth, name, target.set.Auth, owner.set.Auth))
 			}
 		}
 	}
@@ -1435,6 +1517,8 @@ func collectionSubjectBinding(subject *subjectBinding) resource.SubjectBindingDa
 		Column:     fieldColumn(subject.ValueField),
 		Type:       resource.AttributeType(subject.Type),
 		Path:       collectionHops(subject.Path),
+		Offered:    subject.Offered,
+		Auth:       subject.Auth,
 	}
 	for _, test := range subject.Who {
 		data.Who = append(data.Who, resource.SubjectWhoData{Column: fieldColumn(test.Field), Set: test.Set})

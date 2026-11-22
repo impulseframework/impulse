@@ -52,10 +52,10 @@ func namesOf(t *testing.T, rows []map[string]any, key string) []string {
 // TestGeneratedIdentityGroups holds a sector's group from its creation to its removal: a
 // role the group is given is every member's at their next request and nobody else's, a
 // role its Marshal may not give a person is not given to a group either, a person sees
-// the groups they are in themselves (group IN subject.groups), a group of one sector is
-// not found in another and holds no role there, no group holds the Super Administrator
-// role, a place in a group keeps an account as a role does, and a group that still has a
-// member or a role is not deleted.
+// the groups they are in themselves (group IN subject.crewGroups), a group of one
+// sector is not found in another and holds no role there, no group holds the Super
+// Administrator role, a place in a group keeps an account as a role does, and a group
+// that still has a member or a role is not deleted.
 func TestGeneratedIdentityGroups(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -63,9 +63,9 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 	// The grants this suite proves, pinned to the roles file (conditions-proven).
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "GiveCrewSectorGroupRole", "new.role != 'SectorMarshal'")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "TakeCrewSectorGroupRole", "role != 'SectorMarshal'")
-	provesGrant(t, crew.Roles(), "SectorCrew", "List", "CrewSectorGroups", "group IN subject.groups")
-	provesGrant(t, crew.Roles(), "SectorCrew", "Read", "CrewSectorGroups", "group IN subject.groups")
-	provesGrant(t, crew.Roles(), "SectorCrew", "List", "CrewSectorGroupUsers", "group IN subject.groups")
+	provesGrant(t, crew.Roles(), "SectorCrew", "List", "CrewSectorGroups", "group IN subject.crewGroups")
+	provesGrant(t, crew.Roles(), "SectorCrew", "Read", "CrewSectorGroups", "group IN subject.crewGroups")
+	provesGrant(t, crew.Roles(), "SectorCrew", "List", "CrewSectorGroupUsers", "group IN subject.crewGroups")
 
 	post := func(user accesstypes.User, sector, method, body string) (int, []byte) {
 		return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(sector, method), body)
@@ -162,7 +162,7 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 	}
 
 	// A person sees the groups they are in themselves, with the people in them: the
-	// sector crew's grant is held to subject.groups, the set the members table declares.
+	// sector crew's grant is held to subject.crewGroups, the set the members table declares.
 	if got, want := namesOf(t, list("ada", anvil, sectorGroupsPath), "name"), []string{"Hangar hands"}; !slices.Equal(got, want) {
 		t.Errorf("the groups ada sees = %v, want %v: her own and no other", got, want)
 	}

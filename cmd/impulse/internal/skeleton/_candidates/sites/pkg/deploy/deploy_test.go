@@ -104,7 +104,7 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 		roles        access.RoleFile
 		wantWarnings []access.Warning
 	}{
-		{name: "staff", roles: staff.Roles()},
+		{name: staff.Name, roles: staff.Roles()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -122,7 +122,7 @@ func TestRoles_validateAgainstTheCollection(t *testing.T) {
 				t.Fatalf("config.Collection() error = %v", err)
 			}
 
-			warnings, err := access.ValidateRoles(collection, roles)
+			warnings, err := access.ValidateRoles(collection, roles, tt.name)
 			if err != nil {
 				t.Fatalf("access.ValidateRoles() error = %v", err)
 			}

@@ -44,6 +44,7 @@ import (
 // @suppress(readHandler)
 // @outlet(default)
 // @order(Name asc)
+// @rowWord(role)
 type CrewSectorRole struct {
 	// @primarykey
 	// @attribute(name)

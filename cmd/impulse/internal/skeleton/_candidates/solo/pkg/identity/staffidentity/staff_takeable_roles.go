@@ -27,6 +27,7 @@ import (
 // @suppress(readHandler)
 // @outlet(default)
 // @order(Name asc)
+// @rowWord(role)
 type StaffTakeableRole struct {
 	// @primarykey
 	// @attribute(name)

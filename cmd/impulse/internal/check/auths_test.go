@@ -48,7 +48,7 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
-	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles()))
+	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ const staffSuperAdministrators = "session.SuperAdministratorsBy(signin.SuperAdmi
 // engine, so its Auth is told of no super administrators), exporting no Roles(), and
 // reading its role file without embedding it.
 var (
-	staffAuthUnhanded = strings.Replace(strings.Replace(staffAuth, "\tengine, err := access.New(nil, collection, access.WithDefaultRoles(Roles()))\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", "", 1),
+	staffAuthUnhanded = strings.Replace(strings.Replace(staffAuth, "\tengine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", "", 1),
 		staffSuperAdministrators, "session.NoSuperAdministrators()", 1)
 	staffAuthNoRoles = strings.Replace(staffAuthUnhanded, "//go:embed roles.json\nvar roleFile access.RoleFile\n\n// Roles is the release's default roles for the staff auth.\nfunc Roles() access.RoleFile { return roleFile }\n\n", "", 1)
 	staffAuthNoEmbed = strings.Replace(staffAuth, "//go:embed roles.json\nvar roleFile access.RoleFile\n", "var roleFile access.RoleFile\n", 1)
@@ -122,7 +122,7 @@ type DataConfiguration struct {
 }
 
 func New(ctx context.Context) (*DataConfiguration, error) {
-	if _, err := access.New(nil, router.Collection(), access.WithDefaultRoles(staff.Roles())); err != nil {
+	if _, err := access.New(nil, router.Collection(), access.WithDefaultRoles(staff.Roles(), staff.Name)); err != nil {
 		return nil, err
 	}
 	s, err := staff.New(ctx, nil, "", router.Collection())
@@ -198,7 +198,7 @@ func TestRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := access.ValidateRoles(nil, roles); err != nil {
+	if _, err := access.ValidateRoles(nil, roles, staff.Name); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -213,7 +213,7 @@ import (
 )
 
 func TestRoles(t *testing.T) {
-	if _, err := access.ValidateRoles(nil, nil); err != nil {
+	if _, err := access.ValidateRoles(nil, nil, "staff"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -254,7 +254,7 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
-	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles()))
+	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +307,7 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection, mail session.MailSettings) (*Auth, error) {
-	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles()))
+	engine, err := access.New(nil, collection, access.WithDefaultRoles(Roles(), Name))
 	if err != nil {
 		return nil, err
 	}
@@ -395,12 +395,24 @@ func TestRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := access.ValidateRoles(nil, roles); err != nil {
+	if _, err := access.ValidateRoles(nil, roles, members.Name); err != nil {
 		t.Fatal(err)
 	}
 }
 `
 )
+
+// handedUnderNameText is the finding for the staff auth's role file handed over by the
+// data level, at line of pkg/config/data.go, under text: anything but a package's Name.
+func handedUnderNameText(line int, text string) string {
+	return fmt.Sprintf("pkg/auth/staff: pkg/config/data.go:%d hands staff.Roles() to access.WithDefaultRoles under %s, and impulse check takes only the package's own Name there; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(staff.Roles(), staff.Name)", line, text)
+}
+
+// handedNoRolesCall is the finding for a role file handed to access.WithDefaultRoles at
+// line of pkg/config/data.go as anything but an auth package's own Roles() call.
+func handedNoRolesCall(line int) string {
+	return fmt.Sprintf("pkg/config/data.go:%d hands access.WithDefaultRoles a role file that is not an auth package's own Roles() call, so impulse check cannot tell whose roles it holds; a role file is held to the auth it is handed over for, so hand each auth's file over as its package gives it, under the package's own name: access.WithDefaultRoles(<name>.Roles(), <name>.Name)", line)
+}
 
 func TestAuthsWired(t *testing.T) {
 	t.Parallel()
@@ -482,6 +494,52 @@ func TestAuthsWired(t *testing.T) {
 		{
 			name: "the role file handed over by the data level", files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go", staffConfigHanding),
 			wantStatus: Pass, wantSummary: "1 auth(s) constructed, roles handed to the engine, and bound: staff",
+		},
+		{
+			name: "the role file handed over under another package's name",
+			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
+				strings.Replace(strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", "staff.Roles(), members.Name", 1),
+					"\t\"example.com/harbor/pkg/auth/staff\"\n", "\t\"example.com/harbor/pkg/auth/members\"\n\t\"example.com/harbor/pkg/auth/staff\"\n", 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{"pkg/auth/staff: pkg/config/data.go:18 hands staff.Roles() to access.WithDefaultRoles under members.Name; a role file is held to the auth it is handed over for, so hand the staff auth's file over under its own name: access.WithDefaultRoles(staff.Roles(), staff.Name)"},
+		},
+		{
+			name: "the role file handed over under the auth's name written out",
+			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
+				strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", `staff.Roles(), "staff"`, 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(17, `"staff"`)},
+		},
+		{
+			name: "the role file handed over under no name",
+			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
+				strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", `staff.Roles(), ""`, 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(17, `""`)},
+		},
+		{
+			name: "the role file handed over under a variable that holds the package's Name",
+			files: with(with(without(), "pkg/auth/staff/staff.go", staffAuthUnhanded), "pkg/config/data.go",
+				strings.Replace(strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", "staff.Roles(), name", 1),
+					"func New(ctx context.Context) (*DataConfiguration, error) {\n", "func New(ctx context.Context) (*DataConfiguration, error) {\n\tname := staff.Name\n", 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedUnderNameText(18, "name")},
+		},
+		{
+			name: "beside the auth package's own call, a role file handed over in a variable that holds the package's Roles()",
+			files: with(without(), "pkg/config/data.go",
+				strings.Replace(strings.Replace(staffConfigHanding, "staff.Roles(), staff.Name", "roles, staff.Name", 1),
+					"func New(ctx context.Context) (*DataConfiguration, error) {\n", "func New(ctx context.Context) (*DataConfiguration, error) {\n\troles := staff.Roles()\n", 1)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedNoRolesCall(18)},
+		},
+		{
+			name: "beside the auth package's own call, a wrapper that takes the role file and the name as parameters",
+			files: with(without(), "pkg/config/data.go",
+				strings.Replace(staffConfigHanding, "access.New(nil, router.Collection(), access.WithDefaultRoles(staff.Roles(), staff.Name))", "engine(router.Collection(), staff.Roles(), staff.Name)", 1)+
+					"\nfunc engine(collection access.PermissionCollection, roles access.RoleFile, name string) (*access.Client, error) {\n\treturn access.New(nil, collection, access.WithDefaultRoles(roles, name))\n}\n"),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{handedNoRolesCall(31)},
 		},
 		{
 			name: "the package exports no Roles()", files: with(without(), "pkg/auth/staff/staff.go", staffAuthNoRoles),

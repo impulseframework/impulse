@@ -432,6 +432,14 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 	if _, err := actionClassConstants(data); err != nil {
 		return resource.CollectionData{}, err
 	}
+	// The collection names the auths the run knew, the application's: the names its sets
+	// may be labeled for (resolveSubjectSetAuths), which the engine holds a role file's
+	// auth to.
+	auths, err := r.authNames()
+	if err != nil {
+		return resource.CollectionData{}, err
+	}
+	data.Auths = auths
 
 	return data, nil
 }

@@ -27,6 +27,6 @@ func main() {
 	// The collection handed to the option that carried it.
 	_, _ = access.New(store, access.WithPermissionCollection(collection))
 
-	// The collection handed over beside the role file.
-	_, _ = access.New(store, collection, access.WithDefaultRoles(collection, roles))
+	// The collection handed over beside the role file and the auth's name.
+	_, _ = access.New(store, collection, access.WithDefaultRoles(collection, roles, "staff"))
 }

@@ -54,7 +54,7 @@
               @if (feeMasked(mission)) {
                 <span class="redacted">REDACTED</span>
               } @else {
-                {{ mission.fee | number: '1.0-0' }} cr
+                {{ credits(mission.fee) }}
               }
             </span>
           </div>
@@ -117,7 +117,7 @@
 
         <h3>Documents</h3>
         @for (document of documentsOf(mission); track document.id) {
-          <div class="sortie">
+          <div class="document">
             <a [href]="documentUrl(document)" target="_blank">{{ document.title }} — {{ document.fileName }}</a>
             ({{ document.size }} bytes, {{ document.contentType }}) uploaded by <b>{{ document.uploadedByName }}</b>
             {{ document.uploadedAt | date: 'medium' }}
@@ -145,7 +145,7 @@
             <ul class="expenses">
               @for (expense of expensesOf(sortie); track expense.id) {
                 <li>
-                  {{ categoryWords(expense.category) }} — {{ expense.amount | number: '1.0-0' }} cr
+                  {{ categoryWords(expense.category) }} — {{ credits(expense.amount) }}
                   {{ expense.memo ? '(' + expense.memo + ')' : '' }}
                 </li>
               }
@@ -218,10 +218,7 @@
         </mat-form-field>
       }
       @if (canBookField('fee')) {
-        <mat-form-field appearance="outline">
-          <mat-label>Fee</mat-label>
-          <input matInput name="fee" type="number" [(ngModel)]="newFee" required />
-        </mat-form-field>
+        <impulse-resource-field [meta]="missionsMeta" [fieldConfig]="feeField" [form]="bookFeeForm" />
       }
       @if (canBookField('deadline')) {
         <mat-form-field appearance="outline">
@@ -362,10 +359,7 @@
           </mat-form-field>
         }
         @if (canEdit(mission, 'fee')) {
-          <mat-form-field appearance="outline">
-            <mat-label>Fee</mat-label>
-            <input matInput name="editFee" type="number" [(ngModel)]="editFee" />
-          </mat-form-field>
+          <impulse-resource-field [meta]="missionsMeta" [fieldConfig]="feeField" [form]="editFeeForm" />
         }
         @if (canEdit(mission, 'notes')) {
           <mat-form-field appearance="outline">
@@ -477,10 +471,7 @@
             }
           </mat-select>
         </mat-form-field>
-        <mat-form-field appearance="outline">
-          <mat-label>Amount</mat-label>
-          <input matInput name="expenseAmount" type="number" [(ngModel)]="newExpenseAmount" required />
-        </mat-form-field>
+        <impulse-resource-field [meta]="expensesMeta" [fieldConfig]="amountField" [form]="expenseAmountForm" />
         @if (formRefusal(); as refusal) {
           <p class="refusal" role="alert">{{ refusal }}</p>
         }

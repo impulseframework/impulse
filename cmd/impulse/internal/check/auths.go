@@ -18,7 +18,7 @@ import (
 
 // authsWired verifies that every auth package is wired through the application: the data
 // level constructs it, the release hands its embedded role file to the permission engine
-// (access.WithDefaultRoles), and a surface binds to it, either an outlet declaring it
+// under the package's own name (access.WithDefaultRoles(Roles(), Name)), and a surface binds to it, either an outlet declaring it
 // (Auth, under the generated router) with the sign-in methods the package registers, or
 // a hand-written surface taking its type, so a population the application declares can
 // sign in somewhere and holds roles. session-tables holds each Auth to its tables; this
@@ -31,13 +31,14 @@ const authsWiredName = "auths-wired"
 func (authsWired) Name() string { return authsWiredName }
 
 func (authsWired) Describe() string {
-	return "every auth package is constructed by the data level, embeds its role file and hands it to the permission engine (access.WithDefaultRoles), and is bound by a surface (an outlet's Auth declaration naming the methods the package registers, or a hand-written surface taking its type); no two auths share a session, XSRF or trusted-device cookie; an auth with a directory-run method has no role writers in the application; and a role file handed to the engine is validated by a test (WARN)"
+	return "every auth package is constructed by the data level, embeds its role file and hands it to the permission engine under its own name (access.WithDefaultRoles(Roles(), Name)), and is bound by a surface (an outlet's Auth declaration naming the methods the package registers, or a hand-written surface taking its type); no two auths share a session, XSRF or trusted-device cookie; an auth with a directory-run method has no role writers in the application; and a role file handed to the engine is validated by a test (WARN)"
 }
 
 // The identifiers an auth package exports that the wiring is read from.
 const (
 	authNew   = "New"
 	authRoles = "Roles"
+	authName  = "Name"
 	authType  = "Auth"
 )
 
@@ -61,6 +62,7 @@ func (c authsWired) Run(_ context.Context, env *Env) Result {
 		summaries = append(summaries, p.Name)
 	}
 	details = append(details, unknownAuthBindings(a, profile)...)
+	details = append(details, rolesOfNoAuthPackage(a)...)
 	details = append(details, cookieCollisions(a.Auths)...)
 	if len(details) > 0 {
 		return fail(c.Name(), fmt.Sprintf("%d auth wiring problem(s)", len(details)), append(details, warnings...)...)
@@ -91,6 +93,7 @@ func (authsWired) packageFindings(a *app.App, profile app.Profile, p *app.AuthPa
 	case !validated(a, p):
 		warnings = append(warnings, fmt.Sprintf("%s: no test validates the %s auth's role file (access.ValidateRoles over the collection, parsing %s.%s()), so a warning the deploy prints is accepted nowhere in code; add the %s row to %s with its expected warnings empty", p.Dir, p.Name, p.Name, authRoles, p.Name, ValidationTestFile(a)))
 	}
+	details = append(details, rolesUnderAnotherName(a, p)...)
 	if rolesFile := rolesFileOf(p); exported {
 		if _, err := os.Stat(a.Abs(rolesFile)); err != nil {
 			details = append(details, fmt.Sprintf("%s: %s does not exist; the %s auth embeds its role file from there", p.Dir, rolesFile, p.Name))
@@ -163,6 +166,57 @@ func defaultRolesOf(a *app.App, p *app.AuthPackage) []app.DefaultRoles {
 	}
 
 	return calls
+}
+
+// rolesUnderAnotherName lists the access.WithDefaultRoles calls that hand the auth
+// package's Roles() over under anything but the package's own Name. The engine holds a
+// role file to the auth it is handed over for (a grant may read that auth's subject sets
+// alone), and another auth's name is one it knows, so nothing at run time can tell the
+// file was handed over under the wrong one. A name written some other way (a literal, a
+// variable, a call) is tied to no package, so nothing here can tell whose it is, and the
+// own Name is the one way to hand the file over: a call under it passes, one under
+// another package's Name fails with that package named, and one under anything else
+// fails with the argument quoted as the source writes it.
+func rolesUnderAnotherName(a *app.App, p *app.AuthPackage) []string {
+	var details []string
+	for _, d := range defaultRolesOf(a, p) {
+		switch d.NamePackage {
+		case p.Path:
+			continue
+		case "":
+			details = append(details, fmt.Sprintf("%s: %s:%d hands %s.%s() to access.WithDefaultRoles under %s, and impulse check takes only the package's own %s there; a role file is held to the auth it is handed over for, so hand the %s auth's file over under its own name: access.WithDefaultRoles(%s.%s(), %s.%s)",
+				p.Dir, d.File, d.Line, p.Name, authRoles, d.NameText, authName, p.Name, p.Name, authRoles, p.Name, authName))
+		default:
+			details = append(details, fmt.Sprintf("%s: %s:%d hands %s.%s() to access.WithDefaultRoles under %s.%s; a role file is held to the auth it is handed over for, so hand the %s auth's file over under its own name: access.WithDefaultRoles(%s.%s(), %s.%s)",
+				p.Dir, d.File, d.Line, p.Name, authRoles, path.Base(d.NamePackage), authName, p.Name, p.Name, authRoles, p.Name, authName))
+		}
+	}
+
+	return details
+}
+
+// rolesOfNoAuthPackage lists the access.WithDefaultRoles calls outside tests that hand the
+// engine a role file other than an auth package's own Roles() call: a variable, a
+// parameter, a field, another call, or the Roles() of a package that is no auth package.
+// The engine holds a role file to the auth it is handed over for, and nothing at run time
+// can tell whose file such an argument holds, so nothing here can tell either: the auth
+// package's own Roles() is the one way to hand its file over, and rolesUnderAnotherName
+// judges the name such a call hands it over under.
+func rolesOfNoAuthPackage(a *app.App) []string {
+	auths := make(map[string]bool, len(a.AuthPackages))
+	for i := range a.AuthPackages {
+		auths[a.AuthPackages[i].Path] = true
+	}
+	var details []string
+	for _, d := range a.DefaultRoles {
+		if auths[d.RolesPackage] {
+			continue
+		}
+		details = append(details, fmt.Sprintf("%s:%d hands access.WithDefaultRoles a role file that is not an auth package's own %s() call, so impulse check cannot tell whose roles it holds; a role file is held to the auth it is handed over for, so hand each auth's file over as its package gives it, under the package's own name: access.WithDefaultRoles(<name>.%s(), <name>.%s)",
+			d.File, d.Line, authRoles, authRoles, authName))
+	}
+
+	return details
 }
 
 // rolesFileOf is the auth package's role file, root-relative: the file beside its source

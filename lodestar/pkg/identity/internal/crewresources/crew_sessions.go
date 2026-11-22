@@ -19,6 +19,7 @@ type (
 	// @outlet(default)
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
+	// @rowWord(session)
 	CrewSession struct {
 		ID              impulse.UUID  `spanner:"Id"`
 		UserID          *impulse.UUID `spanner:"UserId"`
