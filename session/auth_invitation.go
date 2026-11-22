@@ -717,17 +717,17 @@ func (a *Auth[S, U, Tx]) invitedSignUpAttempt(ctx context.Context, p *pendingSta
 // mailed to the invited address at an invitation's), and the username, which is the
 // address when the password method declares them one and the person's choice
 // otherwise. name is the person's name as the invitation carried it, "" for none and
-// for a sign-up, which carries none.
+// for a sign-up, which carries none. The password is judged against the username the
+// account will have, as every later judgment of it is (detailsOf).
 func (a *Auth[S, U, Tx]) newAccount(email, username, password, name string) (*sessionstorage.InsertSessionUser, error) {
+	if a.registered().usernameIsEmail() {
+		username = email
+	}
 	who := passwordstrength.Details{Username: username, Name: name, Email: email}
 	if err := a.strongEnough(password, who); err != nil {
 		return nil, err
 	}
-	methods := a.registered()
-	switch {
-	case methods.usernameIsEmail():
-		username = email
-	case username == "":
+	if username == "" {
 		return nil, httpio.NewBadRequestMessage("choose a username")
 	}
 	hash, err := a.hashToSet(password, who)
