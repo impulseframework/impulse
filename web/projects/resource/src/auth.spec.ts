@@ -63,6 +63,9 @@ const codeRoutes = {
 const codeMailed = { codeEmail: 'n•••@fleet.example', codeSent: true, codeExpiresAt: '2026-10-17T12:10:00Z' };
 const changePath = '/console/api/user/password/change';
 const consoleList: LoginMethods = { methods: [password, google], pending: pendingRoutes, changePassword: changePath };
+const strengthPath = '/console/api/user/password/strength';
+/** The list of a server that answers how strong a password is. */
+const strengthList: LoginMethods = { ...consoleList, passwordStrength: strengthPath };
 const invitationRoutes = {
   open: '/console/api/user/invitation',
   accept: '/console/api/user/invitation/accept',
@@ -91,6 +94,7 @@ const mailingList: LoginMethods = {
 /** What opening an invitation answers for a person nobody holds an account for, whom no directory could admit. */
 const opened = {
   email: 'ensign@fleet.example',
+  name: 'Nova Ensign',
   tenantId: '5d1c8e2a-7b3f-4a9e-b6d0-2c4f8a1e9b37',
   tenantName: 'Anvil',
   expiresAt: '2026-10-30T12:00:00Z',
@@ -119,6 +123,7 @@ interface Server {
   verifyCode: TransportResponse;
   enrollEmail: TransportResponse;
   change: TransportResponse;
+  strength: TransportResponse;
   remove: TransportResponse;
   firstPasswordCode: TransportResponse;
   firstPasswordSet: TransportResponse;
@@ -150,6 +155,7 @@ function server(overrides: Partial<Server> = {}): Server {
     verifyCode: { status: 200, body: { mfaIsRequired: false } },
     enrollEmail: { status: 200, body: codeMailed },
     change: { status: 200, body: undefined },
+    strength: { status: 200, body: { strongEnough: true, strength: 62, minimum: 50 } },
     remove: { status: 200, body: undefined },
     firstPasswordCode: {
       status: 200,
@@ -167,7 +173,7 @@ function server(overrides: Partial<Server> = {}): Server {
     emailVerify: { status: 200, body: { email: 'pax@fleet.example' } },
     emailConfirm: { status: 200, body: { email: 'pax@fleet.example' } },
     resetRequest: { status: 200, body: {} },
-    resetOpen: { status: 200, body: { username: 'pax' } },
+    resetOpen: { status: 200, body: { username: 'pax', name: 'Pax Example', email: 'pax@fleet.example' } },
     resetComplete: { status: 200, body: { username: 'pax' } },
     signUpStart: { status: 200, body: {} },
     signUpOpen: { status: 200, body: { email: 'rookie@fleet.example', usernameIsEmail: true } },
@@ -199,6 +205,8 @@ function transportOf(state: Server): ScriptedTransport {
         return state.enrollEmail;
       case 'POST /console/api/user/password/change':
         return state.change;
+      case 'POST /console/api/user/password/strength':
+        return state.strength;
       case 'POST /console/api/user/password/remove':
         return state.remove;
       case 'POST /console/api/user/first-password/code':
@@ -1110,6 +1118,113 @@ describe('the password change', () => {
   });
 });
 
+describe('the password strength question', () => {
+  const judged = (body: unknown): Server => server({ methods: strengthList, strength: { status: 200, body } });
+
+  it('posts once to the path the list names, reading the list only when none was read, and never again per question', async () => {
+    const read = authOver(server({ methods: strengthList }));
+    await read.auth.methods();
+    await read.auth.passwordStrength('correct horse');
+    await read.auth.passwordStrength('correct horse battery');
+    expect(sent(read.transport)).toEqual([
+      `GET /console/api/${loginMethodsRoute}`,
+      `POST ${strengthPath}`,
+      `POST ${strengthPath}`,
+    ]);
+    const unread = authOver(server({ methods: strengthList }));
+    await unread.auth.passwordStrength('correct horse');
+    await unread.auth.passwordStrength('correct horse battery');
+    expect(sent(unread.transport)).toEqual([
+      `GET /console/api/${loginMethodsRoute}`,
+      `POST ${strengthPath}`,
+      `POST ${strengthPath}`,
+    ]);
+  });
+
+  it('posts the password and only the details that are not empty', async () => {
+    const { auth, transport } = authOver(server({ methods: strengthList }));
+    await auth.passwordStrength('correct horse', { username: 'pax', name: '', email: 'pax@fleet.example' });
+    await auth.passwordStrength('correct horse');
+    await auth.passwordStrength('correct horse', { username: 'pax', name: 'Pax Example', email: 'pax@fleet.example' });
+    expect(transport.requests[1].body).toEqual({
+      password: 'correct horse',
+      username: 'pax',
+      email: 'pax@fleet.example',
+    });
+    expect(transport.requests[2].body).toEqual({ password: 'correct horse' });
+    expect(transport.requests[3].body).toEqual({
+      password: 'correct horse',
+      username: 'pax',
+      name: 'Pax Example',
+      email: 'pax@fleet.example',
+    });
+  });
+
+  it("resolves the server's judgment as it answers it, with no reason where it gives none and 0 for a number it does not give", async () => {
+    const short = authOver(
+      judged({ strongEnough: false, strength: 24, minimum: 50, reason: 'Add another word or two.' }),
+    ).auth;
+    expect(await short.passwordStrength('pax')).toEqual({
+      outcome: 'judged',
+      strongEnough: false,
+      strength: 24,
+      minimum: 50,
+      reason: 'Add another word or two.',
+    });
+    const enough = await authOver(
+      judged({ strongEnough: true, strength: 62, minimum: 50, reason: '' }),
+    ).auth.passwordStrength('correct horse battery');
+    expect(enough).toEqual({ outcome: 'judged', strongEnough: true, strength: 62, minimum: 50 });
+    expect(Object.keys(enough)).not.toContain('reason');
+    const unsaid = authOver(judged({ strongEnough: 'yes', strength: '62', minimum: null })).auth;
+    expect(await unsaid.passwordStrength('correct horse')).toEqual({
+      outcome: 'judged',
+      strongEnough: false,
+      strength: 0,
+      minimum: 0,
+    });
+  });
+
+  it('resolves a browser that asked too often as the refusal with its code and the wait, through no error hook', async () => {
+    const { auth, errors } = authOver(
+      server({
+        methods: strengthList,
+        strength: {
+          status: 429,
+          body: {
+            message: 'Too many passwords have been checked from here',
+            code: 'too_many_attempts',
+            retryAfter: 300,
+          },
+        },
+      }),
+    );
+    expect(await auth.passwordStrength('correct horse')).toEqual({
+      outcome: 'refused',
+      status: 429,
+      code: 'too_many_attempts',
+      message: 'Too many passwords have been checked from here',
+      retryAfter: 300,
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('throws on a server whose list names no strength path, and posts nothing', async () => {
+    const { auth, transport } = authOver(server());
+    await expect(auth.passwordStrength('correct horse')).rejects.toThrow(
+      'this server names no password strength path in its methods list: it offers no password method',
+    );
+    expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
+  });
+
+  it('keeps the strength path on a list that names one, and none on a list that does not', async () => {
+    expect(await authOver(server({ methods: strengthList })).auth.methods()).toEqual(strengthList);
+    const unnamed = await authOver(server({ methods: { ...consoleList, passwordStrength: '' } })).auth.methods();
+    expect(unnamed).toEqual(consoleList);
+    expect(Object.keys(unnamed)).not.toContain('passwordStrength');
+  });
+});
+
 describe("choosing the person's first password", () => {
   const routes = { sendCode: '/console/api/user/first-password/code', set: '/console/api/user/first-password' };
   const choosing = (overrides: Partial<Server> = {}): Server =>
@@ -1393,6 +1508,7 @@ describe('the mailed links in the list', () => {
   it('keeps the invitation the browser carries, as the block names it under standing, and names none where the block has none', async () => {
     const standing = {
       email: 'ensign@fleet.example',
+      name: 'Nova Ensign',
       tenantId: '5d1c8e2a-7b3f-4a9e-b6d0-2c4f8a1e9b37',
       tenantName: 'Anvil',
       expiresAt: '2026-10-30T12:00:00Z',
@@ -1412,6 +1528,7 @@ describe('the mailed links in the list', () => {
     ).auth;
     expect((await partial.methods()).invitation?.standing).toEqual({
       email: 'ensign@fleet.example',
+      name: '',
       tenantId: '',
       tenantName: '',
       expiresAt: '',
@@ -1429,6 +1546,7 @@ describe('the mailed links in the list', () => {
   it('keeps what the standing block says of the invited account, and reads a fact it does not say as false', async () => {
     const plain = {
       email: 'ensign@fleet.example',
+      name: 'Nova Ensign',
       tenantId: '5d1c8e2a-7b3f-4a9e-b6d0-2c4f8a1e9b37',
       tenantName: 'Anvil',
       expiresAt: '2026-10-30T12:00:00Z',
@@ -1459,6 +1577,7 @@ describe('the mailed links in the list', () => {
   it('keeps the registration names the standing invitation says could admit the address, strings only, and none where it names none', async () => {
     const standing = {
       email: 'ensign@fleet.example',
+      name: '',
       tenantId: '',
       tenantName: '',
       expiresAt: 'soon',
@@ -1489,6 +1608,7 @@ describe('the mailed links in the list', () => {
   it('keeps what the standing block says of the tenant the invitation makes, and nothing for any other invitation', async () => {
     const standing = {
       email: 'founder@dawn.example',
+      name: 'Dawn Founder',
       tenantId: '',
       tenantName: 'Dawn',
       expiresAt: '2026-10-30T12:00:00Z',
@@ -1573,6 +1693,7 @@ describe('an invitation', () => {
     expect(await unsaid.openInvitation('tok-1')).toEqual({
       outcome: 'opened',
       email: opened.email,
+      name: '',
       tenantId: '',
       tenantName: '',
       expiresAt: opened.expiresAt,
@@ -1582,6 +1703,24 @@ describe('an invitation', () => {
       accountExists: false,
       hasPassword: false,
     });
+  });
+
+  it('carries the name the inviter gave, opened or carried by the browser, and an empty name where the answer has none', async () => {
+    const named = await authOver(server({ methods: mailingList })).auth.openInvitation('tok-1');
+    expect(named.outcome === 'opened' && named.name).toBe('Nova Ensign');
+    const unnamed = { ...opened, name: undefined };
+    const nameless = await authOver(
+      server({ methods: mailingList, invitationOpen: { status: 200, body: unnamed } }),
+    ).auth.openInvitation('tok-1');
+    expect(nameless.outcome === 'opened' && nameless.name).toBe('');
+    const carrying = authOver(
+      server({ methods: { ...mailingList, invitation: { ...invitationRoutes, standing: opened } } }),
+    ).auth;
+    expect((await carrying.methods()).invitation?.standing?.name).toBe('Nova Ensign');
+    const carryingNameless = authOver(
+      server({ methods: { ...mailingList, invitation: { ...invitationRoutes, standing: unnamed } } }),
+    ).auth;
+    expect((await carryingNameless.methods()).invitation?.standing?.name).toBe('');
   });
 
   it('is opened after the list is read again, posting the token, and described as the server answers', async () => {
@@ -1602,6 +1741,7 @@ describe('an invitation', () => {
     expect(await auth.openInvitation('tok-1')).toEqual({
       outcome: 'opened',
       email: 'x@fleet.example',
+      name: '',
       tenantId: '',
       tenantName: '',
       expiresAt: 'soon',
@@ -1904,11 +2044,23 @@ describe('a password reset', () => {
     );
   });
 
-  it('is opened after the list is read again, posting the token, and answers the username', async () => {
+  it("is opened after the list is read again, posting the token, and answers the username and the account's name and address", async () => {
     const { auth, transport } = authOver(server({ methods: resettingList }));
-    expect(await auth.openPasswordReset('tok-r')).toEqual({ outcome: 'opened', username: 'pax' });
+    expect(await auth.openPasswordReset('tok-r')).toEqual({
+      outcome: 'opened',
+      username: 'pax',
+      name: 'Pax Example',
+      email: 'pax@fleet.example',
+    });
     expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${resetRoutes.open}`]);
     expect(transport.requests[1].body).toEqual({ token: 'tok-r' });
+  });
+
+  it('reads a name or an address the opened link does not carry as empty', async () => {
+    const { auth } = authOver(
+      server({ methods: resettingList, resetOpen: { status: 200, body: { username: 'pax' } } }),
+    );
+    expect(await auth.openPasswordReset('tok-r')).toEqual({ outcome: 'opened', username: 'pax', name: '', email: '' });
   });
 
   it('resolves a dead link as a refusal when opened', async () => {

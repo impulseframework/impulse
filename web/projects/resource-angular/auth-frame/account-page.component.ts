@@ -1,19 +1,14 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { EmailAddressComponent } from '@impulseframework/resource-angular/auth-email-address';
+import { NewPasswordComponent } from '@impulseframework/resource-angular/auth-new-password';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { firstValueFrom } from 'rxjs';
 import { Account } from './account';
-
-/** What the password change says when the two new passwords differ, before asking the server. */
-export const passwordsDiffer = 'The two new passwords are not the same.';
-
-/** What the choice of a first password says when the two passwords differ, before asking the server. */
-export const firstPasswordsDiffer = 'The two passwords are not the same.';
 
 /**
  * What removing their password leaves a person with, said before they confirm it: the
@@ -54,7 +49,14 @@ export const nameMaxLength = 200;
  */
 @Component({
   selector: 'impulse-account-page',
-  imports: [EmailAddressComponent, FormsModule, MatButtonModule, MatFormFieldModule, MatInputModule],
+  imports: [
+    EmailAddressComponent,
+    FormsModule,
+    MatButtonModule,
+    MatFormFieldModule,
+    MatInputModule,
+    NewPasswordComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="impulse-account-page-content">
@@ -138,27 +140,17 @@ export const nameMaxLength = 200;
                   autocomplete="one-time-code"
                   required />
               </mat-form-field>
-              <mat-form-field appearance="outline">
-                <mat-label>Password</mat-label>
-                <input
-                  matInput
-                  name="firstPassword"
-                  type="password"
-                  [(ngModel)]="firstPassword"
-                  autocomplete="new-password"
-                  required />
-              </mat-form-field>
-              <mat-form-field appearance="outline">
-                <mat-label>Password again</mat-label>
-                <input
-                  matInput
-                  name="firstPasswordAgain"
-                  type="password"
-                  [(ngModel)]="firstPasswordAgain"
-                  autocomplete="new-password"
-                  required />
-              </mat-form-field>
-              <button mat-flat-button type="submit" class="impulse-account-page-first-submit" [disabled]="busy()">
+              <impulse-new-password
+                label="Password"
+                [username]="sessionDetails().username"
+                [personName]="sessionDetails().name"
+                [email]="sessionDetails().email"
+                [(password)]="firstPassword" />
+              <button
+                mat-flat-button
+                type="submit"
+                class="impulse-account-page-first-submit"
+                [disabled]="busy() || !strongEnough()">
                 Set the password
               </button>
             </form>
@@ -181,27 +173,17 @@ export const nameMaxLength = 200;
                 autocomplete="current-password"
                 required />
             </mat-form-field>
-            <mat-form-field appearance="outline">
-              <mat-label>New password</mat-label>
-              <input
-                matInput
-                name="newPassword"
-                type="password"
-                [(ngModel)]="newPassword"
-                autocomplete="new-password"
-                required />
-            </mat-form-field>
-            <mat-form-field appearance="outline">
-              <mat-label>New password again</mat-label>
-              <input
-                matInput
-                name="newPasswordAgain"
-                type="password"
-                [(ngModel)]="newPasswordAgain"
-                autocomplete="new-password"
-                required />
-            </mat-form-field>
-            <button mat-flat-button type="submit" class="impulse-account-page-change-submit" [disabled]="busy()">
+            <impulse-new-password
+              label="New password"
+              [username]="sessionDetails().username"
+              [personName]="sessionDetails().name"
+              [email]="sessionDetails().email"
+              [(password)]="newPassword" />
+            <button
+              mat-flat-button
+              type="submit"
+              class="impulse-account-page-change-submit"
+              [disabled]="busy() || oldPassword === '' || !strongEnough()">
               Change password
             </button>
           </form>
@@ -316,7 +298,8 @@ export const nameMaxLength = 200;
       align-items: flex-start;
       max-width: 360px;
     }
-    .impulse-account-page-change mat-form-field {
+    .impulse-account-page-change mat-form-field,
+    .impulse-account-page-change impulse-new-password {
       width: 100%;
     }
     .impulse-account-page-answers {
@@ -341,6 +324,18 @@ export class AccountPageComponent {
   readonly username = (): string => this.auth.sessionInfo().username ?? '';
   /** The name the session carries, none as the empty string. */
   private sessionName = computed(() => this.auth.sessionInfo().name ?? '');
+  /** What the session holds of the person, sent with the question about a new password; empty for what it does not hold. */
+  protected sessionDetails = computed(() => {
+    const info = this.auth.sessionInfo();
+    return { username: info.username ?? '', name: info.name ?? '', email: info.email ?? '' };
+  });
+  private newPasswordBox = viewChild(NewPasswordComponent);
+  /**
+   * The server called the new password now in the drawn form's box strong enough: the
+   * change's button and the first password's stay disabled until it does. False while no
+   * such box is drawn; only one of the two forms is ever drawn.
+   */
+  readonly strongEnough = computed(() => this.newPasswordBox()?.strongEnough() ?? false);
   /** The name in the box: the person's own when the session answers, then what they type. */
   readonly name = signal('');
   /** What the last change of the name came to, in the application's words or the server's. */
@@ -348,7 +343,6 @@ export class AccountPageComponent {
 
   oldPassword = '';
   newPassword = '';
-  newPasswordAgain = '';
   /** A request is in flight; the controls are disabled meanwhile. */
   readonly busy = signal(false);
   /** What the last password change came to, in the application's words or the server's. */
@@ -359,7 +353,6 @@ export class AccountPageComponent {
   /** The code the person was mailed for their first password, as they type it. */
   firstPasswordCode = '';
   firstPassword = '';
-  firstPasswordAgain = '';
   /** Where the code of a first password went, masked as the server masks it; undefined until one is sent. */
   readonly codeSentTo = signal<string | undefined>(undefined);
   /** What the last step of choosing a password came to, in the application's words or the server's. */
@@ -409,19 +402,16 @@ export class AccountPageComponent {
     }
   }
 
+  /** Changes the password; nothing is asked, and nothing said, while the form's button is disabled. */
   async changePassword(): Promise<void> {
-    if (this.busy()) return;
-    if (this.newPassword !== this.newPasswordAgain) {
-      this.changeMessage.set(passwordsDiffer);
-      return;
-    }
+    if (this.busy() || this.oldPassword === '' || !this.strongEnough()) return;
     this.busy.set(true);
     // What an earlier change came to is not said of this one.
     this.changeMessage.set(undefined);
     try {
       const result = await this.client.auth.changePassword(this.oldPassword, this.newPassword);
       if (result.outcome === 'changed') {
-        this.oldPassword = this.newPassword = this.newPasswordAgain = '';
+        this.oldPassword = this.newPassword = '';
         this.changeMessage.set('Your password is changed.');
         // The server regenerated the session: read it again.
         await firstValueFrom(this.auth.checkUserSession());
@@ -451,18 +441,15 @@ export class AccountPageComponent {
     }
   }
 
+  /** Sets the first password with the code; nothing is asked, and nothing said, while the form's button is disabled. */
   async setFirstPassword(): Promise<void> {
-    if (this.busy()) return;
-    if (this.firstPassword !== this.firstPasswordAgain) {
-      this.firstPasswordMessage.set(firstPasswordsDiffer);
-      return;
-    }
+    if (this.busy() || !this.strongEnough()) return;
     this.busy.set(true);
     this.firstPasswordMessage.set(undefined);
     try {
       const result = await this.client.auth.setFirstPassword(this.firstPasswordCode, this.firstPassword);
       if (result.outcome === 'set') {
-        this.firstPasswordCode = this.firstPassword = this.firstPasswordAgain = '';
+        this.firstPasswordCode = this.firstPassword = '';
         this.codeSentTo.set(undefined);
         this.passwordChosen.set(true);
         // The person holds a password now: the choice of a first one goes, here and

@@ -208,6 +208,9 @@ type invitationAnswer struct {
 // page opened it, less what the block already says.
 type standingInvitationAnswer struct {
 	Email string `json:"email"`
+	// Name is the person's name as the inviter gave it, absent for none, as
+	// Invitation().Open() answers it.
+	Name string `json:"name,omitempty"`
 	// TenantID and TenantName are the tenant the invitation seats the person in and
 	// what people call it, as Invitation().Open() answers them.
 	TenantID   string `json:"tenantId,omitempty"`
@@ -226,8 +229,9 @@ type standingInvitationAnswer struct {
 	// AccountExists says an account already holds the invited address, and HasPassword
 	// that it signs in with a password: the page offers that account's password form,
 	// and offers to create an account only where none holds the address. Whoever
-	// holds the link is told this much, so the page can offer the right form: the
-	// link proves nothing of who holds it, and nothing is accepted by it.
+	// holds the link is told this much, so the page can offer the right form, and the
+	// name the inviter gave, which the page sends with the password it asks the server
+	// about: the link proves nothing of who holds it, and nothing is accepted by it.
 	AccountExists bool `json:"accountExists"`
 	HasPassword   bool `json:"hasPassword"`
 }
@@ -263,27 +267,26 @@ type pendingAnswer struct {
 }
 
 // Methods answers the login page with the sign-in methods it offers: for each listed
-// method its name, the method behind it, how it starts (a form for the password
-// method, a redirect for an external one), its label and its path, in the list's
-// order, the pending sign-in routes when the list names them, and the password
-// change route when the password method is listed, with the route that removes the
-// password when the list names it. When the list names the invitation
-// routes and the browser carries a live invitation (the cookie Invitation().Open()
-// set), the invitation block also reports it under "standing": the address it was
-// sent to, its tenant (for an invitation that makes a tenant, "newTenant" with the
-// tenant's name, and "directoryOnly" where it is accepted through an organization's
-// directory alone), when it stops being accepted, whether an account created from
-// it takes the address as its username, and the names of the listed external
-// registrations that could admit the address (see Invitation().Open()), so a page
-// that arrives without the mailed link's token, as it does when an external sign-in
-// was refused and sent it back, still shows the invitation and hides the methods that
-// would refuse the person. A browser without the cookie, or whose invitation is no
-// longer live, gets the block without it. The answer is public: route it beside the
-// login routes, behind StartSession and before ValidateSession, and it needs no XSRF
-// token. The sign-up block is in the answer only while the password method is open to
-// sign-up: an administrator's choice in the running application, which the answer
-// reads as each request arrives, so a page loaded after the method is opened offers
-// to sign up and one loaded after it is closed does not.
+// method its name, the method behind it, how it starts (a form for the password method, a
+// redirect for an external one), its label and its path, in the list's order, the pending
+// sign-in routes when the list names them, and the password change route when the
+// password method is listed, with the route that removes the password when the list names
+// it. When the list names the invitation routes and the browser carries a live invitation
+// (the cookie Invitation().Open() set), the invitation block also reports it under
+// "standing": the address it was sent to, the name the inviter gave, its tenant (for an
+// invitation that makes a tenant, "newTenant" with the tenant's name, and "directoryOnly"
+// where it is accepted through an organization's directory alone), when it stops being
+// accepted, whether an account created from it takes the address as its username, and the
+// names of the listed external registrations that could admit the address (see
+// Invitation().Open()), so a page that arrives without the mailed link's token, as it
+// does when an external sign-in was refused and sent it back, still shows the invitation
+// and hides the methods that would refuse the person. A browser without the cookie, or
+// whose invitation is no longer live, gets the block without it. The answer is public:
+// route it beside the login routes, behind StartSession and before ValidateSession, and
+// it needs no XSRF token. The sign-up block is in the answer only while the password
+// method is open to sign-up: an administrator's choice in the running application, which
+// the answer reads as each request arrives, so a page loaded after the method is opened
+// offers to sign up and one loaded after it is closed does not.
 //
 //	{"methods": [{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"},
 //	             {"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}],
@@ -291,7 +294,8 @@ type pendingAnswer struct {
 //	 "changePassword": "/api/user/password",
 //	 "passwordStrength": "/api/user/password/strength",
 //	 "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
-//	                "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["google"]}}}
+//	                "standing": {"email": "pat@lakeside.edu", "name": "Pat Reyes", "newTenant": false, "directoryOnly": false, "expiresAt": "2026-10-31T20:00:00Z",
+//	                             "usernameIsEmail": false, "methods": ["google"], "accountExists": false, "hasPassword": false}}}
 //
 // Methods is called where the routes are wired, after every method is registered, and
 // panics on a wiring mistake, the way a registration does: an empty list, a method
@@ -395,7 +399,7 @@ func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request
 	makes, directoryOnly := madeTenant(inv.NewTenant)
 
 	return &standingInvitationAnswer{
-		Email: inv.Email, TenantID: inv.TenantID, TenantName: a.invitedTenantName(inv.TenantID, inv.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
+		Email: inv.Email, Name: inv.Name, TenantID: inv.TenantID, TenantName: a.invitedTenantName(inv.TenantID, inv.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
 		ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail(), Methods: invited.methods,
 		AccountExists: invited.exists, HasPassword: invited.hasPassword,
 	}, nil

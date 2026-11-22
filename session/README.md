@@ -1049,7 +1049,7 @@ the password method is listed.
   their email address", "Sign-up" and "Mail".
 - `invitation.standing` is the live invitation the browser carries, present when the
   invitation cookie that `open` set still names an invitation that stands: the address
-  it was sent to, its tenant (`""` for the application's global surface), when it stops
+  it was sent to, the name the inviter gave, its tenant (`""` for the application's global surface), when it stops
   being accepted, whether an account created from it takes the address as its
   username, and the names of the listed external registrations that could admit the
   address (`methods`, empty when none could), as `Invitation().Open()` answered them;
@@ -1656,14 +1656,22 @@ an invitation's acceptance makes, a first password, a person's own change, the p
 reset link ends in, and `CreateSessionUser` with a password. A password is refused (400, with
 the sentence that says why) when it is too easy to guess, when it is built on the person's
 own name, username or email address, or when it is among the 100,000 passwords most often
-found in data breaches.
+found in data breaches. The person's details count however they are written: in either case
+and with or without accents. A word of theirs of four characters or more also counts when
+look-alike characters stand for some of its letters (`@` for a, `0` for o, `$` for s), in the
+password or in the word itself.
 
 How hard a password is to guess is an estimate in bits. The password method's
 `MinimumPasswordStrength` option sets the bits a password must reach (default: 30); an
 application that wants longer passwords raises it. The estimate reads a password's first 64
-characters. It counts a character outside ASCII once, whatever its bytes, and reads an accented
-letter as the letter. A password is judged when it is set: one a person already holds still
-signs them in.
+characters. A password that is one piece typed again and again (`abababab`) is judged as the
+piece and how many times it is typed. It counts a character outside ASCII once, whatever its
+bytes, and reads an accented letter as the letter, a dotless ı as i, and a letter people also
+write in plain letters as that spelling (ß as ss, ł as l, ø as o, æ as ae). A letter people
+write two ways in plain letters counts in both (ü as u and ue, ø as o and oe, å as a and aa, đ
+as d and dj). A vowel sign or tone mark that a script types as a character of its own, as Thai
+and Hindi do, counts as a character; a point a person may leave off, as in Hebrew and Arabic,
+does not. A password is judged when it is set: one a person already holds still signs them in.
 
 A page asks the same judgment while the person types. `PasswordMethod.Strength()` takes
 `{"password"}` and, when the page has them, the person's `"username"`, `"name"` and
@@ -1744,7 +1752,7 @@ you a link". There is no second mail.
   confirmed address it was mailed to: it is dead once that address or the password
   changed. Every write and removal of a password in the library withdraws the
   account's standing reset links, and an application that writes one in rows of its
-  own says so with `AuthAPI.EndPasswordResetLinks(ctx, id)`. `PasswordReset().Open()` answers the username of a live link and
+  own says so with `AuthAPI.EndPasswordResetLinks(ctx, id)`. `PasswordReset().Open()` answers the username of a live link, with the account's name and address where it holds them, and
   `PasswordReset().Complete()` takes the new password; the login page reaches both with
   `#reset=<token>`. The new password is held to the same judgment as any other (see
   "Password strength"): a password the judgment refuses (400) spends nothing, and the
@@ -2054,10 +2062,13 @@ one it sends.
   stand; `RevokeInvitation(ctx, id)` withdraws one. The tenant and the roles are the
   application's, opaque to the library.
 - **Opening**: the login page, sent to with `#invitation=<token>`, posts the token to
-  `Invitation().Open()`, which answers `{"email", "tenantId", "tenantName", "newTenant",
+  `Invitation().Open()`, which answers `{"email", "name", "tenantId", "tenantName", "newTenant",
   "directoryOnly", "expiresAt", "signUp", "usernameIsEmail", "methods", "accountExists",
   "hasPassword"}` and sets an encrypted cookie holding the token, so the
-  sign-in that follows carries the invitation, an external round trip included. The
+  sign-in that follows carries the invitation, an external round trip included.
+  `name` is the person's name as the inviter gave it, absent when they gave none: the
+  page sends it with the password it asks the server about, so the bar agrees with the
+  acceptance. The
   page then offers the sign-in methods, and, when `signUp` is true (the password method
   is registered, and the invitation is not one accepted with an organization's account
   alone), an account with a password. `methods` names the listed external

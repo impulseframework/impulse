@@ -742,6 +742,36 @@ func TestAuth_Invitation(t *testing.T) {
 	t.Run("opening an invitation names the listed registrations that could admit its address, none as an empty list", authInvitationCase6)
 	t.Run("opening an invitation names its tenant by the application's namer, and by nothing for a tenant the namer does not know", authInvitationCase7)
 	t.Run("an invitation names every registration that could admit its address, and for an account with no password that signs in through an identity, only the registrations it signs in through", authInvitationCase8)
+	t.Run("opening an invitation answers the name the inviter gave, and no name where they gave none", authInvitationCase9)
+}
+
+func authInvitationCase9(t *testing.T) {
+	t.Parallel()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	links.expectAccounts(f)
+	opened := func(name string) map[string]any {
+		t.Helper()
+		if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Name: name, TenantID: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
+			t.Fatal(err)
+		}
+		messages := recorder.Messages()
+		token := tokenIn(t, messages[len(messages)-1].Text, "invitation")
+		rr := f.serve(f.auth.Invitation().Open(), http.MethodPost, "/invitation", map[string]string{"token": token}, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("Open() = %d %s, want 200", rr.Code, rr.Body.String())
+		}
+
+		return decoded(t, rr)
+	}
+
+	// The page sends the name with the password it asks the server about, as the
+	// acceptance judges the password against it.
+	if body := opened("Pat Reyes"); body["name"] != "Pat Reyes" {
+		t.Errorf("Open() = %v, want the name Pat Reyes", body)
+	}
+	if body := opened(""); body["name"] != nil {
+		t.Errorf("Open() = %v, want no name", body)
+	}
 }
 
 // namedTenants is a TenantNamer over a fixed map, as the application's tenant roster is
