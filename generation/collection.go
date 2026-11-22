@@ -758,6 +758,14 @@ func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilde
 
 func (r *resourceGenerator) collectManualRegistrations(b *resource.CollectionBuilder) error {
 	for _, reg := range r.manualRegistrations {
+		if strings.ContainsRune(string(reg.Resource), '.') {
+			return errors.Newf(
+				"manual registration for resource %q: a resource's name holds no dot. "+
+					"A dot separates a resource from one of its fields, so this name would be read as a field of another resource and would answer for it. "+
+					"Give the registration a name without a dot; a field's permissions are registered with its resource",
+				reg.Resource,
+			)
+		}
 		scope := reg.Scope
 		if scope == "" {
 			scope = accesstypes.GlobalPermissionScope

@@ -1259,6 +1259,53 @@ func Test_computeCollectionData_oneScopePerName(t *testing.T) {
 	}
 }
 
+// Test_computeCollectionData_noDotInAManualName pins that a resource registered by hand,
+// by a constant's @manualAddResource or by WithManualResources, is refused a name with
+// a dot: a dot separates a resource from one of its fields, so the name would be read
+// as a field of another resource and would answer for it. The same registration under
+// a name without one is taken.
+func Test_computeCollectionData_noDotInAManualName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		add     ManualRegistration
+		wantErr string
+	}{
+		{
+			name: "a name with a dot",
+			add:  ManualRegistration{Permission: accesstypes.Read, Resource: "Vaults.name"},
+			wantErr: `manual registration for resource "Vaults.name": a resource's name holds no dot. ` +
+				`A dot separates a resource from one of its fields, so this name would be read as a field of another resource and would answer for it. ` +
+				`Give the registration a name without a dot; a field's permissions are registered with its resource`,
+		},
+		{
+			name: "the same registration under a name without a dot",
+			add:  ManualRegistration{Permission: accesstypes.Read, Resource: "VaultNames"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := collectionFixtureGenerator(t)
+			r.manualRegistrations = append(r.manualRegistrations, tt.add)
+
+			_, err := r.computeCollectionData()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("computeCollectionData() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Errorf("computeCollectionData() error = %v, want the error %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // Test_computeCollectionData_declaredPermissions pins where a declared permission goes,
 // from the annotation on: the generator reads it off the resources package's constants
 // beside the resources registered by hand, computes it into the collection, sorted, so

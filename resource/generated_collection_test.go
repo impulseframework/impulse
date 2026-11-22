@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -1169,6 +1170,70 @@ func TestNewGeneratedCollection_oneScopePerName(t *testing.T) {
 			}
 			if err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
 				t.Errorf("NewGeneratedCollection() error = %v, want one ending in %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestGeneratedCollection_noDotInAResourceName pins that a resource's name holds no dot,
+// however the name is handed over: a dot separates a resource from one of its fields, so
+// the name would be read as a field of another resource and would answer for it.
+// Collection data is refused such an entry whether it registers permissions or none,
+// and the builder refuses it at each registration. A name with two dots is refused the
+// same, with no panic.
+func TestGeneratedCollection_noDotInAResourceName(t *testing.T) {
+	t.Parallel()
+
+	refusal := func(name string) string {
+		return fmt.Sprintf("resource %q: a resource's name holds no dot. "+
+			"A dot separates a resource from one of its fields, so this name would be read as a field of another resource and would answer for it. "+
+			"Give the resource a name without a dot; a field is listed with its resource", name)
+	}
+	read := []accesstypes.Permission{accesstypes.Read}
+	tests := []struct {
+		name     string
+		resource accesstypes.Resource
+		register func(accesstypes.Resource) error
+	}{
+		{name: "collection data, an entry with permissions", resource: "Widgets.name", register: func(name accesstypes.Resource) error {
+			_, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{Name: name, Scope: accesstypes.DomainPermissionScope, Permissions: read}}})
+
+			return err
+		}},
+		{name: "collection data, an entry with no permission", resource: "Widgets.name", register: func(name accesstypes.Resource) error {
+			_, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{
+				Name: name, Scope: accesstypes.DomainPermissionScope,
+				Attributes: []AttributeData{{Name: "status", Column: "Status", Type: AttributeTypeString}},
+			}}})
+
+			return err
+		}},
+		{name: "collection data, a name with two dots", resource: "Widgets.name.first", register: func(name accesstypes.Resource) error {
+			_, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{Name: name, Scope: accesstypes.DomainPermissionScope, Permissions: read}}})
+
+			return err
+		}},
+		{name: "the builder's AddResource", resource: "Widgets.name", register: func(name accesstypes.Resource) error {
+			return NewCollectionBuilder().AddResource(accesstypes.DomainPermissionScope, accesstypes.Read, name)
+		}},
+		{name: "the builder's AddMethodResource", resource: "Widgets.name", register: func(name accesstypes.Resource) error {
+			return NewCollectionBuilder().AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, name)
+		}},
+		{name: "the builder's AddResourceSet", resource: "Widgets.name", register: func(name accesstypes.Resource) error {
+			return NewCollectionBuilder().AddResourceSet(accesstypes.DomainPermissionScope, name, SetData{Permissions: read})
+		}},
+		{name: "the builder's AddResource, a name with two dots", resource: "Widgets.name.first", register: func(name accesstypes.Resource) error {
+			return NewCollectionBuilder().AddResource(accesstypes.DomainPermissionScope, accesstypes.Read, name)
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.register(tt.resource)
+			if want := refusal(string(tt.resource)); err == nil || !strings.HasSuffix(err.Error(), want) {
+				t.Errorf("registering %q: error = %v, want one ending in %q", tt.resource, err, want)
 			}
 		})
 	}
