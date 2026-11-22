@@ -52,6 +52,27 @@ const (
 	// (session.Auth.ChangeLook).
 	userLookSuffix    = "/user/look"
 	changeLookHandler = "ChangeLook"
+	// userUsernameSuffix is where a signed-in person's account page changes their own
+	// username (session.Auth.ChangeUsername), and userUsernameFreeSuffix where it asks,
+	// as the person types one, whether a name is free (session.Auth.UsernameFree).
+	userUsernameSuffix     = "/user/username"
+	userUsernameFreeSuffix = "/user/username/free"
+	changeUsernameHandler  = "ChangeUsername"
+	usernameFreeHandler    = "UsernameFree"
+	// userSessionsSuffix is where a signed-in person's account page lists where they are
+	// signed in (session.Auth.OwnSessions), userSessionsEndSuffix where it signs them out
+	// of one browser (session.Auth.EndOwnSession) and userSessionsEndOthersSuffix where
+	// it signs them out of every other (session.Auth.EndOtherSessions).
+	userSessionsSuffix          = "/user/sessions"
+	userSessionsEndSuffix       = "/user/sessions/end"
+	userSessionsEndOthersSuffix = "/user/sessions/end-others"
+	ownSessionsHandler          = "OwnSessions"
+	endOwnSessionHandler        = "EndOwnSession"
+	endOtherSessionsHandler     = "EndOtherSessions"
+	// userForgetBrowsersSuffix is where a signed-in person's account page forgets every
+	// browser the second factor remembered for them (session.Auth.ForgetBrowsers).
+	userForgetBrowsersSuffix = "/user/browser/forget-all"
+	forgetBrowsersHandler    = "ForgetBrowsers"
 	// The token page's routes under an issuing session outlet's prefix, and the device
 	// flow's public endpoints under a machine outlet's.
 	userTokensSuffix  = "/user/tokens"
@@ -667,6 +688,20 @@ type servedOutlet struct {
 	// ChangeLook is where the person's pages keep the look the person chose, told to
 	// the browser beside the methods.
 	ChangeLook string
+	// ChangeUsername and UsernameFree are where the account page changes the person's
+	// own username and asks whether a name is free, told to the browser beside the
+	// methods (the list leaves them out where the usernames are the addresses).
+	ChangeUsername string
+	UsernameFree   string
+	// OwnSessionsList, OwnSessionsEnd and OwnSessionsEndOthers are where the account
+	// page lists where the person is signed in, signs them out of one browser and out of
+	// every other, told to the browser beside the methods.
+	OwnSessionsList      string
+	OwnSessionsEnd       string
+	OwnSessionsEndOthers string
+	// ForgetBrowsers is where the account page forgets every browser remembered for the
+	// person, told to the browser beside the methods.
+	ForgetBrowsers string
 	// Invitation, Email and SignUp are the invitation, email address and sign-up
 	// routes the login page is told beside the methods: the invitation's sign-up with a
 	// password method, SignUp with a password method too (nil otherwise).
@@ -1181,12 +1216,19 @@ func linkTokenIssuers(data *servedRouterData) {
 // servedAccountPathsOf names the routes of the signed-in person's account page under
 // the outlet's prefix, as the router tells them to the browser beside the methods:
 // forgetting the remembered browser, the person's own name, what the person signs in
-// with, and the look the person chose.
+// with, the look the person chose, the person's own username, where they are signed
+// in, and forgetting every remembered browser.
 func servedAccountPathsOf(so *servedOutlet, prefix string) {
 	so.ForgetBrowser = prefix + userForgetBrowserSuffix
 	so.ChangeName = prefix + userNameSuffix
 	so.SignInMeans = prefix + userSignInMeansSuffix
 	so.ChangeLook = prefix + userLookSuffix
+	so.ChangeUsername = prefix + userUsernameSuffix
+	so.UsernameFree = prefix + userUsernameFreeSuffix
+	so.OwnSessionsList = prefix + userSessionsSuffix
+	so.OwnSessionsEnd = prefix + userSessionsEndSuffix
+	so.OwnSessionsEndOthers = prefix + userSessionsEndOthersSuffix
+	so.ForgetBrowsers = prefix + userForgetBrowsersSuffix
 }
 
 // servedSessionOf fills a session outlet's methods and routes from its auth's methods:
@@ -1209,6 +1251,7 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodDelete, userSessionSuffix, "Logout", false),
 		route(http.MethodGet, userPendingSuffix, pendingStatusHandler, false),
 		route(http.MethodGet, userSignInMeansSuffix, signInMeansHandler, false),
+		route(http.MethodGet, userSessionsSuffix, ownSessionsHandler, false),
 	}
 	var guarded []servedRoute
 	kinds := make([]string, 0, len(o.auth.methods))
@@ -1268,6 +1311,11 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodPost, userForgetBrowserSuffix, forgetBrowserHandler, true),
 		route(http.MethodPost, userNameSuffix, changeNameHandler, true),
 		route(http.MethodPost, userLookSuffix, changeLookHandler, true),
+		route(http.MethodPost, userUsernameSuffix, changeUsernameHandler, true),
+		route(http.MethodPost, userUsernameFreeSuffix, usernameFreeHandler, true),
+		route(http.MethodPost, userSessionsEndSuffix, endOwnSessionHandler, true),
+		route(http.MethodPost, userSessionsEndOthersSuffix, endOtherSessionsHandler, true),
+		route(http.MethodPost, userForgetBrowsersSuffix, forgetBrowsersHandler, true),
 	)
 	servedAccountPathsOf(so, prefix)
 	guarded, validatedRoutes := servedMailRoutesOf(so, o, guarded, route)
@@ -1761,6 +1809,26 @@ type {{ .SessionInterface }} interface {
 	// ChangeLook keeps the look the signed-in person chose, so it follows them to
 	// every browser (session.Auth.ChangeLook); it validates the session itself.
 	ChangeLook() http.HandlerFunc
+	// ChangeUsername writes the signed-in person's own username, from their account
+	// page (session.Auth.ChangeUsername); it validates the session itself.
+	ChangeUsername() http.HandlerFunc
+	// UsernameFree answers whether a username the signed-in person types is free, to
+	// their account page (session.Auth.UsernameFree); it validates the session itself.
+	UsernameFree() http.HandlerFunc
+	// OwnSessions answers where the signed-in person is signed in, to their account
+	// page (session.Auth.OwnSessions); it validates the session itself.
+	OwnSessions() http.HandlerFunc
+	// EndOwnSession signs the signed-in person out of one other browser of theirs, from
+	// their account page (session.Auth.EndOwnSession); it validates the session itself.
+	EndOwnSession() http.HandlerFunc
+	// EndOtherSessions signs the signed-in person out of every browser but this one,
+	// from their account page (session.Auth.EndOtherSessions); it validates the session
+	// itself.
+	EndOtherSessions() http.HandlerFunc
+	// ForgetBrowsers forgets every browser the second factor remembered for the
+	// signed-in person, from their account page (session.Auth.ForgetBrowsers); it
+	// validates the session itself.
+	ForgetBrowsers() http.HandlerFunc
 {{- range .SessionHandlers }}
 	// {{ .Description }}.
 	{{ .Name }}() http.HandlerFunc
@@ -2014,6 +2082,10 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			ChangeName: "{{ $outlet.ChangeName }}",
 			SignInMeans: "{{ $outlet.SignInMeans }}",
 			ChangeLook: "{{ $outlet.ChangeLook }}",
+			ChangeUsername: "{{ $outlet.ChangeUsername }}",
+			UsernameFree: "{{ $outlet.UsernameFree }}",
+			OwnSessions: session.OwnSessionsRoutes{List: "{{ $outlet.OwnSessionsList }}", End: "{{ $outlet.OwnSessionsEnd }}", EndOthers: "{{ $outlet.OwnSessionsEndOthers }}"},
+			ForgetBrowsers: "{{ $outlet.ForgetBrowsers }}",
 			Invitation: session.InvitationRoutes{Open: "{{ $outlet.Invitation.Open }}", Accept: "{{ $outlet.Invitation.Accept }}"{{ if $outlet.Invitation.SignUp }}, SignUp: "{{ $outlet.Invitation.SignUp }}"{{ end }}},
 			Email: session.EmailRoutes{Add: "{{ $outlet.Email.Add }}", Verify: "{{ $outlet.Email.Verify }}", Confirm: "{{ $outlet.Email.Confirm }}"},
 {{- if $outlet.SignUp }}

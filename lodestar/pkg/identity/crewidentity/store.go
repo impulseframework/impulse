@@ -73,7 +73,7 @@ func (store) EndSession(ctx context.Context, txn resource.ReadWriteTransaction, 
 }
 
 func (store) RenameSession(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, username string) error {
-	if err := crewresources.NewCrewSessionUpdatePatch(id).SetUsername(username).SetUpdatedAt(spanner.CommitTimestamp).Buffer(ctx, txn); err != nil {
+	if err := crewresources.NewCrewSessionUpdatePatch(id).SetUsername(username).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionUpdatePatch.Buffer()")
 	}
 

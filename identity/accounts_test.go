@@ -2,6 +2,8 @@ package identity
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/go-playground/errors/v5"
@@ -11,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // Fixed ids: a session that acts as a role, one that views as another user, and two
@@ -97,6 +100,16 @@ func TestManager_RenameUser(t *testing.T) {
 			wantErr:  httpio.HasBadRequest,
 		},
 		{
+			name:     "a name with a control character in it is refused in words",
+			username: "dana\x00r",
+			wantErr:  refusedInWords("A username is text on one line, with no tab or other control character."),
+		},
+		{
+			name:     "a name longer than a typed username may be is refused in words",
+			username: strings.Repeat("d", sessioninfo.MaxUsernameLength+1),
+			wantErr:  refusedInWords(fmt.Sprintf("A username is at most %d characters.", sessioninfo.MaxUsernameLength)),
+		},
+		{
 			name:     "a failed write fails the call",
 			username: "dana.r",
 			failOn:   "UpdateUser",
@@ -145,6 +158,13 @@ func TestManager_RenameUser(t *testing.T) {
 			t.Errorf("RenameUser() error = %v, want not found", err)
 		}
 	})
+}
+
+// refusedInWords is a check of an error: a Bad Request that says words to the person.
+func refusedInWords(words string) func(error) bool {
+	return func(err error) bool {
+		return httpio.HasBadRequest(err) && httpio.Message(err) == words
+	}
 }
 
 // TestManager_RenameUser_rolesStay pins what a rename leaves alone: the memberships. The

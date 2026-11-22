@@ -51,7 +51,9 @@ type MethodList struct {
 	// ForgetBrowser is the path of the Auth's ForgetBrowser handler, where a signed-in
 	// person's account page forgets the browser the second factor remembered for them,
 	// or none. The page shows the action only where the session says the browser is
-	// remembered for the person.
+	// remembered for the person. The account page offers it on this browser's line of
+	// where the person is signed in, so it shows only where the list's paths
+	// (OwnSessions, ownSessions) are named too.
 	ForgetBrowser string
 	// ChangeName is the path of the Auth's ChangeName handler, where a signed-in
 	// person's account page writes their own name, or none.
@@ -66,6 +68,23 @@ type MethodList struct {
 	// ChangeLook is the path of the Auth's ChangeLook handler, where a signed-in
 	// person's pages keep the look the person chose, or none.
 	ChangeLook string
+	// ChangeUsername and UsernameFree are the paths of the Auth's ChangeUsername and
+	// UsernameFree handlers, where a signed-in person's account page changes their own
+	// username and asks, as they type one, whether it is free; both or none. Neither is
+	// told where the password method's usernames are the addresses (UsernameIsEmail),
+	// whatever the list names: both handlers refuse there, and the username changes
+	// with the address.
+	ChangeUsername string
+	UsernameFree   string
+	// OwnSessions are the paths of the Auth's OwnSessions, EndOwnSession and
+	// EndOtherSessions handlers, where a signed-in person's account page lists where
+	// they are signed in, signs them out of one browser and out of every other; all
+	// three or none.
+	OwnSessions OwnSessionsRoutes
+	// ForgetBrowsers is the path of the Auth's ForgetBrowsers handler, where a signed-in
+	// person's account page forgets every browser the second factor remembered for
+	// them, or none.
+	ForgetBrowsers string
 	// Invitation are the paths of the invitation handlers (Invitation().Open(),
 	// Accept() and SignUp()), or none. Open and Accept go together; SignUp is named
 	// when the password method is listed and refused when it is not.
@@ -118,6 +137,15 @@ type EmailRoutes struct {
 type FirstPasswordRoutes struct {
 	SendCode string
 	Set      string
+}
+
+// OwnSessionsRoutes are the paths of the handlers of a person's own sessions, as a
+// MethodList names them: List (OwnSessions), End (EndOwnSession) and EndOthers
+// (EndOtherSessions).
+type OwnSessionsRoutes struct {
+	List      string
+	End       string
+	EndOthers string
 }
 
 // SignUpRoutes are the paths of the sign-up handlers, as a MethodList names them.
@@ -173,6 +201,10 @@ type methodsAnswer struct {
 	ChangeName       string                 `json:"changeName,omitempty"`
 	SignInMeans      string                 `json:"signInMeans,omitempty"`
 	ChangeLook       string                 `json:"changeLook,omitempty"`
+	ChangeUsername   string                 `json:"changeUsername,omitempty"`
+	UsernameFree     string                 `json:"usernameFree,omitempty"`
+	OwnSessions      *ownSessionsAnswer     `json:"ownSessions,omitempty"`
+	ForgetBrowsers   string                 `json:"forgetBrowsers,omitempty"`
 	// UsernameIsEmail says the password method's username is the email address, so
 	// the page asks for the address.
 	UsernameIsEmail bool              `json:"usernameIsEmail,omitempty"`
@@ -240,6 +272,14 @@ type standingInvitationAnswer struct {
 type firstPasswordAnswer struct {
 	SendCode string `json:"sendCode"`
 	Set      string `json:"set"`
+}
+
+// ownSessionsAnswer is the block of a methods answer that names the routes of a
+// person's own sessions.
+type ownSessionsAnswer struct {
+	List      string `json:"list"`
+	End       string `json:"end"`
+	EndOthers string `json:"endOthers"`
 }
 
 // emailAnswer is the email block of a methods answer.
@@ -482,6 +522,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.ChangeName = changeNamePathOf(list)
 	answer.SignInMeans = signInMeansPathOf(list)
 	answer.ChangeLook = changeLookPathOf(list)
+	ownAccountPathsOf(answer, list, a.methods.usernameIsEmail())
 	answer.UsernameIsEmail = passwordListed && a.methods.usernameIsEmail()
 	answer.Invitation = invitationAnswerOf(list.Invitation, passwordListed)
 	answer.Email = emailAnswerOf(list.Email)
@@ -489,6 +530,16 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.PasswordReset = passwordResetAnswerOf(list.PasswordReset, passwordListed)
 
 	return answer
+}
+
+// ownAccountPathsOf sets on answer the paths list names for a signed-in person's own
+// account page: the change of their username and the question whether a name is free
+// (none where usernameIsEmail), where they are signed in, and the forgetting of every
+// browser remembered for them.
+func ownAccountPathsOf(answer *methodsAnswer, list *MethodList, usernameIsEmail bool) {
+	answer.ChangeUsername, answer.UsernameFree = usernamePathsOf(list, usernameIsEmail)
+	answer.OwnSessions = ownSessionsAnswerOf(list.OwnSessions)
+	answer.ForgetBrowsers = accountPathOf(list.ForgetBrowsers, "forget-all-remembered-browsers", "ForgetBrowsers", "/api/user/browser/forget-all")
 }
 
 // passwordResetAnswerOf validates the password reset routes: none, or all three as
@@ -638,6 +689,51 @@ func changeNamePathOf(list *MethodList) string {
 	}
 
 	return list.ChangeName
+}
+
+// usernamePathsOf validates the change-your-username and is-this-name-free routes: none,
+// or both as canonical paths. Where the usernames are the addresses (usernameIsEmail)
+// neither is told, since both handlers refuse there.
+func usernamePathsOf(list *MethodList, usernameIsEmail bool) (change, free string) {
+	change = accountPathOf(list.ChangeUsername, "change-your-username", "ChangeUsername", "/api/user/username")
+	free = accountPathOf(list.UsernameFree, "is-this-name-free", "UsernameFree", "/api/user/username/free")
+	if (change == "") != (free == "") {
+		panic("session: Methods is given the change-your-username route without the is-this-name-free route, or the second without the first: name both, or neither")
+	}
+	if usernameIsEmail {
+		return "", ""
+	}
+
+	return change, free
+}
+
+// ownSessionsAnswerOf validates the routes of a person's own sessions: none, or all
+// three as canonical paths.
+func ownSessionsAnswerOf(p OwnSessionsRoutes) *ownSessionsAnswer {
+	if p == (OwnSessionsRoutes{}) {
+		return nil
+	}
+	if p.List == "" || p.End == "" || p.EndOthers == "" {
+		panic("session: Methods is given some of the where-you-are-signed-in routes and not all: name List, End and EndOthers, or none")
+	}
+
+	return &ownSessionsAnswer{
+		List:      accountPathOf(p.List, "where-you-are-signed-in", "OwnSessions", "/api/user/sessions"),
+		End:       accountPathOf(p.End, "sign-out-of-one-browser", "EndOwnSession", "/api/user/sessions/end"),
+		EndOthers: accountPathOf(p.EndOthers, "sign-out-everywhere-else", "EndOtherSessions", "/api/user/sessions/end-others"),
+	}
+}
+
+// accountPathOf validates path, the route of one of a signed-in person's own account
+// handlers: none, or a canonical path. The refusal names the route as route, and its
+// handler as handler, mounted at a path such as example.
+func accountPathOf(path, route, handler, example string) string {
+	if path != "" && !advertisedPath(path) {
+		panic(fmt.Sprintf("session: Methods is given the %s route %q, which is not a canonical path in the application: "+
+			"give it the path its %s handler is mounted at, such as %s", route, path, handler, example))
+	}
+
+	return path
 }
 
 // signInMeansPathOf validates the route a person's sign-in means are read from: none, or

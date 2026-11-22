@@ -987,7 +987,7 @@ func (store) EndSession(ctx context.Context, txn resource.ReadWriteTransaction, 
 }
 
 func (store) RenameSession(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, username string) error {
-	if err := {{ .ResourcesPackage }}.New{{ .Session }}UpdatePatch(id).SetUsername(username).SetUpdatedAt(spanner.CommitTimestamp).Buffer(ctx, txn); err != nil {
+	if err := {{ .ResourcesPackage }}.New{{ .Session }}UpdatePatch(id).SetUsername(username).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Session }}UpdatePatch.Buffer()")
 	}
 

@@ -82,6 +82,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/api/user/session", suffix: "/user/session", method: http.MethodDelete, handler: "Logout"},
 		{url: "/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PendingStatus"},
 		{url: "/api/user/sign-in-means", suffix: "/user/sign-in-means", method: http.MethodGet, handler: "SignInMeans"},
+		{url: "/api/user/sessions", suffix: "/user/sessions", method: http.MethodGet, handler: "OwnSessions"},
 		{url: "/api/user/password/login", suffix: "/user/password/login", method: http.MethodPost, handler: "PasswordLogin", xsrf: true},
 		{url: "/api/user/password/change", suffix: "/user/password/change", method: http.MethodPost, handler: "PasswordChange", xsrf: true},
 		{url: "/api/user/password/remove", suffix: "/user/password/remove", method: http.MethodPost, handler: "PasswordRemove", xsrf: true},
@@ -94,6 +95,11 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/api/user/browser/forget", suffix: "/user/browser/forget", method: http.MethodPost, handler: "ForgetBrowser", xsrf: true},
 		{url: "/api/user/name", suffix: "/user/name", method: http.MethodPost, handler: "ChangeName", xsrf: true},
 		{url: "/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "ChangeLook", xsrf: true},
+		{url: "/api/user/username", suffix: "/user/username", method: http.MethodPost, handler: "ChangeUsername", xsrf: true},
+		{url: "/api/user/username/free", suffix: "/user/username/free", method: http.MethodPost, handler: "UsernameFree", xsrf: true},
+		{url: "/api/user/sessions/end", suffix: "/user/sessions/end", method: http.MethodPost, handler: "EndOwnSession", xsrf: true},
+		{url: "/api/user/sessions/end-others", suffix: "/user/sessions/end-others", method: http.MethodPost, handler: "EndOtherSessions", xsrf: true},
+		{url: "/api/user/browser/forget-all", suffix: "/user/browser/forget-all", method: http.MethodPost, handler: "ForgetBrowsers", xsrf: true},
 		{url: "/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "InvitationOpen", xsrf: true},
 		{url: "/api/user/invitation/sign-up", suffix: "/user/invitation/sign-up", method: http.MethodPost, handler: "InvitationSignUp", xsrf: true},
 		{url: "/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "EmailConfirm", xsrf: true},
@@ -834,6 +840,10 @@ func (s *routerDefaultSessionStub) SignInMeans() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignInMeans")
 }
 
+func (s *routerDefaultSessionStub) OwnSessions() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "OwnSessions")
+}
+
 func (s *routerDefaultSessionStub) PasswordLogin() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PasswordLogin")
 }
@@ -880,6 +890,26 @@ func (s *routerDefaultSessionStub) ChangeName() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) ChangeLook() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "ChangeLook")
+}
+
+func (s *routerDefaultSessionStub) ChangeUsername() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ChangeUsername")
+}
+
+func (s *routerDefaultSessionStub) UsernameFree() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "UsernameFree")
+}
+
+func (s *routerDefaultSessionStub) EndOwnSession() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EndOwnSession")
+}
+
+func (s *routerDefaultSessionStub) EndOtherSessions() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EndOtherSessions")
+}
+
+func (s *routerDefaultSessionStub) ForgetBrowsers() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ForgetBrowsers")
 }
 
 func (s *routerDefaultSessionStub) InvitationOpen() http.HandlerFunc {

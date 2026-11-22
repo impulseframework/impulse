@@ -835,7 +835,8 @@ interface RequesterOptions {
  * maintenance marker is the server down for maintenance and is judged the same way, before
  * the caller's declared answers, and thrown as MaintenanceError with the server's
  * Retry-After; a 503 without the marker is an ordinary error. Every other 4xx or 5xx the
- * caller did not declare becomes ApiError.
+ * caller did not declare becomes ApiError. A quiet request (`RequestOptions.quiet`) throws
+ * each of the three the same, and hands none of them to the hook.
  */
 function createRequester(baseUrl: string, transport: Transport, requester: RequesterOptions): ResponseRequester {
   const { onError } = requester;
@@ -869,18 +870,24 @@ function createRequester(baseUrl: string, transport: Transport, requester: Reque
           continue;
         }
         const error = new ApiVersionError(method, url, response.body, serverVersion, version ?? '', serverOlder);
-        onError?.(error);
+        if (!options?.quiet) {
+          onError?.(error);
+        }
         throw error;
       }
       if (maintenanceAnswer(response)) {
         const retryAfter = retryAfterSeconds(response.headers?.[retryAfterHeader.toLowerCase()]);
         const error = new MaintenanceError(method, url, response.body, retryAfter);
-        onError?.(error);
+        if (!options?.quiet) {
+          onError?.(error);
+        }
         throw error;
       }
       if (response.status >= 400 && !options?.accept?.includes(response.status)) {
         const error = new ApiError(method, url, response.status, response.body);
-        onError?.(error);
+        if (!options?.quiet) {
+          onError?.(error);
+        }
         throw error;
       }
       return { status: response.status, body: response.body as T, headers: response.headers ?? {} };

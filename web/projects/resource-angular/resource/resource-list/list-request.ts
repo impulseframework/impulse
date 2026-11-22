@@ -27,7 +27,11 @@ import { ColumnConfig, keyFields, ListViewConfig, roleInWords } from '@impulsefr
  * is a configuration error, thrown when the page is built naming the resource and the
  * field, never a silently empty cell.
  */
-export function refuseWriteOnlyColumns(resource: Resource, columns: readonly ColumnConfig[], meta: ResourceMeta | undefined): void {
+export function refuseWriteOnlyColumns(
+  resource: Resource,
+  columns: readonly ColumnConfig[],
+  meta: ResourceMeta | undefined,
+): void {
   const writeOnly = new Set((meta?.fields ?? []).filter((field) => field.writeOnly).map((field) => field.fieldName));
   if (writeOnly.size === 0) {
     return;
@@ -84,7 +88,10 @@ export function refuseKeylessConfig(
  * of the listed resource (an action column, a renamed duplicate) is absent, so it draws
  * no control.
  */
-export function filterEligibility(meta: ResourceMeta | undefined, columns: readonly { id: string }[]): ColumnFilterability {
+export function filterEligibility(
+  meta: ResourceMeta | undefined,
+  columns: readonly { id: string }[],
+): ColumnFilterability {
   const byField = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field.filterable]));
   const eligibility: Record<string, ColumnFilterability[string]> = {};
   for (const column of columns) {
@@ -159,7 +166,10 @@ export function searchEligibility(meta: ResourceMeta | undefined, columns: reado
  * timestamp), by column id. Every other column, and one whose id is not a field of the
  * listed resource, is absent and takes typed text.
  */
-export function filterInputKinds(meta: ResourceMeta | undefined, columns: readonly { id: string }[]): ColumnFilterInputs {
+export function filterInputKinds(
+  meta: ResourceMeta | undefined,
+  columns: readonly { id: string }[],
+): ColumnFilterInputs {
   const byField = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field.displayType]));
   const inputs: Record<string, ColumnFilterInputs[string]> = {};
   for (const column of columns) {

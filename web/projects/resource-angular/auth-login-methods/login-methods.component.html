@@ -142,7 +142,13 @@
       @if (!form.usernameIsEmail) {
         <mat-form-field appearance="outline" class="impulse-login-field">
           <mat-label>Username</mat-label>
-          <input matInput name="accountUsername" [(ngModel)]="accountUsername" autocomplete="username" required />
+          <input
+            matInput
+            name="accountUsername"
+            [(ngModel)]="accountUsername"
+            autocomplete="username"
+            maxlength="200"
+            required />
         </mat-form-field>
       }
       <impulse-new-password
