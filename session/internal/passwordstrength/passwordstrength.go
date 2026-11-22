@@ -28,9 +28,11 @@
 // again (abababab) is also read as the piece and how many times it is typed, since the library
 // sees one character typed again and again and nothing longer. The look-alike characters of the
 // password as typed are read whenever one ask of it costs no more than maxL33tCost, and those of
-// each other reading when its asks also fit in what is left of maxL33tBudget, the readings made
-// from the person's words first, so one judgment costs no more than three asks at the bound.
-// The list is asked about the whole password, which is hashed in pieces and never copied.
+// each other reading when its asks also fit in what is left of maxL33tBudget: the readings
+// anyone is asked first, each counted as two asks whatever the person's details are, then the
+// readings made from the person's words. So one judgment costs no more than three asks at the
+// bound, and a person's details never change how the password itself is read. The list is asked
+// about the whole password, which is hashed in pieces and never copied.
 //
 // The library counts bytes where a person types characters, so it is asked about a text in
 // ASCII alone: an accented letter is read as its letter, a dotless ı as i, a letter people
@@ -245,7 +247,8 @@ type asked struct {
 	// text is the reading, in ASCII.
 	text string
 
-	// added is what is added to the library's estimate of text, in bits.
+	// added is what is added to the library's estimate of text, in bits. Only the reading with
+	// the piece written once adds any.
 	added float64
 
 	// bound is maxL33tCost when the library reads text's look-alike characters as letters, and
@@ -297,40 +300,46 @@ func readingsOf(typed, spelled, second string, inputs []string) []asked {
 	}
 	add(plainReading(spelled, inputs), 0, true)
 	add(plainReading(second, inputs), 0, true)
-	setBounds(readings, inputs != nil)
+	setBounds(readings)
 
 	return readings
 }
 
 // setBounds gives each of readings its bound: maxL33tCost when the library is to read its
-// look-alike characters, and 0 when it is not. detailed says the person has details. A reading
-// is asked once, and twice when it is not made from the person's words and the person has
-// details: with them and, when the password falls short, without them to name the reason. It
-// is read the same way both times, so the two asks differ by the details alone. The password as
-// typed comes first: it is read with its look-alikes whenever one ask of it costs no more than
-// maxL33tCost, exactly as before any other reading existed, and its asks always fit in
-// maxL33tBudget. Then the readings made from the person's words, in their order, then the
-// others in theirs: each is read with its look-alikes when one ask of it costs no more than
-// maxL33tCost and all its asks fit in what is left of maxL33tBudget.
-func setBounds(readings []asked, detailed bool) {
+// look-alike characters, and 0 when it is not. A reading anyone is asked, one not made from the
+// person's words, is counted as two asks whatever the person's details are: with the details
+// and, when the password falls short, without them to name the reason. These come first, in
+// their order, so the bound of each is the same whoever the person is: a person's details can
+// only lower the estimate the password gets with none, and the reason named agrees with that
+// judgment. The password as typed is the first of them: it is read with its look-alikes
+// whenever one ask of it costs no more than maxL33tCost, exactly as before any other reading
+// existed. Each of the others is read with them when one ask of it costs no more than
+// maxL33tCost and its two asks fit in what is left of maxL33tBudget. The reading with the piece
+// written once, the one with bits added, is there for the piece and not for a word of the
+// person's, so it also leaves one ask at the bound. The readings made from the person's words
+// come last, one ask each, in what is left: when the password's three spellings are one text,
+// the first of them is read with its look-alikes whenever one ask of it costs no more than
+// maxL33tCost.
+func setBounds(readings []asked) {
 	left := maxL33tBudget
-	give := func(r *asked) {
-		asks := 1
-		if detailed && !r.personal {
-			asks = 2
-		}
-		cost := l33tCost(r.text)
-		r.bound = 0
-		if cost <= maxL33tCost && asks*cost <= left {
-			r.bound = maxL33tCost
-			left -= asks * cost
-		}
-	}
-	give(&readings[0])
-	for _, personal := range []bool{true, false} {
-		for i := 1; i < len(readings); i++ {
-			if readings[i].personal == personal {
-				give(&readings[i])
+	for _, personal := range []bool{false, true} {
+		for i := range readings {
+			r := &readings[i]
+			if r.personal != personal {
+				continue
+			}
+			asks, kept := 2, 0
+			switch {
+			case r.personal:
+				asks = 1
+			case r.added > 0:
+				kept = maxL33tCost
+			}
+			cost := l33tCost(r.text)
+			r.bound = 0
+			if cost <= maxL33tCost && asks*cost <= left-kept {
+				r.bound = maxL33tCost
+				left -= asks * cost
 			}
 		}
 	}

@@ -757,6 +757,27 @@ func TestReadingsOf(t *testing.T) {
 	}
 }
 
+func TestReadingsOf_aReadingAnyoneIsAskedIsTheSameWhoeverThePersonIs(t *testing.T) {
+	t.Parallel()
+
+	read := newReading()
+	typed, spelled, second := spellingsOf("S|lve$+riabababab|I+7137", read)
+	inputs := inputsOf(Details{Name: "Tessa Silvestri", Email: "tessa@example.com"}, read)
+	without := readingsOf(typed, spelled, second, nil)
+	with := readingsOf(typed, spelled, second, inputs)
+	if len(with) <= len(without) {
+		t.Fatalf("readingsOf with her words = %+v, no longer than without them = %+v: the case proves nothing", with, without)
+	}
+	if !slices.Equal(with[:len(without)], without) {
+		t.Errorf("readingsOf with her words begins %+v, want the readings without them %+v", with[:len(without)], without)
+	}
+	for _, r := range with[len(without):] {
+		if !r.personal {
+			t.Errorf("readingsOf with her words has %+v after the readings without them, want only readings made from her words", r)
+		}
+	}
+}
+
 func TestSetBounds(t *testing.T) {
 	t.Parallel()
 
@@ -779,49 +800,137 @@ func TestSetBounds(t *testing.T) {
 
 	type given struct {
 		text     string
+		once     bool // the reading with the piece written once
 		personal bool
 	}
 	tests := []struct {
-		detailed bool
+		name     string
 		readings []given
 		bounds   []int
 	}{
-		{detailed: false, readings: []given{{heavy("a"), false}}, bounds: []int{maxL33tCost}},
-		{detailed: false, readings: []given{{over, false}}, bounds: []int{0}},
 		{
-			detailed: true,
-			readings: []given{{heavy("a"), false}, {heavy("b"), false}, {heavy("c"), true}},
-			bounds:   []int{maxL33tCost, 0, maxL33tCost},
+			name:     "the password as typed, at the bound",
+			readings: []given{{text: heavy("a"), once: false, personal: false}},
+			bounds:   []int{maxL33tCost},
 		},
 		{
-			detailed: false,
-			readings: []given{{heavy("a"), false}, {heavy("b"), false}, {heavy("c"), false}, {heavy("d"), false}},
-			bounds:   []int{maxL33tCost, maxL33tCost, maxL33tCost, 0},
+			name:     "the password as typed, past the bound",
+			readings: []given{{text: over, once: false, personal: false}},
+			bounds:   []int{0},
 		},
 		{
-			detailed: true,
-			readings: []given{{light("a"), false}, {over, false}, {light("b"), true}},
-			bounds:   []int{maxL33tCost, 0, maxL33tCost},
+			name: "two asks as typed leave one, which a reading anyone is asked cannot take and the person's can",
+			readings: []given{
+				{text: heavy("a"), once: false, personal: false},
+				{text: heavy("b"), once: false, personal: false},
+				{text: heavy("c"), once: false, personal: true},
+			},
+			bounds: []int{maxL33tCost, 0, maxL33tCost},
 		},
 		{
-			detailed: true,
-			readings: []given{{"vexillumtrek", false}, {"vexillumtrex", false}, {"vexillumtrey", true}},
-			bounds:   []int{maxL33tCost, maxL33tCost, maxL33tCost},
+			name: "a reading anyone is asked counts as two asks whatever the details",
+			readings: []given{
+				{text: heavy("a"), once: false, personal: false},
+				{text: heavy("b"), once: false, personal: false},
+				{text: heavy("c"), once: false, personal: false},
+				{text: heavy("d"), once: false, personal: false},
+			},
+			bounds: []int{maxL33tCost, 0, 0, 0},
+		},
+		{
+			name: "a reading past the bound takes nothing",
+			readings: []given{
+				{text: light("a"), once: false, personal: false},
+				{text: over, once: false, personal: false},
+				{text: light("b"), once: false, personal: true},
+			},
+			bounds: []int{maxL33tCost, 0, maxL33tCost},
+		},
+		{
+			name: "light readings all fit",
+			readings: []given{
+				{text: "vexillumtrek", once: false, personal: false},
+				{text: "vexillumtrex", once: false, personal: false},
+				{text: "vexillumtrey", once: false, personal: true},
+			},
+			bounds: []int{maxL33tCost, maxL33tCost, maxL33tCost},
+		},
+		{
+			name: "a spelling does not wait on the person's words",
+			readings: []given{
+				{text: heavy("a"), once: false, personal: false},
+				{text: heavy("b"), once: false, personal: true},
+				{text: light("c"), once: false, personal: false},
+			},
+			bounds: []int{maxL33tCost, 0, maxL33tCost},
+		},
+		{
+			name: "the piece once leaves one ask for the person's words",
+			readings: []given{
+				{text: heavy("a"), once: false, personal: false},
+				{text: light("b"), once: true, personal: false},
+				{text: heavy("c"), once: false, personal: true},
+			},
+			bounds: []int{maxL33tCost, 0, maxL33tCost},
+		},
+		{
+			name: "the piece once leaves that ask whoever the person is",
+			readings: []given{
+				{text: light("a"), once: false, personal: false},
+				{text: heavy("b"), once: true, personal: false},
+			},
+			bounds: []int{maxL33tCost, 0},
+		},
+		{
+			name: "the piece once fits beside that ask",
+			readings: []given{
+				{text: light("a"), once: false, personal: false},
+				{text: light("b"), once: true, personal: false},
+				{text: heavy("c"), once: false, personal: true},
+			},
+			bounds: []int{maxL33tCost, maxL33tCost, maxL33tCost},
 		},
 	}
 	for _, tt := range tests {
 		readings := make([]asked, 0, len(tt.readings))
 		for _, r := range tt.readings {
-			readings = append(readings, asked{text: r.text, added: 0, bound: 0, personal: r.personal})
+			added := 0.0
+			if r.once {
+				added = 1
+			}
+			readings = append(readings, asked{text: r.text, added: added, bound: 0, personal: r.personal})
 		}
-		setBounds(readings, tt.detailed)
+		setBounds(readings)
 		bounds := make([]int, 0, len(readings))
 		for _, r := range readings {
 			bounds = append(bounds, r.bound)
 		}
 		if !slices.Equal(bounds, tt.bounds) {
-			t.Errorf("setBounds(%+v, %t) gave the bounds %d, want %d", tt.readings, tt.detailed, bounds, tt.bounds)
+			t.Errorf("%s: setBounds gave the bounds %d, want %d", tt.name, bounds, tt.bounds)
 		}
+	}
+}
+
+func TestJudge_detailsNeverMakeAPasswordStronger(t *testing.T) {
+	t.Parallel()
+
+	const password = "S|lve$+riabababab|I+7137"
+	own := Details{Name: "Tessa Silvestri", Email: "tessa@example.com"}
+	other := Details{Name: "John Smith", Email: "john@example.com"}
+	for _, minimum := range []int{44, 52} {
+		without := Judge(password, Details{}, minimum)
+		if got := Judge(password, other, minimum); got != without {
+			t.Errorf("Judge(%q, %+v, %d) = %+v, want %+v as with no details", password, other, minimum, got, without)
+		}
+		if got := Judge(password, own, minimum); got.Strength > without.Strength {
+			t.Errorf("Judge(%q, %+v, %d) = %+v, stronger than with no details %+v", password, own, minimum, got, without)
+		}
+	}
+	if got := Judge(password, Details{}, 52); !got.StrongEnough {
+		t.Fatalf("Judge(%q, no details, 52) = %+v, want it strong enough: the case proves nothing", password, got)
+	}
+	if got := Judge(password, own, 52); got.StrongEnough || got.Reason != ReasonPersonal {
+		t.Errorf("Judge(%q, %+v, 52) = %+v, want it short for %q", password, own, got, ReasonPersonal)
 	}
 }
 
