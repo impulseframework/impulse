@@ -1,6 +1,7 @@
-// Package rowwordfixture holds the structs the struct-scope @rowWord tests read: a
-// resource that takes its words from its name, resources that state them, the ways a
-// statement is refused, and the kind that has no rows to name.
+// Package rowwordfixture holds the structs the struct-scope @rowWord tests and the test
+// of a delete's words read: resources that take their words from their names, resources
+// that state them, the ways a statement is refused, and the kind that has no rows to
+// name.
 package rowwordfixture
 
 import "github.com/impulseframework/impulse"
@@ -10,6 +11,21 @@ type (
 	//
 	// @resource
 	HangarPass struct {
+		ID impulse.UUID `spanner:"Id"`
+	}
+
+	// PilotID states no word, and its name ends in an acronym: several keep the
+	// acronym's letters.
+	//
+	// @resource
+	PilotID struct {
+		ID impulse.UUID `spanner:"Id"`
+	}
+
+	// ShipClass states no word, and its plural takes "es".
+	//
+	// @resource
+	ShipClass struct {
 		ID impulse.UUID `spanner:"Id"`
 	}
 

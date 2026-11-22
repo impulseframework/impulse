@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -372,7 +372,7 @@ func (r *resourceGenerator) attachSubjectReadThroughs() {
 // SubjectRecordWords is the record's name as a refusal of the subjectGuarded splice
 // says it: the struct's name in lower case, its words apart ("pilot certification").
 func (r *resourceInfo) SubjectRecordWords() string {
-	return strings.ToLower(strcase.ToCase(r.Name(), strcase.LowerCase, ' '))
+	return words.InWords(r.Name())
 }
 
 // resolveBindingAnnotations extracts and validates every binding annotation

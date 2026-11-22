@@ -1,4 +1,10 @@
-import { MethodMeta, MethodPresentation, RecordData, Resource } from '@impulseframework/resource-angular/types';
+import {
+  MethodMeta,
+  MethodPresentation,
+  nameInLowerWords,
+  RecordData,
+  Resource,
+} from '@impulseframework/resource-angular/types';
 import { Method } from '@impulseframework/resource';
 import {
   afterPickedDay,
@@ -123,6 +129,21 @@ describe('nameInWords', () => {
   for (const [name, want] of cases) {
     it(`${name} is "${want}"`, () => {
       expect(nameInWords(name)).toBe(want);
+    });
+  }
+});
+
+describe('nameInLowerWords', () => {
+  const cases: [string, string][] = [
+    ['CostCenter', 'cost center'],
+    // A plural acronym keeps its letters, inside a sentence too.
+    ['PartnerAPIs', 'partner APIs'],
+    ['IDs', 'IDs'],
+    ['cargo_manifest', 'cargo manifest'],
+  ];
+  for (const [name, want] of cases) {
+    it(`${name} is "${want}"`, () => {
+      expect(nameInLowerWords(name)).toBe(want);
     });
   }
 });

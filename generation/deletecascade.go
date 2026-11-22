@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -158,14 +159,15 @@ type deleteTree struct {
 
 // deleteWords is the one place a kind of record gets its words for a sentence about a
 // delete: the resource's name in words, one and many, in lower case ("ShipClass" is
-// "ship class" and "ship classes"). The tenant record takes the label it declares.
+// "ship class" and "ship classes", "PilotID" is "pilot id" and "pilot IDs"). The tenant
+// record takes the label it declares.
 func (c *client) deleteWords(res *resourceInfo) (one, many string) {
 	name := res.Name()
 	if res.IsTenant && res.TenantLabel != "" {
 		name = res.TenantLabel
 	}
 
-	return lowerFirst(screenWords(name)), lowerFirst(screenWords(c.pluralize(name)))
+	return words.InWords(name), words.InWords(c.pluralize(name))
 }
 
 // keyColumns is the table's primary key columns in key order.

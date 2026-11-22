@@ -23,6 +23,7 @@ func Test_declareRowWords(t *testing.T) {
 		wantErr  string
 	}{
 		{name: "no word stated: the name split into words", fixture: "HangarPass", wantOne: "hangar pass", wantMany: "hangar passes"},
+		{name: "a name that ends in an acronym keeps its letters where there are several", fixture: "PilotID", wantOne: "pilot id", wantMany: "pilot IDs"},
 		{name: "no word stated on the tenant record: the label it declares for one tenant", fixture: "HangarPass", label: "Bay", wantOne: "bay", wantMany: "bays"},
 		{name: "the word stated on the tenant record is the word", fixture: "DockingPermit", label: "Bay", wantOne: "permit", wantMany: "permits"},
 		{name: "the word stated, the plural taken from it", fixture: "DockingPermit", wantOne: "permit", wantMany: "permits"},
