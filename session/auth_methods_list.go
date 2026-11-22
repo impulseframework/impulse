@@ -208,6 +208,9 @@ type invitationAnswer struct {
 // page opened it, less what the block already says.
 type standingInvitationAnswer struct {
 	Email string `json:"email"`
+	// Name is the person's name as the inviter gave it, absent for none, as
+	// Invitation().Open() answers it.
+	Name string `json:"name,omitempty"`
 	// TenantID and TenantName are the tenant the invitation seats the person in and
 	// what people call it, as Invitation().Open() answers them.
 	TenantID   string `json:"tenantId,omitempty"`
@@ -226,8 +229,9 @@ type standingInvitationAnswer struct {
 	// AccountExists says an account already holds the invited address, and HasPassword
 	// that it signs in with a password: the page offers that account's password form,
 	// and offers to create an account only where none holds the address. Whoever
-	// holds the link is told this much, so the page can offer the right form: the
-	// link proves nothing of who holds it, and nothing is accepted by it.
+	// holds the link is told this much, so the page can offer the right form, and the
+	// name the inviter gave, which the page sends with the password it asks the server
+	// about: the link proves nothing of who holds it, and nothing is accepted by it.
 	AccountExists bool `json:"accountExists"`
 	HasPassword   bool `json:"hasPassword"`
 }
@@ -395,7 +399,7 @@ func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request
 	makes, directoryOnly := madeTenant(inv.NewTenant)
 
 	return &standingInvitationAnswer{
-		Email: inv.Email, TenantID: inv.TenantID, TenantName: a.invitedTenantName(inv.TenantID, inv.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
+		Email: inv.Email, Name: inv.Name, TenantID: inv.TenantID, TenantName: a.invitedTenantName(inv.TenantID, inv.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
 		ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail(), Methods: invited.methods,
 		AccountExists: invited.exists, HasPassword: invited.hasPassword,
 	}, nil

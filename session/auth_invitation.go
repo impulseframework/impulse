@@ -303,6 +303,9 @@ func (a *Auth[S, U, Tx]) Invitation() *InvitationHandlers {
 func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 	type response struct {
 		Email string `json:"email"`
+		// Name is the person's name as the inviter gave it, absent for none: the page
+		// sends it with the password it asks the server about (invitedAccountState).
+		Name string `json:"name,omitempty"`
 		// TenantID is the tenant the invitation seats the person in, and TenantName what
 		// people call it (SetTenantNames); both absent for the application's global
 		// surface, and the name absent where no namer knows the tenant.
@@ -350,7 +353,7 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 		makes, directoryOnly := madeTenant(link.NewTenant)
 
 		return httpio.NewEncoder(w).Ok(response{
-			Email: link.Email, TenantID: link.TenantID, TenantName: a.invitedTenantName(link.TenantID, link.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
+			Email: link.Email, Name: link.Name, TenantID: link.TenantID, TenantName: a.invitedTenantName(link.TenantID, link.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
 			ExpiresAt: link.ExpiresAt, SignUp: methods.passwordRegistered() && !directoryOnly, UsernameIsEmail: methods.usernameIsEmail(),
 			Methods: invited.methods, AccountExists: invited.exists, HasPassword: invited.hasPassword,
 		})
@@ -362,8 +365,11 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 // password, and the external registrations through which the invitation can be
 // accepted. What the login page shows the invitee turns on it: the password form for an
 // account with one, the account form where none holds the address, and a button for
-// each registration named. Whoever holds the link is told it: the link was mailed to
-// the address, and what it tells is no more than which form to show.
+// each registration named. Whoever holds the link is told it, and the name the inviter
+// gave beside it: the link was mailed to the address, what it tells of the account is
+// no more than which form to show, and the name is what the page sends with the
+// password it asks the server about, so the bar is judged against what the acceptance
+// judges the password against.
 type invitedAccountState struct {
 	exists      bool
 	hasPassword bool

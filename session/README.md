@@ -1036,7 +1036,7 @@ the password method is listed.
   their email address", "Sign-up" and "Mail".
 - `invitation.standing` is the live invitation the browser carries, present when the
   invitation cookie that `open` set still names an invitation that stands: the address
-  it was sent to, its tenant (`""` for the application's global surface), when it stops
+  it was sent to, the name the inviter gave, its tenant (`""` for the application's global surface), when it stops
   being accepted, whether an account created from it takes the address as its
   username, and the names of the listed external registrations that could admit the
   address (`methods`, empty when none could), as `Invitation().Open()` answered them;
@@ -1672,7 +1672,7 @@ you a link". There is no second mail.
   confirmed address it was mailed to: it is dead once that address or the password
   changed. Every write and removal of a password in the library withdraws the
   account's standing reset links, and an application that writes one in rows of its
-  own says so with `AuthAPI.EndPasswordResetLinks(ctx, id)`. `PasswordReset().Open()` answers the username of a live link and
+  own says so with `AuthAPI.EndPasswordResetLinks(ctx, id)`. `PasswordReset().Open()` answers the username of a live link, with the account's name and address where it holds them, and
   `PasswordReset().Complete()` takes the new password; the login page reaches both with
   `#reset=<token>`. The new password is held to the same judgment as any other (see
   "Password strength"): a password the judgment refuses (400) spends nothing, and the
@@ -1980,10 +1980,13 @@ one it sends.
   stand; `RevokeInvitation(ctx, id)` withdraws one. The tenant and the roles are the
   application's, opaque to the library.
 - **Opening**: the login page, sent to with `#invitation=<token>`, posts the token to
-  `Invitation().Open()`, which answers `{"email", "tenantId", "tenantName", "newTenant",
+  `Invitation().Open()`, which answers `{"email", "name", "tenantId", "tenantName", "newTenant",
   "directoryOnly", "expiresAt", "signUp", "usernameIsEmail", "methods", "accountExists",
   "hasPassword"}` and sets an encrypted cookie holding the token, so the
-  sign-in that follows carries the invitation, an external round trip included. The
+  sign-in that follows carries the invitation, an external round trip included.
+  `name` is the person's name as the inviter gave it, absent when they gave none: the
+  page sends it with the password it asks the server about, so the bar agrees with the
+  acceptance. The
   page then offers the sign-in methods, and, when `signUp` is true (the password method
   is registered, and the invitation is not one accepted with an organization's account
   alone), an account with a password. `methods` names the listed external

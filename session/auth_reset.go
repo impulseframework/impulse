@@ -280,10 +280,20 @@ func (a *Auth[S, U, Tx]) resetLink(ctx context.Context, token string) (link *ses
 	return link, user, nil
 }
 
-// passwordResetAnswer is what Open and Complete answer: the name the account signs in
-// under.
+// passwordResetAnswer is what Complete answers: the name the account signs in under.
 type passwordResetAnswer struct {
 	Username string `json:"username"`
+}
+
+// passwordResetOpenAnswer is what Open answers: the name the account signs in under, and
+// the account's name and address where it holds them. The page sends the three with the
+// password it asks the server about, so its bar is judged against what Complete judges
+// the password against (detailsOf). Whoever holds the link reads the mailbox it was
+// sent to.
+type passwordResetOpenAnswer struct {
+	Username string `json:"username"`
+	Name     string `json:"name,omitempty"`
+	Email    string `json:"email,omitempty"`
 }
 
 // passwordResetOpen is PasswordReset().Open().
@@ -301,7 +311,9 @@ func (a *Auth[S, U, Tx]) passwordResetOpen() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		return httpio.NewEncoder(w).Ok(passwordResetAnswer{Username: user.Username})
+		who := detailsOf(user)
+
+		return httpio.NewEncoder(w).Ok(passwordResetOpenAnswer{Username: who.Username, Name: who.Name, Email: who.Email})
 	})
 }
 
