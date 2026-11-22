@@ -222,12 +222,18 @@ type grants map[accesstypes.Permission][]accesstypes.Resource
 type staticAccess struct {
 	access.Controller
 	g grants
+	// auth is the auth whose requests the stand-in answers for (Auth); empty, the crew's.
+	auth string
 }
 
 // Auth names the auth the stand-in answers for, as a real engine names the auth it was
-// opened for: the crew's, whose requests the scripted suites serve.
+// opened for: the crew's, or the members' for the stand-in membersEngineFor pairs with it.
 func (s *staticAccess) Auth() string {
-	return crew.Name
+	if s.auth == "" {
+		return crew.Name
+	}
+
+	return s.auth
 }
 
 func (s *staticAccess) ForUser(user accesstypes.User) *access.UserChecker {
@@ -616,8 +622,14 @@ func newApp(db *initiator.SpannerDB, controller access.Controller, stores *testS
 
 // membersEngineFor pairs the shared crew engine with the shared members engine, so a
 // portal user's request under an app built over the parity engines answers from the
-// members store; a scripted engine pairs with nothing.
+// members store, and a scripted engine with a stand-in of the members' over the same
+// table, so a portal user's request, which the library answers only from the members'
+// engine, is answered by the script; any other engine pairs with nothing.
 func membersEngineFor(controller access.Controller) access.Controller {
+	if scripted, ok := controller.(*staticAccess); ok {
+		return &staticAccess{g: scripted.g, auth: members.Name}
+	}
+
 	sharedMu.RLock()
 	defer sharedMu.RUnlock()
 
