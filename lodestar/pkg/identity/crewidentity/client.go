@@ -89,6 +89,10 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, tenan
 	// reads who administers a sector by the engine's own names, the ones the sign-in and
 	// the session's reach decide by.
 	crewresources.SetCrewSectorUserAdministratorRoles(manager.TenantAdministratorRoles())
+	// A row of the auth's people offers the methods that change how a sector's
+	// administrator signs in only to a caller who enters the sectors the person
+	// administers, read by the engine's own names, the ones the methods refuse by.
+	crewresources.SetCrewSessionUserAdministratorRoles(manager.TenantAdministratorRoles())
 
 	return &Client{manager: manager}, nil
 }

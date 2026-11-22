@@ -95,6 +95,33 @@ func (i *identityInstance) listsDirectoryOutsiders() bool {
 	return i.tenant != nil && i.tenant.directory != nil && i.hasList(listPeopleSuffix)
 }
 
+// offersToEntering reports whether a row of the instance's people offers the methods
+// that change how a person signs in, or whether their account stands, only to a caller
+// whose session enters every tenant the person administers (@callerEnters on the
+// methods, TenantsToEnter on the rows): where the tenant record declares the
+// directory-only switch. In any other application no tenant keeps a session out, so a
+// row would offer them to everyone, and the sources say nothing of it.
+func (i *identityInstance) offersToEntering() bool {
+	return i.tenant != nil && i.tenant.directory != nil
+}
+
+// OffersToEntering is offersToEntering for the templates.
+func (d *identitySourceData) OffersToEntering() bool {
+	return d.offersToEntering()
+}
+
+// enteringAdministratorsParam is the query parameter the rows of the instance's people
+// read the roles that administer a tenant from, where they offer a method only to a
+// caller who enters the tenants the person administers (offersToEntering): the names
+// the auth's permission engine answers who administers a tenant by, handed to them by
+// the generated client.
+const enteringAdministratorsParam = "enteringAdministratorRoles"
+
+// EnteringAdministratorsParam is enteringAdministratorsParam for the templates.
+func (d *identitySourceData) EnteringAdministratorsParam() string {
+	return enteringAdministratorsParam
+}
+
 // ListsDirectoryOutsiders is listsDirectoryOutsiders for the client's template.
 func (d *identitySourceData) ListsDirectoryOutsiders() bool {
 	return d.listsDirectoryOutsiders()

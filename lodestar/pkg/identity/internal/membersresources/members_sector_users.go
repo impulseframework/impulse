@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -136,4 +137,11 @@ LEFT JOIN SectorDirectories td ON td.SectorId = ts.Id
 // Subquery is the query the rows are read from.
 func (MembersSectorUser) Subquery() (query string, params map[string]any) {
 	return membersSectorUserQuery, nil
+}
+
+// TenantsToEnter names the sectors the person administers: a caller whose session
+// does not enter one of them is not offered the methods that change how the person signs
+// in or whether their account stands.
+func (MembersSectorUser) TenantsToEnter() resource.TenantsToEnter {
+	return membersSessionUserTenantsToEnter("Id")
 }

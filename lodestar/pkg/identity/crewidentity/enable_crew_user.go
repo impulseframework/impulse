@@ -14,7 +14,11 @@ import (
 // EnableCrewUser enables a disabled person of the Crew auth, who may sign
 // in again. The sessions that ended when they were disabled stay ended.
 //
+// A row offers it only to a caller whose session enters every sector the person
+// administers (@callerEnters); the method refuses anyone else.
+//
 // @rpc
+// @callerEnters
 // @outlet(default)
 // @answers(204)
 type EnableCrewUser struct {
