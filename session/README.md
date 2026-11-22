@@ -1595,13 +1595,14 @@ password or in the word itself.
 How hard a password is to guess is an estimate in bits. The password method's
 `MinimumPasswordStrength` option sets the bits a password must reach (default: 30); an
 application that wants longer passwords raises it. The estimate reads a password's first 64
-characters. It counts a character outside ASCII once, whatever its bytes, and reads an accented
-letter as the letter, a dotless ı as i, and a letter people also write in plain letters as that
-spelling (ß as ss, ł as l, ø as o, æ as ae). A letter people write two ways in plain letters
-counts in both (ü as u and ue, ø as o and oe, å as a and aa, đ as d and dj). A vowel sign or
-tone mark that a script types as a character of its own, as Thai and Hindi do, counts as a
-character; a point a person may leave off, as in Hebrew and Arabic, does not. A password is
-judged when it is set: one a person already holds still signs them in.
+characters. A password that is one piece typed again and again (`abababab`) is judged as the
+piece and how many times it is typed. It counts a character outside ASCII once, whatever its
+bytes, and reads an accented letter as the letter, a dotless ı as i, and a letter people also
+write in plain letters as that spelling (ß as ss, ł as l, ø as o, æ as ae). A letter people
+write two ways in plain letters counts in both (ü as u and ue, ø as o and oe, å as a and aa, đ
+as d and dj). A vowel sign or tone mark that a script types as a character of its own, as Thai
+and Hindi do, counts as a character; a point a person may leave off, as in Hebrew and Arabic,
+does not. A password is judged when it is set: one a person already holds still signs them in.
 
 A page asks the same judgment while the person types. `PasswordMethod.Strength()` takes
 `{"password"}` and, when the page has them, the person's `"username"`, `"name"` and

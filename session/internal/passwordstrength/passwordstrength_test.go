@@ -1,6 +1,7 @@
 package passwordstrength
 
 import (
+	"math"
 	"runtime"
 	"slices"
 	"strings"
@@ -294,6 +295,23 @@ func TestJudge_aLetterReadAsTwoCountsOnce(t *testing.T) {
 	}
 }
 
+func TestJudge_aPieceTypedAgainAndAgainIsJudgedOnce(t *testing.T) {
+	t.Parallel()
+
+	other := Details{Username: "someoneelse", Name: "Other Person", Email: "other@example.com"}
+	for _, password := range []string{"abababababab", "x7Kpx7Kp", "ก่ก่ก่ก่", "कीकीकीकीकी"} {
+		for _, who := range []Details{{}, other} {
+			if got := Judge(password, who, 30); got.StrongEnough || got.Reason != ReasonGuessable {
+				t.Errorf("Judge(%q, %+v) = %+v, want it short for %q: it is one piece typed again and again", password, who, got, ReasonGuessable)
+			}
+		}
+	}
+	const strongTwice = "rWibMFACxAUGZmxhVncyrWibMFACxAUGZmxhVncy"
+	if got := Judge(strongTwice, Details{}, 30); !got.StrongEnough {
+		t.Errorf("Judge(%q, 30) = %+v, want a strong piece typed twice strong enough", strongTwice, got)
+	}
+}
+
 func TestL33tWork(t *testing.T) {
 	t.Parallel()
 
@@ -568,6 +586,35 @@ func TestSpellingsOf(t *testing.T) {
 	}
 }
 
+func TestTypedOnce(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		text  string
+		once  string
+		times int
+	}{
+		{text: "abababababab", once: "ab", times: 6},
+		{text: "abab", once: "ab", times: 2},
+		{text: "ss1ss1ss1ss", once: "ss1ss", times: 3},
+		{text: "xxabcabcabcyy", once: "xxabcyy", times: 3},
+		{text: "xyxyx", once: "xyx", times: 2},
+		{text: "abcdabcdxyxyxy", once: "abcdxyxyxy", times: 2},
+		{text: "xyxyxyabcdabcd", once: "xyxyxyabcd", times: 2},
+		{text: "ababcdcd", once: "abcdcd", times: 2},
+		{text: "aaaa", once: "aa", times: 2},
+		{text: "abcabd", once: "abcabd", times: 1},
+		{text: "vexillumtrek", once: "vexillumtrek", times: 1},
+		{text: "a", once: "a", times: 1},
+		{text: "", once: "", times: 1},
+	}
+	for _, tt := range tests {
+		if once, times := typedOnce(tt.text); once != tt.once || times != tt.times {
+			t.Errorf("typedOnce(%q) = %q, %d, want %q, %d", tt.text, once, times, tt.once, tt.times)
+		}
+	}
+}
+
 func TestReadingsOf(t *testing.T) {
 	t.Parallel()
 
@@ -610,6 +657,10 @@ func TestReadingsOf(t *testing.T) {
 				{text: "Muller2077", bound: maxL33tCostFurther, personal: true},
 				{text: "Mueller2077", bound: maxL33tCostFurther, personal: true},
 			},
+		},
+		{
+			typed: "abababababab", spelled: "abababababab", second: "abababababab",
+			want: []asked{{text: "abababababab", bound: maxL33tCost}, {text: "ab", added: math.Log2(6), bound: maxL33tCostFurther}},
 		},
 	}
 	for _, tt := range tests {

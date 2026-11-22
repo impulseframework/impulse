@@ -9,26 +9,28 @@
 // falls short, which Sentence says to a person.
 //
 // One judgment costs a bounded amount of work whatever the password is made of, since anyone
-// may ask one before signing in: the estimate reads a password's first MaxJudged characters
-// and each detail's first maxDetail, a detail cut before it is normalized so a long one is
-// never read whole, and it reads look-alike characters as letters (4 for a, $ for s) while
-// the passes that reading takes, each costing the square of the length, cost no more than
-// maxL33tWork passes over MaxJudged characters. A password past that holds many different
-// look-alike characters for its length, and is estimated as typed. The password is read as
-// typed, one character for each character typed, and in the other ways a person's word may be
-// written in it; the library is asked about each and the lowest estimate counts, so another way
-// of reading a password never makes it stronger. The library does not read look-alike
-// characters against the person's words, so a password that spells a word of theirs of
-// minLookAlike characters or more with look-alikes standing for some of its letters, beside at
-// least one of its letters typed as itself, is also read with the word written as the person
-// wrote it. That reading runs both ways: a look-alike in the password stands for the word's
-// letter (Z@br0w$k! for Zabrowski), and one in the word for the letter typed (Zabrowski for
-// z4br0wski). Finding the words compares each one with the password at each of its first
-// MaxJudged characters, no further than MaxJudged characters each time. The asks about the
-// password as typed, with the person's details and, when it falls short, without them to name
-// the reason, are each within maxL33tCost, and the others within maxL33tCostFurther, at most
-// maxFurtherAsks of them, so one judgment costs no more than three asks at the bound. The list
-// is asked about the whole password, which is hashed in pieces and never copied.
+// may ask one before signing in: the estimate reads a password's first MaxJudged characters and
+// each detail's first maxDetail, a detail cut before it is normalized so a long one is never
+// read whole, and it reads look-alike characters as letters (4 for a, $ for s) while the passes
+// that reading takes, each costing the square of the length, cost no more than maxL33tWork
+// passes over MaxJudged characters. A password past that holds many different look-alike
+// characters for its length, and is estimated as typed. The password is read as typed, one
+// character for each character typed, and in the other ways a person's word may be written in
+// it; the library is asked about each and the lowest estimate counts, so another way of reading
+// a password never makes it stronger. The library does not read look-alike characters against
+// the person's words, so a password that spells a word of theirs of minLookAlike characters or
+// more with look-alikes standing for some of its letters, beside at least one of its letters
+// typed as itself, is also read with the word written as the person wrote it. That reading runs
+// both ways: a look-alike in the password stands for the word's letter (Z@br0w$k! for
+// Zabrowski), and one in the word for the letter typed (Zabrowski for z4br0wski). Finding the
+// words compares each one with the password at each of its first MaxJudged characters, no
+// further than MaxJudged characters each time. A password that is one piece typed again and
+// again (abababab) is also read as the piece and how many times it is typed, since the library
+// sees one character typed again and again and nothing longer. The asks about the password as
+// typed, with the person's details and, when it falls short, without them to name the reason,
+// are each within maxL33tCost, and the others, the piece among them, within maxL33tCostFurther,
+// at most maxFurtherAsks of them, so one judgment costs no more than three asks at the bound.
+// The list is asked about the whole password, which is hashed in pieces and never copied.
 //
 // The library counts bytes where a person types characters, so it is asked about a text in
 // ASCII alone: an accented letter is read as its letter, a dotless ı as i, a letter people also
@@ -83,7 +85,8 @@ const (
 
 	// maxFurtherAsks is the most asks of one judgment past the two about the password as
 	// typed: with the person's details, about the password as spelled, in its second spelling
-	// and the two plain readings; without them, about the first two.
+	// and with a repeated piece typed once, and the two plain readings; without them, about the
+	// first three.
 	maxFurtherAsks = 8
 
 	// maxL33tCostFurther is the most the reading of look-alike characters may cost in each of
@@ -262,28 +265,60 @@ func spellingsOf(password string, read *reading) (typed, spelled, second string)
 }
 
 // readingsOf are the readings of the password the library is asked about, in this order, a text
-// already among them left out: typed, within maxL33tCost; spelled; second; and spelled and
-// second each with the person's words it spells with look-alike characters written as the
-// words are (plainReading), personal. Every reading after typed is within maxL33tCostFurther.
+// already among them left out: typed, within maxL33tCost; spelled; second; typed with its run
+// of one piece typed again and again written as the piece once (typedOnce), with the bits of how
+// many times it is typed added; and spelled and second each with the person's words it spells
+// with look-alike characters written as the words are (plainReading), personal. Every reading
+// after typed is within maxL33tCostFurther.
 // Each spelling has its own plain reading so a word of the person's keeps its place in the
 // list in whichever spelling the person wrote it: Süßmilch typed for a person named Süßmilch
 // matches sussmilch, and for one registered as Suessmilch, suessmilch.
 func readingsOf(typed, spelled, second string, inputs []string) []asked {
 	readings := []asked{{text: typed, added: 0, bound: maxL33tCost, personal: false}}
-	add := func(text string, personal bool) {
+	add := func(text string, added float64, personal bool) {
 		for _, r := range readings {
 			if r.text == text {
 				return
 			}
 		}
-		readings = append(readings, asked{text: text, added: 0, bound: maxL33tCostFurther, personal: personal})
+		readings = append(readings, asked{text: text, added: added, bound: maxL33tCostFurther, personal: personal})
 	}
-	add(spelled, false)
-	add(second, false)
-	add(plainReading(spelled, inputs), true)
-	add(plainReading(second, inputs), true)
+	add(spelled, 0, false)
+	add(second, 0, false)
+	if once, times := typedOnce(typed); times > 1 {
+		add(once, math.Log2(float64(times)), false)
+	}
+	add(plainReading(spelled, inputs), 0, true)
+	add(plainReading(second, inputs), 0, true)
 
 	return readings
+}
+
+// typedOnce is text with the run of one piece typed again and again that covers the most of it
+// written as the piece once, and how many times the piece is typed in the run: abababab is ab,
+// 4. A piece is two characters or more, since the library sees one character typed again and
+// again itself, and stands whole each time. Of runs that cover as much, the one that starts
+// first is taken, and of those the one with the shortest piece. With no run, it is text and 1.
+// text is a reading, in ASCII and at most MaxJudged characters long, so a byte is a character
+// and the search is bounded.
+func typedOnce(text string) (once string, times int) {
+	start, piece, times := 0, 0, 1
+	for i := range len(text) {
+		for p := 2; i+2*p <= len(text); p++ {
+			n := 1
+			for i+(n+1)*p <= len(text) && text[i+n*p:i+(n+1)*p] == text[i:i+p] {
+				n++
+			}
+			if n > 1 && n*p > times*piece {
+				start, piece, times = i, p, n
+			}
+		}
+	}
+	if piece == 0 {
+		return text, 1
+	}
+
+	return text[:start+piece] + text[start+times*piece:], times
 }
 
 // bitsOf is the lowest of the library's estimates of the readings with inputs, each with what
