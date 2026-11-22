@@ -71,7 +71,11 @@ func declareRoleOf(pStruct *parser.Struct, fields []*resourceField, annotations 
 		}
 	}
 
-	return errors.Join(errs...)
+	if len(errs) > 0 {
+		return errors.Wrapf(errors.Join(errs...), "@%s annotation error", roleOfKeyword)
+	}
+
+	return nil
 }
 
 // roleOfArgument reads the auth a field's @roleOf names, refusing a field whose Go type
@@ -113,7 +117,11 @@ func rejectRoleOf(pStruct *parser.Struct, annotations genlang.StructAnnotations)
 		}
 	}
 
-	return errors.Join(errs...)
+	if len(errs) > 0 {
+		return errors.Wrapf(errors.Join(errs...), "@%s annotation error", roleOfKeyword)
+	}
+
+	return nil
 }
 
 // resolveRoleFields resolves every @roleOf declared on a table-backed, virtual or
@@ -157,7 +165,11 @@ func (c *client) resolveRoleFields(resources []*resourceInfo, computed []*comput
 		}
 	}
 
-	return errors.Join(errs...)
+	if len(errs) > 0 {
+		return errors.Wrapf(errors.Join(errs...), "the roles of the fields that carry @%s", roleOfKeyword)
+	}
+
+	return nil
 }
 
 // roleOfInstance is the run's auth that a field's @roleOf names, refused where the run
@@ -209,12 +221,19 @@ func readRoleFileRoles(importPath, file string) (roleFileRoles, error) {
 
 		return roleFileRoles{}, errors.Wrapf(err, "Auth(%q): os.ReadFile(%q)", importPath, file)
 	}
+
+	return roleFileRolesOf(data), nil
+}
+
+// roleFileRolesOf are the roles a role file's content defines; none for content that does
+// not parse, which the engine and impulse check refuse in their words (definedRoles).
+func roleFileRolesOf(data []byte) roleFileRoles {
 	var config access.RoleConfig
 	if json.Unmarshal(data, &config) != nil {
-		return roleFileRoles{}, nil
+		return roleFileRoles{}
 	}
 
-	return roleFileRoles{global: roleNames(config.Roles.Global), domain: roleNames(config.Roles.Domain)}, nil
+	return roleFileRoles{global: roleNames(config.Roles.Global), domain: roleNames(config.Roles.Domain)}
 }
 
 // roleNames are the names of the roles, leaving out an entry the file leaves empty.
