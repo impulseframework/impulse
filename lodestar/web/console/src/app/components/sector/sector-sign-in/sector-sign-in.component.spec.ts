@@ -409,7 +409,7 @@ describe('SectorSignInComponent', () => {
     await pageFor({ digests: marshal, directories: [seated] });
 
     expect(texts('.seat')).toEqual([
-      "Open to the directory's people: each is given the role SectorCrew at their first sign-in through it.",
+      "Open to the directory's people: each is given the role Sector crew at their first sign-in through it.",
     ]);
     expect(texts('.open-to-directory')).toEqual(['Change the role']);
 
@@ -457,7 +457,7 @@ describe('SectorSignInComponent', () => {
     expect(element().querySelector('.make-invite-only')).toBeNull();
     expect(element().querySelector('.remove-directory')).toBeNull();
     expect(texts('.seat')).toEqual([
-      "Open to the directory's people: each is given the role SectorCrew at their first sign-in through it.",
+      "Open to the directory's people: each is given the role Sector crew at their first sign-in through it.",
     ]);
   });
 

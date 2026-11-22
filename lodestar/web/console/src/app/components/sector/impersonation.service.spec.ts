@@ -128,6 +128,20 @@ describe('ImpersonationService', () => {
     expect(service.banner()?.text).toBe('Acting as role Dispatcher. You are governor; subject still binds to you.');
   });
 
+  it('names the role a session acts as in words', async () => {
+    const service = await signedIn({
+      username: 'governor',
+      impersonation: {
+        actor: 'governor',
+        principalKind: 'Role',
+        principal: 'SectorMarshal',
+        maskWords: 'everything',
+        expiresAt: cap,
+      },
+    });
+    expect(service.banner()?.text).toBe('Acting as role Sector marshal. You are governor; subject still binds to you.');
+  });
+
   it('asks the mint route for the kind of each control', async () => {
     const service = await signedIn({ username: 'governor' });
     const http = TestBed.inject(HttpTestingController);
