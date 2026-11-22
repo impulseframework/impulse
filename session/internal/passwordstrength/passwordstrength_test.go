@@ -3,6 +3,7 @@ package passwordstrength
 import (
 	"math"
 	"runtime"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"testing"
@@ -469,6 +470,7 @@ func TestJudge_detailsAreReadByTheirFirstCharacters(t *testing.T) {
 }
 
 func TestJudge_aLongDetailCostsNoMoreThanItsFirstCharacters(t *testing.T) { //nolint:paralleltest // it counts what the whole process allocates
+	withoutCollection(t)
 	const password, minimum = "vexillumtrek", 30
 	long := strings.Repeat("שּׁ", 4<<20/3)
 	first := firstRunes(long, maxDetailTyped)
@@ -488,6 +490,7 @@ func TestJudge_aLongDetailCostsNoMoreThanItsFirstCharacters(t *testing.T) { //no
 }
 
 func TestJudge_aLongPasswordAllocatesNoMoreThanItsFirstCharacters(t *testing.T) { //nolint:paralleltest // it counts what the whole process allocates
+	withoutCollection(t)
 	const minimum = 30
 	long := strings.Repeat("vexillumtrek", 4<<20/12)
 	first := firstRunes(long, MaxJudged)
@@ -504,6 +507,20 @@ func TestJudge_aLongPasswordAllocatesNoMoreThanItsFirstCharacters(t *testing.T) 
 	if got := allocated(long); got > short+64<<10 {
 		t.Errorf("Judge of a password of %d bytes allocated %d bytes, want no more than the %d of its first %d characters, within 64 KiB", len(long), got, short, MaxJudged)
 	}
+}
+
+// withoutCollection turns the garbage collector off until t ends, so the calls a test measures
+// and the call before them that fills what the estimate keeps between calls all run with no
+// collection among them. A collection empties the pools the collector clears (the regular
+// expressions' machines among them), and the call that falls in it or follows it allocates
+// them again: tens of kilobytes that come and go with the collector and have nothing to do
+// with what is judged. Every byte the call itself allocates is still counted.
+func withoutCollection(t *testing.T) {
+	t.Helper()
+	percent := debug.SetGCPercent(-1)
+	t.Cleanup(func() {
+		debug.SetGCPercent(percent)
+	})
 }
 
 func TestFirstRunes(t *testing.T) {
