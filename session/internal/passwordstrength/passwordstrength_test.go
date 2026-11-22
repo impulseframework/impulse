@@ -127,6 +127,13 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "a Hindi name with its vowel signs", password: "सुनीता2077!", who: Details{Name: "सुनीता शर्मा"}},
 		{name: "a Hindi name with a nukta, typed without it", password: "जाकिर2077!", who: Details{Name: "ज़ाकिर हुसैन"}},
 		{name: "a Hindi name with a chandrabindu, typed with an anusvara", password: "चांदनी2077!", who: Details{Name: "चाँदनी शर्मा"}},
+		{name: "the name in look-alike characters beside another word in them", password: "Z@br0w$k!f00tb@ll|1977", who: Details{Name: "Quentin Zabrowski"}},
+		{name: "the name in look-alike characters after another word in them", password: "m0nk3y!Z@br0w$k!|1977", who: Details{Name: "Quentin Zabrowski"}},
+		{name: "the name in look-alike characters after a second word in them", password: "sh@d0w!Z@br0w$k!|1977", who: Details{Name: "Quentin Zabrowski"}},
+		{name: "a username in look-alike characters after a word in them and a piece typed three times", password: "w3|cOmEE1!1!1!mReY3573", who: Details{Username: "mreyes73"}},
+		{name: "a short username in look-alike characters at the end", password: "shad0w|etme1nx!r+hor", who: Details{Username: "thor"}},
+		{name: "a name typed with its ß beside a word in look-alike characters", password: "Großkreutz!m0nk3y|1977", who: Details{Name: "Jörg Großkreutz"}},
+		{name: "a name typed with its þ beside a word in look-alike characters", password: "monk3y!þórsdóttir!1979", who: Details{Name: "Anna Þórsdóttir"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -631,41 +638,109 @@ func TestReadingsOf(t *testing.T) {
 		},
 		{
 			typed: "Gro~kreutz2077", spelled: "Grosskreutz2077", second: "Grosskreutz2077",
-			want: []asked{{text: "Gro~kreutz2077", bound: maxL33tCost}, {text: "Grosskreutz2077", bound: maxL33tCostFurther}},
+			want: []asked{{text: "Gro~kreutz2077", bound: maxL33tCost}, {text: "Grosskreutz2077", bound: maxL33tCost}},
 		},
 		{
 			typed: "Z@br0w$k!2077", spelled: "Z@br0w$k!2077", second: "Z@br0w$k!2077", inputs: []string{"Zabrowski"},
-			want: []asked{{text: "Z@br0w$k!2077", bound: maxL33tCost}, {text: "Zabrowski2077", bound: maxL33tCostFurther, personal: true}},
+			want: []asked{{text: "Z@br0w$k!2077", bound: maxL33tCost}, {text: "Zabrowski2077", bound: maxL33tCost, personal: true}},
 		},
 		{
 			typed: "Gr0~kreutz2077", spelled: "Gr0sskreutz2077", second: "Gr0sskreutz2077", inputs: []string{"Grosskreutz"},
 			want: []asked{
 				{text: "Gr0~kreutz2077", bound: maxL33tCost},
-				{text: "Gr0sskreutz2077", bound: maxL33tCostFurther},
-				{text: "Grosskreutz2077", bound: maxL33tCostFurther, personal: true},
+				{text: "Gr0sskreutz2077", bound: maxL33tCost},
+				{text: "Grosskreutz2077", bound: maxL33tCost, personal: true},
 			},
 		},
 		{
 			typed: "Muller2077", spelled: "Muller2077", second: "Mueller2077",
-			want: []asked{{text: "Muller2077", bound: maxL33tCost}, {text: "Mueller2077", bound: maxL33tCostFurther}},
+			want: []asked{{text: "Muller2077", bound: maxL33tCost}, {text: "Mueller2077", bound: maxL33tCost}},
 		},
 		{
 			typed: "Mull3r2077", spelled: "Mull3r2077", second: "Muell3r2077", inputs: []string{"Muller", "Mueller"},
 			want: []asked{
 				{text: "Mull3r2077", bound: maxL33tCost},
-				{text: "Muell3r2077", bound: maxL33tCostFurther},
-				{text: "Muller2077", bound: maxL33tCostFurther, personal: true},
-				{text: "Mueller2077", bound: maxL33tCostFurther, personal: true},
+				{text: "Muell3r2077", bound: maxL33tCost},
+				{text: "Muller2077", bound: maxL33tCost, personal: true},
+				{text: "Mueller2077", bound: maxL33tCost, personal: true},
 			},
 		},
 		{
 			typed: "abababababab", spelled: "abababababab", second: "abababababab",
-			want: []asked{{text: "abababababab", bound: maxL33tCost}, {text: "ab", added: math.Log2(6), bound: maxL33tCostFurther}},
+			want: []asked{{text: "abababababab", bound: maxL33tCost}, {text: "ab", added: math.Log2(6), bound: maxL33tCost}},
 		},
 	}
 	for _, tt := range tests {
 		if got := readingsOf(tt.typed, tt.spelled, tt.second, tt.inputs); !slices.Equal(got, tt.want) {
 			t.Errorf("readingsOf(%q, %q, %q, %q) = %+v, want %+v", tt.typed, tt.spelled, tt.second, tt.inputs, got, tt.want)
+		}
+	}
+}
+
+func TestSetBounds(t *testing.T) {
+	t.Parallel()
+
+	heavy := func(pad string) string { // 16 passes at 64 characters: maxL33tCost exactly
+		return "4@({69$5" + strings.Repeat(pad, MaxJudged-8)
+	}
+	light := func(pad string) string { // one pass
+		return strings.Repeat(pad, MaxJudged)
+	}
+	over := "4@({[69$5" + strings.Repeat("a", MaxJudged-9) // 24 passes: past maxL33tCost
+	if got := l33tCost(heavy("a")); got != maxL33tCost {
+		t.Fatalf("l33tCost(%q) = %d, want %d: the case proves nothing", heavy("a"), got, maxL33tCost)
+	}
+	if got := l33tCost(over); got <= maxL33tCost {
+		t.Fatalf("l33tCost(%q) = %d, want more than %d: the case proves nothing", over, got, maxL33tCost)
+	}
+	if got := l33tCost(light("a")); got != MaxJudged*MaxJudged {
+		t.Fatalf("l33tCost(%q) = %d, want %d: the case proves nothing", light("a"), got, MaxJudged*MaxJudged)
+	}
+
+	type given struct {
+		text     string
+		personal bool
+	}
+	tests := []struct {
+		detailed bool
+		readings []given
+		bounds   []int
+	}{
+		{detailed: false, readings: []given{{heavy("a"), false}}, bounds: []int{maxL33tCost}},
+		{detailed: false, readings: []given{{over, false}}, bounds: []int{0}},
+		{
+			detailed: true,
+			readings: []given{{heavy("a"), false}, {heavy("b"), false}, {heavy("c"), true}},
+			bounds:   []int{maxL33tCost, 0, maxL33tCost},
+		},
+		{
+			detailed: false,
+			readings: []given{{heavy("a"), false}, {heavy("b"), false}, {heavy("c"), false}, {heavy("d"), false}},
+			bounds:   []int{maxL33tCost, maxL33tCost, maxL33tCost, 0},
+		},
+		{
+			detailed: true,
+			readings: []given{{light("a"), false}, {over, false}, {light("b"), true}},
+			bounds:   []int{maxL33tCost, 0, maxL33tCost},
+		},
+		{
+			detailed: true,
+			readings: []given{{"vexillumtrek", false}, {"vexillumtrex", false}, {"vexillumtrey", true}},
+			bounds:   []int{maxL33tCost, maxL33tCost, maxL33tCost},
+		},
+	}
+	for _, tt := range tests {
+		readings := make([]asked, 0, len(tt.readings))
+		for _, r := range tt.readings {
+			readings = append(readings, asked{text: r.text, added: 0, bound: 0, personal: r.personal})
+		}
+		setBounds(readings, tt.detailed)
+		bounds := make([]int, 0, len(readings))
+		for _, r := range readings {
+			bounds = append(bounds, r.bound)
+		}
+		if !slices.Equal(bounds, tt.bounds) {
+			t.Errorf("setBounds(%+v, %t) gave the bounds %d, want %d", tt.readings, tt.detailed, bounds, tt.bounds)
 		}
 	}
 }

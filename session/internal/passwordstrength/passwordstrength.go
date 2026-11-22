@@ -26,10 +26,10 @@
 // words compares each one with the password at each of its first MaxJudged characters, no
 // further than MaxJudged characters each time. A password that is one piece typed again and
 // again (abababab) is also read as the piece and how many times it is typed, since the library
-// sees one character typed again and again and nothing longer. The asks about the password as
-// typed, with the person's details and, when it falls short, without them to name the reason,
-// are each within maxL33tCost, and the others, the piece among them, within maxL33tCostFurther,
-// at most maxFurtherAsks of them, so one judgment costs no more than three asks at the bound.
+// sees one character typed again and again and nothing longer. The look-alike characters of the
+// password as typed are read whenever one ask of it costs no more than maxL33tCost, and those of
+// each other reading when its asks also fit in what is left of maxL33tBudget, the readings made
+// from the person's words first, so one judgment costs no more than three asks at the bound.
 // The list is asked about the whole password, which is hashed in pieces and never copied.
 //
 // The library counts bytes where a person types characters, so it is asked about a text in
@@ -83,16 +83,9 @@ const (
 	// the square of the length: maxL33tWork passes over MaxJudged characters.
 	maxL33tCost = maxL33tWork * MaxJudged * MaxJudged
 
-	// maxFurtherAsks is the most asks of one judgment past the two about the password as
-	// typed: with the person's details, about the password as spelled, in its second spelling
-	// and with a repeated piece typed once, and the two plain readings; without them, about the
-	// first three.
-	maxFurtherAsks = 8
-
-	// maxL33tCostFurther is the most the reading of look-alike characters may cost in each of
-	// the further asks, so that together they cost no more than one ask about the password as
-	// typed.
-	maxL33tCostFurther = maxL33tCost / maxFurtherAsks
+	// maxL33tBudget is the most the readings of look-alike characters of one judgment may cost
+	// together: three asks at the bound.
+	maxL33tBudget = 3 * maxL33tCost
 
 	// maxDetail is how many characters of each of the person's details, trimmed and in NFC,
 	// count against a password.
@@ -242,7 +235,8 @@ type asked struct {
 	// added is what is added to the library's estimate of text, in bits.
 	added float64
 
-	// bound is the most the library's reading of text's look-alike characters may cost.
+	// bound is maxL33tCost when the library reads text's look-alike characters as letters, and
+	// 0 when it does not (setBounds).
 	bound int
 
 	// personal says the reading is made from the person's words, so it is not asked without them.
@@ -265,23 +259,23 @@ func spellingsOf(password string, read *reading) (typed, spelled, second string)
 }
 
 // readingsOf are the readings of the password the library is asked about, in this order, a text
-// already among them left out: typed, within maxL33tCost; spelled; second; typed with its run
-// of one piece typed again and again written as the piece once (typedOnce), with the bits of how
-// many times it is typed added; and spelled and second each with the person's words it spells
-// with look-alike characters written as the words are (plainReading), personal. Every reading
-// after typed is within maxL33tCostFurther.
+// already among them left out: typed; spelled; second; typed with its run of one piece typed
+// again and again written as the piece once (typedOnce), with the bits of how many times it is
+// typed added; and spelled and second each with the person's words it spells with look-alike
+// characters written as the words are (plainReading), personal. setBounds says which of them
+// are read with their look-alike characters.
 // Each spelling has its own plain reading so a word of the person's keeps its place in the
 // list in whichever spelling the person wrote it: Süßmilch typed for a person named Süßmilch
 // matches sussmilch, and for one registered as Suessmilch, suessmilch.
 func readingsOf(typed, spelled, second string, inputs []string) []asked {
-	readings := []asked{{text: typed, added: 0, bound: maxL33tCost, personal: false}}
+	readings := []asked{{text: typed, added: 0, bound: 0, personal: false}}
 	add := func(text string, added float64, personal bool) {
 		for _, r := range readings {
 			if r.text == text {
 				return
 			}
 		}
-		readings = append(readings, asked{text: text, added: added, bound: maxL33tCostFurther, personal: personal})
+		readings = append(readings, asked{text: text, added: added, bound: 0, personal: personal})
 	}
 	add(spelled, 0, false)
 	add(second, 0, false)
@@ -290,8 +284,43 @@ func readingsOf(typed, spelled, second string, inputs []string) []asked {
 	}
 	add(plainReading(spelled, inputs), 0, true)
 	add(plainReading(second, inputs), 0, true)
+	setBounds(readings, inputs != nil)
 
 	return readings
+}
+
+// setBounds gives each of readings its bound: maxL33tCost when the library is to read its
+// look-alike characters, and 0 when it is not. detailed says the person has details. A reading
+// is asked once, and twice when it is not made from the person's words and the person has
+// details: with them and, when the password falls short, without them to name the reason. It
+// is read the same way both times, so the two asks differ by the details alone. The password as
+// typed comes first: it is read with its look-alikes whenever one ask of it costs no more than
+// maxL33tCost, exactly as before any other reading existed, and its asks always fit in
+// maxL33tBudget. Then the readings made from the person's words, in their order, then the
+// others in theirs: each is read with its look-alikes when one ask of it costs no more than
+// maxL33tCost and all its asks fit in what is left of maxL33tBudget.
+func setBounds(readings []asked, detailed bool) {
+	left := maxL33tBudget
+	give := func(r *asked) {
+		asks := 1
+		if detailed && !r.personal {
+			asks = 2
+		}
+		cost := l33tCost(r.text)
+		r.bound = 0
+		if cost <= maxL33tCost && asks*cost <= left {
+			r.bound = maxL33tCost
+			left -= asks * cost
+		}
+	}
+	give(&readings[0])
+	for _, personal := range []bool{true, false} {
+		for i := 1; i < len(readings); i++ {
+			if readings[i].personal == personal {
+				give(&readings[i])
+			}
+		}
+	}
 }
 
 // typedOnce is text with the run of one piece typed again and again that covers the most of it
@@ -357,12 +386,18 @@ func estimate(judged string, inputs []string, bound int) float64 {
 }
 
 // readsLookAlikes says whether the estimate reads judged's look-alike characters as letters:
-// whether the passes that reading takes, times the square of judged's length, are within
-// bound. judged is in ASCII, so its length in bytes is its length in characters.
+// whether what that reading costs (l33tCost) is within bound.
 func readsLookAlikes(judged string, bound int) bool {
-	n := len(judged)
+	return l33tCost(judged) <= bound
+}
 
-	return l33tWork(judged)*n*n <= bound
+// l33tCost is what the library's reading of text's look-alike characters as letters costs: the
+// passes it takes times the square of text's length. text is in ASCII, so its length in bytes
+// is its length in characters.
+func l33tCost(text string) int {
+	n := len(text)
+
+	return l33tWork(text) * n * n
 }
 
 // strengthOf places bits on the scale from 0 to Full, with minimum at Mark.
