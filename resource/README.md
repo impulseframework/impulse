@@ -5517,8 +5517,11 @@ own, outside any request, has no caller and is the application's act):
   group's row the method that puts a person in the group, and a row of the people of
   the groups the method that takes the person out, for a caller the method would
   refuse. The whole application's two methods that take a role away, from a person and
-  from a group, name no row: a page may offer one of them where the method then refuses
-  with the sentence.
+  from a group, name no row, and the rows a page runs them from answer for them
+  (`@callerEnters` naming the lists): a row of the roles people hold, or of the roles held
+  for a set time, leaves out the removal of a tenant's administrator's role held in that
+  tenant itself, and a row of the roles the groups hold the removal of such a role from a
+  group kept in that tenant, for a caller the method would refuse.
 - The removal of a person's last role anywhere deletes the account, with its identity
   links and sessions, in the same transaction and whoever removed the role: an account
   nothing admits is not kept.

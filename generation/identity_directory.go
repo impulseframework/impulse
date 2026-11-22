@@ -110,6 +110,23 @@ func (d *identitySourceData) OffersToEntering() bool {
 	return d.offersToEntering()
 }
 
+// RoleRemovalRows names the lists a page runs the whole application's method that takes a
+// role from a person from, for its @callerEnters: the roles people hold and, where a person
+// takes a role for a set time, the roles held so ("CrewHeldRole, CrewTakenRole"). Empty
+// where no row offers the method only to a caller who enters a tenant: no switch is
+// declared (offersToEntering), or the instance declares no list of the roles people hold.
+func (d *identitySourceData) RoleRemovalRows() string {
+	if !d.offersToEntering() || !d.listsHeldRoles() {
+		return ""
+	}
+	rows := d.HeldRole()
+	if d.takesRoles() {
+		rows += ", " + d.TakenRole()
+	}
+
+	return rows
+}
+
 // enteringAdministratorsParam is the query parameter the rows of the instance's people
 // read the roles that administer a tenant from, where they offer a method only to a
 // caller who enters the tenants the person administers (offersToEntering): the names

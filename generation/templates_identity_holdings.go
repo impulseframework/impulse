@@ -17,6 +17,9 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if .OffersToEntering }}
+	"github.com/impulseframework/impulse/resource"
+	{{- end }}
 )
 
 type (
@@ -115,6 +118,42 @@ FROM (` + "`" + ` + {{ GoCamel .SubjectUserGroupRole }}Query + ` + "`" + `) h
 func ({{ .HeldRole }}) Subquery() (query string, params map[string]any) {
 	return {{ GoCamel .HeldRole }}Query, nil
 }
+{{- if .OffersToEntering }}
+
+// {{ GoCamel .HeldRole }}AdministeredTenantsQuery answers the {{ .TenantWord }} each role a person of the {{ .Auth }} auth holds of
+// their own makes them an administrator of, a row for each, with the account's id, the kind,
+// the {{ .TenantWord }} and the role that name the membership: one of the roles the auth's
+// permission engine names as a {{ .TenantWord }}'s administrator's
+// (@{{ .EnteringAdministratorsParam }}) held in the {{ .TenantWord }} itself, in an assignment
+// that has not ended, one that has not begun included. The method that takes a role from a
+// person refuses a caller by the same count (the identity package's requireEnteringToChange),
+// and each row of the roles people hold, and of the roles held for a set time, reads it
+// (TenantsToEnter).
+const {{ GoCamel .HeldRole }}AdministeredTenantsQuery = ` + "`" + `
+SELECT ta.UserId AS UserId, ta.Kind AS Kind, ta.DomainId AS DomainId, ta.Role AS Role, ta.DomainId AS Tenant
+FROM {{ .Policy.UserRoles }} ta
+WHERE ta.Kind = {{ .KindDomain }} AND ta.Axis = {{ .ScopeAxis }}
+  AND ta.Role IN UNNEST(@{{ .EnteringAdministratorsParam }})
+  AND {{ .Standing "ta" }}
+` + "`" + `
+
+// {{ GoCamel .HeldRole }}TenantsToEnter is what each row of a role a person of the {{ .Auth }} auth holds answers
+// TenantsToEnter with: the query, the roles it reads, and the columns of the row that name
+// the person, the kind, the {{ .TenantWord }} and the role.
+func {{ GoCamel .HeldRole }}TenantsToEnter() resource.TenantsToEnter {
+	// The roles are the people's: the same names, bound under the same parameter.
+	enter := {{ GoCamel .User }}TenantsToEnter("UserId")
+	enter.Query = {{ GoCamel .HeldRole }}AdministeredTenantsQuery
+	enter.Match = map[string]string{"UserId": "UserId", "Kind": "Kind", "DomainId": "DomainId", "Role": "Role"}
+
+	return enter
+}
+
+` + identityRoleTenantsToEnterDoc + `
+func ({{ .HeldRole }}) TenantsToEnter() resource.TenantsToEnter {
+	return {{ GoCamel .HeldRole }}TenantsToEnter()
+}
+{{- end }}
 `
 
 	// identityTenantHeldRolesTemplate declares a tenant's one list of the roles people
@@ -332,6 +371,9 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if .OffersToEntering }}
+	"github.com/impulseframework/impulse/resource"
+	{{- end }}
 )
 
 type (
@@ -396,6 +438,18 @@ WHERE {{ .Standing "r" }}
 func ({{ .ListedGroupRole }}) Subquery() (query string, params map[string]any) {
 	return {{ GoCamel .ListedGroupRole }}Query, nil
 }
+{{- if .OffersToEntering }}
+
+` + identityGroupRoleTenantsToEnterDoc + `
+func ({{ .ListedGroupRole }}) TenantsToEnter() resource.TenantsToEnter {
+	enter := {{ GoCamel .Group }}TenantsToEnter("GroupId")
+	enter.Match["Kind"] = "Kind"
+	enter.Match["DomainId"] = "DomainId"
+	enter.Match["Role"] = "Role"
+
+	return enter
+}
+{{- end }}
 `
 
 	// identityListedRoleGrantsTemplate is the list of the custom roles' grants a page
@@ -523,6 +577,9 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if .OffersToEntering }}
+	"github.com/impulseframework/impulse/resource"
+	{{- end }}
 )
 
 type (
@@ -588,6 +645,13 @@ WHERE m.EndsAt IS NOT NULL AND m.Reason IS NOT NULL AND m.Reason != ''
 func ({{ .TakenRole }}) Subquery() (query string, params map[string]any) {
 	return {{ GoCamel .TakenRole }}Query, nil
 }
+{{- if .OffersToEntering }}
+
+` + identityRoleTenantsToEnterDoc + `
+func ({{ .TakenRole }}) TenantsToEnter() resource.TenantsToEnter {
+	return {{ GoCamel .HeldRole }}TenantsToEnter()
+}
+{{- end }}
 `
 
 	// identityTakeableRolesTemplate is the list the role of a taking is picked from.
