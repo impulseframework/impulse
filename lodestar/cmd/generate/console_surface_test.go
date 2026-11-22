@@ -222,6 +222,7 @@ func TestConsoleNamesItsRowsInWords(t *testing.T) {
 		}
 		want := []string{
 			"distressCalls.config.ts: createButtonLabel: 'File a distress call',",
+			"distressCalls.config.ts: createButtonLabel: 'Relay a message',",
 			"squadrons.config.ts: createButtonLabel: 'Add a pilot',",
 		}
 		if strings.Join(labels, "\n") != strings.Join(want, "\n") {
