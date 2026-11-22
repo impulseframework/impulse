@@ -54,7 +54,8 @@ const (
 // program generates the new auth's management: where it does the routes name the new
 // auth, and where it does not the pages are taken out. A file the skeleton rendered and
 // nobody edited is rendered again from the template for the new auth; a file edited since
-// is rewritten in place.
+// is rewritten in place, but for the test of the dialogs, which is left with a skipped
+// line (rebindDialogsSpec).
 func (au Auth) rebindWeb(a *app.App, choice *OutletChoice, src *authSource, managed bool, ch *Change) error {
 	for _, t := range outletTargets(choice.Site.Generator, &choice.Outlet) {
 		source, ok, err := projectSource(a, t)
@@ -131,8 +132,9 @@ func (au Auth) webBaseAuth(a *app.App, choice *OutletChoice, source string, src 
 
 // rebindProject rebinds one project's files from the base auth to the new one: the
 // routes and the menu file, whose requests for the pages of an auth's management name the
-// auth, and the application configuration's XSRF lines alone, since the rest of that file
-// is the application's own providers.
+// auth, the test of the dialogs, whose test of the dialog that invites a person asks for
+// those pages too (rebindDialogsSpec), and the application configuration's XSRF lines
+// alone, since the rest of that file is the application's own providers.
 func (au Auth) rebindProject(a *app.App, source, base string, managed bool, ch *Change) error {
 	templates, err := skeleton.FS(skeleton.Base)
 	if err != nil {
@@ -146,6 +148,9 @@ func (au Auth) rebindProject(a *app.App, source, base string, managed bool, ch *
 		}
 		au.reportPages(rel, bound.call, base, outcome, managed, ch)
 	}
+	if err := au.rebindDialogsSpec(a, templates, source, base, managed, ch); err != nil {
+		return err
+	}
 
 	// The configuration carries the application's name (the frame's), so it is never the
 	// skeleton's template byte for byte: its XSRF lines are rewritten in place.
@@ -155,6 +160,61 @@ func (au Auth) rebindProject(a *app.App, source, base string, managed bool, ch *
 		return err
 	}
 	au.reportAppConfig(configRel, base, outcome, ch)
+
+	return nil
+}
+
+// rebindDialogsSpec rebinds a project's test of the dialogs, whose test of the dialog that
+// invites a person asks the library for the pages of the base auth's management and
+// expects that auth's invite method. Where nobody edited it since the skeleton rendered it
+// for the base auth, it is rendered again from the template for the new auth when the
+// outlet's program generates the new auth's management, and written as the outlets
+// reference's, which has no test of that dialog, when it generates none. A file edited
+// since is never rewritten in place, since renaming the request alone would leave a test
+// that expects the old auth's method: one that still asks for the base auth's pages is
+// left and a skipped line says what to change, and any other is left without a word.
+func (au Auth) rebindDialogsSpec(a *app.App, templates fs.FS, source, base string, managed bool, ch *Change) error {
+	rel := path.Join(source, appDialogsSpecFile)
+	data, mode, err := readFile(a, rel)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	template, err := fs.ReadFile(templates, path.Join(baseSourceRoot, appDialogsSpecFile))
+	if err != nil {
+		return errors.Wrapf(err, "fs.ReadFile(): %s", appDialogsSpecFile)
+	}
+	text := string(data)
+	if text != names.Rename(string(template), skeleton.PlaceholderAuth, base) {
+		if !strings.Contains(text, "auth: '"+names.Pascal(base)+"'") {
+			return nil
+		}
+		if managed {
+			ch.skipf("%s was edited since the skeleton rendered it, so it was left as it is: it asks the library for the pages of the %s auth's management (auth: '%s'), which the outlet's API description no longer carries; name the %s auth there (auth: '%s') and expect its methods, or take the test out: the web-wired check refuses the application until then", rel, base, names.Pascal(base), au.Name, au.Pascal())
+		} else {
+			ch.skipf("%s was edited since the skeleton rendered it, so it was left as it is: it asks the library for the pages of the %s auth's management (auth: '%s'), which the outlet's API description no longer carries, and the outlet's program generates no management of the %s auth to ask for in its place; take the test of those pages out: the web-wired check refuses the application until then", rel, base, names.Pascal(base), au.Name)
+		}
+
+		return nil
+	}
+	written := names.Rename(string(template), skeleton.PlaceholderAuth, au.Name)
+	if !managed {
+		reference, err := referenceText(ReferenceCandidate, appDialogsSpecFile)
+		if err != nil {
+			return err
+		}
+		written = forAuth(reference, au.Name)
+	}
+	if err := os.WriteFile(a.Abs(rel), []byte(written), mode); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+	if managed {
+		ch.didf("%s: rendered again from the skeleton's for the %s auth: its test of the dialog that invites a person asks the library for the pages of the %[2]s auth's management (identityPages(apiDescriptor, resourceMeta, { auth: '%s', scope: 'global' })) and expects that auth's invite method, in place of the %s auth's", rel, au.Name, au.Pascal(), base)
+	} else {
+		ch.didf("%s: written again without its test of the dialog that invites a person: the outlet's program generates no management of the %s auth, so its API description names no such page, and the library refuses a request for one", rel, au.Name)
+	}
 
 	return nil
 }
@@ -316,5 +376,5 @@ func (au Auth) reportAppConfig(rel, base string, outcome webOutcome, ch *Change)
 // webPlan is the sentence the brief carries about the browser application, for the
 // Meaning: what the transition did to the outlet's project.
 func webPlan() string {
-	return "The outlet's browser application is rebound with the auth, in the flat layout and in the sites layout alike: its HttpClient names the auth's XSRF cookie, and its routes and its menu file ask the library for the pages of the auth's generated management by the auth's name (identityRoutes, identityMenuPages), or for none where the outlet's program generates no management of the auth; each file is rendered again from the skeleton's when nobody edited it and rewritten in place otherwise (the did lines say which), and the web-wired check holds the result."
+	return "The outlet's browser application is rebound with the auth, in the flat layout and in the sites layout alike: its HttpClient names the auth's XSRF cookie, and its routes and its menu file ask the library for the pages of the auth's generated management by the auth's name (identityRoutes, identityMenuPages), or for none where the outlet's program generates no management of the auth; each of those files is rendered again from the skeleton's when nobody edited it and rewritten in place otherwise (the did lines say which). The skeleton's test of the dialog that invites a person (app/app.dialogs.spec.ts) follows the auth where nobody edited it: it is rendered again for the auth, or written without that test where the outlet's program generates no management of the auth; one edited since that still asks for the old auth's pages is left as it is, and a skipped line says what to change. The web-wired check holds the result."
 }

@@ -1534,6 +1534,10 @@ with the outlet, in the flat layout and in the sites layout: its routes ask the 
 new auth's management in place of the old one's (`identityRoutes` with `auth: '<Name>'`),
 or for none where the program generates none, and its HttpClient names the new auth's XSRF
 cookie; routes that asked for no pages are named for the agent with the request to spread.
+The skeleton's test of the dialog that invites a person (`app/app.dialogs.spec.ts`)
+follows the auth where nobody edited it: it is rendered again for the new auth, or written
+without that test where the program generates no management; one edited since that still
+asks for the old auth's pages is left as it is, and a Skipped line says what to change.
 The migrate command's test is brought to a release that invites the new auth's first
 administrator where the test is as the command writes it: the cases that give the first
 auth a holder of the Super Administrator role give the new auth one too, and the test of
