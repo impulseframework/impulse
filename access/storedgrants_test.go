@@ -533,3 +533,123 @@ func TestClient_oneUnsettledScopeWideConditionLeavesTheOtherGrants(t *testing.T)
 		t.Errorf("CheckPolicy() mismatch (-want +got):\n%s", diff)
 	}
 }
+
+// TestUserManager_SkippedStoredGrants pins that the engine says of the rows of the grants
+// table a caller read what a load of the policy says of them, in the order given: nothing
+// for a row its role holds, the load's own reason word for word for a row the load leaves
+// out, and the shadowed role's reason for a row stored under the name of a role the
+// release's role file defines. A row whose columns spell no scope a store writes is an
+// error, and no rows answer nothing.
+func TestUserManager_SkippedStoredGrants(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	const clerk accesstypes.Role = "Clerk"
+	const (
+		unparsed = "status ="
+		open     = "status = 'open'"
+	)
+	kind, axis, domain := policy.ScopeColumns(tenant1Policy)
+	row := func(role accesstypes.Role, perm accesstypes.Permission, condition string) StoredGrant {
+		return StoredGrant{Kind: kind, Axis: axis, Domain: domain, Role: role, Permission: perm, Resource: "Documents", Condition: condition}
+	}
+
+	t.Run("the load's reason for the row it leaves out, nothing for the rows the role holds", func(t *testing.T) {
+		t.Parallel()
+
+		store := newFakeStore()
+		for _, err := range []error{
+			store.InsertRole(ctx, tenant1Policy, clerk, aDescription),
+			store.InsertGrant(ctx, tenant1Policy, clerk, accesstypes.Read, "Documents", "", open),
+			store.InsertGrant(ctx, tenant1Policy, clerk, accesstypes.Read, "Documents", "", unparsed),
+			store.InsertGrant(ctx, tenant1Policy, clerk, accesstypes.Update, "Documents", "", ""),
+		} {
+			if err != nil {
+				t.Fatalf("seeding fake store: %v", err)
+			}
+		}
+		hook := &reloadErrors{}
+		client := newPolicyClient(t, store, storedGrantsRelease(t), WithReloadErrorHandler(hook.collect))
+		settle(client.snapEngine)
+
+		var reasons []string
+		for _, err := range hook.list() {
+			var skipped *SkippedGrant
+			if !errors.As(err, &skipped) {
+				t.Fatalf("the hook received %v, want nothing but a skipped grant", err)
+			}
+			reasons = append(reasons, plainText(skipped.Reason))
+		}
+		if len(reasons) != 1 || !strings.HasPrefix(reasons[0], "the condition does not parse: ") {
+			t.Fatalf("the load reported %q, want the one row whose condition does not parse", reasons)
+		}
+
+		got, err := client.UserManager().SkippedStoredGrants([]StoredGrant{
+			row(clerk, accesstypes.Read, open),
+			row(clerk, accesstypes.Read, unparsed),
+			row(clerk, accesstypes.Update, ""),
+		})
+		if err != nil {
+			t.Fatalf("SkippedStoredGrants() error = %v", err)
+		}
+		if diff := cmp.Diff([]string{"", reasons[0], ""}, got); diff != "" {
+			t.Errorf("SkippedStoredGrants() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a row under the name of a role the role file defines is left out as the shadowed role is", func(t *testing.T) {
+		t.Parallel()
+
+		const auditor accesstypes.Role = "Auditor"
+		roleFile := RoleFile(`{
+  "roles": {
+    "domain": [
+      {"name": "Auditor", "description": "Reads the documents.", "permissions": {"Read": [{"resource": "Documents"}]}}
+    ]
+  }
+}`)
+		client := newPolicyClient(t, newFakeStore(), storedGrantsRelease(t), WithDefaultRoles(roleFile, fixtureAuth))
+
+		got, err := client.UserManager().SkippedStoredGrants([]StoredGrant{row(auditor, accesstypes.Read, "")})
+		if err != nil {
+			t.Fatalf("SkippedStoredGrants() error = %v", err)
+		}
+		if len(got) != 1 || got[0] == "" {
+			t.Fatalf("SkippedStoredGrants() = %q, want the one row left out", got)
+		}
+		// The words are the load's report of the role, after its colon, so the two
+		// cannot drift.
+		if said := (&ShadowedRole{Scope: tenant1Policy, Role: auditor}).Error(); !strings.HasSuffix(said, ": "+got[0]) {
+			t.Errorf("SkippedStoredGrants() = %q, want the words the load reports the role in after its colon: %q", got[0], said)
+		}
+	})
+
+	t.Run("a row whose columns spell no scope a store writes is an error", func(t *testing.T) {
+		t.Parallel()
+
+		client := newPolicyClient(t, newFakeStore(), storedGrantsRelease(t))
+		nowhere := row(clerk, accesstypes.Read, "")
+		nowhere.Kind = "nowhere"
+
+		got, err := client.UserManager().SkippedStoredGrants([]StoredGrant{row(clerk, accesstypes.Read, ""), nowhere})
+		if err == nil {
+			t.Fatalf("SkippedStoredGrants() = %q, want an error", got)
+		}
+		if got != nil {
+			t.Errorf("SkippedStoredGrants() = %q beside its error, want no answer", got)
+		}
+	})
+
+	t.Run("no rows answer nothing", func(t *testing.T) {
+		t.Parallel()
+
+		client := newPolicyClient(t, newFakeStore(), storedGrantsRelease(t))
+		got, err := client.UserManager().SkippedStoredGrants(nil)
+		if err != nil {
+			t.Fatalf("SkippedStoredGrants() error = %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("SkippedStoredGrants() = %q, want no strings", got)
+		}
+	})
+}

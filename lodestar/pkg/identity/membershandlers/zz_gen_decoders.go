@@ -20,6 +20,19 @@ func NewQueryDecoder[Resource Resourcer, Request any](h *Handlers, permissions .
 	return resource.MustNewQueryDecoder[Resource, Request](router.Collection(), permissions...).WithCursorKey(h.CursorKey()).WithFeatures(h.FeatureSet())
 }
 
+// NewComputedQueryDecoder builds a query decoder for a generated computed resource
+// and request pair. Computed resources execute application code, so the decoder
+// enforces permissions at decode time rather than deferring to query execution, and
+// it carries the application database's type so a computed list sorts and pages NULL
+// where the tables beside it do, and the generated collection and the resource client
+// so a grant's condition that reads the row is judged over the rows the resource's
+// function yields, against the facts about the caller the client reads. The
+// Resourcer union keeps construction inside the generated universe: a decoder over
+// any other struct is a compile error.
+func NewComputedQueryDecoder[Resource Resourcer, Request any](h *Handlers, permissions ...accesstypes.Permission) *resource.ComputedQueryDecoder[Resource, Request] {
+	return resource.MustNewComputedQueryDecoder[Resource, Request](h.ResourceClient().DBType(), permissions...).WithCursorKey(h.CursorKey()).WithFeatures(h.FeatureSet()).WithCollection(router.Collection()).WithSubjectFacts(h.ResourceClient())
+}
+
 // NewRPCDecoder builds a decoder for a generated RPC method request. The Method
 // union keeps construction inside the generated universe: a decoder for any other
 // type is a compile error.

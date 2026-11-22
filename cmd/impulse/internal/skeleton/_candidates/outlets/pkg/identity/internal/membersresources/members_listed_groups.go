@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 type (
@@ -72,4 +73,11 @@ FROM MembersGroups g
 // Subquery is the query the rows are read from.
 func (MembersListedGroup) Subquery() (query string, params map[string]any) {
 	return membersListedGroupQuery, nil
+}
+
+// TenantsToEnter names the tenant the group is kept in, where the group holds one
+// of that tenant's administrator roles there: a caller whose session does not
+// enter it is not offered the methods that put a person in the group or take one out.
+func (MembersListedGroup) TenantsToEnter() resource.TenantsToEnter {
+	return membersGroupTenantsToEnter("Id")
 }

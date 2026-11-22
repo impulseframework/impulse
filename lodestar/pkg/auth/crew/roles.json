@@ -318,9 +318,10 @@
               ]
             },
             {
-              "resource": "CrewRoleGrants",
+              "resource": "CrewListedRoleGrants",
               "fields": [
-                "updatedAt"
+                "updatedAt",
+                "skipped"
               ]
             },
             {
@@ -379,9 +380,10 @@
               ]
             },
             {
-              "resource": "MembersRoleGrants",
+              "resource": "MembersListedRoleGrants",
               "fields": [
-                "updatedAt"
+                "updatedAt",
+                "skipped"
               ]
             },
             {

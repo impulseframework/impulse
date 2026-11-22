@@ -369,16 +369,6 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/api/staff-role-grants", method: http.MethodGet,
-			handlerFunc: "StaffRoleGrants",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-role-grants", method: http.MethodPost,
-			handlerFunc: "StaffRoleGrants",
-			parameters:  map[string]string{},
-		},
-		{
 			url: "/api/staff-sessions", method: http.MethodGet,
 			handlerFunc: "StaffSessions",
 			parameters:  map[string]string{},
@@ -786,6 +776,16 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/api/staff-invited-tenants", method: http.MethodPost,
 			handlerFunc: "StaffInvitedTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-role-grants", method: http.MethodGet,
+			handlerFunc: "StaffListedRoleGrants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-role-grants", method: http.MethodPost,
+			handlerFunc: "StaffListedRoleGrants",
 			parameters:  map[string]string{},
 		},
 		{
@@ -1262,12 +1262,12 @@ func (s *generatedHandlersStub) StaffListedGroupRoles() http.HandlerFunc {
 	return s.record("StaffListedGroupRoles")
 }
 
-func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
-	return s.record("StaffRoles")
+func (s *generatedHandlersStub) StaffListedRoleGrants() http.HandlerFunc {
+	return s.record("StaffListedRoleGrants")
 }
 
-func (s *generatedHandlersStub) StaffRoleGrants() http.HandlerFunc {
-	return s.record("StaffRoleGrants")
+func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
+	return s.record("StaffRoles")
 }
 
 func (s *generatedHandlersStub) StaffSessions() http.HandlerFunc {

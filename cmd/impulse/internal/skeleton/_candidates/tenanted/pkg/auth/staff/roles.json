@@ -274,9 +274,10 @@
               ]
             },
             {
-              "resource": "StaffRoleGrants",
+              "resource": "StaffListedRoleGrants",
               "fields": [
-                "updatedAt"
+                "updatedAt",
+                "skipped"
               ]
             },
             {

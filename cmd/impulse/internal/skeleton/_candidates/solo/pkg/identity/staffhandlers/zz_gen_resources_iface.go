@@ -22,7 +22,7 @@ type Resourcer interface {
 		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
 		staffresources.StaffTakenRole | staffresources.StaffUserGroupRole |
 		staffresources.StaffUserRole | staffidentity.StaffGivableRole |
-		staffidentity.StaffSignInMethod | staffidentity.StaffSignInWay |
-		staffidentity.StaffSignUpRole | staffidentity.StaffTakeLength |
-		staffidentity.StaffTakeableRole
+		staffidentity.StaffListedRoleGrant | staffidentity.StaffSignInMethod |
+		staffidentity.StaffSignInWay | staffidentity.StaffSignUpRole |
+		staffidentity.StaffTakeLength | staffidentity.StaffTakeableRole
 }
