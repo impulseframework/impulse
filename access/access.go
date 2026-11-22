@@ -5,6 +5,7 @@ import (
 	"context"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -273,12 +274,17 @@ func (c *Client) CheckUser(ctx context.Context, env accesstypes.Environment, use
 // a write check's boolean list — OR across a group's grants inside its
 // Condition, AND across groups computed by the caller — and a denial names
 // the failing group's Resources. See CheckUser for the Environment and scope
-// semantics.
+// semantics. A name with more than one dot is refused with an error before
+// anything is read.
 func (c *Client) CheckUserResources(
 	ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+
+	if err := refuseManyDots(resources); err != nil {
+		return nil, err
+	}
 
 	resourceDecisions, err := c.evaluator.checkUserResources(ctx, env, user, scope, perm, resources...)
 	if err != nil {
@@ -291,6 +297,20 @@ func (c *Client) CheckUserResources(
 	}
 
 	return decisions, nil
+}
+
+// refuseManyDots errors for the first of resources, in the order given, whose
+// name holds more than one dot: a dot separates a resource from one of its
+// fields, and a resource's own name holds none, so such a name names nothing,
+// and answering it Denied would hide the caller's mistake.
+func refuseManyDots(resources []accesstypes.Resource) error {
+	for _, res := range resources {
+		if strings.Count(string(res), ".") > 1 {
+			return errors.Newf("resource %q: a name a check is asked about holds at most one dot. A dot separates a resource from one of its fields (Resource.field), so a name with more than one names nothing. Ask about the resource, or about one field of it", res)
+		}
+	}
+
+	return nil
 }
 
 // factsFor builds the condition-folding facts for one user check: the
@@ -380,12 +400,17 @@ func (c *Client) CheckRole(ctx context.Context, env accesstypes.Environment, rol
 // semantics. A Conditional decision's payload is what the database must still
 // evaluate; a subject term in it is bound at render time to the session's
 // effective identity by the resource layer, never here — a role has no
-// identity of its own.
+// identity of its own. A name with more than one dot is refused with an error
+// before anything is read.
 func (c *Client) CheckRoleResources(
 	ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+
+	if err := refuseManyDots(resources); err != nil {
+		return nil, err
+	}
 
 	resourceDecisions, err := c.evaluator.checkRoleResources(ctx, role, scope, perm, resources...)
 	if err != nil {

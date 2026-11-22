@@ -228,6 +228,12 @@ func TestNew_withDefaultRoles_refusals(t *testing.T) {
 			wantErr:    "does not validate",
 		},
 		{
+			name:       "a file granting on a name with more than one dot",
+			collection: grammarCollection{},
+			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets.name.first"}]}}]}}`),
+			wantErr:    "resource Widgets.name.first does not require",
+		},
+		{
 			name:       "a file granting a domain resource to a global role",
 			collection: grammarCollection{},
 			file:       RoleFile(`{"roles": {"global": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
