@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/spxscan"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
@@ -111,7 +112,7 @@ func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.
 // and taking that one off ends them all.
 func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse.UUID) error {
 	row := map[string]any{idColumn: userID, emailColumn: spanner.NullString{}, emailVerifiedAtColumn: spanner.NullTime{}}
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET ConsumedAt = PENDING_COMMIT_TIMESTAMP() WHERE ConsumedAt IS NULL AND PendingId IN (SELECT Id FROM %s WHERE UserId = @userId)`,
 			s.factorCodesTableName, s.pendingTableName))
 		stmt.Params["userId"] = userID.String()
@@ -129,7 +130,7 @@ func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse
 			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}
 
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -189,14 +190,14 @@ func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID im
 	defer span.End()
 
 	var claimed bool
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		var err error
 		claimed, err = s.ClaimVerifiedEmailIn(ctx, txn, userID, email)
 
 		return err
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return false, errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return claimed, nil

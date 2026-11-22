@@ -29,7 +29,7 @@ func TestSessionStorageDriver_SignInConflict(t *testing.T) {
 		},
 		{
 			name: "a wrapped address conflict",
-			err:  errors.Wrap(status.Error(codes.AlreadyExists, "Unique index violation on index SessionUsersByNormalizedEmail"), "spanner.Client.ReadWriteTransaction()"),
+			err:  errors.Wrap(status.Error(codes.AlreadyExists, "Unique index violation on index SessionUsersByNormalizedEmail"), "spannertxn.Serializable()"),
 			want: dbtype.EmailConflict,
 		},
 		{

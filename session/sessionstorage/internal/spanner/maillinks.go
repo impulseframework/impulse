@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"google.golang.org/api/iterator"
@@ -222,14 +223,14 @@ func (s *SessionStorageDriver) FailMailLink(ctx context.Context, id impulse.UUID
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		return s.endMailLinkIn(ctx, txn, mailLinkMailFailed, idColumn, id.String(), now)
 	})
 	if errors.Is(err, errMailLinkNotLive) {
 		return httpio.NewNotFoundMessage("no live mail link")
 	}
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
@@ -238,14 +239,14 @@ func (s *SessionStorageDriver) FailMailLink(ctx context.Context, id impulse.UUID
 // consumeMailLink consumes the live link whose column holds value, in a transaction of
 // its own.
 func (s *SessionStorageDriver) consumeMailLink(ctx context.Context, column string, value any, now time.Time) error {
-	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		return s.consumeMailLinkIn(ctx, txn, column, value, now)
 	})
 	if errors.Is(err, errMailLinkNotLive) {
 		return httpio.NewNotFoundMessage("no live mail link")
 	}
 	if err != nil {
-		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
 	return nil
