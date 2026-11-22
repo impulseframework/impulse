@@ -196,8 +196,9 @@ func (p *PatchSet[Resource]) bufferedOwnColumn(txn ReadWriteTransaction, field a
 
 // namedWrite answers the write that names the row a point read is by: the newest
 // buffered write of the table that holds the read's key column, spelled as the read's
-// value (columnText). A write whose value there cannot be spelled is passed over. named
-// is false when no buffered write holds it.
+// value (columnText), whose row still holds it. A row a later write of the transaction
+// gave another value there is passed over, and so is a write whose value cannot be
+// spelled. named is false when no buffered write names a row.
 func (t *transactionRows) namedWrite(read pointRead) (write bufferedColumns, named bool) {
 	writes := t.writes[read.table]
 	for i := len(writes) - 1; i >= 0; i-- {
@@ -208,6 +209,12 @@ func (t *transactionRows) namedWrite(read pointRead) (write bufferedColumns, nam
 		spelled, err := columnText(value)
 		if err != nil || spelled != read.value {
 			continue
+		}
+		// The row's newest say on the column is what it holds now.
+		if newest, known := t.ownColumn(read.table, writes[i].row, read.keyColumn); known {
+			if now, err := columnText(newest); err != nil || now != read.value {
+				continue
+			}
 		}
 
 		return writes[i], true

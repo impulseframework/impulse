@@ -376,6 +376,15 @@ func TestChangeRecordTenant_bufferedLookup(t *testing.T) {
 			want:   pointAnswer{value: "yard-stored-row", found: true},
 		},
 		{
+			name: "a row given the code and then another names no row: the read by the code",
+			read: pier,
+			writes: []write{
+				{UpdatePatchType, map[string]any{"Id": "pier-2", "Code": "code-1", "YardId": "yard-2"}},
+				{UpdatePatchType, map[string]any{"Id": "pier-2", "Code": "code-9"}},
+			},
+			want: pointAnswer{value: "yard-stored", found: true},
+		},
+		{
 			name: "no write of the table: the read by the code",
 			read: pier,
 			want: pointAnswer{value: "yard-stored", found: true},
