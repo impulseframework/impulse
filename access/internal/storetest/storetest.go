@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse/access"
@@ -76,6 +77,7 @@ func Run(t *testing.T, store access.Store, writeRole RoleWriter) {
 	t.Run("groups", func(t *testing.T) { runGroups(t, store) })
 	t.Run("periods", func(t *testing.T) { runPeriods(t, store) })
 	t.Run("holdings", func(t *testing.T) { runHoldings(t, store) })
+	t.Run("custom role holdings", func(t *testing.T) { runCustomHoldings(t, store) })
 	t.Run("read policy", func(t *testing.T) { runReadPolicy(t, store) })
 }
 
@@ -248,8 +250,8 @@ func runGrants(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
 
-	if err := store.InsertGrant(ctx, tenant1, "Ghost", readPerm, employees, "", ""); err == nil {
-		t.Fatal("InsertGrant() with absent role must fail (parent enforcement), got nil")
+	if err := store.InsertGrant(ctx, tenant1, "Ghost", readPerm, employees, "", ""); !errors.Is(err, policy.ErrNoRole) {
+		t.Fatalf("InsertGrant() with absent role: error = %v, want policy.ErrNoRole", err)
 	}
 
 	// Condition is opaque expression text and part of the row's identity: the
@@ -334,8 +336,8 @@ func runInsertGrants(t *testing.T, store access.Store, grants []policy.RoleGrant
 	t.Helper()
 	ctx := t.Context()
 
-	if err := store.InsertGrants(ctx, tenant1, "Ghost", []policy.RoleGrant{{Perm: readPerm, Resource: employees}}); err == nil {
-		t.Fatal("InsertGrants() with absent role must fail (parent enforcement), got nil")
+	if err := store.InsertGrants(ctx, tenant1, "Ghost", []policy.RoleGrant{{Perm: readPerm, Resource: employees}}); !errors.Is(err, policy.ErrNoRole) {
+		t.Fatalf("InsertGrants() with absent role: error = %v, want policy.ErrNoRole", err)
 	}
 	batch := []policy.RoleGrant{
 		{Perm: readPerm, Resource: employees, Field: ""},
@@ -437,8 +439,8 @@ func runChangeGrants(t *testing.T, store access.Store) {
 	}
 
 	// Additions need the role.
-	if err := store.ChangeGrants(ctx, tenant1, "Ghost", nil, []policy.RoleGrant{{Perm: readPerm, Resource: employees}}); err == nil {
-		t.Fatal("ChangeGrants() with absent role must fail (parent enforcement), got nil")
+	if err := store.ChangeGrants(ctx, tenant1, "Ghost", nil, []policy.RoleGrant{{Perm: readPerm, Resource: employees}}); !errors.Is(err, policy.ErrNoRole) {
+		t.Fatalf("ChangeGrants() with absent role: error = %v, want policy.ErrNoRole", err)
 	}
 
 	// Back to what runGrants left.

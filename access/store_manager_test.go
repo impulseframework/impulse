@@ -188,7 +188,7 @@ func Test_storeManager_deleteRole(t *testing.T) {
 			setup: func(t *testing.T, m *storeManager) {
 				t.Helper()
 				mustAddRole(t, m, tenant1Policy, "Editor")
-				if err := m.addUserRole(ctx, tenant1Policy, "alice", "Editor", accesstypes.Period{}); err != nil {
+				if err := m.assignUserRole(ctx, tenant1Policy, "alice", "Editor", accesstypes.Period{}, ""); err != nil {
 					t.Fatal(err)
 				}
 			},

@@ -34,16 +34,6 @@ func (m *storeManager) notifyPolicyChange() {
 	}
 }
 
-func (m *storeManager) addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
-	// A role given with no reason carries none: the one it had goes with its period.
-	if err := m.store.InsertUserRole(ctx, scope, user, role, period, ""); err != nil {
-		return errors.Wrapf(err, "access.Store.InsertUserRole(): role %q to %q", role, user)
-	}
-	m.notifyPolicyChange()
-
-	return nil
-}
-
 func (m *storeManager) deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
 	if err := m.store.DeleteUserRole(ctx, scope, user, role); err != nil {
 		return errors.Wrapf(err, "access.Store.DeleteUserRole(): role %q from %q", role, user)

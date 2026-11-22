@@ -95,7 +95,6 @@ type evaluator interface {
 type policyStore interface {
 	// Membership. A membership is given for a period, which replaces the
 	// period of one that is there, and the listings answer what counts now.
-	addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
 	deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error
 	userRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error)
 	// userMemberships lists every membership the user holds now, wherever it
@@ -138,6 +137,10 @@ type policyStore interface {
 	deleteGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User) error
 	groupUsers(ctx context.Context, group accesstypes.Group) ([]accesstypes.User, error)
 	addGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
+	// addCustomGroupRole writes what addGroupRole writes, only while a row of the
+	// custom role is held where the group's role reads it, and wraps policy.ErrNoRole
+	// where none is.
+	addCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
 	deleteGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error
 	groupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error)
 	// userGroupRoles lists every role held now by a group the user is in now.
