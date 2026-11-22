@@ -1,13 +1,13 @@
 // Package regen serializes the tests that regenerate the tree. go test runs each
 // package's tests in its own process, in parallel with the other packages', and this
 // module has two kinds of test that regenerate: cmd/generate's, which runs go generate
-// ./... and compares the tree before and after, and each generate program's warnings
-// test, which runs the generator in-process. Two generations over one module at once
-// race in the generated files and in the generation cache, so each of those tests takes
-// the module's generation lock first. Whichever of them takes the lock first
-// regenerates the tree, and the ones after it find it already regenerated, so no one test
-// can hold the comparison: Exclusive hashes the generated files when it has the lock and
-// again when the test ends, and fails the test whose generation changed one.
+// ./..., and each generate program's warnings test, which runs the generator
+// in-process. Two generations over one module at once race in the generated files and
+// in the generation cache, so each of those tests takes the module's generation lock
+// first. Whichever of them takes the lock first regenerates the tree, and the ones
+// after it find it already regenerated, so no one test can hold the comparison:
+// Exclusive hashes the generated files when it has the lock and again when the test
+// ends, and fails the test whose generation changed one.
 package regen
 
 import (
