@@ -27,6 +27,7 @@ var (
 	}
 	byDirectoryWritten = []string{
 		"test/authz/harness_test.go",
+		"test/integration/founded_tenant_test.go",
 		"test/integration/grants_test.go",
 		"test/integration/groups_test.go",
 		"test/integration/harness_test.go",
@@ -266,12 +267,13 @@ func TestDirectoryStart_Apply_byDirectorySuites(t *testing.T) {
 			tenants: Tenancy{Table: "Tenants", OneTenantPerPerson: true},
 			wants: map[string][]string{
 				"test/authz/harness_test.go":                     {"app.NewTenantMaker(c.TenantRoster(), c.Live()), identity.WithAdministratorRoles(tenantAdministrators), identity.WithOneTenantPerPerson())", "app.NewTenantRoster(resource.NewSpannerClient(db.Client))"},
-				"test/integration/harness_test.go":               {"app.NewTenantRoster(", "app.NewTenantDeclarationReader()", "app.NewTenantDirectoryReader()", "app.NewTenantMaker(roster, svc)", "Persona: members.PersonaSettings{", "auth.SeedCast(ctx, io.Discard)", `north = "` + devTenantNorth + `"`},
+				"test/integration/harness_test.go":               {"func newDeployed(ctx context.Context, t *testing.T) *served {", "app.NewTenantRoster(", "app.NewTenantDeclarationReader()", "app.NewTenantDirectoryReader()", "app.NewTenantMaker(roster, svc)", "personaSettings = members.PersonaSettings{Issuer: ", "Persona: personaSettings,", "auth.SeedCast(ctx, io.Discard)", `north = "` + devTenantNorth + `"`},
 				"test/integration/sign_in_skipauth_test.go":      {"//go:build skipAuth\n", `"APP_"+strings.ToUpper(registration)+"_USERNAME"`},
-				"test/integration/login_test.go":                 {"members.PersonaRegistration", "members.GoogleRegistration", "members.AzureRegistration", "RefusedNotInvited"},
+				"test/integration/login_test.go":                 {"members.PersonaRegistration", "members.GoogleRegistration", "members.AzureRegistration", "RefusedNotInvited", "func TestLoginMethods(t *testing.T) {", "stack: newDeployed"},
 				"test/integration/invited_administrator_test.go": {"func TestFirstAdministrator_invitedThroughADirectory(t *testing.T) {"},
 				"test/integration/groups_test.go":                {"s.auth.SeedCastFile(ctx, io.Discard,"},
 				"test/integration/grants_test.go":                {"unconditionalRows(accesstypes.DomainScope(north), config.Roles.Domain)"},
+				"test/integration/founded_tenant_test.go":        {"func TestFoundedTenant_takesItsFoundersDirectory(t *testing.T) {", `"/api/invite-members-tenant"`, `"tenantName": f.tenant`, `"/api/tenants?limit=200"`, `"/api/tenants/"+id+"/tenant-directories"`, "members.GoogleRegistration", "members.AzureRegistration"},
 			},
 			never: []string{"staff.", "pkg/auth/staff", "has no tenants"},
 		},
@@ -279,8 +281,9 @@ func TestDirectoryStart_Apply_byDirectorySuites(t *testing.T) {
 			name:    "a record of another name, and a person in several tenants",
 			tenants: Tenancy{Table: "ServiceAreas"},
 			wants: map[string][]string{
-				"test/authz/harness_test.go":       {"app.NewServiceAreaMaker(c.TenantRoster(), c.Live()), identity.WithAdministratorRoles(tenantAdministrators))", "app.NewServiceAreaRoster("},
-				"test/integration/harness_test.go": {"app.NewServiceAreaRoster(", "app.NewServiceAreaDeclarationReader()", "app.NewServiceAreaDirectoryReader()", "app.NewServiceAreaMaker(roster, svc)"},
+				"test/authz/harness_test.go":              {"app.NewServiceAreaMaker(c.TenantRoster(), c.Live()), identity.WithAdministratorRoles(tenantAdministrators))", "app.NewServiceAreaRoster("},
+				"test/integration/harness_test.go":        {"app.NewServiceAreaRoster(", "app.NewServiceAreaDeclarationReader()", "app.NewServiceAreaDirectoryReader()", "app.NewServiceAreaMaker(roster, svc)"},
+				"test/integration/founded_tenant_test.go": {`"/api/invite-members-service-area"`, `"serviceAreaName": f.tenant`, `"/api/service-areas?limit=200"`, `"/api/service-areas/"+id+"/service-area-directories"`},
 			},
 			never: []string{"WithOneTenantPerPerson", "NewTenantRoster", "A person\n// belongs to one tenant"},
 		},
@@ -351,6 +354,9 @@ func TestDirectoryStart_Apply_loginPageSpec(t *testing.T) {
 		wantMethods [][3]string
 		wantButtons string
 		wantLinks   string
+		// wantDeployed is what the spec holds of the page where no persona provider is
+		// configured, where the start registers the persona method.
+		wantDeployed []string
 	}{
 		{
 			name: "Directory roles through Google",
@@ -391,6 +397,12 @@ func TestDirectoryStart_Apply_loginPageSpec(t *testing.T) {
 			wantMethods: [][3]string{{"google", "google", "Google"}, {"azure", "azure", "Microsoft"}, {"persona", "oidc", "Persona"}},
 			wantButtons: "expect(redirects).toEqual(['Sign in with Google', 'Sign in with Microsoft', 'Sign in with Persona']);",
 			wantLinks:   "const links: Record<string, string>[] = [{ invitation: 'token' }, { verify: 'token' }];",
+			wantDeployed: []string{
+				"methods: METHODS.methods.filter((method) => method.name !== 'persona'),",
+				"describe('LoginComponent, where no persona provider is configured', () => {",
+				"? { status: 200, body: DEPLOYED_METHODS }",
+				"expect(redirects).toEqual(['Sign in with Google', 'Sign in with Microsoft']);",
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -429,7 +441,7 @@ func TestDirectoryStart_Apply_loginPageSpec(t *testing.T) {
 			if got := strings.Count(spec, "kind: '"); got != len(tt.wantMethods) {
 				t.Errorf("%s answers the methods route with %d method(s), want %d", loginPageSpec, got, len(tt.wantMethods))
 			}
-			for _, want := range []string{tt.wantButtons, tt.wantLinks, "expect(element.querySelector('impulse-login-methods form')).toBeNull();"} {
+			for _, want := range append([]string{tt.wantButtons, tt.wantLinks, "expect(element.querySelector('impulse-login-methods form')).toBeNull();"}, tt.wantDeployed...) {
 				if !strings.Contains(spec, want) {
 					t.Errorf("%s does not contain %q", loginPageSpec, want)
 				}
@@ -948,7 +960,8 @@ func Test_renderSuites(t *testing.T) {
 		{set: directoryRolesSuites, data: &suiteData{Method: "google", Field: "Google", Upper: "GOOGLE", Google: true, Kind: "google", Label: "Google"}, want: withLoginPageSpec(directoryRolesWritten)},
 		{set: directoryRolesSuites, data: &suiteData{Method: "azure", Field: "Azure", Upper: "AZURE", Kind: "azure", Label: "Microsoft"}, want: withLoginPageSpec(directoryRolesWritten)},
 		{set: directoryRolesSuites, data: &suiteData{Method: "okta", Field: "Okta", Upper: "OKTA", Provider: true, Kind: "oidc", Label: "Okta"}, want: withLoginPageSpec(directoryRolesWritten)},
-		{set: byDirectorySuites, data: &suiteData{Record: "Tenant", OneTenant: true, North: devTenantNorth}, want: withLoginPageSpec(byDirectoryWritten)},
+		{set: byDirectorySuites, data: &suiteData{Record: "Tenant", OneTenant: true, North: devTenantNorth, Kebab: "tenant", Camel: "tenant", Segment: "tenants"}, want: withLoginPageSpec(byDirectoryWritten)},
+		{set: byDirectorySuites, data: &suiteData{Record: "ServiceArea", OneTenant: true, North: devTenantNorth, Kebab: "service-area", Camel: "serviceArea", Segment: "service-areas"}, want: withLoginPageSpec(byDirectoryWritten)},
 		{set: passwordTenantsSuites, data: &suiteData{Record: "Tenant", Directories: true, North: devTenantNorth}, want: passwordTenantsWritten},
 		{set: passwordTenantsSuites, data: &suiteData{Record: "ServiceArea", OneTenant: true, North: devTenantNorth}, want: passwordTenantsWritten},
 		{set: tenantPeopleSuites, data: &suiteData{Record: "Tenant", Kebab: "tenant", Segment: "tenants", South: devTenantSouth, Password: true}, want: []string{tenantPeopleTest}},

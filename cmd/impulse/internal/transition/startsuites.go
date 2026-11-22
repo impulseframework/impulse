@@ -21,6 +21,7 @@ import (
 	// never HTML, so text/template is the right package.
 	"text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template.import-text-template
 
+	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 
 	"github.com/impulseframework/impulse/app"
@@ -102,9 +103,13 @@ type suiteData struct {
 	// What the test of a tenant administrator's conditions takes beside them: Kebab is
 	// the record as a method's route spells it and Segment the tenant segment of the
 	// routes, South is the id the development seed gives its second tenant, and Password
-	// reports that the auth whose people make tenants has the password method.
+	// reports that the auth whose people make tenants has the password method. The test
+	// that founds a tenant takes Kebab and Segment too.
 	Kebab, Segment, South string
 	Password              bool
+	// Camel is the record as the invitation's request spells its fields (tenant for
+	// Tenant): the field that names the new tenant is Camel followed by Name.
+	Camel string
 	// Proven reports that the test of a tenant administrator's conditions is written beside
 	// the harness. Every grant it proves is one role's, so the harness's provesGrant takes
 	// that role in each call, and says so to the application's lint (unparam), as the
@@ -147,7 +152,12 @@ func (d *DirectoryStart) suiteSet() (set string, data *suiteData, removed []remo
 			Google: m.Kind == app.MethodGoogle, Provider: m.Kind == app.MethodOIDC, Kind: m.Kind, Label: methodLabel(&m),
 		}, directoryRolesRemoved
 	case d.persona() && d.Tenants != nil && !d.Tenants.NoDirectories:
-		return byDirectorySuites, &suiteData{Record: d.Tenants.Record(), OneTenant: d.Tenants.OneTenantPerPerson, Directories: true, North: devTenantNorth}, byDirectoryRemoved
+		record := d.Tenants.Record()
+
+		return byDirectorySuites, &suiteData{
+			Record: record, OneTenant: d.Tenants.OneTenantPerPerson, Directories: true, North: devTenantNorth,
+			Kebab: strcase.ToKebab(record), Camel: strcase.ToCamel(record), Segment: d.Tenants.Segment(),
+		}, byDirectoryRemoved
 	}
 
 	return "", nil, nil

@@ -550,7 +550,14 @@ func TestShape_tenants(t *testing.T) {
 			name: "tenant-owned users, by directory, with the method there", shape: "tenant-owned-users-by-directory", methods: google,
 			want: []string{
 				"A person belongs to one tenant: the identity client of every auth whose roles the application gives is built with identity.WithOneTenantPerPerson(), so a role in a second tenant is refused however it would be given.",
-				"A tenant's people can come through its organization's directory, by the staff auth's google method (pkg/auth/staff/google.go:64): a tenant's administrator, signed in through their organization's directory, makes it the tenant's on the tenant's Sign-in page, and chooses there whether its people get an account without an invitation; both are chosen while the application runs.",
+				"A tenant's people can come through its organization's directory, by the staff auth's google method (pkg/auth/staff/google.go:64): a tenant takes its directory when it is made, the organization its founder signs in from, and its administrator chooses on the tenant's Sign-in page whether its people get an account without an invitation, which is chosen while the application runs.",
+			},
+		},
+		{
+			name: "tenant-owned users, by directory, before the directory method is there", shape: "tenant-owned-users-by-directory",
+			want: []string{
+				one,
+				"A tenant's people come through its organization's directory, and no sign-in method goes through one yet. Add the one the tenants' organizations use, wide enough for all of them, with the application giving the roles: impulse add method staff google --slot any-workspace --authority application for Google Workspace, or impulse add method staff azure --slot any --authority application for Microsoft Entra. Until then impulse audit reads the application as 5 Tenant-owned users, invite only. With the method there, a tenant takes its directory when it is made, the organization its founder signs in from, and its administrator chooses on the tenant's Sign-in page whether its people get an account without an invitation, which is chosen while the application runs.",
 			},
 		},
 	}

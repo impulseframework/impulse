@@ -764,7 +764,7 @@ Auth name: `
 // askAuthName asks for the first auth's name when the flag did not give it and a person is
 // at the terminal. Without a terminal the flag is required.
 func askAuthName(cmd *cobra.Command) (string, error) {
-	if !stdinIsTerminal() {
+	if !answers(cmd) {
 		return "", errors.New("--auth is required: name the application's first auth, " + names.Guidance + ". There is no default")
 	}
 
@@ -792,17 +792,27 @@ Issuer: `
 )
 
 // askDirectory asks which directory gives the roles when --method did not say and a
-// person is at the terminal. Without a terminal the flag is required.
+// person is at the terminal. Without a terminal the flag is required, and an empty answer
+// is refused as the missing flag is.
 func askDirectory(cmd *cobra.Command) (string, error) {
-	if !stdinIsTerminal() {
-		return "", errors.Newf("--%s is required with --shape %s: name the one directory that gives the roles, google (a Google Workspace), azure (a Microsoft Entra tenant) or oidc:<registration> (another identity provider), and its one organization with --%s", methodFlag, directoryRolesKey(), organizationFlag)
+	required := errors.Newf("--%s is required with --shape %s: name the one directory that gives the roles, google (a Google Workspace), azure (a Microsoft Entra tenant) or oidc:<registration> (another identity provider), and its one organization with --%s", methodFlag, directoryRolesKey(), organizationFlag)
+	if !answers(cmd) {
+		return "", required
+	}
+	answer, err := ask(cmd, directoryQuestion)
+	if err != nil {
+		return "", err
+	}
+	if answer == "" {
+		return "", required
 	}
 
-	return ask(cmd, directoryQuestion)
+	return answer, nil
 }
 
 // askOrganization asks for the directory's one organization when --organization did not
-// give it and a person is at the terminal. Without a terminal the flag is required.
+// give it and a person is at the terminal. Without a terminal the flag is required, and an
+// empty answer is refused as the missing flag is.
 func askOrganization(cmd *cobra.Command, m *authpkg.Method) (string, error) {
 	question, what := workspaceQuestion, "the Google Workspace whose directory gives the roles, by its domain (fleet.example)"
 	switch m.Kind {
@@ -811,11 +821,19 @@ func askOrganization(cmd *cobra.Command, m *authpkg.Method) (string, error) {
 	case app.MethodOIDC:
 		question, what = issuerQuestion, "the identity provider whose directory gives the roles, by its issuer, an https URL (https://id.fleet.example)"
 	}
-	if !stdinIsTerminal() {
-		return "", errors.Newf("--%s is required with --shape %s: name %s", organizationFlag, directoryRolesKey(), what)
+	required := errors.Newf("--%s is required with --shape %s: name %s", organizationFlag, directoryRolesKey(), what)
+	if !answers(cmd) {
+		return "", required
+	}
+	answer, err := ask(cmd, question)
+	if err != nil {
+		return "", err
+	}
+	if answer == "" {
+		return "", required
 	}
 
-	return ask(cmd, question)
+	return answer, nil
 }
 
 // ask puts a question to the person at the terminal and returns the line they answer.
@@ -829,8 +847,14 @@ func ask(cmd *cobra.Command, question string) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-// stdinIsTerminal reports whether a person is at the terminal to answer a question.
-func stdinIsTerminal() bool {
+// answers reports whether somebody is there to answer the command's questions: the
+// command was given an input of its own (a program that drives it, or a test), or its
+// standard input is a terminal, where a person is.
+func answers(cmd *cobra.Command) bool {
+	if cmd.InOrStdin() != os.Stdin {
+		return true
+	}
+
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
