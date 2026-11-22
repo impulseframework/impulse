@@ -143,3 +143,23 @@ func TestFeatureFlagsMigration(t *testing.T) {
 		}
 	}
 }
+
+// TestChangeHistoryMigration pins the schema's change history table to the library's
+// statements, with the period Lodestar keeps its change records for: 365 days.
+func TestChangeHistoryMigration(t *testing.T) {
+	t.Parallel()
+
+	migration, err := os.ReadFile("../../schema/migrations/000001_Baseline.up.sql")
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	statements := resource.DataChangeEventsDDL(resource.SpannerDBType, resource.KeepChangeHistoryDays(365))
+	if len(statements) != 2 {
+		t.Fatalf("resource.DataChangeEventsDDL(SpannerDBType, KeepChangeHistoryDays(365)) declares %d statements, want 2", len(statements))
+	}
+	for _, stmt := range statements {
+		if !strings.Contains(string(migration), stmt+";") {
+			t.Errorf("the migration does not carry the statement:\n%s", stmt)
+		}
+	}
+}
