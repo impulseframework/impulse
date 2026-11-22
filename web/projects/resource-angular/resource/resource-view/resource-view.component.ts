@@ -293,7 +293,8 @@ export class ResourceViewComponent implements OnInit {
     return [
       ...rowMethods(row, this.store.methodsTargeting(resource as Resource), this.store.methodMeta, presentations),
       // The methods the page fills from the row and that name no target row: offered
-      // while the digest grants the caller Execute on them.
+      // while the digest grants the caller Execute on them and, for a method the rows
+      // answer for (`offeredOn`), where the row's Execute answer lists it.
       ...filledMethods(row, presentations, this.store.methodMeta, (method) =>
         this.auth.hasPermission({ resource: method as Method, permission: ExecutePermission }),
       ),

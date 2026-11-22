@@ -55,6 +55,26 @@ export function methodsTargeting(
   return targeting;
 }
 
+/**
+ * The methods that name no target row and are offered on the rows of the resource
+ * (`offeredOn` naming it), in the order given: a list of the resource asks the server about
+ * them with each row, and a page that fills one from a row offers it where the row's answer
+ * lists it.
+ */
+export function methodsOfferedOn(
+  methods: Iterable<string>,
+  metaOf: (method: string) => MethodMeta | undefined,
+  resource: Resource,
+): string[] {
+  const offeredOn: string[] = [];
+  for (const method of methods) {
+    if (metaOf(method)?.offeredOn?.includes(resource)) {
+      offeredOn.push(method);
+    }
+  }
+  return offeredOn;
+}
+
 /** The method as the page offers it: the page's words and icon where its configuration names the method, the name in words otherwise. */
 export function offered(
   method: string,
@@ -153,12 +173,15 @@ export function rowMethods(
 /**
  * The methods a row offers that name no target row and are filled from it: the ones the
  * page names with a `fill`, each while the caller holds Execute on the method (the
- * digest's answer; the server gives none for a row the method does not name), less the
- * ones the page hides and the ones whose row predicate says no. Each presentation is
- * offered as itself, so a method named twice is offered under each one's own words and
- * filled as each one fills it. As for a method that names its row (rowMethods), a
- * presentation whose predicate keeps the method off the row is an entry of words where
- * the page says what the row shows in its place (`otherwise`).
+ * digest's answer), less the ones the page hides and the ones whose row predicate says
+ * no. A method the server answers for on the rows a page runs it from (`offeredOn` in its
+ * metadata) is offered only where the row's Execute answer lists it, and on no row read
+ * without that answer; for any other, the server gives no answer for a row the method
+ * does not name. Each presentation is offered as itself, so a method named twice is
+ * offered under each one's own words and filled as each one fills it. As for a method
+ * that names its row (rowMethods), a presentation whose predicate keeps the method off
+ * the row is an entry of words where the page says what the row shows in its place
+ * (`otherwise`).
  */
 export function filledMethods(
   row: RecordData,
@@ -170,6 +193,11 @@ export function filledMethods(
   for (const presentation of presentations ?? []) {
     const meta = metaOf(presentation.method);
     if (!presentation.fill || !meta || meta.target || !granted(presentation.method)) {
+      continue;
+    }
+    // The server answers for the method on this row: what it leaves out is not offered,
+    // and nothing is said in its place.
+    if (meta.offeredOn?.length && !rowCapabilities(row)?.Execute?.includes(presentation.method)) {
       continue;
     }
     const entry = offeredAs(presentation.method, meta, presentation);

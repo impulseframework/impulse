@@ -51,6 +51,7 @@ const field = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
 
 const people = 'SectorPeople' as Resource;
 const ships = 'Ships' as Resource;
+const berths = 'Berths' as Resource;
 
 const metas: Record<string, ResourceMeta> = {
   [people]: {
@@ -63,6 +64,10 @@ const metas: Record<string, ResourceMeta> = {
   } as ResourceMeta,
   [ships]: {
     route: 'ships',
+    fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')],
+  } as ResourceMeta,
+  [berths]: {
+    route: 'berths',
     fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')],
   } as ResourceMeta,
 };
@@ -100,6 +105,16 @@ const descriptor: ApiDescriptor = {
       operations: ['list', 'read'],
       page: { default: 25, max: 200 },
     },
+    [berths]: {
+      resource: berths,
+      property: 'berths',
+      route: 'berths',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+    },
   },
   methods: {
     DisablePerson: method('DisablePerson', 'domain'),
@@ -108,6 +123,7 @@ const descriptor: ApiDescriptor = {
     CreatePerson: method('CreatePerson', 'domain'),
     InvitePerson: method('InvitePerson', 'domain'),
     NoteOnPerson: method('NoteOnPerson', 'domain'),
+    SweepBerth: method('SweepBerth', 'domain'),
   },
 };
 
@@ -133,6 +149,12 @@ const methodMetas: Record<string, MethodMeta> = {
       { fieldName: 'words', displayType: 'string', required: true },
     ],
   },
+  // Names no target row, and the server answers for it on the rows of the berths it is run from.
+  SweepBerth: {
+    route: 'sweepberth',
+    fields: [{ fieldName: 'berth', displayType: 'string', required: true }],
+    offeredOn: [berths],
+  },
 };
 
 const rows = [
@@ -143,6 +165,13 @@ const rows = [
     zzCapabilities: { Execute: ['RenamePerson', 'DisablePerson', 'EnablePerson'] },
   },
   { id: 'u-2', username: 'bo', disabled: true, zzCapabilities: { Execute: [] } },
+];
+
+/** The berths: one whose answer lists the method offered on it, one whose answer does not, and one read without an answer. */
+const berthRows = [
+  { id: 'b-1', name: 'North', zzCapabilities: { Execute: ['SweepBerth'] } },
+  { id: 'b-2', name: 'South', zzCapabilities: { Execute: [] } },
+  { id: 'b-3', name: 'East' },
 ];
 
 /**
@@ -197,6 +226,9 @@ describe('ResourceListComponent row methods', () => {
       }
       if (url.pathname === '/api/ships') {
         return { status: 200, body: [{ id: 's-1', name: 'Kestrel' }], headers: { 'total-count': '1' } };
+      }
+      if (url.pathname === '/api/sectors/anvil/berths') {
+        return { status: 200, body: berthRows, headers: { 'total-count': String(berthRows.length) } };
       }
       return { status: 404, body: { message: `unscripted ${request.url}` } };
     });
@@ -435,6 +467,32 @@ describe('ResourceListComponent row methods', () => {
     expect(fixture.componentInstance.rowMethodNames()).toEqual([]);
     expect(listRequests()).toEqual(['GET /api/ships?columns=name%2Cid&count=true']);
     expect(fixture.componentInstance.columns().map((col) => col.id)).not.toContain(rowActionsKey);
+  });
+
+  it("asks for each row's Execute answer in a list of a resource a method that names no row is offered on, and offers the method the page fills from the row only where the row's answer lists it", async () => {
+    const sweep: MethodPresentation = {
+      method: 'SweepBerth' as Method,
+      label: 'Sweep the berth',
+      fill: (row) => ({ berth: row['name'] }),
+    };
+    await create(
+      { primaryResource: berths, listColumns: [{ id: 'name' as FieldName }], rowMethods: [sweep] } as never,
+      { [berths]: { List: 'granted' }, [`${berths}.name`]: { List: 'granted' }, SweepBerth: { Execute: 'granted' } },
+    );
+
+    // No method runs against a berth: the one offered on the berths is the reason to ask.
+    expect(fixture.componentInstance.rowMethodNames()).toEqual([]);
+    expect(fixture.componentInstance.offeredMethodNames()).toEqual(['SweepBerth']);
+    expect(listRequests()).toEqual(['GET /api/sectors/anvil/berths?columns=name%2Cid&count=true&capabilities=Execute']);
+    expect(actionsOf(0).map((a) => a.label)).toEqual(['Sweep the berth']);
+    // A row whose answer leaves the method out, and a row read without an answer, offer nothing.
+    expect(actionsOf(1)).toEqual([]);
+    expect(actionsOf(2)).toEqual([]);
+
+    actionsOf(0)[0].run();
+    await settle();
+
+    expect(opened).toEqual([{ method: 'SweepBerth', label: 'Sweep the berth', preset: { berth: 'North' } }]);
   });
 
   it('draws a button above the list for each method the page names there and the digest grants, and runs it with no row', async () => {

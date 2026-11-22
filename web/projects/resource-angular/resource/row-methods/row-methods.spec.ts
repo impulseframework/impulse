@@ -12,6 +12,7 @@ import {
   filledBody,
   filledMethods,
   holdsValue,
+  methodsOfferedOn,
   methodsTargeting,
   nameInWords,
   offered,
@@ -105,6 +106,45 @@ describe('methodsTargeting', () => {
 
   it('passes over a name with no metadata', () => {
     expect(methodsTargeting(['Unknown'], () => undefined, people)).toEqual([]);
+  });
+});
+
+// The whole application's methods on roles name no row, yet the server answers for them on
+// the rows they are run from: the roles a person holds and takes, and a group's roles.
+const takenRoles = 'CrewTakenRoles' as Resource;
+const groupRoles = 'CrewListedGroupRoles' as Resource;
+const offeredMeta: Record<string, MethodMeta> = {
+  ...meta,
+  RemoveCrewRole: { ...meta['RemoveCrewRole'], offeredOn: [heldRoles, takenRoles] },
+  TakeCrewGroupRole: {
+    route: 'take-group-role',
+    fields: [
+      { fieldName: 'groupId', displayType: 'string', required: true },
+      { fieldName: 'role', displayType: 'string', required: true },
+    ],
+    offeredOn: [groupRoles],
+  },
+};
+const offeredMetaOf = (method: string): MethodMeta | undefined => offeredMeta[method];
+
+describe('methodsOfferedOn', () => {
+  it('lists the methods that name no row and are offered on the rows of the resource, by resource', () => {
+    const all = Object.keys(offeredMeta);
+    expect(methodsOfferedOn(all, offeredMetaOf, heldRoles)).toEqual(['RemoveCrewRole']);
+    expect(methodsOfferedOn(all, offeredMetaOf, takenRoles)).toEqual(['RemoveCrewRole']);
+    expect(methodsOfferedOn(all, offeredMetaOf, groupRoles)).toEqual(['TakeCrewGroupRole']);
+    // A method that targets a row of the resource is not offered on it: it names the row.
+    expect(methodsOfferedOn(all, offeredMetaOf, people)).toEqual([]);
+    expect(methodsOfferedOn(all, offeredMetaOf, 'Missions' as Resource)).toEqual([]);
+  });
+
+  it('keeps the order given and passes over a name with no metadata', () => {
+    const onHeld = (method: string): MethodMeta | undefined =>
+      method === 'Unknown' ? undefined : { route: method, fields: [], offeredOn: [heldRoles] };
+    expect(methodsOfferedOn(['TakeCrewGroupRole', 'Unknown', 'RemoveCrewRole'], onHeld, heldRoles)).toEqual([
+      'TakeCrewGroupRole',
+      'RemoveCrewRole',
+    ]);
   });
 });
 
@@ -578,5 +618,53 @@ describe('filledMethods and filledBody', () => {
   it('asks for the fields the page did not fill', () => {
     expect(askedFields(metaOf('AssignCrewRole'), ['username']).map((f) => f.fieldName)).toEqual(['role', 'domain']);
     expect(askedFields(metaOf('RemoveCrewRole'), ['username', 'role', 'domain'])).toEqual([]);
+  });
+});
+
+describe('filledMethods on a method the rows answer for (offeredOn)', () => {
+  // A role a person holds, read with or without the server's answer for the row.
+  const answered = (execute: string[] | undefined): RecordData =>
+    ({
+      user: 'ada',
+      role: 'Cadet',
+      kind: 'domain',
+      domain: 'anvil',
+      ...(execute ? { zzCapabilities: { Execute: execute } } : {}),
+    }) as unknown as RecordData;
+  const remove: MethodPresentation = {
+    method: 'RemoveCrewRole' as Method,
+    label: 'Take the role away',
+    fill: (row) => ({ username: row['user'], role: row['role'], domain: row['domain'] }),
+  };
+  const all = (): boolean => true;
+
+  it('offers it on a row whose Execute answer lists it, while the caller holds Execute on it', () => {
+    expect(filledMethods(answered(['RemoveCrewRole']), [remove], offeredMetaOf, all).map((m) => m.label)).toEqual([
+      'Take the role away',
+    ]);
+    // The digest's grant holds as for any filled method.
+    expect(filledMethods(answered(['RemoveCrewRole']), [remove], offeredMetaOf, () => false)).toEqual([]);
+  });
+
+  it('offers it on no row whose answer leaves it out and on no row read without an answer, and says nothing there', () => {
+    // The page's words where its predicate says no are for a row the server lets the caller run the method on.
+    const said: MethodPresentation = { ...remove, when: () => false, otherwise: () => 'Held through a group' };
+    for (const row of [answered(['DisableCrewSectorUser']), answered([]), answered(undefined)]) {
+      expect(filledMethods(row, [remove], offeredMetaOf, all)).toEqual([]);
+      expect(filledMethods(row, [said], offeredMetaOf, all)).toEqual([]);
+    }
+    expect(filledMethods(answered(['RemoveCrewRole']), [said], offeredMetaOf, all).map((m) => m.says)).toEqual([
+      'Held through a group',
+    ]);
+  });
+
+  it('offers a method with no offeredOn, or an empty one, by the grant alone, whatever the row answers', () => {
+    const emptyOf = (method: string): MethodMeta | undefined =>
+      method === 'RemoveCrewRole' ? { ...meta['RemoveCrewRole'], offeredOn: [] } : meta[method];
+    for (const metaFor of [metaOf, emptyOf]) {
+      for (const row of [answered(undefined), answered([]), answered(['RemoveCrewRole'])]) {
+        expect(filledMethods(row, [remove], metaFor, all).map((m) => m.label)).toEqual(['Take the role away']);
+      }
+    }
   });
 });
