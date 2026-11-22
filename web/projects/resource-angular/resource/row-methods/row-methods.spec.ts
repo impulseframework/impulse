@@ -114,6 +114,11 @@ describe('nameInWords', () => {
     ['persona_entry', 'Persona entry'],
     ['debriefs', 'Debriefs'],
     ['_leading__and_trailing_', 'Leading and trailing'],
+    // A plural acronym keeps its letters.
+    ['crewIDs', 'Crew IDs'],
+    ['IDs', 'IDs'],
+    ['KeyIDs', 'Key IDs'],
+    ['userIDsList', 'User IDs list'],
   ];
   for (const [name, want] of cases) {
     it(`${name} is "${want}"`, () => {
