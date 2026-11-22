@@ -623,7 +623,7 @@ func (c *SpannerReadWriteTransaction) BufferMap(r PatchSetMetadata, patch map[st
 	}
 	c.buffered.record(r)
 	c.touchedRows.record(r)
-	c.rows.note(r.Resource(), r.PatchType(), rowMatchKey(r.PrimaryKey()), patch)
+	c.rows.note(r.Resource(), r.PatchType(), rowMatchKey(r.PrimaryKey()), patchKeyByColumn(r), patch)
 
 	return nil
 }

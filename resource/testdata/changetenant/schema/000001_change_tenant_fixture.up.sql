@@ -5,8 +5,11 @@
 -- berth and its dock (Moorings), and a table of no tenant (Notices); then the same ways
 -- through keys that are numbers: a table keyed by number whose rows carry their yard
 -- (Bays), a table keyed by number whose rows reach it through a bay they may leave empty
--- (Crates), and a table whose rows reach it through a crate and its bay (Labels). Every
--- resource of the fixture tracks its changes. Names are the fixture's own.
+-- (Crates), and a table whose rows reach it through a crate and its bay (Labels); then a
+-- way through a parent's unique column that is not its key: a table whose rows carry
+-- their yard and a unique code (Piers), and a table whose rows name their pier by its
+-- code (Slips). Every resource of the fixture tracks its changes. Names are the
+-- fixture's own.
 
 CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
@@ -73,4 +76,21 @@ CREATE TABLE Labels (
   CrateNumber INT64 NOT NULL,
   Name STRING(MAX) NOT NULL,
   CONSTRAINT FK_Labels_CrateNumber FOREIGN KEY (CrateNumber) REFERENCES Crates (Number),
+) PRIMARY KEY (Id);
+
+CREATE TABLE Piers (
+  Id STRING(36) NOT NULL,
+  Code STRING(36),
+  YardId STRING(36) NOT NULL,
+  Name STRING(MAX),
+  CONSTRAINT FK_Piers_YardId FOREIGN KEY (YardId) REFERENCES Yards (Id),
+) PRIMARY KEY (Id);
+
+CREATE UNIQUE INDEX PiersByCode ON Piers(Code);
+
+CREATE TABLE Slips (
+  Id STRING(36) NOT NULL,
+  PierCode STRING(36) NOT NULL,
+  Name STRING(MAX) NOT NULL,
+  CONSTRAINT FK_Slips_PierCode FOREIGN KEY (PierCode) REFERENCES Piers (Code),
 ) PRIMARY KEY (Id);

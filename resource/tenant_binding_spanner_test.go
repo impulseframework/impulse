@@ -338,6 +338,121 @@ func TestChangeRecordTenant_spanner(t *testing.T) {
 		}
 	})
 
+	t.Run("a stored pier moved by its key, then a slip created on its code: the new yard", func(t *testing.T) {
+		t.Parallel()
+
+		seedChangeRows(t, db, spanner.InsertMap("Piers", map[string]any{"Id": "pier-1", "Code": "code-1", "YardId": north, "Name": "First"}))
+		applyTogether(t, client,
+			changePatch[changePier](UpdatePatchType, "pier-1", map[accesstypes.Field]any{"YardID": south}),
+			changePatch[changeSlip](CreatePatchType, "slip-1", map[accesstypes.Field]any{"PierCode": "code-1", "Name": "First"}),
+		)
+		if diff := cmp.Diff([]string{south}, changeTenants(t, db, "Slips", "slip-1")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a stored pier moved by its key, then a stored slip on its code renamed: the new yard", func(t *testing.T) {
+		t.Parallel()
+
+		seedChangeRows(t, db,
+			spanner.InsertMap("Piers", map[string]any{"Id": "pier-2", "Code": "code-2", "YardId": north, "Name": "Second"}),
+			spanner.InsertMap("Slips", map[string]any{"Id": "slip-2", "PierCode": "code-2", "Name": "Second"}),
+		)
+		applyTogether(t, client,
+			changePatch[changePier](UpdatePatchType, "pier-2", map[accesstypes.Field]any{"YardID": south}),
+			changePatch[changeSlip](UpdatePatchType, "slip-2", map[accesstypes.Field]any{"Name": "Renamed"}),
+		)
+		if diff := cmp.Diff([]string{south}, changeTenants(t, db, "Slips", "slip-2")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a slip created, its pier moved by its key, a second slip created: the old yard, then the new", func(t *testing.T) {
+		t.Parallel()
+
+		seedChangeRows(t, db, spanner.InsertMap("Piers", map[string]any{"Id": "pier-3", "Code": "code-3", "YardId": north, "Name": "Third"}))
+		applyTogether(t, client,
+			changePatch[changeSlip](CreatePatchType, "slip-3a", map[accesstypes.Field]any{"PierCode": "code-3", "Name": "Third"}),
+			changePatch[changePier](UpdatePatchType, "pier-3", map[accesstypes.Field]any{"YardID": south}),
+			changePatch[changeSlip](CreatePatchType, "slip-3b", map[accesstypes.Field]any{"PierCode": "code-3", "Name": "Third"}),
+		)
+		if diff := cmp.Diff([]string{north}, changeTenants(t, db, "Slips", "slip-3a")); diff != "" {
+			t.Errorf("tenants of the first slip mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]string{south}, changeTenants(t, db, "Slips", "slip-3b")); diff != "" {
+			t.Errorf("tenants of the second slip mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// The move is an insert-or-update: an update of a row the same transaction created
+	// is refused, since its change set reads the row as stored. The fixture leaves a
+	// pier's code and name nullable, since the emulator holds an insert-or-update of a
+	// row it has not stored to every column that may not be null.
+	t.Run("a pier created with its code, moved by its key, then a slip created: the new yard", func(t *testing.T) {
+		t.Parallel()
+
+		applyTogether(t, client,
+			changePatch[changePier](CreatePatchType, "pier-4", map[accesstypes.Field]any{"Code": "code-4", "YardID": north, "Name": "Fourth"}),
+			changePatch[changePier](CreateOrUpdatePatchType, "pier-4", map[accesstypes.Field]any{"YardID": south}),
+			changePatch[changeSlip](CreatePatchType, "slip-4", map[accesstypes.Field]any{"PierCode": "code-4", "Name": "Fourth"}),
+		)
+		if diff := cmp.Diff([]string{south}, changeTenants(t, db, "Slips", "slip-4")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("another pier renamed by its key, then a slip on an untouched pier's code: that pier's yard, one read", func(t *testing.T) {
+		t.Parallel()
+
+		seedChangeRows(t, db,
+			spanner.InsertMap("Piers", map[string]any{"Id": "pier-5a", "Code": "code-5a", "YardId": north, "Name": "Fifth"}),
+			spanner.InsertMap("Piers", map[string]any{"Id": "pier-5b", "Code": "code-5b", "YardId": south, "Name": "Fifth"}),
+		)
+		var rows *transactionRows
+		if err := client.ExecuteFunc(context.Background(), func(ctx context.Context, txn ReadWriteTransaction) error {
+			recorder, ok := txn.(rowsRecorder)
+			if !ok {
+				return errors.Newf("the transaction is a %T, which keeps no record of its point reads", txn)
+			}
+			for _, w := range []changeWrite{
+				changePatch[changePier](UpdatePatchType, "pier-5a", map[accesstypes.Field]any{"Name": "Renamed"}),
+				changePatch[changeSlip](CreatePatchType, "slip-5", map[accesstypes.Field]any{"PierCode": "code-5b", "Name": "Fifth"}),
+			} {
+				if err := w.Buffer(ctx, txn, "test"); err != nil {
+					return errors.Wrap(err, "changeWrite.Buffer()")
+				}
+			}
+			rows = recorder.transactionRows()
+
+			return nil
+		}); err != nil {
+			t.Fatalf("ExecuteFunc() error = %v", err)
+		}
+		if diff := cmp.Diff([]string{south}, changeTenants(t, db, "Slips", "slip-5")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+		// The slip's one step is one read, by the code, which names the pier by its key.
+		if len(rows.rowReads) != 1 || len(rows.reads) != 0 || len(rows.keyReads) != 0 {
+			t.Errorf("the transaction read the database %d time(s) by a code, %d by a key column and %d by a row's key, want once by the code alone", len(rows.rowReads), len(rows.reads), len(rows.keyReads))
+		}
+		if _, ok := rows.rowReads[pointRead{table: "Piers", keyColumn: "Code", value: "code-5b", column: "YardId"}]; !ok {
+			t.Errorf("the transaction's reads by a code = %+v, want the slip's pier by code-5b", rows.rowReads)
+		}
+	})
+
+	t.Run("a stored pier's code changed by its key, then a slip created on the new code: the pier's yard", func(t *testing.T) {
+		t.Parallel()
+
+		seedChangeRows(t, db, spanner.InsertMap("Piers", map[string]any{"Id": "pier-6", "Code": "code-6", "YardId": north, "Name": "Sixth"}))
+		applyTogether(t, client,
+			changePatch[changePier](UpdatePatchType, "pier-6", map[accesstypes.Field]any{"Code": "code-6b"}),
+			changePatch[changeSlip](CreatePatchType, "slip-6", map[accesstypes.Field]any{"PierCode": "code-6b", "Name": "Sixth"}),
+		)
+		if diff := cmp.Diff([]string{north}, changeTenants(t, db, "Slips", "slip-6")); diff != "" {
+			t.Errorf("tenants mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("a crate with no bay: empty, and the write succeeds", func(t *testing.T) {
 		t.Parallel()
 

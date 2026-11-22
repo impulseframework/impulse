@@ -2,7 +2,10 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"maps"
+	"slices"
+	"strings"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -19,8 +22,10 @@ import (
 // request's tenant, which the tenancy check has held the row to, and any other write
 // follows the row's way to its tenant (TenantBinding), from the patch's own value or
 // the stored row's, one point read for each step. A read inside a transaction does not
-// see the transaction's buffered writes, so each step looks first at what the
-// transaction's own patches buffered, and the transaction remembers each point read.
+// see the transaction's buffered writes, so each step first settles which row it names,
+// by a buffered write that holds the column the step joins on or by the row's key as the
+// database holds it, and answers with what the transaction's own patches last wrote to
+// that row; the transaction remembers each read of the database.
 // The change history never stops a write: a row with no way to a tenant carries the
 // empty string. The tenant is the row's at the moment the record is buffered, by what
 // the transaction has written until then: a later write of the same transaction (the
@@ -65,39 +70,90 @@ type pointAnswer struct {
 }
 
 // bufferedColumns is one write a patch of the transaction buffered: its patch type, the
-// row it wrote (rowMatchKey) and the columns it was given.
+// row it wrote (rowMatchKey), the row's key by column (keyByColumn) and its spelling
+// (keySpelling), both empty when the patch keeps none, and the columns it was given.
 type bufferedColumns struct {
 	patchType PatchType
 	row       string
+	key       map[string]any
+	keyText   string
 	columns   map[string]any
+}
+
+// keyedRead names one read of a row by its key by column: column of the row of table
+// whose key is spelled key (keySpelling).
+type keyedRead struct {
+	table  string
+	key    string
+	column string
+}
+
+// storedRow is what one read of a row by another unique column answered: whether there
+// is such a row, its key by column spelled (keySpelling), and the column as held.
+type storedRow struct {
+	found bool
+	key   string
+	value any
 }
 
 // transactionRows is the record a write transaction keeps for the point reads that
 // follow a row to its parent: the columns each create, update and insert-or-update of
 // its patches buffered, by table in buffered order, which no read of the transaction
-// sees, and the answer to each point read it made. Like the other records of a
-// transaction it belongs to one attempt: a retried transaction runs its function again
-// over a fresh record.
+// sees, and what each read of the database answered, by the question it asked. What is
+// remembered is what the database holds; the buffered writes are laid over it at each
+// read. Like the other records of a transaction it belongs to one attempt: a retried
+// transaction runs its function again over a fresh record.
 type transactionRows struct {
-	writes map[string][]bufferedColumns
-	reads  map[pointRead]pointAnswer
+	writes   map[string][]bufferedColumns
+	reads    map[pointRead]pointAnswer
+	rowReads map[pointRead]storedRow
+	keyReads map[keyedRead]pointAnswer
 }
 
 // newTransactionRows returns an empty record.
 func newTransactionRows() *transactionRows {
 	return &transactionRows{
-		writes: make(map[string][]bufferedColumns),
-		reads:  make(map[pointRead]pointAnswer),
+		writes:   make(map[string][]bufferedColumns),
+		reads:    make(map[pointRead]pointAnswer),
+		rowReads: make(map[pointRead]storedRow),
+		keyReads: make(map[keyedRead]pointAnswer),
 	}
 }
 
 // note records the columns a patch buffered for one row, which row is its key as
-// rowMatchKey spells it. A delete is not noted.
-func (t *transactionRows) note(table accesstypes.Resource, patchType PatchType, row string, columns map[string]any) {
+// rowMatchKey spells it, and key the row's key by column, nil when the patch keeps none.
+// A key that cannot be spelled is not kept. A delete is not noted.
+func (t *transactionRows) note(table accesstypes.Resource, patchType PatchType, row string, key, columns map[string]any) {
 	if patchType == DeletePatchType {
 		return
 	}
-	t.writes[string(table)] = append(t.writes[string(table)], bufferedColumns{patchType: patchType, row: row, columns: maps.Clone(columns)})
+	keyText, err := keySpelling(key)
+	if err != nil || keyText == "" {
+		key, keyText = nil, ""
+	}
+	t.writes[string(table)] = append(t.writes[string(table)], bufferedColumns{
+		patchType: patchType,
+		row:       row,
+		key:       maps.Clone(key),
+		keyText:   keyText,
+		columns:   maps.Clone(columns),
+	})
+}
+
+// keySpelling spells a row's key by column in one way whatever order it was given in:
+// each column by name order, with its value's spelling (columnText). An empty key is
+// the empty string.
+func keySpelling(key map[string]any) (string, error) {
+	var spelled strings.Builder
+	for _, column := range slices.Sorted(maps.Keys(key)) {
+		value, err := columnText(key[column])
+		if err != nil {
+			return "", errors.Wrapf(err, "key column %s", column)
+		}
+		fmt.Fprintf(&spelled, "%d:%s=%d:%s;", len(column), column, len(value), value)
+	}
+
+	return spelled.String(), nil
 }
 
 // ownColumn answers a column of one row, which row is its key as rowMatchKey spells it,
@@ -138,32 +194,59 @@ func (p *PatchSet[Resource]) bufferedOwnColumn(txn ReadWriteTransaction, field a
 	return recorder.transactionRows().ownColumn(string(p.Resource()), rowMatchKey(p.PrimaryKey()), column.ColumnName)
 }
 
-// buffered answers a point read from what the transaction's patches buffered, newest
-// first: a write whose key column is spelled as the read's value (columnText) is a write
-// of the row, and a write whose key cannot be spelled is passed over. The answer is the
-// buffered value as held. known is false when no buffered write says: no write of the
-// row, or only updates that did not set the column. A create of the row that did not set
-// the column answers nil.
-func (t *transactionRows) buffered(read pointRead) (answer pointAnswer, known bool) {
+// namedWrite answers the write that names the row a point read is by: the newest
+// buffered write of the table that holds the read's key column, spelled as the read's
+// value (columnText). A write whose value there cannot be spelled is passed over. named
+// is false when no buffered write holds it.
+func (t *transactionRows) namedWrite(read pointRead) (write bufferedColumns, named bool) {
 	writes := t.writes[read.table]
 	for i := len(writes) - 1; i >= 0; i-- {
-		key, ok := writes[i].columns[read.keyColumn]
+		value, ok := writes[i].columns[read.keyColumn]
 		if !ok {
 			continue
 		}
-		keyText, err := columnText(key)
-		if err != nil || keyText != read.value {
+		spelled, err := columnText(value)
+		if err != nil || spelled != read.value {
 			continue
 		}
-		if value, ok := writes[i].columns[read.column]; ok {
-			return pointAnswer{value: value, found: true}, true
+
+		return writes[i], true
+	}
+
+	return bufferedColumns{}, false
+}
+
+// keyColumnsBeside answers the key columns of the table's rows, in name order, when a
+// buffered write of the table keeps its key by column and does not hold column: a write
+// that may have changed a row a read by column names, without saying so. ok is false
+// when no buffered write is such.
+func (t *transactionRows) keyColumnsBeside(table, column string) (columns []string, ok bool) {
+	writes := t.writes[table]
+	for i := len(writes) - 1; i >= 0; i-- {
+		if writes[i].keyText == "" {
+			continue
 		}
-		if writes[i].patchType == CreatePatchType {
-			return pointAnswer{value: nil, found: true}, true
+		if _, holds := writes[i].columns[column]; holds {
+			continue
+		}
+
+		return slices.Sorted(maps.Keys(writes[i].key)), true
+	}
+
+	return nil, false
+}
+
+// writeOfKey answers the newest buffered write of the table whose key by column is
+// spelled key (keySpelling).
+func (t *transactionRows) writeOfKey(table, key string) (write bufferedColumns, ok bool) {
+	writes := t.writes[table]
+	for i := len(writes) - 1; i >= 0; i-- {
+		if writes[i].keyText == key {
+			return writes[i], true
 		}
 	}
 
-	return pointAnswer{}, false
+	return bufferedColumns{}, false
 }
 
 // remembered answers a point read the transaction made before.
@@ -191,49 +274,202 @@ func (c *SpannerReadWriteTransaction) transactionRows() *transactionRows {
 	return c.rows
 }
 
-// transactionPointReader returns the transaction's point reader: what its own patches
-// buffered, then what it read before, then the database, whose answer it remembers by
-// the value's spelling (columnText). Reads are on Spanner alone: on another database
-// the first read the database would answer is refused with notImplemented. A
-// transaction with no tables to ask (the Mock's) is asked nothing, and answers that
-// there is no such row.
-func transactionPointReader(txn ReadWriteTransaction, notImplemented string) pointReader {
-	var rows *transactionRows
-	if recorder, ok := txn.(rowsRecorder); ok {
-		rows = recorder.transactionRows()
+// keyedPatch is how the transaction asks a buffered patch for its row's key by column
+// (keyByColumn).
+type keyedPatch interface {
+	keyByColumn(dbType DBType) (key map[string]any, ok bool)
+}
+
+// patchKeyByColumn answers a buffered patch's row's key by column on Spanner, nil when
+// the patch keeps none.
+func patchKeyByColumn(patch PatchSetMetadata) map[string]any {
+	keyed, ok := patch.(keyedPatch)
+	if !ok {
+		return nil
+	}
+	key, ok := keyed.keyByColumn(SpannerDBType)
+	if !ok {
+		return nil
 	}
 
-	return func(ctx context.Context, table, keyColumn string, value any, column string) (any, bool, error) {
-		spelled, err := columnText(value)
-		if err != nil {
-			return nil, false, errors.Wrapf(err, "%s.%s", table, keyColumn)
-		}
-		read := pointRead{table: table, keyColumn: keyColumn, value: spelled, column: column}
-		if rows != nil {
-			if answer, known := rows.buffered(read); known {
-				return answer.value, answer.found, nil
+	return key
+}
+
+// transactionReader is a transaction's point reader (transactionPointReader).
+type transactionReader struct {
+	txn            ReadWriteTransaction
+	rows           *transactionRows
+	notImplemented string
+}
+
+// transactionPointReader returns the transaction's point reader. A read first settles
+// which row it names: a buffered write that holds the key column with the read's value
+// (namedWrite); otherwise, when the table has a buffered write that keeps its key and
+// not the key column, the row the database holds under the value, named again by its
+// key. A named row answers with what the transaction's patches last wrote to its column
+// (ownColumn), or, where none wrote it, the stored row's column. A read that names no
+// row is answered by what the transaction read before, then the database. Each read of
+// the database is remembered by its question, the value by its spelling (columnText).
+// Reads are on Spanner alone: on another database the first read the database would
+// answer is refused with notImplemented. A transaction with no tables to ask (the
+// Mock's) is asked nothing, and answers that there is no such row.
+func transactionPointReader(txn ReadWriteTransaction, notImplemented string) pointReader {
+	reader := &transactionReader{txn: txn, notImplemented: notImplemented}
+	if recorder, ok := txn.(rowsRecorder); ok {
+		reader.rows = recorder.transactionRows()
+	}
+
+	return reader.read
+}
+
+// read answers column of the row of table whose keyColumn holds value (pointReader).
+func (r *transactionReader) read(ctx context.Context, table, keyColumn string, value any, column string) (any, bool, error) {
+	spelled, err := columnText(value)
+	if err != nil {
+		return nil, false, errors.Wrapf(err, "%s.%s", table, keyColumn)
+	}
+	read := pointRead{table: table, keyColumn: keyColumn, value: spelled, column: column}
+	if r.rows != nil {
+		if write, named := r.rows.namedWrite(read); named {
+			if answer, known := r.rows.ownColumn(table, write.row, column); known {
+				return answer, true, nil
 			}
-			if answer, ok := rows.remembered(read); ok {
-				return answer.value, answer.found, nil
+			// A row keyed by the column read by is read as it always was.
+			if write.keyText != "" && !keyIsColumn(write.key, keyColumn) {
+				return r.storedByKey(ctx, table, write, column)
 			}
+		} else if keyColumns, ok := r.rows.keyColumnsBeside(table, keyColumn); ok {
+			return r.namedByDatabase(ctx, read, value, keyColumns)
 		}
-		if txn.DBType() != SpannerDBType {
-			return nil, false, errors.Newf("%s is not implemented for %s", notImplemented, txn.DBType())
+	}
+
+	return r.stored(ctx, read, value)
+}
+
+// keyIsColumn reports whether a key by column is the one column.
+func keyIsColumn(key map[string]any, column string) bool {
+	_, ok := key[column]
+
+	return ok && len(key) == 1
+}
+
+// querier answers what the transaction's reads ask: nil for a transaction with no
+// tables to ask, and the refusal on a database the reads are not written for.
+func (r *transactionReader) querier() (spxapi.Querier, error) {
+	if r.txn.DBType() != SpannerDBType {
+		return nil, errors.Newf("%s is not implemented for %s", r.notImplemented, r.txn.DBType())
+	}
+
+	return r.txn.SpannerReadOnlyTransaction(), nil
+}
+
+// stored answers a read that names no buffered row: what the transaction read before,
+// then the database, whose answer it remembers.
+func (r *transactionReader) stored(ctx context.Context, read pointRead, value any) (any, bool, error) {
+	if r.rows != nil {
+		if answer, ok := r.rows.remembered(read); ok {
+			return answer.value, answer.found, nil
 		}
-		querier := txn.SpannerReadOnlyTransaction()
-		if querier == nil {
-			return nil, false, nil
+	}
+	querier, err := r.querier()
+	if err != nil || querier == nil {
+		return nil, false, err
+	}
+	next, found, err := spannerPointRead(ctx, querier, read.table, read.keyColumn, value, read.column)
+	if err != nil {
+		return nil, false, err
+	}
+	if r.rows != nil {
+		r.rows.remember(read, pointAnswer{value: next, found: found})
+	}
+
+	return next, found, nil
+}
+
+// storedByKey answers column of a buffered row no buffered write of which says it: the
+// stored row's, read by the row's key by column and remembered by its spelling.
+func (r *transactionReader) storedByKey(ctx context.Context, table string, write bufferedColumns, column string) (any, bool, error) {
+	read := keyedRead{table: table, key: write.keyText, column: column}
+	if answer, ok := r.rows.keyReads[read]; ok {
+		return answer.value, answer.found, nil
+	}
+	querier, err := r.querier()
+	if err != nil || querier == nil {
+		return nil, false, err
+	}
+	columns := slices.Sorted(maps.Keys(write.key))
+	where := make([]string, 0, len(columns))
+	params := make(map[string]any, len(columns))
+	for i, keyColumn := range columns {
+		param := fmt.Sprintf("k%d", i)
+		where = append(where, "`"+keyColumn+"` = @"+param)
+		params[param] = write.key[keyColumn]
+	}
+	stmt := spanner.Statement{
+		SQL:    "SELECT `" + column + "` FROM `" + table + "` WHERE " + strings.Join(where, " AND "),
+		Params: params,
+	}
+	values, found, err := spannerFirstRow(ctx, querier, stmt)
+	if err != nil {
+		return nil, false, err
+	}
+	answer := pointAnswer{found: found}
+	if found {
+		answer.value = values[0]
+	}
+	r.rows.keyReads[read] = answer
+
+	return answer.value, answer.found, nil
+}
+
+// namedByDatabase answers a read by a column that is not the key of the table's rows,
+// when a buffered write may have changed the row without holding that column: the
+// database names the row under the value by its key, read once with the column and
+// remembered, and a buffered write of that row answers with its newest say on the
+// column (ownColumn); otherwise the column just read answers.
+func (r *transactionReader) namedByDatabase(ctx context.Context, read pointRead, value any, keyColumns []string) (any, bool, error) {
+	row, ok := r.rows.rowReads[read]
+	if !ok {
+		querier, err := r.querier()
+		if err != nil || querier == nil {
+			return nil, false, err
 		}
-		next, found, err := spannerPointRead(ctx, querier, table, keyColumn, value, column)
+		selected := make([]string, 0, len(keyColumns)+1)
+		for _, keyColumn := range keyColumns {
+			selected = append(selected, "`"+keyColumn+"`")
+		}
+		selected = append(selected, "`"+read.column+"`")
+		stmt := spanner.Statement{
+			SQL:    "SELECT " + strings.Join(selected, ", ") + " FROM `" + read.table + "` WHERE `" + read.keyColumn + "` = @value",
+			Params: map[string]any{"value": value},
+		}
+		values, found, err := spannerFirstRow(ctx, querier, stmt)
 		if err != nil {
 			return nil, false, err
 		}
-		if rows != nil {
-			rows.remember(read, pointAnswer{value: next, found: found})
+		if found {
+			key := make(map[string]any, len(keyColumns))
+			for i, keyColumn := range keyColumns {
+				key[keyColumn] = values[i]
+			}
+			keyText, err := keySpelling(key)
+			if err != nil {
+				return nil, false, errors.Wrapf(err, "the key of a row of %s", read.table)
+			}
+			row = storedRow{found: true, key: keyText, value: values[len(keyColumns)]}
 		}
-
-		return next, found, nil
+		r.rows.rowReads[read] = row
 	}
+	if !row.found {
+		return nil, false, nil
+	}
+	if write, ok := r.rows.writeOfKey(read.table, row.key); ok {
+		if answer, known := r.rows.ownColumn(read.table, write.row, read.column); known {
+			return answer, true, nil
+		}
+	}
+
+	return row.value, true, nil
 }
 
 // spannerPointRead reads column of the row of table whose keyColumn holds value, the
@@ -244,6 +480,17 @@ func spannerPointRead(ctx context.Context, querier spxapi.Querier, table, keyCol
 		SQL:    "SELECT `" + column + "` FROM `" + table + "` WHERE `" + keyColumn + "` = @value",
 		Params: map[string]any{"value": value},
 	}
+	values, found, err := spannerFirstRow(ctx, querier, stmt)
+	if err != nil || !found {
+		return nil, false, err
+	}
+
+	return values[0], true, nil
+}
+
+// spannerFirstRow runs a statement and answers each column of its first row as Spanner
+// returned it (a spanner.GenericColumnValue), and whether there is a row.
+func spannerFirstRow(ctx context.Context, querier spxapi.Querier, stmt spanner.Statement) (values []any, found bool, err error) {
 	it := querier.Query(ctx, stmt)
 	defer it.Stop()
 
@@ -255,12 +502,16 @@ func spannerPointRead(ctx context.Context, querier spxapi.Querier, table, keyCol
 
 		return nil, false, errors.Wrap(err, "spanner.RowIterator.Next()")
 	}
-	var answer spanner.GenericColumnValue
-	if err := row.Column(0, &answer); err != nil {
-		return nil, false, errors.Wrap(err, "spanner.Row.Column()")
+	values = make([]any, row.Size())
+	for i := range values {
+		var value spanner.GenericColumnValue
+		if err := row.Column(i, &value); err != nil {
+			return nil, false, errors.Wrap(err, "spanner.Row.Column()")
+		}
+		values[i] = value
 	}
 
-	return answer, true, nil
+	return values, true, nil
 }
 
 // changeRecordTenantNotImplemented is the refusal of a read a change record's tenant

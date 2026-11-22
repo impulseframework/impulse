@@ -177,6 +177,46 @@ func (changeLabel) TenantBinding() TenantBinding {
 	}}
 }
 
+// changePier is a row that carries its yard and a code no other pier has.
+type changePier struct {
+	ID     string `spanner:"Id"`
+	Code   string `spanner:"Code"`
+	YardID string `spanner:"YardId"`
+	Name   string `spanner:"Name"`
+}
+
+func (changePier) Resource() accesstypes.Resource {
+	return "Piers"
+}
+
+func (changePier) Config() Config {
+	return Config{}.SetTrackChanges(true)
+}
+
+func (changePier) TenantBinding() TenantBinding {
+	return TenantBinding{Field: "YardID"}
+}
+
+// changeSlip is a row that reaches its yard through a pier it names by the pier's code,
+// which is not the pier's key.
+type changeSlip struct {
+	ID       string `spanner:"Id"`
+	PierCode string `spanner:"PierCode"`
+	Name     string `spanner:"Name"`
+}
+
+func (changeSlip) Resource() accesstypes.Resource {
+	return "Slips"
+}
+
+func (changeSlip) Config() Config {
+	return Config{}.SetTrackChanges(true)
+}
+
+func (changeSlip) TenantBinding() TenantBinding {
+	return TenantBinding{Field: "PierCode", Path: []BindingHop{{Table: "Piers", JoinColumn: "Code", Column: "YardId"}}}
+}
+
 // changePatch builds a patch of one fixture row, as a method's own code builds one.
 func changePatch[R Resourcer](patchType PatchType, id string, fields map[accesstypes.Field]any) *PatchSet[R] {
 	p := NewPatchSet(NewMetadata[R]()).SetPatchType(patchType)
@@ -199,9 +239,15 @@ func numberPatch[R Resourcer](patchType PatchType, number int64, fields map[acce
 	return p
 }
 
-// TestChangeRecordTenant_bufferedLookup pins how a point read is answered from what the
-// transaction's own patches buffered: the newest write of the row that says anything of
-// the column answers, and a write that says nothing is passed over.
+// TestChangeRecordTenant_bufferedLookup pins how a point read settles the row it names
+// from what the transaction's own patches buffered, and answers from it: the newest write
+// that holds the column read by with the read's value names the row, or, where no write
+// holds it and a write of the table by its key holds something else, the row the
+// database names under the value; the row's newest write that says anything of the
+// column answers. What the database holds is laid under the writes from the record of
+// the reads the transaction made, so no case asks the database: the read by the column
+// answers "yard-stored", the row the database names under a pier's code is pier-1 with
+// "yard-stored-row", and pier-1 read by its key answers "yard-stored-key".
 func TestChangeRecordTenant_bufferedLookup(t *testing.T) {
 	t.Parallel()
 
@@ -209,64 +255,130 @@ func TestChangeRecordTenant_bufferedLookup(t *testing.T) {
 		patchType PatchType
 		columns   map[string]any
 	}
-	read := pointRead{table: "Docks", keyColumn: "Id", value: "dock-1", column: "YardId"}
+	dock := pointRead{table: "Docks", keyColumn: "Id", value: "dock-1", column: "YardId"}
+	pier := pointRead{table: "Piers", keyColumn: "Code", value: "code-1", column: "YardId"}
 	tests := []struct {
-		name      string
-		writes    []write
-		want      pointAnswer
-		wantKnown bool
+		name   string
+		read   pointRead
+		writes []write
+		want   pointAnswer
 	}{
 		{
-			name:      "a create that set the column answers its value",
-			writes:    []write{{CreatePatchType, map[string]any{"Id": "dock-1", "YardId": "yard-1", "Name": "first"}}},
-			want:      pointAnswer{value: "yard-1", found: true},
-			wantKnown: true,
+			name:   "a create that set the column answers its value",
+			read:   dock,
+			writes: []write{{CreatePatchType, map[string]any{"Id": "dock-1", "YardId": "yard-1", "Name": "first"}}},
+			want:   pointAnswer{value: "yard-1", found: true},
 		},
 		{
-			name:      "a create that left the column out answers nil",
-			writes:    []write{{CreatePatchType, map[string]any{"Id": "dock-1", "Name": "first"}}},
-			want:      pointAnswer{value: nil, found: true},
-			wantKnown: true,
+			name:   "a create that left the column out answers nil",
+			read:   dock,
+			writes: []write{{CreatePatchType, map[string]any{"Id": "dock-1", "Name": "first"}}},
+			want:   pointAnswer{value: nil, found: true},
 		},
 		{
-			name:      "a column set to NULL answers nil",
-			writes:    []write{{CreatePatchType, map[string]any{"Id": "dock-1", "YardId": nil}}},
-			want:      pointAnswer{value: nil, found: true},
-			wantKnown: true,
+			name:   "a column set to NULL answers nil",
+			read:   dock,
+			writes: []write{{CreatePatchType, map[string]any{"Id": "dock-1", "YardId": nil}}},
+			want:   pointAnswer{value: nil, found: true},
 		},
 		{
 			name: "an update that did not set the column is passed over for an older create",
+			read: dock,
 			writes: []write{
 				{CreatePatchType, map[string]any{"Id": "dock-1", "YardId": "yard-1"}},
 				{UpdatePatchType, map[string]any{"Id": "dock-1", "Name": "renamed"}},
 			},
-			want:      pointAnswer{value: "yard-1", found: true},
-			wantKnown: true,
+			want: pointAnswer{value: "yard-1", found: true},
 		},
 		{
 			name: "the newest write that set the column answers",
+			read: dock,
 			writes: []write{
 				{CreatePatchType, map[string]any{"Id": "dock-1", "YardId": "yard-1"}},
 				{UpdatePatchType, map[string]any{"Id": "dock-1", "YardId": "yard-2"}},
 			},
-			want:      pointAnswer{value: "yard-2", found: true},
-			wantKnown: true,
+			want: pointAnswer{value: "yard-2", found: true},
 		},
 		{
-			name:   "an update alone that did not set the column says nothing",
+			name:   "an update alone that did not set the column leaves the read to the database",
+			read:   dock,
 			writes: []write{{UpdatePatchType, map[string]any{"Id": "dock-1", "Name": "renamed"}}},
+			want:   pointAnswer{value: "yard-stored", found: true},
 		},
 		{
-			name:   "a write of another row says nothing",
+			name:   "a write of another row leaves the read to the database",
+			read:   dock,
 			writes: []write{{CreatePatchType, map[string]any{"Id": "dock-2", "YardId": "yard-2"}}},
+			want:   pointAnswer{value: "yard-stored", found: true},
 		},
 		{
-			name:   "a write whose key cannot be spelled says nothing",
+			name:   "a write whose key cannot be spelled leaves the read to the database",
+			read:   dock,
 			writes: []write{{CreatePatchType, map[string]any{"Id": []string{"dock-1"}, "YardId": "yard-2"}}},
+			want:   pointAnswer{value: "yard-stored", found: true},
 		},
 		{
 			name:   "a delete is not noted",
+			read:   dock,
 			writes: []write{{DeletePatchType, map[string]any{"Id": "dock-1", "YardId": "yard-2"}}},
+			want:   pointAnswer{value: "yard-stored", found: true},
+		},
+		{
+			name: "a create that holds the code names its row, and the row's move by its key answers",
+			read: pier,
+			writes: []write{
+				{CreatePatchType, map[string]any{"Id": "pier-1", "Code": "code-1", "YardId": "yard-1"}},
+				{UpdatePatchType, map[string]any{"Id": "pier-1", "YardId": "yard-2"}},
+			},
+			want: pointAnswer{value: "yard-2", found: true},
+		},
+		{
+			name: "an update by key that did not set the column is passed over for the create that named the row",
+			read: pier,
+			writes: []write{
+				{CreatePatchType, map[string]any{"Id": "pier-1", "Code": "code-1", "YardId": "yard-1"}},
+				{UpdatePatchType, map[string]any{"Id": "pier-1", "Name": "renamed"}},
+			},
+			want: pointAnswer{value: "yard-1", found: true},
+		},
+		{
+			name: "the newest write that holds the code names the row",
+			read: pier,
+			writes: []write{
+				{CreatePatchType, map[string]any{"Id": "pier-1", "Code": "code-1", "YardId": "yard-1"}},
+				{UpdatePatchType, map[string]any{"Id": "pier-1", "Code": "code-9"}},
+				{CreatePatchType, map[string]any{"Id": "pier-2", "Code": "code-1", "YardId": "yard-3"}},
+			},
+			want: pointAnswer{value: "yard-3", found: true},
+		},
+		{
+			name:   "a row named by a write of its code that does not say the column: the row read by its key",
+			read:   pier,
+			writes: []write{{UpdatePatchType, map[string]any{"Id": "pier-1", "Code": "code-1"}}},
+			want:   pointAnswer{value: "yard-stored-key", found: true},
+		},
+		{
+			name:   "a row moved by its key, named by the database under the code: the move answers",
+			read:   pier,
+			writes: []write{{UpdatePatchType, map[string]any{"Id": "pier-1", "YardId": "yard-2"}}},
+			want:   pointAnswer{value: "yard-2", found: true},
+		},
+		{
+			name:   "a row renamed by its key, named by the database under the code: the stored column answers",
+			read:   pier,
+			writes: []write{{UpdatePatchType, map[string]any{"Id": "pier-1", "Name": "renamed"}}},
+			want:   pointAnswer{value: "yard-stored-row", found: true},
+		},
+		{
+			name:   "another row written by its key: the row the database names answers as stored",
+			read:   pier,
+			writes: []write{{UpdatePatchType, map[string]any{"Id": "pier-2", "YardId": "yard-2"}}},
+			want:   pointAnswer{value: "yard-stored-row", found: true},
+		},
+		{
+			name: "no write of the table: the read by the code",
+			read: pier,
+			want: pointAnswer{value: "yard-stored", found: true},
 		},
 	}
 	for _, tt := range tests {
@@ -275,13 +387,24 @@ func TestChangeRecordTenant_bufferedLookup(t *testing.T) {
 
 			rows := newTransactionRows()
 			for _, w := range tt.writes {
-				rows.note("Docks", w.patchType, rowMatchKey(KeySet{}.Add("ID", w.columns["Id"])), w.columns)
+				key := map[string]any{"Id": w.columns["Id"]}
+				rows.note(accesstypes.Resource(tt.read.table), w.patchType, rowMatchKey(KeySet{}.Add("ID", w.columns["Id"])), key, w.columns)
 			}
-			rows.note("Berths", CreatePatchType, rowMatchKey(KeySet{}.Add("ID", "dock-1")), map[string]any{"Id": "dock-1", "YardId": "another table's"})
+			rows.note("Berths", CreatePatchType, rowMatchKey(KeySet{}.Add("ID", "dock-1")), map[string]any{"Id": "dock-1"}, map[string]any{"Id": "dock-1", "Code": "code-1", "YardId": "another table's"})
+			rows.remember(tt.read, pointAnswer{value: "yard-stored", found: true})
+			pierKey, err := keySpelling(map[string]any{"Id": "pier-1"})
+			if err != nil {
+				t.Fatalf("keySpelling() error = %v", err)
+			}
+			rows.rowReads[pier] = storedRow{found: true, key: pierKey, value: "yard-stored-row"}
+			rows.keyReads[keyedRead{table: "Piers", key: pierKey, column: "YardId"}] = pointAnswer{value: "yard-stored-key", found: true}
 
-			got, known := rows.buffered(read)
-			if known != tt.wantKnown || got != tt.want {
-				t.Errorf("buffered() = %+v, known %t, want %+v, known %t", got, known, tt.want, tt.wantKnown)
+			value, found, err := transactionPointReader(&rowsRecordingTxn{rows: rows}, changeRecordTenantNotImplemented)(context.Background(), tt.read.table, tt.read.keyColumn, tt.read.value, tt.read.column)
+			if err != nil {
+				t.Fatalf("read error = %v", err)
+			}
+			if got := (pointAnswer{value: value, found: found}); got != tt.want {
+				t.Errorf("read = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
@@ -371,7 +494,7 @@ func TestChangeRecordTenant_ownColumn(t *testing.T) {
 
 			rows := newTransactionRows()
 			for _, w := range tt.writes {
-				rows.note(w.table, w.patchType, w.row, w.columns)
+				rows.note(w.table, w.patchType, w.row, nil, w.columns)
 			}
 
 			got, known := rows.ownColumn("Berths", tt.row, "DockId")
@@ -518,7 +641,7 @@ func TestChangeRecordTenant_pointReader(t *testing.T) {
 			name: "what the transaction buffered answers before what it read",
 			txn: func() ReadWriteTransaction {
 				rows := newTransactionRows()
-				rows.note("Docks", UpdatePatchType, rowMatchKey(KeySet{}.Add("ID", "dock-1")), map[string]any{"Id": "dock-1", "YardId": "yard-buffered"})
+				rows.note("Docks", UpdatePatchType, rowMatchKey(KeySet{}.Add("ID", "dock-1")), map[string]any{"Id": "dock-1"}, map[string]any{"Id": "dock-1", "YardId": "yard-buffered"})
 				rows.remember(read, pointAnswer{value: "yard-read", found: true})
 
 				return &rowsRecordingTxn{rows: rows}
