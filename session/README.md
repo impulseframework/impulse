@@ -1588,8 +1588,9 @@ reset link ends in, and `CreateSessionUser` with a password. A password is refus
 the sentence that says why) when it is too easy to guess, when it is built on the person's
 own name, username or email address, or when it is among the 100,000 passwords most often
 found in data breaches. The person's details count however they are written: in either case
-and with or without accents. A word of theirs of four characters or more also counts when some
-of its letters are typed as look-alike characters (`@` for a, `0` for o, `$` for s).
+and with or without accents. A word of theirs of four characters or more also counts when
+look-alike characters stand for some of its letters (`@` for a, `0` for o, `$` for s), in the
+password or in the word itself.
 
 How hard a password is to guess is an estimate in bits. The password method's
 `MinimumPasswordStrength` option sets the bits a password must reach (default: 30); an

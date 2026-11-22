@@ -16,11 +16,13 @@
 // maxL33tWork passes over MaxJudged characters. A password past that holds many different
 // look-alike characters for its length, and is estimated as typed. The library does not read
 // look-alike characters against the person's words, so a password that spells a word of
-// theirs of minLookAlike characters or more in look-alikes beside at least one of its letters
-// typed as itself (Z@br0w$k! for Zabrowski) is estimated a second time with the word written
-// in its letters, and the lower estimate counts; finding the words compares each one with the
-// password at each of its first MaxJudged characters, no further than MaxJudged characters
-// each time. One judgment asks the library at most three times: about the password,
+// theirs of minLookAlike characters or more with look-alikes standing for some of its letters,
+// beside at least one of its letters typed as itself, is estimated a second time with the word
+// written as the person wrote it, and the lower estimate counts. The reading runs both ways: a
+// look-alike in the password stands for the word's letter (Z@br0w$k! for Zabrowski), and one
+// in the word for the letter typed (Zabrowski for z4br0wski). Finding the words compares each
+// one with the password at each of its first MaxJudged characters, no further than MaxJudged
+// characters each time. One judgment asks the library at most three times: about the password,
 // about it with the person's words written in their letters, and, when it falls short, about
 // the password without the person's details, to name the reason. The list is asked about the
 // whole password.
@@ -299,12 +301,13 @@ func inputsOf(who Details, read *reading) []string {
 	return inputs
 }
 
-// plainReading is judged with each of the person's words it spells in look-alike characters
-// written in that word's letters, so the estimate finds the word: Z@br0w$k!2077 with the word
-// Zabrowski is Zabrowski2077. The words are the inputs at least minLookAlike characters long,
+// plainReading is judged with each of the person's words it spells with look-alike characters,
+// in the password or in the word, written as the word is, so the estimate finds the word:
+// Z@br0w$k!2077 with the word Zabrowski is Zabrowski2077, and Zabrowski2077 with the word
+// z4br0wski is Z4br0wski2077. The words are the inputs at least minLookAlike characters long,
 // in lower case. From the left, at each character where words read (spellsAt), the longest is
 // taken, the first in inputs of equal lengths: a character matched as itself stays as typed,
-// one matched by look-alike becomes the word's letter, in capitals when every letter of the
+// one matched by look-alike becomes the word's character, in capitals when every letter of the
 // word typed as itself there is a capital (Z@BR0W$K! is ZABROWSKI) and in lower case
 // otherwise, and the reading goes on after the word. Where no word reads, the character
 // stays. The plain reading is as long as judged, and is judged itself when no word reads
@@ -356,21 +359,25 @@ func plainReading(judged string, inputs []string) string {
 	return string(plain)
 }
 
-// spellsAt says whether text begins with word with at least one of word's letters in a
-// look-alike character and at least one typed as itself: each of word's characters is matched
-// in order, by a character that is the same in lower case or, for a letter, by one of the
-// characters l33tTable lists for it. A digit or a symbol of word typed as itself is no letter
-// typed as itself, so digits alone never spell a word. word is in lower case.
+// spellsAt says whether text begins with word with at least one of word's characters matched
+// by look-alike and at least one of its letters typed as itself. Each of word's characters is
+// matched in order, in one of three ways tried in this order: by a character that is the same
+// in lower case; by one of the characters l33tTable lists for word's letter (a look-alike in
+// the password); or, when word's character is one l33tTable lists for the letter typed (a
+// look-alike in the word: 4 in z4br0wski for a typed a), by that letter. The second and third
+// are look-alikes. A digit or a symbol of word typed as itself is no letter typed as itself,
+// so digits alone never spell a word, and a word of digits is never spelled by letters. word
+// is in lower case.
 func spellsAt(text, word string) bool {
 	if len(word) > len(text) {
 		return false
 	}
 	lookAlike, asItself := false, false
 	for k := range len(word) {
-		switch {
+		switch lower := byte(unicode.ToLower(rune(text[k]))); {
 		case sameInLowerCase(text[k], word[k]):
 			asItself = asItself || unicode.IsLetter(rune(word[k]))
-		case standsFor(text[k], word[k]):
+		case standsFor(text[k], word[k]), standsFor(word[k], lower):
 			lookAlike = true
 		default:
 			return false

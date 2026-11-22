@@ -113,6 +113,7 @@ func TestJudge_personalDetails(t *testing.T) {
 		{name: "the name of a person whose username carries digits", password: "MariaReyeq9", who: Details{Username: "mreyes73", Name: "Maria Reyes"}},
 		{name: "a name cut short, of a person whose username carries digits", password: "OlekKowalcz!", who: Details{Username: "olekk37", Name: "Olek Kowalczyk"}},
 		{name: "a username with digits inside its spelling", password: "Z4br0wski2077!", who: Details{Username: "z4br0wski77"}},
+		{name: "a username written with look-alike characters, typed in letters", password: "Zabrowski2077!", who: Details{Username: "z4br0wski77"}},
 		{name: "a name with a ł, typed with l", password: "Lukasz2077horse", who: Details{Name: "Łukasz Błaszczykowski"}},
 		{name: "a name with an ø, typed with o", password: "Soren2077horse", who: Details{Name: "Søren Kierkegaard"}},
 		{name: "a Thai name with its vowel signs and tone mark", password: "กิตติศักดิ์2077", who: Details{Name: "กิตติศักดิ์ ศรีสุวรรณ"}},
@@ -188,10 +189,13 @@ func TestPlainReading(t *testing.T) {
 		{judged: "@nn@nn", words: []string{"anna"}, want: "annann"},
 		{judged: "xx@1", words: []string{"al"}, want: "xx@1"},
 		{judged: "n1ck", words: []string{"nick"}, want: "nick"},
-		{judged: "nick", words: []string{"n1ck"}, want: "nick"},
+		{judged: "nick", words: []string{"n1ck"}, want: "n1ck"},
 		{judged: "Quartz9471&", words: []string{"ali"}, want: "Quartz9471&"},
 		{judged: "kettle33$", words: []string{"lee"}, want: "kettle33$"},
 		{judged: "A$dLxc0m", words: []string{"com"}, want: "A$dLxc0m"},
+		{judged: "Zabrowski2077", words: []string{"z4br0wski"}, want: "Z4br0wski2077"},
+		{judged: "Z@browski", words: []string{"z4br0wski"}, want: "Z@browski"},
+		{judged: "xxiggoxx", words: []string{"1990"}, want: "xxiggoxx"},
 	}
 	for _, tt := range tests {
 		if got := plainReading(tt.judged, tt.words); got != tt.want {
