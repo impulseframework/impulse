@@ -53,6 +53,11 @@ type App struct {
 	// TenantRecords are the structs the application's own code annotates @tenant: each
 	// resource package's tenant record, the global resource whose rows are the tenants.
 	TenantRecords []TenantRecord
+	// ConstantAnnotations are the package-level constants of the application's own code
+	// whose comment starts a line with @manualAddResource or @manualAddPermission, one for
+	// each constant and keyword: generation reads the two on the resources package's
+	// constants alone, so one anywhere else is read by nothing.
+	ConstantAnnotations []ConstantAnnotation
 	// TenantDirectories are the structs the application's own code annotates
 	// @tenantDirectory: each resource package's directories record, the tenant-scoped
 	// resource whose rows are the directories a tenant admits its people through.
@@ -373,6 +378,18 @@ type TenantRecord struct {
 	File string
 	Line int
 	Name string
+}
+
+// ConstantAnnotation is one package-level constant whose comment (the one above it, the
+// one at the end of its line, or the one above its const declaration) starts a line with
+// one of the annotations generation reads off a resources package's constants: the
+// file, the line of the constant's name, the constant, and the keyword,
+// manualAddResource or manualAddPermission.
+type ConstantAnnotation struct {
+	File     string
+	Line     int
+	Constant string
+	Keyword  string
 }
 
 // DirectoryRecord is one struct annotated @tenantDirectory: the directories record, the

@@ -602,7 +602,8 @@ func parseEngines(rel string, src []byte) ([]Engine, error) {
 }
 
 // scanAnnotations records the file's struct annotations (@permissionScope(domain),
-// @tenant, @tenantDirectory, @outlet) and its constructions of a tenant roster.
+// @tenant, @tenantDirectory, @outlet), its constants carrying @manualAddResource or
+// @manualAddPermission, and its constructions of a tenant roster.
 func (a *App) scanAnnotations(rel string, data []byte) error {
 	if bytes.Contains(data, []byte("@"+permissionScopeKeyword)) || bytes.Contains(data, []byte("@"+outletKeyword)) || bytes.Contains(data, []byte("@"+tenantKeyword)) {
 		docs, err := parseStructDocs(rel, data)
@@ -629,6 +630,14 @@ func (a *App) scanAnnotations(rel string, data []byte) error {
 				a.OutletMembers = append(a.OutletMembers, member)
 			}
 		}
+	}
+
+	if bytes.Contains(data, []byte("@"+manualAddResourceKeyword)) || bytes.Contains(data, []byte("@"+manualAddPermissionKeyword)) {
+		annotations, err := parseConstantAnnotations(rel, data)
+		if err != nil {
+			return err
+		}
+		a.ConstantAnnotations = append(a.ConstantAnnotations, annotations...)
 	}
 
 	if bytes.Contains(data, []byte(rosterConstructorSuffix)) {
@@ -1208,6 +1217,8 @@ const (
 	domainKeyword               = "domain"
 	spannerTag                  = "spanner"
 	directoryDefaultSeatKeyword = "directoryDefaultSeat"
+	manualAddResourceKeyword    = "manualAddResource"
+	manualAddPermissionKeyword  = "manualAddPermission"
 	accessImportPath            = "github.com/impulseframework/impulse/access"
 )
 
@@ -1218,7 +1229,9 @@ const (
 // and directoryDefaultSeatRE the @directoryDefaultSeat field annotation; resourceRE
 // matches the @resource struct annotation, a line of its own, domainBareRE the bare
 // @domain field annotation, a line of its own, and domainViaRE captures the join path of
-// @domain(via: ...).
+// @domain(via: ...); constantAnnotationRE captures the keyword of a line that starts
+// with @manualAddResource or @manualAddPermission, as generation reads the two off a
+// constant's comment (a longer word, @manualAddResourceSet, is not a match).
 var (
 	domainScopeRE          = regexp.MustCompile(`@` + permissionScopeKeyword + `\(\s*domain\s*\)`)
 	outletRE               = regexp.MustCompile(`@` + outletKeyword + `\(([^)]*)\)`)
@@ -1228,6 +1241,7 @@ var (
 	resourceRE             = regexp.MustCompile(`(?m)^\s*@` + resourceKeyword + `\s*(?:\([^)]*\))?\s*$`)
 	domainBareRE           = regexp.MustCompile(`(?m)^\s*@` + domainKeyword + `\s*$`)
 	domainViaRE            = regexp.MustCompile(`(?m)^\s*@` + domainKeyword + `\(\s*via:\s*([^)]*?)\s*\)\s*$`)
+	constantAnnotationRE   = regexp.MustCompile(`(?m)^\s*@(` + manualAddResourceKeyword + `|` + manualAddPermissionKeyword + `)\b`)
 )
 
 // structDoc is one struct type declaration with its doc comment and its fields' comments.
@@ -1281,6 +1295,50 @@ func parseStructDocs(rel string, src []byte) ([]structDoc, error) {
 	}
 
 	return docs, nil
+}
+
+// parseConstantAnnotations returns the file's package-level constants whose comment
+// starts a line with @manualAddResource or @manualAddPermission: the comment above the
+// constant, the one at the end of its line, and the one above its const declaration,
+// grouped or not, so a group's comment counts for every constant of the group. One
+// record for each constant and keyword, keywords in the order the comments first name
+// them. A comment of anything but a constant (a function's, which may be prose that
+// starts a line with the annotation) is not read.
+func parseConstantAnnotations(rel string, src []byte) ([]ConstantAnnotation, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, rel, src, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		return nil, errors.Wrap(err, "parser.ParseFile()")
+	}
+
+	var annotations []ConstantAnnotation
+	for _, decl := range f.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			var keywords []string
+			for _, group := range []*ast.CommentGroup{gen.Doc, vs.Doc, vs.Comment} {
+				for _, m := range constantAnnotationRE.FindAllStringSubmatch(group.Text(), -1) {
+					if !slices.Contains(keywords, m[1]) {
+						keywords = append(keywords, m[1])
+					}
+				}
+			}
+			for _, name := range vs.Names {
+				for _, keyword := range keywords {
+					annotations = append(annotations, ConstantAnnotation{File: rel, Line: fset.Position(name.Pos()).Line, Constant: name.Name, Keyword: keyword})
+				}
+			}
+		}
+	}
+
+	return annotations, nil
 }
 
 // StructColumns reads the structs of the Go package in a root-relative directory, test

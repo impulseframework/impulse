@@ -336,3 +336,77 @@ func TestAuthPackagesAreTheTreeRules(t *testing.T) {
 		})
 	}
 }
+
+// TestScan_constantAnnotations pins what the scan records of the two annotations
+// generation reads off a resources package's constants: every package-level constant
+// whose comment starts a line with @manualAddResource or @manualAddPermission (the
+// comment above it, the one at the end of its line, or the one above its const
+// declaration), once for each keyword, wherever the constant is declared. A function's
+// comment, a longer word, a test file and a generated file give none.
+func TestScan_constantAnnotations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		files map[string]string
+		want  []ConstantAnnotation
+	}{
+		{
+			name: "an annotated constant, above it or at the end of its line",
+			files: map[string]string{
+				"pkg/rpc/beacon.go": "package rpc\n\nimport \"github.com/impulseframework/impulse/accesstypes\"\n\n// PingBeacon is the method's resource.\n//\n// @manualAddResource(Execute)\nconst PingBeacon accesstypes.Resource = \"PingBeacon\"\n\nconst Relight accesstypes.Resource = \"Relight\" // @manualAddResource(Execute)\n",
+			},
+			want: []ConstantAnnotation{
+				{File: "pkg/rpc/beacon.go", Line: 8, Constant: "PingBeacon", Keyword: "manualAddResource"},
+				{File: "pkg/rpc/beacon.go", Line: 10, Constant: "Relight", Keyword: "manualAddResource"},
+			},
+		},
+		{
+			name: "a constant carrying both keywords gives two",
+			files: map[string]string{
+				"app/routes.go": "package app\n\nconst (\n\t// Override is checked by hand.\n\t//\n\t// @manualAddPermission\n\t// @manualAddResource(Read)\n\tOverride = \"Override\"\n)\n",
+			},
+			want: []ConstantAnnotation{
+				{File: "app/routes.go", Line: 8, Constant: "Override", Keyword: "manualAddPermission"},
+				{File: "app/routes.go", Line: 8, Constant: "Override", Keyword: "manualAddResource"},
+			},
+		},
+		{
+			name: "a group's comment counts for each constant of the group",
+			files: map[string]string{
+				"app/routes.go": "package app\n\n// @manualAddPermission\nconst (\n\tOverride = \"Override\"\n\tRelease, Recall = \"Release\", \"Recall\"\n)\n",
+			},
+			want: []ConstantAnnotation{
+				{File: "app/routes.go", Line: 5, Constant: "Override", Keyword: "manualAddPermission"},
+				{File: "app/routes.go", Line: 6, Constant: "Release", Keyword: "manualAddPermission"},
+				{File: "app/routes.go", Line: 6, Constant: "Recall", Keyword: "manualAddPermission"},
+			},
+		},
+		{
+			name: "a function's comment, a longer word, a test file and a generated file give none",
+			files: map[string]string{
+				"app/log.go":                        "package app\n\n// shipsLog serves the log by hand. Its resource is declared in the resources package:\n// @manualAddResource(Read) stands on that constant.\nfunc shipsLog() {}\n",
+				"pkg/resources/sets.go":             "package resources\n\n// Crews are listed by hand.\n//\n// @manualAddResourceSet(Read)\ntype Crews struct{}\n\n// @manualAddResourceSet(Read)\nconst CrewSet = \"Crews\"\n",
+				"pkg/rpc/beacon_test.go":            "package rpc\n\n// @manualAddResource(Execute)\nconst PingBeacon = \"PingBeacon\"\n",
+				"pkg/rpc/zz_gen_beacon.go":          "package rpc\n\n// @manualAddPermission\nconst Override = \"Override\"\n",
+				"pkg/resources/zz_gen_resources.go": "package resources\n\n// @manualAddResource(Read)\nconst Ledgers = \"Ledgers\"\n",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeTree(t, root, map[string]string{"go.mod": "module example.com/acme/beacon\n\ngo 1.26\n"})
+			writeTree(t, root, tt.files)
+			a, err := Discover(root)
+			if err != nil {
+				t.Fatalf("Discover() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, a.ConstantAnnotations, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("ConstantAnnotations mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
