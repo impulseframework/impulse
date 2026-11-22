@@ -52,6 +52,8 @@ type groupStatements struct {
 	listRolesIn    string
 	roleHeld       string
 	deleteEndedOf  string
+	heldInDomain   string
+	endedInDomain  string
 	readGroups     string
 	readMembers    string
 	readRoles      string
@@ -89,6 +91,9 @@ WHERE g.Kind = @kind AND g.Axis = @axis AND g.DomainId = @domain AND %s ORDER BY
 		roleHeld: fmt.Sprintf("SELECT 1 FROM %s@{FORCE_INDEX=%s} WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s LIMIT 1",
 			n.groupRoles, n.groupRolesIndex, standing("")),
 		deleteEndedOf: fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s", n.groupRoles, ended),
+		// The group roles held in one domain that read a role's every-domain row.
+		heldInDomain:  fmt.Sprintf("SELECT u.DomainId FROM %s u WHERE %s AND %s ORDER BY u.DomainId LIMIT 1", n.groupRoles, readsEveryDomainRow(n.roles), standing("u.")),
+		endedInDomain: fmt.Sprintf("DELETE FROM %s u WHERE %s AND u.%s", n.groupRoles, readsEveryDomainRow(n.roles), ended),
 		readGroups:    fmt.Sprintf("SELECT Id, Kind, Axis, DomainId FROM %s", n.groups),
 		readMembers:   fmt.Sprintf("SELECT GroupId, UserId, StartsAt, EndsAt FROM %s", n.groupMembers),
 		readRoles:     fmt.Sprintf("SELECT GroupId, Kind, Axis, DomainId, Role, StartsAt, EndsAt FROM %s", n.groupRoles),
@@ -352,12 +357,28 @@ func (s *Store) queryGroups(ctx context.Context, stmt spanner.Statement) ([]poli
 
 // InsertGroupMember gives one person's place in a group its period: the person
 // is added where they are not in the group, and their place given the new
-// period where they are. The group's row must exist.
+// period where they are. The group's row must exist: it is read first, and where
+// it is not there policy.ErrNoGroup is wrapped and nothing is written.
 func (s *Store) InsertGroupMember(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
 	return s.assign(ctx, s.names.groupMembers,
 		[]string{colGroupID, colUser},
 		spanner.Key{string(group), string(user)},
-		period, "spannertxn.Serializable() assign group member")
+		period, []requirement{s.groupHeld(group)}, "spannertxn.Serializable() assign group member")
+}
+
+// groupHeld is the requirement of a group's member or role: the group's row. Where it
+// is not there it answers policy.ErrNoGroup wrapped.
+func (s *Store) groupHeld(group accesstypes.Group) requirement {
+	return func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		switch _, err := txn.ReadRow(ctx, s.names.groups, spanner.Key{string(group)}, []string{colID}); {
+		case spanner.ErrCode(err) == codes.NotFound:
+			return errors.Wrapf(policy.ErrNoGroup, "group %s", group)
+		case err != nil:
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow() group")
+		}
+
+		return nil
+	}
 }
 
 // DeleteGroupMember removes one person from a group; removing one who is not
@@ -387,14 +408,31 @@ func (s *Store) ListGroupMembers(ctx context.Context, group accesstypes.Group) (
 
 // InsertGroupRole gives one role a group holds in scope its period: the role is
 // added where the group does not hold it there, and given the new period where
-// it does. The group's row must exist; the role is named by name alone.
+// it does. The group's row must exist: it is read first, and where it is not
+// there policy.ErrNoGroup is wrapped and nothing is written. The role is named by
+// name alone.
 func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	return s.assignGroupRole(ctx, group, scope, role, period, []requirement{s.groupHeld(group)})
+}
+
+// InsertCustomGroupRole writes what InsertGroupRole writes, only while the roles
+// table holds a row of the custom role where the group's role reads it, as
+// InsertCustomUserRole reads it, and wraps policy.ErrNoRole where it holds none.
+// The role is read before the group, so where neither is there the answer is
+// policy.ErrNoRole.
+func (s *Store) InsertCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	return s.assignGroupRole(ctx, group, scope, role, period, []requirement{s.customRoleHeld(scope, role), s.groupHeld(group)})
+}
+
+// assignGroupRole writes one role a group holds in scope with its period once each
+// of needs is there.
+func (s *Store) assignGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period, needs []requirement) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 
 	return s.assign(ctx, s.names.groupRoles,
 		[]string{colGroupID, colKind, colAxis, colDomain, colRole},
 		spanner.Key{string(group), kind, axis, domain, string(role)},
-		period, "spannertxn.Serializable() assign group role")
+		period, needs, "spannertxn.Serializable() assign group role")
 }
 
 // DeleteGroupRole removes one role a group holds in scope; removing one it

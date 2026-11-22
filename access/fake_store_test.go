@@ -144,14 +144,45 @@ func (f *fakeStore) InsertUserRole(_ context.Context, scope accesstypes.PolicySc
 	if f.failWith != nil {
 		return f.failWith
 	}
+	f.insertUserRole(scope, user, role, period, reason)
+
+	return nil
+}
+
+func (f *fakeStore) InsertCustomUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failWith != nil {
+		return f.failWith
+	}
+	if !f.customRoleHeld(scope, role) {
+		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+	}
+	f.insertUserRole(scope, user, role, period, reason)
+
+	return nil
+}
+
+// insertUserRole writes the membership with its period and its reason; the caller holds
+// mu.
+func (f *fakeStore) insertUserRole(scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) {
 	f.memberships[fakeMembership{scope, user, role}] = period
 	delete(f.reasons, fakeMembership{scope, user, role})
 	if reason != "" {
 		f.reasons[fakeMembership{scope, user, role}] = reason
 	}
 	f.writes++
+}
 
-	return nil
+// customRoleHeld reports whether a holding of the custom role in scope stands on a role
+// row: the scope's own, or every domain's for one domain. The caller holds mu.
+func (f *fakeStore) customRoleHeld(scope accesstypes.PolicyScope, role accesstypes.Role) bool {
+	if f.hasRole(scope, role) {
+		return true
+	}
+	_, oneDomain := scope.Domain()
+
+	return oneDomain && f.hasRole(accesstypes.EveryDomainPolicyScope(), role)
 }
 
 func (f *fakeStore) DeleteUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
@@ -300,19 +331,23 @@ func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.PolicyScope,
 			return false, errors.Wrapf(policy.ErrHeldByGroup, "role %q in scope %q", role, scope)
 		}
 	}
+	if err := f.refuseHeldInDomain(scope, role); err != nil {
+		return false, err
+	}
 	if !f.hasRole(scope, role) {
 		return false, nil
 	}
 	delete(f.roles, fakeRoleKey{scope, role})
 	// The memberships of the role that have ended go with it, a person's and a
-	// group's.
+	// group's, and for a role held in every domain the ones held in one domain
+	// that read its row.
 	for m := range f.memberships {
-		if m.scope == scope && m.role == role {
+		if m.role == role && (m.scope == scope || f.readsEveryDomainRow(scope, m.scope, role)) {
 			delete(f.memberships, m)
 		}
 	}
 	for r := range f.groups.held {
-		if r.scope == scope && r.role == role {
+		if r.role == role && (r.scope == scope || f.readsEveryDomainRow(scope, r.scope, role)) {
 			delete(f.groups.held, r)
 		}
 	}
@@ -323,6 +358,42 @@ func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.PolicyScope,
 	}
 
 	return true, nil
+}
+
+// readsEveryDomainRow reports whether a holding of role held in scope reads the row a
+// deletion in deleted deletes, where that is every domain's: the holding is held in
+// one domain that holds no role of the name of its own. The caller holds mu.
+func (f *fakeStore) readsEveryDomainRow(deleted, scope accesstypes.PolicyScope, role accesstypes.Role) bool {
+	_, oneDomain := scope.Domain()
+
+	return deleted.IsEveryDomain() && oneDomain && !f.hasRole(scope, role)
+}
+
+// refuseHeldInDomain refuses the deletion of a role held in every domain while a
+// holding of it in one domain that has not ended reads its row, naming the lowest such
+// domain, a person's before a group's. The caller holds mu.
+func (f *fakeStore) refuseHeldInDomain(scope accesstypes.PolicyScope, role accesstypes.Role) error {
+	var people, groups []string
+	for m, period := range f.memberships {
+		if m.role == role && !period.Ended(f.now()) && f.readsEveryDomainRow(scope, m.scope, role) {
+			domain, _ := m.scope.Domain()
+			people = append(people, string(domain))
+		}
+	}
+	for r, period := range f.groups.held {
+		if r.role == role && !period.Ended(f.now()) && f.readsEveryDomainRow(scope, r.scope, role) {
+			domain, _ := r.scope.Domain()
+			groups = append(groups, string(domain))
+		}
+	}
+	if len(people) > 0 {
+		return errors.Wrapf(policy.ErrHeldInDomain, "role %q: a person holds it in the domain %q", role, slices.Min(people))
+	}
+	if len(groups) > 0 {
+		return errors.Wrapf(policy.ErrHeldInDomain, "role %q: a group holds it in the domain %q", role, slices.Min(groups))
+	}
+
+	return nil
 }
 
 func (f *fakeStore) RoleExists(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
@@ -342,7 +413,7 @@ func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.PolicyScope
 		return f.failWith
 	}
 	if !f.hasRole(scope, role) {
-		return errors.Newf("role %q does not exist in scope %q", role, scope)
+		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
 	}
 	f.grants[fakeGrant{scope, role, perm, resource, field, condition}] = true
 
@@ -357,7 +428,7 @@ func (f *fakeStore) InsertGrants(_ context.Context, scope accesstypes.PolicyScop
 		return f.failWith
 	}
 	if !f.hasRole(scope, role) {
-		return errors.Newf("role %q does not exist in scope %q", role, scope)
+		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
 	}
 	for _, g := range grants {
 		f.grants[fakeGrant{scope, role, g.Perm, g.Resource, g.Field, g.Condition}] = true
@@ -375,7 +446,7 @@ func (f *fakeStore) ChangeGrants(_ context.Context, scope accesstypes.PolicyScop
 		return f.failWith
 	}
 	if len(additions) > 0 && !f.hasRole(scope, role) {
-		return errors.Newf("role %q does not exist in scope %q", role, scope)
+		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
 	}
 	for _, g := range removals {
 		delete(f.grants, fakeGrant{scope, role, g.Perm, g.Resource, g.Field, g.Condition})

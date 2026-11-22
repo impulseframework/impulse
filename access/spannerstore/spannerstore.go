@@ -130,8 +130,9 @@ func resolveNames(opts []Option) (tableNames, error) {
 // the serializable isolation level (spannertxn.Serializable), whatever level the application
 // chose for its client. Several of them read and then write another row, and rely on Spanner
 // serializing the read with what another transaction writes: a role's insert with its
-// twin's, a role's or a group's deletion with a membership given at the same moment. At
-// repeatable read, which checks only two writes to one row, both would commit.
+// twin's, a role's or a group's deletion with a membership given at the same moment, a
+// custom role's holding with the role's deletion. At repeatable read, which checks only
+// two writes to one row, both would commit.
 type Store struct {
 	client *spanner.Client
 	names  tableNames
@@ -141,6 +142,8 @@ type Store struct {
 	sqlDeleteRole          string
 	sqlRoleHasMembers      string
 	sqlDeleteEndedMembers  string
+	sqlHeldInDomain        string
+	sqlEndedInDomain       string
 	sqlRoleExists          string
 	sqlListRoles           string
 	sqlReadMeetingRoles    string
@@ -172,6 +175,8 @@ func New(client *spanner.Client, opts ...Option) (*Store, error) {
 		sqlDeleteRole:          fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role", names.roles),
 		sqlRoleHasMembers:      fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s LIMIT 1", names.userRoles, standing("")),
 		sqlDeleteEndedMembers:  fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s", names.userRoles, ended),
+		sqlHeldInDomain:        fmt.Sprintf("SELECT u.DomainId FROM %s u WHERE %s AND %s ORDER BY u.DomainId LIMIT 1", names.userRoles, readsEveryDomainRow(names.roles), standing("u.")),
+		sqlEndedInDomain:       fmt.Sprintf("DELETE FROM %s u WHERE %s AND u.%s", names.userRoles, readsEveryDomainRow(names.roles), ended),
 		sqlRoleExists:          fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role", names.roles),
 		sqlListRoles:           fmt.Sprintf("SELECT Role, Description FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain ORDER BY Role", names.roles),
 		sqlReadMeetingRoles:    fmt.Sprintf("SELECT Kind, Axis, DomainId, Role FROM %s WHERE Axis = @axis AND ((Kind = @kind AND DomainId = @domain) OR (@kind != '%s' AND Kind = '%s') OR (@kind = '%s' AND Kind = '%s'))", names.roles, policy.KindGlobal, policy.KindEvery, policy.KindEvery, policy.KindDomain),
@@ -211,6 +216,14 @@ func standing(alias string) string {
 
 // ended is the predicate of an assignment whose end has passed.
 const ended = "EndsAt <= CURRENT_TIMESTAMP()"
+
+// readsEveryDomainRow is the predicate of a holding, under the alias u, that reads the
+// every-domain row of @role: one held in one domain of @axis that names the role, where
+// the domain holds no row of the exact name in roles, the roles table, of its own.
+func readsEveryDomainRow(roles string) string {
+	return fmt.Sprintf("u.Kind = '%s' AND u.Axis = @axis AND u.Role = @role AND NOT EXISTS (SELECT 1 FROM %s r WHERE r.Kind = u.Kind AND r.Axis = u.Axis AND r.DomainId = u.DomainId AND r.Role = u.Role)",
+		policy.KindDomain, roles)
+}
 
 // periodOf reassembles an assignment's period from its two columns.
 func periodOf(start, end spanner.NullTime) accesstypes.Period {
@@ -354,20 +367,6 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	return records, nil
 }
 
-// insertIgnoreExists applies an insert mutation, treating "row already
-// exists" as the documented no-op.
-func (s *Store) insertIgnoreExists(ctx context.Context, m *spanner.Mutation, wrap string) error {
-	if _, err := s.client.Apply(ctx, []*spanner.Mutation{m}); err != nil {
-		if spanner.ErrCode(err) == codes.AlreadyExists {
-			return nil
-		}
-
-		return errors.Wrap(err, wrap)
-	}
-
-	return nil
-}
-
 // given is one column an assignment is given beside its period, with the value
 // it is given: a membership's reason.
 type given struct {
@@ -375,13 +374,43 @@ type given struct {
 	value  any
 }
 
+// requirement is a row an assignment stands on, read in the assignment's transaction
+// before the assignment's own row: it answers an error where the row is not there, and
+// the assignment writes nothing.
+type requirement func(ctx context.Context, txn *spanner.ReadWriteTransaction) error
+
+// customRoleHeld is the requirement of a custom role's holding in scope: a row of the
+// role where the holding reads it, the scope's own or, for one domain, every domain's.
+// Where neither is there it answers policy.ErrNoRole wrapped.
+func (s *Store) customRoleHeld(scope accesstypes.PolicyScope, role accesstypes.Role) requirement {
+	scopes := []accesstypes.PolicyScope{scope}
+	if _, oneDomain := scope.Domain(); oneDomain {
+		scopes = append(scopes, accesstypes.EveryDomainPolicyScope())
+	}
+
+	return func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		for _, at := range scopes {
+			kind, axis, domain := policy.ScopeColumns(at)
+			switch _, err := txn.ReadRow(ctx, s.names.roles, spanner.Key{kind, axis, domain, string(role)}, []string{colRole}); {
+			case err == nil:
+				return nil
+			case spanner.ErrCode(err) != codes.NotFound:
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow() role")
+			}
+		}
+
+		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+	}
+}
+
 // assign writes one assignment row with its period and what else it is given
 // with: the row is inserted where its key is free, and where it is taken the
 // period and the columns given with it are replaced and the rest of the row,
 // its CreatedAt among it, left as it was. keyColumns and key name the row; the
 // read and the write share one transaction, so two assignments of one key
-// settle on one period.
-func (s *Store) assign(ctx context.Context, table string, keyColumns []string, key spanner.Key, period accesstypes.Period, wrap string, with ...given) error {
+// settle on one period. Each of needs is read first in the same transaction: the
+// first that answers an error is answered, and nothing is written.
+func (s *Store) assign(ctx context.Context, table string, keyColumns []string, key spanner.Key, period accesstypes.Period, needs []requirement, wrap string, with ...given) error {
 	values := append(slices.Clone([]any(key)), period.StartPtr(), period.EndPtr())
 	columns := append(slices.Clone(keyColumns), colStartsAt, colEndsAt)
 	for _, g := range with {
@@ -389,6 +418,11 @@ func (s *Store) assign(ctx context.Context, table string, keyColumns []string, k
 		values = append(values, g.value)
 	}
 	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		for _, need := range needs {
+			if err := need(ctx, txn); err != nil {
+				return err
+			}
+		}
 		var m *spanner.Mutation
 		switch _, err := txn.ReadRow(ctx, table, key, keyColumns[:1]); {
 		case err == nil:
@@ -418,12 +452,28 @@ func (s *Store) assign(ctx context.Context, table string, keyColumns []string, k
 // is named by name alone: no role row is required, since the release's default
 // roles have none.
 func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	return s.assignUserRole(ctx, scope, user, role, period, reason, nil)
+}
+
+// InsertCustomUserRole writes what InsertUserRole writes, only while the roles table
+// holds a row of the custom role where the membership reads it: the scope's own or,
+// for one domain, every domain's. The read of that row and the write are one
+// read-write transaction at the serializable isolation level, so a DeleteRole of the
+// row at the same moment either reads the membership and refuses, or deletes the row
+// and this transaction, run again, finds it gone and wraps policy.ErrNoRole.
+func (s *Store) InsertCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	return s.assignUserRole(ctx, scope, user, role, period, reason, []requirement{s.customRoleHeld(scope, role)})
+}
+
+// assignUserRole writes one user-role membership with its period and its reason
+// once each of needs is there.
+func (s *Store) assignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, needs []requirement) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 
 	return s.assign(ctx, s.names.userRoles,
 		[]string{colKind, colAxis, colDomain, colRole, colUser},
 		spanner.Key{kind, axis, domain, string(role), string(user)},
-		period, "spannertxn.Serializable() assign user role",
+		period, needs, "spannertxn.Serializable() assign user role",
 		given{column: colReason, value: spanner.NullString{StringVal: reason, Valid: reason != ""}})
 }
 
@@ -646,6 +696,11 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		} else if held {
 			return errors.Wrapf(policy.ErrHeldByGroup, "role %q in scope %s", role, scope)
 		}
+		if scope.IsEveryDomain() {
+			if err := s.refuseHeldInDomain(ctx, txn, role, params); err != nil {
+				return err
+			}
+		}
 
 		count, err := txn.Update(ctx, spanner.Statement{SQL: s.sqlDeleteRole, Params: params})
 		if err != nil {
@@ -663,6 +718,13 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		if _, err := txn.Update(ctx, spanner.Statement{SQL: s.groups.deleteEndedOf, Params: params}); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() ended group roles")
 		}
+		if scope.IsEveryDomain() {
+			for _, sql := range []string{s.sqlEndedInDomain, s.groups.endedInDomain} {
+				if _, err := txn.Update(ctx, spanner.Statement{SQL: sql, Params: params}); err != nil {
+					return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() ended holdings in one domain")
+				}
+			}
+		}
 
 		return nil
 	})
@@ -671,6 +733,39 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 	}
 
 	return deleted, nil
+}
+
+// refuseHeldInDomain refuses, inside the transaction of a deletion of a role held in
+// every domain, while a person's or a group's holding in one domain reads the role's
+// row: one that names the role, has not ended, and whose domain holds no role of the
+// name of its own. The refusal wraps policy.ErrHeldInDomain and names the lowest such
+// domain, a person's before a group's.
+func (s *Store) refuseHeldInDomain(ctx context.Context, txn *spanner.ReadWriteTransaction, role accesstypes.Role, params map[string]any) error {
+	for _, holder := range []struct {
+		sql, who string
+	}{
+		{sql: s.sqlHeldInDomain, who: "a person"},
+		{sql: s.groups.heldInDomain, who: "a group"},
+	} {
+		var domain string
+		found := false
+		err := txn.Query(ctx, spanner.Statement{SQL: holder.sql, Params: params}).Do(func(row *spanner.Row) error {
+			if err := row.Columns(&domain); err != nil {
+				return errors.Wrap(err, "spanner.Row.Columns()")
+			}
+			found = true
+
+			return nil
+		})
+		if err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Query() holdings in one domain")
+		}
+		if found {
+			return errors.Wrapf(policy.ErrHeldInDomain, "role %q: %s holds it in the domain %q", role, holder.who, domain)
+		}
+	}
+
+	return nil
 }
 
 // anyRow reports whether a statement of the transaction answers a row.
@@ -709,14 +804,10 @@ func (s *Store) RoleExists(ctx context.Context, scope accesstypes.PolicyScope, r
 // InsertGrant adds one grant row; the condition is part of the row's identity
 // ("" = unconditional), so re-inserting an existing row is a no-op and a
 // different condition on the same (permission, resource, field) is a second
-// row. The (scope, role) parent row must exist.
+// row. It is a change with the one addition: the (scope, role) parent row must
+// exist, and where it does not, policy.ErrNoRole is wrapped.
 func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
-	kind, axis, domain := policy.ScopeColumns(scope)
-	m := spanner.Insert(s.names.roleGrants,
-		[]string{colKind, colAxis, colDomain, colRole, colPermission, colResource, colField, colCondition, colUpdatedAt},
-		[]any{kind, axis, domain, string(role), string(perm), resource, field, condition, spanner.CommitTimestamp})
-
-	return s.insertIgnoreExists(ctx, m, "insert grant")
+	return s.ChangeGrants(ctx, scope, role, nil, []policy.RoleGrant{{Perm: perm, Resource: resource, Field: field, Condition: condition}})
 }
 
 // changeGrantsChunk bounds the rows one ChangeGrants transaction carries, well
@@ -724,7 +815,8 @@ func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.PolicyScope, 
 const changeGrantsChunk = 1000
 
 // InsertGrants adds the role's grant rows as one write: a change with no
-// removals. The (scope, role) parent row must exist.
+// removals. The (scope, role) parent row must exist, and where it does not,
+// policy.ErrNoRole is wrapped.
 func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, grants []policy.RoleGrant) error {
 	return s.ChangeGrants(ctx, scope, role, nil, grants)
 }
@@ -742,7 +834,9 @@ type grantChange struct {
 // present rows keep their UpdatedAt and the call is idempotent like
 // InsertGrant. A change of more than changeGrantsChunk rows lands in that many
 // transactions, removals first; a role's grants are far inside that. The
-// (scope, role) parent row must exist for the additions.
+// (scope, role) parent row must exist for the additions: each transaction that
+// carries one reads the row first, and where it is not there wraps
+// policy.ErrNoRole and writes nothing.
 func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []policy.RoleGrant) error {
 	if len(removals) == 0 && len(additions) == 0 {
 		return nil
@@ -774,6 +868,12 @@ func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope,
 
 			present := make(map[policy.RoleGrant]struct{}, len(keys))
 			if len(keys) > 0 {
+				switch _, err := txn.ReadRow(ctx, s.names.roles, spanner.Key{kind, axis, domain, string(role)}, []string{colRole}); {
+				case spanner.ErrCode(err) == codes.NotFound:
+					return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+				case err != nil:
+					return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow() role")
+				}
 				err := txn.Read(ctx, s.names.roleGrants, spanner.KeySets(keys...), keyColumns).Do(func(row *spanner.Row) error {
 					var perm, resource, field, condition string
 					if err := row.Columns(&perm, &resource, &field, &condition); err != nil {

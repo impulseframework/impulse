@@ -73,7 +73,7 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 			return httpio.NewBadRequestMessage("user cannot be empty string")
 		}
 
-		if err := u.store.addUserRole(ctx, scope, user, role, accesstypes.Period{}); err != nil {
+		if err := u.giveUserRole(ctx, scope, user, role, accesstypes.Period{}, ""); err != nil {
 			return err
 		}
 	}
@@ -123,9 +123,28 @@ func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.Pol
 	}
 
 	for _, role := range roles {
-		if err := u.store.assignUserRole(ctx, scope, user, role, period, reason); err != nil {
+		if err := u.giveUserRole(ctx, scope, user, role, period, reason); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// giveUserRole gives user the role in scope for the period and with the reason: one of
+// the release's default roles by its name, and a custom role only while its row is
+// there. A custom role deleted since the call found it is answered as a role that does
+// not exist, and nothing is given.
+func (u *userManager) giveUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+	if u.defaults.exists(scope, role) {
+		return u.store.assignUserRole(ctx, scope, user, role, period, reason)
+	}
+	if err := u.store.assignCustomUserRole(ctx, scope, user, role, period, reason); err != nil {
+		if errors.Is(err, policy.ErrNoRole) {
+			return roleNotFound(role)
+		}
+
+		return err
 	}
 
 	return nil
@@ -407,7 +426,10 @@ func listedOnce(roles []RoleInfo) []RoleInfo {
 // holds there, each now or for a period that has not begun; assignments of it
 // that have ended, a person's and a group's, go with it. A role deleted from
 // under a group would leave the group's row behind, and a role of the name
-// made again would at once be held by everyone in the group.
+// made again would at once be held by everyone in the group. A role held in
+// every domain is refused as well while a person or a group holds it in one
+// domain that has no custom role of the name of its own, now or for a period
+// that has not begun.
 func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -428,10 +450,14 @@ func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicySc
 	if errors.Is(err, policy.ErrHeldByGroup) {
 		return false, httpio.NewBadRequestMessagef("A group holds the role, now or for a period that has not begun yet. You cannot delete a role a group holds: take it away from the group first")
 	}
+	if errors.Is(err, policy.ErrHeldInDomain) {
+		return false, httpio.NewBadRequestMessageWithError(err, "A person or a group holds the role in a tenant, now or for a period that has not begun yet. You cannot delete a role that is held in a tenant: take it away there first")
+	}
 	if errors.Is(err, policy.ErrStillAssigned) {
-		// The listing above reads who holds the role now: what stands in the way
-		// is an assignment whose period has not begun.
-		return false, httpio.NewBadRequestMessagef("Users are assigned to the role for a period that has not begun yet. You cannot delete a role that has users assigned")
+		// The listing above reads who holds the role now: what stands in the way is
+		// an assignment whose period has not begun, or one given while the delete
+		// ran, after the listing read.
+		return false, httpio.NewBadRequestMessagef("Users are assigned to the role, now or for a period that has not begun yet. You cannot delete a role that has users assigned")
 	}
 	if err != nil {
 		return false, err
@@ -457,7 +483,7 @@ func (u *userManager) AddRolePermission(ctx context.Context, scope accesstypes.P
 	}
 
 	if err := u.store.addScopeWideGrant(ctx, scope, role, permission); err != nil {
-		return err
+		return grantRefusal(role, err)
 	}
 
 	return nil
@@ -524,7 +550,7 @@ func (u *userManager) addGrantRows(ctx context.Context, scope accesstypes.Policy
 	}
 
 	if err := u.store.addGrants(ctx, scope, role, rows); err != nil {
-		return err
+		return grantRefusal(role, err)
 	}
 
 	return nil
@@ -554,10 +580,21 @@ func (u *userManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.Po
 	}
 
 	if err := u.store.changeGrants(ctx, scope, role, removals, additions); err != nil {
-		return err
+		return grantRefusal(role, err)
 	}
 
 	return nil
+}
+
+// grantRefusal answers a grant's write that the store refused because the role has no
+// row, deleted since the call found it, as a role that does not exist: nothing was
+// written. Any other error is returned as it is.
+func grantRefusal(role accesstypes.Role, err error) error {
+	if errors.Is(err, policy.ErrNoRole) {
+		return roleNotFound(role)
+	}
+
+	return err
 }
 
 // requireResources refuses a grant row that names no resource.
@@ -692,7 +729,7 @@ func (u *userManager) AddRoleGrant(ctx context.Context, scope accesstypes.Policy
 	}
 
 	if err := u.store.addGrant(ctx, scope, role, permission, resource, condition); err != nil {
-		return err
+		return grantRefusal(role, err)
 	}
 
 	return nil
