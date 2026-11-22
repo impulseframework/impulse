@@ -21,11 +21,11 @@ func SignInAttemptName(username string) string {
 // SignInAttemptKey returns the key of the row of the sign-in attempts table a listed
 // name names. The table keeps the library's own counts beside the names people sign in
 // under: the mail an address is sent, its sign-in codes, the codes sent to accept one
-// invitation, its password reset links, and the guesses at the code of an account's
-// first password, each under a key no username normalizes to. Such
-// a key is the row's as it is listed; any other name is a username's
-// (SignInAttemptName). A caller that clears the row a list shows, as the generated user
-// management's unlock does, clears the row of this key.
+// invitation, its password reset links, the wrong sign-in codes entered for it, and the
+// guesses at the code of an account's first password, each under a key no username
+// normalizes to. Such a key is the row's as it is listed; any other name is a
+// username's (SignInAttemptName). A caller that clears the row a list shows, as the
+// generated user management's unlock does, clears the row of this key.
 func SignInAttemptKey(listed string) string {
 	if attempts.IsOwnKey(listed) {
 		return listed
@@ -36,15 +36,16 @@ func SignInAttemptKey(listed string) string {
 
 // AccountAttemptKeys returns the key of every row the sign-in attempts table may keep
 // for one account: the failed sign-ins counted under its username, the mail and the
-// password reset links its address is sent, and the guesses at the code of its first
-// password. email is the account's address, empty for an account that has none. A
-// caller that asks whether a listed row is an account's compares the row's key
-// (SignInAttemptKey) with these, as the generated user management does for its rule
-// that nobody unlocks themselves while they act as someone else.
+// password reset links its address is sent, the wrong sign-in codes entered for its
+// address, and the guesses at the code of its first password. email is the account's
+// address, empty for an account that has none. A caller that asks whether a listed row
+// is an account's compares the row's key (SignInAttemptKey) with these, as the
+// generated user management does for its rule that nobody unlocks themselves while they
+// act as someone else.
 func AccountAttemptKeys(userID impulse.UUID, username, email string) []string {
 	keys := []string{SignInAttemptName(username), firstPasswordKey(userID)}
 	if strings.TrimSpace(email) != "" {
-		keys = append(keys, mailLimitKey(email), resetLimitKey(email))
+		keys = append(keys, mailLimitKey(email), resetLimitKey(email), codeGuessKey(email))
 	}
 
 	return keys

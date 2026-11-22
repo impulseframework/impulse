@@ -924,9 +924,9 @@ func TestSignInAttemptName(t *testing.T) {
 
 // TestAccountAttemptKeys holds the rows named as one account's to the keys the library
 // itself counts under: the username's failed sign-ins, the mail and the reset links the
-// address is sent, and the guesses at the code of the first password. A count the
-// library adds for an account joins the list, or a caller that asks whether a row is an
-// account's misses it.
+// address is sent, the wrong sign-in codes entered for the address, and the guesses at
+// the code of the first password. A count the library adds for an account joins the
+// list, or a caller that asks whether a row is an account's misses it.
 func TestAccountAttemptKeys(t *testing.T) {
 	t.Parallel()
 
@@ -942,7 +942,7 @@ func TestAccountAttemptKeys(t *testing.T) {
 		{
 			name:  "an account with an address",
 			email: "Pat@Example.com",
-			want:  []string{"pat", firstPasswordKey(id), mailLimitKey("pat@example.com"), resetLimitKey("pat@example.com")},
+			want:  []string{"pat", firstPasswordKey(id), mailLimitKey("pat@example.com"), resetLimitKey("pat@example.com"), codeGuessKey("pat@example.com")},
 		},
 		{name: "an account with no address has no mail to count", email: " ", want: []string{"pat", firstPasswordKey(id)}},
 	}
@@ -965,7 +965,7 @@ func TestAccountAttemptKeys(t *testing.T) {
 	}
 	// Every kind of count the library keeps beside the names is one of an account's.
 	all := strings.Join(AccountAttemptKeys(id, "pat", "pat@example.com"), "\n")
-	for _, kind := range []string{attempts.KindMail, attempts.KindReset, attempts.KindFirstPassword} {
+	for _, kind := range []string{attempts.KindMail, attempts.KindReset, attempts.KindCodeGuess, attempts.KindFirstPassword} {
 		if !strings.Contains(all, kind+":") {
 			t.Errorf("AccountAttemptKeys() names no row of the kind %s", kind)
 		}
