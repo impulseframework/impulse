@@ -13,6 +13,7 @@ import { apiDescriptor, createApi } from '@app/service/zz_gen_api';
 import { Methods } from '@app/service/zz_gen_constants';
 import { methodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
+import { environment } from '@env';
 import { Domain, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { identityPages } from '@impulseframework/resource-angular/identity-pages';
@@ -75,7 +76,7 @@ describe("the staff's Accounts page brings a person in with a role", () => {
     transport = scriptedTransport((request: TransportRequest): TransportResponse => {
       const url = decodeURIComponent(request.url);
       const roles = rolesRoute(Methods.InviteStaffUser);
-      if (roles && url.startsWith(`/api/${roles}`)) {
+      if (roles && url.startsWith(`${environment.apiUrl}/${roles}`)) {
         rolesAsked.push(url);
         return {
           status: 200,
@@ -91,7 +92,7 @@ describe("the staff's Accounts page brings a person in with a role", () => {
     await TestBed.configureTestingModule({
       imports: [DialogHostComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
         provideNativeDateAdapter(),
         provideNoopAnimations(),
         { provide: RESOURCE_META, useValue: resourceMeta },
@@ -145,7 +146,8 @@ describe("the staff's Accounts page brings a person in with a role", () => {
     await TestBed.inject(ApplicationRef).whenStable();
   }
 
-  const sent = (route: string): unknown => transport.requests.find((request) => request.url === `/api/${route}`)?.body;
+  const sent = (route: string): unknown =>
+    transport.requests.find((request) => request.url === `${environment.apiUrl}/${route}`)?.body;
 
   /** Everything the open dialog says, as a person reads it. */
   const dialogWords = (): string => document.querySelector('mat-dialog-container')?.textContent ?? '';

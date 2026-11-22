@@ -1392,6 +1392,42 @@ func TestAuthApplyRebindsDialogsSpec(t *testing.T) {
 	}
 }
 
+// TestOutletMoveLeavesDialogsSpec pins that an outlet's move leaves the base skeleton's
+// test of the dialogs as it is: in the console the default outlet's move rewrites in
+// place, and in the project an outlet's copy makes from that console. The commands that
+// write the file again compare it with the base's as rendered, so the file a move leaves
+// must still be that text: the test names its API URL through the application's
+// environment, which the move rewrites in its place.
+func TestOutletMoveLeavesDialogsSpec(t *testing.T) {
+	t.Parallel()
+
+	base := skeletonWeb(t, appDialogsSpecFile)
+	console := moveRewrites(apiSegment, "/", "console/"+apiSegment, "/console")
+	copied := moveRewrites("console/"+apiSegment, "/console", "partners/"+apiSegment, "/partners")
+	for _, tt := range []struct {
+		name  string
+		moves [][]rewrite
+	}{
+		{name: "the console the default outlet's move rewrites in place", moves: [][]rewrite{console}},
+		{name: "the project an outlet's copy makes from that console", moves: [][]rewrite{console, copied}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Each move applies its rewrites in order, as copyProject does.
+			moved := base
+			for _, rewrites := range tt.moves {
+				for _, r := range rewrites {
+					moved = strings.ReplaceAll(moved, r.old, r.new)
+				}
+			}
+			if diff := cmp.Diff(base, moved); diff != "" {
+				t.Errorf("an outlet's move rewrites the base skeleton's %s (-base +moved):\n%s\nimpulse add tenancy, impulse add auth and a Directory start compare this file with the base's as rendered, so it must name its API URL through the environment (environment.apiUrl), never as a prefix of its own", appDialogsSpecFile, diff)
+			}
+		})
+	}
+}
+
 // Test_servesTenantRecord pins which auth's people create a tenant of their own: the
 // auth bound to an outlet the tenant record is served on, which is the default outlet
 // when the record names none. An auth bound to any other outlet has nobody who signs

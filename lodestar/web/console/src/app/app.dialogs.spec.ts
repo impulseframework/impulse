@@ -15,6 +15,7 @@ import { apiDescriptor, createApi } from '@app/service/zz_gen_api';
 import { Methods } from '@app/service/zz_gen_constants';
 import { methodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
+import { environment } from '@env';
 import { Domain, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { identityPages } from '@impulseframework/resource-angular/identity-pages';
@@ -92,7 +93,7 @@ describe("the crew's Accounts page brings a person in with a role", () => {
         body: rows,
         headers: { 'total-count': String(rows.length) },
       });
-      if (roles && url.startsWith(`/api/${roles}`)) {
+      if (roles && url.startsWith(`${environment.apiUrl}/${roles}`)) {
         rolesAsked.push(url);
         if (url.includes(`domain:eq:${anvil}`)) {
           return listed([role('Cadet', 'Flies under a flight lead.', anvil)]);
@@ -102,7 +103,7 @@ describe("the crew's Accounts page brings a person in with a role", () => {
         }
         return listed([role('Headquarters', 'Runs the fleet from headquarters.')]);
       }
-      if (sectors && url.startsWith(`/api/${sectors}`)) {
+      if (sectors && url.startsWith(`${environment.apiUrl}/${sectors}`)) {
         return listed([{ id: anvil, name: 'Anvil' }]);
       }
       if (request.method === 'POST') {
@@ -113,7 +114,7 @@ describe("the crew's Accounts page brings a person in with a role", () => {
     await TestBed.configureTestingModule({
       imports: [DialogHostComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
         provideNativeDateAdapter(),
         provideNoopAnimations(),
         { provide: RESOURCE_META, useValue: resourceMeta },
@@ -169,7 +170,8 @@ describe("the crew's Accounts page brings a person in with a role", () => {
     await TestBed.inject(ApplicationRef).whenStable();
   }
 
-  const sent = (route: string): unknown => transport.requests.find((request) => request.url === `/api/${route}`)?.body;
+  const sent = (route: string): unknown =>
+    transport.requests.find((request) => request.url === `${environment.apiUrl}/${route}`)?.body;
 
   it('invites a person with a role chosen from the roles the whole application gives, and no sector', async () => {
     open(Methods.InviteCrewUser);
