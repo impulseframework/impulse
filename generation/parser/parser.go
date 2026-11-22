@@ -338,7 +338,7 @@ func packageConstants(pkg *packages.Package) []*Constant {
 
 					constants = append(constants, &Constant{
 						name:          name.Name,
-						typeName:      obj.Type().String(),
+						typeName:      types.Unalias(obj.Type()).String(),
 						value:         value,
 						comments:      comments,
 						groupComments: groupComments,

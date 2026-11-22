@@ -56,14 +56,17 @@ func (r *resourceGenerator) readManualDeclarations(constants []*parser.Constant)
 // annotationAboveConstGroup refuses an annotation written in the comment above a
 // const ( ... ) group (parser.Constant.GroupComments), which nothing reads: an
 // annotation is read from the comment of the constant it stands above. A resource's or
-// a permission's constant is refused any line there that starts with @, since every
-// such line on its own comment is read as an annotation; a constant of another type is
-// refused a line that starts with @manualAddPermission, as its own comment is
-// (commentDeclaresPermission). The first constant that matches, in the parser's order,
+// a permission's constant (an alias's included) is refused any line there that starts
+// with @, since every such line on its own comment is read as an annotation; a constant
+// of another type is refused a line that starts with @manualAddPermission or
+// @manualAddResource, as its own comment is (commentDeclaresPermission,
+// commentRegistersResource). The first constant that matches, in the parser's order,
 // and the first such line of its group's comment are said.
 func annotationAboveConstGroup(constants []*parser.Constant) error {
 	for _, c := range constants {
-		annotated := commentDeclaresPermission
+		annotated := func(line string) bool {
+			return commentDeclaresPermission(line) || commentRegistersResource(line)
+		}
 		if c.TypeName() == accesstypesResourceType || c.TypeName() == accesstypesPermissionType {
 			annotated = func(line string) bool {
 				return strings.HasPrefix(strings.TrimLeft(line, " \t"), "@")
@@ -178,6 +181,18 @@ func commentDeclaresPermission(comments string) bool {
 	return permissionDeclarationLine.MatchString(comments)
 }
 
+// resourceRegistrationLine matches a comment line that starts with @manualAddResource,
+// the way the scanner reads an annotation.
+var resourceRegistrationLine = regexp.MustCompile(`(?m)^\s*@` + manualAddResourceKeyword + `\b`)
+
+// commentRegistersResource reports whether a constant's comments hold a line that starts
+// with @manualAddResource. It reads the text alone, for a constant of a type whose
+// comments are scanned for nothing, as commentDeclaresPermission does: such a constant
+// is told that the registration it carries registers nothing there.
+func commentRegistersResource(comments string) bool {
+	return resourceRegistrationLine.MatchString(comments)
+}
+
 // manualRegistrationsFromConstants extracts @manualAddResource annotations from the
 // resources package's accesstypes.Resource constants. The registered resource name is
 // the constant's value; the annotation supplies the permission and, optionally, the
@@ -188,11 +203,24 @@ func commentDeclaresPermission(comments string) bool {
 // carries, as it does on a method; a @class on a constant that registers nothing is
 // refused, since it would mark no action, and so is one on a constant that registers
 // a permission other than Execute, since a class is carried by an action alone
-// (classOnNoAction).
+// (classOnNoAction). A constant of an alias of accesstypes.Resource is a resource's
+// constant, since the alias is the same type. The annotation on a constant of any other
+// type, a type declared over accesstypes.Resource and an untyped string among them, is
+// refused with the type to give it, since it would register nothing and the route it
+// was written for would be denied without a word; a permission's constant is left to
+// manualPermissionsFromConstants, which refuses it there.
 func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualRegistration, error) {
 	var registrations []ManualRegistration
 	for _, c := range constants {
 		if c.TypeName() != accesstypesResourceType {
+			if c.TypeName() != accesstypesPermissionType && commentRegistersResource(c.Comments()) {
+				return nil, errors.Newf(
+					"constant %q: @%s registers a permission on a resource, and the constant's type is %s, so it registers nothing: "+
+						"give the constant the type accesstypes.Resource (a type declared over accesstypes.Resource is another type; an alias of it is read as accesstypes.Resource)",
+					c.Name(), manualAddResourceKeyword, c.TypeName(),
+				)
+			}
+
 			continue
 		}
 

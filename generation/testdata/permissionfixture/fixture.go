@@ -2,9 +2,11 @@
 // resource: accesstypes.Permission constants carrying @manualAddPermission, one that
 // carries nothing and so declares nothing, and the declarations the generator refuses,
 // each read alone by the test that names it. One resource's constant registers by hand
-// in both scopes, which the generator refuses where it computes the collection. The
-// const groups at the end carry annotations in the comment above the group, which
-// nothing reads and the generator refuses, beside the groups it takes.
+// in both scopes, which the generator refuses where it computes the collection. Constants
+// of aliases of accesstypes.Resource and accesstypes.Permission are read as theirs, and
+// a registration on a constant of any other type is refused. The const groups at the end
+// carry annotations in the comment above the group, which nothing reads and the
+// generator refuses, beside the groups it takes.
 package permissionfixture
 
 import (
@@ -96,6 +98,49 @@ const Reports accesstypes.Resource = "Reports"
 // @manualAddResource(Update, domain)
 const Divided accesstypes.Resource = "Divided"
 
+// ResourceAlias is another name for accesstypes.Resource: its constants are resources'.
+type ResourceAlias = accesstypes.Resource
+
+// PermissionAlias is another name for accesstypes.Permission: its constants are
+// permissions'.
+type PermissionAlias = accesstypes.Permission
+
+// DeclaredResource is a type declared over accesstypes.Resource, which is another type.
+type DeclaredResource accesstypes.Resource
+
+// Aliased is a resource registered by hand on a constant of an alias of
+// accesstypes.Resource.
+//
+// @manualAddResource(Read)
+const Aliased ResourceAlias = "Aliased"
+
+// AliasedExport declares a permission on a constant of an alias of
+// accesstypes.Permission.
+//
+// @manualAddPermission
+const AliasedExport PermissionAlias = "AliasedExport"
+
+// Declared carries a registration on a constant of a type declared over
+// accesstypes.Resource.
+//
+// @manualAddResource(Read)
+const Declared DeclaredResource = "Declared"
+
+// UntypedRegistered carries a registration on an untyped constant.
+//
+// @manualAddResource(Read)
+const UntypedRegistered = "UntypedRegistered"
+
+// SetWorded is an untyped constant whose comment holds a line that starts with another
+// annotation's name.
+//
+// @manualAddResourceSet(Read)
+const SetWorded = "SetWorded"
+
+// Prosed is an untyped constant whose comment names @manualAddResource(Read) inside a
+// line of prose.
+const Prosed = "Prosed"
+
 // GroupedExport and GroupedApprove carry the declaration in the comment above their
 // group, where nothing reads it.
 //
@@ -130,6 +175,15 @@ const (
 const (
 	UntypedFirst  = "UntypedFirst"
 	UntypedSecond = "UntypedSecond"
+)
+
+// UntypedLedgers and UntypedJournals are untyped constants with a registration in the
+// comment above their group.
+//
+// @manualAddResource(Read)
+const (
+	UntypedLedgers  = "UntypedLedgers"
+	UntypedJournals = "UntypedJournals"
 )
 
 // @manualAddPermission

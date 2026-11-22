@@ -18,10 +18,11 @@ type Package struct {
 }
 
 // Constant is a package-level typed constant declaration, carrying its doc and line
-// comments so godoc annotations on constants can be scanned.
+// comments so godoc annotations on constants can be scanned, and its type with any alias
+// resolved, so a constant of an alias is read as one of the type the alias names.
 type Constant struct {
 	name          string
-	typeName      string // fully qualified declared type, e.g. "github.com/impulseframework/impulse/accesstypes.Resource"
+	typeName      string // fully qualified type, aliases resolved, e.g. "github.com/impulseframework/impulse/accesstypes.Resource"
 	value         string
 	comments      string
 	groupComments string
@@ -32,7 +33,11 @@ func (c *Constant) Name() string {
 	return c.name
 }
 
-// TypeName returns the constant's fully qualified declared type.
+// TypeName returns the constant's fully qualified type, an alias resolved to the type it
+// names: a constant of a type declared as type Name = accesstypes.Resource has the type
+// accesstypes.Resource, and one of a type declared over it (type Name
+// accesstypes.Resource) has its own. An untyped constant's is its default type's, as
+// untyped string.
 func (c *Constant) TypeName() string {
 	return c.typeName
 }
