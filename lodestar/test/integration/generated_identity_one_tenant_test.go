@@ -31,7 +31,8 @@ import (
 // generated methods and the two sign-in hooks through it in transactions of its own:
 // a role in a second sector is refused whichever way it would be given, the refusal
 // never says which sector holds the person, nothing of a refused act is written or
-// mailed, a rename moves no role since a name holds none, an address
+// mailed, a rename moves no role since a name holds none and is no use of the
+// person's session, an address
 // counts for an invitation once its holder has confirmed it, and the crew's own
 // people, who hold a role for the whole fleet or in every sector, are outside the rule
 // and keep their last such role while they hold roles in two sectors.
@@ -233,6 +234,37 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		}
 		if n := countRowsOf(ctx, t, s, "CrewSessionUsers", "Username", odell); n != 0 {
 			t.Errorf("after the rename %d account(s) hold the old name, want none", n)
+		}
+		odell = renamed
+	})
+
+	t.Run("an administrator's rename is no use of the person's session: when it was last used stays, and it carries the new name", func(t *testing.T) {
+		// The session is written as the session library writes one at a sign-in, last used
+		// an hour ago. UpdatedAt is when a session was last used, which the session timeout
+		// is judged by, so a rename that moved it would bring a timed-out session back.
+		sessionID, err := impulse.NewUUID()
+		if err != nil {
+			t.Fatalf("impulse.NewUUID() error = %v", err)
+		}
+		lastUsed := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+		if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessions", map[string]any{
+			"Id": sessionID.String(), "Username": odell, "Expired": false, "UserId": odellID.String(),
+			"CreatedAt": lastUsed, "UpdatedAt": lastUsed,
+		})}); err != nil {
+			t.Fatalf("writing the person's session: %v", err)
+		}
+
+		renamed := "odell-again-" + suffix
+		if err := run(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			return (&crewidentity.RenameCrewUser{UserID: odellID, Username: renamed}).Execute(ctx, txn, strict)
+		}); err != nil {
+			t.Fatalf("a rename of a person with a session: %v", err)
+		}
+		if got := readColumn[string](ctx, t, s.db, "CrewSessions", spanner.Key{sessionID.String()}, "Username"); got != renamed {
+			t.Errorf("after the rename the session carries %q, want the new name %q", got, renamed)
+		}
+		if got := readColumn[time.Time](ctx, t, s.db, "CrewSessions", spanner.Key{sessionID.String()}, "UpdatedAt"); !got.Equal(lastUsed) {
+			t.Errorf("after the rename the session was last used at %v, want %v: a rename is no use of a session", got, lastUsed)
 		}
 		odell = renamed
 	})
