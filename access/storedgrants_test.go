@@ -602,6 +602,7 @@ func TestUserManager_SkippedStoredGrants(t *testing.T) {
 
 		const auditor accesstypes.Role = "Auditor"
 		roleFile := RoleFile(`{
+  "auth": "crew",
   "roles": {
     "domain": [
       {"name": "Auditor", "description": "Reads the documents.", "permissions": {"Read": [{"resource": "Documents"}]}}

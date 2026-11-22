@@ -669,6 +669,10 @@ const (
 	errorsImport = "github.com/go-playground/errors/v5"
 )
 
+// resourceImport is the package whose BoundAuth names the auth a request came through,
+// which the engine impulse add auth declares reads.
+const resourceImport = "github.com/impulseframework/impulse/resource"
+
 // union makes the collection the auths hand to the permission engine the union of every
 // named site's router collection: the aliased import, Collection() over
 // access.UnionCollection, and the construction reading Collection() before it hands the

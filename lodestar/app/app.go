@@ -18,7 +18,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/lodestar/pkg/auth"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
 	"github.com/impulseframework/impulse/lodestar/pkg/computedresources"
@@ -278,22 +277,13 @@ func New(cfg Configurer) *App {
 	return a
 }
 
-// BindAuth is the middleware a session group carries to say which auth authenticated its
-// requests, so the permission checks and the tenant visibility of everything behind it
-// answer from that auth's store. A group that binds nothing gets the default auth.
+// engine returns the permission engine of the auth the request came through, which the
+// generated router binds each outlet's requests to (resource.BoundAuth). A request bound
+// to no auth gets the crew's engine.
 //
 // Demonstrates: auth.two-populations.
-func (a *App) BindAuth(name string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next.ServeHTTP(w, r.WithContext(auth.Bind(r.Context(), name)))
-		})
-	}
-}
-
-// engine returns the permission engine of the auth the request came through.
 func (a *App) engine(ctx context.Context) access.Controller {
-	if engine, ok := a.engines[auth.Name(ctx)]; ok {
+	if engine, ok := a.engines[resource.BoundAuth(ctx)]; ok {
 		return engine
 	}
 

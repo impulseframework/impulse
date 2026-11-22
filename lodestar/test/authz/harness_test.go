@@ -45,6 +45,12 @@ type fakeAccess struct {
 	g grants
 }
 
+// Auth names the auth the stand-in answers for, as a real engine names the auth it was
+// opened for: the crew's, whose requests the suite serves.
+func (f *fakeAccess) Auth() string {
+	return crew.Name
+}
+
 func (f *fakeAccess) ForUser(user accesstypes.User) *access.UserChecker {
 	return access.NewUserChecker(f, user)
 }

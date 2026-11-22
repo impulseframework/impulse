@@ -51,9 +51,6 @@ type Handlers interface {
 	DefaultSession
 	// Portal returns the portal outlet's session surface: the members auth's.
 	Portal() PortalSession
-	// BindAuth marks a session group's requests as authenticated by the named auth, so
-	// the handlers behind it check permissions and tenant visibility in that auth's store.
-	BindAuth(name string) func(http.Handler) http.Handler
 	// Devices returns the devices outlet's token surface: the machine outlet the application
 	// registers on the staff auth's Auth (session.RegisterMachineOutlet), whose token
 	// check binds each request to the person its bearer token acts for.
@@ -317,7 +314,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 
 	// The default outlet (/console/api): sessions of the staff auth (password).
 	r.Group(func(r chi.Router) {
-		r.Use(h.BindAuth(staff.Name))
+		r.Use(resource.BindAuth(staff.Name))
 		r.Use(h.NoCaching)
 		r.Use(h.CompressionMiddleware())
 		r.Use(resource.ReleaseHeader(serverVersion))
@@ -444,7 +441,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	// The portal outlet (/portal/api): sessions of the members auth (directory).
 	portalSession := h.Portal()
 	r.Group(func(r chi.Router) {
-		r.Use(h.BindAuth(members.Name))
+		r.Use(resource.BindAuth(members.Name))
 		r.Use(h.NoCaching)
 		r.Use(h.CompressionMiddleware())
 		r.Use(resource.ReleaseHeader(serverVersion))
@@ -542,7 +539,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	// command-line client obtains its tokens with a person's approval, sit in front of the
 	// token check; everything else sits behind it.
 	r.Group(func(r chi.Router) {
-		r.Use(h.BindAuth(staff.Name))
+		r.Use(resource.BindAuth(staff.Name))
 		r.Use(h.NoCaching)
 		r.Use(h.CompressionMiddleware())
 		r.Use(resource.ReleaseHeader(serverVersion))

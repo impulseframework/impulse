@@ -40,7 +40,7 @@ func TestSuperAdministrator_reservedInTheRoleFile(t *testing.T) {
 			other = "global"
 		}
 
-		return RoleFile(`{"roles": {"` + scope + `": [{"name": "` + name + `", "description": "Takes the name.", "permissions": {}}], "` + other + `": []}}`)
+		return RoleFile(`{"auth": "crew", "roles": {"` + scope + `": [{"name": "` + name + `", "description": "Takes the name.", "permissions": {}}], "` + other + `": []}}`)
 	}
 	tests := []struct {
 		name string
@@ -64,7 +64,7 @@ func TestSuperAdministrator_reservedInTheRoleFile(t *testing.T) {
 		})
 	}
 
-	config := &RoleConfig{Roles: ScopedRoles{Global: []*Role{{Name: accesstypes.SuperAdministrator, Description: "Takes the name."}}}}
+	config := &RoleConfig{Auth: fixtureAuth, Roles: ScopedRoles{Global: []*Role{{Name: accesstypes.SuperAdministrator, Description: "Takes the name."}}}}
 	if _, err := ValidateRoles(grammarCollection{}, config, fixtureAuth); err == nil || !strings.Contains(err.Error(), "the name is reserved") {
 		t.Errorf("ValidateRoles() error = %v, want the reserved name refused", err)
 	}

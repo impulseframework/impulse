@@ -27,18 +27,21 @@ import (
 // with the scope never part of the name, and none takes the name of the role the
 // framework defines in every auth, SuperAdministrator, in any case; every role carries a
 // description saying what it is for; and every grant names a resource, with a condition
-// that parses. And where the application's generators have written a permission
-// collection (App.Served), every grant is on what the application serves: a resource the
-// collection names, at the scope of the role that grants it, for a permission the
-// resource takes, and on fields the resource has for that permission, whether among a
-// grant's fields or granted alone (Resource.field). No grant names an action no role is
-// given either: an entry the generated collection files write with NoRole: true, such as
-// the action of the generated create-your-tenant route. That is the one finding such a
-// grant gets, saying why, since the engine refuses the grant for it before it looks at
-// the action's scope or permission. A file the engine would refuse
-// stops the release at start, so the refusal is a finding here, naming the file, the
-// role and the rule. A grant's condition against the collection's vocabulary stays with
-// the engine and the validation test auths-wired asks for.
+// that parses. The file says whose roles it holds (its auth key), and that is the auth
+// whose package holds it: the engine takes a file only under the name it carries, so a
+// file that names another auth, or none, stops the release at start. And where the
+// application's generators have written a permission collection (App.Served), every
+// grant is on what the application serves: a resource the collection names, at the scope
+// of the role that grants it, for a permission the resource takes, and on fields the
+// resource has for that permission, whether among a grant's fields or granted alone
+// (Resource.field). No grant names an action no role is given either: an entry the
+// generated collection files write with NoRole: true, such as the action of the
+// generated create-your-tenant route. That is the one finding such a grant gets, saying
+// why, since the engine refuses the grant for it before it looks at the action's scope
+// or permission. A file the engine would refuse stops the release at start, so the
+// refusal is a finding here, naming the file, the role and the rule. A grant's condition
+// against the collection's vocabulary stays with the engine and the validation test
+// auths-wired asks for.
 type rolesFileAccepted struct{}
 
 // rolesFileAcceptedName is the check's name.
@@ -49,7 +52,7 @@ func (rolesFileAccepted) Name() string {
 }
 
 func (rolesFileAccepted) Describe() string {
-	return "every auth package's role file (pkg/auth/<name>/roles.json) parses the way the permission engine reads it at start: every role is named in the one grammar (letters and digits starting with a capital letter; the scope is never part of the name), none takes the name the framework keeps for its own role (SuperAdministrator), and each carries a description saying what it is for, and every grant names a resource with a condition that parses; and, where the application's generators have written a permission collection (zz_gen_collection.go), every grant is on what the application serves: a resource the collection names, at the role's scope, for a permission the resource takes and on fields it has, and no grant names an action no role is given (an entry the collection writes with NoRole: true, such as the action of the create-your-tenant route), since nothing asks for a grant of it; a file the engine would refuse is a finding naming the file, the role and the rule"
+	return "every auth package's role file (pkg/auth/<name>/roles.json) parses the way the permission engine reads it at start: it says whose roles it holds, under the name of the auth's package (\"auth\"), every role is named in the one grammar (letters and digits starting with a capital letter; the scope is never part of the name), none takes the name the framework keeps for its own role (SuperAdministrator), and each carries a description saying what it is for, and every grant names a resource with a condition that parses; and, where the application's generators have written a permission collection (zz_gen_collection.go), every grant is on what the application serves: a resource the collection names, at the role's scope, for a permission the resource takes and on fields it has, and no grant names an action no role is given (an entry the collection writes with NoRole: true, such as the action of the create-your-tenant route), since nothing asks for a grant of it; a file the engine would refuse is a finding naming the file, the role and the rule"
 }
 
 func (c rolesFileAccepted) Run(_ context.Context, env *Env) Result {
@@ -192,9 +195,10 @@ func takenWords(permissions []string) string {
 }
 
 // findings reads one auth package's role file and answers what the engine would refuse
-// it for: that it is missing or unreadable, the rule its parse breaks, each grant that
-// names an action no role is given, or each grant on what the application does not
-// serve. A file the engine accepts has none.
+// it for: that it is missing or unreadable, the rule its parse breaks, that it names
+// another auth than its package's or none, each grant that names an action no role is
+// given, or each grant on what the application does not serve. A file the engine
+// accepts has none.
 func (rolesFileAccepted) findings(a *app.App, p *app.AuthPackage, rel string, noRole map[accesstypes.Resource]string, served *app.Served) []string {
 	data, err := os.ReadFile(a.Abs(rel))
 	switch {
@@ -208,7 +212,27 @@ func (rolesFileAccepted) findings(a *app.App, p *app.AuthPackage, rel string, no
 		return []string{fmt.Sprintf("%s: %s", rel, refusalWords(err))}
 	}
 
-	return append(noRoleGrants(rel, config, noRole), unservedGrants(rel, config, served, noRole)...)
+	found := authFinding(rel, config, p)
+	found = append(found, noRoleGrants(rel, config, noRole)...)
+
+	return append(found, unservedGrants(rel, config, served, noRole)...)
+}
+
+// authFinding holds the role file to the auth whose package holds it: the file says
+// whose roles it holds (RoleConfig.Auth), and the package hands it over under its own
+// name, the name the engine takes the file only under. A file that names its package's
+// auth has no finding; one that names another auth, or none, has one.
+func authFinding(rel string, config *access.RoleConfig, p *app.AuthPackage) []string {
+	switch config.Auth {
+	case p.Name:
+		return nil
+	case "":
+		return []string{fmt.Sprintf(`%s: the role file does not say whose roles it holds; add "auth": %q as its first key, the name of the auth's package: the permission engine takes a role file only under the name it carries`,
+			rel, p.Name)}
+	default:
+		return []string{fmt.Sprintf(`%s: the role file says it holds the roles of %q (its "auth"), and it is the %s auth's file; write "auth": %q, the name of the auth's package: the permission engine takes a role file only under the name it carries`,
+			rel, config.Auth, p.Name, p.Name)}
+	}
 }
 
 // noRoleActionsOf reads the actions no role is given out of the application's generated

@@ -47,10 +47,11 @@ func holds(t *testing.T, rel, text string, fragments ...string) {
 }
 
 // TestAuth_Apply_wiresTheApp holds impulse add auth to an application that builds: the
-// regenerated router's Handlers requires BindAuth once two auths are declared, and the
-// generated contract asks the handlers for the added auth's identity client, so the
-// command writes both, with what the App is built from and what every test configurer
-// answers.
+// regenerated router binds each outlet's requests to its auth itself, so the App answers
+// a request from the engine of the auth it came through (resource.BoundAuth) and writes
+// no BindAuth, and the generated contract asks the handlers for the added auth's
+// identity client, so the command writes both, with what the App is built from and what
+// every test configurer answers.
 func TestAuth_Apply_wiresTheApp(t *testing.T) {
 	t.Parallel()
 
@@ -68,18 +69,21 @@ func TestAuth_Apply_wiresTheApp(t *testing.T) {
 		`"example.com/acme/depot/pkg/auth/partners"`,
 		`"example.com/acme/depot/pkg/identity/partnersidentity"`,
 	)
-	holds(t, "app/partners_auth.go", read(t, a, "app/partners_auth.go"),
-		"func (a *App) BindAuth(name string) func(http.Handler) http.Handler {\n",
-		"next.ServeHTTP(w, r.WithContext(auth.Bind(r.Context(), name)))",
-		"func (a *App) engine(ctx context.Context) access.Controller {\n\tif engine, ok := a.engines[auth.Name(ctx)]; ok {\n\t\treturn engine\n\t}\n\n\treturn a.access\n}\n",
+	wired := read(t, a, "app/partners_auth.go")
+	holds(t, "app/partners_auth.go", wired,
+		"// engine returns the permission engine of the auth the request came through, which\n// the generated router binds each outlet's requests to (resource.BoundAuth). A request\n// bound to no auth gets the default auth's engine.\n",
+		"func (a *App) engine(ctx context.Context) access.Controller {\n\tif engine, ok := a.engines[resource.BoundAuth(ctx)]; ok {\n\t\treturn engine\n\t}\n\n\treturn a.access\n}\n",
 		"func (a *App) PartnersIdentity() *partnersidentity.Client {\n\treturn a.partnersIdentity\n}\n",
-		`"example.com/acme/depot/pkg/auth"`,
+		`"github.com/impulseframework/impulse/resource"`,
 	)
-	holds(t, "pkg/auth/auth.go", read(t, a, "pkg/auth/auth.go"),
-		"package auth\n",
-		"func Bind(ctx context.Context, name string) context.Context {\n",
-		"func Name(ctx context.Context) string {\n",
-	)
+	for _, unwanted := range []string{"BindAuth", `"example.com/acme/depot/pkg/auth"`, `"net/http"`} {
+		if strings.Contains(wired, unwanted) {
+			t.Errorf("app/partners_auth.go holds %q:\n%s", unwanted, wired)
+		}
+	}
+	if exists(a, "pkg/auth/auth.go") {
+		t.Errorf("pkg/auth/auth.go was written: the router binds each outlet's requests itself, so no record of the auth a request came through is kept beneath the auths")
+	}
 	holds(t, "pkg/config/partners.go", read(t, a, "pkg/config/partners.go"),
 		"func (c *DataConfiguration) PartnersIdentity() *partnersidentity.Client {\n\treturn c.partners.Identity()\n}\n",
 	)
@@ -91,7 +95,7 @@ func TestAuth_Apply_wiresTheApp(t *testing.T) {
 		"func (c *servedConfigurer) Partners() *partners.Auth {\n\treturn c.partners\n}\n",
 		"func (c *servedConfigurer) PartnersIdentity() *partnersidentity.Client {\n\treturn c.partners.Identity()\n}\n",
 	)
-	for _, rel := range []string{"app/app.go", "app/partners_auth.go", "pkg/auth/auth.go", "pkg/config/partners.go", "test/authz/harness_test.go", "test/integration/harness_test.go"} {
+	for _, rel := range []string{"app/app.go", "app/partners_auth.go", "pkg/config/partners.go", "test/authz/harness_test.go", "test/integration/harness_test.go"} {
 		wellFormed(t, a, rel)
 	}
 	for _, line := range ch.Skipped {

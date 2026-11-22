@@ -1,4 +1,5 @@
 {
+  "auth": "staff",
   "roles": {
     "global": [
       {

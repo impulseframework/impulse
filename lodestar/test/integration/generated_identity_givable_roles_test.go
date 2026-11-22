@@ -443,12 +443,12 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 func withCondition(t *testing.T, roles access.RoleFile, role, permission, res, condition string) access.RoleFile {
 	t.Helper()
 
-	var file map[string]map[string][]map[string]any
+	var file looseRoleFile
 	if err := json.Unmarshal(roles, &file); err != nil {
 		t.Fatalf("reading the role file: %v", err)
 	}
 	put := false
-	for _, set := range file["roles"] {
+	for _, set := range file.Roles {
 		for _, entry := range set {
 			if entry["name"] != role {
 				continue

@@ -105,6 +105,13 @@ func roleSessionUser(ctx context.Context) accesstypes.User {
 // same User(), so a deployment that mints role principals without a checker
 // is loud rather than permissive.
 //
+// A request that came through an auth (BindAuth) is answered only from that auth's
+// permission engine. The checkers forUser and forRole yield say which auth their
+// engine was opened for, and where that is another auth, or none, the request is
+// answered nothing: every check, digest and list answers an error that names both, so
+// the request fails and the log says which engine was asked. A request no group bound
+// is held to no auth.
+//
 // The classes are the application's generated collection (router.Collection()),
 // built once and kept: what each action carries (@class). The mask of an
 // impersonated session may refuse a class of actions, the credential actions
@@ -115,6 +122,9 @@ func SessionPermissions[U SessionUserChecker, R RolePermissions](
 	ctx context.Context, forUser func(accesstypes.User) U, forRole func(accesstypes.Role) R, roster DomainRoster, declarations TenantDeclarations, classes ActionClasses,
 ) UserPermissions {
 	principal := sessioninfo.PrincipalFromCtx(ctx)
+	if refused := otherAuthRefusal(ctx, principal, forUser, forRole); refused != nil {
+		return refused
+	}
 	mask := sessioninfo.MaskFromCtx(ctx)
 
 	var checker UserPermissionChecker
@@ -933,6 +943,71 @@ func (unsupportedRolePermissions) Reaches(context.Context, accesstypes.Domain) (
 
 func (u unsupportedRolePermissions) User() accesstypes.User {
 	return u.user
+}
+
+// otherAuthEngineFmt is the refusal of a request bound to one auth whose permissions
+// were asked of another auth's engine: the bound auth, the engine's auth, the bound
+// auth.
+const otherAuthEngineFmt = "this request came through the %s auth, and its permissions were asked of the %s auth's permission engine. " +
+	"A session is answered by its own auth's engine, so nothing is answered: where the application chooses the engine for a request " +
+	"(resource.BoundAuth names the auth the request came through), hand over the engine opened in the %s auth's package"
+
+// unnamedEngineFmt is the refusal of a request bound to an auth whose permissions were
+// asked of an engine opened under no auth's name: the bound auth, twice.
+const unnamedEngineFmt = "this request came through the %s auth, and its permissions were asked of a permission engine opened under no auth's name. " +
+	"A session is answered by its own auth's engine, so nothing is answered: open the engine in the %s auth's package " +
+	"with its role file under its name, access.WithDefaultRoles(Roles(), Name), and hand that engine over for the auth's requests"
+
+// otherAuthPermissions is the fail-closed answer to a request bound to one auth
+// (BindAuth) whose permissions were asked of another auth's permission engine, or of
+// an engine opened under no auth's name (otherAuthRefusal). Every check, digest and
+// list answers an error that names the bound auth and the engine's, so the request
+// fails and the log says which engine was asked. User() is still the session's
+// person, so evidence names them. It is answered as it is, never masked: a mask has
+// nothing to narrow.
+type otherAuthPermissions struct {
+	user   accesstypes.User
+	bound  string
+	engine string
+}
+
+// refusal is the error every question of the request answers.
+func (o otherAuthPermissions) refusal() error {
+	if o.engine == "" {
+		return errors.Newf(unnamedEngineFmt, o.bound, o.bound)
+	}
+
+	return errors.Newf(otherAuthEngineFmt, o.bound, o.engine, o.bound)
+}
+
+func (o otherAuthPermissions) Check(
+	context.Context, accesstypes.Environment, accesstypes.Scope, accesstypes.Permission, ...accesstypes.Resource,
+) (accesstypes.Decisions, error) {
+	return nil, errors.Wrap(o.refusal(), "resource.otherAuthPermissions.Check()")
+}
+
+func (o otherAuthPermissions) PermissionDigest(context.Context, accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	return nil, errors.Wrap(o.refusal(), "resource.otherAuthPermissions.PermissionDigest()")
+}
+
+func (o otherAuthPermissions) HasGrants(context.Context, accesstypes.Scope) (bool, error) {
+	return false, errors.Wrap(o.refusal(), "resource.otherAuthPermissions.HasGrants()")
+}
+
+func (o otherAuthPermissions) Domains(context.Context) ([]accesstypes.Domain, error) {
+	return nil, errors.Wrap(o.refusal(), "resource.otherAuthPermissions.Domains()")
+}
+
+func (o otherAuthPermissions) Reaches(context.Context, accesstypes.Domain) (bool, error) {
+	return false, errors.Wrap(o.refusal(), "resource.otherAuthPermissions.Reaches()")
+}
+
+func (o otherAuthPermissions) HeldDomains(context.Context) ([]accesstypes.Domain, error) {
+	return nil, errors.Wrap(o.refusal(), "resource.otherAuthPermissions.HeldDomains()")
+}
+
+func (o otherAuthPermissions) User() accesstypes.User {
+	return o.user
 }
 
 // deniedDecisions is the fail-closed answer for resources: every one Denied.

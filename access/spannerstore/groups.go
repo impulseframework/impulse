@@ -222,7 +222,7 @@ func (s *Store) InsertGroup(ctx context.Context, group *policy.GroupRow) (bool, 
 // the group was there.
 func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group, description string) (bool, error) {
 	var found bool
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		count, err := txn.Update(ctx, spanner.Statement{SQL: s.groups.setDescription, Params: map[string]any{paramGroup: string(group), paramDescription: description}})
 		if err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -232,7 +232,7 @@ func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group
 		return nil
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransaction() describe group")
+		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransactionWithOptions() describe group")
 	}
 
 	return found, nil
@@ -245,7 +245,7 @@ func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group
 func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool, error) {
 	params := map[string]any{paramGroup: string(group)}
 	var deleted bool
-	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	err := s.readWrite(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		for _, check := range []struct{ sql, what string }{{s.groups.hasMembers, "members"}, {s.groups.hasRoles, "roles"}} {
 			held, err := queryHasRow(ctx, txn, spanner.Statement{SQL: check.sql, Params: params})
 			if err != nil {
@@ -269,7 +269,7 @@ func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool,
 		return nil
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransaction() delete group")
+		return false, errors.Wrap(err, "spanner.Client.ReadWriteTransactionWithOptions() delete group")
 	}
 
 	return deleted, nil
@@ -356,7 +356,7 @@ func (s *Store) InsertGroupMember(ctx context.Context, group accesstypes.Group, 
 	return s.assign(ctx, s.names.groupMembers,
 		[]string{colGroupID, colUser},
 		spanner.Key{string(group), string(user)},
-		period, "spanner.Client.ReadWriteTransaction() assign group member")
+		period, "spanner.Client.ReadWriteTransactionWithOptions() assign group member")
 }
 
 // DeleteGroupMember removes one person from a group; removing one who is not
@@ -393,7 +393,7 @@ func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, sc
 	return s.assign(ctx, s.names.groupRoles,
 		[]string{colGroupID, colKind, colAxis, colDomain, colRole},
 		spanner.Key{string(group), kind, axis, domain, string(role)},
-		period, "spanner.Client.ReadWriteTransaction() assign group role")
+		period, "spanner.Client.ReadWriteTransactionWithOptions() assign group role")
 }
 
 // DeleteGroupRole removes one role a group holds in scope; removing one it

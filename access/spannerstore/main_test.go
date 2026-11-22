@@ -10,7 +10,9 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/access/internal/storetest"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/db"
 )
 
@@ -112,6 +114,21 @@ func openTransaction(database *db.SpannerDB) storetest.Transaction {
 		})
 		if !errors.Is(err, errRolledBack) {
 			t.Fatalf("ReadWriteTransaction() error = %v, want the test's own rollback", err)
+		}
+	}
+}
+
+// roleWriter writes a role row straight to the store's roles table, with no rule
+// (storetest.RoleWriter).
+func roleWriter(database *db.SpannerDB, store *Store) storetest.RoleWriter {
+	return func(t *testing.T, scope accesstypes.PolicyScope, role accesstypes.Role, description string) {
+		t.Helper()
+		kind, axis, domain := policy.ScopeColumns(scope)
+		m := spanner.Insert(store.names.roles,
+			[]string{colKind, colAxis, colDomain, colRole, colDescription, colUpdatedAt},
+			[]any{kind, axis, domain, string(role), description, spanner.CommitTimestamp})
+		if _, err := database.Apply(t.Context(), []*spanner.Mutation{m}); err != nil {
+			t.Fatalf("spanner.Client.Apply() insert role %q in scope %s error = %v", role, scope, err)
 		}
 	}
 }

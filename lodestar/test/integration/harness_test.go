@@ -222,6 +222,18 @@ type grants map[accesstypes.Permission][]accesstypes.Resource
 type staticAccess struct {
 	access.Controller
 	g grants
+	// auth is the auth whose requests the stand-in answers for (Auth); empty, the crew's.
+	auth string
+}
+
+// Auth names the auth the stand-in answers for, as a real engine names the auth it was
+// opened for: the crew's, or the members' for the stand-in membersEngineFor pairs with it.
+func (s *staticAccess) Auth() string {
+	if s.auth == "" {
+		return crew.Name
+	}
+
+	return s.auth
 }
 
 func (s *staticAccess) ForUser(user accesstypes.User) *access.UserChecker {
@@ -610,8 +622,14 @@ func newApp(db *initiator.SpannerDB, controller access.Controller, stores *testS
 
 // membersEngineFor pairs the shared crew engine with the shared members engine, so a
 // portal user's request under an app built over the parity engines answers from the
-// members store; a scripted engine pairs with nothing.
+// members store, and a scripted engine with a stand-in of the members' over the same
+// table, so a portal user's request, which the library answers only from the members'
+// engine, is answered by the script; any other engine pairs with nothing.
 func membersEngineFor(controller access.Controller) access.Controller {
+	if scripted, ok := controller.(*staticAccess); ok {
+		return &staticAccess{g: scripted.g, auth: members.Name}
+	}
+
 	sharedMu.RLock()
 	defer sharedMu.RUnlock()
 
@@ -700,7 +718,7 @@ func doRequestRecordedWithHeaders(t *testing.T, h http.Handler, user accesstypes
 	// synthetic one (sessionContext).
 	ctx := sessionContext(t, user)
 	if portalUsers[user] {
-		ctx = auth.Bind(ctx, members.Name)
+		h = resource.BindAuth(members.Name)(h)
 	}
 
 	req := httptest.NewRequestWithContext(ctx, method, target, strings.NewReader(body))
@@ -1037,6 +1055,10 @@ type servedOptions struct {
 	// stack's recorder, for a suite that holds a message on its way to the mailbox; nil
 	// sends straight to the recorder.
 	crewMailThrough func(to mail.Sender) mail.Sender
+	// crewEngineAsMembers hands the App the crew's permission engine as the members', for
+	// the suite that proves the library refuses a portal request asked of another auth's
+	// engine.
+	crewEngineAsMembers bool
 }
 
 // newServedWith is the served stack under the options.
@@ -1174,10 +1196,14 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	stores := newTestStores()
 	keys := scheduled.NewFake()
 	starter := jobs.NewFake()
+	var membersEngine access.Controller = membersAuth.Access()
+	if opts.crewEngineAsMembers {
+		membersEngine = crewAuth.Access()
+	}
 	a := app.New(&testConfigurer{
 		db:            db,
 		access:        crewAuth.Access(),
-		membersAccess: membersAuth.Access(),
+		membersAccess: membersEngine,
 		crewAuth:      crewAuth,
 		membersAuth:   membersAuth,
 		stores:        stores,

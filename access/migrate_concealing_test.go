@@ -259,7 +259,7 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ValidateRoles(tt.store, &RoleConfig{Roles: tt.roles}, fixtureAuth)
+			got, err := ValidateRoles(tt.store, &RoleConfig{Auth: fixtureAuth, Roles: tt.roles}, fixtureAuth)
 			if err != nil {
 				t.Fatalf("ValidateRoles() error = %v", err)
 			}

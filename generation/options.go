@@ -610,11 +610,13 @@ func validateAuthMethods(importPath string, methods []AuthMethod) error {
 // Auth makes the outlet serve sessions exactly as ServesSessions does.
 //
 // When more than one session auth is declared the generated router binds every request
-// in the outlet's group to its auth, BindAuth(<pkg>.Name), so a misspelled or removed
-// auth package is a compile error; with one session auth the router does not import
-// the package. The route tables import it whatever the count: the outlet's routes bind
-// its Name for the live pages (live.Subscribing(<pkg>.Name)), which key each person's
-// subscriptions and change set by it.
+// in the outlet's group to its auth itself, resource.BindAuth(<pkg>.Name), so a
+// misspelled or removed auth package is a compile error, and a request's permissions
+// are answered only by that auth's engine (resource.SessionPermissions); with one
+// session auth the router does not import the package. The route tables import it
+// whatever the count: the outlet's routes bind its Name for the live pages
+// (live.Subscribing(<pkg>.Name)), which key each person's subscriptions and change set
+// by it.
 func Auth(importPath string, methods ...AuthMethod) OutletOption {
 	return outletOption(func(o *routerOutlet) error {
 		if importPath == "" || strings.ContainsAny(importPath, " \t\n\"") || strings.Trim(importPath, "/") != importPath {

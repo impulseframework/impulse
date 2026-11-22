@@ -126,6 +126,12 @@ func WithReloadErrorHandler(f func(error)) Option {
 // Where it knows one or none, it refuses no grant for whose people its set
 // describes, and looks at every set.
 //
+// The file carries its auth's name as well (its auth key, RoleConfig.Auth), and
+// New takes it only under that name: a file that carries another name, a file
+// that carries none handed over under a name, and a file that carries one
+// handed over under none are each refused. An engine opens with its own auth's
+// file or not at all.
+//
 // New takes one role file: the option given a second time is refused, since an
 // engine holds the roles of one auth.
 func WithDefaultRoles(file RoleFile, auth string) Option {

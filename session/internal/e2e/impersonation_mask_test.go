@@ -121,6 +121,9 @@ func maskCollection(t *testing.T) *resource.GeneratedCollection {
 // so whatever a session of the mask scenarios is refused, its mask refused.
 type grantsEverything struct {
 	user accesstypes.User
+	// auth is the auth whose engine the checker answers from (Auth); empty, as the
+	// scenarios bind no request to an auth.
+	auth string
 }
 
 func (g grantsEverything) Check(_ context.Context, _ accesstypes.Environment, _ accesstypes.Scope, _ accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
@@ -150,6 +153,10 @@ func (grantsEverything) SuperAdministrator(context.Context) (bool, error) {
 
 func (grantsEverything) AdministersTenant(context.Context, accesstypes.Domain) (bool, error) {
 	return false, nil
+}
+
+func (g grantsEverything) Auth() string {
+	return g.auth
 }
 
 // maskAsk is the body of the mask scenarios' POST /impersonate: the kind, the person

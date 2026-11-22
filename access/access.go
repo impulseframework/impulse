@@ -101,6 +101,9 @@ func New(store Store, collection PermissionCollection, opts ...Option) (*Client,
 		if err := validateAuthName(collection, options.auth); err != nil {
 			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
 		}
+		if err := validateFileAuth(config, options.auth); err != nil {
+			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
+		}
 	} else if err := validateEngineAuth(collection); err != nil {
 		return nil, err
 	}
@@ -530,6 +533,16 @@ func (c *Client) RolePermissionDigest(ctx context.Context, role accesstypes.Role
 // for sessions operating as a role principal. See RoleChecker.
 func (c *Client) ForRole(role accesstypes.Role) *RoleChecker {
 	return NewRoleChecker(c, role)
+}
+
+// Auth returns the name of the auth whose roles the engine holds: the name its
+// role file carries and was handed over under (WithDefaultRoles). It is empty for
+// an engine opened with no role file, and for one whose file was handed over
+// under no name. What takes an engine on an auth's behalf asks it, so that one
+// auth's engine is never taken for another's (the resource package's
+// SessionPermissions does, for the requests of an auth).
+func (c *Client) Auth() string {
+	return c.defaults.authName()
 }
 
 // UserManager returns the UserManager for managing users, roles, and permissions.

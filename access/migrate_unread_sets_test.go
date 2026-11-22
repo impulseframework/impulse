@@ -134,7 +134,7 @@ func TestValidateRoles_unreadSets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ValidateRoles(setsCollection{sets: tt.sets}, &RoleConfig{Roles: ScopedRoles{Domain: tt.roles}}, fixtureAuth)
+			got, err := ValidateRoles(setsCollection{sets: tt.sets}, &RoleConfig{Auth: fixtureAuth, Roles: ScopedRoles{Domain: tt.roles}}, fixtureAuth)
 			if err != nil {
 				t.Fatalf("ValidateRoles() error = %v", err)
 			}
@@ -201,7 +201,7 @@ func TestValidateRoles_unreadSetsOfOneAuth(t *testing.T) {
 			t.Parallel()
 
 			store := setsCollection{sets: tt.sets, authSets: tt.authSets}
-			got, err := ValidateRoles(store, &RoleConfig{Roles: ScopedRoles{Domain: tt.roles}}, tt.auth)
+			got, err := ValidateRoles(store, &RoleConfig{Auth: tt.auth, Roles: ScopedRoles{Domain: tt.roles}}, tt.auth)
 			if err != nil {
 				t.Fatalf("ValidateRoles() error = %v", err)
 			}
@@ -268,7 +268,7 @@ func TestValidateRoles_grantThroughAnotherAuthsSet(t *testing.T) {
 			t.Parallel()
 
 			store := setsCollection{sets: tt.sets, authSets: tt.authSets}
-			_, err := ValidateRoles(store, &RoleConfig{Roles: tt.roles}, tt.auth)
+			_, err := ValidateRoles(store, &RoleConfig{Auth: tt.auth, Roles: tt.roles}, tt.auth)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("ValidateRoles() error = %v, want none", err)
@@ -284,14 +284,16 @@ func TestValidateRoles_grantThroughAnotherAuthsSet(t *testing.T) {
 }
 
 // crewsRoleFile is a role file over setsCollection whose one domain role reads
-// subject.crews.
-var crewsRoleFile = RoleFile(`{
+// subject.crews, carrying auth as its "auth" where auth is not empty.
+func crewsRoleFile(auth string) RoleFile {
+	return RoleFile(`{` + authKey(auth) + `
   "roles": {
     "domain": [
       {"name": "Quartermaster", "description": "Reads the widgets of their crews.", "permissions": {"Read": [{"resource": "Widgets", "condition": "owner IN subject.crews"}]}}
     ]
   }
 }`)
+}
 
 // TestNew_grantThroughAnotherAuthsSet pins that New refuses the same grant when the role
 // file is handed over with WithDefaultRoles, and opens with the file of the set's own auth.
@@ -318,7 +320,7 @@ func TestNew_grantThroughAnotherAuthsSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			client, err := New(newFakeStore(), collection, WithDefaultRoles(crewsRoleFile, tt.auth))
+			client, err := New(newFakeStore(), collection, WithDefaultRoles(crewsRoleFile(tt.auth), tt.auth))
 			if client != nil {
 				t.Cleanup(func() {
 					if err := client.Close(); err != nil {
