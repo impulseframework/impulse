@@ -138,8 +138,8 @@ func groupMembers(t *testing.T, store access.Store) {
 	ctx := t.Context()
 	night, staff := nightRow(), staffRow()
 
-	if err := store.InsertGroupMember(ctx, spareGroup, alice, accesstypes.Period{}); err == nil {
-		t.Error("InsertGroupMember() into a group that does not exist: want it refused")
+	if err := store.InsertGroupMember(ctx, spareGroup, alice, accesstypes.Period{}); !errors.Is(err, policy.ErrNoGroup) {
+		t.Errorf("InsertGroupMember() into a group that does not exist: error = %v, want policy.ErrNoGroup", err)
 	}
 	for _, user := range []accesstypes.User{bob, alice, alice} {
 		if err := store.InsertGroupMember(ctx, nightGroup, user, accesstypes.Period{}); err != nil {
@@ -186,8 +186,8 @@ func groupRoles(t *testing.T, store access.Store) {
 	ctx := t.Context()
 	night, staff := nightRow(), staffRow()
 
-	if err := store.InsertGroupRole(ctx, spareGroup, tenant1, viewer, accesstypes.Period{}); err == nil {
-		t.Error("InsertGroupRole() for a group that does not exist: want it refused")
+	if err := store.InsertGroupRole(ctx, spareGroup, tenant1, viewer, accesstypes.Period{}); !errors.Is(err, policy.ErrNoGroup) {
+		t.Errorf("InsertGroupRole() for a group that does not exist: error = %v, want policy.ErrNoGroup", err)
 	}
 	held := []struct {
 		group accesstypes.Group

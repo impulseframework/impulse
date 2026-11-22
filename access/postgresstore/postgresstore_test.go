@@ -375,3 +375,54 @@ func waitingOnALock(t *testing.T, database *db.PostgresDatabase, done <-chan str
 	}
 	t.Fatal("no session of the database was seen waiting on a lock within 30 seconds")
 }
+
+// turnGroup is the group the turn test of a group's deletion writes a member to.
+const turnGroup = accesstypes.Group("7f2f6a52-6c63-4a7a-9c1e-0000000000a1")
+
+// TestStore_DeleteGroup_takesItsTurnWithAMember pins that a group's deletion locks the
+// group's row before it reads what the group holds, and reads after the lock: a member
+// written by a transaction still open when the delete starts is seen once it commits,
+// and the delete refuses. A delete that read before the lock, or under a snapshot taken
+// before it, would find the group empty.
+func TestStore_DeleteGroup_takesItsTurnWithAMember(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, database := prepareStore(ctx, t)
+	group := &policy.GroupRow{Group: policy.Group{ID: turnGroup, Scope: turnScope}, Name: "Wards", Description: "Who keeps the wards."}
+	if taken, err := store.InsertGroup(ctx, group); err != nil || taken {
+		t.Fatalf("InsertGroup() = (%v, %v), want it written", taken, err)
+	}
+	turns := repeatableReadStore(ctx, t, database)
+
+	member, err := database.Begin(ctx)
+	if err != nil {
+		t.Fatalf("pgxpool.Pool.Begin() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = member.Rollback(context.WithoutCancel(ctx))
+	})
+	if _, err := member.Exec(ctx, store.groups.insertMember, turnGroup, "alice", nil, nil); err != nil {
+		t.Fatalf("pgx.Tx.Exec() insert member error = %v", err)
+	}
+	var (
+		deleted   bool
+		deleteErr error
+	)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		deleted, deleteErr = turns.DeleteGroup(ctx, turnGroup)
+	}()
+	waitingOnALock(t, database, done)
+	if err := member.Commit(ctx); err != nil {
+		t.Fatalf("pgx.Tx.Commit() error = %v", err)
+	}
+	<-done
+
+	if deleted || !errors.Is(deleteErr, policy.ErrStillAssigned) {
+		t.Errorf("DeleteGroup() of a group given a member while it waited = (%v, %v), want it refused with policy.ErrStillAssigned", deleted, deleteErr)
+	}
+	if _, found, err := store.Group(ctx, turnGroup); err != nil || !found {
+		t.Errorf("Group() after the refusal = (%v, %v), want the group there", found, err)
+	}
+}

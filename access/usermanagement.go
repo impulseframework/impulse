@@ -483,7 +483,7 @@ func (u *userManager) AddRolePermission(ctx context.Context, scope accesstypes.P
 	}
 
 	if err := u.store.addScopeWideGrant(ctx, scope, role, permission); err != nil {
-		return err
+		return grantRefusal(role, err)
 	}
 
 	return nil
@@ -550,7 +550,7 @@ func (u *userManager) addGrantRows(ctx context.Context, scope accesstypes.Policy
 	}
 
 	if err := u.store.addGrants(ctx, scope, role, rows); err != nil {
-		return err
+		return grantRefusal(role, err)
 	}
 
 	return nil
@@ -580,10 +580,21 @@ func (u *userManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.Po
 	}
 
 	if err := u.store.changeGrants(ctx, scope, role, removals, additions); err != nil {
-		return err
+		return grantRefusal(role, err)
 	}
 
 	return nil
+}
+
+// grantRefusal answers a grant's write that the store refused because the role has no
+// row, deleted since the call found it, as a role that does not exist: nothing was
+// written. Any other error is returned as it is.
+func grantRefusal(role accesstypes.Role, err error) error {
+	if errors.Is(err, policy.ErrNoRole) {
+		return roleNotFound(role)
+	}
+
+	return err
 }
 
 // requireResources refuses a grant row that names no resource.
@@ -718,7 +729,7 @@ func (u *userManager) AddRoleGrant(ctx context.Context, scope accesstypes.Policy
 	}
 
 	if err := u.store.addGrant(ctx, scope, role, permission, resource, condition); err != nil {
-		return err
+		return grantRefusal(role, err)
 	}
 
 	return nil

@@ -413,7 +413,7 @@ func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.PolicyScope
 		return f.failWith
 	}
 	if !f.hasRole(scope, role) {
-		return errors.Newf("role %q does not exist in scope %q", role, scope)
+		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
 	}
 	f.grants[fakeGrant{scope, role, perm, resource, field, condition}] = true
 
@@ -428,7 +428,7 @@ func (f *fakeStore) InsertGrants(_ context.Context, scope accesstypes.PolicyScop
 		return f.failWith
 	}
 	if !f.hasRole(scope, role) {
-		return errors.Newf("role %q does not exist in scope %q", role, scope)
+		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
 	}
 	for _, g := range grants {
 		f.grants[fakeGrant{scope, role, g.Perm, g.Resource, g.Field, g.Condition}] = true
@@ -446,7 +446,7 @@ func (f *fakeStore) ChangeGrants(_ context.Context, scope accesstypes.PolicyScop
 		return f.failWith
 	}
 	if len(additions) > 0 && !f.hasRole(scope, role) {
-		return errors.Newf("role %q does not exist in scope %q", role, scope)
+		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
 	}
 	for _, g := range removals {
 		delete(f.grants, fakeGrant{scope, role, g.Perm, g.Resource, g.Field, g.Condition})

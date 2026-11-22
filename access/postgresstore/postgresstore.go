@@ -780,10 +780,15 @@ func (s *Store) RoleExists(ctx context.Context, scope accesstypes.PolicyScope, r
 // InsertGrant adds one grant row; the condition is part of the row's identity
 // ("" = unconditional), so re-inserting an existing row is a no-op and a
 // different condition on the same (permission, resource, field) is a second
-// row. The (scope, role) parent row must exist.
+// row. The (scope, role) parent row must exist: where the table's foreign key,
+// to the role, refuses the row, policy.ErrNoRole is wrapped.
 func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	if _, err := s.pool.Exec(ctx, s.sqlInsertGrant, kind, axis, domain, role, perm, resource, field, condition); err != nil {
+		if foreignKeyViolation(err) {
+			return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+		}
+
 		return errors.Wrap(err, "pgxpool.Pool.Exec() insert grant")
 	}
 
@@ -791,7 +796,8 @@ func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.PolicyScope, 
 }
 
 // InsertGrants adds the role's grant rows as one write: a change with no
-// removals. The (scope, role) parent row must exist.
+// removals. The (scope, role) parent row must exist, and where it does not,
+// policy.ErrNoRole is wrapped.
 func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, grants []policy.RoleGrant) error {
 	return s.ChangeGrants(ctx, scope, role, nil, grants)
 }
@@ -800,7 +806,8 @@ func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.PolicyScope,
 // transaction, as one batched round trip: a failure rolls the whole change
 // back. Each insert ignores a conflict, so present rows are untouched and the
 // additions are idempotent like InsertGrant. The (scope, role) parent row must
-// exist for the additions.
+// exist for the additions: where the grants table's foreign key, to the role,
+// refuses an addition, policy.ErrNoRole is wrapped and nothing is written.
 func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []policy.RoleGrant) error {
 	if len(removals) == 0 && len(additions) == 0 {
 		return nil
@@ -827,6 +834,9 @@ func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope,
 	for range batch.Len() {
 		if _, err := results.Exec(); err != nil {
 			_ = results.Close()
+			if foreignKeyViolation(err) {
+				return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+			}
 
 			return errors.Wrap(err, "pgx.BatchResults.Exec() change grants")
 		}

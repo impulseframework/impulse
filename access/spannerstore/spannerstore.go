@@ -367,20 +367,6 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	return records, nil
 }
 
-// insertIgnoreExists applies an insert mutation, treating "row already
-// exists" as the documented no-op.
-func (s *Store) insertIgnoreExists(ctx context.Context, m *spanner.Mutation, wrap string) error {
-	if _, err := s.client.Apply(ctx, []*spanner.Mutation{m}); err != nil {
-		if spanner.ErrCode(err) == codes.AlreadyExists {
-			return nil
-		}
-
-		return errors.Wrap(err, wrap)
-	}
-
-	return nil
-}
-
 // given is one column an assignment is given beside its period, with the value
 // it is given: a membership's reason.
 type given struct {
@@ -818,14 +804,10 @@ func (s *Store) RoleExists(ctx context.Context, scope accesstypes.PolicyScope, r
 // InsertGrant adds one grant row; the condition is part of the row's identity
 // ("" = unconditional), so re-inserting an existing row is a no-op and a
 // different condition on the same (permission, resource, field) is a second
-// row. The (scope, role) parent row must exist.
+// row. It is a change with the one addition: the (scope, role) parent row must
+// exist, and where it does not, policy.ErrNoRole is wrapped.
 func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
-	kind, axis, domain := policy.ScopeColumns(scope)
-	m := spanner.Insert(s.names.roleGrants,
-		[]string{colKind, colAxis, colDomain, colRole, colPermission, colResource, colField, colCondition, colUpdatedAt},
-		[]any{kind, axis, domain, string(role), string(perm), resource, field, condition, spanner.CommitTimestamp})
-
-	return s.insertIgnoreExists(ctx, m, "insert grant")
+	return s.ChangeGrants(ctx, scope, role, nil, []policy.RoleGrant{{Perm: perm, Resource: resource, Field: field, Condition: condition}})
 }
 
 // changeGrantsChunk bounds the rows one ChangeGrants transaction carries, well
@@ -833,7 +815,8 @@ func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.PolicyScope, 
 const changeGrantsChunk = 1000
 
 // InsertGrants adds the role's grant rows as one write: a change with no
-// removals. The (scope, role) parent row must exist.
+// removals. The (scope, role) parent row must exist, and where it does not,
+// policy.ErrNoRole is wrapped.
 func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, grants []policy.RoleGrant) error {
 	return s.ChangeGrants(ctx, scope, role, nil, grants)
 }
@@ -851,7 +834,9 @@ type grantChange struct {
 // present rows keep their UpdatedAt and the call is idempotent like
 // InsertGrant. A change of more than changeGrantsChunk rows lands in that many
 // transactions, removals first; a role's grants are far inside that. The
-// (scope, role) parent row must exist for the additions.
+// (scope, role) parent row must exist for the additions: each transaction that
+// carries one reads the row first, and where it is not there wraps
+// policy.ErrNoRole and writes nothing.
 func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []policy.RoleGrant) error {
 	if len(removals) == 0 && len(additions) == 0 {
 		return nil
@@ -883,6 +868,12 @@ func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.PolicyScope,
 
 			present := make(map[policy.RoleGrant]struct{}, len(keys))
 			if len(keys) > 0 {
+				switch _, err := txn.ReadRow(ctx, s.names.roles, spanner.Key{kind, axis, domain, string(role)}, []string{colRole}); {
+				case spanner.ErrCode(err) == codes.NotFound:
+					return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
+				case err != nil:
+					return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow() role")
+				}
 				err := txn.Read(ctx, s.names.roleGrants, spanner.KeySets(keys...), keyColumns).Do(func(row *spanner.Row) error {
 					var perm, resource, field, condition string
 					if err := row.Columns(&perm, &resource, &field, &condition); err != nil {

@@ -197,9 +197,12 @@ func customGroupRoles(t *testing.T, store access.Store) {
 		deleteRoles(t, store, policy.Role{Scope: tc.row, Name: warden})
 	}
 
+	if err := store.InsertCustomGroupRole(ctx, absentGroup, wardTenant, warden, accesstypes.Period{}); !errors.Is(err, policy.ErrNoRole) {
+		t.Errorf("InsertCustomGroupRole() with neither the role nor the group there: error = %v, want policy.ErrNoRole", err)
+	}
 	insertRole(t, store, wardTenant, warden)
-	if err := store.InsertCustomGroupRole(ctx, absentGroup, wardTenant, warden, accesstypes.Period{}); err == nil {
-		t.Error("InsertCustomGroupRole() for a group that is not there answered nil, want it refused")
+	if err := store.InsertCustomGroupRole(ctx, absentGroup, wardTenant, warden, accesstypes.Period{}); !errors.Is(err, policy.ErrNoGroup) {
+		t.Errorf("InsertCustomGroupRole() for a group that is not there: error = %v, want policy.ErrNoGroup", err)
 	}
 	if groups, err := store.ListRoleGroups(ctx, wardTenant, warden); err != nil || len(groups) != 0 {
 		t.Errorf("ListRoleGroups() after the refusal = (%v, %v), want none", groups, err)

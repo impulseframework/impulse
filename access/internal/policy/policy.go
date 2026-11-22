@@ -172,6 +172,11 @@ var ErrNoRole = errors.New("the roles table holds no row of the role")
 // it behind, and a role of the name made again would at once be theirs.
 var ErrHeldInDomain = errors.New("a person or a group holds the role in one domain, now or for a period that has not begun")
 
+// ErrNoGroup is the refusal of a member or a role written to a group that is not
+// there: a store wraps it, so the access package answers that the group does not
+// exist.
+var ErrNoGroup = errors.New("the groups table holds no row of the group")
+
 // SameRoleName reports whether a and b are the same role name but for the case
 // of their ASCII letters: an ASCII capital letter equals its lower-case letter,
 // and every other byte equals only itself. It is the rule the library compares

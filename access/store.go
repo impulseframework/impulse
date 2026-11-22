@@ -79,7 +79,8 @@ import (
 //     beside: of two such names added at the same moment, one is held and the
 //     other is refused.
 //   - InsertGrant requires the (scope, role) row to exist (DB-enforced
-//     parent interleave or foreign key): a grant is a custom role's.
+//     parent interleave or foreign key): a grant is a custom role's; a write
+//     for a role with no row wraps policy.ErrNoRole.
 //   - ChangeGrants applies a role's removals and additions in one transaction,
 //     so a grant whose condition changed (one row removed, one added) is never
 //     seen with neither row.
@@ -90,7 +91,8 @@ import (
 //     (DB-enforced foreign key), and DeleteGroup refuses a group that still
 //     has a member or a role that has not ended: a group goes once it is
 //     emptied, so no person loses a role by a group's deletion, and the ended
-//     members and roles, which give nobody anything, go with it.
+//     members and roles, which give nobody anything, go with it. A member or a
+//     role written to a group with no row wraps policy.ErrNoGroup.
 type Store interface {
 	// ReadPolicy returns the store's complete policy content as normalized
 	// records for the snapshot compiler: the custom roles, their grants and

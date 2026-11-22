@@ -271,8 +271,8 @@ func (u *userManager) DeleteGroup(ctx context.Context, group accesstypes.Group) 
 	deleted, err := u.store.deleteGroup(ctx, group)
 	if errors.Is(err, policy.ErrStillAssigned) {
 		// The listings read what counts now: what stands in the way is a member
-		// or a role whose period has not begun.
-		return httpio.NewConflictMessage("the group has a member or holds a role whose period has not begun yet: remove its members and take its roles away, then delete it")
+		// or a role whose period has not begun, or one given since they were read.
+		return httpio.NewConflictMessage("the group has a member or holds a role, now or for a period that has not begun yet: remove its members and take its roles away, then delete it")
 	}
 	if err != nil {
 		return err
@@ -346,6 +346,11 @@ func (u *userManager) assignGroupUsers(ctx context.Context, group accesstypes.Gr
 	}
 	for _, user := range users {
 		if err := u.store.addGroupUser(ctx, group, user, period); err != nil {
+			if errors.Is(err, policy.ErrNoGroup) {
+				// The group was deleted since requireGroup found it.
+				return groupNotFound(group)
+			}
+
 			return err
 		}
 	}
@@ -424,21 +429,23 @@ func (u *userManager) assignGroupRoles(ctx context.Context, group accesstypes.Gr
 
 // giveGroupRole gives group the role in scope for the period: one of the release's
 // default roles by its name, and a custom role only while its row is there. A custom
-// role deleted since the call found it is answered as a role that does not exist, and
-// nothing is given.
+// role deleted since the call found it is answered as a role that does not exist, a
+// group deleted since then as a group that does not exist, and nothing is given.
 func (u *userManager) giveGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	var err error
 	if u.defaults.exists(scope, role) {
-		return u.store.addGroupRole(ctx, group, scope, role, period)
+		err = u.store.addGroupRole(ctx, group, scope, role, period)
+	} else {
+		err = u.store.addCustomGroupRole(ctx, group, scope, role, period)
 	}
-	if err := u.store.addCustomGroupRole(ctx, group, scope, role, period); err != nil {
-		if errors.Is(err, policy.ErrNoRole) {
-			return roleNotFound(role)
-		}
-
-		return err
+	switch {
+	case errors.Is(err, policy.ErrNoRole):
+		return roleNotFound(role)
+	case errors.Is(err, policy.ErrNoGroup):
+		return groupNotFound(group)
 	}
 
-	return nil
+	return err
 }
 
 // DeleteGroupRoles takes the roles group holds in scope away from it. A role the group

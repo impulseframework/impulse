@@ -181,7 +181,7 @@ func (f *fakeStore) ListGroups(_ context.Context, scope accesstypes.PolicyScope)
 func (f *fakeStore) InsertGroupMember(_ context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
 	return f.locked(func() error {
 		if _, ok := f.groups.rows[group]; !ok {
-			return errors.Newf("group %s does not exist", group)
+			return errors.Wrapf(policy.ErrNoGroup, "group %s", group)
 		}
 		f.groups.members[fakeGroupMember{group, user}] = period
 		f.writes++
@@ -233,7 +233,7 @@ func (f *fakeStore) ListUserGroups(_ context.Context, user accesstypes.User) ([]
 func (f *fakeStore) InsertGroupRole(_ context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	return f.locked(func() error {
 		if _, ok := f.groups.rows[group]; !ok {
-			return errors.Newf("group %s does not exist", group)
+			return errors.Wrapf(policy.ErrNoGroup, "group %s", group)
 		}
 		f.groups.held[fakeGroupRole{group, scope, role}] = period
 		f.writes++
@@ -248,7 +248,7 @@ func (f *fakeStore) InsertCustomGroupRole(_ context.Context, group accesstypes.G
 			return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
 		}
 		if _, ok := f.groups.rows[group]; !ok {
-			return errors.Newf("group %s does not exist", group)
+			return errors.Wrapf(policy.ErrNoGroup, "group %s", group)
 		}
 		f.groups.held[fakeGroupRole{group, scope, role}] = period
 		f.writes++
