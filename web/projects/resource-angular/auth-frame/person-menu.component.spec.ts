@@ -126,6 +126,68 @@ describe('PersonMenuComponent', () => {
     expect(who('.impulse-person-menu-who-login')).toBeUndefined();
   });
 
+  it('heads the menu with each address once: no username where it is the email address, whatever its capitals, and no email address where it already heads the menu', async () => {
+    const lines = (): string[][] =>
+      Array.from(
+        document.querySelectorAll('.cdk-overlay-container .impulse-person-menu-who .impulse-person-menu-lines > span'),
+      ).map((line) => [line.className, line.textContent ?? '']);
+    const openMenu = async (): Promise<void> => {
+      (fixture.nativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>('button.impulse-person-menu-button')
+        ?.click();
+      fixture.detectChanges();
+      await TestBed.inject(ApplicationRef).whenStable();
+    };
+    const name = 'impulse-person-menu-who-name';
+    const login = 'impulse-person-menu-who-login';
+    const email = 'impulse-person-menu-who-email';
+    for (const [session, want] of [
+      [
+        { name: 'Rey Gale', username: 'gale', email: 'gale@spec.example' },
+        [
+          [name, 'Rey Gale'],
+          [login, 'gale'],
+          [email, 'gale@spec.example'],
+        ],
+      ],
+      [
+        { name: 'Rey Gale', username: 'gale@spec.example', email: 'gale@spec.example' },
+        [
+          [name, 'Rey Gale'],
+          [email, 'gale@spec.example'],
+        ],
+      ],
+      [
+        { name: 'Rey Gale', username: 'Gale@Spec.example', email: 'gale@spec.example' },
+        [
+          [name, 'Rey Gale'],
+          [email, 'gale@spec.example'],
+        ],
+      ],
+      [{ username: 'gale@spec.example', email: 'gale@spec.example' }, [[name, 'gale@spec.example']]],
+      [
+        { username: 'gale', email: 'gale@spec.example' },
+        [
+          [name, 'gale'],
+          [email, 'gale@spec.example'],
+        ],
+      ],
+      [
+        { name: 'Rey Gale', username: 'gale' },
+        [
+          [name, 'Rey Gale'],
+          [login, 'gale'],
+        ],
+      ],
+      [{ username: 'gale' }, [[name, 'gale']]],
+    ] as [Record<string, string>, string[][]][]) {
+      TestBed.resetTestingModule();
+      await open({ session: { authenticated: true, ...session } });
+      await openMenu();
+      expect.soft(lines(), JSON.stringify(session)).toEqual(want);
+    }
+  });
+
   it('heads the menu with the same initials as the bar, two for a name of several words and one for a username', async () => {
     const head = (): Element | null =>
       document.querySelector(
