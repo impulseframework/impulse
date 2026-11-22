@@ -227,9 +227,15 @@ func TestManager_OpenSignUp(t *testing.T) {
 func TestManager_OpenSignUpWarning(t *testing.T) {
 	t.Parallel()
 
+	// A custom role of the global scope whose name is several words.
+	nightKey := access.NewMembershipKey(globalScope, "", "NightShiftLead")
+	globalNightShiftLead := access.RoleKey{Kind: nightKey.Kind, Axis: nightKey.Axis, Domain: nightKey.Domain, Role: "NightShiftLead"}
+
 	tests := []struct {
-		name    string
-		open    SignUp
+		name string
+		open SignUp
+		// custom are the rows of the roles table: the custom roles; none where it is nil.
+		custom  map[access.RoleKey]bool
 		want    *resource.Warning
 		refused func(err error) bool
 	}{
@@ -258,6 +264,15 @@ func TestManager_OpenSignUpWarning(t *testing.T) {
 			},
 		},
 		{
+			name:   "a role whose name is several words is named in words",
+			open:   SignUp{Method: "google", DefaultRole: "NightShiftLead"},
+			custom: map[access.RoleKey]bool{globalNightShiftLead: true},
+			want: &resource.Warning{
+				Consequence: "Anyone with a Google account will be able to sign in without an invitation. Each of them gets the role Night shift lead.",
+				Confirm:     "Open to anyone with a Google account",
+			},
+		},
+		{
 			name: "before the role is picked, the warning says it is to be chosen",
 			open: SignUp{Method: "google"},
 			want: &resource.Warning{
@@ -281,7 +296,11 @@ func TestManager_OpenSignUpWarning(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &fakeStore{roles: map[access.RoleKey]bool{}}
+			custom := tt.custom
+			if custom == nil {
+				custom = map[access.RoleKey]bool{}
+			}
+			store := &fakeStore{roles: custom}
 			m := newSignUpManager(t, store)
 
 			var got *resource.Warning

@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/spxscan"
@@ -90,15 +91,16 @@ func (r *TenantDirectoryRules) Directory(ctx context.Context, txn ReadWriteTrans
 // button that does it. It writes nothing and judges no role: the method that opens the
 // tenant holds the role to its rules before it asks. A request that names no role yet
 // is answered, since the warning is read while the role is still being picked, and
-// says the role is to be chosen. The directory is said in the words a person knows it
-// by (DirectoryWords, through the namers the rules were given), never by its
-// connection.
+// says the role is to be chosen. The role is said in words, "Night shift lead" for
+// NightShiftLead, as every sentence a person reads names one (words.RoleInWords). The
+// directory is said in the words a person knows it by (DirectoryWords, through the
+// namers the rules were given), never by its connection.
 func (r *TenantDirectoryRules) OpenToDirectoryWarning(directory *TenantDirectory, role accesstypes.Role) *Warning {
 	through := r.directoryWords(directory.Directory)
 	who := fmt.Sprintf("Anyone who signs in through %s will be able to enter this %s without an invitation", through, r.word)
 	consequence := who + ". Choose the role each of them gets."
 	if role != "" {
-		consequence = fmt.Sprintf("%s and gets the role %s.", who, string(role))
+		consequence = fmt.Sprintf("%s and gets the role %s.", who, words.RoleInWords(string(role)))
 	}
 
 	return &Warning{

@@ -3541,10 +3541,11 @@ people nobody named, so `Open<Record>ToDirectory` declares a warning (section 7)
 a person confirms by typing `open` (`resource.OpenToDirectoryWord`). Its words are the
 server's, for the role as picked so far (`TenantDirectoryRules.OpenToDirectoryWarning`):
 "Anyone who signs in through acme.example will be able to enter this tenant without an
-invitation and gets the role Member.", under the button "Open to people who sign in
-through acme.example"; before a role is picked the sentence ends "Choose the role each
-of them gets." The directory is named as the directory-only warning names it, never by
-a connection that is an id. The role is held to what giving it by hand needs
+invitation and gets the role Night shift lead.", the role in words (`NightShiftLead` is
+what is stored), under the button "Open to people who sign in through acme.example";
+before a role is picked the sentence ends "Choose the role each of them gets." The
+directory is named as the directory-only warning names it, never by a connection that
+is an id. The role is held to what giving it by hand needs
 (`identity.Manager.DirectoryRole`, through the generated identity client): it is a role
 of the tenant ("... is not a role of this tenant: choose one of the roles the picker
 lists", 400), and the caller could give it there directly, by the grant of the method

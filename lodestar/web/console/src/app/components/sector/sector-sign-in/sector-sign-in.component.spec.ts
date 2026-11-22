@@ -20,7 +20,7 @@ import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { MethodDialogComponent } from '@impulseframework/resource-angular/resource';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
-import { METHOD_META, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
+import { METHOD_META, RESOURCE_DOMAIN, roleInWords } from '@impulseframework/resource-angular/types';
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
@@ -91,7 +91,7 @@ const wouldKeepOut: MethodWarning = {
 /** What the server says opening Anvil to its directory would do, for the role as picked so far. */
 const wouldOpen = (role: string): MethodWarning => ({
   consequence: role
-    ? `Anyone who signs in through example will be able to enter this sector without an invitation and gets the role ${role}.`
+    ? `Anyone who signs in through example will be able to enter this sector without an invitation and gets the role ${roleInWords(role)}.`
     : 'Anyone who signs in through example will be able to enter this sector without an invitation. Choose the role each of them gets.',
   confirm: 'Open to people who sign in through example',
 });
