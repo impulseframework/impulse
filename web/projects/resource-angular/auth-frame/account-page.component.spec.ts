@@ -657,7 +657,7 @@ describe('AccountPageComponent', () => {
     await turn();
     expect([account.password(), account.removePassword()]).toEqual([false, false]);
 
-    answer({ password: true, directories: [{ name: 'google', label: 'Fleet Google' }] });
+    answer({ password: true, directories: [{ name: 'google', label: 'Fleet Google' }], directoryAddress: false });
     await turn();
     expect([account.password(), account.removePassword()]).toEqual([true, true]);
   });

@@ -708,6 +708,26 @@ empty name took it off), after which the page checks the session again to show i
 `refused` with the server's words (the name is too long, the session is an impersonation).
 The name is shown in place of the username, which stays what the person signs in under.
 
+The account page also changes the person's own username and shows where they are signed in.
+The list names the paths as `changeUsername`, `usernameFree`, `ownSessions` (`{ list, end,
+endOthers }`, present only with all three) and `forgetBrowsers`, each absent where the server
+does not serve it, and the first two absent too where the usernames are the addresses.
+`changeUsername(username)` resolves `changed` with the username as the server keeps it, or
+`refused` with the server's words (someone else holds the name, the usernames are the addresses,
+an impersonated session); `usernameFree(username)` resolves whether the person may take the name,
+`true` for one no one else holds, and uses the list last read, as `passwordStrength` does;
+`ownSessions()` resolves `{ sessions, rememberedBrowsers }`, the person's own live sessions, the
+one of this browser first and marked `current`, each with its `browser` name where the server
+recognized it, whether it is a `phone`, `signedInAt` and `lastUsedAt`, and how many browsers the
+second factor remembers for them; `endOwnSession(sessionId)` resolves `ended`, or `gone` for a
+session that ended already; `endOtherSessions()` resolves how many sessions ended; and
+`forgetBrowsers()` resolves once every remembered browser is forgotten, this one included. Each
+reads the list again first, except `usernameFree`, and each throws where the list names no path.
+A request may be `quiet`, as `usernameFree` and `passwordStrength` are: a question asked while a
+person types, whose answer that is an error is thrown to the caller and never handed to the
+application's error hook (`onError`), so a notice raised there is not raised once for every
+character.
+
 The look a person chose, light, dark or their device's setting (`device`) and one of the
 application's palettes, is kept with their account so that it follows them to every browser:
 the session read carries `look` (`{ scheme, palette }`, each half present where the person
