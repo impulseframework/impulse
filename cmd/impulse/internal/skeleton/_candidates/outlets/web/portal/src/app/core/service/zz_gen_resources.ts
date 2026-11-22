@@ -953,6 +953,7 @@ const resourceMap = defineResourceMap({
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
+    computed: true,
     live: false,
     rowWords: { one: 'members givable role', many: 'members givable roles' },
     fields: [
