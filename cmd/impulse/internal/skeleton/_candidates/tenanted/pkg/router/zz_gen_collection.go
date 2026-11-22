@@ -849,6 +849,19 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"username", "groupName"},
 			},
 			{
+				Name:        "StaffInvitedTenantRoles",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "description", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+				},
+				Attributes: []resource.AttributeData{
+					{Name: "name", Column: "Name", Type: "string"},
+				},
+			},
+			{
 				Name:        "StaffInvitedTenants",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Computed:    true,

@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
@@ -249,11 +250,13 @@ func (noSessionAPI) NoticeRemovedFromTenant(context.Context, string, string, boo
 
 // CrewIdentity and MembersIdentity are the two auths' identity clients over the scripted
 // engine: the matrix drives the generated methods' routes as it drives every other, and
-// a denied case is answered before any of them runs. The crew's client takes what makes
-// a sector from an accepted invitation, as production's does, though no case here
-// accepts one.
+// a denied case is answered before any of them runs. The crew's client is built as
+// production's is: with what makes a sector from an accepted invitation, though no case
+// here accepts one, and with the roles that administer a sector, without which it serves
+// no list of the roles a new sector's people may start with.
 func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
-	client, err := crewidentity.NewClient(c.Access(), noSessionAPI{}, app.NewSectorMaker(c.TenantRoster(), c.Live()))
+	_, sectorAdministrators := crew.AdministratorRoles()
+	client, err := crewidentity.NewClient(c.Access(), noSessionAPI{}, app.NewSectorMaker(c.TenantRoster(), c.Live()), identity.WithAdministratorRoles(sectorAdministrators))
 	if err != nil {
 		panic(err)
 	}

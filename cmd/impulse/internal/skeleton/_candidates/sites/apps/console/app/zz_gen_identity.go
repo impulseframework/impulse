@@ -221,6 +221,10 @@ func (a *App) StaffInvitedTenants() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffInvitedTenants()
 }
 
+func (a *App) StaffInvitedTenantRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffInvitedTenantRoles()
+}
+
 func (a *App) StaffListedRoleGrants() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedRoleGrants()
 }

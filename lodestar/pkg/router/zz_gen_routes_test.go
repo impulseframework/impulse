@@ -412,6 +412,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/crew-givable-roles", method: http.MethodPost},
 		{url: "/droids/crew-invited-sectors", method: http.MethodGet},
 		{url: "/droids/crew-invited-sectors", method: http.MethodPost},
+		{url: "/droids/crew-invited-sector-roles", method: http.MethodGet},
+		{url: "/droids/crew-invited-sector-roles", method: http.MethodPost},
 		{url: "/droids/crew-listed-role-grants", method: http.MethodGet},
 		{url: "/droids/crew-listed-role-grants", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodGet},
@@ -746,6 +748,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/crew-givable-roles", method: http.MethodPost},
 		{url: "/portal/api/crew-invited-sectors", method: http.MethodGet},
 		{url: "/portal/api/crew-invited-sectors", method: http.MethodPost},
+		{url: "/portal/api/crew-invited-sector-roles", method: http.MethodGet},
+		{url: "/portal/api/crew-invited-sector-roles", method: http.MethodPost},
 		{url: "/portal/api/crew-listed-role-grants", method: http.MethodGet},
 		{url: "/portal/api/crew-listed-role-grants", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodGet},
@@ -2854,6 +2858,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/crew-invited-sector-roles", method: http.MethodGet,
+			handlerFunc: "CrewInvitedSectorRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/crew-invited-sector-roles", method: http.MethodPost,
+			handlerFunc: "CrewInvitedSectorRoles",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/console/api/crew-listed-role-grants", method: http.MethodGet,
 			handlerFunc: "CrewListedRoleGrants",
 			parameters:  map[string]string{},
@@ -3361,6 +3375,10 @@ func (s *generatedHandlersStub) CrewHeldRoles() http.HandlerFunc {
 
 func (s *generatedHandlersStub) CrewInvitedSectors() http.HandlerFunc {
 	return s.record("CrewInvitedSectors")
+}
+
+func (s *generatedHandlersStub) CrewInvitedSectorRoles() http.HandlerFunc {
+	return s.record("CrewInvitedSectorRoles")
 }
 
 func (s *generatedHandlersStub) CrewListedGroups() http.HandlerFunc {

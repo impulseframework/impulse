@@ -1002,7 +1002,7 @@ const methodMap: MethodMap = {
       { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'tenantName', displayType: 'string', required: true },
       { fieldName: 'tenantDirectoryOnly', displayType: 'boolean', attribute: 'directoryOnly' },
-      { fieldName: 'defaultRole', displayType: 'string', optional: true, attribute: 'role' },
+      { fieldName: 'defaultRole', displayType: 'enumerated', enumeratedResource: Resources.StaffInvitedTenantRoles, optional: true, attribute: 'role' },
     ],
   },
   [Methods.InviteStaffTenantUser]: {

@@ -30,6 +30,7 @@ export const Resources = {
   CrewGroupUsers: 'CrewGroupUsers' as Resource,
   CrewGroups: 'CrewGroups' as Resource,
   CrewHeldRoles: 'CrewHeldRoles' as Resource,
+  CrewInvitedSectorRoles: 'CrewInvitedSectorRoles' as Resource,
   CrewInvitedSectors: 'CrewInvitedSectors' as Resource,
   CrewListedGroupRoles: 'CrewListedGroupRoles' as Resource,
   CrewListedGroups: 'CrewListedGroups' as Resource,
@@ -467,6 +468,17 @@ export namespace CrewHeldRoles {
     startsAt: 'CrewHeldRoles.startsAt' as Resource,
     userId: 'CrewHeldRoles.userId' as Resource,
     username: 'CrewHeldRoles.username' as Resource,
+  };
+}
+
+export namespace CrewInvitedSectorRoles {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    description: 'CrewInvitedSectorRoles.description' as Resource,
+    name: 'CrewInvitedSectorRoles.name' as Resource,
   };
 }
 

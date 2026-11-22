@@ -4064,6 +4064,7 @@ GET  <prefix>/crew-listed-groups, …/{id}                   List, Read on CrewL
 GET  <prefix>/crew-listed-group-roles                      List on CrewListedGroupRoles (the roles the groups hold, each with how many people lose it)
 GET  <prefix>/crew-sign-in-methods                         List on CrewSignInMethods (the methods the Auth registers, with what was chosen for each)
 GET  <prefix>/crew-invited-sectors                         List on CrewInvitedSectors (the invitations that make a sector and still stand)
+GET  <prefix>/crew-invited-sector-roles                    List on CrewInvitedSectorRoles (the roles a new sector's directory people may start with)
 GET  <prefix>/sectors/{sectorID}/crew-sector-users, …/{id}         List, Read on CrewSectorUsers (sort=username)
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-roles, …/{id}    List, Read on CrewSectorUserRoles (sort=username,role)
 GET  <prefix>/sectors/{sectorID}/crew-sector-held-roles            List on CrewSectorHeldRoles (the roles held in the sector, their own and through a group)
@@ -4545,6 +4546,15 @@ schema without it is refused at generation, naming the column.
   row only for a caller who may list that field on the tenant record: a caller who
   lists a sector's name alone reads the name the invitation carries and none of its
   other details.
+- `<Auth>Invited<Record>Roles` (`CrewInvitedSectorRoles`) lists the roles the people of
+  a new tenant's directory may start with, where the invitation carries a starting
+  role: the roles held in every tenant that the sender could give a person in a tenant
+  directly and that the invitation's own grant does not refuse, each with its
+  description, and never the Super Administrator role. The invitation's `defaultRole`
+  is picked from it, so its form offers the roles the invitation takes from its sender
+  and no other; a sender who may give no role is listed none and sends the invitation
+  without one. The list is its own grant: grant List on it to each role that is granted
+  `Invite<Auth><Record>`.
 - `Withdraw<Auth>Invited<Record>` (`WithdrawCrewInvitedSector`) withdraws one by its id
   (204), and answers 404 for anything but an invitation that makes a tenant and still
   stands. An invitation is not edited: staff who want other details withdraw it and
@@ -4556,9 +4566,10 @@ each field the invitation carries, with every condition: the details are run thr
 the record's own create, armed with the sender, in a transaction that is rolled back,
 so a rule the record's create applies is applied when the invitation is sent, and the
 answer goes to the person who can correct it. The starting role is a role the sender
-could give a person directly. A value the record keeps unique in a single column that
-takes no NULL (the name, under the skeletons' index) is looked up when the invitation
-is sent and again when it is accepted, and one that is taken is refused with a sentence
+could give a person directly, picked from `<Auth>Invited<Record>Roles`. A value the
+record keeps unique in a single column that takes no NULL (the name, under the
+skeletons' index) is looked up when the invitation is sent and again when it is
+accepted, and one that is taken is refused with a sentence
 (409, "a sector with the name Anvil already exists: give the new one another"). The
 lookup runs once the sender's grants have answered, so the refusal tells nobody who may
 not create a tenant which values are taken. A rule
