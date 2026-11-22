@@ -644,9 +644,19 @@ describe("identityPages, the whole application's side", () => {
         body: { userId: 'u-1', role: 'Clerk', domain: null, everyDomain: false },
       },
       {
-        row: { userId: 'u-1', role: 'Cadet', kind: 'domain', domainId: 'a1111111-1111-4111-8111-111111111111' },
+        row: {
+          userId: 'u-1',
+          role: 'NightShiftLead',
+          kind: 'domain',
+          domainId: 'a1111111-1111-4111-8111-111111111111',
+        },
         where: 'A sector you cannot see',
-        body: { userId: 'u-1', role: 'Cadet', domain: 'a1111111-1111-4111-8111-111111111111', everyDomain: false },
+        body: {
+          userId: 'u-1',
+          role: 'NightShiftLead',
+          domain: 'a1111111-1111-4111-8111-111111111111',
+          everyDomain: false,
+        },
       },
       {
         row: { userId: 'u-1', role: 'Marshal', kind: 'every', domainId: '' },
@@ -660,11 +670,12 @@ describe("identityPages, the whole application's side", () => {
       expect(remove.fill?.(tt.row)).toEqual(tt.body);
     }
     // The question names no key: the row the person clicked names the sector, and the
-    // page the list sits on names the person, whom a role row knows by id alone.
+    // page the list sits on names the person, whom a role row knows by id alone. It names
+    // the role in words.
     const confirm = remove.confirm as (row: RecordData) => string;
     expect(cases.map((tt) => confirm(tt.row))).toEqual([
       'Take Clerk away from this person?',
-      'Take Cadet in this sector away from this person?',
+      'Take Night shift lead in this sector away from this person?',
       'Take Marshal in every sector away from this person?',
     ]);
   });
@@ -870,8 +881,8 @@ describe("identityPages, a tenant's side", () => {
       ['username', 'Username', true],
     ]);
     const remove = presentation(roles.rowMethods, 'RemoveCrewSectorRole');
-    expect((remove.confirm as (row: RecordData) => string)({ role: 'Cadet', username: 'ada' })).toBe(
-      'Take Cadet away from ada?',
+    expect((remove.confirm as (row: RecordData) => string)({ role: 'NightShiftLead', username: 'ada' })).toBe(
+      'Take Night shift lead away from ada?',
     );
     expect(children(people).map((child) => child.title)).toEqual(['Roles held here', 'Sign-in identities']);
   });
@@ -1420,10 +1431,10 @@ describe('identityPages, an Auth that keeps groups', () => {
         question: 'Take Clerk away from the group? Everyone in the group loses it, unless they hold it some other way.',
       },
       {
-        row: { groupId: 'g-1', role: 'Cadet', kind: 'domain', domainId: 's-1' },
-        body: { groupId: 'g-1', role: 'Cadet', domain: 's-1', everyDomain: false },
+        row: { groupId: 'g-1', role: 'NightShiftLead', kind: 'domain', domainId: 's-1' },
+        body: { groupId: 'g-1', role: 'NightShiftLead', domain: 's-1', everyDomain: false },
         question:
-          'Take Cadet in this sector away from the group? Everyone in the group loses it, unless they hold it some other way.',
+          'Take Night shift lead in this sector away from the group? Everyone in the group loses it, unless they hold it some other way.',
       },
       {
         row: { groupId: 'g-1', role: 'Archivist', kind: 'every', domainId: '' },
@@ -1467,8 +1478,8 @@ describe('identityPages, an Auth that keeps groups', () => {
     // The tenant's method names the row of the role it takes away: nothing is filled.
     const take = presentation(roles.rowMethods, 'TakeCrewSectorGroupRole');
     expect(take.fill).toBeUndefined();
-    expect((take.confirm as (row: RecordData) => string)({ role: 'Cadet' })).toBe(
-      'Take Cadet away from the group? Everyone in the group loses it, unless they hold it some other way.',
+    expect((take.confirm as (row: RecordData) => string)({ role: 'NightShiftLead' })).toBe(
+      'Take Night shift lead away from the group? Everyone in the group loses it, unless they hold it some other way.',
     );
   });
 

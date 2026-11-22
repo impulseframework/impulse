@@ -266,10 +266,11 @@ describe('Break glass', () => {
   it('ends a held role now by the ordinary removal of the role, filled from the row', () => {
     const end = presentation(heldNow.rowMethods, 'RemoveCrewRole');
     expect(end.label).toBe('End now');
-    const row = { userId: 'u1', username: 'dana', role: 'Reader', kind: 'domain', domainId: 'alpha' };
-    expect(end.fill?.(row)).toEqual({ userId: 'u1', role: 'Reader', domain: 'alpha', everyDomain: false });
+    const row = { userId: 'u1', username: 'dana', role: 'NightShiftLead', kind: 'domain', domainId: 'alpha' };
+    expect(end.fill?.(row)).toEqual({ userId: 'u1', role: 'NightShiftLead', domain: 'alpha', everyDomain: false });
+    // The question names the role in words; the request carries its name as stored.
     expect((end.confirm as (row: RecordData) => string)(row)).toBe(
-      'End Reader in this sector for dana now? It is taken away, as any role is.',
+      'End Night shift lead in this sector for dana now? It is taken away, as any role is.',
     );
     // What the removal is filled from is read with each row and not drawn.
     expect(hidden(heldNow)).toEqual(expect.arrayContaining(['kind', 'userId']));
