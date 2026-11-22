@@ -35,6 +35,18 @@ type stubPermissions struct {
 	administers      []accesstypes.Domain
 	administersErr   error
 	administersAsked *int
+	// auth is the auth whose engine the checker answers from (Auth), empty by
+	// default; authAsked counts how often it was asked, when set.
+	auth      string
+	authAsked *int
+}
+
+func (s *stubPermissions) Auth() string {
+	if s.authAsked != nil {
+		*s.authAsked++
+	}
+
+	return s.auth
 }
 
 func (s *stubPermissions) AdministersTenant(_ context.Context, domain accesstypes.Domain) (bool, error) {
@@ -113,6 +125,18 @@ func (s *stubPermissions) User() accesstypes.User { return s.user }
 // itself.
 type stubRolePermissions struct {
 	role accesstypes.Role
+	// auth is the auth whose engine the checker answers from (Auth), empty by
+	// default; authAsked counts how often it was asked, when set.
+	auth      string
+	authAsked *int
+}
+
+func (s *stubRolePermissions) Auth() string {
+	if s.authAsked != nil {
+		*s.authAsked++
+	}
+
+	return s.auth
 }
 
 func (s *stubRolePermissions) Check(_ context.Context, _ accesstypes.Environment, _ accesstypes.Scope, _ accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
