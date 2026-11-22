@@ -106,7 +106,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 		{name: "no default role", body: `{"name":"password"}`, wantStatus: http.StatusBadRequest, wantBody: "choose the default role"},
 		{name: "the Super Administrator's role", body: `{"name":"password","defaultRole":"SuperAdministrator"}`, wantStatus: http.StatusBadRequest, wantBody: "is never a default role"},
 		{name: "a role the application does not have", body: `{"name":"password","defaultRole":"Nobody"}`, wantStatus: http.StatusBadRequest, wantBody: "is not a role held for the whole application"},
-		{name: "a method the auth does not register", body: `{"name":"google","defaultRole":"FeatureAdministrator"}`, wantStatus: http.StatusNotFound, wantBody: "its methods are password"},
+		{name: "a method the auth does not register", body: `{"name":"google","defaultRole":"FeatureAdministrator"}`, wantStatus: http.StatusNotFound, wantBody: "This way to sign in does not exist."},
 	}
 	for _, call := range refused {
 		if status, body := admin.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(call.body)); status != call.wantStatus || !strings.Contains(string(body), call.wantBody) {
