@@ -84,6 +84,7 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 	return &drivertest.AuthInstance{
 		Driver: d, Raw: conn.Pool,
 		SignIn:        drivertest.NewSignIn(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
+		SignInByCode:  drivertest.NewSignInByCode(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
 		Accept:        drivertest.NewAccept(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
 		LinkConfirmed: drivertest.NewLinkConfirmed(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
 		SignUp:        drivertest.NewSignUp(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),

@@ -89,7 +89,7 @@ func newTenantInvitationApp[Tx any](ctx context.Context, t *testing.T, be backen
 	})
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
-	a.authApp = &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail}
+	a.authApp = &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail, setEmail: store.SetUserEmail}
 
 	return a
 }

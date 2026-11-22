@@ -69,9 +69,10 @@ func TestSignIn_anAccountThatCannotHoldItsAddressIsRefused(t *testing.T) {
 			own:  "pat@elsewhere.example", ownConfirmed: true, other: address, otherConfirmed: true, linked: true, identity: vouched, rules: Rules[*memTx]{ConfirmAddress: true},
 		},
 		{
-			name: "a method that does not vouch for the address is the mailed code's to answer: the sign-in that carries the code's event goes on",
+			name: "a method that does not vouch for the address is the mailed code's to answer: the sign-in the account's own code completes goes on",
 			own:  "pat@elsewhere.example", other: address, otherConfirmed: true, identity: unvouched,
-			events: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodEmailCode}}, rules: Rules[*memTx]{ConfirmAddress: true},
+			events: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodEmailCode}},
+			rules:  Rules[*memTx]{ConfirmAddress: true, CodeAddress: &dbtype.CodeAddress{Held: addressOf("pat@elsewhere.example"), Email: "pat@elsewhere.example"}},
 		},
 		{
 			name:  "rules that hold nobody for an address refuse nobody over one",

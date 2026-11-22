@@ -73,6 +73,11 @@ type signInAttempt struct {
 	// address (signinflow's namedCodeWait). The sign-in is that invitation's acceptance
 	// or it is nothing.
 	codeInvitation impulse.NullUUID
+	// codeAddress is the address the account's own mailed code confirms, for the
+	// completion of a wait that names its user with that code (attemptWithCode), and nil
+	// for every other attempt: the store writes it on the account, confirmed, in the
+	// transaction that inserts the session and only then.
+	codeAddress *sessionstorage.CodeAddress
 	// signUp is what a sign-up through an invitation keeps until its code is entered,
 	// for the attempt that holds it as a pending identity (invitationSignUp); nil for
 	// every other attempt.
@@ -140,32 +145,8 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	}
 	req.Invitation = inv
 
-	// An external identity is decided by its registration's own account rule where it
-	// has one, and otherwise by what an administrator chose for the method, which the
-	// store reads by the registration's name; a password identity, or the
-	// application's own, names its user and needs neither.
-	var (
-		rule             signin.AccountRule[Tx]
-		method, audience string
-		seeded           bool
-	)
-	if m, ok := a.registered().external[at.registration]; ok {
-		rule, method, audience, seeded = m.rule, m.name, m.Audience.Key(), m.seededUsers
-	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (impulse.UUID, error) {
-		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
-			Account: rule, Method: method, Audience: audience, SeededUsers: seeded, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
-			Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn,
-			// The rule asks what the Auth registers: with no password method no sign-in
-			// can prove a password, so one an account holds holds no sign-in for it.
-			NoPassword:    !a.registered().passwordRegistered(),
-			TrustedDevice: a.trustedDeviceOf, Proven: at.proof, WaitedOn: at.expectUserID,
-			// A person who comes through a directory that does not vouch for their address
-			// confirms one by the mailed code before their first session; the accounts a
-			// deployment seeds for its own provider are given their address where they are
-			// seeded.
-			ConfirmAddress: method != "" && !seeded,
-		})
+		id, err := a.storage.SignIn(ctx, req, a.signInRules(at))
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
 		}
@@ -226,6 +207,37 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	a.notifySignedIn(ctx, &SignedIn{SessionID: id, UserID: req.UserID, Username: req.Username, Reason: at.reason, Events: events})
 
 	return &signInOutcome{sessionID: id, userID: req.UserID}, nil
+}
+
+// signInRules returns the rules the store holds the sign-in at to. An external identity
+// is decided by its registration's own account rule where it has one, and otherwise by
+// what an administrator chose for the method, which the store reads by the
+// registration's name; a password identity, or the application's own, names its user
+// and needs neither.
+func (a *Auth[S, U, Tx]) signInRules(at *signInAttempt) sessionstorage.SignInRules[Tx] {
+	var (
+		rule             signin.AccountRule[Tx]
+		method, audience string
+		seeded           bool
+	)
+	if m, ok := a.registered().external[at.registration]; ok {
+		rule, method, audience, seeded = m.rule, m.name, m.Audience.Key(), m.seededUsers
+	}
+
+	return sessionstorage.SignInRules[Tx]{
+		Account: rule, Method: method, Audience: audience, SeededUsers: seeded, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
+		Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn,
+		// The rule asks what the Auth registers: with no password method no sign-in
+		// can prove a password, so one an account holds holds no sign-in for it.
+		NoPassword:    !a.registered().passwordRegistered(),
+		TrustedDevice: a.trustedDeviceOf, Proven: at.proof, WaitedOn: at.expectUserID,
+		// A person who comes through a directory that does not vouch for their address
+		// confirms one by the mailed code before their first session; the accounts a
+		// deployment seeds for its own provider are given their address where they are
+		// seeded.
+		ConfirmAddress: method != "" && !seeded,
+		CodeAddress:    at.codeAddress,
+	}
 }
 
 // invitationCarried returns the live invitation the browser carries as the sign-in at
@@ -1202,9 +1214,9 @@ func validateEvents(events []sessioninfo.AuthEvent) error {
 // recordsTheLibrarysStep reports whether an event under method records a step the
 // library runs itself: the mailed code, a remembered browser standing in for it, or the
 // attestation of the sign-in's connection. The library's rules read those events as
-// its own proof: the mailed code's event is what links a first sign-in made on a name
-// alone and what answers the hold for an unconfirmed address, and each of them answers
-// a sign-in policy's second factor. Only the library records them.
+// its own proof: the mailed code's event stands behind the link of a first sign-in made
+// on a name alone, with the address or the invitation the code was mailed for, and each
+// of them answers a sign-in policy's second factor. Only the library records them.
 func recordsTheLibrarysStep(method sessioninfo.AuthMethod) bool {
 	return method == sessioninfo.MethodEmailCode || method == sessioninfo.MethodTrustedDevice || method.Attests()
 }

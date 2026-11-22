@@ -26,8 +26,10 @@ type PendingSignIn struct {
 	Username string
 	// PasswordProof is the proof of the password the sign-in rests on, nil when no
 	// password was proved (an external identity's sign-in that waits for its
-	// confirmation or its factor). A row that carries one names its user, is inserted
-	// only while the user still holds that password, and completes only while they do.
+	// confirmation or its factor) and for a row that names no user (the wait for an
+	// invitation's code, also where a password has just confirmed the sign-in's link). A
+	// row that carries one names its user, is inserted only while the user still holds
+	// that password, and completes only while they do.
 	PasswordProof PasswordProof
 	// Tenant is the tenant key for the link to be made.
 	Tenant string
