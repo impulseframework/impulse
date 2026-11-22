@@ -519,7 +519,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/set_crew_user_name.go":                {"type SetCrewUserName struct {", "// @target(CrewSessionUser)", "Name   *string", "// @answers(204)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
 		"membersidentity/set_members_user_name.go":          {"type SetMembersUserName struct {", "// @target(MembersSessionUser)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
 		"internal/crewresources/crew_session_users.go":      {"Name                   *string      `spanner:\"Name\"`"},
-		"internal/crewresources/crew_session_mail_links.go": {"Name            *string       `spanner:\"Name\"`", "EveryTenant     bool          `spanner:\"EveryTenant\"`", "MailFailedAt    *time.Time    `spanner:\"MailFailedAt\"`", "(first-password), a password reset (password-reset)"},
+		"internal/crewresources/crew_session_mail_links.go": {"Name        *string       `spanner:\"Name\"`", "EveryTenant bool          `spanner:\"EveryTenant\"`", "MailFailedAt    *time.Time    `spanner:\"MailFailedAt\"`", "(first-password), a password reset (password-reset)"},
 		// A role is given to and taken from a person by the id of their account, and given
 		// to nobody an id names no user of.
 		"crewidentity/assign_crew_role.go": {
@@ -903,7 +903,7 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 		"internal/crewresources/crew_ship_user_roles.go": {
 			"CrewShipUserRole struct {", "// @order(Username asc, Role asc)", "// @attribute(everyDomain)",
 			// The row is keyed by the account's id and the role, two columns the database looks up.
-			"// @primarykey\n\t\tUserID   impulse.UUID", "// @primarykey\n\t\t// @attribute(role)\n\t\tRole string",
+			"// @primarykey\n\t\tUserID   impulse.UUID", "// @primarykey\n\t\t// @attribute(role)\n\t\t// @roleOf(Crew)\n\t\tRole string",
 			"SELECT\n  t.DomainId AS DomainId,\n  u.Id AS UserId,",
 			"FROM CrewUserRoles m\n  WHERE m.Kind = 'domain' AND m.Axis = ''\n    AND " + standingSQL("m") + "\n  UNION ALL",
 			"FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m\n  CROSS JOIN Ships s\n  WHERE m.Kind = 'every' AND m.Axis = ''",
@@ -1064,7 +1064,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		},
 		"crewidentity/crew_ship_roles.go": {
 			generationHeader, "// @computed\n// @permissionScope(domain)\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)", "type CrewShipRole struct {",
-			"// @primarykey\n\t// @attribute(name)\n\tName ", "Description string", "return \"CrewShipRoles\"",
+			"// @primarykey\n\t// @attribute(name)\n\t// @roleOf(Crew)\n\tName ", "Description string", "return \"CrewShipRoles\"",
 			"func ListCrewShipRole(ctx context.Context, qSet *resource.QuerySet[CrewShipRole], _ resource.Client, client *Client) iter.Seq2[*CrewShipRole, error] {",
 			"domain, ok := qSet.Scope().Domain()", "client.manager.RolesToGive(ctx, method, domain)",
 			// The list offers the roles the caller could give with one method, the one the

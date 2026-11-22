@@ -367,6 +367,7 @@ import (
 type {{ .DirectoryRoleChoice }} struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf({{ .Auth }})
 	Name        string ` + "`spanner:\"Name\"`" + `
 	Description string ` + "`spanner:\"Description\"`" + `
 }
@@ -470,6 +471,7 @@ import (
 type {{ .TenantRoleChoice }} struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf({{ .Auth }})
 	Name        string ` + "`spanner:\"Name\"`" + `
 	Description string ` + "`spanner:\"Description\"`" + `
 	{{- if .OffersRolesToGive }}

@@ -58,6 +58,7 @@ type (
 		// @primarykey
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		// @primarykey
+		// @roleOf({{ .Auth }})
 		Role string ` + "`spanner:\"Role\" index:\"true\"`" + `
 		// GroupID is the group the role comes through, empty for a role of the person's own.
 		{{- if .KeepsGroups }} It names a row of the list of the groups: a page links the row to the
@@ -212,6 +213,7 @@ type (
 		Username string       ` + "`spanner:\"Username\" index:\"true\"`" + `
 		// @primarykey
 		// @attribute(role)
+		// @roleOf({{ .Auth }})
 		Role string ` + "`spanner:\"Role\" index:\"true\"`" + `
 		// @attribute(everyDomain)
 		EveryDomain bool ` + "`spanner:\"EveryDomain\" index:\"true\"`" + `
@@ -327,6 +329,7 @@ type (
 		Description string       ` + "`spanner:\"Description\"`" + `
 		UpdatedAt   time.Time    ` + "`spanner:\"UpdatedAt\"`" + `
 		People      int64        ` + "`spanner:\"People\"`" + `
+		// @roleOf({{ .Auth }})
 		Roles       []string     ` + "`spanner:\"Roles\"`" + `
 	}
 )
@@ -408,6 +411,7 @@ type (
 		// @primarykey
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		// @primarykey
+		// @roleOf({{ .Auth }})
 		Role      string     ` + "`spanner:\"Role\" index:\"true\"`" + `
 		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
 		StartsAt  *time.Time ` + "`spanner:\"StartsAt\"`" + `
@@ -613,6 +617,7 @@ type (
 		// @primarykey
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		// @primarykey
+		// @roleOf({{ .Auth }})
 		Role     string     ` + "`spanner:\"Role\" index:\"true\"`" + `
 		Reason   string     ` + "`spanner:\"Reason\"`" + `
 		StartsAt *time.Time ` + "`spanner:\"StartsAt\"`" + `
@@ -697,6 +702,7 @@ import (
 type {{ .TakeableRole }} struct {
 	// @primarykey
 	// @attribute(name)
+	// @roleOf({{ .Auth }})
 	Name        string ` + "`spanner:\"Name\"`" + `
 	Description string ` + "`spanner:\"Description\"`" + `
 }

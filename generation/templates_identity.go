@@ -324,6 +324,7 @@ type (
 		UserID     *impulse.UUID ` + "`spanner:\"UserId\"`" + `
 		TenantID   *string       ` + "`spanner:\"TenantId\"`" + `
 		EveryTenant bool         ` + "`spanner:\"EveryTenant\"`" + `
+		// @roleOf({{ .Auth }})
 		RoleNames  []string      ` + "`spanner:\"RoleNames\"`" + `
 		InvitedByUserID  *impulse.UUID ` + "`spanner:\"InvitedByUserId\"`" + `
 		CreatedAt  time.Time     ` + "`spanner:\"CreatedAt\"`" + `
@@ -536,6 +537,7 @@ type (
 		Kind      string    ` + "`spanner:\"Kind\"`" + `
 		Axis      string    ` + "`spanner:\"Axis\"`" + `
 		DomainID  string    ` + "`spanner:\"DomainId\"`" + `
+		// @roleOf({{ .Auth }})
 		Role      string    ` + "`spanner:\"Role\"`" + `
 		UserID    string     ` + "`spanner:\"UserId\"`" + `
 		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
