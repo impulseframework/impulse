@@ -254,6 +254,9 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if .OffersToEntering }}
+	"github.com/impulseframework/impulse/resource"
+	{{- end }}
 )
 
 type (
@@ -309,6 +312,13 @@ FROM {{ .Policy.Groups }} g
 func ({{ .ListedGroup }}) Subquery() (query string, params map[string]any) {
 	return {{ GoCamel .ListedGroup }}Query, nil
 }
+{{- if .OffersToEntering }}
+
+` + identityGroupTenantsToEnterDoc + `
+func ({{ .ListedGroup }}) TenantsToEnter() resource.TenantsToEnter {
+	return {{ GoCamel .Group }}TenantsToEnter("Id")
+}
+{{- end }}
 `
 
 	// identityListedGroupRolesTemplate declares the whole application's list of the
