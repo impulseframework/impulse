@@ -262,7 +262,11 @@ func validateComparisonTypes(v *conditionVocabulary, cmp *condition.Comparison) 
 		// The attribute-vs-now form is the operand case below.
 		switch operand := cmp.Right.(type) {
 		case condition.StringLiteral:
-			return validateLiteralType(accesstypes.AttributeTypeTimestamp, "now", condition.Literal(operand))
+			if _, err := time.Parse(time.RFC3339, operand.Value); err != nil {
+				return errors.Newf("now is the time of the request; %q is not an RFC 3339 timestamp", operand.Value)
+			}
+
+			return nil
 		case condition.SubjectValue:
 			valueType, _ := store.SubjectValueComparisonType(operand.Name)
 			if valueType != accesstypes.AttributeTypeTimestamp {

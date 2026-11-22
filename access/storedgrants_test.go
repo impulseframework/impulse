@@ -528,7 +528,7 @@ func TestClient_oneUnsettledScopeWideConditionLeavesTheOtherGrants(t *testing.T)
 	for _, warning := range warnings {
 		listed = append(listed, warning.String())
 	}
-	want := []string{`skipped a grant this release cannot use, so it is denied: role Broken in scope tenant1, ExportLedger scope-wide under condition "now >= '2026'": now is a timestamp attribute; "2026" is not an RFC 3339 timestamp`}
+	want := []string{`skipped a grant this release cannot use, so it is denied: role Broken in scope tenant1, ExportLedger scope-wide under condition "now >= '2026'": now is the time of the request; "2026" is not an RFC 3339 timestamp`}
 	if diff := cmp.Diff(want, listed); diff != "" {
 		t.Errorf("CheckPolicy() mismatch (-want +got):\n%s", diff)
 	}

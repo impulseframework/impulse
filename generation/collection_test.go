@@ -1218,8 +1218,8 @@ func Test_readManualDeclarations_annotationAboveAConstGroup(t *testing.T) {
 		},
 		{
 			name:      "a misspelled registration above a group of resources",
-			constants: []string{"MisspeltAccounts", "MisspeltBudgets"},
-			wantErr:   refusal("MisspeltAccounts", "@manualAddResurce(Read)"),
+			constants: []string{"MisspelledAccounts", "MisspelledBudgets"},
+			wantErr:   refusal("MisspelledAccounts", "@manualAddResurce(Read)"),
 		},
 		{
 			name:      "a declaration above a group of two untyped constants",

@@ -532,7 +532,7 @@ func assertMatchesRBACOracle(t *testing.T, snap *snapshot, subject string, grant
 
 // scopeWideSubjectValueReason is why a load leaves out a scope-wide grant whose
 // condition reads the subject value shiftEnd.
-const scopeWideSubjectValueReason = "the condition reads subject.shiftEnd on a scope-wide grant: only the database compares a subject value, and a grant attached to no resource is checked without it, so no check could settle the condition; a scope-wide grant's condition reads the time of the request alone"
+const scopeWideSubjectValueReason = "the condition reads subject.shiftEnd on a scope-wide grant: only the database compares a subject value, and a grant attached to no resource is checked without it, so no check could settle that comparison; a scope-wide grant's condition reads the time of the request alone"
 
 // Test_newSnapshot_skipsGrantsTheReleaseCannotUse pins the load-time rule for
 // a grant the running release cannot use: it is left out of the snapshot and

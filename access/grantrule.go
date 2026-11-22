@@ -206,10 +206,11 @@ func (r *grantRule) unusable(g *policy.Grant, stored bool, parse func(text strin
 // condition reads is said. The rest is held as the role file's validation holds a
 // condition on a resource (validateConditionTypes): an instant that is RFC 3339, a zone
 // the timezone database knows, a time of day and a day name that are ones, each of
-// which a fold would otherwise fail on at every check.
+// which a fold fails on when it reaches it. Every part of the condition is held,
+// whatever another part would settle first, as every part of a role file's is.
 func (r *grantRule) unsettledScopeWide(expr condition.Expr) error {
 	if values := condition.SubjectValues(expr); len(values) > 0 {
-		return errors.Newf("the condition reads subject.%s on a scope-wide grant: only the database compares a subject value, and a grant attached to no resource is checked without it, so no check could settle the condition; a scope-wide grant's condition reads the time of the request alone", values[0])
+		return errors.Newf("the condition reads subject.%s on a scope-wide grant: only the database compares a subject value, and a grant attached to no resource is checked without it, so no check could settle that comparison; a scope-wide grant's condition reads the time of the request alone", values[0])
 	}
 
 	return validateConditionTypes(&conditionVocabulary{store: r.collection}, expr)

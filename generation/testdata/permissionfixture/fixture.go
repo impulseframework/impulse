@@ -114,13 +114,13 @@ const (
 	GroupedJournals accesstypes.Resource = "GroupedJournals"
 )
 
-// MisspeltAccounts and MisspeltBudgets carry a misspelled registration in the comment
+// MisspelledAccounts and MisspelledBudgets carry a misspelled registration in the comment
 // above their group.
 //
 // @manualAddResurce(Read)
 const (
-	MisspeltAccounts accesstypes.Resource = "MisspeltAccounts"
-	MisspeltBudgets  accesstypes.Resource = "MisspeltBudgets"
+	MisspelledAccounts accesstypes.Resource = "MisspelledAccounts"
+	MisspelledBudgets  accesstypes.Resource = "MisspelledBudgets"
 )
 
 // UntypedFirst and UntypedSecond are untyped constants with the declaration in the

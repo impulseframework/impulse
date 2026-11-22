@@ -426,8 +426,10 @@ condition no scope-wide check could settle is left out and reported as a
 reads a row, one that compares the time to a subject value, which only the
 database can read, and one whose time the check cannot read (an instant that is
 not RFC 3339, a zone the timezone database does not know, a time of day or a
-day name that is none). Such a row gives nobody the permission, and its
-holder's other grants decide as they did. One whose condition reads only the
+day name that is none). The whole condition is held, as a role file's is: one
+such part leaves the row out even where another part would settle the answer
+first. Such a row gives nobody the permission, and its holder's other grants
+decide as they did. One whose condition reads only the
 time is kept and settled at check time against the `Environment`. So
 `CheckUser` and `CheckRole` answer `Granted` or `Denied`, never `Conditional`.
 A scope-wide check whose `Environment` lacks what a condition reads is a check
