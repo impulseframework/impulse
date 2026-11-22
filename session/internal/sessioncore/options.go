@@ -74,12 +74,15 @@ func (o BaseSessionOption) apply(base *basesession.BaseSession) bool {
 }
 
 // PasswordSettings are the password method's settings: how passwords are hashed,
-// whether a hash made with an older algorithm is upgraded at login, and the attempt
-// limit failed attempts are held to.
+// whether a hash made with an older algorithm is upgraded at login, the attempt limit
+// failed attempts are held to, and how strong a password must be to be set.
 type PasswordSettings struct {
 	Hasher      *securehash.SecureHasher
 	AutoUpgrade bool
 	Attempts    dbtype.SignInAttemptLimit
+	// MinimumStrength is how strong a password must be to be set, in bits of the
+	// library's estimate of how hard it is to guess.
+	MinimumStrength int
 	// UsernameIsEmail says the username is the user's email address: the users table
 	// derives the address from the username, a rename is refused, and a verified
 	// address is written as the username.
@@ -90,10 +93,14 @@ type PasswordSettings struct {
 // a name within fifteen minutes lock the name for fifteen minutes.
 var DefaultAttemptLimit = dbtype.SignInAttemptLimit{Failures: 5, Window: 15 * time.Minute, Lock: 15 * time.Minute}
 
+// DefaultMinimumStrength is the minimum strength before any option, in bits of the
+// library's estimate of how hard a password is to guess.
+const DefaultMinimumStrength = 30
+
 // DefaultPasswordSettings returns the settings before any option: Argon2, upgrading,
-// the default attempt limit.
+// the default attempt limit, the default minimum strength.
 func DefaultPasswordSettings() PasswordSettings {
-	return PasswordSettings{Hasher: securehash.New(securehash.Argon2()), AutoUpgrade: true, Attempts: DefaultAttemptLimit}
+	return PasswordSettings{Hasher: securehash.New(securehash.Argon2()), AutoUpgrade: true, Attempts: DefaultAttemptLimit, MinimumStrength: DefaultMinimumStrength}
 }
 
 // Apply applies opt when it is a password settings option and reports whether it was
@@ -132,6 +139,14 @@ func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
 func AttemptLimit(failures int, window, lock time.Duration) PasswordOption {
 	return passwordOption(func(s *PasswordSettings) {
 		s.Attempts = dbtype.SignInAttemptLimit{Failures: failures, Window: window, Lock: lock}
+	})
+}
+
+// MinimumPasswordStrength sets how strong a password must be to be set, in bits of the
+// library's estimate of how hard it is to guess. (default: DefaultMinimumStrength)
+func MinimumPasswordStrength(bits int) PasswordOption {
+	return passwordOption(func(s *PasswordSettings) {
+		s.MinimumStrength = bits
 	})
 }
 

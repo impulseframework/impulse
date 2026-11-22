@@ -57,9 +57,10 @@ func newSignUpApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *si
 		r.With(auth.ValidateXSRFToken).Post("/sign-up/open", auth.SignUp().Open())
 		r.With(auth.ValidateXSRFToken).Post("/sign-up/complete", auth.SignUp().Complete())
 		r.Get("/methods", auth.Methods(&session.MethodList{
-			Methods:        []session.AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}},
-			ChangePassword: "/password",
-			SignUp:         session.SignUpRoutes{Start: "/sign-up", Open: "/sign-up/open", Complete: "/sign-up/complete"},
+			Methods:          []session.AdvertisedMethod{{Name: "password", Label: "Password", Path: "/login"}},
+			ChangePassword:   "/password",
+			PasswordStrength: "/password/strength",
+			SignUp:           session.SignUpRoutes{Start: "/sign-up", Open: "/sign-up/open", Complete: "/sign-up/complete"},
 		}))
 	})
 	server := httptest.NewTLSServer(r)

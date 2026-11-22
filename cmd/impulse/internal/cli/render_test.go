@@ -41,7 +41,7 @@ Next steps
   2. cp .envrc.template .envrc && direnv allow
   3. overmind start -l spanner,firestore,server
      The Go side alone. The first run compiles and bootstraps before it listens; wait for
-     "Starting Server", then sign in against the API as admin with the password "password".
+     "Starting Server", then sign in against the API as admin with the password "open-the-console-first".
   4. (cd web && bun install)
      Once, for the browser apps: installs the packages each web root pins and writes its bun.lock,
      which the workflows install from (bun ci, with bun 1.4.0). Commit bun.lock: impulse check fails
@@ -76,7 +76,7 @@ Next steps
 				"  \x1b[1m2.\x1b[0m cp .envrc.template .envrc && direnv allow\n" +
 				"  \x1b[1m3.\x1b[0m overmind start -l spanner,console,portal\n" +
 				"     The Go side alone. The first run compiles and bootstraps before it listens; wait for\n" +
-				"     \"Starting Server\", then sign in against the API as admin with the password \"password\".\n" +
+				"     \"Starting Server\", then sign in against the API as admin with the password \"open-the-console-first\".\n" +
 				"  \x1b[1m4.\x1b[0m (cd apps/console/web && ./weblib.sh local)\n" +
 				"  \x1b[1m5.\x1b[0m (cd apps/portal/web && ./weblib.sh local)\n" +
 				"     Once, for the browser apps: builds the framework's web packages, publishes them to the local\n" +
@@ -111,7 +111,7 @@ Next steps
   2. cp .envrc.template .envrc && direnv allow
   3. overmind start -l spanner,server
      The Go side alone. The first run compiles and bootstraps before it listens; wait for
-     "Starting Server", then sign in against the API as admin with the password "password".
+     "Starting Server", then sign in against the API as admin with the password "open-the-console-first".
   4. (cd web && bun install)
      Once, for the browser apps: installs the packages each web root pins and writes its bun.lock,
      which the workflows install from (bun ci, with bun 1.4.0). Commit bun.lock: impulse check fails
@@ -146,7 +146,7 @@ Next steps
      while a web root has none.
   4. overmind start
      The first run compiles and bootstraps before it listens. Wait for "Starting Server",
-     then sign in as admin with the password "password".
+     then sign in as admin with the password "open-the-console-first".
   5. impulse check --only prettier --fix
      Once, after the install: holds the browser files to the prettier each web root pins, which
      the install brings, and wraps again any line your names made longer or shorter. Where they
@@ -166,7 +166,7 @@ Next steps
   2. cp .envrc.template .envrc && direnv allow
   3. overmind start
      The first run compiles and bootstraps before it listens. Wait for "Starting Server",
-     then sign in as admin with the password "password".
+     then sign in as admin with the password "open-the-console-first".
 `,
 		},
 		{
