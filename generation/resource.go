@@ -344,10 +344,7 @@ func (r *resourceGenerator) Generate() error {
 		return err
 	}
 
-	if err := annotationInLooseComment(parser.LooseComments(pkg)); err != nil {
-		return err
-	}
-	if err := r.readManualDeclarations(resourcesPkg.Constants); err != nil {
+	if err := r.readResourcesPackageAnnotations(pkg, resourcesPkg.Constants); err != nil {
 		return err
 	}
 
@@ -451,6 +448,19 @@ func (r *resourceGenerator) Generate() error {
 	r.output.reportRemovedGo()
 
 	return nil
+}
+
+// readResourcesPackageAnnotations reads what the resources package's constants declare
+// by hand (readManualDeclarations), after refusing an @manualAddResource or
+// @manualAddPermission in a comment of the package that is no constant's: one there would
+// be read by nothing, and the route it was written for would be denied to every role
+// without a word.
+func (r *resourceGenerator) readResourcesPackageAnnotations(pkg *packages.Package, constants []*parser.Constant) error {
+	if err := annotationInLooseComment(parser.LooseComments(pkg)); err != nil {
+		return err
+	}
+
+	return r.readManualDeclarations(constants)
 }
 
 // resolveCrossKindDeclarations resolves the declarations that read across the table,
