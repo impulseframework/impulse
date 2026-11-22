@@ -21,6 +21,12 @@ func (SquadronMembership) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// TenantBinding is the row's way to its tenant: the library writes the tenant on every
+// change record of the row, whoever writes the row.
+func (SquadronMembership) TenantBinding() resource.TenantBinding {
+	return resource.TenantBinding{Field: "SquadronID", Path: []resource.BindingHop{{Table: "Squadrons", JoinColumn: "Id", Column: "WingId"}, {Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}}
+}
+
 // squadronMembershipRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; squadronMembershipReadSets holds one Set per read operation.
