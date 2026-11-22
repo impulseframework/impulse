@@ -650,11 +650,11 @@ func newResourceFields(parent *resourceInfo, pStruct *parser.Struct, table *tabl
 
 			continue
 		}
-		if reserved, collides := reservedRowName(spannerTag, field.Name()); collides {
+		if refusal, collides := reservedRowNameRefusal(spannerTag, field.Name()); collides {
 			// The read statements' reserved output columns and the reserved
 			// per-row wire property: a colliding resource column would be
 			// indistinguishable from the envelope metadata.
-			field.AddError(fmt.Sprintf("column name %q is reserved for the row envelope", reserved))
+			field.AddError(refusal)
 
 			continue
 		}
@@ -1303,7 +1303,7 @@ func checkOpaqueInner(path string, shape *wireShape, seen map[*wireShape]bool) e
 // generatedSetMethods are the methods the generated set may declare on a resource's
 // struct (resourceFileTemplate), which no field of it may be named.
 func generatedSetMethods() []string {
-	return []string{"Resource", "DefaultConfig", "FileKeys", "DeleteTree", "SearchBranches", "SecretContext"}
+	return []string{"Resource", "DefaultConfig", "FileKeys", "DeleteTree", "SearchBranches", "NameFields", "SecretContext"}
 }
 
 // reservedRowName reports whether a column or field name collides with one of
@@ -1314,13 +1314,31 @@ func reservedRowName(spannerTag, fieldName string) (string, bool) {
 			return reserved, true
 		}
 	}
-	for _, name := range []string{spannerTag, fieldName} {
-		if len(name) >= len(reservedCursorColumnPrefix) && strings.EqualFold(name[:len(reservedCursorColumnPrefix)], reservedCursorColumnPrefix) {
-			return reservedCursorColumnPrefix + "…", true
+	for _, prefix := range []string{reservedCursorColumnPrefix, reservedNameColumnPrefix} {
+		for _, name := range []string{spannerTag, fieldName} {
+			if len(name) >= len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) {
+				return prefix + "…", true
+			}
 		}
 	}
 
 	return "", false
+}
+
+// reservedRowNameRefusal is what a field whose column or name collides with one of
+// the row envelope's reserved names is told: which name is reserved and, for the
+// prefix a looked-up name is selected under, the column it met and what to do.
+func reservedRowNameRefusal(spannerTag, fieldName string) (string, bool) {
+	reserved, collides := reservedRowName(spannerTag, fieldName)
+	if !collides {
+		return "", false
+	}
+	if reserved == reservedNameColumnPrefix+"…" {
+		return fmt.Sprintf("column %q (field %s) begins with %s, which a list selects the names it looks up under; rename the column and the field so that neither begins with %s",
+			spannerTag, fieldName, reservedNameColumnPrefix, reservedNameColumnPrefix), true
+	}
+
+	return fmt.Sprintf("column name %q is reserved for the row envelope", reserved), true
 }
 
 // validateNullability checks every field's nillability against its column's

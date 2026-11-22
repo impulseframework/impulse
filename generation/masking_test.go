@@ -197,6 +197,41 @@ func Test_maskingTags(t *testing.T) {
 
 // Test_reservedRowName pins the reserved names a resource column may not take: the
 // fixed envelope names, case-insensitively, and the cursor alias prefix.
+// Test_reservedRowNameRefusal pins what a field that collides with a reserved name is
+// told: the cursor's and the envelope's names keep their sentence, and a column
+// spelled like a looked-up name's alias is named and told to be renamed.
+func Test_reservedRowNameRefusal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		column string
+		field  string
+		want   string
+	}{
+		{name: "an ordinary column", column: "Fee", field: "Fee"},
+		{name: "the cursor's prefix", column: "zzCursorFee", field: "Fee", want: `column name "zzCursor…" is reserved for the row envelope`},
+		{
+			name: "a column spelled like a looked-up name's alias", column: "zzNameSquadron", field: "Squadron",
+			want: `column "zzNameSquadron" (field Squadron) begins with zzName, which a list selects the names it looks up under; rename the column and the field so that neither begins with zzName`,
+		},
+		{
+			name: "a field spelled like a looked-up name's alias", column: "Squadron", field: "ZzNameSquadron",
+			want: `column "Squadron" (field ZzNameSquadron) begins with zzName, which a list selects the names it looks up under; rename the column and the field so that neither begins with zzName`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, hit := reservedRowNameRefusal(tt.column, tt.field)
+			if hit != (tt.want != "") || got != tt.want {
+				t.Errorf("reservedRowNameRefusal(%q, %q) = %q, %t; want %q", tt.column, tt.field, got, hit, tt.want)
+			}
+		})
+	}
+}
+
 func Test_reservedRowName(t *testing.T) {
 	t.Parallel()
 
@@ -215,6 +250,10 @@ func Test_reservedRowName(t *testing.T) {
 		{name: "a field beginning with the cursor prefix, any case", column: "Fee", field: "ZzCursorKey", wantHit: true, wantNaming: "zzCursor"},
 		{name: "the prefix alone is reserved too", column: "zzCursor", field: "Fee", wantHit: true, wantNaming: "zzCursor"},
 		{name: "a column merely containing the prefix is not", column: "MyzzCursor", field: "Fee"},
+		{name: "a column beginning with the looked-up names' prefix", column: "zzNameSquadron", field: "Squadron", wantHit: true, wantNaming: "zzName"},
+		{name: "a field beginning with the looked-up names' prefix, any case", column: "Squadron", field: "ZZNameSquadron", wantHit: true, wantNaming: "zzName"},
+		{name: "the names' prefix alone is reserved too", column: "zzName", field: "Squadron", wantHit: true, wantNaming: "zzName"},
+		{name: "a column merely containing the names' prefix is not", column: "MyzzName", field: "Squadron"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -17,6 +17,9 @@ import (
 
 type parsedQueryParams struct {
 	ColumnFields []accesstypes.Field
+	// NameFields are the name fields the request named among its columns: each is
+	// looked up beside the id it names, and is no column of the resource.
+	NameFields   []accesstypes.Field
 	SortFields   []SortField
 	FilterParser func(DBType) (ExpressionNode, error)
 	// FilterFields names the resource fields the filter expression touches, so
@@ -66,6 +69,10 @@ type QueryDecoder[Resource Resourcer, Request any] struct {
 	// with none serves a key-less resource, whose list is only ever whole
 	// (wholeListOnly).
 	keyFields []accesstypes.Field
+	// names are the request type's name fields (the fields marked nameof), each
+	// with the lookup the resource describes for it. A request may ask for one as
+	// a column and order by one; it is read under the grant on its id field.
+	names []requestName
 	// paging is the resource's declared paging contract (WithPaging); the zero
 	// value is the generator-wide default.
 	paging Paging
@@ -132,6 +139,34 @@ func (d *QueryDecoder[Resource, Request]) visibleFilterFields(hidden map[accesst
 	return visible
 }
 
+// visibleNames returns the name fields a request may name: those whose id field
+// the request type carries and no flag hides. A name follows its id, so a name
+// beside a hidden id is unknown as the id is.
+func (d *QueryDecoder[Resource, Request]) visibleNames(hidden map[accesstypes.Field]struct{}) []requestName {
+	fields := d.requestFieldMapper.Fields()
+	visible := make([]requestName, 0, len(d.names))
+	for i := range d.names {
+		if _, isHidden := hidden[d.names[i].Key]; isHidden || !slices.Contains(fields, d.names[i].Key) {
+			continue
+		}
+		visible = append(visible, d.names[i])
+	}
+
+	return visible
+}
+
+// nameFieldName resolves a wire name to a name field a request may name.
+func (d *QueryDecoder[Resource, Request]) nameFieldName(jsonName string, hidden map[accesstypes.Field]struct{}) (accesstypes.Field, bool) {
+	names := d.visibleNames(hidden)
+	for i := range names {
+		if names[i].jsonName == jsonName {
+			return names[i].Field, true
+		}
+	}
+
+	return "", false
+}
+
 // structFieldName resolves a wire name to a request field, a hidden field answered as
 // unknown.
 func (d *QueryDecoder[Resource, Request]) structFieldName(jsonName string, hidden map[accesstypes.Field]struct{}) (accesstypes.Field, bool) {
@@ -160,6 +195,11 @@ func NewQueryDecoder[Resource Resourcer, Request any](resSet *Set[Resource]) (*Q
 		return nil, err
 	}
 
+	names, err := requestNames[Resource](reflect.TypeOf(req))
+	if err != nil {
+		return nil, err
+	}
+
 	bodyDecoder, err := newStructDecoder[filterBody]()
 	if err != nil {
 		return nil, errors.Wrap(err, "newStructDecoder[filterBody]()")
@@ -180,6 +220,7 @@ func NewQueryDecoder[Resource Resourcer, Request any](resSet *Set[Resource]) (*Q
 		bodyDecoder:        bodyDecoder,
 		requestType:        reflect.TypeOf(req),
 		keyFields:          keyFields,
+		names:              names,
 		boxFields:          boxFields,
 		boxPIIFields:       boxPIIFields,
 		boxPII:             boxPII,
@@ -259,7 +300,8 @@ func (d *QueryDecoder[Resource, Request]) WithCursorKey(key *CursorKey) *QueryDe
 
 // WithPaging installs the resource's declared paging contract: the default order
 // a sort-less request takes and the page sizes. The generator emits the call from
-// the @order and @page annotations. An order field the request type does not
+// the @order and @page annotations. An order field may be a name field, which
+// orders by the name looked up. An order field the request type does not
 // carry is a programming error and panics at construction, like every other
 // generated-code mismatch, and so is a page size on a key-less list, which the
 // generator refuses at @page and which does not page (wholeListOnly).
@@ -268,6 +310,9 @@ func (d *QueryDecoder[Resource, Request]) WithPaging(paging Paging) *QueryDecode
 		panic(fmt.Sprintf("resource.QueryDecoder.WithPaging: %s declares no primary key and does not page; a page size needs a key", d.resourceSet.BaseResource()))
 	}
 	for _, sf := range paging.Order {
+		if slices.ContainsFunc(d.names, func(name requestName) bool { return name.Field == accesstypes.Field(sf.Field) }) {
+			continue
+		}
 		field, ok := structField(d.requestType, sf.Field)
 		if !ok || !slices.Contains(d.requestFieldMapper.Fields(), accesstypes.Field(sf.Field)) {
 			panic(fmt.Sprintf("resource.QueryDecoder.WithPaging: order field %q is not a field of the request type", sf.Field))
@@ -349,6 +394,7 @@ func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII b
 	qSet.requestableFields = d.visibleFields()
 	qSet.collection = d.collection
 	qSet.jsonNames = d.requestFieldMapper.JSONNames()
+	qSet.names = d.visibleNames(hidden)
 	qSet.SetFilterParser(parsedQuery.FilterParser)
 	qSet.filterFields = parsedQuery.FilterFields
 	qSet.searchBox = parsedQuery.SearchBox
@@ -363,11 +409,14 @@ func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII b
 		return nil, err
 	}
 	qSet.RequestCapabilities(parsedQuery.Capabilities...)
-	if len(parsedQuery.ColumnFields) == 0 {
+	if len(parsedQuery.ColumnFields) == 0 && len(parsedQuery.NameFields) == 0 {
 		qSet.ReturnAccessibleFields(true)
 	} else {
 		for _, field := range parsedQuery.ColumnFields {
 			qSet.AddField(field)
+		}
+		for _, field := range parsedQuery.NameFields {
+			qSet.showName(field)
 		}
 	}
 
@@ -442,6 +491,7 @@ func (d *QueryDecoder[Resource, Request]) Decode(request *http.Request, userPerm
 // filter's written dates are read in.
 func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden map[accesstypes.Field]struct{}, zoneName string) (*parsedQueryParams, error) {
 	var columnFields []accesstypes.Field
+	var nameFields []accesstypes.Field
 	var sortFields []SortField
 	var filterParser func(DBType) (ExpressionNode, error)
 	var filterFields []accesstypes.Field
@@ -469,6 +519,8 @@ func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden ma
 		for column := range strings.SplitSeq(cols, ",") {
 			if field, found := d.structFieldName(column, hidden); found {
 				columnFields = append(columnFields, field)
+			} else if name, found := d.nameFieldName(column, hidden); found {
+				nameFields = append(nameFields, name)
 			} else {
 				return nil, httpio.NewBadRequestMessagef("unknown column: %s", column)
 			}
@@ -535,6 +587,7 @@ func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden ma
 
 	return &parsedQueryParams{
 		ColumnFields: columnFields,
+		NameFields:   nameFields,
 		SortFields:   sortFields,
 		FilterParser: filterParser,
 		FilterFields: filterFields,
@@ -679,6 +732,10 @@ func (d *QueryDecoder[Resource, Request]) parseSortParam(sortParamValue string, 
 			}
 
 			goFieldName, found := d.structFieldName(jsonFieldName, hidden)
+			if !found {
+				// A name field orders by the name looked up beside its id.
+				goFieldName, found = d.nameFieldName(jsonFieldName, hidden)
+			}
 			if !found {
 				return nil, httpio.NewBadRequestMessagef("unknown sort field: %s", jsonFieldName)
 			}

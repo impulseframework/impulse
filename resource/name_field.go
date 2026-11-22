@@ -3,6 +3,7 @@ package resource
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/impulseframework/impulse/accesstypes"
 )
@@ -33,15 +34,31 @@ type NameField struct {
 	KeyColumn  string
 	NameColumn string
 	// TenantColumn is the pointed-to table's tenant column, which a lookup holds to the
-	// request's tenant; empty where the pointed-to resource belongs to no tenant.
+	// request's tenant; empty where the pointed-to resource belongs to no tenant. Where
+	// that resource reaches its tenant through other tables, TenantColumn is the column
+	// its way leaves through and TenantPath the way, each hop as the resource's own
+	// tenant binding walks it.
 	TenantColumn string
+	TenantPath   []BindingHop
 }
 
 // GoLiteral renders the name field as the body of a Go composite literal, the form the
 // generator writes one in.
 func (n *NameField) GoLiteral() string {
-	return fmt.Sprintf("{Field: %q, Key: %q, Resource: %q, Tag: %q, Table: %q, KeyColumn: %q, NameColumn: %q, TenantColumn: %q}",
-		n.Field, n.Key, n.Resource, n.Tag, n.Table, n.KeyColumn, n.NameColumn, n.TenantColumn)
+	var path strings.Builder
+	if len(n.TenantPath) > 0 {
+		path.WriteString(", TenantPath: []resource.BindingHop{")
+		for i, hop := range n.TenantPath {
+			if i > 0 {
+				path.WriteString(", ")
+			}
+			fmt.Fprintf(&path, "{Table: %q, JoinColumn: %q, Column: %q}", hop.Table, hop.JoinColumn, hop.Column)
+		}
+		path.WriteString("}")
+	}
+
+	return fmt.Sprintf("{Field: %q, Key: %q, Resource: %q, Tag: %q, Table: %q, KeyColumn: %q, NameColumn: %q, TenantColumn: %q%s}",
+		n.Field, n.Key, n.Resource, n.Tag, n.Table, n.KeyColumn, n.NameColumn, n.TenantColumn, path.String())
 }
 
 // isNameField reports whether a request type's field is a name field: one the

@@ -396,6 +396,16 @@ type renderedReadConditions struct {
 
 	// rowPredicate is rule 3's predicate, parenthesized, "" when TRUE.
 	rowPredicate string
+
+	// nameConditions is the bare lowered condition of each conditional id field
+	// a name the statement names stands beside, positional or not: the name's
+	// lookup sits inside it, so a row whose id is masked gives no name.
+	nameConditions map[accesstypes.Field]string
+
+	// nameLookups is the lookup of each name field the statement names
+	// (withNameLookups): what the select list, the order and the cursor's
+	// predicate write in the field's place.
+	nameLookups map[accesstypes.Field]string
 }
 
 // queryOverride returns the visible-projection expression for a field the
@@ -477,6 +487,20 @@ func (q *QuerySet[Resource]) renderReadConditions(dbType DBType, plan *readCondi
 
 	if err := q.renderQueryOverrides(dbType, plan, conditions, rendered); err != nil {
 		return nil, err
+	}
+	for _, key := range q.nameKeys() {
+		fc, ok := plan.fields[key]
+		if !ok || fc.pruned {
+			continue
+		}
+		condSQL, err := conditions.sql(key, fc)
+		if err != nil {
+			return nil, err
+		}
+		if rendered.nameConditions == nil {
+			rendered.nameConditions = make(map[accesstypes.Field]string)
+		}
+		rendered.nameConditions[key] = condSQL
 	}
 
 	return rendered, nil

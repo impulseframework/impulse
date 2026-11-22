@@ -1,9 +1,9 @@
 // Package namefixture provides parsed-struct fixtures for the name a resource's rows are
 // known by (@name) and the name field the generator adds beside each id that points to a
 // row with one: a tenant record and its tenant-scoped resources, a global resource, a
-// view, a key into an enumeration table, and each shape the annotation refuses. The
-// schema behind the table-backed structs is synthetic (nameFixtureTables in the tests),
-// and Grades is an enumeration table there.
+// view, a key into an enumeration table, a default order by a name field, and each shape
+// the annotation refuses. The schema behind the table-backed structs is synthetic
+// (nameFixtureTables in the tests), and Grades is an enumeration table there.
 package namefixture
 
 import (
@@ -36,6 +36,31 @@ type (
 		CallSign string `spanner:"CallSign"`
 	}
 
+	// Bay is a resource of a tenant that reaches its tenant through its wing, known by
+	// its code.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Bay struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain(via: BaseID)
+		WingID impulse.UUID `spanner:"WingId"`
+		// @name
+		Code string `spanner:"Code"`
+	}
+
+	// Berth is a tenant's resource pointing to a row that reaches its tenant through
+	// another table.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Berth struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID impulse.UUID `spanner:"BaseId"`
+		BayID  impulse.UUID `spanner:"BayId"`
+	}
+
 	// Kit is a global resource known by a label it may lack.
 	//
 	// @resource
@@ -56,7 +81,8 @@ type (
 		Weight int64        `spanner:"Weight"`
 	}
 
-	// Member is a global view known by the name it shows.
+	// Member is a global view known by the name it shows. A view is no table a list's
+	// statement reads a name from, so an id pointing into it is given no name field.
 	//
 	// @virtual
 	Member struct {
@@ -215,5 +241,52 @@ type (
 		// @name
 		// @file
 		Scan string `spanner:"Scan"`
+	}
+
+	// Sortie is a tenant's resource listed in the order of the wings its rows point to,
+	// by name, and then of their kits, last name first.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @order(WingName asc, KitName desc)
+	Sortie struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID impulse.UUID `spanner:"BaseId"`
+		WingID impulse.UUID `spanner:"WingId"`
+		KitID  impulse.UUID `spanner:"KitId"`
+	}
+
+	// Muster is a view listed in the order of the kits its rows point to, by name.
+	//
+	// @virtual
+	// @order(KitName asc)
+	Muster struct {
+		ID    impulse.UUID `spanner:"Id" index:"true"` // @primarykey
+		KitID impulse.UUID `spanner:"KitId"`           // @enumerate(Kits)
+	}
+
+	// Detour orders by the name of a row that has none: a crate declares no @name.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @order(CrateName asc)
+	Detour struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID  impulse.UUID `spanner:"BaseId"`
+		CrateID impulse.UUID `spanner:"CrateId"`
+	}
+
+	// Astray orders by a name no field of it could be given.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @order(SquadName asc)
+	Astray struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID impulse.UUID `spanner:"BaseId"`
+		WingID impulse.UUID `spanner:"WingId"`
 	}
 )

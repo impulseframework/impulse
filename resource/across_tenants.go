@@ -766,6 +766,9 @@ func (q *QuerySet[Resource]) acrossPredicates(dbType DBType, registry *paramRegi
 	if err := q.queryColumnsAcrossTenants(dbType, gen, renderings, rendered); err != nil {
 		return nil, "", err
 	}
+	if err := q.nameConditionsAcrossTenants(renderings, rendered); err != nil {
+		return nil, "", err
+	}
 
 	domains := namedComparand(domainsParamName)
 	tenancy, err := gen.generateLowered(tenantMember(lctx, outer, binding, &domains, registry), registry)
@@ -867,6 +870,28 @@ func (q *QuerySet[Resource]) queryColumnsAcrossTenants(dbType DBType, gen *sqlGe
 		}
 		rendered.queryOverrides[field] = fmt.Sprintf("CASE WHEN %s THEN %s END", shown, gen.quoteIdentifier(dbField.ColumnName))
 		rendered.queryConditions[field] = shown
+	}
+
+	return nil
+}
+
+// nameConditionsAcrossTenants renders, for each id field a name the statement
+// names stands beside, where a list over several tenants shows the id: the name's
+// lookup sits inside it, so a row whose tenant does not show the id gives no
+// name. An id every row shows carries no condition.
+func (q *QuerySet[Resource]) nameConditionsAcrossTenants(renderings []*groupRendering, rendered *renderedReadConditions) error {
+	for _, key := range q.nameKeys() {
+		shown, everywhere, err := q.shownAcrossTenants(renderings, key, true)
+		if err != nil {
+			return err
+		}
+		if everywhere {
+			continue
+		}
+		if rendered.nameConditions == nil {
+			rendered.nameConditions = make(map[accesstypes.Field]string)
+		}
+		rendered.nameConditions[key] = shown
 	}
 
 	return nil

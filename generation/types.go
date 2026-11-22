@@ -40,6 +40,11 @@ const (
 	// with it.
 	reservedCursorColumnPrefix = "zzCursor"
 
+	// reservedNameColumnPrefix begins the reserved output columns a read
+	// statement selects a looked-up name under (zzName followed by the name
+	// field, resource.NameField); resource columns must not begin with it.
+	reservedNameColumnPrefix = "zzName"
+
 	// reservedTenantColumn is the reserved output column a list across tenants
 	// selects each row's tenant under, and the reserved per-row JSON property that
 	// carries it (resource.TenantProperty); resource columns must not collide with it.

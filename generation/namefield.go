@@ -2,6 +2,7 @@ package generation
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ettle/strcase"
@@ -168,9 +169,45 @@ func (c *client) resolveNameFields(resources []*resourceInfo) error {
 			}
 			res.NameFields = append(res.NameFields, name)
 		}
+		if err := res.checkOrderNameFields(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if len(errs) > 0 {
 		return errors.Wrap(errors.Join(errs...), "generated name fields")
+	}
+
+	return nil
+}
+
+// couldBeNameFieldOf is the declared field a name field called name would stand beside,
+// nil where no field of the struct would give it that name. A default order may name a
+// name field, and those are added once every struct is extracted, so the order's own
+// check (resolveResourcePaging) lets such a name through and checkOrderNameFields
+// settles it.
+func (r *resourceInfo) couldBeNameFieldOf(name string) *resourceField {
+	for _, field := range r.Fields {
+		if generated, ok := nameFieldName(field.Name()); ok && generated == name {
+			return field
+		}
+	}
+
+	return nil
+}
+
+// checkOrderNameFields refuses a default order (@order) that names a name field the
+// generator did not add: the id it would stand beside points to no row with a name the
+// list can read.
+func (r *resourceInfo) checkOrderNameFields() error {
+	for _, sf := range r.DeclaredOrder {
+		// An entry the order's own check let through is a declared field, or a name one
+		// of them could be given.
+		key := r.couldBeNameFieldOf(sf.Field)
+		if key == nil || r.fieldNamed(sf.Field) != nil || slices.ContainsFunc(r.NameFields, func(name *nameField) bool { return name.Name() == sf.Field }) {
+			continue
+		}
+
+		return errors.Newf("struct %s: @%s names %s, which is not a field of %s: the generator adds a name field beside %s only where the row %s points to has a name the list can read (@%s), and it adds none here; name a field the struct declares in @%s, or declare the pointed-to resource's @%s", r.Name(), orderKeyword, sf.Field, r.Name(), key.Name(), key.Name(), nameKeyword, orderKeyword, nameKeyword)
 	}
 
 	return nil
@@ -218,7 +255,9 @@ func (c *client) nameFieldOf(res *resourceInfo, field *resourceField, byName map
 	}
 
 	pointed := byName[target]
-	if pointed == nil {
+	if pointed == nil || pointed.IsVirtual {
+		// A view is no table a statement can read the name from: its rows are a query
+		// of the application's, which a lookup does not yet carry.
 		return nil
 	}
 	name.source = pointed.rowName()
@@ -228,12 +267,14 @@ func (c *client) nameFieldOf(res *resourceInfo, field *resourceField, byName map
 	}
 	if pointed.IsDomainScoped() {
 		// The name of a tenant's row is read under that tenant alone, so the list
-		// reading it must be asked inside one tenant and the pointed-to table must
-		// hold its tenant in a column of its own.
-		name.TenantColumn = bareTenantColumn(pointed)
-		if name.TenantColumn == "" || !res.IsDomainScoped() || res.ListsAcrossTenants {
+		// reading it must be asked inside one tenant. The pointed-to row is held to
+		// it by its tenant column, or by the way it reaches its tenant through
+		// other tables.
+		if pointed.DomainBinding == nil || pointed.DomainBinding.Anchor == nil || !res.IsDomainScoped() || res.ListsAcrossTenants {
 			return nil
 		}
+		name.TenantColumn = fieldColumn(pointed.DomainBinding.Anchor)
+		name.TenantPath = collectionHops(pointed.DomainBinding.Path)
 	}
 	name.Resource = accesstypes.Resource(target)
 	if !name.source.IsPrimaryKey {
