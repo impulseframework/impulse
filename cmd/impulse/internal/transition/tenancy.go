@@ -281,7 +281,7 @@ func (tn Tenancy) giveRoles(ctx context.Context, a *app.App, exec check.Execer, 
 		return err
 	}
 	role := tn.AdministratorRole()
-	if err = generate(ctx, a, exec, ch, fmt.Sprintf("go generate ./... failed once the role file held %s, so the generated metadata does not list the role yet; fix the cause and run it:", role), fmt.Sprintf("ran go generate ./... again once the role file held %s, since the generated metadata lists the roles a field may hold from the role file", role)); err != nil {
+	if err := generate(ctx, a, exec, ch, fmt.Sprintf("go generate ./... failed once the role file held %s, so the generated metadata does not list the role yet; fix the cause and run it:", role), fmt.Sprintf("ran go generate ./... again once the role file held %s, since the generated metadata lists the roles a field may hold from the role file", role)); err != nil {
 		return err
 	}
 	if len(ch.Warnings) > 1 {
