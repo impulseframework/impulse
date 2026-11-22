@@ -57,13 +57,14 @@ const READ_ONLY_SHAPES = new Set(['bytes', 'array', 'object']);
 
 /**
  * Where a create form starts a yes or no field. What the page's config gives it comes
- * first. With nothing given, a field the resource requires starts unchecked: the resource
- * declares no default for it, an empty box already reads as a no, and a form saved
- * untouched sends that. A field the resource does not require starts at the default the
- * schema declares for it, which the generated metadata carries (`schemaDefault`): the form
- * shows what a create that left the field out would store, and a form saved untouched
- * sends it. Where the schema declares none the form holds nothing for the field, which a
- * box draws unchecked, and sends nothing unless the person answers.
+ * first. With nothing given, a field the resource requires starts at No: the resource
+ * declares no default for it, the form draws a field whose answer is required as a
+ * picker and not as a box, the picker shows No, and a form saved untouched sends that.
+ * A field the resource does not require starts at the default the schema declares for
+ * it, which the generated metadata carries (`schemaDefault`): the form shows what a
+ * create that left the field out would store, and a form saved untouched sends it.
+ * Where the schema declares none the form holds nothing for the field, which a box
+ * draws unchecked, and sends nothing unless the person answers.
  */
 function yesOrNoStart(field: FieldMeta, given: FieldDefault): boolean | null {
   if (given?.type === 'static' && typeof given.value === 'boolean') {
