@@ -942,12 +942,13 @@ jobs:
     # fourth is. Each of the eight passes go vet with and without the skipAuth tag as
     # impulse new made it, its tests then being the start's own, and passes those tests
     # under the tag (the served suites, on the emulator); the fifth, the sixth and the four
-    # with no password sign-in are also regenerated, which changes nothing, checked again by
-    # impulse check, and tested under no tag. What the commands wrote is held to each application's own formatters and
-    # lint (in every package that compiles), and the tests that do not compile once a
-    # method is added to the brief, which must name each. A rendered skeleton
-    # (impulse-skeletons) proves a candidate; this proves what the transitions write over
-    # one, which nothing else lints.
+    # with no password sign-in are also regenerated, which changes nothing, checked again
+    # by impulse check, and tested under no tag; each of those four is then started in
+    # development, from its Procfile, and signed in to. What the commands wrote is held to
+    # each application's own formatters and lint (in every package that compiles), and the
+    # tests that do not compile once a method is added to the brief, which must name each.
+    # A rendered skeleton (impulse-skeletons) proves a candidate; this proves what the
+    # transitions write over one, which nothing else lints.
     #
     # The eight are the subtests of one test, TestAuthoredApplication, which makes them one
     # after the other: in one job the first five alone were twenty minutes of a run whose
@@ -962,10 +963,12 @@ jobs:
     # A job has what the test reads and nothing more: the checkout, under the path the
     # skeleton legs have it at, since Go caches a compiled package by its directory; Go;
     # the Go caches of the head legs' lineage, which the skeleton legs save and these jobs
-    # only read; golangci-lint, which the test finds on the PATH; and the runner's Docker,
-    # for the emulator the commands start. The test runs the commands in its own process,
-    # so no impulse is built first. It is asked for (IMPULSE_AUTHORED), since it needs the
-    # emulator and the lint, which these jobs have.
+    # only read; golangci-lint, which the test finds on the PATH; the runner's Docker, for
+    # the emulator the commands start; and the runner's podman, which the Procfile of an
+    # application with no password sign-in runs its emulator under when the test starts it
+    # in development. The test runs the commands in its own process, so no impulse is built
+    # first. It is asked for (IMPULSE_AUTHORED), since it needs the emulator and the lint,
+    # which these jobs have.
     #
     # None of the jobs is a required check: `impulse solo (head)` below reports what they
     # came to, with the solo leg's own two. They start on every pull request and push, as
@@ -1039,15 +1042,15 @@ jobs:
           install-only: true
           skip-cache: true
       - name: Make the application as its author does, and hold what the commands left to the brief
-        # The fifteen minutes: the application that takes longest to make, tenants that can
+        # The twenty minutes. The application that took longest to make, tenants that can
         # have directories, took eight minutes on this runner as a job of its own (487
-        # seconds for the whole job, the steps before the test among them). Fifteen is
-        # nearly twice that, and an application has taken a quarter longer from one run to
-        # the next (an auth added to a second browser application: 365 seconds of test,
-        # then 452). The last job has the same fifteen for an application added to the test
-        # later; three made there together took thirteen of them. Twenty since each
-        # application with no password sign-in is also regenerated, checked, tested under no
-        # tag and started in development.
+        # seconds for the whole job, the steps before the test among them), and an
+        # application has taken a quarter longer from one run to the next (an auth added to
+        # a second browser application: 365 seconds of test, then 452); three made together
+        # in the last job took thirteen minutes. The timeout was fifteen on those numbers.
+        # It is twenty since each application with no password sign-in is also regenerated,
+        # checked, tested under no tag and started in development, and the last job has the
+        # same twenty for an application added to the test later.
         if: ${{ env.RUN == 'true' }}
         working-directory: impulse
         env:
