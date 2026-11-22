@@ -248,6 +248,62 @@ func TestUserManager_RoleGrants_saysTheLoadsReason(t *testing.T) {
 	}
 }
 
+// TestUserManager_RoleGrants_ofARoleHeldInEveryDomain pins that a custom role held in
+// every domain lists its grants when it is asked for in one tenant: the rows are read
+// where the role is held, and the one a load leaves out is marked with the load's
+// reason, as it is when the role is asked for in every domain.
+func TestUserManager_RoleGrants_ofARoleHeldInEveryDomain(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	const clerk accesstypes.Role = "Clerk"
+	const open = "status = 'open'"
+	store := newFakeStore()
+	for _, err := range []error{
+		store.InsertRole(ctx, everyDomainPolicy, clerk, aDescription),
+		store.InsertGrant(ctx, everyDomainPolicy, clerk, accesstypes.Read, "Documents", "", open),
+		store.InsertGrant(ctx, everyDomainPolicy, clerk, accesstypes.Execute, "DoThing", "", ""),
+	} {
+		if err != nil {
+			t.Fatalf("seeding fake store: %v", err)
+		}
+	}
+	hook := &reloadErrors{}
+	client := newPolicyClient(t, store, storedGrantsRelease(t), WithReloadErrorHandler(hook.collect))
+	settle(client.snapEngine)
+
+	var skipped []*SkippedGrant
+	for _, err := range hook.list() {
+		var grant *SkippedGrant
+		if !errors.As(err, &grant) {
+			t.Fatalf("the hook received %v, want nothing but a skipped grant", err)
+		}
+		skipped = append(skipped, grant)
+	}
+	if len(skipped) != 1 || skipped[0].Scope != everyDomainPolicy || skipped[0].Permission != accesstypes.Execute || skipped[0].Resource != "DoThing" {
+		t.Fatalf("the load reported %v, want the one DoThing row, in every domain", skipped)
+	}
+	reason := plainText(skipped[0].Reason)
+	const wantReason = "role Clerk is a domain role but grants Execute on DoThing, a global-scoped resource — a role's grants live at its declared scope; move the grant to a global role"
+	if reason != wantReason {
+		t.Errorf("the load's reason = %q, want %q", reason, wantReason)
+	}
+
+	want := map[accesstypes.Permission]map[accesstypes.Resource][]RoleGrant{
+		accesstypes.Read:    {"Documents": {{Condition: open}}},
+		accesstypes.Execute: {"DoThing": {{Skipped: reason}}},
+	}
+	for _, scope := range []accesstypes.PolicyScope{tenant1Policy, everyDomainPolicy} {
+		got, err := client.UserManager().RoleGrants(ctx, scope, clerk)
+		if err != nil {
+			t.Fatalf("RoleGrants(%s) error = %v", scope, err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("RoleGrants(%s) mismatch (-want +got):\n%s", scope, diff)
+		}
+	}
+}
+
 // Test_newSnapshot_holdsARolesStoredGrantsToTheWritesRule pins who the write's rule is
 // asked of at a load. A grant given straight to a person names no role, so there is no
 // role's scope to hold it to and it is held to its names alone; a grant for the whole
