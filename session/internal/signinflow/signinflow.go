@@ -710,6 +710,12 @@ const InvitationEnded = "That invitation has expired or was already used. Ask th
 // invitation turns out to be dead: nothing is committed.
 var errInvitationDead = errors.New("the invitation has expired or was already used")
 
+// errInvitedAddressTaken ends the resolution transaction of an acceptance that rests on
+// the code mailed to the invited address once another account turns out to hold that
+// address, taken since the resolution read that nobody did: nothing is committed, and
+// the sign-in is refused as an acceptance with another address is.
+var errInvitedAddressTaken = errors.New("another account holds the invited address")
+
 // consumeInvitation consumes the invitation req carries, if any, inside the
 // resolution's transaction once it has admitted the sign-in (for a provisioned user,
 // before the row is written), and reports whether it was live. A dead invitation is
@@ -741,11 +747,28 @@ func consumeInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *se
 // claimInvitation finishes the consumption of the live invitation req carries for the
 // user the resolution found, inside its transaction: the user's address is set from
 // it when the user holds no verified address (a user provisioned in this transaction
-// had it set at the insert).
-func claimInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, source sessioninfo.UserSource) error {
+// had it set at the insert). Where the acceptance rests on the code mailed to the
+// invited address (byCode) and the claim wrote nothing because another account holds
+// that address by now (takenByAnother), the transaction ends with
+// errInvitedAddressTaken and nothing is committed. A sign-in whose method vouches for
+// the invited address is not held to the claim: an address another account holds
+// unconfirmed stays with that account.
+func claimInvitation[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, source sessioninfo.UserSource, byCode bool,
+) error {
 	if source != sessioninfo.UserProvisioned {
-		if _, err := d.ClaimVerifiedEmailIn(ctx, tx, req.UserID, req.Invitation.Email); err != nil {
+		claimed, err := d.ClaimVerifiedEmailIn(ctx, tx, req.UserID, req.Invitation.Email)
+		if err != nil {
 			return errors.Wrap(err, "Driver.ClaimVerifiedEmailIn()")
+		}
+		if byCode && !claimed {
+			taken, err := takenByAnother(ctx, d, tx, req.UserID, req.Invitation.Email)
+			if err != nil {
+				return err
+			}
+			if taken {
+				return errInvitedAddressTaken
+			}
 		}
 		if err := claimInvitedName(ctx, d, tx, req.UserID, req.Invitation); err != nil {
 			return err
@@ -753,6 +776,20 @@ func claimInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sess
 	}
 
 	return nil
+}
+
+// takenByAnother reports whether an account other than userID holds email, confirmed
+// or not, as tx reads the users table now. It is asked where a claim of the invited
+// address wrote nothing for an account that has confirmed none: on a store whose every
+// statement reads what is committed by then, another account's write of the address
+// may commit between the read that found the address free and the claim.
+func takenByAnother[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impulse.UUID, email string) (bool, error) {
+	holder, err := d.UserByEmailIn(ctx, tx, email)
+	if err != nil {
+		return false, errors.Wrap(err, "Driver.UserByEmailIn()")
+	}
+
+	return holder != nil && holder.ID != userID, nil
 }
 
 // committedWork is what the hooks of one run of a transaction's closure asked to have
@@ -909,8 +946,10 @@ type signInHold struct {
 // the users table ends because another account took the invited address at the same
 // moment (dbtype.EmailConflict, the sign-in carrying no claim) is answered as it is
 // where that account held the address before: stop is the refusal of an acceptance with
-// another address, and nothing is written. An error is the driver's or the acceptor's,
-// and nothing is written either. inv.Accepted is set to the outcome.
+// another address, and nothing is written. So is an acceptance whose claim of the
+// invited address writes nothing because that account's write had committed by then
+// (takenByAnother): the two moments are answered alike. An error is the driver's or the
+// acceptor's, and nothing is written either. inv.Accepted is set to the outcome.
 //
 // signIn is what the acceptance a sign-in makes is held to, nil for one by hand. It
 // goes on only while the user, read in its transaction, still holds the password the
@@ -974,14 +1013,14 @@ func acceptInvitation[Tx any](
 				stop = codeAddressGone(userID, claim)
 			}
 		}
+		if stop == nil && !byOwnCode {
+			if stop, err = claimInvitedAddress(ctx, d, tx, user, inv); err != nil {
+				return err
+			}
+		}
 		if stop != nil {
 			// Nothing of the acceptance is kept: the invitation stands.
 			return errAcceptanceStopped
-		}
-		if !byOwnCode {
-			if _, err := d.ClaimVerifiedEmailIn(ctx, tx, userID, inv.Email); err != nil {
-				return errors.Wrap(err, "Driver.ClaimVerifiedEmailIn()")
-			}
 		}
 		if err := claimInvitedName(ctx, d, tx, userID, inv); err != nil {
 			return err
@@ -1025,6 +1064,32 @@ func acceptInvitation[Tx any](
 	committed.run(ctx)
 
 	return false, nil, nil
+}
+
+// claimInvitedAddress writes the invited address on user, confirmed, for an acceptance
+// in acceptInvitation that does not rest on the account's own mailed code
+// (Driver.ClaimVerifiedEmailIn). Where the claim writes nothing for an account that has
+// confirmed no address and another account holds the invited address by now
+// (takenByAnother), stop is the refusal of an acceptance with another address, and the
+// caller keeps nothing: another account's write of the address committed before the
+// claim is answered as the same race is at the users table's index
+// (dbtype.EmailConflict).
+func claimInvitedAddress[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, user *dbtype.User, inv *sessioninfo.Invitation,
+) (stop, err error) {
+	claimed, err := d.ClaimVerifiedEmailIn(ctx, tx, user.ID, inv.Email)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.ClaimVerifiedEmailIn()")
+	}
+	if claimed || user.EmailConfirmed {
+		return nil, nil
+	}
+	taken, err := takenByAnother(ctx, d, tx, user.ID, inv.Email)
+	if err != nil || !taken {
+		return nil, err
+	}
+
+	return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), nil
 }
 
 // SignUpClosed is the answer to a sign-up through a method that is not open to it: the
@@ -1166,7 +1231,9 @@ func LinkConfirmed[Tx any](
 // first sign-ins of one identity race, the loser's link fails on the identities key (a
 // provisioning loser on the username first), and its resolution runs once more and
 // finds the winner's link. A transaction the database ends to break a deadlock or a
-// serialization failure between racing sign-ins runs once more too.
+// serialization failure between racing sign-ins runs once more too. A run that finds the
+// invited address taken by another account as it claims it (errInvitedAddressTaken)
+// commits nothing, and stop is the refusal of an acceptance with another address.
 //
 // committed is what the hooks of the run that committed asked to have run after the
 // commit, for the caller to run: every run of the closure, the database's own retries
@@ -1195,6 +1262,9 @@ func resolveIdentity[Tx any](
 		}
 		if errors.Is(err, errInvitationDead) {
 			return "", "", nil, Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, InvitationEnded), nil
+		}
+		if errors.Is(err, errInvitedAddressTaken) {
+			return "", "", nil, Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(req.Invitation)), nil
 		}
 
 		switch d.SignInConflict(err) {
@@ -1281,7 +1351,7 @@ func resolveIn[Tx any](
 	}
 	committed.add(enrolled)
 	if live {
-		if err := claimInvitation(ctx, d, tx, req, source); err != nil {
+		if err := claimInvitation(ctx, d, tx, req, source, provenAddress(req, rules.ConfirmAddress) != ""); err != nil {
 			return "", "", nil, nil, err
 		}
 		granted, err := grantConsumed(ctx, tx, req.UserID, req.Username, req.Invitation, rules.Accept)

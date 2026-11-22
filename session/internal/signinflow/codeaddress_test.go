@@ -437,3 +437,113 @@ func TestSignIn_anAddressAnotherAccountTakesAtTheSameMomentEndsTheCode(t *testin
 		})
 	}
 }
+
+// TestSignIn_anInvitedAddressAnotherAccountTookBeforeTheClaimRefusesTheAcceptance pins
+// the other moment the race for an invited address can fall on: another account's write
+// of the address commits between the read that found it free and the acceptance's claim
+// of it, so the claim writes nothing and breaks no index (as every statement of a
+// PostgreSQL transaction reads what is committed by then). An acceptance on the
+// invitation's code is then refused as an acceptance with another address is
+// (invitation_address), with nothing written and the invitation standing: a password
+// sign-in's, in the acceptance's own transaction, and a directory sign-in's, in the
+// resolution's, which is ended with nothing committed as a dead invitation ends it. A
+// sign-in whose method vouches for the invited address is not held to the claim: an
+// address another account holds unconfirmed stays with that account and refuses nobody.
+func TestSignIn_anInvitedAddressAnotherAccountTookBeforeTheClaimRefusesTheAcceptance(t *testing.T) {
+	t.Parallel()
+
+	const invited = "pat@north.example"
+	proof := dbtype.ProofOfStored("the password hash the password was compared against")
+	tests := []struct {
+		name string
+		// directory says the sign-in is through a directory that asserts no address,
+		// linked to the account, and vouched that it is through a method that vouches for
+		// the invited address, linked to the account; it is a password sign-in otherwise.
+		// Every sign-in but the vouched one entered the invitation's code.
+		directory bool
+		vouched   bool
+		// takenBefore says another account takes the invited address right before the
+		// claim (memDriver.takenBeforeClaim); heldByAnother that another account holds it,
+		// unconfirmed, from the start.
+		takenBefore   bool
+		heldByAnother bool
+		accepted      bool
+	}{
+		{name: "a password sign-in on the invitation's code: refused invitation_address, nothing written", takenBefore: true},
+		{name: "a directory sign-in on the invitation's code: refused invitation_address, nothing committed", directory: true, takenBefore: true},
+		{
+			name:    "a sign-in whose method vouches for the invited address, which another account holds unconfirmed: accepted, the address left with that account",
+			vouched: true, heldByAnother: true, accepted: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMemStore()
+			hooks := &roleHooks{store: store}
+			userID := impulse.Must(impulse.NewUUID())
+			store.users[userID] = &memUser{username: "pat", proof: proof}
+			otherID := impulse.Must(impulse.NewUUID())
+			if tt.heldByAnother {
+				store.users[otherID] = &memUser{username: "other", email: invited}
+			}
+			inv := store.invite(invited, "lakeside", "Coach")
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, Invitation: inv}
+			rules := Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept, ConfirmAddress: true}
+			switch {
+			case tt.directory:
+				req.Identity = &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-north", Subject: "oid-pat"}
+				req.AuthEvents = []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-north"}, {Method: sessioninfo.MethodEmailCode}}
+				store.links[linkKey(req.Identity.Method, req.Identity.Connection, req.Identity.Subject)] = userID
+				inv.AddressProven = true
+			case tt.vouched:
+				req.Identity = &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "north.example", Subject: "g-pat", Email: invited, EmailVerified: true}
+				req.AuthEvents = []sessioninfo.AuthEvent{{Method: sessioninfo.MethodGoogle, Connection: "north.example"}}
+				store.links[linkKey(req.Identity.Method, req.Identity.Connection, req.Identity.Subject)] = userID
+			default:
+				req.UserID, req.Username = userID, "pat"
+				req.Identity = &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()}
+				req.AuthEvents = []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}, {Method: sessioninfo.MethodEmailCode}}
+				rules.Proven = proof
+				inv.AddressProven = true
+			}
+			d := &memDriver{store: store}
+			if tt.takenBefore {
+				d.takenBeforeClaim = invited
+			}
+
+			err := signInWith(t, d, req, rules)
+
+			if tt.accepted {
+				if err != nil {
+					t.Fatalf("SignIn() error = %v, want the invitation accepted", err)
+				}
+				if !inv.Accepted || store.invitations[inv.ID] || store.sessions != 1 {
+					t.Errorf("Invitation.Accepted = %t, still live = %t, sessions = %d; want it accepted and consumed, and a session", inv.Accepted, store.invitations[inv.ID], store.sessions)
+				}
+				if diff := cmp.Diff(map[string][]string{"pat": {"Coach"}}, store.granted); diff != "" {
+					t.Errorf("the roles given (-want +got):\n%s", diff)
+				}
+				if other := store.users[otherID]; other.email != invited || other.confirmed {
+					t.Errorf("the other account holds %q (confirmed %t), want the invited address, unconfirmed, as it was", other.email, other.confirmed)
+				}
+				if got := store.users[userID]; got.email != "" || got.confirmed {
+					t.Errorf("the signing account holds %q (confirmed %t), want no address", got.email, got.confirmed)
+				}
+
+				return
+			}
+			if refusal := (*sessioninfo.LoginRefusal)(nil); !errors.As(err, &refusal) || refusal.Code() != sessioninfo.RefusedInvitationAddress {
+				t.Errorf("SignIn() error = %v, want the sign-in refused with %s", err, sessioninfo.RefusedInvitationAddress)
+			}
+			if inv.Accepted || !store.invitations[inv.ID] || len(store.granted) != 0 || hooks.committed != 0 || store.sessions != 0 {
+				t.Errorf("Invitation.Accepted = %t, still live = %t, grants %v, %d committed run(s), %d session(s); want the invitation standing and nothing given",
+					inv.Accepted, store.invitations[inv.ID], store.granted, hooks.committed, store.sessions)
+			}
+			if got := store.users[userID]; got.email != "" || got.confirmed {
+				t.Errorf("the account holds %q (confirmed %t), want no address, as it was", got.email, got.confirmed)
+			}
+		})
+	}
+}

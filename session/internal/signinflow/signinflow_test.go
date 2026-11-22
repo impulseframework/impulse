@@ -131,6 +131,10 @@ type memDriver struct {
 	// usernamesAreAddresses says the store's usernames are the addresses
 	// (UsernameIsEmail), false unless a test sets it.
 	usernamesAreAddresses bool
+	// takenBeforeClaim is an address another account takes, committed, right before the
+	// next claim runs, as a write that commits between two statements of an acceptance
+	// does; "" for none.
+	takenBeforeClaim string
 }
 
 var _ Driver[*memTx] = (*memDriver)(nil)
@@ -288,10 +292,21 @@ func (d *memDriver) ConsumeMailLinkIn(_ context.Context, tx *memTx, id impulse.U
 }
 
 // ClaimVerifiedEmailIn writes email on the user, confirmed, unless the user holds a
-// confirmed address already.
+// confirmed address already or another user holds email, confirmed or not, as both
+// stores answer. The address another account takes right before the claim
+// (takenBeforeClaim) is stored first, committed.
 func (d *memDriver) ClaimVerifiedEmailIn(_ context.Context, tx *memTx, userID impulse.UUID, email string) (bool, error) {
+	if d.takenBeforeClaim != "" {
+		d.store.users[impulse.Must(impulse.NewUUID())] = &memUser{username: "other", email: d.takenBeforeClaim}
+		d.takenBeforeClaim = ""
+	}
 	if d.store.users[userID].confirmed {
 		return false, nil
+	}
+	for id, other := range d.store.users {
+		if id != userID && other.email != "" && util.EqualASCIIFold(other.email, email) {
+			return false, nil
+		}
 	}
 	tx.buffer(func() { d.store.users[userID].email, d.store.users[userID].confirmed = email, true })
 
