@@ -53,15 +53,18 @@ type Store interface {
 	// many it removed.
 	ExpireTokens(ctx context.Context, before time.Time) (int64, error)
 
-	// SigningKeys reads the signing keys, newest first; the first is the one that
-	// signs, and the key set publishes them all.
+	// SigningKeys reads the signing keys newest first, in the order the store added them.
+	// The order is the store's own and does not come from CreatedAt, so every instance sees
+	// the same first key, the last of the list, and the same newest one. The key set
+	// publishes them all.
 	SigningKeys(ctx context.Context) ([]*SigningKey, error)
-	// AddSigningKey adds a signing key.
+	// AddSigningKey adds a signing key as the newest: after every key the store holds,
+	// decided in the same transaction as the insert.
 	AddSigningKey(ctx context.Context, key *SigningKey) error
 	// AddFirstSigningKey adds the key when the store holds no signing key, and adds
 	// nothing when it holds one, which is no error. The look and the insert are one
 	// decision: of two instances that each make a first key at the same moment, the store
-	// keeps one.
+	// keeps one. The key it adds is the first of the store's order for good.
 	AddFirstSigningKey(ctx context.Context, key *SigningKey) error
 
 	// RecordSignIn appends an entry to the log.
@@ -114,7 +117,8 @@ type Token struct {
 }
 
 // SigningKey is a key the provider signs ID tokens with. Its public half is published in
-// the key set under the ID.
+// the key set under the ID. CreatedAt is what the clock of the instance that made the key
+// said; nothing orders the keys by it or reads a key's age from it.
 type SigningKey struct {
 	ID        string
 	Key       *rsa.PrivateKey

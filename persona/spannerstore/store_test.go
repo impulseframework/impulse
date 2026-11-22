@@ -259,6 +259,19 @@ func TestStore_SigningKeys(t *testing.T) {
 	if keys[0].ID != "77777777-7777-4777-8777-777777777777" || !keys[0].Key.Equal(second) || !keys[1].Key.Equal(first) {
 		t.Errorf("SigningKeys() order or material wrong: first %s", keys[0].ID)
 	}
+
+	// A key added last is the newest, whatever the clock of the instance that made it said.
+	third := &persona.SigningKey{ID: "77777777-7777-4777-8777-777777777778", Key: newKey(t), CreatedAt: at(time.Now().Add(-2 * time.Hour))}
+	if err := store.AddSigningKey(ctx, third); err != nil {
+		t.Fatalf("AddSigningKey(%s) error = %v", third.ID, err)
+	}
+	keys, err = store.SigningKeys(ctx)
+	if err != nil || len(keys) != 3 {
+		t.Fatalf("SigningKeys() = %d keys, %v; want 3", len(keys), err)
+	}
+	if keys[0].ID != third.ID || keys[2].ID != "66666666-6666-4666-8666-666666666666" {
+		t.Errorf("SigningKeys() = %s first and %s last, want the key added last first and the key added first last", keys[0].ID, keys[2].ID)
+	}
 }
 
 func TestStore_AddFirstSigningKey(t *testing.T) {
@@ -292,6 +305,20 @@ func TestStore_AddFirstSigningKey(t *testing.T) {
 	}
 	if keys, err := store.SigningKeys(ctx); err != nil || len(keys) != 2 {
 		t.Errorf("SigningKeys() = %d keys, %v; want the first and the rotated key", len(keys), err)
+	}
+
+	// The first key stays the last of the list, whatever the clock of an instance that
+	// rotates says.
+	fifth := &persona.SigningKey{ID: "99999999-9999-4999-8999-999999999995", Key: newKey(t), CreatedAt: first.CreatedAt.Add(-24 * time.Hour)}
+	if err := store.AddSigningKey(ctx, fifth); err != nil {
+		t.Fatalf("AddSigningKey() error = %v", err)
+	}
+	keys, err = store.SigningKeys(ctx)
+	if err != nil || len(keys) != 3 {
+		t.Fatalf("SigningKeys() = %d keys, %v; want 3", len(keys), err)
+	}
+	if keys[len(keys)-1].ID != first.ID {
+		t.Errorf("SigningKeys() ends with %s, want the first key %s", keys[len(keys)-1].ID, first.ID)
 	}
 }
 

@@ -322,11 +322,12 @@ type keyRow struct {
 	ID         string    `spanner:"Id"`
 	PrivateKey string    `spanner:"PrivateKey"`
 	CreatedAt  time.Time `spanner:"CreatedAt"`
+	Position   int64     `spanner:"Position"`
 }
 
 // SigningKeys reads the signing keys, newest first.
 func (s *Store) SigningKeys(ctx context.Context) ([]*persona.SigningKey, error) {
-	iter := s.client.Single().Query(ctx, spanner.Statement{SQL: "SELECT * FROM PersonaKeys ORDER BY CreatedAt DESC"})
+	iter := s.client.Single().Query(ctx, spanner.Statement{SQL: "SELECT * FROM PersonaKeys ORDER BY Position DESC"})
 	defer iter.Stop()
 	var list []*persona.SigningKey
 	for {
@@ -349,18 +350,36 @@ func (s *Store) SigningKeys(ctx context.Context) ([]*persona.SigningKey, error) 
 	}
 }
 
-// AddSigningKey adds a signing key.
+// AddSigningKey adds a signing key at the next position: the highest is read in the
+// transaction that inserts, so two keys added at the same moment take two positions.
 func (s *Store) AddSigningKey(ctx context.Context, key *persona.SigningKey) error {
 	encoded, err := encodeKey(key.Key)
 	if err != nil {
 		return err
 	}
-	m, err := spanner.InsertStruct(keys, &keyRow{ID: key.ID, PrivateKey: encoded, CreatedAt: key.CreatedAt})
+	_, err = spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		iter := txn.Query(ctx, spanner.Statement{SQL: "SELECT MAX(Position) FROM PersonaKeys"})
+		defer iter.Stop()
+		row, err := iter.Next()
+		if err != nil {
+			return errors.Wrap(err, "spanner.RowIterator.Next()")
+		}
+		var highest spanner.NullInt64
+		if err := row.Columns(&highest); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		m, err := spanner.InsertStruct(keys, &keyRow{ID: key.ID, PrivateKey: encoded, CreatedAt: key.CreatedAt, Position: highest.Int64 + 1})
+		if err != nil {
+			return errors.Wrap(err, "spanner.InsertStruct()")
+		}
+
+		return txn.BufferWrite([]*spanner.Mutation{m})
+	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.InsertStruct()")
+		return errors.Wrap(err, "spannertxn.Serializable()")
 	}
 
-	return s.apply(ctx, m)
+	return nil
 }
 
 // AddFirstSigningKey adds the key when the store holds none: the table is read in the
@@ -370,7 +389,7 @@ func (s *Store) AddFirstSigningKey(ctx context.Context, key *persona.SigningKey)
 	if err != nil {
 		return err
 	}
-	m, err := spanner.InsertStruct(keys, &keyRow{ID: key.ID, PrivateKey: encoded, CreatedAt: key.CreatedAt})
+	m, err := spanner.InsertStruct(keys, &keyRow{ID: key.ID, PrivateKey: encoded, CreatedAt: key.CreatedAt, Position: 1})
 	if err != nil {
 		return errors.Wrap(err, "spanner.InsertStruct()")
 	}

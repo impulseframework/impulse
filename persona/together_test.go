@@ -390,9 +390,9 @@ func TestSignIn_tokensReadAcrossARotation(t *testing.T) {
 	b := hostA.browser(t)
 	b.signInToHost(ctx, hostA, "u-pat")
 	token := accessTokenOf(ctx, t, hostA, getCode(ctx, t, hostA, b))
-	// The test clock stands still; the rotation comes a second after the first key, as it
-	// would, so the two keys are told apart by age.
-	hostA.clock.Advance(time.Second)
+	// A's clock goes back an hour before it rotates, so the rotated key is stamped before
+	// the first: the first key is the store's, not the clock's.
+	hostA.clock.Advance(-time.Hour)
 	if err := hostA.svc.RotateSigningKey(ctx); err != nil {
 		t.Fatalf("Service.RotateSigningKey() error = %v", err)
 	}
