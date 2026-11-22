@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/httpio"
@@ -28,6 +29,10 @@ func errUsernameIsAddress() error {
 // usernameHeldMessage is the refusal of a username someone else holds.
 const usernameHeldMessage = "Someone else has that username."
 
+// maxUsernameLength is the most characters a person's own username may have: neither
+// database's index on the username keeps every longer name.
+const maxUsernameLength = 200
+
 // ChangeUsername is the handler a signed-in person's account page calls to change their
 // own username: it accepts {"username"} and answers {"username"}, the username as it is
 // kept. The one rule is that no other account holds the name, matched as a sign-in
@@ -36,7 +41,9 @@ const usernameHeldMessage = "Someone else has that username."
 // write. The person's live sessions follow the name, so they stay signed in, and they
 // sign in under the new name from then on. Where the usernames are the addresses
 // (UsernameIsEmail) the change is a 409 and nothing is read or written: the username
-// changes when the person confirms a new address.
+// changes when the person confirms a new address. A name with a control character in it,
+// or longer than 200 characters, is a 400 before the store is asked: neither database
+// keeps every such name.
 //
 // The handler validates the session itself, as the name change does, so it is routed
 // beside it, outside ValidateSession; an impersonated session is refused, since the
@@ -63,10 +70,13 @@ func (a *Auth[S, U, Tx]) ChangeUsername() http.HandlerFunc {
 		}
 		user := sessioninfo.UserFromCtx(ctx)
 		name := strings.TrimSpace(req.Username)
-		switch name {
-		case "":
+		if name == "" {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("Type a username."))
-		case user.Username:
+		}
+		if err := unkeptUsername(name); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if name == user.Username {
 			return httpio.NewEncoder(w).Ok(response{Username: name})
 		}
 		free, err := a.usernameFreeFor(ctx, name, user)
@@ -99,7 +109,8 @@ func (a *Auth[S, U, Tx]) ChangeUsername() http.HandlerFunc {
 // false for a name someone else holds or one of nothing but space. It says nothing else:
 // not who holds a name, and no id. The question is a POST, so a typed name is in no URL
 // and no request log. Where the usernames are the addresses it is a 409, as the change
-// is.
+// is, and a name the change refuses as one the store cannot keep is a 400 in the same
+// words.
 //
 // The handler validates the session itself, as ChangeUsername does, and refuses an
 // impersonated session.
@@ -127,6 +138,9 @@ func (a *Auth[S, U, Tx]) UsernameFree() http.HandlerFunc {
 		if name == "" {
 			return httpio.NewEncoder(w).Ok(response{Free: false})
 		}
+		if err := unkeptUsername(name); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		free, err := a.usernameFreeFor(ctx, name, sessioninfo.UserFromCtx(ctx))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -134,6 +148,20 @@ func (a *Auth[S, U, Tx]) UsernameFree() http.HandlerFunc {
 
 		return httpio.NewEncoder(w).Ok(response{Free: free})
 	}))
+}
+
+// unkeptUsername is the refusal, in words, of a name neither database keeps as a
+// username: one that is not text on one line, or of more than maxUsernameLength
+// characters. It is nil for any other name, and asks the store nothing.
+func unkeptUsername(name string) error {
+	if !sessioninfo.OneLineOfText(name) {
+		return httpio.NewBadRequestMessage("A username is text on one line, with no tab or other control character.")
+	}
+	if utf8.RuneCountInString(name) > maxUsernameLength {
+		return httpio.NewBadRequestMessagef("A username is at most %d characters.", maxUsernameLength)
+	}
+
+	return nil
 }
 
 // usernameFreeFor reports whether user may take name: no user holds it, as a sign-in

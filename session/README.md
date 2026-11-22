@@ -2026,7 +2026,8 @@ stores the name in the two indexes a list reads without a row of the table.
 account holds the name; `Auth.UsernameFree()` answers `{"free"}` for a name as the
 person types it, and says nothing of who holds one. The person's sessions follow the
 name, so they stay signed in, and they sign in under the new name from then on. A
-rename is no use of a session: when each was last used stays as it was. Where
+rename is no use of a session: when each was last used stays as it was. A name with a
+control character or of more than 200 characters is refused with 400. Where
 the password method declares `UsernameIsEmail()` both refuse with 409: the username
 changes when the person confirms a new address. Both validate the session themselves
 and refuse an impersonated session.

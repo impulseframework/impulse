@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +22,8 @@ const (
 	usernameIsAddressWords = "You sign in with your email address, so your username changes when you change the address."
 	typeAUsernameWords     = "Type a username."
 	usernameHeldWords      = "Someone else has that username."
+	oneLineWords           = "A username is text on one line, with no tab or other control character."
+	atMost200Words         = "A username is at most 200 characters."
 )
 
 // usernameCase is a person signed in as pat, of the username handlers' tests.
@@ -232,6 +235,65 @@ func TestAuth_UsernameFree(t *testing.T) {
 			t.Errorf("UsernameFree() = %d %s, want 409 %q", rr.Code, rr.Body.String(), usernameIsAddressWords)
 		}
 	})
+}
+
+// TestAuth_usernameHandlers_nameTheStoreKeeps proves both username handlers refuse, in
+// words and before the store is asked, a name neither database keeps: one with a control
+// character in it, or of more than 200 characters. A name of 200 characters, counted as
+// characters and not bytes, goes on to the store.
+func TestAuth_usernameHandlers_nameTheStoreKeeps(t *testing.T) {
+	t.Parallel()
+
+	handlers := []struct {
+		name    string
+		handler func(*Auth[NoCustomData, NoCustomData, mockTx]) http.HandlerFunc
+		goesOn  string
+	}{
+		{name: "ChangeUsername", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).ChangeUsername, goesOn: "409 " + usernameHeldWords},
+		{name: "UsernameFree", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).UsernameFree, goesOn: `200 {"free":false}`},
+	}
+	refused := []struct {
+		name  string
+		typed string
+		code  int
+		words string
+	}{
+		{name: "a name holding NUL is refused", typed: `pa\u0000t`, code: http.StatusBadRequest, words: oneLineWords},
+		{name: "a name holding a line break is refused", typed: `pa\nt`, code: http.StatusBadRequest, words: oneLineWords},
+		{name: "a name of 201 characters is refused", typed: strings.Repeat("a", 201), code: http.StatusBadRequest, words: atMost200Words},
+	}
+	for _, h := range handlers {
+		for _, tt := range refused {
+			t.Run(h.name+": "+tt.name+", and the store is not asked", func(t *testing.T) {
+				t.Parallel()
+				c := newUsernameCase(t)
+				c.signedIn()
+
+				rr := c.post(h.handler(c.f.auth), `{"username":"`+tt.typed+`"}`)
+				if rr.Code != tt.code || messageOf(t, rr) != tt.words {
+					t.Errorf("%s() = %d %s, want %d %q", h.name, rr.Code, rr.Body.String(), tt.code, tt.words)
+				}
+			})
+		}
+
+		t.Run(h.name+": a name of 200 characters goes on to the store", func(t *testing.T) {
+			t.Parallel()
+			c := newUsernameCase(t)
+			c.signedIn()
+			long := strings.Repeat("é", 200)
+			sam := impulse.Must(impulse.NewUUID())
+			c.holder(long, &sam)
+
+			rr := c.post(h.handler(c.f.auth), `{"username":"`+long+`"}`)
+			got := fmt.Sprintf("%d %s", rr.Code, strings.TrimSpace(rr.Body.String()))
+			if rr.Code == http.StatusConflict {
+				got = fmt.Sprintf("%d %s", rr.Code, messageOf(t, rr))
+			}
+			if got != h.goesOn {
+				t.Errorf("%s() = %s, want %s: the name is looked up", h.name, got, h.goesOn)
+			}
+		})
+	}
 }
 
 // TestAuth_usernameHandlers_refuse proves both username handlers ask for a session of

@@ -48,7 +48,7 @@ func CleanLook(look Look) (Look, error) {
 		return Look{}, httpio.NewBadRequestMessagef("a scheme is %s, %s or %s", SchemeLight, SchemeDark, SchemeDevice)
 	}
 	palette := strings.TrimSpace(look.Palette)
-	if !oneLineOfText(palette) {
+	if !OneLineOfText(palette) {
 		return Look{}, httpio.NewBadRequestMessage("a palette's id is text on one line: it holds no control character")
 	}
 	if utf8.RuneCountInString(palette) > MaxPaletteLength {

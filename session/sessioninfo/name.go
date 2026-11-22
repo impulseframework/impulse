@@ -25,7 +25,7 @@ func CleanName(name *string) (*string, error) {
 	if clean == "" {
 		return nil, nil
 	}
-	if !oneLineOfText(clean) {
+	if !OneLineOfText(clean) {
 		return nil, httpio.NewBadRequestMessage("a name is text on one line: it holds no line break, tab or other control character")
 	}
 	if utf8.RuneCountInString(clean) > MaxNameLength {
@@ -48,9 +48,9 @@ func KeptName(name string) string {
 	return *clean
 }
 
-// oneLineOfText reports whether a value is text a row keeps and a page draws on one
+// OneLineOfText reports whether a value is text a row keeps and a page draws on one
 // line: valid UTF-8 with no control character in it. A database refuses some of these
 // outright (PostgreSQL keeps no NUL in text), so the rule refuses them first, in words.
-func oneLineOfText(value string) bool {
+func OneLineOfText(value string) bool {
 	return utf8.ValidString(value) && !strings.ContainsFunc(value, unicode.IsControl)
 }
