@@ -202,9 +202,11 @@ func (m *Manager) refuseAbsentRole(ctx context.Context, txn resource.ReadWriteTr
 			return err
 		}
 		if inTenants {
-			return httpio.NewBadRequestMessagef(
-				"%q is a role held in a %s, and this invitation names none. Choose the %s it is for, or every %s",
-				role, m.tenantWord, m.tenantWord, m.tenantWord,
+			const held = "%q is a role held in a %s, and this invitation names none. Choose the %s it is for, or every %s"
+
+			return httpio.NewBadRequestMessageWithErrorf(
+				errors.Newf(held, role, m.tenantWord, m.tenantWord, m.tenantWord),
+				held, roleInWords(role), m.tenantWord, m.tenantWord, m.tenantWord,
 			)
 		}
 	}
