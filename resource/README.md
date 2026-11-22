@@ -4667,7 +4667,7 @@ tenant's list of its people (`CrewSectorUsers`) holds who a group puts there: th
 members of its own groups, and the members of a group of the whole application that
 holds a role there, the latter with `heldGlobally`.
 
-**What a page reads of them.** Five lists say what is held in the words a page shows,
+**What a page reads of them.** Four lists say what is held in the words a page shows,
 each a view like a tenant's lists: nothing is created in the database, and the role file
 grants each like any resource.
 
@@ -4697,10 +4697,14 @@ grants each like any resource.
   keeps it in each, so they do not lose a role held in one. Nobody loses a role whose
   period has not begun, or one the group gives its members nothing by. A tenant's list
   (`CrewSectorGroupRoles`) carries the count itself.
-- `CrewListedRoleGrants` is the custom roles' grants as the store holds them, each with
-  `skipped`: empty for a grant its role holds, and for one the permission engine leaves
-  out when it loads the policy, why, in the words the deploy check prints. The grants
-  table itself has no route.
+
+**The custom roles' grants.** `CrewListedRoleGrants` is the custom roles' grants as the
+store holds them, each with `skipped`: empty for a grant its role holds, and for one the
+permission engine leaves out when it loads the policy, why, in the words the deploy
+check prints. It is a computed list: the engine is asked of every row, and no query
+selects it. The grants table itself has no route. The role file grants the list like any
+resource, and `skipped` is a field of that grant: a role whose grant does not name it
+reads the rows without it, and a grant the engine leaves out then reads as any other.
 
 **The period of an assignment.** A role given to a person, a person's place in a group
 and a role given to a group may each carry a period: a start and an end, each optional,
